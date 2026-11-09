@@ -56,8 +56,9 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - Specialty cartridge devices (RTC, solar, tilt/gyro, rumble). Deferred until a cartridge profile requires them and fixtures exist.
 - Universal "all retail games" compatibility claims. Compatibility is stated per profile, per evidence.
 - Physical hardware qualification and physical controller qualification. Human gate; needs owner hardware and authority.
+- Public binary releases and announcements. Repo visibility is settled (public), but publishing release artifacts stays an owner gate.
 - Automatic replacement of Playstead's managed mGBA route. Not assumed; any Playstead integration needs its own decision.
-- Public release/publication, project license, and repository visibility. Owner gates (see Key Decisions).
+- Choosing the project license. Owner gate (see Key Decisions).
 
 ## Context
 
@@ -67,7 +68,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Historical reach:** Nintendo reports 81.51M GBA units and 377.42M software units. This is distribution history, not current demand.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
-- **Repository state at init:** No source code. No Git repository yet. Bootstrap guidance says Git setup waits for an explicit GSD/owner decision.
+- **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
 
 ## Constraints
 
@@ -97,8 +98,8 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Implementation language, build, API/ABI | Research → requirements | — Pending (research) |
 | Host platform and installed consumer | Research → roadmap | — Pending (research) |
 | LibFuturo fit | Prove with a real core/consumer before adoption | — Pending (later phase) |
-| Project license and repository visibility | Owner authority | — Pending (owner gate) |
-| Git repository initialization | Bootstrap deferred it to an explicit decision | — Pending (owner) |
+| Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
+| Project license | Owner authority. The repo is public with no LICENSE file yet, so default copyright applies until the owner chooses one. | — Pending (owner gate) |
 
 ## Evolution
 
