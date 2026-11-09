@@ -149,15 +149,56 @@ These are tracked but not in the current roadmap. Each later milestone is promot
 
 ## Traceability
 
-Filled in by the roadmapper.
+Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning/ROADMAP.md`).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| PROF-01 | Phase 2 | Pending |
+| PROF-02 | Phase 2 | Pending |
+| PROF-03 | Phase 4 | Pending |
+| EVID-01 | Phase 2 | Pending |
+| EVID-02 | Phase 2 | Pending |
+| EVID-03 | Phase 2 | Pending |
+| EVID-04 | Phase 1 | Pending |
+| EVID-05 | Phase 2 | Pending |
+| EVID-06 | Phase 2 | Pending |
+| VERIF-01 | Phase 1 | Pending |
+| VERIF-02 | Phase 1 | Pending |
+| VERIF-03 | Phase 1 | Pending |
+| VERIF-04 | Phase 5 | Pending |
+| VERIF-05 | Phase 1 | Pending |
+| VERIF-06 | Phase 1 | Pending |
+| VERIF-07 | Phase 1 | Pending |
+| CPU-01 | Phase 5 | Pending |
+| CPU-02 | Phase 5 | Pending |
+| CPU-03 | Phase 4 | Pending |
+| CPU-04 | Phase 4 | Pending |
+| CPU-05 | Phase 4 | Pending |
+| BUS-01 | Phase 3 | Pending |
+| BUS-02 | Phase 3 | Pending |
+| BUS-03 | Phase 3 | Pending |
+| BUS-04 | Phase 6 | Pending |
+| LOAD-01 | Phase 3 | Pending |
+| LOAD-02 | Phase 3 | Pending |
+| LOAD-03 | Phase 3 | Pending |
+| RUN-01 | Phase 4 | Pending |
+| RUN-02 | Phase 4 | Pending |
+| RUN-03 | Phase 4 | Pending |
+| RUN-04 | Phase 4 | Pending |
+| DIAG-01 | Phase 5 | Pending |
+| DIAG-02 | Phase 5 | Pending |
+| DIAG-03 | Phase 5 | Pending |
+| DIAG-04 | Phase 6 | Pending |
+| DET-01 | Phase 6 | Pending |
+| DET-02 | Phase 6 | Pending |
+| DET-03 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 39 total
-- Mapped to phases: (pending roadmap)
+- Mapped to phases: 39
+- Unmapped: 0
+- Per phase: Phase 1: 7, Phase 2: 7, Phase 3: 6, Phase 4: 8, Phase 5: 6, Phase 6: 5
 
 ---
 *Requirements defined: 2026-11-09*
-*Last updated: 2026-11-09 after initial definition*
+*Last updated: 2026-11-09 after roadmap creation (traceability filled)*
