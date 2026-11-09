@@ -1,0 +1,25 @@
+# Build output
+/build*/
+/out/
+/cmake-build-*/
+compile_commands.json
+
+# Rights-bearing content: never commit ROMs, BIOS dumps, or saves.
+# Source-built fixtures are produced in CI from their recorded recipes.
+*.gba
+*.agb
+*.bin
+*.sav
+*.srm
+*.ss[0-9]
+/private/
+/roms/
+/bios/
+
+# Secrets and local machine state
+.env
+.env.*
+*.pem
+*.key
+.claude/settings.local.json
+.DS_Store
