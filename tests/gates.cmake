@@ -1,0 +1,121 @@
+# Gate tests (ci and hygiene lanes). Included from the top-level CMakeLists.txt.
+# Each gate has a negative control that must fail for its stated reason, and a
+# positive control on otherwise identical clean input (D-03).
+set(GBL_HYGIENE_DRIVER
+  "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}")
+set(GBL_HYGIENE_CASE "${CMAKE_SOURCE_DIR}/tests/gates/hygiene_case.cmake")
+
+# ---- hygiene (VERIF-07) ---------------------------------------------------
+# The real tree must be clean. Runs from the source root because --tree lists
+# files with git.
+gbl_add_test(
+  NAME hygiene.tree
+  LABELS gate hygiene
+  COMMAND sh scripts/hygiene.sh --tree
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+foreach(case IN ITEMS
+    credential private_key email home_path home_path_encoded newline_name)
+  gbl_add_test(
+    NAME hygiene.nc.${case}
+    LABELS control hygiene
+    COMMAND ${GBL_HYGIENE_DRIVER} "-DCASE=${case}" -P "${GBL_HYGIENE_CASE}")
+endforeach()
+
+gbl_add_test(
+  NAME hygiene.pos.clean
+  LABELS hygiene positive
+  COMMAND ${GBL_HYGIENE_DRIVER} -DCASE=clean -P "${GBL_HYGIENE_CASE}")
+
+gbl_add_test(
+  NAME hygiene.usage
+  LABELS hygiene unit
+  COMMAND ${GBL_HYGIENE_DRIVER} -DCASE=usage -P "${GBL_HYGIENE_CASE}")
+
+# Staged mode scans the staged blobs and checks the commit identity.
+foreach(case IN ITEMS staged_home_path staged_identity)
+  gbl_add_test(
+    NAME hygiene.nc.${case}
+    LABELS control hygiene
+    COMMAND ${GBL_HYGIENE_DRIVER} "-DCASE=${case}" -P "${GBL_HYGIENE_CASE}")
+endforeach()
+gbl_add_test(
+  NAME hygiene.pos.staged_clean
+  LABELS hygiene positive
+  COMMAND ${GBL_HYGIENE_DRIVER} -DCASE=staged_clean -P "${GBL_HYGIENE_CASE}")
+
+# The opt-in hook (D-14) stays present, executable, and wired to `--staged`.
+# One control per failure reason, each on a planted copy of the real hook.
+gbl_add_test(
+  NAME hygiene.hook
+  LABELS hygiene unit
+  COMMAND ${GBL_HYGIENE_DRIVER} -DCASE=hook -P "${GBL_HYGIENE_CASE}")
+foreach(case IN ITEMS hook_missing hook_not_executable hook_no_staged)
+  gbl_add_test(
+    NAME hygiene.nc.${case}
+    LABELS control hygiene
+    COMMAND ${GBL_HYGIENE_DRIVER} "-DCASE=${case}" -P "${GBL_HYGIENE_CASE}")
+endforeach()
+
+# ---- signature scan (EVID-04, VERIF-02, VERIF-03) -------------------------
+# Digest-only: the lists under tests/signatures/ hold SHA-256 values, never
+# bytes. The scan hashes with `cmake -E sha256sum`, so the CMake that runs the
+# tests is passed through the CMAKE environment variable.
+set(GBL_SIG_ENV "${CMAKE_COMMAND}" -E env "CMAKE=${CMAKE_COMMAND}")
+set(GBL_SIG_CHECK "${CMAKE_SOURCE_DIR}/cmake/CheckSignatureDigests.cmake")
+
+gbl_add_test(
+  NAME signature.tree
+  LABELS gate signature
+  COMMAND ${GBL_SIG_ENV} sh scripts/signature-scan.sh --tree
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# The committed lists are well formed and the scan reads exactly these files.
+gbl_add_test(
+  NAME signature.digests.wellformed
+  LABELS signature unit
+  COMMAND "${CMAKE_COMMAND}" -DMODE=wellformed "-DSRC=${CMAKE_SOURCE_DIR}"
+    -P "${GBL_SIG_CHECK}")
+
+# While the logo row is `owner-pending` this reports SKIPPED, never PASS.
+gbl_add_test(
+  NAME signature.logo.real_digest
+  LABELS signature unit
+  SKIPPABLE
+  COMMAND "${CMAKE_COMMAND}" -DMODE=real-logo "-DSRC=${CMAKE_SOURCE_DIR}"
+    -P "${GBL_SIG_CHECK}")
+
+# Owner-local cross-check; skips unless GBL_OWNER_LOGO_FILE names a file.
+gbl_add_test(
+  NAME signature.owner_local
+  LABELS owner signature
+  SKIPPABLE
+  COMMAND "${CMAKE_COMMAND}" -DMODE=owner-local "-DSRC=${CMAKE_SOURCE_DIR}"
+    -P "${GBL_SIG_CHECK}")
+
+# Controls: every matching path and every digest-list failure reason is driven
+# by a synthesized stand-in or a mutated sandbox copy (D-03, D-08). Positive
+# companions run the same gate on clean input.
+set(GBL_SIG_DRIVER
+  "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}")
+set(GBL_SIG_CASE "${CMAKE_SOURCE_DIR}/tests/gates/signature_case.cmake")
+
+foreach(case IN ITEMS
+    logo bios rom_ext save_ext binary_unlisted bad_digest_row
+    digest_too_short digest_wrong_size
+    digests_missing_list digests_bad_bios_row digests_no_gba_bios
+    digests_logo_row_count digests_bad_logo_row digests_wrong_default_path
+    owner_file_mismatch)
+  gbl_add_test(
+    NAME signature.nc.${case}
+    LABELS control signature
+    COMMAND ${GBL_SIG_DRIVER} "-DCASE=${case}" -P "${GBL_SIG_CASE}")
+endforeach()
+
+foreach(case IN ITEMS
+    binary_allowlisted bios_unlisted_digest digests_copy owner_file_match)
+  gbl_add_test(
+    NAME signature.pos.${case}
+    LABELS positive signature
+    COMMAND ${GBL_SIG_DRIVER} "-DCASE=${case}" -P "${GBL_SIG_CASE}")
+endforeach()

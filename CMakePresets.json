@@ -1,0 +1,130 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "ci",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "ci"
+      }
+    },
+    {
+      "name": "hygiene",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "hygiene"
+      }
+    },
+    {
+      "name": "asan",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "asan",
+        "CMAKE_C_COMPILER": "clang-21",
+        "CMAKE_C_FLAGS": "-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "ci", "configurePreset": "ci" },
+    { "name": "hygiene", "configurePreset": "hygiene" },
+    { "name": "asan", "configurePreset": "asan" }
+  ],
+  "testPresets": [
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/ci/junit.xml"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "ci-post",
+      "configurePreset": "ci",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "hygiene",
+      "configurePreset": "hygiene",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/hygiene/junit.xml"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "hygiene-post",
+      "configurePreset": "hygiene",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan",
+      "output": {
+        "outputOnFailure": true,
+        "verbosity": "verbose",
+        "outputJUnitFile": "${sourceDir}/build/asan/junit.xml"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "asan-post",
+      "configurePreset": "asan",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "ci",
+      "steps": [
+        { "type": "configure", "name": "ci" },
+        { "type": "build", "name": "ci" },
+        { "type": "test", "name": "ci" },
+        { "type": "test", "name": "ci-post" }
+      ]
+    },
+    {
+      "name": "hygiene",
+      "steps": [
+        { "type": "configure", "name": "hygiene" },
+        { "type": "build", "name": "hygiene" },
+        { "type": "test", "name": "hygiene" },
+        { "type": "test", "name": "hygiene-post" }
+      ]
+    },
+    {
+      "name": "asan",
+      "steps": [
+        { "type": "configure", "name": "asan" },
+        { "type": "build", "name": "asan" },
+        { "type": "test", "name": "asan" },
+        { "type": "test", "name": "asan-post" }
+      ]
+    }
+  ]
+}

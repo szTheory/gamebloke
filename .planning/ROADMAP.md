@@ -60,7 +60,41 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. ASan and UBSan builds of the core and runner run in CI. A deliberate undefined-behavior negative control, such as a shift by 32, is caught by the UBSan lane.
   4. The CTest plus junit test-inventory check fails when an expected test is removed or silently skipped, and it lists every skipped test with its reason.
   5. The hygiene check fails on planted credentials, non-noreply email addresses, and absolute home-directory paths. The signature scan fails on planted Nintendo-logo, known-BIOS, and out-of-allowlist ROM/save signatures. These negative controls are synthesized at test time, and no real logo or BIOS bytes are committed. If any negative control passes, the verify command itself fails.
-**Plans**: TBD
+**Plans**: 8/11 plans executed (waves 1-11, serial chain: shared edits to CMakeLists.txt, CMakePresets.json, .github/workflows/ci.yml, tests/ci_gates.cmake, and the per-lane inventories, then publication order)
+
+Plans:
+**Wave 1**
+- [x] 01-01-PLAN.md — Tracer: skeleton core/runner, `ci` workflow preset with verbose post step, configure-time inventory compare, junit post step
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 01-02-PLAN.md — Gate controls: full junit inventory contract, ExpectFail wrapper and meta-control, registration-refusal controls, test-time junit shapes, core/runner contract tests
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 01-03-PLAN.md — Hygiene gate (credentials, non-noreply email, home paths) with planted controls, `hygiene` lane, opt-in staged hook with its controls
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 01-04-PLAN.md — Signature scan (logo window, BIOS digest, ROM/save extension, unlisted binary) with synthesized controls, digest-list well-formedness and owner-local mismatch controls; owner-pending logo row reported as SKIPPED
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [x] 01-05-PLAN.md — `asan` lane (Clang ASan+UBSan, shift-by-32 and heap-overflow controls) and local Linux runner (Docker optional)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [x] 01-06-PLAN.md — CI routing: classifier, `CI required` aggregator, ci.yml on ubuntu-26.04/macos-26 with title job and compiler-id guard
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [x] 01-07-PLAN.md — Action-pin and workflow policy gates, each rule with a mutation control on a copy of the real ci.yml
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [x] 01-08-PLAN.md — Ruleset file and guarded, idempotent apply/check script (drift check ignores server-filled defaults) with offline controls for every GitHub-facing branch
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 01-09-PLAN.md — CMake 3.25 floor and Linux pre-check evidence, developer guide, PR B (source) published, timed, and merged
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 01-10-PLAN.md — PR A (.planning-only) proves skip routing; ruleset applied last; GSD switched to phase branches; owner decides close-out publication
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 01-11-PLAN.md — Owner supplies the real logo digest (or it stays visibly owner-pending); close-out published or kept local per the owner's decision
 **Research flag**: Standard patterns (sibling-proven in cogmaster, nesturbator, gabbaboy). Check the GitHub runner image names (`ubuntu-*`, `macos-*`) against GitHub's current list, because the research did not verify them [UNK].
 **Owner gates**: None blocking. G1 (license) is surfaced but not blocking: the repo is public with no LICENSE file, so default copyright applies until the owner chooses. Do not add a LICENSE file without the owner. G11 is untouched because CI publishes no release artifacts.
 
@@ -71,7 +105,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements**: PROF-01, PROF-02, EVID-01, EVID-02, EVID-03, EVID-05, EVID-06
 **Success Criteria** (what must be TRUE):
   1. A versioned `agb` profile document records machine `agb`, boot `direct-start`, BIOS provider, ROM-only cartridge, timing constants each with a source label, and an unmodeled list naming SP/Micro machine-visible differences, prefetch, and the HBlank edge (U1). A schema check run by the verify command rejects a profile that is missing any of these.
-  2. The manifest linter accepts a complete row. It rejects, each with a stated reason, a row with a missing field, a row pinned to a branch instead of a commit, and a row with an unknown provenance class.
+  2. The manifest linter accepts a complete row. It rejects, each with a stated reason, a row with a missing field, a row pinned to a branch instead of a commit, and a row with an unknown provenance class. The linter is registered in the canonical `cmake --workflow --preset ci` command at the `manifest.lint` extension point left by Phase 1, which completes the "lints the manifest" clause of VERIF-01.
   3. Fetching a pinned third-party fixture by SHA-256 from `pins.txt` puts it in an untracked location. A digest-mismatch negative control exits non-zero with a loud error, and `git ls-files` lists no third-party binary.
   4. The result schema defines PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, and REFUSED, plus the claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. Its validator rejects a BIOS provider outside the R1 values and rejects a PASS for a fixture that did not run.
   5. The dispute registry holds the seeded entries (DMA latch, GBATEK errata, HBlank edge sources, mGBA-suite #22/#24/#27). A fixture whose expected value points at a registry entry produces a result labeled disputed.
@@ -202,7 +236,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. CI and Verification Foundation | 0/TBD | Not started | - |
+| 1. CI and Verification Foundation | 8/11 | In Progress | - |
 | 2. Profile, Fixture Manifest, and Result Contract | 0/TBD | Not started | - |
 | 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |

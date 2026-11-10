@@ -1,0 +1,14 @@
+# Known BIOS digests (EVID-04, D-07). Only SHA-256 digests are committed here,
+# never bytes. A matching hash proves identity, not redistribution rights.
+#
+# Row format: <64 lowercase hex> <label>. The scan refuses any file of exactly
+# 16384 bytes whose digest is listed here, and the allowlist never exempts it.
+#
+# gba-bios: the GBA BIOS, 16384 bytes. Two independent emulator documents
+# (the higan install notes and the GBARunner2 BIOS page) agree on this digest.
+fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570 gba-bios
+# Both the digest and the 16384-byte size of the next row come from one
+# secondary source (RESEARCH.md A2). The extension and binary rules still catch
+# the file if either is wrong.
+# ds-gba-mode-bios: SINGLE-SOURCE, LOW CONFIDENCE.
+782eb3894237ec6aa411b78ffee19078bacf10413856d33cda10b44fd9c2856b ds-gba-mode-bios

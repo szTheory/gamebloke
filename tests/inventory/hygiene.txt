@@ -1,0 +1,44 @@
+# Sorted (byte order) expected-test inventory for the hygiene lane.
+# Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+ci.actions.pinned ci,gate
+ci.yml.policy ci,gate
+hygiene.hook hygiene,unit
+hygiene.nc.credential control,hygiene
+hygiene.nc.email control,hygiene
+hygiene.nc.home_path control,hygiene
+hygiene.nc.home_path_encoded control,hygiene
+hygiene.nc.hook_missing control,hygiene
+hygiene.nc.hook_no_staged control,hygiene
+hygiene.nc.hook_not_executable control,hygiene
+hygiene.nc.newline_name control,hygiene
+hygiene.nc.private_key control,hygiene
+hygiene.nc.staged_home_path control,hygiene
+hygiene.nc.staged_identity control,hygiene
+hygiene.pos.clean hygiene,positive
+hygiene.pos.staged_clean hygiene,positive
+hygiene.tree gate,hygiene
+hygiene.usage hygiene,unit
+inventory.junit post
+signature.digests.wellformed signature,unit
+signature.logo.real_digest signature,unit skip-ok
+signature.nc.bad_digest_row control,signature
+signature.nc.binary_unlisted control,signature
+signature.nc.bios control,signature
+signature.nc.digest_too_short control,signature
+signature.nc.digest_wrong_size control,signature
+signature.nc.digests_bad_bios_row control,signature
+signature.nc.digests_bad_logo_row control,signature
+signature.nc.digests_logo_row_count control,signature
+signature.nc.digests_missing_list control,signature
+signature.nc.digests_no_gba_bios control,signature
+signature.nc.digests_wrong_default_path control,signature
+signature.nc.logo control,signature
+signature.nc.owner_file_mismatch control,signature
+signature.nc.rom_ext control,signature
+signature.nc.save_ext control,signature
+signature.owner_local owner,signature skip-ok
+signature.pos.binary_allowlisted positive,signature
+signature.pos.bios_unlisted_digest positive,signature
+signature.pos.digests_copy positive,signature
+signature.pos.owner_file_match positive,signature
+signature.tree gate,signature
