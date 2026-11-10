@@ -115,6 +115,209 @@ elseif(CASE STREQUAL "all_states")
     expect_ok("${state}" "${r}")
   endforeach()
 
+elseif(CASE STREQUAL "usage")
+  # No RESULT, and no MANIFEST.
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" "-DMANIFEST=${dir}/manifest.json"
+      "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}" -P "${CHECK}"
+    REGEX "result: usage")
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" "-DRESULT=${dir}/result.json"
+      "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}" -P "${CHECK}"
+    REGEX "result: usage")
+
+elseif(CASE STREQUAL "bad_schema")
+  result_copy(r schema)
+  gbl_json_mutate_set("${r}" "\"gamebloke.result/2\"" schema)
+  expect_code(bad-schema "${r}")
+
+elseif(CASE STREQUAL "missing_field")
+  # Every required top-level key, fixture.id, fixture.rom_sha256, and each of the six claim
+  # fields removed; fixture.ran as a string instead of a boolean.
+  foreach(path IN ITEMS
+      schema fixture status claim disputes labels limits fixture/id fixture/rom_sha256
+      claim/machine claim/boot claim/bios_provider claim/cart claim/input_timeline
+      claim/evidence)
+    string(REPLACE "/" ";" keys "${path}")
+    string(REPLACE "/" "_" tag "${path}")
+    result_copy(r rm_${tag})
+    gbl_json_mutate_remove("${r}" ${keys})
+    expect_code(missing-field "${r}")
+  endforeach()
+  result_copy(r ran_string)
+  gbl_json_mutate_set("${r}" "\"true\"" fixture ran)
+  expect_code(missing-field "${r}")
+
+elseif(CASE STREQUAL "unknown_status")
+  set(i 0)
+  foreach(v IN ITEMS "pass" "PASSED" "OK" "DISPUTED")
+    result_copy(r status${i})
+    gbl_json_mutate_set("${r}" "\"${v}\"" status)
+    expect_code(unknown-status "${r}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "pass_without_digest")
+  # PASS with a null digest, and with a 63-hex digest (the claim cart changed to match, so
+  # only the digest is wrong).
+  hex(h63 "a" 63)
+  result_copy(r null_digest)
+  gbl_json_mutate_set("${r}" "null" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "null" claim cart rom_sha256)
+  expect_code(pass-without-digest "${r}")
+  result_copy(r short_digest)
+  gbl_json_mutate_set("${r}" "\"${h63}\"" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "\"${h63}\"" claim cart rom_sha256)
+  expect_code(pass-without-digest "${r}")
+
+elseif(CASE STREQUAL "ran_state_mismatch")
+  # A state whose row says the fixture did not run, claimed with ran true; a state whose
+  # row says it ran, claimed with ran false.
+  result_copy(r skipped_ran)
+  gbl_json_mutate_set("${r}" "\"SKIPPED\"" status)
+  gbl_json_mutate_set("${r}" "\"not built in this run\"" reason)
+  expect_code(ran-state-mismatch "${r}")
+  result_copy(r fail_not_ran)
+  gbl_json_mutate_set("${r}" "\"GUEST_FAIL\"" status)
+  gbl_json_mutate_set("${r}" "false" fixture ran)
+  expect_code(ran-state-mismatch "${r}")
+
+elseif(CASE STREQUAL "missing_digest")
+  # States that ran must carry a digest.
+  foreach(state IN ITEMS GUEST_FAIL GUEST_STOP TIMEOUT)
+    result_copy(r digest_${state})
+    gbl_json_mutate_set("${r}" "\"${state}\"" status)
+    gbl_json_mutate_set("${r}" "null" fixture rom_sha256)
+    gbl_json_mutate_set("${r}" "null" claim cart rom_sha256)
+    expect_code(missing-digest "${r}")
+  endforeach()
+
+elseif(CASE STREQUAL "missing_reason")
+  # SKIPPED with no reason; MISSING with an empty reason.
+  result_copy(r skipped)
+  gbl_json_mutate_set("${r}" "\"SKIPPED\"" status)
+  gbl_json_mutate_set("${r}" "false" fixture ran)
+  gbl_json_mutate_set("${r}" "null" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "null" claim cart rom_sha256)
+  expect_code(missing-reason "${r}")
+  result_copy(r missing)
+  gbl_json_mutate_set("${r}" "\"MISSING\"" status)
+  gbl_json_mutate_set("${r}" "false" fixture ran)
+  gbl_json_mutate_set("${r}" "null" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "null" claim cart rom_sha256)
+  gbl_json_mutate_set("${r}" "\"\"" reason)
+  expect_code(missing-reason "${r}")
+
+elseif(CASE STREQUAL "missing_refusal")
+  # REFUSED with no refusal object, with no code, and with no postcondition.
+  set(i 0)
+  foreach(v IN ITEMS "" "{\"postcondition\": \"no state was changed\"}"
+      "{\"code\": \"declared-extent\"}")
+    result_copy(r refused${i})
+    gbl_json_mutate_set("${r}" "\"REFUSED\"" status)
+    gbl_json_mutate_set("${r}" "false" fixture ran)
+    gbl_json_mutate_set("${r}" "null" fixture rom_sha256)
+    gbl_json_mutate_set("${r}" "null" claim cart rom_sha256)
+    if(NOT "${v}" STREQUAL "")
+      gbl_json_mutate_set("${r}" "${v}" refusal)
+    endif()
+    expect_code(missing-refusal "${r}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "bad_machine")
+  set(i 0)
+  foreach(v IN ITEMS "agb-micro" "AGB")
+    result_copy(r machine${i})
+    gbl_json_mutate_set("${r}" "\"${v}\"" claim machine)
+    expect_code(bad-machine "${r}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "bad_boot")
+  result_copy(r boot)
+  gbl_json_mutate_set("${r}" "\"bios\"" claim boot)
+  expect_code(bad-boot "${r}")
+
+elseif(CASE STREQUAL "bad_bios_provider")
+  # The retired milestone label, an empty hle list, a branch-named replacement, a short
+  # user-official digest, and a trailing space.
+  set(i 0)
+  foreach(v IN ITEMS "M1" "hle:" "replacement:x@main" "user-official@abc" "none ")
+    result_copy(r bios${i})
+    gbl_json_mutate_set("${r}" "\"${v}\"" claim bios_provider)
+    expect_code(bad-bios-provider "${r}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "bad_cart")
+  result_copy(r kind)
+  gbl_json_mutate_set("${r}" "\"flash\"" claim cart kind)
+  expect_code(bad-cart "${r}")
+  result_copy(r digest)
+  gbl_json_mutate_set("${r}" "\"xyz\"" claim cart rom_sha256)
+  expect_code(bad-cart "${r}")
+
+elseif(CASE STREQUAL "bad_input_timeline")
+  hex(h10 "a" 10)
+  result_copy(r kind)
+  gbl_json_mutate_set("${r}" "\"movie\"" claim input_timeline kind)
+  expect_code(bad-input-timeline "${r}")
+  result_copy(r script_no_digest)
+  gbl_json_mutate_set("${r}" "\"script\"" claim input_timeline kind)
+  expect_code(bad-input-timeline "${r}")
+  result_copy(r script_short_digest)
+  gbl_json_mutate_set("${r}" "\"script\"" claim input_timeline kind)
+  gbl_json_mutate_set("${r}" "\"${h10}\"" claim input_timeline sha256)
+  expect_code(bad-input-timeline "${r}")
+
+elseif(CASE STREQUAL "bad_evidence")
+  # Empty list; an item without a class; a class outside the vocabulary; a class that
+  # differs from the manifest row (the example row is suite-self-checking).
+  result_copy(r empty)
+  gbl_json_mutate_set("${r}" "[]" claim evidence)
+  expect_code(bad-evidence "${r}")
+  result_copy(r no_class)
+  gbl_json_mutate_remove("${r}" claim evidence 0 provenance_class)
+  expect_code(bad-evidence "${r}")
+  result_copy(r foreign_class)
+  gbl_json_mutate_set("${r}" "\"emulator-agreement\"" claim evidence 0 provenance_class)
+  expect_code(bad-evidence "${r}")
+  result_copy(r row_class)
+  gbl_json_mutate_set("${r}" "\"project-authored\"" claim evidence 0 provenance_class)
+  expect_code(bad-evidence "${r}")
+
+elseif(CASE STREQUAL "claim_mismatch")
+  # The claim names a different ROM than the fixture block.
+  hex(other "cd" 32)
+  result_copy(r digest)
+  gbl_json_mutate_set("${r}" "\"${other}\"" claim cart rom_sha256)
+  expect_code(claim-mismatch "${r}")
+
+elseif(CASE STREQUAL "empty_limits")
+  set(i 0)
+  foreach(v IN ITEMS "[]" "[\"\"]" "\"not a list\"")
+    result_copy(r limits${i})
+    gbl_json_mutate_set("${r}" "${v}" limits)
+    expect_code(empty-limits "${r}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "bios_provider_forms")
+  # All five R1 forms are accepted; the example already holds the first.
+  hex(h40 "ab" 20)
+  hex(h64 "cd" 32)
+  result_copy(r none)
+  expect_ok(PASS "${r}")
+  set(i 0)
+  foreach(v IN ITEMS "project-stub" "hle:CpuSet,Div" "replacement:open-bios@${h40}"
+      "user-official@${h64}")
+    result_copy(r bios${i})
+    gbl_json_mutate_set("${r}" "\"${v}\"" claim bios_provider)
+    expect_ok(PASS "${r}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
 else()
   message(FATAL_ERROR "result-case: unknown case: ${CASE}")
 endif()

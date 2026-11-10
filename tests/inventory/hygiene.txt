@@ -127,8 +127,26 @@ registry.nc.usage control,registry
 registry.pos.copy positive,registry
 registry.pos.extra_entry positive,registry
 result.example gate,result
+result.nc.bad_bios_provider control,result
+result.nc.bad_boot control,result
+result.nc.bad_cart control,result
+result.nc.bad_evidence control,result
+result.nc.bad_input_timeline control,result
+result.nc.bad_machine control,result
+result.nc.bad_schema control,result
+result.nc.claim_mismatch control,result
+result.nc.empty_limits control,result
+result.nc.missing_digest control,result
+result.nc.missing_field control,result
+result.nc.missing_reason control,result
+result.nc.missing_refusal control,result
+result.nc.pass_without_digest control,result
 result.nc.pass_without_run control,result
+result.nc.ran_state_mismatch control,result
+result.nc.unknown_status control,result
+result.nc.usage control,result
 result.pos.all_states positive,result
+result.pos.bios_provider_forms positive,result
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature
