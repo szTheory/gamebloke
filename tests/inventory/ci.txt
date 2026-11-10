@@ -1,5 +1,6 @@
 # Sorted (byte order) expected-test inventory for the ci lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+ci.classify.cases ci,unit
 core.nc.host_include control,core
 core.no_host_includes core,gate
 core.version core,unit
