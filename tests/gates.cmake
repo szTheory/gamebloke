@@ -337,6 +337,38 @@ foreach(case IN ITEMS fetch_ok idempotent)
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_FETCH_CASE}")
 endforeach()
 
+# ---- result contract (Phase 2) ----------------------------------------------
+# The committed illustrative result is checked against the committed example manifest, the
+# real dispute registry, and the real vocabulary inside the canonical command. A control
+# per result reason code mutates a copy of that example; the positives prove all nine
+# states, and every R1 BIOS provider form.
+set(GBL_RESULT_CASE "${CMAKE_SOURCE_DIR}/tests/gates/result_case.cmake")
+
+gbl_add_test(
+  NAME result.example
+  LABELS gate result
+  COMMAND "${CMAKE_COMMAND}" "-DRESULT=${CMAKE_SOURCE_DIR}/contracts/examples/result-pass.json"
+    "-DMANIFEST=${CMAKE_SOURCE_DIR}/contracts/examples/manifest.json"
+    "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckResult.cmake")
+
+foreach(case IN ITEMS
+    pass_without_run)
+  gbl_add_test(
+    NAME result.nc.${case}
+    LABELS control result
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
+endforeach()
+
+foreach(case IN ITEMS
+    all_states)
+  gbl_add_test(
+    NAME result.pos.${case}
+    LABELS positive result
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
+endforeach()
+
 # ---- strict JSON loader (Phase 2) -------------------------------------------
 # One negative control per loader reason code, plus the two helper controls
 # (`mutate: no-match`, `no-echo: leaked`), and positives on tricky and real input.

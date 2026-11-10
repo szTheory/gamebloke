@@ -126,6 +126,9 @@ registry.nc.seed_missing control,registry
 registry.nc.usage control,registry
 registry.pos.copy positive,registry
 registry.pos.extra_entry positive,registry
+result.example gate,result
+result.nc.pass_without_run control,result
+result.pos.all_states positive,result
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature
