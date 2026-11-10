@@ -12,6 +12,12 @@
 # Script mode (used by the negative controls):
 #   cmake -DREGISTERED_FILE=<file> -DINVENTORY=<file> -P cmake/InventoryCompare.cmake
 # <file> for REGISTERED_FILE holds one registered line per file line.
+
+# Script mode starts with every policy OLD (IN_LIST is a plain argument under
+# CMP0057 OLD on the 3.25 floor); pin the floor policy set. A function keeps the
+# policies in force where it is defined, so this precedes the definition.
+cmake_minimum_required(VERSION 3.25)
+
 function(gbl_inventory_compare registered_var inventory_file)
   if(NOT EXISTS "${inventory_file}")
     message(FATAL_ERROR "inventory: configure-mismatch: inventory file not found: ${inventory_file}")

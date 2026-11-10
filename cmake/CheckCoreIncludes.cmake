@@ -10,6 +10,10 @@
 #   cmake -DPLANT=<dir> -P cmake/CheckCoreIncludes.cmake
 # plants a stdio include in <dir> and requires this gate to refuse it.
 
+# Script mode starts with every policy OLD (IN_LIST is a plain argument under
+# CMP0057 OLD on the 3.25 floor); pin the floor policy set.
+cmake_minimum_required(VERSION 3.25)
+
 set(GBL_FREESTANDING_HEADERS stddef.h stdint.h stdbool.h limits.h)
 
 function(gbl_check_core_includes)

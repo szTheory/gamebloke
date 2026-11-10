@@ -22,6 +22,10 @@
 #   expect-pass: gate FAILED on clean input
 #   expect-pass: ok
 
+# Script mode starts with every policy OLD (IN_LIST is a plain argument under
+# CMP0057 OLD on the 3.25 floor); pin the floor policy set.
+cmake_minimum_required(VERSION 3.25)
+
 # Controls run gates that abort on purpose; leak reports would only add noise.
 function(gbl__expect_env)
   if("$ENV{ASAN_OPTIONS}" STREQUAL "")

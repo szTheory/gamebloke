@@ -23,6 +23,10 @@
 # (`owner-helper-failed`, `owner-file-mismatch`, `owner-file-match`). Never prints
 # file bytes.
 
+# Script mode starts with every policy OLD (IN_LIST is a plain argument under
+# CMP0057 OLD on the 3.25 floor); pin the floor policy set.
+cmake_minimum_required(VERSION 3.25)
+
 foreach(var MODE SRC)
   if(NOT DEFINED ${var} OR "${${var}}" STREQUAL "")
     message(FATAL_ERROR "signature-digests: usage: -D${var}= is required")

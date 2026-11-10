@@ -33,6 +33,10 @@
 #   ruleset: enforcement: <what>      (enforcement, target, name or ref scope)
 #   ruleset: unreadable: <why>
 #   ruleset: ok                       (validate success)
+# Script mode starts with every policy OLD (IN_LIST is a plain argument under
+# CMP0057 OLD on the 3.25 floor); pin the floor policy set.
+cmake_minimum_required(VERSION 3.25)
+
 if(NOT DEFINED MODE)
   message(FATAL_ERROR "ruleset: usage: -DMODE=validate|canon|find-id|ci-required-ok|advisory")
 endif()

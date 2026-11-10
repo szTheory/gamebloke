@@ -8,6 +8,10 @@
 # push protection (RESEARCH.md Pitfall 10). Each negative case asserts a
 # non-zero exit AND the gate's stable reason code through cmake/ExpectFail.cmake.
 
+# Script mode starts with every policy OLD (IN_LIST is a plain argument under
+# CMP0057 OLD on the 3.25 floor); pin the floor policy set.
+cmake_minimum_required(VERSION 3.25)
+
 foreach(var CASE SRC BIN)
   if(NOT DEFINED ${var} OR "${${var}}" STREQUAL "")
     message(FATAL_ERROR "hygiene-case: -D${var}= is required")

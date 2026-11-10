@@ -15,6 +15,10 @@
 # Reason codes this file prints:
 #   needs-case: FAIL <n>: <line>
 #   needs-cases: <n> ok
+# Script mode starts with every policy OLD (IN_LIST is a plain argument under
+# CMP0057 OLD on the 3.25 floor); pin the floor policy set.
+cmake_minimum_required(VERSION 3.25)
+
 if(NOT DEFINED CASE OR NOT DEFINED SRC)
   message(FATAL_ERROR "ci-cases: -DCASE= and -DSRC= are required")
 endif()
