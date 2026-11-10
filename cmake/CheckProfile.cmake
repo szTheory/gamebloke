@@ -428,14 +428,30 @@ function(gbl__profile_unmodeled out doc)
 endfunction()
 
 # Check one narrative policy table against rows built from the profile values.
-function(gbl__profile_doc_policy_table text prefix expected_count)
-  string(REGEX MATCHALL "\\| ${prefix}\\.[^|]*\\|" rows "${text}")
+# Only inspect the section beginning at <heading>; matching rows elsewhere in
+# the document must not satisfy a missing or stale policy table.
+function(gbl__profile_doc_policy_table text heading prefix expected_count)
+  string(FIND "${text}" "\n${heading}\n" heading_at)
+  if(heading_at EQUAL -1)
+    gbl_finding(profile bus-policy-doc "missing ${heading} section")
+    return()
+  endif()
+  string(LENGTH "\n${heading}\n" heading_length)
+  math(EXPR section_start "${heading_at}+${heading_length}")
+  string(SUBSTRING "${text}" ${section_start} -1 section)
+  string(REGEX MATCH "\n#+[ \t]" next_heading "${section}")
+  if(NOT "${next_heading}" STREQUAL "")
+    string(FIND "${section}" "${next_heading}" next_heading_at)
+    string(SUBSTRING "${section}" 0 ${next_heading_at} section)
+  endif()
+
+  string(REGEX MATCHALL "\\| ${prefix}\\.[^|]*\\|" rows "${section}")
   list(LENGTH rows row_count)
   if(NOT row_count EQUAL expected_count)
     gbl_finding(profile bus-policy-doc "${prefix}: expected ${expected_count} rows, found ${row_count}")
   endif()
   foreach(row IN LISTS ARGN)
-    string(FIND "${text}" "${row}" at)
+    string(FIND "${section}" "${row}" at)
     if(at EQUAL -1)
       gbl_finding(profile bus-policy-doc "${prefix}: missing or stale row")
     endif()
@@ -481,7 +497,7 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     "| bus_policy.widths_bytes | [1, 2, 4] | ${bus_source} | ${bus_cite} |"
     "| bus_policy.access_classes | [nonsequential, sequential] | ${bus_source} | ${bus_cite} |"
     "| bus_policy.internal_cycle_unit | 1 | ${bus_source} | ${bus_cite} |")
-  gbl__profile_doc_policy_table("${text}" bus_policy 12 "${bus_rows}")
+  gbl__profile_doc_policy_table("${text}" "## Bus policy" bus_policy 12 "${bus_rows}")
 
   gbl_json_string(init_source "${profile}" initialization_policy source)
   gbl_json_string(init_cite "${profile}" initialization_policy cite)
@@ -489,7 +505,8 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
   foreach(k IN ITEMS memory_fill register_fill master_cycles open_bus)
     list(APPEND init_rows "| initialization_policy.${k} | 0 | ${init_source} | ${init_cite} |")
   endforeach()
-  gbl__profile_doc_policy_table("${text}" initialization_policy 4 "${init_rows}")
+  gbl__profile_doc_policy_table("${text}" "## Initialization policy"
+    initialization_policy 4 "${init_rows}")
 
   gbl_json_string(read_source "${profile}" read_policy source)
   gbl_json_string(read_cite "${profile}" read_policy cite)
@@ -499,7 +516,7 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     "| read_policy.rom_tail | current-open-bus | ${read_source} | ${read_cite} |"
     "| read_policy.latch_update | mapped-read-width-replicated | ${read_source} | ${read_cite} |"
     "| read_policy.write_latch | preserve | ${read_source} | ${read_cite} |")
-  gbl__profile_doc_policy_table("${text}" read_policy 5 "${read_rows}")
+  gbl__profile_doc_policy_table("${text}" "## Read policy" read_policy 5 "${read_rows}")
 
   string(FIND "${text}" "\n## Unmodeled\n" at)
   set(doc_ids "")

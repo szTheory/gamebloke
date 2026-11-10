@@ -141,6 +141,14 @@ elseif(CASE STREQUAL "bus_policy_doc")
     "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
     "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
   expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 13" "${p}" "${d}")
+  profile_copy(p section_scope)
+  doc_copy(d section_scope)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
+    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+  gbl_text_mutate("${d}" "## Machine\n"
+    "## Machine\n| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n")
+  expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
 
 elseif(CASE STREQUAL "init_policy")
   profile_copy(p missing)
