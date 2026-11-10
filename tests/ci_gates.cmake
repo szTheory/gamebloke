@@ -15,4 +15,12 @@ if(GBL_LANE STREQUAL "ci")
     LABELS ci unit
     COMMAND sh tests/ci/classify_cases.sh
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+  # Aggregator predicate (D-11, Pitfall 6): a heavy job skipped while HEAVY is
+  # not exactly false, or any failed or cancelled lane, must fail `CI required`.
+  gbl_add_test(
+    NAME ci.required.cases
+    LABELS ci unit
+    COMMAND "${CMAKE_COMMAND}" -DCASE=needs "-DSRC=${CMAKE_SOURCE_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/ci_cases.cmake")
 endif()
