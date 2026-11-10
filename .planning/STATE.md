@@ -99,6 +99,7 @@ Recent decisions affecting current work:
 - [Phase 01]: Every cmake -P entry script pins cmake_minimum_required(VERSION 3.25) so the gates run on the 3.25 floor (CMP0057 IN_LIST)
 - [Phase 01]: All six ci.yml job timeouts are 3 minutes: slowest measured job was 36 s, so the plan floor of 3 applies (runs 42737527955#1,#2)
 - [Phase 01]: PR B (#1) squash-merged as d1b5932; main push run 42737946832 reports CI required success; local main reset to origin/main with backup/phase-01-pre-squash
+- [Phase 01]: 01-10: the main ruleset requires `CI required` with no bypass, so GSD now uses per-phase branches (`git.branching_strategy: phase`, template `gsd/phase-{phase}-{slug}` unchanged) and every change reaches main through a PR
 
 ### Pending Todos
 
@@ -108,7 +109,8 @@ None yet.
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
 - Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
-- Phase 1: the GitHub runner image names in the research are unverified [UNK].
+- Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
+- Phase 1: the real-logo digest (EVID-04) is owner-pending; the owner supplies it with `scripts/signature-digest.sh` in plan 11.
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
 ## Deferred Items
