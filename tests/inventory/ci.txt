@@ -52,6 +52,7 @@ core.pos.in_tree core,positive
 core.version core,unit
 hygiene.hook hygiene,unit
 hygiene.nc.credential control,hygiene
+hygiene.nc.credential_upper control,hygiene
 hygiene.nc.email control,hygiene
 hygiene.nc.home_path control,hygiene
 hygiene.nc.home_path_encoded control,hygiene

@@ -18,13 +18,15 @@ export LC_ALL
 
 # POSIX ERE sets. Written so that none of them match their own source line
 # (escaped dots, bracket classes), so this script is scanned like every other
-# file with no exemption.
+# file with no exemption. The assignment rule is matched case-insensitively and
+# allows a name suffix, so API_KEY=, AWS_SECRET_ACCESS_KEY =, secret_key = and
+# GITHUB_TOKEN: all count.
 GBL_HY_HOME='(/Users/|/home/)[A-Za-z0-9._-]+|[A-Za-z]:\\Users\\[A-Za-z0-9._-]+|-Users-[A-Za-z0-9._]+-'
 GBL_HY_HOME_OK='(/Users/|/home/)runner'
 GBL_HY_EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z]+'
 GBL_HY_EMAIL_OK='@users\.noreply\.github\.com|noreply@github\.com|noreply@anthropic\.com|@example\.(com|org|net)|git@github\.com'
 GBL_HY_CRED='AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
-GBL_HY_CRED_ASSIGN='(api[_-]?key|secret|token|passw(or)?d)[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_.-]{16,}'
+GBL_HY_CRED_ASSIGN='(api[_-]?key|secret|token|passw(or)?d)[A-Za-z0-9_-]*[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_.-]{16,}'
 export GBL_HY_HOME GBL_HY_HOME_OK GBL_HY_EMAIL GBL_HY_EMAIL_OK GBL_HY_CRED GBL_HY_CRED_ASSIGN
 
 usage() {
@@ -55,7 +57,7 @@ for f; do
   grep -n -o -E -e "$GBL_HY_EMAIL" -- "$src" |
     grep -v -E "^[0-9]+:.*($GBL_HY_EMAIL_OK)\$" | cut -d: -f1 | sort -un |
     while read -r n; do printf "hygiene: email: %s:%s\n" "$f" "$n"; done
-  { grep -n -E -e "$GBL_HY_CRED" -- "$src"; grep -n -E -e "$GBL_HY_CRED_ASSIGN" -- "$src"; } |
+  { grep -n -E -e "$GBL_HY_CRED" -- "$src"; grep -n -i -E -e "$GBL_HY_CRED_ASSIGN" -- "$src"; } |
     cut -d: -f1 | sort -un |
     while read -r n; do printf "hygiene: credential: %s:%s\n" "$f" "$n"; done
 done

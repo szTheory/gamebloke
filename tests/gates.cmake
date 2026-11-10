@@ -15,7 +15,7 @@ gbl_add_test(
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 foreach(case IN ITEMS
-    credential private_key email home_path home_path_encoded newline_name)
+    credential credential_upper private_key email home_path home_path_encoded newline_name)
   gbl_add_test(
     NAME hygiene.nc.${case}
     LABELS control hygiene

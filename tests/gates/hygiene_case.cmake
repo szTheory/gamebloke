@@ -70,6 +70,29 @@ function(line_assign out)
   set(${out} "${v}" PARENT_SCOPE)
 endfunction()
 
+# The upper-case and compound-name assignment shapes (WR-07). Each builder
+# splits the key word so no committed line reads as an assignment.
+function(line_env_api_key out)
+  rand(body 32 "${ALNUM}")
+  string(CONCAT v "API" "_KEY=${body}")
+  set(${out} "${v}" PARENT_SCOPE)
+endfunction()
+function(line_env_aws out)
+  rand(body 32 "${ALNUM}")
+  string(CONCAT v "AWS_SEC" "RET_ACCESS_KEY = ${body}")
+  set(${out} "${v}" PARENT_SCOPE)
+endfunction()
+function(line_secret_key out)
+  rand(body 32 "${ALNUM}")
+  string(CONCAT v "sec" "ret_key = ${body}")
+  set(${out} "${v}" PARENT_SCOPE)
+endfunction()
+function(line_env_token out)
+  rand(body 32 "${ALNUM}")
+  string(CONCAT v "GITHUB_TO" "KEN: ${body}")
+  set(${out} "${v}" PARENT_SCOPE)
+endfunction()
+
 # j(<out-var> <fragment>...) concatenates fragments without list separators.
 # Fragments never contain semicolons, so ARGN round-trips intact.
 function(j out)
@@ -84,8 +107,10 @@ function(write_clean_sandbox root)
   j(tilde "~/proj" "ects/x")
   j(runner "/ho" "me/runner/work")
   rand(not_a_secret 8 "${ALNUM}")
+  # Short values after upper-case and compound key names are not credentials.
+  string(CONCAT short_env "API" "_KEY=changeme")
   file(WRITE "${root}/keys.txt"
-    "contact ${noreply}\nmail ${example}\npath ${tilde}\nci ${runner}\ntoken = ${not_a_secret}\n")
+    "contact ${noreply}\nmail ${example}\npath ${tilde}\nci ${runner}\ntoken = ${not_a_secret}\n${short_env}\n")
   # A newline in the file name still gets scanned, and still passes when clean.
   file(WRITE "${root}/a\nb.txt" "path ${tilde}\n")
 endfunction()
@@ -152,6 +177,25 @@ if(CASE STREQUAL "credential")
   file(WRITE "${dir}/keys.txt" "${l1}\n${l2}\n${l3}\n${l4}\n")
   gbl_expect_fail(COMMAND ${HYGIENE} --dir "${dir}" REGEX "hygiene: credential")
   expect_findings("${dir}" credential 4)
+
+elseif(CASE STREQUAL "credential_upper")
+  # Four shapes, one per line; the gate must find each, and must print only
+  # path:line (the planted value never reaches the output).
+  line_env_api_key(l1)
+  line_env_aws(l2)
+  line_secret_key(l3)
+  line_env_token(l4)
+  file(WRITE "${dir}/env.txt" "${l1}\n${l2}\n${l3}\n${l4}\n")
+  gbl_expect_fail(COMMAND ${HYGIENE} --dir "${dir}" REGEX "hygiene: credential")
+  expect_findings("${dir}" credential 4)
+  run_hygiene_dir(text "${dir}")
+  foreach(l IN ITEMS l1 l2 l3 l4)
+    string(REGEX REPLACE "^.*[=:] *" "" planted "${${l}}")
+    string(FIND "${text}" "${planted}" at)
+    if(NOT at EQUAL -1)
+      message(FATAL_ERROR "hygiene-case: the gate echoed a planted value:\n${text}")
+    endif()
+  endforeach()
 
 elseif(CASE STREQUAL "private_key")
   j(header "-----" "BEGIN RSA PRIV" "ATE KEY-----")
