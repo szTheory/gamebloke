@@ -57,6 +57,28 @@ typedef struct gbl_bus_result {
     gbl_bus_access_class access_class;
 } gbl_bus_result;
 
+typedef enum gbl_load_status {
+    GBL_LOAD_STATUS_OK = 0,
+    GBL_LOAD_STATUS_REFUSED = 1,
+    GBL_LOAD_STATUS_INVALID_ARGUMENT = 2,
+    GBL_LOAD_STATUS_RESOURCE_FAILURE = 3
+} gbl_load_status;
+
+typedef enum gbl_load_reason {
+    GBL_LOAD_REASON_NONE = 0,
+    GBL_LOAD_REASON_ROM_ZERO = 1,
+    GBL_LOAD_REASON_ROM_SHORT = 2,
+    GBL_LOAD_REASON_ROM_TOO_LARGE = 3,
+    GBL_LOAD_REASON_ROM_ODD = 4,
+    GBL_LOAD_REASON_ARGUMENT = 5,
+    GBL_LOAD_REASON_ALLOCATION = 6
+} gbl_load_reason;
+
+typedef struct gbl_load_result {
+    gbl_load_status status;
+    gbl_load_reason reason;
+} gbl_load_result;
+
 typedef struct gbl_machine {
     uint64_t master_cycles;
     uint32_t open_bus;
@@ -89,6 +111,13 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
                              gbl_bus_access_class access_class,
                              uint32_t value);
 gbl_bus_result gbl_bus_internal(gbl_machine *machine, uint64_t cycles);
+
+/* Load an owned ROM copy through the host-supplied allocator. This internal
+ * result contract is not a stable embedding ABI. */
+gbl_load_result gbl_load_rom(gbl_machine *machine, const uint8_t *image,
+                             size_t length);
+const uint8_t *gbl_rom_data(const gbl_machine *machine);
+size_t gbl_rom_size(const gbl_machine *machine);
 
 #ifdef __cplusplus
 }
