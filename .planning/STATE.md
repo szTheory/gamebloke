@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: executing
-stopped_at: Roadmap and state initialized; ready for `/gsd-plan-phase 1`
-last_updated: "2026-11-10T00:40:03.120Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-11-10T00:43:52.071Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: 2e89159fcb5d0a50249a843fc44a9127065eb63e
+state_head: 837977015c6d99e9faf10c6d0e679c18011a3e50
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 1 of 11
-Status: Executing Phase 01
+Plan: 2 of 11
+Status: Ready to execute
 Last activity: 2026-11-09 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -54,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 3 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -65,6 +70,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Milestone v1.0 is spine first (G10 default). SUMMARY phases 1-3 are split into six phases. CI lands first; diagnostics come before determinism gates.
 - [Roadmap]: Fixture policy runs on reversible defaults: pinned SHA-256 fetch, no third-party binaries in tree, no logo bytes in owned fixtures (G2, G3).
 - [Roadmap]: The VERIF-06 sanitizer lanes land in Phase 1, so the CPU work (CPU-05) is UBSan-gated from its first commit.
+- [Phase 01]: ci-post test preset uses output.verbosity verbose so the inventory summary reaches green logs (B1)
+- [Phase 01]: Inventory compare is whole-line (name, labels, skip-ok); lines byte-sorted; reason codes inventory: unsorted|configure-mismatch
 
 ### Pending Todos
 
@@ -87,6 +94,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-09
-Stopped at: Roadmap and state initialized; ready for `/gsd-plan-phase 1`
+Last session: 2026-11-10T00:43:52.055Z
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None
