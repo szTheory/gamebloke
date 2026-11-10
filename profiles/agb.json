@@ -1,0 +1,118 @@
+{
+  "schema": "gamebloke.profile/1",
+  "profile_version": 1,
+  "id": "agb",
+  "machine": "agb",
+  "boot": "direct-start",
+  "bios_provider": "none",
+  "cart": { "kind": "rom-only" },
+  "timing": {
+    "master_clock_hz": {
+      "value": 16777216,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: System Clock"
+    },
+    "cycles_per_dot": {
+      "value": 4,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Horizontal Dimensions"
+    },
+    "dots_visible": {
+      "value": 240,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Horizontal Dimensions"
+    },
+    "dots_hblank": {
+      "value": 68,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Horizontal Dimensions"
+    },
+    "dots_per_line": {
+      "value": 308,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Horizontal Dimensions"
+    },
+    "cycles_per_line": {
+      "value": 1232,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Horizontal Dimensions"
+    },
+    "lines_visible": {
+      "value": 160,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Vertical Dimensions"
+    },
+    "lines_vblank": {
+      "value": 68,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Vertical Dimensions"
+    },
+    "lines_per_frame": {
+      "value": 228,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Vertical Dimensions"
+    },
+    "cycles_per_frame": {
+      "value": 280896,
+      "source": "REF",
+      "cite": "GBATEK, LCD Dimensions and Timings: Vertical Dimensions"
+    },
+    "hblank_flag_edge_cycle": {
+      "value": null,
+      "source": "UNK",
+      "dispute": "disp-hblank-flag-edge"
+    }
+  },
+  "unmodeled": [
+    {
+      "id": "sp-micro-differences",
+      "status": "unmodeled",
+      "reason": "Differences between the original console, the SP, and the Micro are not modeled in v1.0. The profile id is agb only; no result may claim behavior of an SP or a Micro.",
+      "details": [
+        "The Internal Memory Control register at 0x04000800 sets the EWRAM wait states; its fastest setting is reported to lock up the Micro (REF, GBATEK, section 4000800h Internal Memory Control).",
+        "The Micro has no cartridge switch (REF, GBATEK, section GBA Backwards Compatibility CGB Mode)."
+      ]
+    },
+    {
+      "id": "prefetch",
+      "status": "unmodeled",
+      "reason": "The cartridge prefetch buffer is not emulated in v1.0; no result may claim cartridge wait-state or prefetch timing."
+    },
+    {
+      "id": "hblank-flag-edge",
+      "status": "unmodeled",
+      "reason": "Sources disagree on the cycle at which the HBlank flag changes: values of 1,006, 1,007, and 1,008 cycles appear in different sources, and 960 is the visible drawing time, not the flag edge. The profile carries no number for it.",
+      "dispute": "disp-hblank-flag-edge"
+    },
+    {
+      "id": "ppu",
+      "status": "unmodeled",
+      "reason": "Not emulated in v1.0; no result may claim PPU behavior."
+    },
+    {
+      "id": "audio",
+      "status": "unmodeled",
+      "reason": "Not emulated in v1.0; no result may claim audio behavior."
+    },
+    {
+      "id": "dma",
+      "status": "unmodeled",
+      "reason": "Not emulated in v1.0; no result may claim DMA behavior or DMA timing."
+    },
+    {
+      "id": "timers",
+      "status": "unmodeled",
+      "reason": "Not emulated in v1.0; no result may claim timer behavior."
+    },
+    {
+      "id": "irq-controller",
+      "status": "unmodeled",
+      "reason": "Not emulated in v1.0; no result may claim interrupt controller behavior."
+    },
+    {
+      "id": "backup-media",
+      "status": "unmodeled",
+      "reason": "Cartridge backup storage (save memory) is not emulated in v1.0; the profile cart is ROM-only."
+    }
+  ]
+}

@@ -96,6 +96,33 @@ function(gbl__contract_same_set out expected actual)
   set(${out} ${ok} PARENT_SCOPE)
 endfunction()
 
+# gbl_bios_provider_valid(<out> <value>): sets <out> to TRUE or FALSE.
+#
+# The BIOS provider grammar (D-10, R1), whole-string anchored so an embedded or
+# trailing newline cannot slip through:
+#   none
+#   project-stub
+#   hle:<name>(,<name>)*              <name> is [A-Za-z0-9_]+; the list is not empty,
+#                                     has no empty member, and has no other rule
+#                                     (no ordering, duplicates allowed)
+#   replacement:<name>@<40 lowercase hex>   <name> is [a-z0-9][a-z0-9._-]*
+#   user-official@<64 lowercase hex>
+# SWI names inside hle: are not checked against a table of BIOS calls, and the
+# retired milestone labels (M0, M1, M1b, M2) match none of the forms.
+function(gbl_bios_provider_valid out value)
+  string(REPEAT "[0-9a-f]" 40 hex40)
+  string(REPEAT "[0-9a-f]" 64 hex64)
+  set(ok FALSE)
+  if("${value}" MATCHES "^none$"
+      OR "${value}" MATCHES "^project-stub$"
+      OR "${value}" MATCHES "^hle:[A-Za-z0-9_]+(,[A-Za-z0-9_]+)*$"
+      OR "${value}" MATCHES "^replacement:[a-z0-9][a-z0-9._-]*@${hex40}$"
+      OR "${value}" MATCHES "^user-official@${hex64}$")
+    set(ok TRUE)
+  endif()
+  set(${out} ${ok} PARENT_SCOPE)
+endfunction()
+
 function(gbl_contract_read prefix vocab)
   gbl_json_load(doc "${vocab}")
 

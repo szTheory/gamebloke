@@ -43,6 +43,9 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+profile.lint gate,profile
+profile.nc.unmodeled_missing control,profile
+profile.pos.copy positive,profile
 registry.lint gate,registry
 registry.nc.bad_id control,registry
 registry.nc.bad_schema control,registry

@@ -109,6 +109,9 @@ json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
 nc.meta.pass_requires_exit_status control,meta
 nc.meta.passing_gate_fails_wrapper control,meta
+profile.lint gate,profile
+profile.nc.unmodeled_missing control,profile
+profile.pos.copy positive,profile
 registry.lint gate,registry
 registry.nc.bad_id control,registry
 registry.nc.bad_schema control,registry

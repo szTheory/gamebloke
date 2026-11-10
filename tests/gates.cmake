@@ -189,6 +189,36 @@ gbl_add_test(
   LABELS contract positive
   COMMAND ${GBL_EVID_DRIVER} -DCASE=copy -P "${GBL_CONTRACT_CASE}")
 
+# ---- agb profile (Phase 2) --------------------------------------------------
+# The real profile is checked against the real document, dispute registry, and
+# vocabulary; a control per reason code mutates a copy of the real profile or
+# document, and the positives prove the check is not a frozen-file comparison.
+set(GBL_PROFILE_CASE "${CMAKE_SOURCE_DIR}/tests/gates/profile_case.cmake")
+
+gbl_add_test(
+  NAME profile.lint
+  LABELS gate profile
+  COMMAND "${CMAKE_COMMAND}" "-DPROFILE=${CMAKE_SOURCE_DIR}/profiles/agb.json"
+    "-DDOC=${CMAKE_SOURCE_DIR}/docs/profile-agb.md"
+    "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckProfile.cmake")
+
+foreach(case IN ITEMS
+    unmodeled_missing)
+  gbl_add_test(
+    NAME profile.nc.${case}
+    LABELS control profile
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PROFILE_CASE}")
+endforeach()
+
+foreach(case IN ITEMS copy)
+  gbl_add_test(
+    NAME profile.pos.${case}
+    LABELS positive profile
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PROFILE_CASE}")
+endforeach()
+
 # ---- dispute registry (Phase 2) ---------------------------------------------
 # The real registry is checked against the real vocabulary; a control per reason
 # code mutates a copy of the real registry (the six seed ids are pinned, so a
