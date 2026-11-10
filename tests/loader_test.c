@@ -576,6 +576,40 @@ static int run_diagnostics(void)
     return CHECK_DONE();
 }
 
+static int run_logo_digest(void)
+{
+    host_storage storage = { 0 };
+    gbl_machine *machine = new_machine(&storage);
+    uint8_t image[GBL_TEST_MIN_ROM_SIZE] = { 0 };
+    size_t index;
+    gbl_load_result load;
+    gbl_header_diagnostics diagnostics;
+
+    if (machine == NULL) {
+        fprintf(stderr, "loader.logo-digest: host setup allocation failed\n");
+        return 1;
+    }
+    for (index = 0u; index < 0x9Cu; ++index) {
+        image[0x04u + index] = (uint8_t)(index + 1u);
+    }
+
+    load = gbl_load_rom(machine, image, sizeof(image));
+    CHECK(load.status == GBL_LOAD_STATUS_OK);
+    CHECK(load.reason == GBL_LOAD_REASON_NONE);
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(diagnostics.loaded);
+    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MATCH);
+
+    gbl_machine_dispose(machine);
+    CHECK(host_has_no_live_allocations(&storage));
+    free(machine);
+
+    if (CHECK_DONE() == 0) {
+        puts("loader: logo-digest ok");
+    }
+    return CHECK_DONE();
+}
+
 static int run_transaction(void)
 {
     host_storage fresh_storage = { 0 };
@@ -970,7 +1004,7 @@ int main(int argc, char **argv)
 {
     if (argc != 2) {
         fprintf(stderr,
-                "usage: loader_test lengths|transaction|diagnostics|integration\n");
+                "usage: loader_test lengths|transaction|diagnostics|integration|logo-digest\n");
         return 2;
     }
     if (strcmp(argv[1], "lengths") == 0) {
@@ -984,6 +1018,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "integration") == 0) {
         return run_integration();
+    }
+    if (strcmp(argv[1], "logo-digest") == 0) {
+        return run_logo_digest();
     }
     fprintf(stderr, "loader_test: unknown selector: %s\n", argv[1]);
     return 2;

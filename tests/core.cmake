@@ -111,6 +111,8 @@ gbl_add_test(
 
 add_executable(loader_test tests/loader_test.c)
 target_link_libraries(loader_test PRIVATE gamebloke_core gbl_warnings)
+add_executable(loader_logo_test tests/loader_test.c)
+target_link_libraries(loader_logo_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(
   NAME loader.lengths
   LABELS core loader unit
@@ -127,6 +129,10 @@ gbl_add_test(
   NAME loader.integration
   LABELS core integration loader unit
   COMMAND $<TARGET_FILE:loader_test> integration)
+gbl_add_test(
+  NAME loader.logo_digest
+  LABELS core integration loader unit
+  COMMAND $<TARGET_FILE:loader_logo_test> logo-digest)
 
 gbl_add_test(
   NAME runner.help
