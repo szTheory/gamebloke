@@ -194,6 +194,30 @@ elseif(CASE STREQUAL "bus_policy_doc")
   file(APPEND "${d}" "\n</gamebloke-profile>\n")
   expect_detail(bus-policy-doc
     "unsupported raw HTML element <gamebloke-profile>" "${p}" "${d}")
+  profile_copy(p wrong_policy_header)
+  doc_copy(d wrong_policy_header)
+  gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
+    "| Setting | Value | Label | Evidence |")
+  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  profile_copy(p colon_only_policy_delimiter)
+  doc_copy(d colon_only_policy_delimiter)
+  gbl_text_mutate("${d}" "| ------- | ----- | ----- | -------- |"
+    "| : | : | : | : |")
+  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  profile_copy(p missing_policy_hyphen)
+  doc_copy(d missing_policy_hyphen)
+  gbl_text_mutate("${d}" "| ------- | ----- | ----- | -------- |"
+    "| : | ----- | ----- | -------- |")
+  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  profile_copy(p wrong_policy_separator_columns)
+  doc_copy(d wrong_policy_separator_columns)
+  gbl_text_mutate("${d}" "| ------- | ----- | ----- | -------- |"
+    "| ------- | ----- | ----- |")
+  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  profile_copy(p malformed_unmodeled_separator)
+  doc_copy(d malformed_unmodeled_separator)
+  gbl_text_mutate("${d}" "| -- | ------------------- |" "| : | : |")
+  expect_detail(doc-no-section "## Unmodeled" "${p}" "${d}")
   profile_copy(p extra_row)
   doc_copy(d extra_row)
   gbl_text_mutate("${d}"
