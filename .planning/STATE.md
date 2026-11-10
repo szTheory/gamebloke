@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 03
 current_phase_name: Bus API, Memory Map, and ROM Loading
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-11-10T17:59:56.785Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-11-10T18:27:37.176Z"
 last_activity: 2026-11-10
-last_activity_desc: Plan 03-04 complete; Phase 03 execution continues
-state_head: b6370dc946a287d25938e95fb103bee58a940bc7
+last_activity_desc: Plan 03-05 complete; Phase 03 execution continues
+state_head: 7e2cbe0826e69d186a64add07042cc607b7907b5
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 24
-  completed_plans: 22
+  completed_plans: 23
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 03 (Bus API, Memory Map, and ROM Loading) — EXECUTING
-Plan: 5 of 6 (03-05 next)
+Plan: 6 of 6 (03-06 next)
 Status: Ready to execute
-Last activity: 2026-11-10 — Plan 03-04 complete; Phase 03 execution continues
+Last activity: 2026-11-10 — Plan 03-05 complete; Phase 03 execution continues
 
 Progress: [███░░░░░░░] 33%
 
@@ -79,6 +79,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03 P02 | 21 min | 2 tasks | 7 files |
 | Phase 03 P03 | 20 min | 3 tasks | 10 files |
 | Phase 03 P04 | 38 min | 3 tasks | 8 files |
+| Phase 03 P05 | 23min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -136,6 +137,9 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-04: ROM-tail reads use the current-latch project policy; shorter-cartridge hardware behavior remains explicitly unverified.
 - [Phase 03]: 03-04: Model only DISPCNT mode bits 0-2; mode 6-7 video-byte threshold behavior is project policy, not hardware evidence.
 - [Phase 03]: 03-04: Cite GBATEK as community reference evidence and keep BUS-02/BUS-03 pending until integrated phase evidence and final verification support completion.
+- [Phase 03]: Header findings are advisory for every size-valid direct-start image and commit only with a successful copied-ROM load.
+- [Phase 03]: Canonical logo stays UNCHECKED/OWNER_PENDING; synthetic comparisons prove mechanics only.
+- [Phase 03]: Compute the header checksum by subtracting bytes 0xA0-0xBC and 0x19 from zero modulo 256 before comparing byte 0xBD.
 
 ### Pending Todos
 
@@ -156,6 +160,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10T17:59:56.683Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-11-10T18:27:37.088Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
