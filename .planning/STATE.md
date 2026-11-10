@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-11-10T01:05:10.554Z"
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-11-10T01:10:35.181Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: 718d58a22b66b000abcbfa4feed951f9e2810775
+state_head: 50d6b4a505adaa7ff5405bf808b1d6ae20b306a1
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 5 of 11
+Plan: 6 of 11
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 01 execution started
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 5 min | 2 tasks | 10 files |
 | Phase 01 P03 | 4 min | 2 tasks | 8 files |
 | Phase 01 P04 | 5 min | 2 tasks | 11 files |
+| Phase 01 P05 | 20 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Logo-window rule hashes every regular file of at least 160 bytes (stricter than D-07's every binary file) so a no-NUL crafted file cannot evade it — T-01-12; cost is one dd per file
 - [Phase 01]: Signature allowlist exempts only rom-extension and binary-not-allowlisted; logo-window and bios-digest are never exempted — T-01-09; proved by allowlisted stand-in controls
 - [Phase 01]: Logo digest row stays owner-pending until plan 11; signature.logo.real_digest and signature.owner_local report SKIPPED with reasons — The real digest is not published in a primary source (A1); the owner supplies it with scripts/signature-digest.sh
+- [Phase 01]: asan preset carries -fno-sanitize-recover=all; controls assert non-zero exit plus sanitizer text; Pitfall 2 observed (control fails with 'gate PASSED but must fail' without the flag)
+- [Phase 01]: scripts/linux-lane.sh pins ubuntu:26.04 by index digest and installs libc6-dev explicitly (gcc without recommends cannot link); Linux proof ran on aarch64, x86_64 proof is plan 09 CI
 
 ### Pending Todos
 
@@ -104,6 +107,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:05:10.537Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-11-10T01:10:32.221Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
