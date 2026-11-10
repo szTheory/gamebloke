@@ -95,7 +95,12 @@ if(CASE STREQUAL "copy")
   doc_copy(d copy)
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v1, 11 timing constants, 9 unmodeled\\)")
+    REGEX "profile: ok \\(agb v2, 11 timing constants, 11 unmodeled\\)")
+
+elseif(CASE STREQUAL "bus_policy_missing")
+  profile_copy(p missing_bus_policy)
+  gbl_json_mutate_remove("${p}" bus_policy)
+  expect_code(bus-policy-missing "${p}")
 
 elseif(CASE STREQUAL "unmodeled_missing")
   # Remove each of the nine required entries in turn from a fresh copy; each

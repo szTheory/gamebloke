@@ -7,7 +7,7 @@
 # profiles/agb.json is the authority for the machine profile; docs/profile-agb.md
 # is the narrative. This check reads the vocabulary and the dispute registry
 # first (their own findings are reported), loads the profile, validates it, then
-# compares the unmodeled list and the version with the document.
+# compares the profile policy tables, unmodeled list, and version with the document.
 #
 # Reason codes (printed as `profile: <code>: <detail>`, every finding reported):
 #   usage                  script mode without -DPROFILE=, -DDOC=, -DREGISTRY=, or -DVOCAB=
@@ -41,6 +41,12 @@
 #   doc-missing-id         a JSON unmodeled id is absent from the document table
 #   doc-extra-id           a document table id is absent from the JSON
 #   doc-version-mismatch   no `profile_version: N` line in the document, or N differs
+#   bus-policy-missing     bus_policy is absent or null
+#   bus-policy-value       bus policy structure, request costs, width/class enums, or unit is wrong
+#   bus-policy-source      bus policy is not project-authored with its explicit citation
+#   bus-policy-doc         bus policy narrative is missing, stale, or has an extra row
+#   init-policy            initialization policy structure, provenance, or zero value is wrong
+#   read-policy            read policy structure, provenance, or placeholder value is wrong
 # The json:, contract:, and registry: codes come from the loader and the vocabulary
 # and registry readers this file calls.
 
@@ -57,8 +63,169 @@ set(GBL_PROFILE_TIMING_KEYS
   hblank_flag_edge_cycle)
 set(GBL_PROFILE_REQUIRED_UNMODELED
   sp-micro-differences prefetch hblank-flag-edge ppu audio dma timers
-  irq-controller backup-media)
+  irq-controller backup-media bios-protection io-devices)
 set(GBL_PROFILE_HBLANK_DISPUTE disp-hblank-flag-edge)
+set(GBL_PROFILE_BUS_REQUEST_KEYS bios ewram iwram io pram vram oam rom unmapped)
+set(GBL_PROFILE_BUS_CITE
+  "Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim.")
+set(GBL_PROFILE_INIT_CITE
+  "Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown.")
+set(GBL_PROFILE_READ_CITE
+  "Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails.")
+
+# Validate a policy's source and citation as project-authored evidence. Hardware
+# claims are not inferred from these placeholders.
+function(gbl__profile_policy_source doc policy expected_cite reason)
+  gbl_json_string(src "${doc}" ${policy} source)
+  gbl_json_string(cite "${doc}" ${policy} cite)
+  if(NOT "${src}" STREQUAL "IMPL" OR NOT "${cite}" STREQUAL "${expected_cite}")
+    gbl_finding(profile "${reason}" "${policy}: source/citation")
+  endif()
+endfunction()
+
+# The request-cost table, raw widths/classes, and internal-cycle unit are an
+# explicit project policy. Check types and exact values rather than treating
+# placeholder values as hardware observations.
+function(gbl__profile_bus_policy doc)
+  gbl_json_type(pty "${doc}" bus_policy)
+  if("${pty}" STREQUAL "MISSING" OR "${pty}" STREQUAL "NULL")
+    gbl_finding(profile bus-policy-missing "bus_policy")
+    return()
+  elseif(NOT "${pty}" STREQUAL "OBJECT")
+    gbl_finding(profile bus-policy-value "bus_policy: not an object")
+    return()
+  endif()
+
+  string(JSON plen LENGTH "${doc}" bus_policy)
+  if(NOT plen EQUAL 6)
+    gbl_finding(profile bus-policy-value "bus_policy: field count")
+  endif()
+  gbl__profile_policy_source("${doc}" bus_policy "${GBL_PROFILE_BUS_CITE}" bus-policy-source)
+
+  gbl_json_type(rty "${doc}" bus_policy request_cycles)
+  if(NOT "${rty}" STREQUAL "OBJECT")
+    gbl_finding(profile bus-policy-value "bus_policy.request_cycles: not an object")
+  else()
+    string(JSON rlen LENGTH "${doc}" bus_policy request_cycles)
+    list(LENGTH GBL_PROFILE_BUS_REQUEST_KEYS rcount)
+    if(NOT rlen EQUAL rcount)
+      gbl_finding(profile bus-policy-value "bus_policy.request_cycles: field count")
+    endif()
+    foreach(k IN LISTS GBL_PROFILE_BUS_REQUEST_KEYS)
+      gbl_json_type(vty "${doc}" bus_policy request_cycles ${k})
+      if(NOT "${vty}" STREQUAL "NUMBER")
+        gbl_finding(profile bus-policy-value "bus_policy.request_cycles.${k}: expected 1")
+      else()
+        string(JSON value GET "${doc}" bus_policy request_cycles ${k})
+        if(NOT "${value}" STREQUAL "1")
+          gbl_finding(profile bus-policy-value "bus_policy.request_cycles.${k}: expected 1")
+        endif()
+      endif()
+    endforeach()
+  endif()
+
+  gbl_json_type(wty "${doc}" bus_policy widths_bytes)
+  if(NOT "${wty}" STREQUAL "ARRAY")
+    gbl_finding(profile bus-policy-value "bus_policy.widths_bytes: not an array")
+  else()
+    string(JSON wlen LENGTH "${doc}" bus_policy widths_bytes)
+    if(NOT wlen EQUAL 3)
+      gbl_finding(profile bus-policy-value "bus_policy.widths_bytes: expected [1, 2, 4]")
+    else()
+      foreach(i RANGE 0 2)
+        gbl_json_type(vty "${doc}" bus_policy widths_bytes ${i})
+        string(JSON value GET "${doc}" bus_policy widths_bytes ${i})
+        if(i EQUAL 0)
+          set(expected 1)
+        elseif(i EQUAL 1)
+          set(expected 2)
+        else()
+          set(expected 4)
+        endif()
+        if(NOT "${vty}" STREQUAL "NUMBER" OR NOT "${value}" STREQUAL "${expected}")
+          gbl_finding(profile bus-policy-value "bus_policy.widths_bytes: expected [1, 2, 4]")
+        endif()
+      endforeach()
+    endif()
+  endif()
+
+  gbl_json_type(aty "${doc}" bus_policy access_classes)
+  if(NOT "${aty}" STREQUAL "ARRAY")
+    gbl_finding(profile bus-policy-value "bus_policy.access_classes: not an array")
+  else()
+    string(JSON alen LENGTH "${doc}" bus_policy access_classes)
+    if(NOT alen EQUAL 2)
+      gbl_finding(profile bus-policy-value "bus_policy.access_classes: expected [nonsequential, sequential]")
+    else()
+      string(JSON first GET "${doc}" bus_policy access_classes 0)
+      string(JSON second GET "${doc}" bus_policy access_classes 1)
+      if(NOT "${first}" STREQUAL "nonsequential" OR NOT "${second}" STREQUAL "sequential")
+        gbl_finding(profile bus-policy-value "bus_policy.access_classes: expected [nonsequential, sequential]")
+      endif()
+    endif()
+  endif()
+
+  gbl_json_type(ity "${doc}" bus_policy internal_cycle_unit)
+  if(NOT "${ity}" STREQUAL "NUMBER")
+    gbl_finding(profile bus-policy-value "bus_policy.internal_cycle_unit: expected 1")
+  else()
+    string(JSON unit GET "${doc}" bus_policy internal_cycle_unit)
+    if(NOT "${unit}" STREQUAL "1")
+      gbl_finding(profile bus-policy-value "bus_policy.internal_cycle_unit: expected 1")
+    endif()
+  endif()
+endfunction()
+
+function(gbl__profile_initialization_policy doc)
+  gbl_json_type(pty "${doc}" initialization_policy)
+  if(NOT "${pty}" STREQUAL "OBJECT")
+    gbl_finding(profile init-policy "initialization_policy: missing or not an object")
+    return()
+  endif()
+  string(JSON plen LENGTH "${doc}" initialization_policy)
+  if(NOT plen EQUAL 6)
+    gbl_finding(profile init-policy "initialization_policy: field count")
+  endif()
+  gbl__profile_policy_source("${doc}" initialization_policy "${GBL_PROFILE_INIT_CITE}" init-policy)
+  foreach(k IN ITEMS memory_fill register_fill master_cycles open_bus)
+    gbl_json_type(vty "${doc}" initialization_policy ${k})
+    if(NOT "${vty}" STREQUAL "NUMBER")
+      gbl_finding(profile init-policy "initialization_policy.${k}: expected 0")
+    else()
+      string(JSON value GET "${doc}" initialization_policy ${k})
+      if(NOT "${value}" STREQUAL "0")
+        gbl_finding(profile init-policy "initialization_policy.${k}: expected 0")
+      endif()
+    endif()
+  endforeach()
+endfunction()
+
+function(gbl__profile_read_policy doc)
+  gbl_json_type(pty "${doc}" read_policy)
+  if(NOT "${pty}" STREQUAL "OBJECT")
+    gbl_finding(profile read-policy "read_policy: missing or not an object")
+    return()
+  endif()
+  string(JSON plen LENGTH "${doc}" read_policy)
+  if(NOT plen EQUAL 7)
+    gbl_finding(profile read-policy "read_policy: field count")
+  endif()
+  gbl__profile_policy_source("${doc}" read_policy "${GBL_PROFILE_READ_CITE}" read-policy)
+  foreach(k IN ITEMS absent_bios unsupported_io rom_tail)
+    gbl_json_string(value "${doc}" read_policy ${k})
+    if(NOT "${value}" STREQUAL "current-open-bus")
+      gbl_finding(profile read-policy "read_policy.${k}: expected current-open-bus")
+    endif()
+  endforeach()
+  gbl_json_string(latch "${doc}" read_policy latch_update)
+  if(NOT "${latch}" STREQUAL "mapped-read-width-replicated")
+    gbl_finding(profile read-policy "read_policy.latch_update: expected mapped-read-width-replicated")
+  endif()
+  gbl_json_string(write_latch "${doc}" read_policy write_latch)
+  if(NOT "${write_latch}" STREQUAL "preserve")
+    gbl_finding(profile read-policy "read_policy.write_latch: expected preserve")
+  endif()
+endfunction()
 
 # gbl__profile_dispute(<doc> <where> <key>...): when a `dispute` member exists at
 # <key>..., it must name a registry id (R_IDS in the caller's scope).
@@ -260,10 +427,25 @@ function(gbl__profile_unmodeled out doc)
   set(${out} "${ids}" PARENT_SCOPE)
 endfunction()
 
-# gbl__profile_doc_sync(<doc-file> <json-ids> <version-text>): the narrative
+# Check one narrative policy table against rows built from the profile values.
+function(gbl__profile_doc_policy_table text prefix expected_count)
+  string(REGEX MATCHALL "\\| ${prefix}\\.[^|]*\\|" rows "${text}")
+  list(LENGTH rows row_count)
+  if(NOT row_count EQUAL expected_count)
+    gbl_finding(profile bus-policy-doc "${prefix}: expected ${expected_count} rows, found ${row_count}")
+  endif()
+  foreach(row IN LISTS ARGN)
+    string(FIND "${text}" "${row}" at)
+    if(at EQUAL -1)
+      gbl_finding(profile bus-policy-doc "${prefix}: missing or stale row")
+    endif()
+  endforeach()
+endfunction()
+
+# gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the narrative
 # document must agree with the JSON. <version-text> is empty when the JSON
 # version is not valid (bad-version already reported).
-function(gbl__profile_doc_sync docfile json_ids version)
+function(gbl__profile_doc_sync docfile profile json_ids version)
   if(NOT EXISTS "${docfile}" OR IS_DIRECTORY "${docfile}")
     gbl_finding(profile doc-no-section "${docfile}: unreadable")
     return()
@@ -281,6 +463,43 @@ function(gbl__profile_doc_sync docfile json_ids version)
       gbl_finding(profile doc-version-mismatch "document ${dver}, profile ${version}")
     endif()
   endif()
+
+  foreach(heading IN ITEMS "## Bus policy" "## Initialization policy" "## Read policy")
+    string(FIND "${text}" "${heading}" heading_at)
+    if(heading_at EQUAL -1)
+      gbl_finding(profile bus-policy-doc "missing ${heading} section")
+    endif()
+  endforeach()
+
+  gbl_json_string(bus_source "${profile}" bus_policy source)
+  gbl_json_string(bus_cite "${profile}" bus_policy cite)
+  set(bus_rows)
+  foreach(k IN LISTS GBL_PROFILE_BUS_REQUEST_KEYS)
+    list(APPEND bus_rows "| bus_policy.request_cycles.${k} | 1 | ${bus_source} | ${bus_cite} |")
+  endforeach()
+  list(APPEND bus_rows
+    "| bus_policy.widths_bytes | [1, 2, 4] | ${bus_source} | ${bus_cite} |"
+    "| bus_policy.access_classes | [nonsequential, sequential] | ${bus_source} | ${bus_cite} |"
+    "| bus_policy.internal_cycle_unit | 1 | ${bus_source} | ${bus_cite} |")
+  gbl__profile_doc_policy_table("${text}" bus_policy 12 "${bus_rows}")
+
+  gbl_json_string(init_source "${profile}" initialization_policy source)
+  gbl_json_string(init_cite "${profile}" initialization_policy cite)
+  set(init_rows)
+  foreach(k IN ITEMS memory_fill register_fill master_cycles open_bus)
+    list(APPEND init_rows "| initialization_policy.${k} | 0 | ${init_source} | ${init_cite} |")
+  endforeach()
+  gbl__profile_doc_policy_table("${text}" initialization_policy 4 "${init_rows}")
+
+  gbl_json_string(read_source "${profile}" read_policy source)
+  gbl_json_string(read_cite "${profile}" read_policy cite)
+  set(read_rows
+    "| read_policy.absent_bios | current-open-bus | ${read_source} | ${read_cite} |"
+    "| read_policy.unsupported_io | current-open-bus | ${read_source} | ${read_cite} |"
+    "| read_policy.rom_tail | current-open-bus | ${read_source} | ${read_cite} |"
+    "| read_policy.latch_update | mapped-read-width-replicated | ${read_source} | ${read_cite} |"
+    "| read_policy.write_latch | preserve | ${read_source} | ${read_cite} |")
+  gbl__profile_doc_policy_table("${text}" read_policy 5 "${read_rows}")
 
   string(FIND "${text}" "\n## Unmodeled\n" at)
   set(doc_ids "")
@@ -408,6 +627,10 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
     gbl__profile_timing("${doc}")
   endif()
 
+  gbl__profile_bus_policy("${doc}")
+  gbl__profile_initialization_policy("${doc}")
+  gbl__profile_read_policy("${doc}")
+
   set(json_ids "")
   gbl_json_length(um_len "${doc}" unmodeled)
   if(um_len LESS 1)
@@ -417,7 +640,7 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
     gbl__profile_unmodeled(json_ids "${doc}")
   endif()
 
-  gbl__profile_doc_sync("${DOC}" "${json_ids}" "${version}")
+  gbl__profile_doc_sync("${DOC}" "${doc}" "${json_ids}" "${version}")
 
   gbl_findings_finish(profile "ok (agb v${version}, 11 timing constants, ${um_len} unmodeled)")
 endif()
