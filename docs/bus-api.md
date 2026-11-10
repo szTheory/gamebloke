@@ -180,8 +180,37 @@ second disposal does not release again.
 
 `gbl_rom_data` exposes a const pointer to the installed owned bytes, and
 `gbl_rom_size` returns their byte length. Both are read-only accessors and
-return null/zero for a null or uninitialized machine. Header diagnostics are
-not implemented in this loader slice; later header findings remain advisory
-under `direct-start`, and the owner-pending canonical logo digest stays a
-separate gate. This work does not establish hardware accuracy or broad game
-compatibility.
+return null/zero for a null or uninitialized machine.
+
+## Header diagnostics
+
+`gbl_rom_diagnostics` returns a by-value `gbl_header_diagnostics`. Its
+`loaded` flag is false in the zero/not-loaded lifecycle state and true only
+after a successful ROM load. The remaining fields are bounded enums:
+
+| Field | Values and meaning |
+|---|---|
+| `canonical_logo` | Always `UNCHECKED` while the real expected-logo digest is owner-pending. Checked-match values are reserved for a future authorized oracle. |
+| `logo_reason` | `OWNER_PENDING`; synthetic comparisons do not change this. |
+| `logo_window` | `ZERO` when bytes `[0x04, 0xA0)` are all zero, otherwise `NONZERO`. Zero is a project convention for a missing window, not a canonical logo result. |
+| `checksum` | `NOT_LOADED`, `OK`, or `MISMATCH`. For a loaded image, subtract bytes `0xA0` through `0xBC` and `0x19` from zero modulo 256, then compare with byte `0xBD`. |
+| `game_code` | `NOT_LOADED`, `ORDINARY`, or `UNUSUAL`. The four bytes at `[0xAC, 0xB0)` are ordinary only when each is ASCII `A`–`Z` or `0`–`9`; their contents are not retained. |
+
+These findings use fixed offsets inside the minimum `0xC0`-byte header and are
+advisory under `direct-start`; an otherwise size-valid image still loads.
+Diagnostics are parsed from the copied candidate, committed only with a
+successful load, preserved across reset, and cleared on disposal. Refused and
+allocation-failed loads preserve prior diagnostics and caller bytes. The
+offsets and checksum convention follow GBATEK 3.06, “GBA Cartridge Header,” a
+community reference rather than Nintendo documentation or hardware
+qualification.
+
+`gbl_header_compare_bytes` is a generic span-comparison helper for valid,
+caller-owned spans: it returns `INVALID_ARGUMENT` for a null span or zero
+length, `EQUAL` when all bytes match, and `DIFFERENT` on the first mismatch.
+Tests use only synthetic spans to prove this comparison mechanics. No real
+logo bytes or expected digest are embedded or inferred from these tests.
+Canonical logo comparison therefore remains `UNCHECKED` with reason
+`OWNER_PENDING`, including when the window is all zero. LOAD-02 remains
+**PARTIAL/Pending** until the owner supplies the real digest. This work does
+not establish hardware accuracy or broad game compatibility.

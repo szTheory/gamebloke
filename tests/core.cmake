@@ -70,6 +70,36 @@ gbl__add_bus_mutation_test(bus.nc.video_bytes video_bytes video)
 gbl__add_bus_mutation_test(bus.nc.clock_overflow clock_overflow timing)
 gbl__add_bus_mutation_test(bus.pos.clean clean video)
 
+function(gbl__add_loader_mutation_test test_name mutation selector)
+  if(mutation STREQUAL "clean")
+    set(labels core loader positive)
+  else()
+    set(labels control core loader)
+  endif()
+  gbl_add_test(
+    NAME "${test_name}"
+    LABELS ${labels}
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=loader_${mutation}" "-DSELECTOR=${selector}"
+      "-DCOMPILER=${CMAKE_C_COMPILER}"
+      "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
+      "-DC_FLAGS=${CMAKE_C_FLAGS}"
+      "-DC_FLAGS_CONFIG=${GBL_MUTATION_C_FLAGS_CONFIG}"
+      "-DLINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+      "-DLINKER_FLAGS_CONFIG=${GBL_MUTATION_LINK_FLAGS_CONFIG}"
+      "-DVERSION=${PROJECT_VERSION}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/core_mutation.cmake")
+endfunction()
+
+gbl__add_loader_mutation_test(
+  loader.nc.allocate_before_validate allocate_before_validate lengths)
+gbl__add_loader_mutation_test(loader.nc.refusal_state refusal_state diagnostics)
+gbl__add_loader_mutation_test(loader.nc.allocation_state allocation_state diagnostics)
+gbl__add_loader_mutation_test(loader.nc.caller_bytes caller_bytes diagnostics)
+gbl__add_loader_mutation_test(loader.nc.logo_claim logo_claim diagnostics)
+gbl__add_loader_mutation_test(loader.pos.clean clean diagnostics)
+
 gbl_add_test(
   NAME machine.state
   LABELS core machine unit
@@ -85,6 +115,10 @@ gbl_add_test(
   NAME loader.transaction
   LABELS core loader unit
   COMMAND $<TARGET_FILE:loader_test> transaction)
+gbl_add_test(
+  NAME loader.diagnostics
+  LABELS core loader unit
+  COMMAND $<TARGET_FILE:loader_test> diagnostics)
 
 gbl_add_test(
   NAME runner.help

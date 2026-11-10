@@ -107,7 +107,107 @@ function(gbl__run_pair mutation label)
     REGEX "bus: ${SELECTOR} ok")
 endfunction()
 
-if(CASE STREQUAL "clean")
+function(gbl__mutate_loader loader_source mutation)
+  if(mutation STREQUAL "allocate_before_validate")
+    gbl_text_mutate("${loader_source}" "    if (length == 0u) {" [=[    if (length == 0u) {
+        void *probe = machine->allocator.allocate(
+            machine->allocator.context, length);
+        if (probe != NULL) {
+            machine->allocator.release(machine->allocator.context, probe, length);
+        }]=])
+  elseif(mutation STREQUAL "refusal_state")
+    gbl_text_mutate("${loader_source}" "    if (length < 0xC0u) {" [=[    if (length < 0xC0u) {
+        machine->open_bus ^= UINT32_C(1);]=])
+  elseif(mutation STREQUAL "allocation_state")
+    gbl_text_mutate("${loader_source}" "    if (candidate == NULL) {" [=[    if (candidate == NULL) {
+        machine->open_bus ^= UINT32_C(1);]=])
+  elseif(mutation STREQUAL "caller_bytes")
+    gbl_text_mutate("${loader_source}" "    if (length < 0xC0u) {" [=[    if (length < 0xC0u) {
+        *(uint8_t *)(uintptr_t)image ^= UINT8_C(1);]=])
+  elseif(mutation STREQUAL "logo_claim")
+    gbl_text_mutate("${loader_source}"
+      "    diagnostics.canonical_logo = GBL_HEADER_LOGO_UNCHECKED;"
+      "    diagnostics.canonical_logo = GBL_HEADER_LOGO_CHECKED_MATCH;")
+  else()
+    message(FATAL_ERROR "mutation: unknown loader case '${mutation}'")
+  endif()
+endfunction()
+
+function(gbl__copy_loader_inputs sandbox)
+  file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
+    "${sandbox}/tests")
+  foreach(source IN ITEMS version.c machine.c bus.c loader.c)
+    file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
+  endforeach()
+  file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
+    "${sandbox}/include/gamebloke/gamebloke.h")
+  file(COPY_FILE "${SRC}/tests/loader_test.c" "${sandbox}/tests/loader_test.c")
+  file(COPY_FILE "${SRC}/tests/check.h" "${sandbox}/tests/check.h")
+  file(COPY_FILE "${SRC}/tests/state_check.h"
+    "${sandbox}/tests/state_check.h")
+endfunction()
+
+function(gbl__compile_loader sandbox mutation output_executable)
+  gbl__copy_loader_inputs("${sandbox}")
+  if(NOT mutation STREQUAL "")
+    gbl__mutate_loader("${sandbox}/src/loader.c" "${mutation}")
+  endif()
+
+  separate_arguments(base_flags NATIVE_COMMAND "${C_FLAGS}")
+  separate_arguments(config_flags NATIVE_COMMAND "${C_FLAGS_CONFIG}")
+  separate_arguments(link_flags NATIVE_COMMAND "${LINKER_FLAGS}")
+  separate_arguments(link_config_flags NATIVE_COMMAND "${LINKER_FLAGS_CONFIG}")
+  set(warning_flags
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes
+    -Wmissing-prototypes -Wundef -Wcast-qual -Werror)
+  set(core_flags -fno-stack-protector -U_FORTIFY_SOURCE)
+  set(executable "${sandbox}/loader_test")
+  execute_process(
+    COMMAND "${COMPILER}" -std=c17 ${base_flags} ${config_flags}
+      ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
+      "-I${sandbox}/include" "-I${sandbox}/tests"
+      "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
+      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/tests/loader_test.c" -o "${executable}"
+      ${link_flags} ${link_config_flags}
+    RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
+    ERROR_VARIABLE compile_err)
+  if(NOT "${compile_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "mutation: compile failed (${compile_result}); not semantic evidence\n${compile_out}${compile_err}")
+  endif()
+  set(${output_executable} "${executable}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__run_loader_pair mutation label)
+  string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
+  set(root "${BIN}/nc/core_mutation/${CASE}-${label}-${run_id}")
+  gbl__compile_loader("${root}/mutant" "${mutation}" mutant_executable)
+  gbl_expect_fail(COMMAND "${mutant_executable}" "${SELECTOR}"
+    REGEX "check failed")
+  gbl__compile_loader("${root}/clean" "" clean_executable)
+  gbl_expect_pass(COMMAND "${clean_executable}" "${SELECTOR}"
+    REGEX "loader: ${SELECTOR} ok")
+endfunction()
+
+function(gbl__run_loader_clean)
+  string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
+  set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
+  gbl__compile_loader("${root}/clean" "" clean_executable)
+  gbl_expect_pass(COMMAND "${clean_executable}" lengths
+    REGEX "loader: lengths ok")
+  gbl_expect_pass(COMMAND "${clean_executable}" diagnostics
+    REGEX "loader: diagnostics ok")
+endfunction()
+
+if(CASE MATCHES "^loader_")
+  if(CASE STREQUAL "loader_clean")
+    gbl__run_loader_clean()
+  else()
+    string(REPLACE "loader_" "" loader_mutation "${CASE}")
+    gbl__run_loader_pair("${loader_mutation}" "${loader_mutation}")
+  endif()
+elseif(CASE STREQUAL "clean")
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
   gbl__compile_bus("${root}/clean" "" clean_executable)
