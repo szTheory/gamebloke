@@ -168,7 +168,18 @@ elseif(CASE STREQUAL "bus_policy_doc")
   gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
     "<pre>\n${valid_table}\n</pre>\n| Setting | Value | Label | Citation |")
   expect_detail(bus-policy-doc
-    "bus_policy: unsupported raw HTML block <pre>" "${p}" "${d}")
+    "unsupported raw HTML block <pre>" "${p}" "${d}")
+  profile_copy(p hidden_bus_heading)
+  doc_copy(d hidden_bus_heading)
+  gbl_text_mutate("${d}" "\n## Bus policy\n"
+    "\n<!--\n## Bus policy\n-->\n")
+  expect_detail(bus-policy-doc "missing ## Bus policy section" "${p}" "${d}")
+  profile_copy(p html_crosses_policy_sections)
+  doc_copy(d html_crosses_policy_sections)
+  gbl_text_mutate("${d}" "\n## Bus policy\n"
+    "\n<pre>\n## Bus policy\n")
+  file(APPEND "${d}" "\n<!-- </pre> -->\n")
+  expect_detail(bus-policy-doc "unsupported raw HTML block <pre>" "${p}" "${d}")
   profile_copy(p extra_row)
   doc_copy(d extra_row)
   gbl_text_mutate("${d}"
@@ -252,7 +263,17 @@ elseif(CASE STREQUAL "read_policy")
 
 elseif(CASE STREQUAL "bus_policy_copy")
   profile_copy(p bus_policy)
-  doc_copy(d bus_policy)
+  doc_copy(d bus_policy_fenced_pre)
+  file(READ "${SRC}/docs/profile-agb.md" source_doc)
+  string(FIND "${source_doc}" "| Setting | Value | Label | Citation |" table_start)
+  string(FIND "${source_doc}" "\n## Initialization policy" table_end)
+  if(table_start EQUAL -1 OR table_end EQUAL -1 OR table_end LESS table_start)
+    message(FATAL_ERROR "mutate: no-match: source bus policy table")
+  endif()
+  math(EXPR table_length "${table_end}-${table_start}")
+  string(SUBSTRING "${source_doc}" ${table_start} ${table_length} valid_table)
+  gbl_text_mutate("${d}" "## Bus policy\n"
+    "## Bus policy\n\n```html\n<pre>\n${valid_table}\n</pre>\n```\n")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
     REGEX "profile: ok \\(agb v2, 11 timing constants, 11 unmodeled\\)")
@@ -483,6 +504,12 @@ elseif(CASE STREQUAL "doc_version_mismatch")
   gbl_text_mutate("${d}" "\nprofile_version: 2\n"
     "\n<!--\nprofile_version: 2\n-->\n")
   expect_detail(doc-version-mismatch "no profile_version line" "${p}" "${d}")
+  profile_copy(p duplicate_version)
+  doc_copy(d duplicate_version)
+  gbl_text_mutate("${d}" "\nprofile_version: 2\n"
+    "\nprofile_version: 2\nprofile_version: 999\n")
+  expect_detail(doc-version-mismatch
+    "expected exactly one profile_version line, found 2" "${p}" "${d}")
 
 elseif(CASE STREQUAL "doc_no_section")
   # A renamed heading, then the right heading with every table row removed: an
@@ -511,6 +538,11 @@ elseif(CASE STREQUAL "doc_no_section")
   string(SUBSTRING "${content}" 0 ${table_start} head)
   string(SUBSTRING "${content}" ${table_start} -1 table)
   file(WRITE "${d}" "${head}<!--\n${table}-->\n")
+  expect_code(doc-no-section "${p}" "${d}")
+  profile_copy(p hidden_unmodeled_heading)
+  doc_copy(d hidden_unmodeled_heading)
+  gbl_text_mutate("${d}" "\n## Unmodeled\n"
+    "\n<!--\n## Unmodeled\n-->\n")
   expect_code(doc-no-section "${p}" "${d}")
 
 elseif(CASE STREQUAL "coordinated_change")

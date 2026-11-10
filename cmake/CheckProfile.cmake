@@ -626,7 +626,7 @@ function(gbl__profile_doc_without_html_comments out content)
     string(SUBSTRING "${remaining}" ${comment_body_start} -1 comment_tail)
     string(FIND "${comment_tail}" "-->" comment_end)
     if(comment_end EQUAL -1)
-      # An unterminated HTML comment consumes the rest of this section.
+      # An unterminated HTML comment consumes the rest of this document.
       string(APPEND visible "\n")
       break()
     endif()
@@ -638,8 +638,10 @@ function(gbl__profile_doc_without_html_comments out content)
   set(${out} "${visible}" PARENT_SCOPE)
 endfunction()
 
-# Apply the visibility filters used by every synchronized Markdown value.
-function(gbl__profile_doc_visible_content out content)
+# Normalize the one canonical profile document before looking up any
+# synchronized value. Its supported format is plain Markdown: fenced and
+# indented examples and HTML comments are ignored; raw HTML blocks are rejected.
+function(gbl__profile_doc_normalize out content)
   gbl__profile_doc_without_code(code_free "${content}")
   gbl__profile_doc_without_html_comments(comment_free "${code_free}")
   set(${out} "${comment_free}" PARENT_SCOPE)
@@ -772,32 +774,24 @@ function(gbl__profile_doc_unmodeled_table out content)
   set(${out} "${table}" PARENT_SCOPE)
 endfunction()
 
-# Check one narrative policy table against rows built from the profile values.
-# Only inspect the section beginning at <heading>; matching rows elsewhere in
-# the document must not satisfy a missing or stale policy table.
-function(gbl__profile_doc_policy_table text heading prefix expected_count expected_rows_var)
-  string(FIND "${text}" "\n${heading}\n" heading_at)
+# Check one table in the already-normalized canonical document against rows
+# built from the profile values. Matching rows elsewhere cannot satisfy it.
+function(gbl__profile_doc_policy_table normalized_text heading prefix expected_count expected_rows_var)
+  string(FIND "${normalized_text}" "\n${heading}\n" heading_at)
   if(heading_at EQUAL -1)
     gbl_finding(profile bus-policy-doc "missing ${heading} section")
     return()
   endif()
   string(LENGTH "\n${heading}\n" heading_length)
   math(EXPR section_start "${heading_at}+${heading_length}")
-  string(SUBSTRING "${text}" ${section_start} -1 section)
+  string(SUBSTRING "${normalized_text}" ${section_start} -1 section)
   string(REGEX MATCH "\n#+[ \t]" next_heading "${section}")
   if(NOT "${next_heading}" STREQUAL "")
     string(FIND "${section}" "${next_heading}" next_heading_at)
     string(SUBSTRING "${section}" 0 ${next_heading_at} section)
   endif()
 
-  gbl__profile_doc_visible_content(visible_section "${section}")
-  gbl__profile_doc_unsupported_html(unsupported_tag "${visible_section}")
-  if(NOT "${unsupported_tag}" STREQUAL "")
-    gbl_finding(profile bus-policy-doc
-      "${prefix}: unsupported raw HTML block <${unsupported_tag}>")
-    return()
-  endif()
-  gbl__profile_doc_first_table(table "${visible_section}" "${prefix}")
+  gbl__profile_doc_first_table(table "${section}" "${prefix}")
   if("${table}" STREQUAL "")
     gbl_finding(profile bus-policy-doc "${prefix}: missing policy table")
     return()
@@ -837,31 +831,70 @@ function(gbl__profile_doc_policy_table text heading prefix expected_count expect
   endforeach()
 endfunction()
 
-# gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the narrative
-# document must agree with the JSON. <version-text> is empty when the JSON
-# version is not valid (bad-version already reported).
+# gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the canonical
+# profile narrative must agree with the JSON. Normalize once before any
+# metadata, heading, section, or table lookup. <version-text> is empty when the
+# JSON version is not valid (bad-version already reported).
 function(gbl__profile_doc_sync docfile profile json_ids version)
   if(NOT EXISTS "${docfile}" OR IS_DIRECTORY "${docfile}")
     gbl_finding(profile doc-no-section "${docfile}: unreadable")
     return()
   endif()
   # file(READ), never file(STRINGS): lines may hold semicolons or brackets.
-  file(READ "${docfile}" text)
-  set(text "\n${text}")
+  file(READ "${docfile}" raw_text)
+  set(raw_text "\n${raw_text}")
+  gbl__profile_doc_normalize(normalized_text "${raw_text}")
+  unset(raw_text)
 
-  gbl__profile_doc_visible_content(visible_text "${text}")
-  string(REGEX MATCH "\nprofile_version: ([0-9]+)(\n|$)" vline "${visible_text}")
-  if("${vline}" STREQUAL "")
+  # Reject unsupported HTML in the canonical profile document before finding
+  # any synchronized sections. This catches blocks that begin before a section
+  # and span across its heading or table.
+  gbl__profile_doc_unsupported_html(unsupported_tag "${normalized_text}")
+  if(NOT "${unsupported_tag}" STREQUAL "")
+    gbl_finding(profile bus-policy-doc
+      "unsupported raw HTML block <${unsupported_tag}>")
+    return()
+  endif()
+
+  # Count complete standalone lines instead of matching one substring; a
+  # second contradictory visible version must not be silently ignored.
+  set(remaining "${normalized_text}")
+  set(version_count 0)
+  set(document_version "")
+  while(TRUE)
+    string(FIND "${remaining}" "\n" line_end)
+    if(line_end EQUAL -1)
+      set(line "${remaining}")
+      set(remaining "")
+      set(last_line TRUE)
+    else()
+      string(SUBSTRING "${remaining}" 0 ${line_end} line)
+      math(EXPR next_line "${line_end}+1")
+      string(SUBSTRING "${remaining}" ${next_line} -1 remaining)
+      set(last_line FALSE)
+    endif()
+    if("${line}" MATCHES "^profile_version: ([0-9]+)$")
+      math(EXPR version_count "${version_count}+1")
+      set(document_version "${CMAKE_MATCH_1}")
+    endif()
+    if(last_line)
+      break()
+    endif()
+  endwhile()
+
+  if(version_count EQUAL 0)
     gbl_finding(profile doc-version-mismatch "no profile_version line")
+  elseif(version_count GREATER 1)
+    gbl_finding(profile doc-version-mismatch
+      "expected exactly one profile_version line, found ${version_count}")
   elseif(NOT "${version}" STREQUAL "")
-    set(dver "${CMAKE_MATCH_1}")
-    if(NOT "${dver}" STREQUAL "${version}")
-      gbl_finding(profile doc-version-mismatch "document ${dver}, profile ${version}")
+    if(NOT "${document_version}" STREQUAL "${version}")
+      gbl_finding(profile doc-version-mismatch "document ${document_version}, profile ${version}")
     endif()
   endif()
 
   foreach(heading IN ITEMS "## Bus policy" "## Initialization policy" "## Read policy")
-    string(FIND "${text}" "${heading}" heading_at)
+    string(FIND "${normalized_text}" "${heading}" heading_at)
     if(heading_at EQUAL -1)
       gbl_finding(profile bus-policy-doc "missing ${heading} section")
     endif()
@@ -878,7 +911,7 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     "| bus_policy.widths_bytes | [1, 2, 4] | ${bus_source} | ${bus_cite_row} |"
     "| bus_policy.access_classes | [nonsequential, sequential] | ${bus_source} | ${bus_cite_row} |"
     "| bus_policy.internal_cycle_unit | 1 | ${bus_source} | ${bus_cite_row} |")
-  gbl__profile_doc_policy_table("${text}" "## Bus policy" bus_policy 12 bus_rows)
+  gbl__profile_doc_policy_table("${normalized_text}" "## Bus policy" bus_policy 12 bus_rows)
 
   gbl_json_string(init_source "${profile}" initialization_policy source)
   gbl_json_string(init_cite "${profile}" initialization_policy cite)
@@ -887,7 +920,7 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
   foreach(k IN ITEMS memory_fill register_fill master_cycles open_bus)
     list(APPEND init_rows "| initialization_policy.${k} | 0 | ${init_source} | ${init_cite_row} |")
   endforeach()
-  gbl__profile_doc_policy_table("${text}" "## Initialization policy"
+  gbl__profile_doc_policy_table("${normalized_text}" "## Initialization policy"
     initialization_policy 4 init_rows)
 
   gbl_json_string(read_source "${profile}" read_policy source)
@@ -899,26 +932,19 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     "| read_policy.rom_tail | current-open-bus | ${read_source} | ${read_cite_row} |"
     "| read_policy.latch_update | mapped-read-width-replicated | ${read_source} | ${read_cite_row} |"
     "| read_policy.write_latch | preserve | ${read_source} | ${read_cite_row} |")
-  gbl__profile_doc_policy_table("${text}" "## Read policy" read_policy 5 read_rows)
+  gbl__profile_doc_policy_table("${normalized_text}" "## Read policy" read_policy 5 read_rows)
 
-  string(FIND "${text}" "\n## Unmodeled\n" at)
+  string(FIND "${normalized_text}" "\n## Unmodeled\n" at)
   set(doc_ids "")
   if(NOT at EQUAL -1)
     string(LENGTH "\n## Unmodeled" hlen)
     math(EXPR from "${at}+${hlen}")
-    string(SUBSTRING "${text}" ${from} -1 section)
+    string(SUBSTRING "${normalized_text}" ${from} -1 section)
     string(FIND "${section}" "\n## " nxt)
     if(NOT nxt EQUAL -1)
       string(SUBSTRING "${section}" 0 ${nxt} section)
     endif()
-    gbl__profile_doc_visible_content(visible_section "${section}")
-    gbl__profile_doc_unsupported_html(unsupported_tag "${visible_section}")
-    if(NOT "${unsupported_tag}" STREQUAL "")
-      gbl_finding(profile doc-no-section
-        "unsupported raw HTML block <${unsupported_tag}> in ## Unmodeled")
-      return()
-    endif()
-    gbl__profile_doc_unmodeled_table(table "${visible_section}")
+    gbl__profile_doc_unmodeled_table(table "${section}")
     string(REGEX MATCHALL "\n[ \t]*\\|[ \t]*`[^`]+`" rows "${table}")
     foreach(row IN LISTS rows)
       string(FIND "${row}" "`" id_start)

@@ -4,6 +4,12 @@
 that explains it; a check compares the two, so a change to the unmodeled list or
 the version must be made in both files together.
 
+This canonical profile document uses plain Markdown only. The synchronization
+check ignores fenced and indented examples and HTML comments, and requires its
+version line, section headings, and pipe tables to be visible. Raw HTML blocks
+are unsupported anywhere in this file; use fenced code examples when showing
+HTML text.
+
 profile_version: 2
 
 Every timing constant carries exactly one source label: REF (a reference
