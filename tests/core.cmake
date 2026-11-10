@@ -28,6 +28,17 @@ gbl_add_test(
   LABELS core machine unit
   COMMAND $<TARGET_FILE:bus_test> state)
 
+add_executable(loader_test tests/loader_test.c)
+target_link_libraries(loader_test PRIVATE gamebloke_core gbl_warnings)
+gbl_add_test(
+  NAME loader.lengths
+  LABELS core loader unit
+  COMMAND $<TARGET_FILE:loader_test> lengths)
+gbl_add_test(
+  NAME loader.transaction
+  LABELS core loader unit
+  COMMAND $<TARGET_FILE:loader_test> transaction)
+
 gbl_add_test(
   NAME runner.help
   LABELS runner unit

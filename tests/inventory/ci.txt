@@ -134,6 +134,8 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+loader.lengths core,loader,unit
+loader.transaction core,loader,unit
 machine.state core,machine,unit
 manifest.lint gate,manifest
 manifest.nc.bad_bios_requirement control,manifest
