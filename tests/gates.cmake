@@ -158,3 +158,32 @@ gbl_add_test(
   NAME traps.pos.clean
   LABELS positive traps
   COMMAND ${GBL_SIG_DRIVER} -DCASE=clean -P "${GBL_SIGNAL_CASE}")
+
+# ---- evidence contracts (Phase 2) -------------------------------------------
+# The Phase 2 validator gates and their controls follow, run in the ci and
+# hygiene lanes. Register only through gbl_add_test at this top-level directory
+# scope (D-04): every validator reason code gets a negative control that mutates
+# a copy of a real input at test time, and every validator gets a positive
+# control. No bad example is committed.
+set(GBL_EVID_DRIVER
+  "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}")
+set(GBL_CONTRACT_CASE "${CMAKE_SOURCE_DIR}/tests/gates/contract_case.cmake")
+
+# The real vocabulary passes the validator that pins the nine states.
+gbl_add_test(
+  NAME contract.lint
+  LABELS contract gate
+  COMMAND "${CMAKE_COMMAND}" "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckContract.cmake")
+
+foreach(case IN ITEMS state_set)
+  gbl_add_test(
+    NAME contract.nc.${case}
+    LABELS contract control
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_CONTRACT_CASE}")
+endforeach()
+
+gbl_add_test(
+  NAME contract.pos.copy
+  LABELS contract positive
+  COMMAND ${GBL_EVID_DRIVER} -DCASE=copy -P "${GBL_CONTRACT_CASE}")

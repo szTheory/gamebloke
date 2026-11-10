@@ -2,6 +2,9 @@
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
 ci.actions.pinned ci,gate
 ci.yml.policy ci,gate
+contract.lint contract,gate
+contract.nc.state_set contract,control
+contract.pos.copy contract,positive
 hygiene.hook hygiene,unit
 hygiene.nc.credential control,hygiene
 hygiene.nc.credential_upper control,hygiene
