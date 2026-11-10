@@ -92,3 +92,30 @@ gbl_add_test(
   SKIPPABLE
   COMMAND "${CMAKE_COMMAND}" -DMODE=owner-local "-DSRC=${CMAKE_SOURCE_DIR}"
     -P "${GBL_SIG_CHECK}")
+
+# Controls: every matching path and every digest-list failure reason is driven
+# by a synthesized stand-in or a mutated sandbox copy (D-03, D-08). Positive
+# companions run the same gate on clean input.
+set(GBL_SIG_DRIVER
+  "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}")
+set(GBL_SIG_CASE "${CMAKE_SOURCE_DIR}/tests/gates/signature_case.cmake")
+
+foreach(case IN ITEMS
+    logo bios rom_ext save_ext binary_unlisted bad_digest_row
+    digest_too_short digest_wrong_size
+    digests_missing_list digests_bad_bios_row digests_no_gba_bios
+    digests_logo_row_count digests_bad_logo_row digests_wrong_default_path
+    owner_file_mismatch)
+  gbl_add_test(
+    NAME signature.nc.${case}
+    LABELS control signature
+    COMMAND ${GBL_SIG_DRIVER} "-DCASE=${case}" -P "${GBL_SIG_CASE}")
+endforeach()
+
+foreach(case IN ITEMS
+    binary_allowlisted bios_unlisted_digest digests_copy owner_file_match)
+  gbl_add_test(
+    NAME signature.pos.${case}
+    LABELS positive signature
+    COMMAND ${GBL_SIG_DRIVER} "-DCASE=${case}" -P "${GBL_SIG_CASE}")
+endforeach()
