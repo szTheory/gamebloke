@@ -95,6 +95,10 @@ endfunction()
 gbl__add_loader_mutation_test(
   loader.nc.allocate_before_validate allocate_before_validate lengths)
 gbl__add_loader_mutation_test(loader.nc.refusal_state refusal_state diagnostics)
+gbl__add_loader_mutation_test(
+  loader.nc.refusal_rom_identity refusal_rom_identity transaction)
+gbl__add_loader_mutation_test(
+  loader.nc.refusal_allocator_identity refusal_allocator_identity transaction)
 gbl__add_loader_mutation_test(loader.nc.allocation_state allocation_state diagnostics)
 gbl__add_loader_mutation_test(loader.nc.caller_bytes caller_bytes diagnostics)
 gbl__add_loader_mutation_test(loader.nc.logo_claim logo_claim diagnostics)

@@ -60,6 +60,8 @@ function(gbl__copy_inputs sandbox)
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/bus_test.c" "${sandbox}/tests/bus_test.c")
   file(COPY_FILE "${SRC}/tests/check.h" "${sandbox}/tests/check.h")
+  file(COPY_FILE "${SRC}/tests/state_check.h"
+    "${sandbox}/tests/state_check.h")
 endfunction()
 
 function(gbl__compile_bus sandbox mutation output_executable)
@@ -118,6 +120,14 @@ function(gbl__mutate_loader loader_source mutation)
   elseif(mutation STREQUAL "refusal_state")
     gbl_text_mutate("${loader_source}" "    if (length < 0xC0u) {" [=[    if (length < 0xC0u) {
         machine->open_bus ^= UINT32_C(1);]=])
+  elseif(mutation STREQUAL "refusal_rom_identity")
+    gbl_text_mutate("${loader_source}" "    if (length < 0xC0u) {" [=[    if (length < 0xC0u) {
+        if (machine->rom != NULL) {
+            machine->rom = (uint8_t *)(uintptr_t)image;
+        }]=])
+  elseif(mutation STREQUAL "refusal_allocator_identity")
+    gbl_text_mutate("${loader_source}" "        result.reason = GBL_LOAD_REASON_ROM_SHORT;" [=[        result.reason = GBL_LOAD_REASON_ROM_SHORT;
+        machine->allocator.allocate = NULL;]=])
   elseif(mutation STREQUAL "allocation_state")
     gbl_text_mutate("${loader_source}" "    if (candidate == NULL) {" [=[    if (candidate == NULL) {
         machine->open_bus ^= UINT32_C(1);]=])
@@ -183,8 +193,12 @@ function(gbl__run_loader_pair mutation label)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-${label}-${run_id}")
   gbl__compile_loader("${root}/mutant" "${mutation}" mutant_executable)
+  set(failure_regex "check failed")
+  if(mutation MATCHES "^refusal_(rom|allocator)_identity$")
+    set(failure_regex "check failed: gbl_test_same_instance_identity_equal")
+  endif()
   gbl_expect_fail(COMMAND "${mutant_executable}" "${SELECTOR}"
-    REGEX "check failed")
+    REGEX "${failure_regex}")
   gbl__compile_loader("${root}/clean" "" clean_executable)
   gbl_expect_pass(COMMAND "${clean_executable}" "${SELECTOR}"
     REGEX "loader: ${SELECTOR} ok")

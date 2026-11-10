@@ -193,6 +193,48 @@ static void set_nondefault_state(gbl_machine *machine)
     machine->oam[GBL_OAM_SIZE - 1u] = 0x22u;
 }
 
+static void check_identity_comparison(host_storage *storage)
+{
+    uint8_t identical_roms[2][4] = {
+        { 0x10u, 0x20u, 0x30u, 0x40u },
+        { 0x10u, 0x20u, 0x30u, 0x40u }
+    };
+    gbl_machine before = { 0 };
+    gbl_machine after;
+
+    before.rom = identical_roms[0];
+    before.rom_length = sizeof(identical_roms[0]);
+    before.allocator.context = storage;
+    before.allocator.allocate = host_allocate;
+    before.allocator.release = host_release;
+    after = before;
+    CHECK(gbl_test_canonical_equal(&before, &after));
+    CHECK(gbl_test_same_instance_identity_equal(&before, &after));
+
+    after.rom = identical_roms[1];
+    CHECK(gbl_test_canonical_equal(&before, &after));
+    CHECK(!gbl_test_same_instance_identity_equal(&before, &after));
+
+    after = before;
+    --after.rom_length;
+    CHECK(!gbl_test_same_instance_identity_equal(&before, &after));
+
+    after = before;
+    after.allocator.context = &after;
+    CHECK(gbl_test_canonical_equal(&before, &after));
+    CHECK(!gbl_test_same_instance_identity_equal(&before, &after));
+
+    after = before;
+    after.allocator.allocate = NULL;
+    CHECK(gbl_test_canonical_equal(&before, &after));
+    CHECK(!gbl_test_same_instance_identity_equal(&before, &after));
+
+    after = before;
+    after.allocator.release = NULL;
+    CHECK(gbl_test_canonical_equal(&before, &after));
+    CHECK(!gbl_test_same_instance_identity_equal(&before, &after));
+}
+
 static void expect_failure_unchanged(
     gbl_machine *machine, host_storage *storage, const uint8_t *image,
     const uint8_t *original, size_t caller_capacity, size_t length,
@@ -217,6 +259,7 @@ static void expect_failure_unchanged(
     result = gbl_load_rom(machine, image, length);
     CHECK(result.status == expected_status);
     CHECK(result.reason == expected_reason);
+    CHECK(gbl_test_same_instance_identity_equal(before, machine));
     CHECK(storage->allocate_calls == allocate_before + expected_allocate_delta);
     CHECK(storage->release_calls == release_before);
     if (storage->release_calls == release_before) {
@@ -267,6 +310,7 @@ static int run_lengths(void)
         free(original);
         return 1;
     }
+    check_identity_comparison(&storage);
     fill_synthetic(image, GBL_TEST_IMAGE_CAPACITY, 0x31u);
     for (index = 0u; index < GBL_TEST_IMAGE_CAPACITY; ++index) {
         original[index] = image[index];

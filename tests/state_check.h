@@ -62,6 +62,20 @@ static bool gbl_test_canonical_equal(const gbl_machine *left,
     return true;
 }
 
+/* Compare ownership bindings only between a machine and its own snapshot.
+ * Canonical equality and its digest intentionally remain portable across
+ * independent machine instances. */
+static bool gbl_test_same_instance_identity_equal(
+    const gbl_machine *before, const gbl_machine *after)
+{
+    return before != NULL && after != NULL &&
+           before->rom == after->rom &&
+           before->rom_length == after->rom_length &&
+           before->allocator.context == after->allocator.context &&
+           before->allocator.allocate == after->allocator.allocate &&
+           before->allocator.release == after->allocator.release;
+}
+
 static uint64_t gbl_test_digest_byte(uint64_t digest, uint8_t byte)
 {
     return (digest ^ (uint64_t)byte) * UINT64_C(1099511628211);

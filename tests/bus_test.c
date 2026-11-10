@@ -1,5 +1,6 @@
 #include "check.h"
 #include "gamebloke/gamebloke.h"
+#include "state_check.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -53,19 +54,6 @@ static void test_release(void *context, void *pointer, size_t size)
     (void)pointer;
     (void)size;
     ++(*release_count);
-}
-
-static bool bytes_equal(const uint8_t *left, const uint8_t *right,
-                        size_t length)
-{
-    size_t index;
-
-    for (index = 0u; index < length; ++index) {
-        if (left[index] != right[index]) {
-            return false;
-        }
-    }
-    return true;
 }
 
 static bool bytes_are_zero(const uint8_t *bytes, size_t length)
@@ -222,107 +210,6 @@ static void check_decode_boundaries(gbl_machine *machine)
     }
 }
 
-/* Compare canonical content rather than structure padding, allocator
- * callbacks, or pointer identity. ROM bytes are part of canonical state. */
-static bool canonical_equal(const gbl_machine *left,
-                            const gbl_machine *right)
-{
-    if (left->initialized != right->initialized ||
-        left->master_cycles != right->master_cycles ||
-        left->open_bus != right->open_bus ||
-        left->dispcnt != right->dispcnt ||
-        left->header_diagnostics.loaded !=
-            right->header_diagnostics.loaded ||
-        left->header_diagnostics.canonical_logo !=
-            right->header_diagnostics.canonical_logo ||
-        left->header_diagnostics.logo_reason !=
-            right->header_diagnostics.logo_reason ||
-        left->header_diagnostics.logo_window !=
-            right->header_diagnostics.logo_window ||
-        left->header_diagnostics.checksum !=
-            right->header_diagnostics.checksum ||
-        left->header_diagnostics.game_code !=
-            right->header_diagnostics.game_code ||
-        left->rom_length != right->rom_length ||
-        ((left->rom == NULL) != (right->rom == NULL))) {
-        return false;
-    }
-    if (!bytes_equal(left->ewram, right->ewram, GBL_EWRAM_SIZE) ||
-        !bytes_equal(left->iwram, right->iwram, GBL_IWRAM_SIZE) ||
-        !bytes_equal(left->pram, right->pram, GBL_PRAM_SIZE) ||
-        !bytes_equal(left->vram, right->vram, GBL_VRAM_SIZE) ||
-        !bytes_equal(left->oam, right->oam, GBL_OAM_SIZE)) {
-        return false;
-    }
-    if (left->rom_length != 0u &&
-        (left->rom == NULL || right->rom == NULL ||
-         !bytes_equal(left->rom, right->rom, left->rom_length))) {
-        return false;
-    }
-    return true;
-}
-
-static uint64_t digest_byte(uint64_t digest, uint8_t byte)
-{
-    return (digest ^ (uint64_t)byte) * UINT64_C(1099511628211);
-}
-
-static uint64_t digest_u64(uint64_t digest, uint64_t value)
-{
-    unsigned int byte_index;
-
-    for (byte_index = 0u; byte_index < 8u; ++byte_index) {
-        digest = digest_byte(digest, (uint8_t)(value & UINT64_C(0xFF)));
-        value >>= 8u;
-    }
-    return digest;
-}
-
-static uint64_t digest_bytes(uint64_t digest, const uint8_t *bytes,
-                             size_t length)
-{
-    size_t index;
-
-    for (index = 0u; index < length; ++index) {
-        digest = digest_byte(digest, bytes[index]);
-    }
-    return digest;
-}
-
-/* Test-only streaming FNV-1a over canonical fields in a fixed byte order. */
-static uint64_t canonical_digest(const gbl_machine *machine)
-{
-    uint64_t digest = UINT64_C(14695981039346656037);
-
-    digest = digest_byte(digest, machine->initialized ? 1u : 0u);
-    digest = digest_u64(digest, machine->master_cycles);
-    digest = digest_u64(digest, machine->open_bus);
-    digest = digest_u64(digest, machine->dispcnt);
-    digest = digest_byte(digest,
-                         machine->header_diagnostics.loaded ? 1u : 0u);
-    digest = digest_u64(
-        digest, (uint64_t)machine->header_diagnostics.canonical_logo);
-    digest = digest_u64(digest,
-                        (uint64_t)machine->header_diagnostics.logo_reason);
-    digest = digest_u64(digest,
-                        (uint64_t)machine->header_diagnostics.logo_window);
-    digest = digest_u64(digest,
-                        (uint64_t)machine->header_diagnostics.checksum);
-    digest = digest_u64(digest,
-                        (uint64_t)machine->header_diagnostics.game_code);
-    digest = digest_bytes(digest, machine->ewram, GBL_EWRAM_SIZE);
-    digest = digest_bytes(digest, machine->iwram, GBL_IWRAM_SIZE);
-    digest = digest_bytes(digest, machine->pram, GBL_PRAM_SIZE);
-    digest = digest_bytes(digest, machine->vram, GBL_VRAM_SIZE);
-    digest = digest_bytes(digest, machine->oam, GBL_OAM_SIZE);
-    digest = digest_byte(digest, machine->rom == NULL ? 0u : 1u);
-    digest = digest_u64(digest, (uint64_t)machine->rom_length);
-    if (machine->rom_length != 0u && machine->rom != NULL) {
-        digest = digest_bytes(digest, machine->rom, machine->rom_length);
-    }
-    return digest;
-}
-
 static int run_timing(void)
 {
     const uint32_t base = 0x02000000u;
@@ -411,31 +298,36 @@ static int run_timing(void)
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_write(machine, base, 3u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFFFFFFFu);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_write(machine, base, 1u,
                            (gbl_bus_access_class)99, 0xFFu);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_read(machine, UINT32_MAX, 2u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_write(machine, UINT32_MAX, 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFFFu);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_read(NULL, base, 1u, GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
@@ -451,7 +343,8 @@ static int run_timing(void)
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(uninitialized, snapshot));
+    CHECK(gbl_test_canonical_equal(uninitialized, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(uninitialized, snapshot));
 
     machine->master_cycles = UINT64_MAX - 1u;
     result = gbl_bus_write(machine, base + 0x200u, 1u,
@@ -468,31 +361,36 @@ static int run_timing(void)
     CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_internal(machine, 0u);
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.cycles == 0u);
     CHECK(result.access_class == GBL_BUS_CLASS_NONSEQUENTIAL);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_read(machine, base + 0x100u, 4u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_write(machine, base + 0x100u, 4u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFFFFFFFu);
     CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
 
     machine->master_cycles = 1u;
     memcpy(snapshot, machine, sizeof(*snapshot));
     result = gbl_bus_internal(machine, UINT64_MAX);
     CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
 
     free_machine(machine);
     free(uninitialized);
@@ -801,12 +699,14 @@ static int run_video(void)
                            GBL_BUS_CLASS_SEQUENTIAL, 3u);
     CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
     result = gbl_bus_write(machine, 0x06000020u, 1u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xAAu);
     CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_equal(machine, snapshot));
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
 
     free(snapshot);
     free_machine(machine);
@@ -868,8 +768,9 @@ static int run_state(void)
 
     gbl_machine_reset(machine);
     gbl_machine_reset(machine);
-    CHECK(canonical_equal(machine, fresh));
-    CHECK(canonical_digest(machine) == canonical_digest(fresh));
+    CHECK(gbl_test_canonical_equal(machine, fresh));
+    CHECK(gbl_test_canonical_digest(machine) ==
+          gbl_test_canonical_digest(fresh));
     CHECK(machine->initialized);
     CHECK(machine->master_cycles == 0u);
     CHECK(machine->open_bus == 0u);
@@ -935,9 +836,9 @@ static int run_state(void)
         CHECK(bytes_are_zero(raw->pram, GBL_PRAM_SIZE));
         CHECK(bytes_are_zero(raw->vram, GBL_VRAM_SIZE));
         CHECK(bytes_are_zero(raw->oam, GBL_OAM_SIZE));
-        disposed_digest = canonical_digest(raw);
+        disposed_digest = gbl_test_canonical_digest(raw);
         gbl_machine_dispose(raw);
-        CHECK(canonical_digest(raw) == disposed_digest);
+        CHECK(gbl_test_canonical_digest(raw) == disposed_digest);
         free(raw);
         free(raw_copy);
 
