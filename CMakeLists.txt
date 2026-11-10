@@ -62,9 +62,10 @@ endif()
 #   tests/harness.cmake inventory controls (ci lane only)
 #   tests/sanitizer.cmake UBSan and ASan controls (asan lane only)
 #   tests/ci_gates.cmake CI routing gates; ci and hygiene lanes, each test guarded by lane
-#   tests/gates.cmake   gate tests (hygiene and signature in this phase, and the
-#                      Phase 2 `manifest.lint` test that completes VERIF-01's
-#                      manifest clause, EVID-02); created by plan 03 (ci and hygiene lanes)
+#   tests/gates.cmake   gate tests (hygiene and signature, plus `manifest.lint`, which
+#                      completes VERIF-01's manifest clause, EVID-02, and the Phase 2
+#                      validator gates and controls in its evidence section); ci and
+#                      hygiene lanes
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   include(tests/core.cmake)
 endif()
