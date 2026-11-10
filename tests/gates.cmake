@@ -189,6 +189,33 @@ gbl_add_test(
   LABELS contract positive
   COMMAND ${GBL_EVID_DRIVER} -DCASE=copy -P "${GBL_CONTRACT_CASE}")
 
+# ---- dispute registry (Phase 2) ---------------------------------------------
+# The real registry is checked against the real vocabulary; a control per reason
+# code mutates a copy of the real registry (the six seed ids are pinned, so a
+# well-formed extra entry is accepted but a dropped seed is not).
+set(GBL_REGISTRY_CASE "${CMAKE_SOURCE_DIR}/tests/gates/registry_case.cmake")
+
+gbl_add_test(
+  NAME registry.lint
+  LABELS gate registry
+  COMMAND "${CMAKE_COMMAND}" "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckRegistry.cmake")
+
+foreach(case IN ITEMS seed_missing)
+  gbl_add_test(
+    NAME registry.nc.${case}
+    LABELS control registry
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_REGISTRY_CASE}")
+endforeach()
+
+foreach(case IN ITEMS copy)
+  gbl_add_test(
+    NAME registry.pos.${case}
+    LABELS positive registry
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_REGISTRY_CASE}")
+endforeach()
+
 # ---- strict JSON loader (Phase 2) -------------------------------------------
 # One negative control per loader reason code, plus the two helper controls
 # (`mutate: no-match`, `no-echo: leaked`), and positives on tricky and real input.

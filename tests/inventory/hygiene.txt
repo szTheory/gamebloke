@@ -43,6 +43,9 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+registry.lint gate,registry
+registry.nc.seed_missing control,registry
+registry.pos.copy positive,registry
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature

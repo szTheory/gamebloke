@@ -109,6 +109,9 @@ json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
 nc.meta.pass_requires_exit_status control,meta
 nc.meta.passing_gate_fails_wrapper control,meta
+registry.lint gate,registry
+registry.nc.seed_missing control,registry
+registry.pos.copy positive,registry
 runner.help runner,unit
 runner.no_args runner,unit
 runner.usage_error runner,unit
