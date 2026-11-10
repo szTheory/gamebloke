@@ -6,6 +6,10 @@ ci.actions.nc.unpinned ci,control
 ci.actions.pinned ci,gate
 ci.classify.cases ci,unit
 ci.required.cases ci,unit
+ci.ruleset.nc.bypass ci,control
+ci.ruleset.nc.context ci,control
+ci.ruleset.nc.extra_rule ci,control
+ci.ruleset.wellformed ci,unit
 ci.title.cases ci,unit
 ci.yml.nc.continue_on_error ci,control
 ci.yml.nc.expression_in_run ci,control

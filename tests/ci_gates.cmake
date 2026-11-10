@@ -95,4 +95,21 @@ if(GBL_LANE STREQUAL "ci")
         "-DBIN=${CMAKE_BINARY_DIR}"
         -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
   endforeach()
+
+  # Ruleset validator (D-13, resolution 2): the committed ruleset must stay
+  # inside the owner's authorization, and each refusal has its own control.
+  gbl_add_test(
+    NAME ci.ruleset.wellformed
+    LABELS ci unit
+    COMMAND "${CMAKE_COMMAND}" -DCASE=valid "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/ruleset_cases.cmake")
+  foreach(case IN ITEMS bypass extra_rule context)
+    gbl_add_test(
+      NAME ci.ruleset.nc.${case}
+      LABELS ci control
+      COMMAND "${CMAKE_COMMAND}" -DCASE=${case} "-DSRC=${CMAKE_SOURCE_DIR}"
+        "-DBIN=${CMAKE_BINARY_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/ci/ruleset_cases.cmake")
+  endforeach()
 endif()
