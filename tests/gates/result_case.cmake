@@ -318,6 +318,66 @@ elseif(CASE STREQUAL "bios_provider_forms")
     math(EXPR i "${i}+1")
   endforeach()
 
+elseif(CASE STREQUAL "unknown_fixture")
+  # The result names a fixture the manifest does not hold; so does an evidence item.
+  result_copy(r id)
+  gbl_json_mutate_set("${r}" "\"nope-row\"" fixture id)
+  expect_code(unknown-fixture "${r}")
+  result_copy(r evidence)
+  gbl_json_mutate_set("${r}" "\"nope-row\"" claim evidence 0 fixture)
+  expect_code(unknown-fixture "${r}")
+
+elseif(CASE STREQUAL "unknown_dispute")
+  result_copy(r nope)
+  gbl_json_mutate_set("${r}" "[\"disp-nope\"]" disputes)
+  gbl_json_mutate_set("${r}" "[\"disputed\"]" labels)
+  expect_code(unknown-dispute "${r}")
+
+elseif(CASE STREQUAL "undisclosed_dispute")
+  # The manifest row points at a registry entry (class disputed) and the evidence item
+  # carries that class, but the result lists no dispute and no label; then it lists the
+  # dispute and still omits the label.
+  manifest_copy(m disputed)
+  gbl_json_mutate_set("${m}" "\"disputed\"" fixtures 0 expected provenance_class)
+  gbl_json_mutate_set("${m}" "\"disp-mgba-suite-27\"" fixtures 0 expected dispute)
+  result_copy(r silent)
+  gbl_json_mutate_set("${r}" "\"disputed\"" claim evidence 0 provenance_class)
+  expect_code(undisclosed-dispute "${r}" "${m}")
+  result_copy(r no_label)
+  gbl_json_mutate_set("${r}" "\"disputed\"" claim evidence 0 provenance_class)
+  gbl_json_mutate_set("${r}" "[\"disp-mgba-suite-27\"]" disputes)
+  expect_code(undisclosed-dispute "${r}" "${m}")
+  # A listed dispute with no label is undisclosed even when the row is not disputed.
+  result_copy(r listed_only)
+  gbl_json_mutate_set("${r}" "[\"disp-dma-latch\"]" disputes)
+  expect_code(undisclosed-dispute "${r}")
+
+elseif(CASE STREQUAL "label_without_dispute")
+  result_copy(r label)
+  gbl_json_mutate_set("${r}" "[\"disputed\"]" labels)
+  expect_code(label-without-dispute "${r}")
+
+elseif(CASE STREQUAL "bad_label")
+  result_copy(r verified)
+  gbl_json_mutate_set("${r}" "[\"verified\"]" labels)
+  expect_code(bad-label "${r}")
+  result_copy(r duplicate)
+  gbl_json_mutate_set("${r}" "[\"disp-dma-latch\"]" disputes)
+  gbl_json_mutate_set("${r}" "[\"disputed\", \"disputed\"]" labels)
+  expect_code(bad-label "${r}")
+
+elseif(CASE STREQUAL "disputed")
+  # The honest form: the row is disputed, the evidence says so, and the result lists the
+  # registry id and carries the label (ROADMAP SC5).
+  manifest_copy(m disputed)
+  gbl_json_mutate_set("${m}" "\"disputed\"" fixtures 0 expected provenance_class)
+  gbl_json_mutate_set("${m}" "\"disp-mgba-suite-27\"" fixtures 0 expected dispute)
+  result_copy(r disputed)
+  gbl_json_mutate_set("${r}" "\"disputed\"" claim evidence 0 provenance_class)
+  gbl_json_mutate_set("${r}" "[\"disp-mgba-suite-27\"]" disputes)
+  gbl_json_mutate_set("${r}" "[\"disputed\"]" labels)
+  expect_ok(PASS "${r}" "${m}")
+
 else()
   message(FATAL_ERROR "result-case: unknown case: ${CASE}")
 endif()

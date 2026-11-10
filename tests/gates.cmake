@@ -354,9 +354,10 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckResult.cmake")
 
 foreach(case IN ITEMS
-    bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_machine
-    bad_schema claim_mismatch empty_limits missing_digest missing_field missing_reason
-    missing_refusal pass_without_digest pass_without_run ran_state_mismatch unknown_status
+    bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_label
+    bad_machine bad_schema claim_mismatch empty_limits label_without_dispute missing_digest
+    missing_field missing_reason missing_refusal pass_without_digest pass_without_run
+    ran_state_mismatch undisclosed_dispute unknown_dispute unknown_fixture unknown_status
     usage)
   gbl_add_test(
     NAME result.nc.${case}
@@ -365,7 +366,7 @@ foreach(case IN ITEMS
 endforeach()
 
 foreach(case IN ITEMS
-    all_states bios_provider_forms)
+    all_states bios_provider_forms disputed)
   gbl_add_test(
     NAME result.pos.${case}
     LABELS positive result
