@@ -7,8 +7,9 @@ the version must be made in both files together.
 This canonical profile document uses plain Markdown only. The synchronization
 check ignores fenced and indented examples, inline code spans, and HTML comments,
 and requires its version line, section headings, and pipe tables to be visible.
-Raw HTML elements are unsupported anywhere outside those ignored examples and
-comments; use Markdown code spans or fenced code examples when showing HTML text.
+Raw HTML elements, declarations, and processing instructions are unsupported
+anywhere outside those ignored examples and comments; use Markdown code spans or
+fenced code examples when showing HTML text.
 
 profile_version: 2
 

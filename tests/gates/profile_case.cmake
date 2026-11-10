@@ -194,6 +194,20 @@ elseif(CASE STREQUAL "bus_policy_doc")
   file(APPEND "${d}" "\n</gamebloke-profile>\n")
   expect_detail(bus-policy-doc
     "unsupported raw HTML element <gamebloke-profile>" "${p}" "${d}")
+  profile_copy(p raw_html_processing_instruction)
+  doc_copy(d raw_html_processing_instruction)
+  gbl_text_mutate("${d}" "## Bus policy\n"
+    "<?profile\n## Bus policy\n")
+  file(APPEND "${d}" "\n?>\n")
+  expect_detail(bus-policy-doc
+    "unsupported raw HTML declaration or processing instruction" "${p}" "${d}")
+  profile_copy(p raw_html_cdata)
+  doc_copy(d raw_html_cdata)
+  gbl_text_mutate("${d}" "## Bus policy\n"
+    "<![CDATA[\n## Bus policy\n")
+  file(APPEND "${d}" "\n]]>\n")
+  expect_detail(bus-policy-doc
+    "unsupported raw HTML declaration or processing instruction" "${p}" "${d}")
   profile_copy(p wrong_policy_header)
   doc_copy(d wrong_policy_header)
   gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"

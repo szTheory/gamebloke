@@ -728,16 +728,23 @@ function(gbl__profile_doc_without_inline_code out content)
   set(${out} "${visible}" PARENT_SCOPE)
 endfunction()
 
-# The canonical profile supports pipe tables, not raw HTML. Reject every HTML
-# element tag after Markdown examples, comments, and inline code are removed.
+# The canonical profile supports pipe tables, not raw HTML. Reject HTML
+# elements and declaration/processing-instruction forms after Markdown
+# examples, comments, and inline code are removed.
 function(gbl__profile_doc_unsupported_html out content)
   gbl__profile_doc_without_inline_code(code_free "${content}")
   string(TOLOWER "${code_free}" lower_content)
+  string(FIND "${lower_content}" "<!" declaration_at)
+  string(FIND "${lower_content}" "<?" processing_instruction_at)
+  if(NOT declaration_at EQUAL -1 OR NOT processing_instruction_at EQUAL -1)
+    set(${out} "declaration or processing instruction" PARENT_SCOPE)
+    return()
+  endif()
   string(REGEX MATCH
     "<[/]?[ \t]*([a-z][a-z0-9-]*)([ \t\r\n/>])"
     matched_tag "${lower_content}")
   if(NOT "${matched_tag}" STREQUAL "")
-    set(${out} "${CMAKE_MATCH_1}" PARENT_SCOPE)
+    set(${out} "element <${CMAKE_MATCH_1}>" PARENT_SCOPE)
   else()
     set(${out} "" PARENT_SCOPE)
   endif()
@@ -985,10 +992,10 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
   # Reject unsupported HTML in the canonical profile document before finding
   # any synchronized sections. This catches blocks that begin before a section
   # and span across its heading or table.
-  gbl__profile_doc_unsupported_html(unsupported_tag "${normalized_text}")
-  if(NOT "${unsupported_tag}" STREQUAL "")
+  gbl__profile_doc_unsupported_html(unsupported_markup "${normalized_text}")
+  if(NOT "${unsupported_markup}" STREQUAL "")
     gbl_finding(profile bus-policy-doc
-      "unsupported raw HTML element <${unsupported_tag}>")
+      "unsupported raw HTML ${unsupported_markup}")
     return()
   endif()
 
