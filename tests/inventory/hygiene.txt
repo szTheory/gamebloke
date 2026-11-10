@@ -84,12 +84,15 @@ manifest.nc.dispute_unknown control,manifest
 manifest.nc.duplicate_id control,manifest
 manifest.nc.missing_digest control,manifest
 manifest.nc.missing_field control,manifest
+manifest.nc.pin_cross_check control,manifest
 manifest.nc.pin_mismatch control,manifest
+manifest.nc.rights_mismatch control,manifest
 manifest.nc.unpinned_revision control,manifest
 manifest.nc.usage control,manifest
 manifest.nc.wrong_type control,manifest
 manifest.pos.complete_row manifest,positive
 manifest.pos.empty manifest,positive
+manifest.pos.public_ci_ok manifest,positive
 manifest.pos.source_kinds manifest,positive
 pins.nc.bad_dest control,pins
 pins.nc.bad_digest control,pins

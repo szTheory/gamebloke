@@ -121,7 +121,8 @@ Every JSON file is read by a strict loader: it rejects any text after the root o
 - `manifest`: `usage`, `bad-schema`, `missing-field`, `wrong-type`, `bad-id`,
   `duplicate-id`, `bad-source-kind`, `unpinned-revision`, `missing-digest`, `bad-url`,
   `bad-path`, `bad-provenance-class`, `bad-bios-requirement`, `bad-permitted-use`,
-  `bad-redistributable`, `dispute-unknown`, `dispute-class-mismatch`, `pin-mismatch`
+  `bad-redistributable`, `rights-mismatch`, `dispute-unknown`, `dispute-class-mismatch`,
+  `pin-mismatch`
   (`tests/fixtures/manifest.json`).
 - `pins`: `missing-file`, `missing-header`, `bad-row`, `bad-digest`, `bad-url`,
   `bad-dest`, `duplicate-dest` (`pins.txt`).

@@ -156,7 +156,17 @@ row after it has three single-space-separated fields: a 64-hex digest, an `https
 and a destination relative to `.fixtures/`. A pin names one raw file at a 40-hex commit
 or a maintainer-uploaded release asset, never a generated archive. A header-only file is
 the stated zero-row state. A manifest row's `fetch.pin_dest` must match a pins row, and
-the digest or commit must agree (`pin-mismatch` otherwise).
+the digest or commit must agree (`pin-mismatch` otherwise). So must the origin: a `url`
+row's pinned URL equals its `source.url`, and a `git` row's pinned URL sits on the
+`source.url` host (`raw.githubusercontent.com` counts as `github.com`) under its
+repository path and holds the commit. A pins row that no manifest row names is an
+orphan pin and also `pin-mismatch`. A `git` or `url` row with no `fetch` is allowed; it
+is just not fetched by `fetch-pin.sh`. URLs carry no userinfo (`bad-url`).
+
+A row that lists `public-ci` in `permitted_use` must have `license.redistributable` set to
+`yes` and a `bios_requirement` other than `user-official` (`rights-mismatch`). A matching
+hash proves identity, not redistribution rights; this rule only stops a row from
+contradicting its own rights fields.
 
 Fetch a pinned file with:
 

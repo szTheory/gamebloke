@@ -52,7 +52,7 @@
 #   missing-digest         a url or in-tree sha256 absent or not 64 lowercase hex; a
 #                          non-empty toolchain.sha256 that is not 64 lowercase hex
 #   bad-url                a source.url that is not https:// or holds whitespace, a quote,
-#                          or a backslash
+#                          a backslash, or userinfo (`user[:password]` before the host)
 #   bad-path               an in-tree path or fetch.pin_dest with a leading slash, an empty,
 #                          `.`, or `..` component, or a character outside [A-Za-z0-9._/-]
 #   bad-provenance-class   a class outside the vocabulary
@@ -62,9 +62,16 @@
 #   dispute-unknown        expected.dispute is not a registry id
 #   dispute-class-mismatch class `disputed` without a dispute, or a dispute under any
 #                          other class
+#   rights-mismatch        `public-ci` in permitted_use while license.redistributable is
+#                          not `yes`, or while bios_requirement is `user-official` (a
+#                          matching hash proves identity, not redistribution rights)
 #   pin-mismatch           MODE=all only: a row's pin_dest absent from pins.txt; a url row
-#                          whose sha256 differs from its pin; a git row whose pinned URL
-#                          does not contain its commit; an in-tree row with `fetch`
+#                          whose sha256 or URL differs from its pin; a git row whose pinned
+#                          URL does not contain its commit or is not on the source.url host
+#                          (raw.githubusercontent.com counts as github.com) under its
+#                          repository path; an in-tree row with `fetch`; a pins row that no
+#                          manifest row names (an orphan pin). A git or url row without
+#                          `fetch` is allowed: it is simply not fetched by fetch-pin.sh.
 #
 # Pins reason codes (printed as `pins: <code>: <detail>`):
 #   missing-file           the pins file is absent
@@ -73,8 +80,8 @@
 #   bad-row                not exactly three whitespace-separated fields, or the row holds a
 #                          semicolon, square bracket, quote, or backslash
 #   bad-digest             a digest that is not 64 lowercase hex
-#   bad-url                a URL that is not https:// or holds whitespace, a quote, or a
-#                          backslash
+#   bad-url                a URL that is not https:// or holds whitespace, a quote, a
+#                          backslash, or userinfo before the host
 #   bad-dest               the bad-path rule applied to the destination
 #   duplicate-dest         two rows share a destination
 # After the header, `#` comment lines and blank lines are ignored. A header-only file is
@@ -82,7 +89,7 @@
 #
 # The json:, contract:, and registry: codes come from the loader and the readers this
 # file calls. gbl_manifest_read sets <prefix>_IDS, <prefix>_COUNT, and per row
-# <prefix>_ROW_<id>_CLASS|DISPUTE|KIND|COMMIT|SHA256|PIN_DEST. gbl_pins_read sets
+# <prefix>_ROW_<id>_CLASS|DISPUTE|KIND|COMMIT|SHA256|PIN_DEST|URL. gbl_pins_read sets
 # <prefix>_DESTS, <prefix>_COUNT, and per dest <prefix>_DEST_<dest>_SHA256|URL.
 
 # Script mode starts with every policy OLD (IN_LIST is a plain argument under
@@ -122,12 +129,16 @@ function(gbl__manifest_path_ok out value)
   set(${out} ${ok} PARENT_SCOPE)
 endfunction()
 
-# gbl__manifest_url_ok(<out> <value>): https:// and no whitespace, quote, or backslash.
+# gbl__manifest_url_ok(<out> <value>): https://, no whitespace, quote, or backslash, and no
+# userinfo before the host.
 function(gbl__manifest_url_ok out value)
   set(ok TRUE)
   if(NOT "${value}" MATCHES "^https://.")
     set(ok FALSE)
   elseif("${value}" MATCHES "[ \t\r\n\"\\\\]")
+    set(ok FALSE)
+  elseif("${value}" MATCHES "^https://[^/?#]*@")
+    # Credentials in the authority would be stored in a committed file.
     set(ok FALSE)
   endif()
   set(${out} ${ok} PARENT_SCOPE)
@@ -186,6 +197,10 @@ function(gbl__manifest_row doc i registry vocab)
   set(row_commit "")
   set(row_sha256 "")
   set(row_pin_dest "")
+  set(row_url "")
+  set(redist "")
+  set(bios "")
+  set(seen_use "")
   set(id_ok FALSE)
 
   gbl__manifest_req_string(id "${doc}" "${where}" id fixtures ${i} id)
@@ -213,6 +228,8 @@ function(gbl__manifest_row doc i registry vocab)
             gbl__manifest_url_ok(url_ok "${url}")
             if(NOT url_ok)
               gbl_finding(manifest bad-url "${where}: source.url")
+            else()
+              set(row_url "${url}")
             endif()
           endif()
         endif()
@@ -405,6 +422,18 @@ function(gbl__manifest_row doc i registry vocab)
     endif()
   endif()
 
+  # Rights cross-check: `public-ci` is the one use that publishes the bytes.
+  if("public-ci" IN_LIST seen_use)
+    if(NOT "${redist}" STREQUAL "" AND NOT "${redist}" STREQUAL "yes")
+      gbl_finding(manifest rights-mismatch
+        "${where}: public-ci needs license.redistributable yes, not ${redist}")
+    endif()
+    if("${bios}" STREQUAL "user-official")
+      gbl_finding(manifest rights-mismatch
+        "${where}: public-ci conflicts with bios_requirement user-official")
+    endif()
+  endif()
+
   if(id_ok)
     set(_gbl_row_id "${id}" PARENT_SCOPE)
     set(_gbl_row_class "${row_class}" PARENT_SCOPE)
@@ -413,6 +442,7 @@ function(gbl__manifest_row doc i registry vocab)
     set(_gbl_row_commit "${row_commit}" PARENT_SCOPE)
     set(_gbl_row_sha256 "${row_sha256}" PARENT_SCOPE)
     set(_gbl_row_pin_dest "${row_pin_dest}" PARENT_SCOPE)
+    set(_gbl_row_url "${row_url}" PARENT_SCOPE)
   endif()
 endfunction()
 
@@ -450,6 +480,7 @@ function(gbl_manifest_read prefix manifest registry vocab)
             set(${prefix}_ROW_${id}_COMMIT "${_gbl_row_commit}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_SHA256 "${_gbl_row_sha256}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_PIN_DEST "${_gbl_row_pin_dest}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_URL "${_gbl_row_url}" PARENT_SCOPE)
           endif()
         endif()
       endforeach()
@@ -549,14 +580,34 @@ function(gbl_pins_read prefix pins)
   set(${prefix}_COUNT "${count}" PARENT_SCOPE)
 endfunction()
 
+# gbl__manifest_url_parts(<host-out> <path-out> <url>): host and repository path of an
+# https URL, `.git` and trailing slashes stripped; raw.githubusercontent.com is github.com.
+function(gbl__manifest_url_parts host_out path_out url)
+  set(host "")
+  set(path "")
+  if("${url}" MATCHES "^https://([^/?#]+)([^?#]*)")
+    set(host "${CMAKE_MATCH_1}")
+    set(path "${CMAKE_MATCH_2}")
+    string(REGEX REPLACE "/+$" "" path "${path}")
+    string(REGEX REPLACE "\\.git$" "" path "${path}")
+    if("${host}" STREQUAL "raw.githubusercontent.com")
+      set(host "github.com")
+    endif()
+  endif()
+  set(${host_out} "${host}" PARENT_SCOPE)
+  set(${path_out} "${path}" PARENT_SCOPE)
+endfunction()
+
 # gbl__manifest_pin_check(<manifest-prefix> <pins-prefix>): MODE=all cross-checks.
 function(gbl__manifest_pin_check m p)
+  set(referenced "")
   foreach(id IN LISTS ${m}_IDS)
     set(dest "${${m}_ROW_${id}_PIN_DEST}")
     set(kind "${${m}_ROW_${id}_KIND}")
     if("${dest}" STREQUAL "")
       continue()
     endif()
+    list(APPEND referenced "${dest}")
     if("${kind}" STREQUAL "in-tree")
       gbl_finding(manifest pin-mismatch "${id}: an in-tree row has fetch")
     elseif(NOT "${dest}" IN_LIST ${p}_DESTS)
@@ -565,14 +616,33 @@ function(gbl__manifest_pin_check m p)
       if(NOT "${${m}_ROW_${id}_SHA256}" STREQUAL "${${p}_DEST_${dest}_SHA256}")
         gbl_finding(manifest pin-mismatch "${id}: sha256 differs from the pin for ${dest}")
       endif()
+      if(NOT "${${m}_ROW_${id}_URL}" STREQUAL "${${p}_DEST_${dest}_URL}")
+        gbl_finding(manifest pin-mismatch "${id}: pinned URL for ${dest} differs from source.url")
+      endif()
     elseif("${kind}" STREQUAL "git")
       set(commit "${${m}_ROW_${id}_COMMIT}")
+      set(pinned "${${p}_DEST_${dest}_URL}")
       if(NOT "${commit}" STREQUAL "")
-        string(FIND "${${p}_DEST_${dest}_URL}" "${commit}" at)
+        string(FIND "${pinned}" "${commit}" at)
         if(at EQUAL -1)
           gbl_finding(manifest pin-mismatch "${id}: pinned URL for ${dest} lacks the commit")
         endif()
       endif()
+      # The pinned raw URL must come from the repository the row names.
+      gbl__manifest_url_parts(src_host src_path "${${m}_ROW_${id}_URL}")
+      gbl__manifest_url_parts(pin_host pin_path "${pinned}")
+      if(NOT "${src_host}" STREQUAL "")
+        string(FIND "${pin_path}/" "${src_path}/" under)
+        if(NOT "${src_host}" STREQUAL "${pin_host}" OR NOT under EQUAL 0)
+          gbl_finding(manifest pin-mismatch
+            "${id}: pinned URL for ${dest} is not under source.url")
+        endif()
+      endif()
+    endif()
+  endforeach()
+  foreach(dest IN LISTS ${p}_DESTS)
+    if(NOT "${dest}" IN_LIST referenced)
+      gbl_finding(manifest pin-mismatch "orphan pin: ${dest} is named by no manifest row")
     endif()
   endforeach()
 endfunction()

@@ -57,10 +57,21 @@ function(manifest_command out mode manifest)
     PARENT_SCOPE)
 endfunction()
 
-# expect_code(<code> <manifest>): the linter (MODE=manifest) fails with <code>.
+# expect_code(<code> <manifest> [<detail-regex>]): the linter (MODE=manifest) fails with
+# <code>, and with the finding detail when one is given (findings are printed unwrapped).
 function(expect_code code manifest)
+  set(detail "")
+  if(NOT "${ARGV2}" STREQUAL "")
+    set(detail ": ${ARGV2}")
+  endif()
   manifest_command(cmd manifest "${manifest}")
-  gbl_expect_fail(COMMAND ${cmd} REGEX "manifest: ${code}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "manifest: ${code}${detail}")
+endfunction()
+
+# expect_all(<code> <detail-regex> <manifest> <pins>): MODE=all fails with the finding.
+function(expect_all code detail manifest pins)
+  all_command(cmd "${manifest}" "${pins}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "manifest: ${code}: ${detail}")
 endfunction()
 
 # pins_copy(<out-var> <variant> <rows-text>): a sandbox pins file, the committed header and
@@ -198,6 +209,12 @@ elseif(CASE STREQUAL "wrong_type")
   manifest_copy(m source_string)
   gbl_json_mutate_set("${m}" "\"x\"" fixtures 0 source)
   expect_code(wrong-type "${m}")
+  # `fetch` is optional but, when present, must be an object (a string, a number, an array).
+  foreach(v IN ITEMS "\"x\"" "5" "[]")
+    manifest_copy(m fetch_type)
+    gbl_json_mutate_set("${m}" "${v}" fixtures 0 fetch)
+    expect_code(wrong-type "${m}" "example-row: fetch")
+  endforeach()
 
 elseif(CASE STREQUAL "duplicate_id")
   manifest_copy(m dup)
@@ -245,6 +262,63 @@ elseif(CASE STREQUAL "bad_url")
     expect_code(bad-url "${m}")
     math(EXPR i "${i}+1")
   endforeach()
+  # Credentials in the URL authority are refused (built at run time so no committed file
+  # holds a credential-shaped string).
+  set(at "@")
+  foreach(v IN ITEMS "https://user${at}example.invalid/r.git"
+      "https://user:pw${at}example.invalid/r.git")
+    manifest_copy(m userinfo)
+    gbl_json_mutate_set("${m}" "\"${v}\"" fixtures 0 source url)
+    expect_code(bad-url "${m}" "example-row: source.url")
+  endforeach()
+
+elseif(CASE STREQUAL "rights_mismatch")
+  # `public-ci` publishes the bytes: it needs redistributable yes and no user-official BIOS.
+  manifest_copy(m unknown)
+  gbl_json_mutate_set("${m}" "[\"public-ci\"]" fixtures 0 permitted_use)
+  expect_code(rights-mismatch "${m}" "example-row: public-ci needs license.redistributable yes, not unknown")
+  manifest_copy(m no)
+  gbl_json_mutate_set("${m}" "[\"local-only\", \"public-ci\"]" fixtures 0 permitted_use)
+  gbl_json_mutate_set("${m}" "\"no\"" fixtures 0 license redistributable)
+  expect_code(rights-mismatch "${m}" "example-row: public-ci needs license.redistributable yes, not no")
+  manifest_copy(m bios)
+  gbl_json_mutate_set("${m}" "[\"public-ci\"]" fixtures 0 permitted_use)
+  gbl_json_mutate_set("${m}" "\"yes\"" fixtures 0 license redistributable)
+  gbl_json_mutate_set("${m}" "\"user-official\"" fixtures 0 bios_requirement)
+  expect_code(rights-mismatch "${m}" "example-row: public-ci conflicts with bios_requirement user-official")
+
+elseif(CASE STREQUAL "pin_cross_check")
+  sha(digest_a "ab" 32)
+  set(at "@")
+  # A url row whose pinned URL names another origin than source.url (same digest).
+  manifest_copy(m url_origin)
+  set_source("${m}" 0
+    "{\"kind\": \"url\", \"url\": \"https://example.invalid/a.dat\", \"sha256\": \"${digest_a}\"}")
+  gbl_json_mutate_set("${m}" [=[{"pin_dest": "example/a.dat"}]=] fixtures 0 fetch)
+  pins_copy(p url_origin "${digest_a} https://other.invalid/a.dat example/a.dat\n")
+  expect_all(pin-mismatch "example-row: pinned URL for example/a.dat differs from source.url" "${m}" "${p}")
+  # A git row whose pinned URL holds the commit but sits on another host, under another
+  # repository on the same host, or under a longer repository name with the same prefix.
+  manifest_copy(m git)
+  gbl_json_mutate_set("${m}" [=[{"pin_dest": "example/suite.dat"}]=] fixtures 0 fetch)
+  set(i 0)
+  foreach(u IN ITEMS
+      "https://attacker.invalid/example-suite/raw/${COMMIT}/suite.dat"
+      "https://example.invalid/other-suite/raw/${COMMIT}/suite.dat"
+      "https://example.invalid/example-suite-evil/raw/${COMMIT}/suite.dat")
+    pins_copy(p git${i} "${digest_a} ${u} example/suite.dat\n")
+    expect_all(pin-mismatch "example-row: pinned URL for example/suite.dat is not under source.url" "${m}" "${p}")
+    math(EXPR i "${i}+1")
+  endforeach()
+  # A pins row that no manifest row names.
+  manifest_copy(m orphan)
+  pins_copy(p orphan "${digest_a} https://example.invalid/a.dat example/a.dat\n")
+  expect_all(pin-mismatch "orphan pin: example/a.dat" "${m}" "${p}")
+  # Credentials in a pinned URL are refused by the pins linter.
+  pins_copy(p pin_userinfo "${digest_a} https://user:pw${at}example.invalid/a.dat example/a.dat\n")
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" -DMODE=pins "-DPINS=${p}" -P "${CHECK}"
+    REGEX "pins: bad-url: line")
 
 elseif(CASE STREQUAL "bad_path")
   sha(good64 "ab" 32)
@@ -342,6 +416,23 @@ elseif(CASE STREQUAL "pin_mismatch")
   pins_copy(p tree_fetch "${digest_a} https://example.invalid/x.dat example/x.dat\n")
   all_command(cmd "${m}" "${p}")
   gbl_expect_fail(COMMAND ${cmd} REGEX "manifest: pin-mismatch")
+
+elseif(CASE STREQUAL "public_ci_ok")
+  # The rights rule is a cross-check, not a ban: a redistributable row with no user-official
+  # BIOS may be public-ci, and a git row whose pin sits under its repository passes MODE=all
+  # (including the raw.githubusercontent.com form of a github.com repository).
+  sha(digest_a "ab" 32)
+  manifest_copy(m ok)
+  gbl_json_mutate_set("${m}" "[\"public-ci\", \"local-only\"]" fixtures 0 permitted_use)
+  gbl_json_mutate_set("${m}" "\"yes\"" fixtures 0 license redistributable)
+  gbl_json_mutate_set("${m}" [=[{"pin_dest": "example/suite.dat"}]=] fixtures 0 fetch)
+  pins_copy(p ok "${digest_a} https://example.invalid/example-suite/raw/${COMMIT}/suite.dat example/suite.dat\n")
+  all_command(cmd "${m}" "${p}")
+  gbl_expect_pass(COMMAND ${cmd} REGEX "manifest: ok \\(1 rows\\)")
+  gbl_json_mutate_set("${m}" "\"https://github.com/owner/repo.git\"" fixtures 0 source url)
+  pins_copy(p gh "${digest_a} https://raw.githubusercontent.com/owner/repo/${COMMIT}/suite.dat example/suite.dat\n")
+  all_command(cmd "${m}" "${p}")
+  gbl_expect_pass(COMMAND ${cmd} REGEX "pins: ok \\(1 rows\\)")
 
 elseif(CASE STREQUAL "empty")
   manifest_command(cmd manifest "${dir}/empty.json")

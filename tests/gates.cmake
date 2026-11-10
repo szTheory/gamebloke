@@ -275,15 +275,15 @@ set(GBL_MANIFEST_CASE "${CMAKE_SOURCE_DIR}/tests/gates/manifest_case.cmake")
 foreach(case IN ITEMS
     bad_bios_requirement bad_id bad_path bad_permitted_use bad_provenance_class
     bad_redistributable bad_schema bad_source_kind bad_url dispute_class_mismatch
-    dispute_unknown duplicate_id missing_digest missing_field pin_mismatch
-    unpinned_revision usage wrong_type)
+    dispute_unknown duplicate_id missing_digest missing_field pin_cross_check pin_mismatch
+    rights_mismatch unpinned_revision usage wrong_type)
   gbl_add_test(
     NAME manifest.nc.${case}
     LABELS control manifest
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_MANIFEST_CASE}")
 endforeach()
 
-foreach(case IN ITEMS complete_row empty source_kinds)
+foreach(case IN ITEMS complete_row empty public_ci_ok source_kinds)
   gbl_add_test(
     NAME manifest.pos.${case}
     LABELS manifest positive
