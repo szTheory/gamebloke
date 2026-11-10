@@ -378,6 +378,27 @@ elseif(CASE STREQUAL "timing_arithmetic")
   profile_copy(p vblank)
   gbl_json_mutate_set("${p}" "67" timing lines_vblank value)
   expect_code(timing-arithmetic "${p}")
+  # Signed-bound operands are accepted only when each operation also fits.
+  profile_copy(p product_overflow)
+  gbl_json_mutate_set("${p}" "4611686018427387904" timing dots_visible value)
+  gbl_json_mutate_set("${p}" "0" timing dots_hblank value)
+  gbl_json_mutate_set("${p}" "4611686018427387904" timing dots_per_line value)
+  gbl_json_mutate_set("${p}" "0" timing cycles_per_line value)
+  gbl_json_mutate_set("${p}" "0" timing cycles_per_frame value)
+  expect_detail(timing-arithmetic
+    "dots_per_line \\* cycles_per_dot overflows signed arithmetic range" "${p}")
+  profile_copy(p sum_overflow)
+  gbl_json_mutate_set("${p}" "9223372036854775807" timing dots_visible value)
+  gbl_json_mutate_set("${p}" "1" timing dots_hblank value)
+  gbl_json_mutate_set("${p}" "9223372036854775807" timing dots_per_line value)
+  gbl_json_mutate_set("${p}" "0" timing cycles_per_dot value)
+  gbl_json_mutate_set("${p}" "0" timing cycles_per_line value)
+  expect_detail(timing-arithmetic
+    "dots_visible \\+ dots_hblank overflows signed arithmetic range" "${p}")
+  profile_copy(p operand_out_of_range)
+  gbl_json_mutate_set("${p}" "9223372036854775808" timing dots_visible value)
+  expect_detail(timing-arithmetic
+    "timing.dots_visible: exceeds signed arithmetic range" "${p}")
 
 elseif(CASE STREQUAL "hblank_edge_hardcoded")
   # 960 is the visible drawing time; 1006 is one of the disputed edge values.
