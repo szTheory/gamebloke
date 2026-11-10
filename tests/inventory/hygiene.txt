@@ -69,6 +69,7 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+logo_digest.authority_cases control,loader
 manifest.lint gate,manifest
 manifest.nc.bad_bios_requirement control,manifest
 manifest.nc.bad_id control,manifest

@@ -396,3 +396,14 @@ foreach(case IN ITEMS strict_clean real_docs)
     LABELS json positive
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_JSON_CASE}")
 endforeach()
+
+# The digest-authority configure controls also run in the hygiene lane. CI gets
+# this test from tests/core.cmake, so keep this registration lane-specific.
+if(GBL_LANE STREQUAL "hygiene")
+  gbl_add_test(
+    NAME logo_digest.authority_cases
+    LABELS control loader
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/logo_digest_case.cmake")
+endif()

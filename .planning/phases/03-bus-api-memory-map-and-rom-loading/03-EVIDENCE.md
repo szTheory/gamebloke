@@ -1,6 +1,12 @@
-# Phase 03 Plan 06: Execution Evidence
+# Phase 03 Execution Evidence
 
-**Result:** Local automated evidence passed for the integrated bus/loader path. The canonical-logo acceptance remains partial and owner-gated; this file does not seal Phase 03 or any hardware claim.
+**Result:** Plan 07 adds an integrated fixed-window logo diagnostic and refreshes current verification evidence. Canonical-logo acceptance remains partial and owner-gated; this file does not seal Phase 03 or any hardware claim.
+
+The Plan 06 snapshot below is historical and describes the tree before Plan 07.
+Its CI, hygiene, and ASan counts are superseded by the dated Plan 07 snapshot at
+the end of this file.
+
+## Historical snapshot: Plan 06 (2026-11-10)
 
 ## Environment
 
@@ -66,3 +72,78 @@ inventory entries are all retained. These are local measurements, not hosted CI
 or emulator-throughput qualification. No duplicate build occurred; runtime
 variation is not attributed to a cause. A surviving CTest process was confirmed
 to belong to another project and left untouched.
+
+## Current snapshot: Plan 07 (2026-11-10)
+
+This snapshot follows the fixed-window loader integration, strict parser controls,
+and hygiene registration. Local lanes are current for this source tree; they are
+not hosted CI, a release qualification, a hardware result, or canonical-logo
+acceptance.
+
+### Source and tool identity
+
+- Host: macOS, Darwin arm64. CMake 4.4.3; CI and hygiene configured `/usr/bin/cc`
+  as AppleClang 21.0.0.21000101.
+- Fresh ASan/UBSan configure used `/usr/bin/clang`, AppleClang 21.0.0.21000101,
+  with `-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all
+  -fno-omit-frame-pointer` and sanitizer linker flags. The `clang-21` preset
+  executable is unavailable locally; the explicit installed-compiler override
+  left presets and CI mappings unchanged.
+- Final CI and hygiene ran from revision `bb31d49` plus the Task 3 working-tree
+  delta. Fresh ASan began at `d69562c` plus the same implementation/test delta;
+  only the plan's portable-reference documentation fix was committed after that
+  sanitizer run. The ASan inventory and implementation were unchanged. Revision,
+  status, expected inventories, CMake caches, compiler identities, configured
+  CTest lists, and compile commands are retained under
+  `build/{ci,hygiene,asan}/evidence-03-07/`; the final Task 3 delta hash is in
+  `build/ci/evidence-03-07/task3-delta-sha256.txt`. Documentation metrics were
+  appended after the lane runs; final tree hygiene and signature scans ran after
+  those edits. No user ROM, BIOS, owner-local file, or owner digest was read or
+  copied.
+
+### Commands and current results
+
+| Exact command | Current result and measured time |
+|---|---|
+| `cmake --workflow --preset ci` | Passed 296/296 tests; inventory post passed with 296 expected, 294 ran, 2 allowed skips. Configure 0.1 s, build `ninja: no work to do`, CTest 76.65 s, post 0.07 s. Full log and JUnit: `build/ci/evidence-03-07/ci-workflow-final.log`, `build/ci/evidence-03-07/final-junit.xml`. |
+| `cmake --workflow --preset hygiene` | Passed 201/201 tests; inventory post passed with 201 expected, 199 ran, 2 allowed skips. Configure 0.1 s, build `ninja: no work to do`, CTest 43.78 s, post 0.06 s. The new `logo_digest.authority_cases` entry ran. Full log and JUnit: `build/hygiene/evidence-03-07/hygiene-workflow-final.log`, `build/hygiene/evidence-03-07/final-junit.xml`. |
+| `cmake --fresh --preset asan -DCMAKE_C_COMPILER=/usr/bin/clang && cmake --build --preset asan && ctest --preset asan && ctest --preset asan-post` | Fresh configure and all 24 build/link steps passed. CTest passed 42/42 with zero skips (52.12 s); post passed with 42 expected, 42 ran, zero skipped (0.02 s). Full output and artifacts: `build/asan/evidence-03-07/asan-fresh-workflow.log`, `junit.xml`, `CMakeCache.txt`, `compiler.txt`, `configured-tests.txt`, and `compile-commands.txt`. |
+| `sh scripts/hygiene.sh --tree` | Passed after the final documentation edits; output retained at `build/ci/evidence-03-07/tree-hygiene.log`. |
+| `CMAKE=$(command -v cmake) sh scripts/signature-scan.sh --tree` | Passed after the final documentation edits; output retained at `build/ci/evidence-03-07/tree-signature.log`. |
+| `git diff --check` | Passed on the final uncommitted task tree; output retained at `build/ci/evidence-03-07/diff-check.log`. |
+
+The only CI and hygiene skips remain `signature.logo.real_digest`
+(`owner-pending`) and `signature.owner_local` (`GBL_OWNER_LOGO_FILE` is unset).
+ASan/UBSan had no skips. Its fresh configured inventory includes both
+`loader.nc.refusal_rom_identity` and `loader.nc.refusal_allocator_identity`; the
+full log shows each intended semantic mutant failure and its clean companion.
+The two digest-specific bypass and forced-match mutants also compile and fail on
+their intended assertions with passing clean companions. Existing ASan heap
+overflow and UBSan shift controls emitted the expected diagnostics and passed
+their wrappers.
+
+The first CI and hygiene attempts did not pass: both `hygiene.tree` checks found
+the two absolute GSD reference paths in this plan's execution-context metadata.
+The initial logs and JUnit remain at
+`build/ci/evidence-03-07/ci-workflow.log` and
+`build/hygiene/evidence-03-07/hygiene-workflow.log`. The references were changed
+to portable `~/.codex` paths in commit `bb31d49`; both canonical workflows were
+then rerun with shell `pipefail` enabled and their inventory post-checks passed.
+The first shell pipelines returned `tee`'s status despite the logged CTest
+failure; the final reruns propagated workflow status correctly.
+
+### Critical-path review and remaining limits
+
+Each final CI and hygiene workflow performed one configure/build pair; both
+product builds were already current. The measured control-label time was 53.91 s
+in CI and 27.95 s in hygiene, with no repeated setup or duplicate product build
+to remove. No measured improvement justified a cache, dependency, or concurrency
+change. These are test/CI timings, not emulator throughput.
+
+Production still compiles the empty expected digest while the trusted row is
+owner-pending, so its loaded result remains `UNCHECKED/OWNER_PENDING`. The
+synthetic test core uses the same core sources/options and its owned pattern
+expectation; it proves the comparison path, not the genuine Nintendo digest,
+identity, rights, or completion of LOAD-02. The owner remains the next actor for
+the approved digest through the existing reviewed workflow. No profile version
+change, phase sign-off, release, or hardware claim is made.
