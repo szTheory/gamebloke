@@ -20,7 +20,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 - [ ] **EVID-01**: Developer can declare each fixture in a manifest row with: source URL, pinned revision, license and notices, build recipe, toolchain identity/digest, BIOS requirement, expected-value provenance class, and permitted use.
 - [ ] **EVID-02**: A manifest linter rejects rows with missing fields, unpinned (branch) revisions, or an unknown provenance class.
-- [ ] **EVID-03**: Third-party fixtures are fetched by SHA-256 from `pins.txt`. A digest mismatch fails loudly. No third-party binary is committed.
+- [x] **EVID-03**: Third-party fixtures are fetched by SHA-256 from `pins.txt`. A digest mismatch fails loudly. No third-party binary is committed.
 - [ ] **EVID-04**: A signature scan in the verify command fails if a committed file contains Nintendo logo bytes, a known BIOS image, or a ROM/save file outside the allowlist.
 - [ ] **EVID-05**: The runner reports results using a distinct taxonomy: PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, REFUSED. A fixture that did not run is never PASS.
 - [ ] **EVID-06**: A dispute registry records known reference disagreements, seeded with the DMA-latch dispute, the GBATEK errata, the HBlank edge sources, and mGBA-suite issues #22/#24/#27. A fixture whose expected value is disputed is labeled as such in its results.
@@ -158,7 +158,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | PROF-03 | Phase 4 | Pending |
 | EVID-01 | Phase 2 | Pending |
 | EVID-02 | Phase 2 | Pending |
-| EVID-03 | Phase 2 | Pending |
+| EVID-03 | Phase 2 | Complete |
 | EVID-04 | Phase 1 | Pending (partial: real-logo digest is an owner gate; BIOS, extension, and binary rules live) |
 | EVID-05 | Phase 2 | Pending |
 | EVID-06 | Phase 2 | Pending |
