@@ -174,6 +174,11 @@ elseif(CASE STREQUAL "bus_policy_doc")
   gbl_text_mutate("${d}" "\n## Bus policy\n"
     "\n<!--\n## Bus policy\n-->\n")
   expect_detail(bus-policy-doc "missing ## Bus policy section" "${p}" "${d}")
+  profile_copy(p multiline_inline_hidden_version)
+  doc_copy(d multiline_inline_hidden_version)
+  gbl_text_mutate("${d}" "\nprofile_version: 2\n"
+    "\n``\nprofile_version: 2\n``\nprofile_version: 999\n")
+  expect_detail(doc-version-mismatch "document 999, profile 2" "${p}" "${d}")
   profile_copy(p html_crosses_policy_sections)
   doc_copy(d html_crosses_policy_sections)
   gbl_text_mutate("${d}" "\n## Bus policy\n"
@@ -317,7 +322,7 @@ elseif(CASE STREQUAL "bus_policy_copy")
   profile_copy(p bus_policy)
   doc_copy(d bus_policy_fenced_pre)
   gbl_text_mutate("${d}" "This canonical profile document uses plain Markdown only."
-    "This canonical profile document uses plain Markdown only. The code span ``<section>`` is literal text.")
+    "This canonical profile document uses plain Markdown only. The code span ``<section>`` is literal text. The multiline code example begins with ``\n<section>\n`` and is ignored.")
   file(READ "${SRC}/docs/profile-agb.md" source_doc)
   string(FIND "${source_doc}" "| Setting | Value | Label | Citation |" table_start)
   string(FIND "${source_doc}" "\n## Initialization policy" table_end)
