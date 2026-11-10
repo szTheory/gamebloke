@@ -221,6 +221,14 @@ elseif(CASE STREQUAL "meta")
       "${SRC}/cmake/ExpectFail.cmake"
     REGEX "gate PASSED but must fail")
 
+elseif(CASE STREQUAL "meta_pass_exit")
+  # The pass wrapper must check the exit status as well as the text (WR-08): a
+  # program that prints the expected text and then exits non-zero is a failure.
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=sh" "-DARGS=-c|echo hello && exit 7"
+      "-DREGEX=hello" -P "${SRC}/cmake/ExpectFail.cmake"
+    REGEX "expect-pass: gate FAILED on clean input \\(exit 7\\)")
+
 elseif(CASE STREQUAL "add_test_bad_name" OR CASE STREQUAL "add_test_no_labels")
   # A minimal project with no languages configures in about a second. The
   # refusal is a FATAL_ERROR at the gbl_add_test call, so it fires before the

@@ -1,10 +1,14 @@
 # Core and runner tests. Included from the top-level CMakeLists.txt (never
 # add_subdirectory(): see Pitfall 4 note there).
+# --version and --help document exit status 0, so these require BOTH the exit
+# status and the text (EXPECT=pass). PASS_REGULAR_EXPRESSION alone would make
+# CTest ignore the exit status.
 gbl_add_test(
   NAME runner.version
   LABELS runner unit
-  COMMAND $<TARGET_FILE:gamebloke-run> --version
-  PASS_REGULAR_EXPRESSION "^gamebloke-run 0\\.0\\.0")
+  COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
+    -DARGS=--version "-DREGEX=^gamebloke-run 0\\.0\\.0"
+    -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
 add_executable(version_test tests/version_test.c)
 target_link_libraries(version_test PRIVATE gamebloke_core gbl_warnings)
@@ -16,8 +20,9 @@ gbl_add_test(
 gbl_add_test(
   NAME runner.help
   LABELS runner unit
-  COMMAND $<TARGET_FILE:gamebloke-run> --help
-  PASS_REGULAR_EXPRESSION "exit codes: 0 success, 2 usage error")
+  COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
+    -DARGS=--help "-DREGEX=exit codes: 0 success, 2 usage error"
+    -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
 # The documented usage-error exit code is exactly 2 (unlike a sanitizer abort).
 gbl_add_test(

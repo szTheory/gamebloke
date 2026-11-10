@@ -34,3 +34,11 @@ gbl_add_test(
   LABELS control meta
   COMMAND ${GBL_HARNESS_DRIVER} -DCASE=meta
     -P "${CMAKE_SOURCE_DIR}/tests/harness_case.cmake")
+
+# Meta-control: the pass wrapper that the runner tests use requires exit status 0
+# as well as the output text.
+gbl_add_test(
+  NAME nc.meta.pass_requires_exit_status
+  LABELS control meta
+  COMMAND ${GBL_HARNESS_DRIVER} -DCASE=meta_pass_exit
+    -P "${CMAKE_SOURCE_DIR}/tests/harness_case.cmake")

@@ -85,6 +85,7 @@ inventory.nc.skipped_not_allowed control,inventory
 inventory.nc.unsorted control,inventory
 inventory.pos.pass inventory,positive
 inventory.pos.skip_reported inventory,positive
+nc.meta.pass_requires_exit_status control,meta
 nc.meta.passing_gate_fails_wrapper control,meta
 runner.help runner,unit
 runner.no_args runner,unit
