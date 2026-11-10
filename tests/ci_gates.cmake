@@ -112,4 +112,30 @@ if(GBL_LANE STREQUAL "ci")
         "-DBIN=${CMAKE_BINARY_DIR}"
         -P "${CMAKE_SOURCE_DIR}/tests/ci/ruleset_cases.cmake")
   endforeach()
+
+  # Apply/check script (D-13, resolution 2, W4): every branch that talks to
+  # GitHub runs against a stub gh on PATH, so no control needs the network and
+  # a refused apply provably makes no write.
+  gbl_add_test(
+    NAME ci.repo_settings.usage
+    LABELS ci unit
+    COMMAND "${CMAKE_COMMAND}" -DCASE=usage "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/ruleset_cases.cmake")
+  foreach(case IN ITEMS ruleset_drift ruleset_missing no_ci_required_run)
+    gbl_add_test(
+      NAME ci.repo_settings.nc.${case}
+      LABELS ci control
+      COMMAND "${CMAKE_COMMAND}" -DCASE=${case} "-DSRC=${CMAKE_SOURCE_DIR}"
+        "-DBIN=${CMAKE_BINARY_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/ci/ruleset_cases.cmake")
+  endforeach()
+  foreach(case IN ITEMS check_ok check_server_defaults)
+    gbl_add_test(
+      NAME ci.repo_settings.pos.${case}
+      LABELS ci positive
+      COMMAND "${CMAKE_COMMAND}" -DCASE=${case} "-DSRC=${CMAKE_SOURCE_DIR}"
+        "-DBIN=${CMAKE_BINARY_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/ci/ruleset_cases.cmake")
+  endforeach()
 endif()

@@ -1,10 +1,16 @@
-# Sorted (byte order) expected-test inventory for the ci lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+# Sorted (byte order) expected-test inventory for the ci lane.
 build.nc.compiler_id_guard build,control
 ci.actions.nc.no_version_comment ci,control
 ci.actions.nc.unpinned ci,control
 ci.actions.pinned ci,gate
 ci.classify.cases ci,unit
+ci.repo_settings.nc.no_ci_required_run ci,control
+ci.repo_settings.nc.ruleset_drift ci,control
+ci.repo_settings.nc.ruleset_missing ci,control
+ci.repo_settings.pos.check_ok ci,positive
+ci.repo_settings.pos.check_server_defaults ci,positive
+ci.repo_settings.usage ci,unit
 ci.required.cases ci,unit
 ci.ruleset.nc.bypass ci,control
 ci.ruleset.nc.context ci,control
