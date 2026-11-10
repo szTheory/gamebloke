@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-11-10T01:17:19.312Z"
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-11-10T01:25:09.364Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: e80bde64b4de7eaf4bf3fe0a1ba9c0fce07cc312
+state_head: c5358d4055f485fc43646b92c9dc365adc1dba00
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 7 of 11
+Plan: 8 of 11
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 01 execution started
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P04 | 5 min | 2 tasks | 11 files |
 | Phase 01 P05 | 20 min | 2 tasks | 7 files |
 | Phase 01 P06 | 10 min | 3 tasks | 10 files |
+| Phase 01 P07 | 4 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,8 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-06: classifier strips leading zeros with POSIX shell (no 10# bashism, dash-safe); over-nine-digit counts treated as over cap
 - [Phase 01]: 01-06: CI required aggregator treats unset HEAVY as not false (fail closed); heavy jobs skipped with HEAVY true or empty fail
 - [Phase 01]: 01-06: asan job installs clang-21 and libclang-rt-21-dev when absent; ubuntu-26.04 label is not in actionlint's built-in list (plan 07 needs a label config if it uses actionlint)
+- [Phase 01]: Workflow policy gate also forbids direct ctest/cpack/ninja/make in the build, asan and hygiene jobs, not only non-workflow cmake — A heavy lane must reach its checks only through the workflow preset; stricter than the plan text and the real workflow is clean
+- [Phase 01]: check-workflow.sh permissions and required-check rules have no committed mutation control (plan fixes ten cases and 81/41 totals); exercised by scratch mutations only — Adding controls would change inventory totals later plans may rely on; recorded as a Known Gap for the owner or checker
 
 ### Pending Todos
 
@@ -111,6 +114,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:17:19.296Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-11-10T01:25:09.347Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None
