@@ -520,6 +520,39 @@ function(gbl__profile_doc_without_code out content)
   set(${out} "${visible}" PARENT_SCOPE)
 endfunction()
 
+# Remove HTML comments while leaving a blank-line boundary around each block.
+# The boundary prevents Markdown rows on either side of a comment from joining
+# into a synthetic contiguous table.
+function(gbl__profile_doc_without_html_comments out content)
+  set(remaining "${content}")
+  set(visible "")
+  while(TRUE)
+    string(FIND "${remaining}" "<!--" comment_start)
+    if(comment_start EQUAL -1)
+      string(APPEND visible "${remaining}")
+      break()
+    endif()
+    if(comment_start GREATER 0)
+      string(SUBSTRING "${remaining}" 0 ${comment_start} prefix)
+      string(APPEND visible "${prefix}")
+    endif()
+
+    math(EXPR comment_body_start "${comment_start}+4")
+    string(SUBSTRING "${remaining}" ${comment_body_start} -1 comment_tail)
+    string(FIND "${comment_tail}" "-->" comment_end)
+    if(comment_end EQUAL -1)
+      # An unterminated HTML comment consumes the rest of this section.
+      string(APPEND visible "\n")
+      break()
+    endif()
+
+    math(EXPR after_comment "${comment_end}+3")
+    string(SUBSTRING "${comment_tail}" ${after_comment} -1 remaining)
+    string(APPEND visible "\n")
+  endwhile()
+  set(${out} "${visible}" PARENT_SCOPE)
+endfunction()
+
 # A supported policy table is a contiguous pipe table with a header row,
 # separator row, and body rows. Only this rendered Markdown table is checked.
 function(gbl__profile_doc_first_table out content prefix)
@@ -596,7 +629,8 @@ function(gbl__profile_doc_policy_table text heading prefix expected_count expect
   endif()
 
   gbl__profile_doc_without_code(visible_section "${section}")
-  gbl__profile_doc_first_table(table "${visible_section}" "${prefix}")
+  gbl__profile_doc_without_html_comments(comment_free_section "${visible_section}")
+  gbl__profile_doc_first_table(table "${comment_free_section}" "${prefix}")
   if("${table}" STREQUAL "")
     gbl_finding(profile bus-policy-doc "${prefix}: missing policy table")
     return()

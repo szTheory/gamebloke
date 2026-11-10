@@ -135,6 +135,23 @@ elseif(CASE STREQUAL "bus_policy_doc")
     "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
     "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
   expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
+  # A complete but hidden copy must not stand in for the stale rendered table.
+  profile_copy(p commented_stale_value)
+  doc_copy(d commented_stale_value)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
+    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+  file(READ "${SRC}/docs/profile-agb.md" source_doc)
+  string(FIND "${source_doc}" "| Setting | Value | Label | Citation |" table_start)
+  string(FIND "${source_doc}" "\n## Initialization policy" table_end)
+  if(table_start EQUAL -1 OR table_end EQUAL -1 OR table_end LESS table_start)
+    message(FATAL_ERROR "mutate: no-match: source bus policy table")
+  endif()
+  math(EXPR table_length "${table_end}-${table_start}")
+  string(SUBSTRING "${source_doc}" ${table_start} ${table_length} valid_table)
+  gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
+    "<!--\n${valid_table}\n-->\n| Setting | Value | Label | Citation |")
+  expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
   profile_copy(p extra_row)
   doc_copy(d extra_row)
   gbl_text_mutate("${d}"
