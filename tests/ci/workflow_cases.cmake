@@ -12,6 +12,12 @@
 # Cases:
 #   pins:     pins_unpinned pins_no_version_comment      (scripts/check-action-pins.sh)
 #   workflow: clean (must pass) and the policy mutations (scripts/check-workflow.sh)
+#   wiring:   registered_no_file_arg: tests/ci_gates.cmake registers both workflow gates
+#             without a file argument (a named file would narrow them to one workflow)
+#   sandbox:  extra_file extra_file_pins no_ci_yml all_files_clean: a sandbox repository
+#             root (copies of both gate scripts and the presets) holding more than one
+#             workflow file, run with NO file argument as the registered gates run
+#             (WR-01: the gates must cover every .github/workflows file)
 #
 # Reason codes this file prints:
 #   mutate: no-match
@@ -46,6 +52,7 @@ endfunction()
 
 # Per case: gate (pins|workflow), anchor, repl, regex. The clean case has no anchor.
 set(gate "workflow")
+set(sandbox OFF)
 set(anchor "")
 set(repl "")
 set(regex "")
@@ -116,6 +123,44 @@ elseif(CASE STREQUAL "continue_on_error")
   set(anchor [=[    runs-on: ${{ matrix.runner }}]=])
   set(repl "${anchor}\n    continue-on-error: true")
   set(regex "workflow: continue-on-error")
+elseif(CASE STREQUAL "job_permissions")
+  # Job-level permissions override the top-level default (WR-02).
+  set(anchor "  hygiene:\n")
+  set(repl "${anchor}    permissions:\n      contents: write\n      id-token: write\n")
+  set(regex "workflow: job-permissions: hygiene")
+elseif(CASE STREQUAL "job_permissions_inline")
+  set(anchor "  hygiene:\n")
+  set(repl "${anchor}    permissions: write-all\n")
+  set(regex "workflow: job-permissions: hygiene")
+elseif(CASE STREQUAL "run_by_path")
+  # A tool called by path is still a tool outside the preset-only rule (WR-03).
+  set(anchor "run: cmake --workflow --preset hygiene")
+  set(repl "run: /usr/bin/cmake --workflow --preset hygiene")
+  set(regex "workflow: non-preset-run: hygiene")
+elseif(CASE STREQUAL "run_script")
+  # Not a tool name at all: the allowlist refuses any other run line (WR-03).
+  set(anchor "run: cmake --workflow --preset hygiene")
+  set(repl "run: ./tools/go.sh")
+  set(regex "workflow: non-preset-run: hygiene")
+elseif(CASE STREQUAL "extra_file" OR CASE STREQUAL "extra_file_pins"
+    OR CASE STREQUAL "no_ci_yml" OR CASE STREQUAL "all_files_clean")
+  set(sandbox ON)
+elseif(CASE STREQUAL "registered_no_file_arg")
+  # Reads the registration, not the workflow: the two gates must run over the
+  # default file set, so a new workflow file is checked without a test edit.
+  file(READ "${SRC}/tests/ci_gates.cmake" gates_text)
+  foreach(script IN ITEMS check-workflow check-action-pins)
+    string(REGEX MATCHALL "COMMAND sh scripts/${script}\\.sh[^\n]*" regs "${gates_text}")
+    list(LENGTH regs nregs)
+    if(NOT nregs EQUAL 1)
+      message(FATAL_ERROR "workflow-cases: file-argument: ${script} is registered ${nregs} times, want 1")
+    endif()
+    if(NOT "${regs}" STREQUAL "COMMAND sh scripts/${script}.sh")
+      message(FATAL_ERROR "workflow-cases: file-argument: ${script} is registered with an argument: ${regs}")
+    endif()
+  endforeach()
+  message("workflow-cases: registered_no_file_arg ok")
+  return()
 else()
   message(FATAL_ERROR "workflow-cases: unknown CASE '${CASE}'")
 endif()
@@ -123,6 +168,44 @@ endif()
 set(dir "${BIN}/nc/${CASE}")
 file(REMOVE_RECURSE "${dir}")
 file(MAKE_DIRECTORY "${dir}")
+
+if(sandbox)
+  # A repository root of its own: the gate scripts locate .github/workflows and
+  # CMakePresets.json from their own path, so copies here see only these files.
+  set(root "${dir}/root")
+  file(MAKE_DIRECTORY "${root}/scripts" "${root}/.github/workflows")
+  file(COPY_FILE "${SRC}/scripts/check-workflow.sh" "${root}/scripts/check-workflow.sh")
+  file(COPY_FILE "${SRC}/scripts/check-action-pins.sh" "${root}/scripts/check-action-pins.sh")
+  file(COPY_FILE "${SRC}/CMakePresets.json" "${root}/CMakePresets.json")
+  set(sha "3d3c42e5aac5ba805825da76410c181273ba90b1")
+  set(extra_head "name: Extra\non:\n  pull_request:\n")
+  set(extra_tail "permissions:\n  contents: read\njobs:\n  x:\n    runs-on: ubuntu-26.04\n    timeout-minutes: 3\n    steps:\n")
+  if(NOT CASE STREQUAL "no_ci_yml")
+    file(WRITE "${root}/.github/workflows/ci.yml" "${text}")
+  endif()
+  if(CASE STREQUAL "extra_file" OR CASE STREQUAL "extra_file_pins")
+    # Trigger, unpinned action, and credentials all wrong in a file that is not ci.yml.
+    file(WRITE "${root}/.github/workflows/extra.yml"
+      "name: Extra\non:\n  pull_request_target:\n${extra_tail}      - uses: actions/checkout@v4\n")
+  else()
+    file(WRITE "${root}/.github/workflows/extra.yml"
+      "${extra_head}${extra_tail}      - uses: actions/checkout@${sha} # v7.0.1\n        with:\n          persist-credentials: false\n")
+  endif()
+  set(wf sh "${root}/scripts/check-workflow.sh")
+  set(pins sh "${root}/scripts/check-action-pins.sh")
+  if(CASE STREQUAL "extra_file")
+    gbl_expect_fail(COMMAND ${wf} REGEX "workflow: pr-target: [0-9]+ \\[extra\\.yml\\]")
+  elseif(CASE STREQUAL "extra_file_pins")
+    gbl_expect_fail(COMMAND ${pins} REGEX "pins: unpinned: [^\n]*extra\\.yml")
+  elseif(CASE STREQUAL "no_ci_yml")
+    gbl_expect_fail(COMMAND ${wf} REGEX "workflow: missing-ci-yml")
+  else()
+    gbl_expect_pass(COMMAND ${wf} REGEX "workflow: ok \\(2 files")
+    gbl_expect_pass(COMMAND ${pins} REGEX "pins: ok")
+  endif()
+  return()
+endif()
+
 set(copy "${dir}/ci.yml")
 
 if(CASE STREQUAL "clean")

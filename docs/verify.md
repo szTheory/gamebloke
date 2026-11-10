@@ -65,8 +65,12 @@ Each gate prints a stable `<family>: <code>` line:
 - `inventory`: `missing`, `extra`, `duplicate`, `unsorted`, `failed`, `skipped-not-allowed`,
   `skipped-no-reason`, `disabled`, `no-junit`, `empty-junit`, `configure-mismatch`.
 - `core`: `host-include` (the machine core may include only freestanding headers).
-- `workflow`: the policy gate over `.github/workflows/*.yml` (for example `persist-credentials`,
-  `moving-label`, `no-timeout`, `pr-target`, `expression-in-run`) and the action-pin gate.
+- `workflow`: the policy gate over every `.github/workflows/*.yml` and `*.yaml` (for example
+  `persist-credentials`, `moving-label`, `no-timeout`, `pr-target`, `expression-in-run`,
+  `job-permissions`) and the action-pin gate over the same files. `ci.yml` also gets the
+  required-check rules (`required-check`, `needs-missing`, and `non-preset-run`: its heavy jobs
+  may run only `cmake --workflow --preset <name>` and the toolchain install guard);
+  `missing-ci-yml` fires if it is absent. Each line ends with the file name in brackets.
 - `title`: `not-conventional`, `too-long`, `empty` (Conventional Commits PR titles).
 - `ruleset`, `repo-settings`: the checked-in `main` ruleset and its guarded apply script.
 
