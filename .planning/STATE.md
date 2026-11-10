@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-11-10T00:56:14.887Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-11-10T01:05:10.554Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: 70d7626b9a434a2e7a9934621bedcfc57aca945e
+state_head: 718d58a22b66b000abcbfa4feed951f9e2810775
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 4 of 11
+Plan: 5 of 11
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 01 execution started
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 3 min | 2 tasks | 10 files |
 | Phase 01 P02 | 5 min | 2 tasks | 10 files |
 | Phase 01 P03 | 4 min | 2 tasks | 8 files |
+| Phase 01 P04 | 5 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Negative controls match reason-code prefixes via cmake/ExpectFail.cmake (non-zero exit AND regex; exact EXIT only for documented codes like runner 2); wrapper has a meta-control
 - [Phase 01]: hygiene.sh scans its own source with no exemption; regex sets are written so none matches its own line
 - [Phase 01]: Hygiene findings print path:line only and file lists are NUL-delimited (git ls-files -z, find -print0, xargs -0); allowances apply to the whole grep -o match
+- [Phase 01]: Logo-window rule hashes every regular file of at least 160 bytes (stricter than D-07's every binary file) so a no-NUL crafted file cannot evade it — T-01-12; cost is one dd per file
+- [Phase 01]: Signature allowlist exempts only rom-extension and binary-not-allowlisted; logo-window and bios-digest are never exempted — T-01-09; proved by allowlisted stand-in controls
+- [Phase 01]: Logo digest row stays owner-pending until plan 11; signature.logo.real_digest and signature.owner_local report SKIPPED with reasons — The real digest is not published in a primary source (A1); the owner supplies it with scripts/signature-digest.sh
 
 ### Pending Todos
 
@@ -100,6 +104,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T00:56:14.871Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-11-10T01:05:10.537Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
