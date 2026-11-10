@@ -37,6 +37,48 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 host's native architecture. `sh scripts/hygiene.sh --tree` and
 `sh scripts/signature-scan.sh --tree` run the two repository scans directly.
 
+## Phase 3 bus and loader checks
+
+The focused core command configures and builds before selecting the bus,
+machine, and loader checks:
+
+```sh
+cmake --preset ci && cmake --build --preset ci && \
+  ctest --test-dir build/ci -R '^(bus|machine|loader)\.' --no-tests=error --output-on-failure
+```
+
+`bus_test` selectors are `decode`, `timing`, `video`, and `state`; `state` is
+registered as `machine.state`. `loader_test` selectors are `lengths`,
+`transaction`, `diagnostics`, and `integration`. CTest registers the latter as
+`loader.lengths`, `loader.transaction`, `loader.diagnostics`, and
+`loader.integration`. The integration selector composes the loaded lifecycle
+with ROM alias, mirrored RAM, mode-sensitive video, bus-clock, and independent
+interleaving checks. It uses synthesized in-memory bytes and does not qualify an
+installed consumer or a stable ABI.
+
+The profile validator also checks the Phase 3 project-policy fields. Its
+policy-specific reason codes are `bus-policy-missing`, `bus-policy-value`,
+`bus-policy-source`, `bus-policy-doc`, `init-policy`, and `read-policy`; their
+negative controls mutate a scratch copy and the positive companions validate
+clean copies.
+
+Bus and loader scratch controls compile disposable source mutations with the
+configured compiler and flags. A mutation is negative evidence only when its
+scratch build succeeds and the intended semantic assertion fails with the
+expected reason. A compiler or setup error is an infrastructure failure, not a
+successful control. Every mutation family has a clean companion that must pass.
+
+The host owns ROM storage and provides allocation callbacks. The core validates
+declared lengths before reading the image or allocating, copies into the exact
+size returned by the host, and commits a complete candidate before releasing
+the previous ROM. A refused or allocation-failed load preserves canonical
+machine state and caller bytes; reset retains the owned ROM; disposal releases
+it once. The callbacks must return suitably sized disjoint storage, must not
+reenter or mutate the machine, and must not retain a released pointer. See
+[bus-api.md](bus-api.md#rom-loading-and-host-allocation) for the complete
+postconditions. These tests prove the selected project contract, not hardware
+ROM-tail behavior.
+
 ## Adding a test
 
 Register it with `gbl_add_test(NAME ... LABELS ... COMMAND ...)` (see
