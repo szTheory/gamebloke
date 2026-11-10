@@ -136,7 +136,8 @@ Plans:
 **Owner gates**: None blocking. Reversible defaults apply: G3 (pinned fetch, no third-party binaries in tree) and G2 (no logo bytes in owned fixtures). G9 (differentiator wording) uses the working wording and does not block engineering.
 
 ### Phase 3: Bus API, Memory Map, and ROM Loading
-**Goal**: The canonical core has its final timing-bearing bus API, the full GBA memory map, deterministic power-on state, and a ROM loader that validates untrusted input before it allocates memory or mutates state.
+**Goal**: As a core developer, I want to build the canonical core with its final timing-bearing bus API, full GBA memory map, deterministic power-on state, and a ROM loader that validates untrusted input before allocation or state mutation, so that subsequent CPU work has a deterministic, testable and safe machine boundary.
+**Technical boundary (unchanged):** The canonical core has its final timing-bearing bus API, the full GBA memory map, deterministic power-on state, and a ROM loader that validates untrusted input before it allocates memory or mutates state.
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: BUS-01, BUS-02, BUS-03, LOAD-01, LOAD-02, LOAD-03
@@ -146,7 +147,7 @@ Plans:
   3. Two fresh instances have byte-identical memory and register contents at power-on, and those contents match the fill policy recorded in the profile.
   4. Zero-length, below-header-size, above-32-MiB, and odd-length images each give a distinct REFUSED reason. A full-state digest and a caller-buffer comparison prove that a refused load leaves both byte-identical. After a successful load, changing the caller's buffer does not change the instance.
   5. Under `direct-start`, a ROM with a missing or mismatched logo, a bad header checksum, or an unusual game code still loads, and each finding is reported as a loader diagnostic, not a refusal.
-**Plans**: 5/6 plans executed in six dependency-ordered waves
+**Plans**: 6/6 plans executed in six dependency-ordered waves
 
 Plans:
 **Wave 1**
@@ -165,7 +166,7 @@ Plans:
 - [x] 03-05-PLAN.md — Advisory header diagnostics and synthetic comparison controls
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 03-06-PLAN.md — Integrated lifecycle evidence and visible remaining acceptance gaps
+- [x] 03-06-PLAN.md — Integrated lifecycle evidence and visible remaining acceptance gaps
 
 **Cross-cutting constraints:** <!-- gsd:generated -->
 - Repeated cold reset returns all canonical mutable fields/arrays to the documented zeros, preserves installed owned ROM, and matches a fresh loaded instance.
@@ -285,7 +286,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
-| 3. Bus API, Memory Map, and ROM Loading | 5/6 | In Progress | - |
+| 3. Bus API, Memory Map, and ROM Loading | 6/6 | In Progress | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |

@@ -144,6 +144,8 @@ Recent decisions affecting current work:
 - [Phase 03]: For document-parser fixes, add controls for hidden headings/tables, adjacent contradictory metadata, and markup opened before and closed after the synchronized section. After a broad phase review, target follow-up review at changed files and the confirmed root-cause family; do not repeat unchanged core review without a new concern.
 - [Phase 03]: Profile document controls exercise distinct mutations. The final `profile.nc.bus_policy_doc` test took 3.15 s in CI and 2.88 s in hygiene, below each lane's five slowest tests; no duplicate validator setup was supported by the measurements. CI (17:03:57–17:06:02) and hygiene (17:06:11–17:07:25) did not overlap. The broader runtime increase from earlier 49–97 second CI samples is unexplained by retained logs; no optimization was justified.
 
+- [Phase 03]: Verifier MVP-format repair: restated the existing approved technical goal as an As-a/I-want-to/so-that story; retained the original technical boundary and every success criterion. This is agent-authored formatting, not new owner scope or risk acceptance; no replanning or gate bypass.
+
 ### Pending Todos
 
 None yet.
