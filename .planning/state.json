@@ -1,0 +1,43 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v1.0 — Evidence Spine",
+  "phases": [
+    {
+      "number": "1",
+      "name": "CI and Verification Foundation",
+      "status": "in_progress"
+    },
+    {
+      "number": "2",
+      "name": "Profile, Fixture Manifest, and Result Contract",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Bus API, Memory Map, and ROM Loading",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "CPU Execution Core and Headless Runner",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion",
+      "status": "pending"
+    },
+    {
+      "number": "6",
+      "name": "Determinism Gates and Third-Party CPU Fixtures",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 6 · executing"
+  },
+  "updated_at": "2026-11-10T00:39:04.819Z"
+}
