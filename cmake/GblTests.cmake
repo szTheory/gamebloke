@@ -14,6 +14,14 @@ function(gbl_add_test)
   cmake_parse_arguments(PARSE_ARGV 0 T "SKIPPABLE"
     "NAME;WORKING_DIRECTORY;PASS_REGULAR_EXPRESSION" "LABELS;COMMAND")
 
+  # Names stay free of XML metacharacters so the junit check needs no unescaping.
+  if(NOT T_NAME MATCHES "^[a-z0-9][a-z0-9._-]*$")
+    message(FATAL_ERROR "gbl_add_test: bad-name: ${T_NAME}")
+  endif()
+  if(NOT T_LABELS)
+    message(FATAL_ERROR "gbl_add_test: no-labels: ${T_NAME}")
+  endif()
+
   add_test(NAME "${T_NAME}" COMMAND ${T_COMMAND})
 
   # LABELS accepts separate arguments or comma-joined ones.

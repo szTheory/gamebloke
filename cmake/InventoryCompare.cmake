@@ -6,12 +6,23 @@
 # same line format. '#' lines and blank lines are ignored.
 #
 # Fails with a stable reason line:
+#   inventory: unsorted             listed lines are not in byte order (checked first)
 #   inventory: configure-mismatch   registered and listed sets differ
+#
+# Script mode (used by the negative controls):
+#   cmake -DREGISTERED_FILE=<file> -DINVENTORY=<file> -P cmake/InventoryCompare.cmake
+# <file> for REGISTERED_FILE holds one registered line per file line.
 function(gbl_inventory_compare registered_var inventory_file)
   if(NOT EXISTS "${inventory_file}")
     message(FATAL_ERROR "inventory: configure-mismatch: inventory file not found: ${inventory_file}")
   endif()
   file(STRINGS "${inventory_file}" listed REGEX "^[^#]")
+
+  set(sorted_copy "${listed}")
+  list(SORT sorted_copy)
+  if(NOT "${sorted_copy}" STREQUAL "${listed}")
+    message(FATAL_ERROR "inventory: unsorted: ${inventory_file}")
+  endif()
 
   set(registered "${${registered_var}}")
   list(SORT registered)
@@ -40,3 +51,14 @@ function(gbl_inventory_compare registered_var inventory_file)
     message(FATAL_ERROR "inventory: configure-mismatch (${inventory_file})${report}")
   endif()
 endfunction()
+
+# Script-mode entry (not triggered when this file is include()d elsewhere).
+if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
+  foreach(var REGISTERED_FILE INVENTORY)
+    if(NOT DEFINED ${var} OR "${${var}}" STREQUAL "")
+      message(FATAL_ERROR "inventory-compare: -D${var}= is required")
+    endif()
+  endforeach()
+  file(STRINGS "${REGISTERED_FILE}" script_registered)
+  gbl_inventory_compare(script_registered "${INVENTORY}")
+endif()
