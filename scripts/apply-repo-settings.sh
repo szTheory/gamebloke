@@ -89,7 +89,12 @@ if [ "$mode" = "--print-canonical" ]; then
 fi
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+# A signal must end the script: a trap action that returns lets the script
+# resume with $tmp gone and report a clean result. Cleanup runs on EXIT only.
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 gh_fail() {
   echo "repo-settings: gh-failed: $1" >&2

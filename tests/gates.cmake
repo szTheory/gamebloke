@@ -119,3 +119,42 @@ foreach(case IN ITEMS
     LABELS positive signature
     COMMAND ${GBL_SIG_DRIVER} "-DCASE=${case}" -P "${GBL_SIG_CASE}")
 endforeach()
+
+# ---- signal handling (CR-01) ----------------------------------------------
+# A scan that is signalled must end non-zero and never print `ok`: in POSIX sh
+# a trap action that returns lets the script resume with its temp dir deleted.
+# The probe signals a running scan (TERM and HUP; an async job cannot trap an
+# ignored INT) and the static gate covers the INT handler and every other
+# script. The control puts the pre-fix idiom back and requires the probe to fail.
+set(GBL_SIGNAL_PROBE "${CMAKE_SOURCE_DIR}/tests/gates/signal_probe.sh")
+set(GBL_SIGNAL_CASE "${CMAKE_SOURCE_DIR}/tests/gates/signal_case.cmake")
+
+gbl_add_test(
+  NAME hygiene.signal
+  LABELS hygiene unit
+  COMMAND sh "${GBL_SIGNAL_PROBE}" "${CMAKE_SOURCE_DIR}/scripts/hygiene.sh"
+    "hygiene: home-path" "${CMAKE_BINARY_DIR}/nc/probe_hygiene")
+
+gbl_add_test(
+  NAME signature.signal
+  LABELS signature unit
+  COMMAND ${GBL_SIG_ENV} sh "${GBL_SIGNAL_PROBE}"
+    "${CMAKE_SOURCE_DIR}/scripts/signature-scan.sh"
+    "signature: rom-extension" "${CMAKE_BINARY_DIR}/nc/probe_signature")
+
+gbl_add_test(
+  NAME traps.static
+  LABELS gate traps
+  COMMAND sh scripts/check-traps.sh
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+foreach(case IN ITEMS exit_idiom no_handler no_files resumes)
+  gbl_add_test(
+    NAME traps.nc.${case}
+    LABELS control traps
+    COMMAND ${GBL_SIG_DRIVER} "-DCASE=${case}" -P "${GBL_SIGNAL_CASE}")
+endforeach()
+gbl_add_test(
+  NAME traps.pos.clean
+  LABELS positive traps
+  COMMAND ${GBL_SIG_DRIVER} -DCASE=clean -P "${GBL_SIGNAL_CASE}")

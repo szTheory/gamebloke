@@ -95,7 +95,12 @@ fi
 . "$GBL_SIG_LIB"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/gbl-signature.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+# A signal must end the script: a trap action that returns lets the script
+# resume with $tmp gone and report a clean result. Cleanup runs on EXIT only.
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 GBL_SIG_TMP=$tmp
 export GBL_SIG_TMP
 : > "$tmp/findings"

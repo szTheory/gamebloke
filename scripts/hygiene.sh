@@ -71,7 +71,12 @@ case "$mode" in
 esac
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/gbl-hygiene.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+# A signal must end the script: a trap action that returns lets the script
+# resume with $tmp gone and report a clean result. Cleanup runs on EXIT only.
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 case "$mode" in
   --tree)

@@ -42,7 +42,12 @@ esac
 [ -f "$file" ] || { echo "signature-digest: no-file: $file"; exit 1; }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/gbl-sigdigest.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+# A signal must end the script: a trap action that returns lets the script
+# resume with $tmp gone and report a clean result. Cleanup runs on EXIT only.
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 size=$(gbl_size "$file")
 case "$kind" in

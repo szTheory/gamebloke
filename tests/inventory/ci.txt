@@ -48,6 +48,7 @@ hygiene.nc.staged_home_path control,hygiene
 hygiene.nc.staged_identity control,hygiene
 hygiene.pos.clean hygiene,positive
 hygiene.pos.staged_clean hygiene,positive
+hygiene.signal hygiene,unit
 hygiene.tree gate,hygiene
 hygiene.usage hygiene,unit
 inventory.junit post
@@ -93,4 +94,11 @@ signature.pos.binary_allowlisted positive,signature
 signature.pos.bios_unlisted_digest positive,signature
 signature.pos.digests_copy positive,signature
 signature.pos.owner_file_match positive,signature
+signature.signal signature,unit
 signature.tree gate,signature
+traps.nc.exit_idiom control,traps
+traps.nc.no_files control,traps
+traps.nc.no_handler control,traps
+traps.nc.resumes control,traps
+traps.pos.clean positive,traps
+traps.static gate,traps
