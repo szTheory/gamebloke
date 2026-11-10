@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-11-10T00:43:52.071Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-11-10T00:49:14.305Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: 837977015c6d99e9faf10c6d0e679c18011a3e50
+state_head: 0ad967177a3f5e81ad61b3165f67ceaf4b9b16dc
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 2 of 11
+Plan: 3 of 11
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 01 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 3 min | 2 tasks | 10 files |
+| Phase 01 P02 | 5 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Recent decisions affecting current work:
 - [Roadmap]: The VERIF-06 sanitizer lanes land in Phase 1, so the CPU work (CPU-05) is UBSan-gated from its first commit.
 - [Phase 01]: ci-post test preset uses output.verbosity verbose so the inventory summary reaches green logs (B1)
 - [Phase 01]: Inventory compare is whole-line (name, labels, skip-ok); lines byte-sorted; reason codes inventory: unsorted|configure-mismatch
+- [Phase 01]: gbl_expect_pass takes optional REGEX and wrappers print gate output on success so permitted-skip reasons reach ctest -V logs
+- [Phase 01]: Negative controls match reason-code prefixes via cmake/ExpectFail.cmake (non-zero exit AND regex; exact EXIT only for documented codes like runner 2); wrapper has a meta-control
 
 ### Pending Todos
 
@@ -94,6 +97,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T00:43:52.055Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-11-10T00:49:14.289Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
