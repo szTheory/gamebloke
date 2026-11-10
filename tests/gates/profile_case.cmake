@@ -243,6 +243,32 @@ elseif(CASE STREQUAL "bus_policy_doc")
     "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
     "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
   expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 13" "${p}" "${d}")
+  profile_copy(p unexpected_policy_row)
+  doc_copy(d unexpected_policy_row)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
+    "| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
+  expect_detail(bus-policy-doc
+    "bus_policy: unexpected policy row bus_policy.request_cycles.extra" "${p}" "${d}")
+  profile_copy(p wrong_policy_body_cells)
+  doc_copy(d wrong_policy_body_cells)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. | extra |")
+  expect_detail(bus-policy-doc
+    "bus_policy: expected 4 cells per body row, found 5" "${p}" "${d}")
+  profile_copy(p wrong_unmodeled_body_cells)
+  doc_copy(d wrong_unmodeled_body_cells)
+  gbl_text_mutate("${d}"
+    "| `sp-micro-differences` | SP and Micro differences. Includes the EWRAM wait register at 0x04000800 (its fastest setting is reported to lock up the Micro, REF) and the Micro's missing cartridge switch (REF). |"
+    "| `sp-micro-differences` | SP and Micro differences. Includes the EWRAM wait register at 0x04000800 (its fastest setting is reported to lock up the Micro, REF) and the Micro's missing cartridge switch (REF). | extra |")
+  expect_detail(doc-no-section "## Unmodeled" "${p}" "${d}")
+  profile_copy(p misplaced_unmodeled_id)
+  doc_copy(d misplaced_unmodeled_id)
+  gbl_text_mutate("${d}"
+    "| `sp-micro-differences` | SP and Micro differences. Includes the EWRAM wait register at 0x04000800 (its fastest setting is reported to lock up the Micro, REF) and the Micro's missing cartridge switch (REF). |"
+    "| id `sp-micro-differences` | SP and Micro differences. Includes the EWRAM wait register at 0x04000800 (its fastest setting is reported to lock up the Micro, REF) and the Micro's missing cartridge switch (REF). |")
+  expect_detail(doc-no-section "## Unmodeled" "${p}" "${d}")
   profile_copy(p section_scope)
   doc_copy(d section_scope)
   gbl_text_mutate("${d}"
