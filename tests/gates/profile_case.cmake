@@ -81,6 +81,15 @@ function(expect_code code profile)
   gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}")
 endfunction()
 
+# expect_detail(<code> <detail-regex> <profile>): fails with <code> and that finding
+# detail (findings are printed unwrapped). One variant per invariant or trigger: a bare
+# code can come from another check, so the control names the detail it targets.
+function(expect_detail code detail profile)
+  doc_copy(doc unchanged_detail)
+  check_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
 if(CASE STREQUAL "copy")
   profile_copy(p copy)
   doc_copy(d copy)
@@ -190,16 +199,41 @@ elseif(CASE STREQUAL "bad_source_label")
     expect_code(bad-source-label "${p}")
     math(EXPR i "${i}+1")
   endforeach()
+  # A label that claims a source over a null value is refused, for an ordinary constant
+  # and for the disputed edge (only UNK may stand over no value).
+  profile_copy(p null_value)
+  gbl_json_mutate_set("${p}" "null" timing master_clock_hz value)
+  expect_detail(bad-source-label "timing.master_clock_hz: null value under REF" "${p}")
+  profile_copy(p null_edge)
+  gbl_json_mutate_set("${p}" "\"REF\"" timing hblank_flag_edge_cycle source)
+  expect_detail(bad-source-label "timing.hblank_flag_edge_cycle: null value under REF" "${p}")
 
 elseif(CASE STREQUAL "timing_arithmetic")
+  # One variant per invariant, each changing ONE input so that exactly that invariant
+  # breaks, with the finding detail asserted (deleting any one invariant fails here).
+  # Real values: 240 + 68 = 308 dots; 308 * 4 = 1232 cycles/line; 160 + 68 = 228 lines;
+  # 1232 * 228 = 280896 cycles/frame; clock 2^24.
+  profile_copy(p dots)
+  gbl_json_mutate_set("${p}" "241" timing dots_visible value)
+  expect_detail(timing-arithmetic "dots_visible \\+ dots_hblank != dots_per_line" "${p}")
+  profile_copy(p cycles_dot)
+  gbl_json_mutate_set("${p}" "5" timing cycles_per_dot value)
+  expect_detail(timing-arithmetic "dots_per_line \\* cycles_per_dot != cycles_per_line" "${p}")
+  profile_copy(p lines)
+  gbl_json_mutate_set("${p}" "161" timing lines_visible value)
+  expect_detail(timing-arithmetic "lines_visible \\+ lines_vblank != lines_per_frame" "${p}")
+  profile_copy(p frame)
+  gbl_json_mutate_set("${p}" "280897" timing cycles_per_frame value)
+  expect_detail(timing-arithmetic "cycles_per_line \\* lines_per_frame != cycles_per_frame" "${p}")
+  profile_copy(p clock)
+  gbl_json_mutate_set("${p}" "16780000" timing master_clock_hz value)
+  expect_detail(timing-arithmetic "master_clock_hz != 2\\^24" "${p}")
+  # The pre-existing mixed variants: one edit that breaks two invariants.
   profile_copy(p line)
   gbl_json_mutate_set("${p}" "1231" timing cycles_per_line value)
   expect_code(timing-arithmetic "${p}")
   profile_copy(p vblank)
   gbl_json_mutate_set("${p}" "67" timing lines_vblank value)
-  expect_code(timing-arithmetic "${p}")
-  profile_copy(p clock)
-  gbl_json_mutate_set("${p}" "16780000" timing master_clock_hz value)
   expect_code(timing-arithmetic "${p}")
 
 elseif(CASE STREQUAL "hblank_edge_hardcoded")
@@ -226,6 +260,11 @@ elseif(CASE STREQUAL "unmodeled_bad_entry")
   profile_copy(p details)
   gbl_json_mutate_set("${p}" [=["The Micro has no cartridge switch."]=] unmodeled 0 details 0)
   expect_code(unmodeled-bad-entry "${p}")
+  # hblank-flag-edge (entry 2) must carry disp-hblank-flag-edge, not another dispute id
+  # (disp-dma-latch is a registry id, so no dispute-unknown finding can stand in for it).
+  profile_copy(p hblank_dispute)
+  gbl_json_mutate_set("${p}" "\"disp-dma-latch\"" unmodeled 2 dispute)
+  expect_detail(unmodeled-bad-entry "hblank-flag-edge: dispute" "${p}")
 
 elseif(CASE STREQUAL "dispute_unknown")
   # An id the registry does not hold, on the unmodeled entry and on the timing entry.
