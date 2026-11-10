@@ -1,8 +1,8 @@
 ---
 phase: 01-ci-and-verification-foundation
 verified: 2026-11-09T22:00:00Z
-status: human_needed
-score: 5/5 roadmap criteria verified (2 owner-gated items open, 1 clause deferred)
+status: passed
+score: 5/5 roadmap criteria verified (human items resolved or owner-deferred; 1 clause deferred to Phase 2)
 covered_files:
   - ".githooks/pre-commit"
   - ".github/rulesets/main.json"
@@ -192,3 +192,10 @@ Warnings (non-blocking, for the orchestrator to act on):
 
 _Verified: 2026-11-09_
 _Verifier: Claude (gsd-verifier)_
+
+## Human Verification Outcome (2026-11-10)
+
+1. **Publish the review-fix branch through one PR:** done. PR #4 (squash `4793b10`) ran every lane green on GitHub (including the WR-05 classifier markers live, `heavy=true` for the source PR, 120/118/2 on both OS builds), merged through the ruleset with no bypass, and the main push run (42751830629) is `success` with `CI required` success.
+2. **Real Nintendo-logo digest:** the repository owner answered `pending` at the plan 11 checkpoint, on the stated basis that Phase 1 still completes. It is NOT resolved. It remains a visible owner gate: `signature.logo.real_digest` reports SKIPPED with a reason, STATE.md Blockers/Concerns carries it, and **EVID-04 stays Pending** in REQUIREMENTS.md until the digest lands through a PR. Owner next action: run `sh scripts/signature-digest.sh logo <file>` on a file they hold outside the repo and commit the printed row.
+3. **VERIF-01 manifest-lint clause:** deferred to Phase 2 (ROADMAP Phase 2 criterion 2, `manifest.lint` extension point). VERIF-01 should be re-checked when the manifest linter joins the canonical command.
+

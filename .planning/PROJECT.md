@@ -22,7 +22,7 @@ says exactly what it proves and what it does not.
 
 ### Validated
 
-(None yet. Requirements are validated only when they ship.)
+- ✓ One canonical local verification command (`cmake --workflow --preset ci`), identical to the required `CI required` check, with a negative control for every gate — Phase 1 (verified 2026-11-10: 120 tests ran/2 visible skips locally and on Linux GCC + macOS arm64; ASan/UBSan lane; hygiene and rights-signature scans; ruleset requires the check). The manifest-lint clause joins in Phase 2.
 
 ### Active
 
@@ -43,7 +43,7 @@ REQUIREMENTS.md.
 - [ ] An original or rights-reviewed diagnostic plus a legally cleared playable homebrew scenario, visible early
 - [ ] A defined public API boundary (lifecycle, load/unload, input timing, bounded advancement, buffer ownership, reset, errors, refusal postconditions) before it is exposed
 - [ ] An installed, relocatable external consumer once packaging exists
-- [ ] One canonical local verification command, aligned with a fast CI gate, with negative controls
+- [ ] Real Nintendo-logo window digest supplied by the owner so the EVID-04 real-logo rule is armed on main (owner gate; the rule is control-proven but inactive for real files until then)
 - [ ] Named benchmark workloads measured only after a correctness baseline exists
 
 ### Out of Scope
@@ -99,6 +99,9 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Host platform and installed consumer | Research → roadmap | — Pending (research) |
 | LibFuturo fit | Prove with a real core/consumer before adoption | — Pending (later phase) |
 | Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
+| Required check `CI required` on `ubuntu-26.04` + `macos-26` (arm64), actions SHA-pinned, `main` protected by a PR-only ruleset with no bypass actors (owner-authorized, 2026-11-10) | One command, same verdict locally and in CI; nothing reaches main except through a green PR | ✓ Good (Phase 1) |
+| Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | — Pending (exercised from Phase 2) |
+| Real-logo digest `owner-pending` (owner chose to defer, 2026-11-10) | Owner must supply a digest from a file they hold; no primary source publishes it | — Pending (owner gate) |
 | Project license | Owner authority. The repo is public with no LICENSE file yet, so default copyright applies until the owner chooses one. | — Pending (owner gate) |
 
 ## Evolution
@@ -119,4 +122,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-09 after initialization*
+*Last updated: 2026-11-10 after Phase 1*
