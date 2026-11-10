@@ -21,6 +21,7 @@ core.pos.in_tree core,positive
 core.version core,unit
 inventory.junit post
 loader.diagnostics core,loader,unit
+loader.integration core,integration,loader,unit
 loader.lengths core,loader,unit
 loader.nc.allocate_before_validate control,core,loader
 loader.nc.allocation_state control,core,loader

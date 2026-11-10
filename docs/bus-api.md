@@ -182,6 +182,30 @@ second disposal does not release again.
 `gbl_rom_size` returns their byte length. Both are read-only accessors and
 return null/zero for a null or uninitialized machine.
 
+## Consumer integration witness
+
+The `loader.integration` selector in the in-tree C test runs the complete
+loaded-machine path through `gamebloke_core`. It uses separate host allocator
+contexts and separate synthesized input buffers for equal ROM images, then
+checks that the core owns a copy and that later caller edits do not affect it.
+The test reads each of the three Game Pak ROM aliases, writes and reads mirrored
+EWRAM and IWRAM, changes the display mode around a VRAM byte-write boundary,
+and advances explicit internal cycles. Every request checks its status,
+outcome, value, access class, reported cost, and resulting clock.
+
+One machine runs the bus sequence alone while two others run the same sequence
+interleaved; their canonical fields, memory arrays, and ROM contents must agree
+exactly. The selector also runs the lifecycle cases for refusal and allocation
+failure atomicity, candidate commit before prior-ROM release, source-buffer
+edits, repeated loaded reset, and independent disposal. Reset must preserve the
+owned ROM and restore the same canonical machine fields as a fresh load.
+Header diagnostics remain advisory and canonical-logo state remains
+`UNCHECKED`/`OWNER_PENDING`.
+
+This is an in-tree integration witness over synthetic bytes. It does not claim
+CPU or guest execution, a stable embedding ABI, an installed-consumer route,
+physical hardware accuracy, or broad game compatibility.
+
 ## Header diagnostics
 
 `gbl_rom_diagnostics` returns a by-value `gbl_header_diagnostics`. Its

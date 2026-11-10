@@ -119,6 +119,10 @@ gbl_add_test(
   NAME loader.diagnostics
   LABELS core loader unit
   COMMAND $<TARGET_FILE:loader_test> diagnostics)
+gbl_add_test(
+  NAME loader.integration
+  LABELS core integration loader unit
+  COMMAND $<TARGET_FILE:loader_test> integration)
 
 gbl_add_test(
   NAME runner.help

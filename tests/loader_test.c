@@ -651,10 +651,282 @@ static int run_transaction(void)
     return CHECK_DONE();
 }
 
+static uint32_t integration_rom_value(const uint8_t *image, size_t offset,
+                                      uint8_t width)
+{
+    uint32_t value = image[offset];
+
+    if (width > 1u) {
+        value |= (uint32_t)image[offset + 1u] << 8u;
+    }
+    if (width > 2u) {
+        value |= (uint32_t)image[offset + 2u] << 16u;
+        value |= (uint32_t)image[offset + 3u] << 24u;
+    }
+    return value;
+}
+
+static void check_integration_bus_result(const gbl_machine *machine,
+                                        gbl_bus_result result,
+                                        gbl_bus_outcome outcome,
+                                        uint32_t value, uint64_t cycles,
+                                        gbl_bus_access_class access_class,
+                                        uint64_t previous_cycles)
+{
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == outcome);
+    CHECK(result.value == value);
+    CHECK(result.cycles == cycles);
+    CHECK(result.access_class == access_class);
+    CHECK(machine->master_cycles == previous_cycles + cycles);
+}
+
+static void run_integration_bus_step(gbl_machine *machine,
+                                     const uint8_t *image, unsigned int step)
+{
+    static const uint32_t rom_bases[] = {
+        0x08000000u, 0x0A000000u, 0x0C000000u
+    };
+    const uint32_t vram_address = 0x06012000u;
+    uint64_t previous_cycles = machine->master_cycles;
+    gbl_bus_result result;
+
+    switch (step) {
+    case 0u:
+        result = gbl_bus_read(machine, rom_bases[0] + 0x20u, 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL);
+        check_integration_bus_result(
+            machine, result, GBL_BUS_OUTCOME_ROM,
+            integration_rom_value(image, 0x20u, 4u), 1u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, previous_cycles);
+        break;
+    case 1u:
+        result = gbl_bus_read(machine, rom_bases[1] + 0x20u, 2u,
+                              GBL_BUS_CLASS_SEQUENTIAL);
+        check_integration_bus_result(
+            machine, result, GBL_BUS_OUTCOME_ROM,
+            integration_rom_value(image, 0x20u, 2u), 1u,
+            GBL_BUS_CLASS_SEQUENTIAL, previous_cycles);
+        break;
+    case 2u:
+        result = gbl_bus_read(machine, rom_bases[2] + 0x20u, 1u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL);
+        check_integration_bus_result(
+            machine, result, GBL_BUS_OUTCOME_ROM,
+            integration_rom_value(image, 0x20u, 1u), 1u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, previous_cycles);
+        break;
+    case 3u:
+        result = gbl_bus_write(machine, 0x02000100u, 4u,
+                               GBL_BUS_CLASS_SEQUENTIAL, 0x89ABCDEFu);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0u, 1u, GBL_BUS_CLASS_SEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 4u:
+        result = gbl_bus_read(machine, 0x02400100u, 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0x89ABCDEFu, 1u,
+                                     GBL_BUS_CLASS_NONSEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 5u:
+        result = gbl_bus_write(machine, 0x03000220u, 4u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, 0x76543210u);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0u, 1u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 6u:
+        result = gbl_bus_read(machine, 0x03008220u, 4u,
+                              GBL_BUS_CLASS_SEQUENTIAL);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0x76543210u, 1u,
+                                     GBL_BUS_CLASS_SEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 7u:
+        result = gbl_bus_write(machine, 0x04000000u, 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, 3u);
+        check_integration_bus_result(
+            machine, result, GBL_BUS_OUTCOME_IO_MODE_SUBSET, 0u, 1u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, previous_cycles);
+        break;
+    case 8u:
+        result = gbl_bus_read(machine, 0x04000000u, 2u,
+                              GBL_BUS_CLASS_SEQUENTIAL);
+        check_integration_bus_result(
+            machine, result, GBL_BUS_OUTCOME_IO_MODE_SUBSET, 3u, 1u,
+            GBL_BUS_CLASS_SEQUENTIAL, previous_cycles);
+        break;
+    case 9u:
+        result = gbl_bus_write(machine, vram_address, 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, 0x5Au);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0u, 1u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 10u:
+        result = gbl_bus_read(machine, vram_address, 2u,
+                              GBL_BUS_CLASS_SEQUENTIAL);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0x5A5Au, 1u,
+                                     GBL_BUS_CLASS_SEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 11u:
+        result = gbl_bus_write(machine, 0x04000000u, 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+        check_integration_bus_result(
+            machine, result, GBL_BUS_OUTCOME_IO_MODE_SUBSET, 0u, 1u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, previous_cycles);
+        break;
+    case 12u:
+        result = gbl_bus_write(machine, vram_address, 1u,
+                               GBL_BUS_CLASS_SEQUENTIAL, 0xC3u);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0u, 1u, GBL_BUS_CLASS_SEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 13u:
+        result = gbl_bus_read(machine, vram_address, 2u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_RAM,
+                                     0x5A5Au, 1u,
+                                     GBL_BUS_CLASS_NONSEQUENTIAL,
+                                     previous_cycles);
+        break;
+    case 14u:
+        result = gbl_bus_internal(machine, 7u);
+        check_integration_bus_result(machine, result, GBL_BUS_OUTCOME_NONE,
+                                     0u, 7u,
+                                     GBL_BUS_CLASS_NONSEQUENTIAL,
+                                     previous_cycles);
+        break;
+    default:
+        CHECK(false);
+        break;
+    }
+}
+
+static int run_integration(void)
+{
+    enum { MACHINE_COUNT = 4, ROM_SIZE = 0x100, BUS_STEP_COUNT = 15 };
+    host_storage storage[MACHINE_COUNT] = { 0 };
+    gbl_machine *machines[MACHINE_COUNT] = { NULL };
+    uint8_t inputs[MACHINE_COUNT][ROM_SIZE];
+    uint8_t expected[ROM_SIZE];
+    size_t index;
+    unsigned int step;
+    int transaction_result;
+
+    transaction_result = run_transaction();
+    if (transaction_result != 0) {
+        return transaction_result;
+    }
+
+    for (index = 0u; index < MACHINE_COUNT; ++index) {
+        fill_synthetic(inputs[index], sizeof(inputs[index]), 0x39u);
+    }
+    memcpy(expected, inputs[0], sizeof(expected));
+    for (index = 1u; index < MACHINE_COUNT; ++index) {
+        CHECK(memcmp(inputs[0], inputs[index], sizeof(expected)) == 0);
+        CHECK(inputs[0] != inputs[index]);
+    }
+
+    for (index = 0u; index < MACHINE_COUNT; ++index) {
+        gbl_load_result load;
+        gbl_header_diagnostics diagnostics;
+
+        machines[index] = new_machine(&storage[index]);
+        if (machines[index] == NULL) {
+            fprintf(stderr, "loader.integration: machine setup failed\n");
+            break;
+        }
+        load = gbl_load_rom(machines[index], inputs[index], sizeof(inputs[index]));
+        CHECK(load.status == GBL_LOAD_STATUS_OK);
+        CHECK(load.reason == GBL_LOAD_REASON_NONE);
+        CHECK(machines[index]->master_cycles == 0u);
+        CHECK(gbl_rom_size(machines[index]) == sizeof(expected));
+        CHECK(gbl_rom_data(machines[index]) != inputs[index]);
+        CHECK(gbl_test_bytes_equal(gbl_rom_data(machines[index]), expected,
+                                   sizeof(expected)));
+        diagnostics = gbl_rom_diagnostics(machines[index]);
+        CHECK(diagnostics.loaded);
+        CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
+        CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
+    }
+    if (index != MACHINE_COUNT) {
+        for (index = 0u; index < MACHINE_COUNT; ++index) {
+            free_machine(machines[index]);
+        }
+        return 1;
+    }
+
+    for (index = 0u; index < MACHINE_COUNT; ++index) {
+        CHECK(gbl_rom_data(machines[index]) != gbl_rom_data(machines[0]) ||
+              index == 0u);
+        inputs[index][7u] ^= (uint8_t)(0x10u << index);
+        CHECK(gbl_rom_data(machines[index])[7u] == expected[7u]);
+    }
+    CHECK(gbl_test_canonical_equal(machines[0], machines[1]));
+    CHECK(gbl_test_canonical_equal(machines[0], machines[2]));
+    CHECK(gbl_test_canonical_equal(machines[0], machines[3]));
+
+    for (step = 0u; step < BUS_STEP_COUNT; ++step) {
+        run_integration_bus_step(machines[0], expected, step);
+    }
+    for (step = 0u; step < BUS_STEP_COUNT; ++step) {
+        run_integration_bus_step(machines[1], expected, step);
+        run_integration_bus_step(machines[2], expected, step);
+    }
+    CHECK(machines[0]->master_cycles == 21u);
+    CHECK(machines[1]->master_cycles == 21u);
+    CHECK(machines[2]->master_cycles == 21u);
+    CHECK(gbl_test_canonical_equal(machines[0], machines[1]));
+    CHECK(gbl_test_canonical_equal(machines[0], machines[2]));
+    CHECK(gbl_test_canonical_digest(machines[0]) ==
+          gbl_test_canonical_digest(machines[1]));
+    CHECK(gbl_test_canonical_digest(machines[0]) ==
+          gbl_test_canonical_digest(machines[2]));
+
+    gbl_machine_reset(machines[1]);
+    gbl_machine_reset(machines[1]);
+    CHECK(gbl_rom_size(machines[1]) == sizeof(expected));
+    CHECK(gbl_test_bytes_equal(gbl_rom_data(machines[1]), expected,
+                               sizeof(expected)));
+    CHECK(gbl_test_canonical_equal(machines[1], machines[3]));
+    CHECK(gbl_test_canonical_digest(machines[1]) ==
+          gbl_test_canonical_digest(machines[3]));
+
+    gbl_machine_dispose(machines[0]);
+    CHECK(storage[0].release_calls == 1u);
+    CHECK(host_has_no_live_allocations(&storage[0]));
+    CHECK(gbl_rom_data(machines[1]) != NULL);
+    CHECK(gbl_rom_data(machines[2]) != NULL);
+    CHECK(gbl_rom_data(machines[3]) != NULL);
+    for (index = 1u; index < MACHINE_COUNT; ++index) {
+        gbl_machine_dispose(machines[index]);
+        CHECK(storage[index].release_calls == 1u);
+        CHECK(host_has_no_live_allocations(&storage[index]));
+        free(machines[index]);
+    }
+    gbl_machine_dispose(machines[0]);
+    CHECK(storage[0].release_calls == 1u);
+    free(machines[0]);
+
+    if (CHECK_DONE() == 0) {
+        puts("loader: integration ok");
+    }
+    return CHECK_DONE();
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: loader_test lengths|transaction|diagnostics\n");
+        fprintf(stderr,
+                "usage: loader_test lengths|transaction|diagnostics|integration\n");
         return 2;
     }
     if (strcmp(argv[1], "lengths") == 0) {
@@ -665,6 +937,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "diagnostics") == 0) {
         return run_diagnostics();
+    }
+    if (strcmp(argv[1], "integration") == 0) {
+        return run_integration();
     }
     fprintf(stderr, "loader_test: unknown selector: %s\n", argv[1]);
     return 2;
