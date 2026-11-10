@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 02
 current_phase_name: Profile, Fixture Manifest, and Result Contract
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-11-10T05:48:05.753Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-11-10T05:57:02.888Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 complete, transitioned to Phase 2
-state_head: 2c0e75aee5b0ece48d6a11713c1559622fcd0db7
+state_head: 4830eca1411664675106c126fc0faafd72c3c914
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 02 (Profile, Fixture Manifest, and Result Contract) — READY TO EXECUTE
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 complete, transitioned to Phase 2
 
@@ -71,6 +71,7 @@ Progress: [██░░░░░░░░] 17%
 | Phase 01 P11 | not measured | 3 tasks | 3 files |
 | Phase 02 P01 | 45 min | 3 tasks | 9 files |
 | Phase 02 P02 | 25 min | 2 tasks | 6 files |
+| Phase 02 P03 | 25 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,7 @@ Recent decisions affecting current work:
 - [Phase 02]: result_labels omitted from contracts/evidence.json: the only label, disputed, is a rule (plan 06 hard-codes it) not a vocabulary entry
 - [Phase 02]: Strict JSON loader uses a structural depth walk for trailing content, not a bracket-class regex; findings never echo file content
 - [Phase 02]: 02-02: Errata dispute entry enumerates twelve topics from the primary mGBA forum post (RESEARCH merged two rumble lines into eleven); issue and errata hardware claims are labeled SRC with UNK noted, never REF
+- [Phase 02]: Profile timing includes dots_per_line (308, REF) so all five timing invariants are checkable; hblank_flag_edge_cycle must carry a dispute id (dispute-unknown otherwise)
 
 ### Pending Todos
 
@@ -134,6 +136,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T05:48:05.708Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-11-10T05:57:02.839Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
