@@ -1,6 +1,12 @@
 # Sorted (byte order) expected-test inventory for the asan lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
 bus.decode bus,core,unit
+bus.nc.clock_overflow bus,control
+bus.nc.ewram_mirror bus,control
+bus.nc.iwram_mirror bus,control
+bus.nc.video_bytes bus,control
+bus.nc.vram_mirror bus,control
+bus.pos.clean bus,positive
 bus.timing bus,core,unit
 bus.video bus,core,unit
 core.nc.comment control,core
