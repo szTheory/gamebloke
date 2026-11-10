@@ -60,7 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. ASan and UBSan builds of the core and runner run in CI. A deliberate undefined-behavior negative control, such as a shift by 32, is caught by the UBSan lane.
   4. The CTest plus junit test-inventory check fails when an expected test is removed or silently skipped, and it lists every skipped test with its reason.
   5. The hygiene check fails on planted credentials, non-noreply email addresses, and absolute home-directory paths. The signature scan fails on planted Nintendo-logo, known-BIOS, and out-of-allowlist ROM/save signatures. These negative controls are synthesized at test time, and no real logo or BIOS bytes are committed. If any negative control passes, the verify command itself fails.
-**Plans**: 2/11 plans executed (waves 1-11, serial chain: shared edits to CMakeLists.txt, CMakePresets.json, .github/workflows/ci.yml, tests/ci_gates.cmake, and the per-lane inventories, then publication order)
+**Plans**: 3/11 plans executed (waves 1-11, serial chain: shared edits to CMakeLists.txt, CMakePresets.json, .github/workflows/ci.yml, tests/ci_gates.cmake, and the per-lane inventories, then publication order)
 
 Plans:
 **Wave 1**
@@ -70,7 +70,7 @@ Plans:
 - [x] 01-02-PLAN.md — Gate controls: full junit inventory contract, ExpectFail wrapper and meta-control, registration-refusal controls, test-time junit shapes, core/runner contract tests
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 01-03-PLAN.md — Hygiene gate (credentials, non-noreply email, home paths) with planted controls, `hygiene` lane, opt-in staged hook with its controls
+- [x] 01-03-PLAN.md — Hygiene gate (credentials, non-noreply email, home paths) with planted controls, `hygiene` lane, opt-in staged hook with its controls
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 01-04-PLAN.md — Signature scan (logo window, BIOS digest, ROM/save extension, unlisted binary) with synthesized controls, digest-list well-formedness and owner-local mismatch controls; owner-pending logo row reported as SKIPPED
@@ -236,7 +236,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. CI and Verification Foundation | 2/11 | In Progress | - |
+| 1. CI and Verification Foundation | 3/11 | In Progress | - |
 | 2. Profile, Fixture Manifest, and Result Contract | 0/TBD | Not started | - |
 | 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |

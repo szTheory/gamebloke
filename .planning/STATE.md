@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-11-10T00:49:14.305Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-11-10T00:56:14.887Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: 0ad967177a3f5e81ad61b3165f67ceaf4b9b16dc
+state_head: 70d7626b9a434a2e7a9934621bedcfc57aca945e
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 3 of 11
+Plan: 4 of 11
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 01 execution started
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 |------|----------|-------|-------|
 | Phase 01 P01 | 3 min | 2 tasks | 10 files |
 | Phase 01 P02 | 5 min | 2 tasks | 10 files |
+| Phase 01 P03 | 4 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Inventory compare is whole-line (name, labels, skip-ok); lines byte-sorted; reason codes inventory: unsorted|configure-mismatch
 - [Phase 01]: gbl_expect_pass takes optional REGEX and wrappers print gate output on success so permitted-skip reasons reach ctest -V logs
 - [Phase 01]: Negative controls match reason-code prefixes via cmake/ExpectFail.cmake (non-zero exit AND regex; exact EXIT only for documented codes like runner 2); wrapper has a meta-control
+- [Phase 01]: hygiene.sh scans its own source with no exemption; regex sets are written so none matches its own line
+- [Phase 01]: Hygiene findings print path:line only and file lists are NUL-delimited (git ls-files -z, find -print0, xargs -0); allowances apply to the whole grep -o match
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T00:49:14.289Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-11-10T00:56:14.871Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
