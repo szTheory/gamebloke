@@ -52,9 +52,9 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 ### Content loading
 
-- [ ] **LOAD-01**: The core copies a ROM image on load and validates its length (zero, below header size, above 32 MiB, odd length are distinct refusals) before allocation or state mutation.
+- [x] **LOAD-01**: The core copies a ROM image on load and validates its length (zero, below header size, above 32 MiB, odd length are distinct refusals) before allocation or state mutation.
 - [ ] **LOAD-02**: Header findings (logo, checksum, game code) are reported as loader diagnostics, not refusals, under `direct-start`.
-- [ ] **LOAD-03**: A refused load leaves the instance state and caller buffers byte-identical to before the call, verified by test.
+- [x] **LOAD-03**: A refused load leaves the instance state and caller buffers byte-identical to before the call, verified by test.
 
 ### Runner and observability
 
@@ -178,9 +178,9 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | BUS-02 | Phase 3 | Pending |
 | BUS-03 | Phase 3 | Pending |
 | BUS-04 | Phase 6 | Pending |
-| LOAD-01 | Phase 3 | Pending |
+| LOAD-01 | Phase 3 | Complete |
 | LOAD-02 | Phase 3 | Pending |
-| LOAD-03 | Phase 3 | Pending |
+| LOAD-03 | Phase 3 | Complete |
 | RUN-01 | Phase 4 | Pending |
 | RUN-02 | Phase 4 | Pending |
 | RUN-03 | Phase 4 | Pending |

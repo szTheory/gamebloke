@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 03
 current_phase_name: Bus API, Memory Map, and ROM Loading
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-11-10T16:39:52.175Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-11-10T17:19:48.717Z"
 last_activity: 2026-11-10
-last_activity_desc: Plan 03-01 complete; Phase 03 execution continues
-state_head: 1137c55eb711c55bb7fc7594ac816707e7f2fab6
+last_activity_desc: Plan 03-03 complete; Phase 03 execution continues
+state_head: f56c14b20fcc1301d7f5868b1848baf933dd95c6
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 03 (Bus API, Memory Map, and ROM Loading) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
-Last activity: 2026-11-10 — Plan 03-01 complete; Phase 03 execution continues
+Last activity: 2026-11-10 — Plan 03-03 complete; Phase 03 execution continues
 
 Progress: [███░░░░░░░] 33%
 
@@ -77,6 +77,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 02 P07 | 25 min | 3 tasks | 5 files |
 | Phase 03 P01 | 26 min | 3 tasks | 10 files |
 | Phase 03 P02 | 21 min | 2 tasks | 7 files |
+| Phase 03 P03 | 20 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Keep schema gamebloke.profile/1 and bump the additive policy-bearing profile to profile_version 2.
 - [Phase 03]: Record one-cycle bus costs and zero initialization as IMPL project policy, not measured hardware behavior.
 - [Phase 03]: Keep absent-BIOS, unsupported-I/O, and ROM-tail current-latch reads explicitly unverified; WAITCNT, prefetch, BIOS protection, and active I/O devices remain unmodeled.
+- [Phase 03]: ROM load size refusals are ordered: zero, below 0xC0, above 32 MiB, then odd; valid-size pointer and allocator checks follow.
+- [Phase 03]: The host allocator owns copied ROM storage; successful replacement commits and cold-resets before releasing the previous allocation.
+- [Phase 03]: Refusal evidence compares canonical machine fields and arrays, ROM contents, and caller bytes; the digest is secondary evidence.
 
 ### Pending Todos
 
@@ -148,6 +152,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10T16:39:52.111Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-11-10T17:19:48.505Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
