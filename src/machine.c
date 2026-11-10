@@ -59,6 +59,7 @@ gbl_bus_status gbl_machine_init(gbl_machine *machine,
     machine->initialized = false;
     machine->rom = NULL;
     machine->rom_length = 0u;
+    machine->header_diagnostics = (gbl_header_diagnostics){ 0 };
     machine->allocator = supplied;
     gbl_machine_clear_mutable_state(machine);
     machine->initialized = true;
@@ -88,6 +89,7 @@ void gbl_machine_dispose(gbl_machine *machine)
     detached_allocator = machine->allocator;
     machine->rom = NULL;
     machine->rom_length = 0u;
+    machine->header_diagnostics = (gbl_header_diagnostics){ 0 };
     machine->allocator.context = NULL;
     machine->allocator.allocate = NULL;
     machine->allocator.release = NULL;
