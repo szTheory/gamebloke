@@ -315,8 +315,9 @@ gbl_add_test(
 set(GBL_FETCH_CASE "${CMAKE_SOURCE_DIR}/tests/gates/fetch_case.cmake")
 
 foreach(case IN ITEMS
-    bad_dest bad_digest bad_row bad_url dest_is_dir digest_mismatch download_failed
-    missing_pins no_curl no_row not_git not_ignored symlink tracked untracked_usage usage)
+    bad_dest bad_digest bad_row bad_status bad_url dest_is_dir digest_mismatch
+    digest_tool_failed download_failed empty_response missing_pins no_cmake no_curl no_row
+    not_git not_ignored symlink symlink_new_subdir tracked untracked_usage usage)
   gbl_add_test(
     NAME fetch.nc.${case}
     LABELS control fetch

@@ -167,8 +167,13 @@ sh scripts/fetch-pin.sh [--pins <file>] [--root <dir>] <dest>
 The script downloads into a temporary directory on the same filesystem as the
 destination, hashes the payload, and moves it into place only when the digest equals the
 pin. A mismatch leaves nothing at the destination. Exit status 0 means
-`fetch-pin: ok: <dest>`; exit 2 covers usage, a missing pins file, and a missing curl;
-every other failure exits 1. Certificate verification is never disabled.
+`fetch-pin: ok: <dest>`; exit 2 covers usage, a missing pins file, a missing curl, and a
+missing cmake; every other failure exits 1. curl runs with `-q` (no user curlrc) and does
+not follow redirects, so a pin names the direct URL and a 3xx answer is refused as
+`bad-status`; an empty download is `empty-response`. The script never disables
+certificate verification, and the SHA-256 compare, not the transport, is the integrity
+guarantee. The destination's existing parent directories are resolved before anything is
+created, so a symlinked parent cannot make the script create directories outside the root.
 `file://` URLs work only with `GBL_FETCH_ALLOW_FILE=1`, which exists for the tests;
 the committed `pins.txt` never contains one, and the tests never use the network.
 

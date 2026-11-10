@@ -125,10 +125,12 @@ Every JSON file is read by a strict loader: it rejects any text after the root o
   (`tests/fixtures/manifest.json`).
 - `pins`: `missing-file`, `missing-header`, `bad-row`, `bad-digest`, `bad-url`,
   `bad-dest`, `duplicate-dest` (`pins.txt`).
-- `fetch-pin`: `usage`, `missing-pins`, `no-curl`, `bad-dest`, `no-row`, `bad-row`,
-  `bad-digest`, `bad-url`, `download-failed`, `digest-mismatch`, `symlink`,
-  `dest-is-dir` (`scripts/fetch-pin.sh`; stderr lines, exit 2 for the first three, exit 1
-  for the rest; success prints `fetch-pin: ok: <dest>`).
+- `fetch-pin`: `usage`, `missing-pins`, `no-curl`, `no-cmake`, `bad-dest`, `no-row`,
+  `bad-row`, `bad-digest`, `bad-url`, `download-failed`, `bad-status` (not a 2xx answer;
+  redirects are not followed), `empty-response`, `digest-tool-failed`, `digest-mismatch`,
+  `symlink`, `dest-is-dir` (`scripts/fetch-pin.sh`; stderr lines, exit 2 for `usage`,
+  `missing-pins`, `no-curl`, `no-cmake`, exit 1 for the rest; success prints
+  `fetch-pin: ok: <dest>`).
 - `fixture-dir`: `usage`, `git-failed`, `not-ignored`, `tracked` (the `.fixtures/`
   directory must be git-ignored and hold nothing tracked).
 - `result`: `usage`, `bad-schema`, `missing-field`, `unknown-status`, `pass-without-run`,

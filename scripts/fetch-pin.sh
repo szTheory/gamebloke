@@ -20,20 +20,26 @@
 #                         committed pins.txt is https only)
 #
 # Row text is only ever used as a quoted argument or a case pattern, never
-# evaluated. curl is limited to the row's single scheme for the request and for
-# redirects, fails on an HTTP error, and has a redirect cap, timeouts, and a size
-# cap. Certificate verification is never disabled.
+# evaluated. curl ignores any user curlrc (-q), is limited to the row's single scheme,
+# fails on an HTTP error, and has timeouts and a size cap. Redirects are NOT followed:
+# a pin names the final URL, and a 3xx answer is refused as bad-status instead of being
+# hashed as if it were the payload. Certificate verification is never disabled by this
+# script. The integrity guarantee is the SHA-256 compare, not the transport.
 #
 # Reason codes (each prints `fetch-pin: <code>: <detail>` to stderr):
 #   usage            unknown option, missing value, or not exactly one <dest>    (exit 2)
 #   missing-pins     the pins file is absent or unreadable                       (exit 2)
 #   no-curl          the curl program is absent                                  (exit 2)
+#   no-cmake         the cmake program used for the digest is absent             (exit 2)
 #   bad-dest         <dest> (requested or in the row) fails the allow-list
 #   no-row           no pins row has <dest> as its third field
 #   bad-row          a row without exactly three fields, or a duplicate <dest>
 #   bad-digest       the row digest is not 64 lowercase hex characters
 #   bad-url          scheme not https (or file:// without the test variable), or an unsafe character
 #   download-failed  curl failed or the file was refused
+#   bad-status       https answered with anything but a 2xx status (a redirect included)
+#   empty-response   the download is empty (a 3xx with no body, or an empty file)
+#   digest-tool-failed  `cmake -E sha256sum` failed or printed no 64-hex digest
 #   digest-mismatch  the downloaded bytes do not match the pin
 #   symlink          the destination parent leaves the root, or the destination is a symlink
 #   dest-is-dir      a directory sits at the destination
@@ -147,6 +153,8 @@ esac
 
 curl_prog=${CURL:-curl}
 command -v "$curl_prog" >/dev/null 2>&1 || die no-curl "curl not found" 2
+cmake_prog=${CMAKE:-cmake}
+command -v "$cmake_prog" >/dev/null 2>&1 || die no-cmake "cmake not found" 2
 
 # The temporary directory sits inside the root so the final rename never crosses
 # a filesystem. EXIT removes it; each signal ends the script (a signal trap that
@@ -158,22 +166,57 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$curl_prog" --fail --silent --show-error --globoff \
-  --proto "$proto" --proto-redir "$proto" --max-redirs 5 \
+# -q must be the first argument to take effect. No -L: redirects are not followed.
+status=$("$curl_prog" -q --fail --silent --show-error --globoff \
+  --proto "$proto" \
   --connect-timeout 20 --max-time 600 --max-filesize 268435456 \
-  --output "$tmp/payload" --url "$url" || die download-failed "$dest"
+  --write-out '%{http_code}' \
+  --output "$tmp/payload" --url "$url") || die download-failed "$dest"
+# file:// has no HTTP status (curl reports 000); https must answer 2xx.
+case $proto/$status in
+  =https/2?? | =file/0 | =file/000) ;;
+  *) die bad-status "$dest: HTTP status '$status' (redirects are not followed)" ;;
+esac
+[ -s "$tmp/payload" ] || die empty-response "$dest"
 
-got=$("${CMAKE:-cmake}" -E sha256sum "$tmp/payload")
+got=$("$cmake_prog" -E sha256sum "$tmp/payload") || die digest-tool-failed "$dest: cmake -E sha256sum failed"
 got=${got%% *}
+case $got in
+  '' | *[!0-9a-f]*) die digest-tool-failed "$dest: no digest printed" ;;
+esac
+[ "${#got}" -eq 64 ] || die digest-tool-failed "$dest: no digest printed"
 [ "$got" = "$want" ] || die digest-mismatch "$dest: pinned $want, got $got"
 
 case $dest in
   */*) parent=$root/${dest%/*} ;;
   *) parent=$root ;;
 esac
+real_root=$(cd "$root" && pwd -P)
+# Resolve the deepest EXISTING ancestor of the parent BEFORE mkdir -p, which would
+# otherwise follow a symlinked component and create directories outside the root.
+case $dest in
+  */*) rest=${dest%/*} ;;
+  *) rest='' ;;
+esac
+walk=$root
+oldifs=$IFS
+IFS=/
+for part in $rest; do
+  if [ -e "$walk/$part" ] || [ -L "$walk/$part" ]; then
+    walk=$walk/$part
+  else
+    break
+  fi
+done
+IFS=$oldifs
+real_walk=$(cd "$walk" 2>/dev/null && pwd -P) ||
+  die symlink "$dest: a parent component is not a usable directory"
+case $real_walk in
+  "$real_root" | "$real_root"/*) ;;
+  *) die symlink "$dest: parent resolves outside the root" ;;
+esac
 mkdir -p "$parent" || die bad-dest "parent not creatable: $dest"
 real_parent=$(cd "$parent" && pwd -P)
-real_root=$(cd "$root" && pwd -P)
 case $real_parent in
   "$real_root" | "$real_root"/*) ;;
   *) die symlink "$dest: parent resolves outside the root" ;;

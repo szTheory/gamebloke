@@ -74,6 +74,12 @@ function(make_link target link)
   endif()
 endfunction()
 
+# fake_program(<path> <sh body>): an executable sh script standing in for curl or cmake.
+function(fake_program path body)
+  file(WRITE "${path}" "#!/bin/sh\n${body}\n")
+  file(CHMOD "${path}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+endfunction()
+
 # assert_clean_root(): no temporary directory is left behind.
 function(assert_clean_root)
   file(GLOB leftovers LIST_DIRECTORIES true "${ROOT}/.fetch.*")
@@ -249,6 +255,74 @@ elseif(CASE STREQUAL "symlink")
   file(READ "${dir}/victim.txt" victim)
   if(NOT victim STREQUAL "untouched\n")
     message(FATAL_ERROR "fetch-case: the link target was overwritten")
+  endif()
+
+elseif(CASE STREQUAL "no_cmake")
+  # The digest program is absent: its own reason code, not a bare shell error.
+  new_sandbox()
+  expect_fetch_fail(no-cmake "${DEST}" ENV "CMAKE=${dir}/no-such-cmake")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "digest_tool_failed")
+  # The digest program exists but exits non-zero, and one that prints no digest.
+  new_sandbox()
+  fake_program("${dir}/failing-cmake" "exit 1")
+  expect_fetch_fail("digest-tool-failed: ${DEST}: cmake -E sha256sum failed" "${DEST}"
+    ENV "CMAKE=${dir}/failing-cmake")
+  assert_not_placed("${DEST}")
+
+  new_sandbox()
+  fake_program("${dir}/silent-cmake" "echo not-a-digest")
+  expect_fetch_fail("digest-tool-failed: ${DEST}: no digest printed" "${DEST}"
+    ENV "CMAKE=${dir}/silent-cmake")
+  assert_not_placed("${DEST}")
+
+  new_sandbox()
+  fake_program("${dir}/short-cmake" "echo abc123")
+  expect_fetch_fail("digest-tool-failed: ${DEST}: no digest printed" "${DEST}"
+    ENV "CMAKE=${dir}/short-cmake")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "bad_status")
+  # Redirects are not followed, so a 3xx must be refused under its own reason, not hashed
+  # as if the redirect body were the payload. The fake curl stands in for an https server
+  # that answers 302 with a body (no network, D-16); the real curl reports 000 for file://.
+  new_sandbox()
+  fake_program("${dir}/redirect-curl"
+    "out=''\nwhile [ \"$#\" -gt 0 ]; do\n  case $1 in --output) out=$2 ;; esac\n  shift\ndone\nprintf 'redirect body' >\"$out\"\nprintf 302")
+  expect_fetch_fail(bad-status "${DEST}" ENV "CURL=${dir}/redirect-curl")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "empty_response")
+  # An empty download is refused even when the pin is the digest of the empty file (the
+  # shape a 3xx without -L and without a body would produce).
+  new_sandbox()
+  file(WRITE "${dir}/payload.bin" "")
+  file(SHA256 "${dir}/payload.bin" empty_digest)
+  gbl_text_mutate("${PINS}" "${DIGEST}" "${empty_digest}")
+  expect_fetch_fail(empty-response "${DEST}")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "symlink_new_subdir")
+  # The parent is a link out of the root and the dest names a subdirectory that does not
+  # exist yet: mkdir -p must not run through the link and create it outside the root.
+  new_sandbox()
+  gbl_text_mutate("${PINS}" "${DEST}" "example/sub/deep/payload.bin")
+  file(MAKE_DIRECTORY "${dir}/outside")
+  make_link("${dir}/outside" "${ROOT}/example")
+  expect_fetch_fail(symlink "example/sub/deep/payload.bin")
+  file(GLOB_RECURSE escaped LIST_DIRECTORIES true "${dir}/outside/*")
+  if(escaped)
+    message(FATAL_ERROR "fetch-case: directories were created outside the root: ${escaped}")
+  endif()
+
+  # A dangling link as a parent component is refused too, and nothing appears behind it.
+  new_sandbox()
+  gbl_text_mutate("${PINS}" "${DEST}" "example/sub/payload.bin")
+  make_link("${dir}/not-yet-there" "${ROOT}/example")
+  expect_fetch_fail(symlink "example/sub/payload.bin")
+  if(EXISTS "${dir}/not-yet-there")
+    message(FATAL_ERROR "fetch-case: a directory was created behind a dangling link")
   endif()
 
 elseif(CASE STREQUAL "dest_is_dir")
