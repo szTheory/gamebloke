@@ -102,7 +102,10 @@ these fields:
 `cmake/CheckResult.cmake` cross-checks the result against the manifest and the registry:
 `fixture.id` and every evidence fixture must be a manifest row id; the evidence class
 must equal the row's class; `claim.cart.rom_sha256` must equal `fixture.rom_sha256`
-(two nulls are equal); some evidence item must name `fixture.id`.
+(two nulls are equal); some evidence item must name `fixture.id`; and when the manifest
+row is a `url` or `in-tree` row, a non-null `fixture.rom_sha256` must equal the row's
+`source.sha256` (`claim-mismatch`). A `git` row pins a commit, not a digest, so no digest
+tie exists for it yet.
 
 Dispute disclosure: when the manifest row for the fixture, or for any evidence fixture,
 carries a dispute id, the result's `disputes` list must contain it, and a non-empty

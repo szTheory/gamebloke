@@ -148,6 +148,7 @@ result.nc.bad_schema control,result
 result.nc.claim_mismatch control,result
 result.nc.empty_limits control,result
 result.nc.label_without_dispute control,result
+result.nc.manifest_digest control,result
 result.nc.missing_digest control,result
 result.nc.missing_field control,result
 result.nc.missing_reason control,result

@@ -68,6 +68,18 @@ function(expect_code code result)
   gbl_expect_fail(COMMAND ${cmd} REGEX "result: ${code}")
 endfunction()
 
+# expect_detail(<code> <detail-regex> <result> [<manifest>]): fails with <code> and that
+# finding detail (findings are printed unwrapped). A bare code can be emitted by another
+# check, so a control that targets one trigger names its detail.
+function(expect_detail code detail result)
+  set(manifest "${dir}/manifest.json")
+  if(NOT "${ARGV3}" STREQUAL "")
+    set(manifest "${ARGV3}")
+  endif()
+  result_command(cmd "${result}" "${manifest}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "result: ${code}: ${detail}")
+endfunction()
+
 # expect_ok(<status> <result> [<manifest>]): the validator accepts with that status.
 function(expect_ok status result)
   set(manifest "${dir}/manifest.json")
@@ -189,8 +201,13 @@ elseif(CASE STREQUAL "missing_digest")
     gbl_json_mutate_set("${r}" "\"${state}\"" status)
     gbl_json_mutate_set("${r}" "null" fixture rom_sha256)
     gbl_json_mutate_set("${r}" "null" claim cart rom_sha256)
-    expect_code(missing-digest "${r}")
+    expect_detail(missing-digest "${state} needs fixture.rom_sha256" "${r}")
   endforeach()
+  # A state whose digest is optional still rejects a malformed digest string (10 hex).
+  result_copy(r malformed)
+  gbl_json_mutate_set("${r}" "\"HARNESS_FAIL\"" status)
+  gbl_json_mutate_set("${r}" "\"0123456789\"" fixture rom_sha256)
+  expect_detail(missing-digest "fixture.rom_sha256 is malformed" "${r}")
 
 elseif(CASE STREQUAL "missing_reason")
   # SKIPPED with no reason; MISSING with an empty reason.
@@ -286,13 +303,54 @@ elseif(CASE STREQUAL "bad_evidence")
   result_copy(r row_class)
   gbl_json_mutate_set("${r}" "\"project-authored\"" claim evidence 0 provenance_class)
   expect_code(bad-evidence "${r}")
+  # An item that does not name its fixture (WR-08).
+  result_copy(r no_fixture)
+  gbl_json_mutate_remove("${r}" claim evidence 0 fixture)
+  expect_detail(bad-evidence "claim.evidence\\[0\\]: fixture" "${r}")
 
 elseif(CASE STREQUAL "claim_mismatch")
   # The claim names a different ROM than the fixture block.
   hex(other "cd" 32)
   result_copy(r digest)
   gbl_json_mutate_set("${r}" "\"${other}\"" claim cart rom_sha256)
-  expect_code(claim-mismatch "${r}")
+  expect_detail(claim-mismatch "claim.cart.rom_sha256 differs" "${r}")
+
+  # The evidence list names a fixture, but not the one this result is for. A second
+  # manifest row exists so the item is a known fixture (no unknown-fixture finding).
+  manifest_copy(m two_rows)
+  file(READ "${m}" mdoc)
+  string(JSON row GET "${mdoc}" fixtures 0)
+  gbl_json_mutate_set("${m}" "${row}" fixtures 1)
+  gbl_json_mutate_set("${m}" "\"other-row\"" fixtures 1 id)
+  result_copy(r evidence_other)
+  gbl_json_mutate_set("${r}" "\"other-row\"" claim evidence 0 fixture)
+  expect_detail(claim-mismatch "no evidence item names example-row" "${r}" "${m}")
+
+elseif(CASE STREQUAL "manifest_digest")
+  # WR-04: the result digest is tied to the manifest row's pinned digest. The row becomes
+  # a url row; its sha256 differs from the result's 0123... digest (negative), then
+  # equals it (the same document is accepted, so the tie is the only difference).
+  hex(row_other "ab" 32)
+  manifest_copy(m differs)
+  gbl_json_mutate_set("${m}"
+    "{\"kind\": \"url\", \"url\": \"https://example.invalid/a.dat\", \"sha256\": \"${row_other}\"}"
+    fixtures 0 source)
+  expect_detail(claim-mismatch
+    "fixture.rom_sha256 differs from the manifest digest for example-row" "${dir}/result.json" "${m}")
+  file(READ "${dir}/result.json" rdoc)
+  string(JSON same GET "${rdoc}" fixture rom_sha256)
+  manifest_copy(m same)
+  gbl_json_mutate_set("${m}"
+    "{\"kind\": \"url\", \"url\": \"https://example.invalid/a.dat\", \"sha256\": \"${same}\"}"
+    fixtures 0 source)
+  expect_ok(PASS "${dir}/result.json" "${m}")
+  # An in-tree row ties the same way.
+  manifest_copy(m tree)
+  gbl_json_mutate_set("${m}"
+    "{\"kind\": \"in-tree\", \"path\": \"tests/fixtures/x.dat\", \"sha256\": \"${row_other}\"}"
+    fixtures 0 source)
+  expect_detail(claim-mismatch "fixture.rom_sha256 differs from the manifest digest"
+    "${dir}/result.json" "${m}")
 
 elseif(CASE STREQUAL "empty_limits")
   set(i 0)
