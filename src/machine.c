@@ -24,6 +24,20 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     }
 }
 
+static bool gbl_machine_allocator_aliases_storage(
+    const gbl_machine *machine, const gbl_allocator *allocator)
+{
+    const unsigned char *storage = (const unsigned char *)machine;
+    size_t index;
+
+    for (index = 0u; index < sizeof(*machine); ++index) {
+        if ((const void *)(storage + index) == (const void *)allocator) {
+            return true;
+        }
+    }
+    return false;
+}
+
 gbl_bus_status gbl_machine_init(gbl_machine *machine,
                                 const gbl_allocator *allocator)
 {
@@ -33,8 +47,7 @@ gbl_bus_status gbl_machine_init(gbl_machine *machine,
         return GBL_BUS_STATUS_INVALID_ARGUMENT;
     }
     if (allocator != NULL) {
-        if ((const void *)allocator == (const void *)machine ||
-            (const void *)allocator == (const void *)&machine->allocator) {
+        if (gbl_machine_allocator_aliases_storage(machine, allocator)) {
             return GBL_BUS_STATUS_INVALID_ARGUMENT;
         }
         supplied = *allocator;
@@ -75,6 +88,9 @@ void gbl_machine_dispose(gbl_machine *machine)
     detached_allocator = machine->allocator;
     machine->rom = NULL;
     machine->rom_length = 0u;
+    machine->allocator.context = NULL;
+    machine->allocator.allocate = NULL;
+    machine->allocator.release = NULL;
     gbl_machine_clear_mutable_state(machine);
     machine->initialized = false;
 

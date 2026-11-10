@@ -26,6 +26,22 @@ static void free_machine(gbl_machine *machine)
     }
 }
 
+static void *test_allocate(void *context, size_t size)
+{
+    (void)context;
+    (void)size;
+    return NULL;
+}
+
+static void test_release(void *context, void *pointer, size_t size)
+{
+    unsigned int *release_count = context;
+
+    (void)pointer;
+    (void)size;
+    ++(*release_count);
+}
+
 static bool bytes_equal(const uint8_t *left, const uint8_t *right,
                         size_t length)
 {
@@ -60,7 +76,8 @@ static bool canonical_equal(const gbl_machine *left,
         left->master_cycles != right->master_cycles ||
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
-        left->rom_length != right->rom_length) {
+        left->rom_length != right->rom_length ||
+        ((left->rom == NULL) != (right->rom == NULL))) {
         return false;
     }
     if (!bytes_equal(left->ewram, right->ewram, GBL_EWRAM_SIZE) ||
@@ -119,6 +136,7 @@ static uint64_t canonical_digest(const gbl_machine *machine)
     digest = digest_bytes(digest, machine->pram, GBL_PRAM_SIZE);
     digest = digest_bytes(digest, machine->vram, GBL_VRAM_SIZE);
     digest = digest_bytes(digest, machine->oam, GBL_OAM_SIZE);
+    digest = digest_byte(digest, machine->rom == NULL ? 0u : 1u);
     digest = digest_u64(digest, (uint64_t)machine->rom_length);
     if (machine->rom_length != 0u && machine->rom != NULL) {
         digest = digest_bytes(digest, machine->rom, machine->rom_length);
@@ -172,12 +190,28 @@ static int run_timing(void)
     CHECK(machine->master_cycles == 3u);
     CHECK(machine->open_bus == 0x34563456u);
 
+    result = gbl_bus_read(machine, 0x03000000u, 2u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_UNMAPPED);
+    CHECK(result.value == 0x3456u);
+    CHECK(result.cycles == 1u);
+    CHECK(result.access_class == GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(machine->open_bus == 0x34563456u);
+    CHECK(machine->master_cycles == 4u);
+    result = gbl_bus_read(machine, 0x03000000u, 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.value == 0x34563456u);
+    CHECK(machine->open_bus == 0x34563456u);
+    CHECK(machine->master_cycles == 5u);
+
     result = gbl_bus_write(machine, last_ewram, 1u,
                            GBL_BUS_CLASS_SEQUENTIAL, 0x5Au);
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
     CHECK(result.cycles == 1u);
-    CHECK(machine->master_cycles == 4u);
+    CHECK(machine->master_cycles == 6u);
     CHECK(machine->open_bus == 0x34563456u);
     result = gbl_bus_read(machine, last_ewram, 1u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
@@ -185,17 +219,23 @@ static int run_timing(void)
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
     CHECK(result.value == 0x5Au);
     CHECK(machine->open_bus == 0x5A5A5A5Au);
-    CHECK(machine->master_cycles == 5u);
+    CHECK(machine->master_cycles == 7u);
     result = gbl_bus_read(machine, 0x03000000u, 1u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.outcome == GBL_BUS_OUTCOME_UNMAPPED);
     CHECK(result.value == 0x5Au);
     CHECK(machine->open_bus == 0x5A5A5A5Au);
-    CHECK(machine->master_cycles == 6u);
+    CHECK(machine->master_cycles == 8u);
 
     before_digest = canonical_digest(machine);
     result = gbl_bus_read(machine, base, 3u, GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
+    CHECK(result.value == 0u);
+    CHECK(result.cycles == 0u);
+    CHECK(canonical_digest(machine) == before_digest);
+    result = gbl_bus_write(machine, base, 3u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFFFFFFFu);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
@@ -212,24 +252,45 @@ static int run_timing(void)
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
     CHECK(canonical_digest(machine) == before_digest);
+    result = gbl_bus_write(machine, UINT32_MAX, 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFFFu);
+    CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
+    CHECK(result.value == 0u);
+    CHECK(result.cycles == 0u);
+    CHECK(canonical_digest(machine) == before_digest);
     result = gbl_bus_read(NULL, base, 1u, GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
+    result = gbl_bus_write(NULL, base, 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFu);
+    CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
+    CHECK(result.value == 0u);
+    CHECK(result.cycles == 0u);
+    memcpy(snapshot, uninitialized, sizeof(*snapshot));
     result = gbl_bus_read(uninitialized, base, 1u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
+    CHECK(canonical_equal(uninitialized, snapshot));
 
     machine->master_cycles = UINT64_MAX - 1u;
-    result = gbl_bus_internal(machine, 1u);
+    result = gbl_bus_write(machine, base + 0x200u, 1u,
+                           GBL_BUS_CLASS_SEQUENTIAL, 0x77u);
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.cycles == 1u);
-    CHECK(result.access_class == GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.access_class == GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(machine->master_cycles == UINT64_MAX);
+    CHECK(machine->ewram[0x200u] == 0x77u);
 
     memcpy(snapshot, machine, sizeof(*snapshot));
+    result = gbl_bus_read(machine, base + 0x200u, 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
+    CHECK(result.value == 0u);
+    CHECK(result.cycles == 0u);
+    CHECK(canonical_equal(machine, snapshot));
     result = gbl_bus_internal(machine, 0u);
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.cycles == 0u);
@@ -329,6 +390,94 @@ static int run_state(void)
     CHECK(bytes_are_zero(machine->pram, GBL_PRAM_SIZE));
     CHECK(bytes_are_zero(machine->vram, GBL_VRAM_SIZE));
     CHECK(bytes_are_zero(machine->oam, GBL_OAM_SIZE));
+
+    {
+        gbl_machine *raw = malloc(sizeof(*raw));
+        gbl_machine *raw_copy = malloc(sizeof(*raw_copy));
+        gbl_allocator incomplete = { NULL, test_allocate, NULL };
+        gbl_allocator no_callbacks = { NULL, NULL, NULL };
+        unsigned int release_count = 0u;
+        uint64_t disposed_digest;
+
+        if (raw == NULL || raw_copy == NULL) {
+            fprintf(stderr, "machine.state: host allocation failed\n");
+            free(raw);
+            free(raw_copy);
+            free_machine(machine);
+            free_machine(other);
+            free_machine(fresh);
+            return 1;
+        }
+        memset(raw, 0xA5, sizeof(*raw));
+        memcpy(raw_copy, raw, sizeof(*raw));
+        CHECK(gbl_machine_init(raw, &incomplete) ==
+              GBL_BUS_STATUS_INVALID_ARGUMENT);
+        CHECK(memcmp(raw, raw_copy, sizeof(*raw)) == 0);
+        CHECK(gbl_machine_init(raw, &raw->allocator) ==
+              GBL_BUS_STATUS_INVALID_ARGUMENT);
+        CHECK(memcmp(raw, raw_copy, sizeof(*raw)) == 0);
+
+        CHECK(gbl_machine_init(raw, &no_callbacks) == GBL_BUS_STATUS_OK);
+        CHECK(raw->initialized);
+        CHECK(raw->allocator.allocate == NULL);
+        CHECK(raw->allocator.release == NULL);
+        CHECK(raw->master_cycles == 0u);
+        CHECK(raw->open_bus == 0u);
+        CHECK(raw->dispcnt == 0u);
+        CHECK(bytes_are_zero(raw->ewram, GBL_EWRAM_SIZE));
+        CHECK(bytes_are_zero(raw->iwram, GBL_IWRAM_SIZE));
+        CHECK(bytes_are_zero(raw->pram, GBL_PRAM_SIZE));
+        CHECK(bytes_are_zero(raw->vram, GBL_VRAM_SIZE));
+        CHECK(bytes_are_zero(raw->oam, GBL_OAM_SIZE));
+        gbl_machine_dispose(raw);
+        CHECK(!raw->initialized);
+        CHECK(raw->rom == NULL);
+        CHECK(raw->rom_length == 0u);
+        CHECK(raw->allocator.context == NULL);
+        CHECK(raw->allocator.allocate == NULL);
+        CHECK(raw->allocator.release == NULL);
+        CHECK(raw->master_cycles == 0u);
+        CHECK(raw->open_bus == 0u);
+        CHECK(raw->dispcnt == 0u);
+        CHECK(bytes_are_zero(raw->ewram, GBL_EWRAM_SIZE));
+        CHECK(bytes_are_zero(raw->iwram, GBL_IWRAM_SIZE));
+        CHECK(bytes_are_zero(raw->pram, GBL_PRAM_SIZE));
+        CHECK(bytes_are_zero(raw->vram, GBL_VRAM_SIZE));
+        CHECK(bytes_are_zero(raw->oam, GBL_OAM_SIZE));
+        disposed_digest = canonical_digest(raw);
+        gbl_machine_dispose(raw);
+        CHECK(canonical_digest(raw) == disposed_digest);
+        free(raw);
+        free(raw_copy);
+
+        {
+            gbl_machine *tracked = calloc(1u, sizeof(*tracked));
+            gbl_allocator tracking = { &release_count, test_allocate,
+                                       test_release };
+
+            if (tracked == NULL) {
+                fprintf(stderr, "machine.state: host allocation failed\n");
+                free_machine(machine);
+                free_machine(other);
+                free_machine(fresh);
+                return 1;
+            }
+            CHECK(gbl_machine_init(tracked, &tracking) == GBL_BUS_STATUS_OK);
+            tracked->ewram[0] = 0xFFu;
+            tracked->master_cycles = 9u;
+            gbl_machine_reset(tracked);
+            CHECK(tracked->initialized);
+            CHECK(tracked->allocator.context == &release_count);
+            CHECK(tracked->allocator.allocate == test_allocate);
+            CHECK(tracked->allocator.release == test_release);
+            CHECK(tracked->master_cycles == 0u);
+            CHECK(tracked->ewram[0] == 0u);
+            gbl_machine_dispose(tracked);
+            CHECK(release_count == 0u);
+            CHECK(tracked->allocator.context == NULL);
+            free(tracked);
+        }
+    }
 
     free_machine(machine);
     free_machine(other);

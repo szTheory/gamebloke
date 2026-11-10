@@ -97,9 +97,10 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
     if (status != GBL_BUS_STATUS_OK) {
         return gbl_bus_error(status, access_class);
     }
-    if (machine->master_cycles == UINT64_MAX) {
+    if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {
         return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW, access_class);
     }
+    next_cycles = machine->master_cycles + UINT64_C(1);
 
     if (gbl_bus_is_ewram(address, width)) {
         uint32_t value = 0u;
@@ -120,7 +121,6 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
             access_class);
     }
 
-    next_cycles = machine->master_cycles + 1u;
     machine->master_cycles = next_cycles;
     return result;
 }
@@ -138,9 +138,10 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
     if (status != GBL_BUS_STATUS_OK) {
         return gbl_bus_error(status, access_class);
     }
-    if (machine->master_cycles == UINT64_MAX) {
+    if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {
         return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW, access_class);
     }
+    next_cycles = machine->master_cycles + UINT64_C(1);
 
     if (gbl_bus_is_ewram(address, width)) {
         uint32_t offset = address - 0x02000000u;
@@ -159,7 +160,6 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
                                      access_class);
     }
 
-    next_cycles = machine->master_cycles + 1u;
     machine->master_cycles = next_cycles;
     return result;
 }
@@ -167,6 +167,7 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
 gbl_bus_result gbl_bus_internal(gbl_machine *machine, uint64_t cycles)
 {
     gbl_bus_result result;
+    uint64_t next_cycles;
 
     if (machine == NULL || !machine->initialized) {
         return gbl_bus_error(GBL_BUS_STATUS_INVALID_ARGUMENT,
@@ -176,8 +177,9 @@ gbl_bus_result gbl_bus_internal(gbl_machine *machine, uint64_t cycles)
         return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW,
                              GBL_BUS_CLASS_NONSEQUENTIAL);
     }
+    next_cycles = machine->master_cycles + cycles;
     if (cycles != 0u) {
-        machine->master_cycles += cycles;
+        machine->master_cycles = next_cycles;
     }
     result = gbl_bus_make_result(GBL_BUS_STATUS_OK, GBL_BUS_OUTCOME_NONE, 0u,
                                  cycles, GBL_BUS_CLASS_NONSEQUENTIAL);
