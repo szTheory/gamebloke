@@ -1,0 +1,12 @@
+# Sorted (byte order) expected-test inventory for the asan lane.
+# Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+core.nc.host_include control,core
+core.no_host_includes core,gate
+core.version core,unit
+inventory.junit post
+runner.help runner,unit
+runner.no_args runner,unit
+runner.usage_error runner,unit
+runner.version runner,unit
+sanitizer.asan.heap_overflow control,sanitizer
+sanitizer.ubsan.shift32 control,sanitizer

@@ -25,11 +25,24 @@
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "GBL_LANE": "hygiene"
       }
+    },
+    {
+      "name": "asan",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "asan",
+        "CMAKE_C_COMPILER": "clang-21",
+        "CMAKE_C_FLAGS": "-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
     }
   ],
   "buildPresets": [
     { "name": "ci", "configurePreset": "ci" },
-    { "name": "hygiene", "configurePreset": "hygiene" }
+    { "name": "hygiene", "configurePreset": "hygiene" },
+    { "name": "asan", "configurePreset": "asan" }
   ],
   "testPresets": [
     {
@@ -65,6 +78,24 @@
       "output": { "verbosity": "verbose" },
       "filter": { "include": { "label": "^post$" } },
       "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan",
+      "output": {
+        "outputOnFailure": true,
+        "verbosity": "verbose",
+        "outputJUnitFile": "${sourceDir}/build/asan/junit.xml"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "asan-post",
+      "configurePreset": "asan",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
     }
   ],
   "workflowPresets": [
@@ -84,6 +115,15 @@
         { "type": "build", "name": "hygiene" },
         { "type": "test", "name": "hygiene" },
         { "type": "test", "name": "hygiene-post" }
+      ]
+    },
+    {
+      "name": "asan",
+      "steps": [
+        { "type": "configure", "name": "asan" },
+        { "type": "build", "name": "asan" },
+        { "type": "test", "name": "asan" },
+        { "type": "test", "name": "asan-post" }
       ]
     }
   ]

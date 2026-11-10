@@ -51,6 +51,7 @@ endif()
 # Extension points:
 #   tests/core.cmake    core and runner tests
 #   tests/harness.cmake inventory controls (ci lane only)
+#   tests/sanitizer.cmake UBSan and ASan controls (asan lane only)
 #   tests/gates.cmake   gate tests (hygiene and signature in this phase, and the
 #                      Phase 2 `manifest.lint` test that completes VERIF-01's
 #                      manifest clause, EVID-02); created by plan 03 (ci and hygiene lanes)
@@ -59,6 +60,9 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
 endif()
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)
+endif()
+if(GBL_LANE STREQUAL "asan")
+  include(tests/sanitizer.cmake)
 endif()
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "hygiene")
   include(tests/gates.cmake)
