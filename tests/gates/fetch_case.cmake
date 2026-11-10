@@ -65,6 +65,15 @@ function(fetch_cmd out dest)
     sh "${FETCH}" --pins "${PINS}" --root "${ROOT}" "${dest}" PARENT_SCOPE)
 endfunction()
 
+# make_link(<target> <link>): a symbolic link planted in the sandbox.
+function(make_link target link)
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink "${target}" "${link}"
+    RESULT_VARIABLE rc)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "fetch-case: could not create the symlink")
+  endif()
+endfunction()
+
 # assert_clean_root(): no temporary directory is left behind.
 function(assert_clean_root)
   file(GLOB leftovers LIST_DIRECTORIES true "${ROOT}/.fetch.*")
@@ -113,6 +122,143 @@ elseif(CASE STREQUAL "digest_mismatch")
   gbl_text_mutate("${PINS}" "${DIGEST}" "${other_digest}")
   expect_fetch_fail(digest-mismatch "${DEST}")
   assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "idempotent")
+  # Fetching the same pin twice succeeds both times and leaves the verified bytes.
+  new_sandbox()
+  expect_placed()
+  expect_placed()
+
+elseif(CASE STREQUAL "usage")
+  # No dest, two dests, and an unknown option. The script documents status 2 for a
+  # usage error, but no control pins an exit status.
+  new_sandbox()
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" -E env "CMAKE=${CMAKE_COMMAND}" "GBL_FETCH_ALLOW_FILE=1"
+      sh "${FETCH}" --pins "${PINS}" --root "${ROOT}"
+    REGEX "fetch-pin: usage")
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" -E env "CMAKE=${CMAKE_COMMAND}" "GBL_FETCH_ALLOW_FILE=1"
+      sh "${FETCH}" --pins "${PINS}" --root "${ROOT}" "${DEST}" example/second.bin
+    REGEX "fetch-pin: usage")
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" -E env "CMAKE=${CMAKE_COMMAND}" "GBL_FETCH_ALLOW_FILE=1"
+      sh "${FETCH}" --bogus --pins "${PINS}" --root "${ROOT}" "${DEST}"
+    REGEX "fetch-pin: usage")
+  assert_clean_root()
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "missing_pins")
+  new_sandbox()
+  file(REMOVE "${PINS}")
+  expect_fetch_fail(missing-pins "${DEST}")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "no_row")
+  new_sandbox()
+  expect_fetch_fail(no-row example/other.bin)
+  assert_not_placed("example/other.bin")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "bad_row")
+  # A row with two fields (the dest removed) and two rows for one dest.
+  new_sandbox()
+  gbl_text_mutate("${PINS}" " ${DEST}" "")
+  expect_fetch_fail(bad-row "${DEST}")
+  assert_not_placed("${DEST}")
+
+  new_sandbox()
+  gbl_text_mutate("${PINS}" "${ROW}" "${ROW}\n${ROW}")
+  expect_fetch_fail(bad-row "${DEST}")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "bad_digest")
+  # 63 hex characters, and the same digest in upper case.
+  new_sandbox()
+  string(SUBSTRING "${DIGEST}" 1 -1 short_digest)
+  gbl_text_mutate("${PINS}" "${DIGEST}" "${short_digest}")
+  expect_fetch_fail(bad-digest "${DEST}")
+  assert_not_placed("${DEST}")
+
+  new_sandbox()
+  string(TOUPPER "${DIGEST}" upper_digest)
+  gbl_text_mutate("${PINS}" "${DIGEST}" "${upper_digest}")
+  expect_fetch_fail(bad-digest "${DEST}")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "bad_url")
+  # http://, ftp://, file:// without the test variable, and a URL with a double quote.
+  new_sandbox()
+  gbl_text_mutate("${PINS}" "file://" "http://")
+  expect_fetch_fail(bad-url "${DEST}")
+  assert_not_placed("${DEST}")
+
+  new_sandbox()
+  gbl_text_mutate("${PINS}" "file://" "ftp://")
+  expect_fetch_fail(bad-url "${DEST}")
+  assert_not_placed("${DEST}")
+
+  new_sandbox()
+  expect_fetch_fail(bad-url "${DEST}" NO_FILE_OK)
+  assert_not_placed("${DEST}")
+
+  new_sandbox()
+  gbl_text_mutate("${PINS}" "/payload.bin " "/pay\"load.bin ")
+  expect_fetch_fail(bad-url "${DEST}")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "bad_dest")
+  # Traversal, an absolute path, a dot component, and a space. The sandbox parent holds
+  # a decoy at the traversal target so a missing check could not hide.
+  new_sandbox()
+  foreach(bad IN ITEMS "../evil.dat" "/abs.dat" "a/./b" "a b")
+    expect_fetch_fail(bad-dest "${bad}")
+  endforeach()
+  assert_not_placed("${DEST}")
+  if(EXISTS "${dir}/evil.dat" OR EXISTS "${dir}/abs.dat")
+    message(FATAL_ERROR "fetch-case: a refused dest was written")
+  endif()
+
+elseif(CASE STREQUAL "no_curl")
+  new_sandbox()
+  expect_fetch_fail(no-curl "${DEST}" ENV "CURL=${dir}/no-such-curl")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "download_failed")
+  # The URL names a sandbox file that does not exist.
+  new_sandbox()
+  gbl_text_mutate("${PINS}" "/payload.bin " "/missing.bin ")
+  expect_fetch_fail(download-failed "${DEST}")
+  assert_not_placed("${DEST}")
+
+elseif(CASE STREQUAL "symlink")
+  # A parent that is a link out of the root, and a link at the destination.
+  new_sandbox()
+  file(MAKE_DIRECTORY "${dir}/outside")
+  make_link("${dir}/outside" "${ROOT}/example")
+  expect_fetch_fail(symlink "${DEST}")
+  if(EXISTS "${dir}/outside/payload.bin")
+    message(FATAL_ERROR "fetch-case: the payload escaped the root")
+  endif()
+
+  new_sandbox()
+  file(WRITE "${dir}/victim.txt" "untouched\n")
+  file(MAKE_DIRECTORY "${ROOT}/example")
+  make_link("${dir}/victim.txt" "${ROOT}/${DEST}")
+  expect_fetch_fail(symlink "${DEST}")
+  file(READ "${dir}/victim.txt" victim)
+  if(NOT victim STREQUAL "untouched\n")
+    message(FATAL_ERROR "fetch-case: the link target was overwritten")
+  endif()
+
+elseif(CASE STREQUAL "dest_is_dir")
+  new_sandbox()
+  file(MAKE_DIRECTORY "${ROOT}/${DEST}")
+  expect_fetch_fail(dest-is-dir "${DEST}")
+  file(GLOB inside "${ROOT}/${DEST}/*")
+  if(inside)
+    message(FATAL_ERROR "fetch-case: something was placed inside the directory")
+  endif()
 
 else()
   message(FATAL_ERROR "fetch-case: unknown case: ${CASE}")
