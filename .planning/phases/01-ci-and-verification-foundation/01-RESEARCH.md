@@ -572,20 +572,28 @@ exec "$(git rev-parse --show-toplevel)/scripts/hygiene.sh" --staged
 | A8 | Extension list for ROM/save names is a reasonable GBA set; owner may extend. | Pattern 5 | Missed extension leaves a hole until the binary-allowlist rule catches it. |
 | A9 | Local sanitizer builds on macOS work (the prototype ran) but are not relied on per the locked decision. | Summary | None; informational. |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All six questions are resolved for planning. Resolutions are recorded inline as `RESOLVED:` lines (decided by the orchestrator under the owner's CONTEXT.md authorizations on 2026-11-09).
 
 1. **Nintendo-logo digest provenance.**
    - Known: GBATEK places the logo at header offset 004h for 156 bytes and does not publish a hash; searches found no published SHA-256 of the logo window. GBA BIOS SHA-256 is published (see below). PITFALLS.md records that jsmolka's `lib/header.asm` embeds the logo [CITED: `.planning/research/PITFALLS.md` line 93].
    - Unclear: how the real digest enters the repo without anyone handling logo bytes in the tree.
    - Recommendation (default): a `checkpoint:human-action` early in the phase where the owner runs a provided `scripts/signature-digest.sh logo <file>` against any GBA-header-bearing file they already hold, or confirms an executor-side transient derivation (bytes read in a temp directory outside the repo, only the digest and method recorded). `signature.digests.wellformed` must fail until a valid logo digest is present. Everything else in the phase can proceed with the synthesized controls.
+   - RESOLVED: the committed digest list carries a `logo` row marked `owner-pending`; an owner `checkpoint:human-action` (last in-phase gate) supplies the real digest via `scripts/signature-digest.sh`. Pending state reports SKIPPED with reason, never PASS; unresolved at phase close it becomes a visible human-needed gap.
 2. **Scope of `apply-repo-settings.sh`.**
    - Authorized: the `main` ruleset requiring `CI required`.
    - Not explicitly authorized: `squash_merge_commit_title=PR_TITLE` and `squash_merge_commit_message=PR_BODY`, Actions `sha_pinning_required=true`, secret scanning and push protection (all reversible, free on public repos, sibling applies them).
    - Recommendation: script defaults to ruleset only; `--check` reports drift on the extra settings; applying them needs an owner `checkpoint:human-verify`.
+   - RESOLVED: ruleset only (PR required + required check `CI required` + no bypass). Extra settings are reported by `--check` as advisory drift and never applied without owner approval.
 3. **macOS image:** `macos-26` (parity with local, Apple clang 21.0.0) vs `macos-15` (sibling). Recommend `macos-26`.
+   - RESOLVED: `macos-26` (arm64) and `ubuntu-26.04`; never `-latest`.
 4. **CMake 3.25 floor in CI:** runners ship 4.4.5, so the floor is never exercised by CI. This session proved the prototype (schema 6, workflow, junit, `string(JSON)`, `cmake -E sha256sum`) on 3.25.2. Recommend a one-time local floor check recorded as evidence, and defer a CI floor lane (it needs the flagged PyPI wheel or a pinned Kitware tarball).
+   - RESOLVED: one-time local floor check with a SHA-256-verified Kitware tarball, recorded as evidence; no CI floor lane and no PyPI wheel in CI.
 5. **Text-form logo bytes.** The window-hash catches binary ROMs (including built Phase 5 diagnostics if the scan is pointed at the build output). It does not catch logo bytes pasted as assembler text (jsmolka-style). Leave for Phase 5, which already owns "no logo bytes in diagnostics" (DIAG-01/02).
+   - RESOLVED: deferred to Phase 5 (DIAG-01/02).
 6. **`--history` hygiene in CI:** optional; deferred by CONTEXT.
+   - RESOLVED: deferred per CONTEXT.md.
 
 ## Environment Availability
 
