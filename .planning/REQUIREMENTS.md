@@ -12,18 +12,18 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 ### Profile and claims
 
-- [ ] **PROF-01**: Developer can read a versioned `agb` profile document. It records machine `agb`, boot `direct-start`, BIOS provider, cartridge (ROM-only for v1.0), timing constants with their source labels, and an explicit unmodeled list. The list includes SP/Micro machine-visible differences, prefetch (until modeled), and the HBlank edge (U1).
-- [ ] **PROF-02**: Every runner result carries a claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. BIOS provider uses only the R1 values (`none`, `project-stub`, `hle:<list>`, `replacement:<name>@<commit>`, `user-official@<digest>`).
+- [x] **PROF-01**: Developer can read a versioned `agb` profile document. It records machine `agb`, boot `direct-start`, BIOS provider, cartridge (ROM-only for v1.0), timing constants with their source labels, and an explicit unmodeled list. The list includes SP/Micro machine-visible differences, prefetch (until modeled), and the HBlank edge (U1).
+- [x] **PROF-02**: Every runner result carries a claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. BIOS provider uses only the R1 values (`none`, `project-stub`, `hle:<list>`, `replacement:<name>@<commit>`, `user-official@<digest>`).
 - [ ] **PROF-03**: Under BIOS provider `none`, a guest that takes an IRQ or executes SWI, an undefined instruction, or a coprocessor opcode ends in a classified status (GUEST_STOP), never silent continuation.
 
 ### Fixtures and evidence
 
-- [ ] **EVID-01**: Developer can declare each fixture in a manifest row with: source URL, pinned revision, license and notices, build recipe, toolchain identity/digest, BIOS requirement, expected-value provenance class, and permitted use.
-- [ ] **EVID-02**: A manifest linter rejects rows with missing fields, unpinned (branch) revisions, or an unknown provenance class.
+- [x] **EVID-01**: Developer can declare each fixture in a manifest row with: source URL, pinned revision, license and notices, build recipe, toolchain identity/digest, BIOS requirement, expected-value provenance class, and permitted use.
+- [x] **EVID-02**: A manifest linter rejects rows with missing fields, unpinned (branch) revisions, or an unknown provenance class.
 - [x] **EVID-03**: Third-party fixtures are fetched by SHA-256 from `pins.txt`. A digest mismatch fails loudly. No third-party binary is committed.
 - [ ] **EVID-04**: A signature scan in the verify command fails if a committed file contains Nintendo logo bytes, a known BIOS image, or a ROM/save file outside the allowlist.
-- [ ] **EVID-05**: The runner reports results using a distinct taxonomy: PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, REFUSED. A fixture that did not run is never PASS.
-- [ ] **EVID-06**: A dispute registry records known reference disagreements, seeded with the DMA-latch dispute, the GBATEK errata, the HBlank edge sources, and mGBA-suite issues #22/#24/#27. A fixture whose expected value is disputed is labeled as such in its results.
+- [x] **EVID-05**: The runner reports results using a distinct taxonomy: PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, REFUSED. A fixture that did not run is never PASS.
+- [x] **EVID-06**: A dispute registry records known reference disagreements, seeded with the DMA-latch dispute, the GBATEK errata, the HBlank edge sources, and mGBA-suite issues #22/#24/#27. A fixture whose expected value is disputed is labeled as such in its results.
 
 ### Verification and CI
 
@@ -153,15 +153,15 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROF-01 | Phase 2 | Pending |
-| PROF-02 | Phase 2 | Pending |
+| PROF-01 | Phase 2 | Complete |
+| PROF-02 | Phase 2 | Complete |
 | PROF-03 | Phase 4 | Pending |
-| EVID-01 | Phase 2 | Pending |
-| EVID-02 | Phase 2 | Pending |
+| EVID-01 | Phase 2 | Complete |
+| EVID-02 | Phase 2 | Complete |
 | EVID-03 | Phase 2 | Complete |
 | EVID-04 | Phase 1 | Pending (partial: real-logo digest is an owner gate; BIOS, extension, and binary rules live) |
-| EVID-05 | Phase 2 | Pending |
-| EVID-06 | Phase 2 | Pending |
+| EVID-05 | Phase 2 | Complete |
+| EVID-06 | Phase 2 | Complete |
 | VERIF-01 | Phase 1 (manifest-lint clause: Phase 2) | Pending (partial: canonical command and CI parity done; manifest lint joins in Phase 2) |
 | VERIF-02 | Phase 1 | Complete |
 | VERIF-03 | Phase 1 | Complete |
