@@ -148,4 +148,10 @@ Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
 
 ## Close-out publication
 
-Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
+- Date: 2026-11-10 UTC. Plan 01-10 Task 3 (checkpoint:decision, `gate="blocking-human"`, no auto-select).
+- Owner's answer, copied from the decision line: `close-out-pr` (authorize ONE additional close-out PR under the same
+  rules: `CI required` must pass and the PR is squash-merged through the ruleset, no admin bypass, no direct push to main).
+- The authorization is exercised by plan 01-11 Task 3, not by plan 01-10. Plan 01-10 opened no third PR and pushed nothing;
+  the close-out branch `gsd/phase-01-ci-and-verification-foundation` is still local and unpushed.
+- The real-logo rule stays inactive on origin/main until a digest lands (the exact line is under `## Ruleset`, and the
+  `tests/signatures/logo.sha256` row is owner-pending). Plan 01-11 updates that line with the digest outcome.

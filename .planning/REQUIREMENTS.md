@@ -31,7 +31,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 - [x] **VERIF-02**: Every gate has at least one negative control that must fail for a stated reason. The verify command fails if a negative control passes.
 - [x] **VERIF-03**: A test-inventory check (CTest + junit) fails if any expected test is missing or silently skipped. Skipped tests are reported with a reason.
 - [ ] **VERIF-04**: A missing toolchain or BIOS reports SKIPPED with a reason, never a silent fallback or PASS.
-- [ ] **VERIF-05**: GitHub Actions runs a single required `CI required` check on PRs and `main`, on Linux (GCC) and macOS arm64, with SHA-pinned actions. `.planning/`-only changes skip heavy lanes.
+- [x] **VERIF-05**: GitHub Actions runs a single required `CI required` check on PRs and `main`, on Linux (GCC) and macOS arm64, with SHA-pinned actions. `.planning/`-only changes skip heavy lanes.
 - [x] **VERIF-06**: CI runs ASan + UBSan builds of the core and runner.
 - [x] **VERIF-07**: A repository hygiene check fails on credentials, non-noreply email addresses, or absolute home-directory paths in tracked files.
 
@@ -166,7 +166,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | VERIF-02 | Phase 1 | Complete |
 | VERIF-03 | Phase 1 | Complete |
 | VERIF-04 | Phase 5 | Pending |
-| VERIF-05 | Phase 1 | Pending |
+| VERIF-05 | Phase 1 | Complete |
 | VERIF-06 | Phase 1 | Complete |
 | VERIF-07 | Phase 1 | Complete |
 | CPU-01 | Phase 5 | Pending |
