@@ -131,6 +131,14 @@ manifest.pos.empty manifest,positive
 manifest.pos.source_kinds manifest,positive
 nc.meta.pass_requires_exit_status control,meta
 nc.meta.passing_gate_fails_wrapper control,meta
+pins.nc.bad_dest control,pins
+pins.nc.bad_digest control,pins
+pins.nc.bad_row control,pins
+pins.nc.bad_url control,pins
+pins.nc.duplicate_dest control,pins
+pins.nc.missing_file control,pins
+pins.nc.missing_header control,pins
+pins.pos.rows pins,positive
 profile.lint gate,profile
 profile.nc.bad_bios_provider control,profile
 profile.nc.bad_boot control,profile

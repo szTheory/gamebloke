@@ -289,6 +289,24 @@ foreach(case IN ITEMS complete_row empty source_kinds)
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_MANIFEST_CASE}")
 endforeach()
 
+# ---- pinned fetch list (Phase 2) --------------------------------------------
+# One control per pins reason code on a sandbox copy of pins.txt with two good rows; the
+# header is required, so an empty or header-less file cannot pass as the zero-row state.
+set(GBL_PINS_CASE "${CMAKE_SOURCE_DIR}/tests/gates/pins_case.cmake")
+
+foreach(case IN ITEMS
+    bad_dest bad_digest bad_row bad_url duplicate_dest missing_file missing_header)
+  gbl_add_test(
+    NAME pins.nc.${case}
+    LABELS control pins
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PINS_CASE}")
+endforeach()
+
+gbl_add_test(
+  NAME pins.pos.rows
+  LABELS pins positive
+  COMMAND ${GBL_EVID_DRIVER} -DCASE=rows -P "${GBL_PINS_CASE}")
+
 # ---- strict JSON loader (Phase 2) -------------------------------------------
 # One negative control per loader reason code, plus the two helper controls
 # (`mutate: no-match`, `no-echo: leaked`), and positives on tricky and real input.
