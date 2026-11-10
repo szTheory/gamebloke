@@ -53,10 +53,13 @@ endif()
 #   tests/harness.cmake inventory controls (ci lane only)
 #   tests/gates.cmake   gate tests (hygiene and signature in this phase, and the
 #                      Phase 2 `manifest.lint` test that completes VERIF-01's
-#                      manifest clause, EVID-02); created by plan 03
+#                      manifest clause, EVID-02); created by plan 03 (ci and hygiene lanes)
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   include(tests/core.cmake)
 endif()
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)
+endif()
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "hygiene")
+  include(tests/gates.cmake)
 endif()

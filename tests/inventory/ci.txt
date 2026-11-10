@@ -3,6 +3,15 @@
 core.nc.host_include control,core
 core.no_host_includes core,gate
 core.version core,unit
+hygiene.nc.credential control,hygiene
+hygiene.nc.email control,hygiene
+hygiene.nc.home_path control,hygiene
+hygiene.nc.home_path_encoded control,hygiene
+hygiene.nc.newline_name control,hygiene
+hygiene.nc.private_key control,hygiene
+hygiene.pos.clean hygiene,positive
+hygiene.tree gate,hygiene
+hygiene.usage hygiene,unit
 inventory.junit post
 inventory.nc.add_test_bad_name control,inventory
 inventory.nc.add_test_no_labels control,inventory
