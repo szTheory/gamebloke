@@ -1,7 +1,9 @@
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
 # Sorted (byte order) expected-test inventory for the ci lane.
 build.nc.compiler_id_guard build,control
+bus.decode bus,core,unit
 bus.timing bus,core,unit
+bus.video bus,core,unit
 ci.actions.nc.no_version_comment ci,control
 ci.actions.nc.unpinned ci,control
 ci.actions.pinned ci,gate

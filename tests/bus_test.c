@@ -33,6 +33,19 @@ static void *test_allocate(void *context, size_t size)
     return NULL;
 }
 
+static void *rom_allocate(void *context, size_t size)
+{
+    (void)context;
+    return malloc(size);
+}
+
+static void rom_release(void *context, void *pointer, size_t size)
+{
+    (void)context;
+    (void)size;
+    free(pointer);
+}
+
 static void test_release(void *context, void *pointer, size_t size)
 {
     unsigned int *release_count = context;
@@ -326,6 +339,104 @@ static int run_timing(void)
     return 1;
 }
 
+static int run_decode(void)
+{
+    uint8_t image[0xC0u];
+    gbl_allocator allocator = { NULL, rom_allocate, rom_release };
+    gbl_machine *machine = calloc(1u, sizeof(*machine));
+    gbl_load_result load;
+    gbl_bus_result result;
+    size_t index;
+
+    if (machine == NULL) {
+        fprintf(stderr, "bus.decode: host allocation failed\n");
+        return 1;
+    }
+    for (index = 0u; index < sizeof(image); ++index) {
+        image[index] = (uint8_t)(index ^ 0xA5u);
+    }
+    if (gbl_machine_init(machine, &allocator) != GBL_BUS_STATUS_OK) {
+        fprintf(stderr, "bus.decode: machine initialization failed\n");
+        free(machine);
+        return 1;
+    }
+
+    load = gbl_load_rom(machine, image, sizeof(image));
+    CHECK(load.status == GBL_LOAD_STATUS_OK);
+    CHECK(gbl_rom_data(machine) != image);
+    CHECK(gbl_rom_size(machine) == sizeof(image));
+
+    result = gbl_bus_read(machine, 0x08000000u, 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_ROM);
+    CHECK(result.value == ((uint32_t)image[0] | ((uint32_t)image[1] << 8u) |
+                           ((uint32_t)image[2] << 16u) |
+                           ((uint32_t)image[3] << 24u)));
+    CHECK(result.cycles == 1u);
+    CHECK(machine->master_cycles == 1u);
+
+    result = gbl_bus_read(machine, 0x0A000020u, 1u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_ROM);
+    CHECK(result.value == image[0x20u]);
+    result = gbl_bus_read(machine, 0x0C000040u, 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_ROM);
+    CHECK(result.value == image[0x40u]);
+
+    result = gbl_bus_read(machine, 0x02000000u, 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    result = gbl_bus_read(machine, 0x080000C0u, 1u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_ROM_TAIL);
+    CHECK(result.value == (machine->open_bus & 0xFFu));
+
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("bus: decode ok");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_video(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+
+    if (machine == NULL) {
+        fprintf(stderr, "bus.video: host allocation failed\n");
+        return 1;
+    }
+
+    result = gbl_bus_write(machine, 0x05000020u, 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0x1234u);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    result = gbl_bus_read(machine, 0x05000420u, 2u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.value == 0x1234u);
+
+    result = gbl_bus_write(machine, 0x07000020u, 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0x89ABCDEFu);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    result = gbl_bus_read(machine, 0x07000420u, 4u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.value == 0x89ABCDEFu);
+
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("bus: video ok");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_state(void)
 {
     gbl_machine *machine = new_machine();
@@ -492,7 +603,7 @@ static int run_state(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -500,6 +611,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "state") == 0) {
         return run_state();
+    }
+    if (strcmp(argv[1], "decode") == 0) {
+        return run_decode();
+    }
+    if (strcmp(argv[1], "video") == 0) {
+        return run_video();
     }
     fprintf(stderr, "bus_test: unknown selector: %s\n", argv[1]);
     return 2;

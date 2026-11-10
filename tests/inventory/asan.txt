@@ -1,6 +1,8 @@
 # Sorted (byte order) expected-test inventory for the asan lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+bus.decode bus,core,unit
 bus.timing bus,core,unit
+bus.video bus,core,unit
 core.nc.comment control,core
 core.nc.computed control,core
 core.nc.continuation control,core

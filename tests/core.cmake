@@ -20,9 +20,17 @@ gbl_add_test(
 add_executable(bus_test tests/bus_test.c)
 target_link_libraries(bus_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(
+  NAME bus.decode
+  LABELS bus core unit
+  COMMAND $<TARGET_FILE:bus_test> decode)
+gbl_add_test(
   NAME bus.timing
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> timing)
+gbl_add_test(
+  NAME bus.video
+  LABELS bus core unit
+  COMMAND $<TARGET_FILE:bus_test> video)
 gbl_add_test(
   NAME machine.state
   LABELS core machine unit
