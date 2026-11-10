@@ -80,6 +80,148 @@ static bool bytes_are_zero(const uint8_t *bytes, size_t length)
     return true;
 }
 
+typedef struct decode_boundary_case {
+    uint32_t address;
+    gbl_bus_outcome outcome;
+    const char *reference_section;
+} decode_boundary_case;
+
+static uint32_t width_value_mask(uint8_t width)
+{
+    if (width == 1u) {
+        return 0xFFu;
+    }
+    if (width == 2u) {
+        return 0xFFFFu;
+    }
+    return UINT32_MAX;
+}
+
+static void check_ram_widths(gbl_machine *machine, uint32_t base,
+                             uint32_t mirror_delta, bool byte_writes)
+{
+    const uint8_t widths[] = { 1u, 2u, 4u };
+    size_t width_index;
+
+    for (width_index = 0u; width_index < sizeof(widths); ++width_index) {
+        uint8_t width = widths[width_index];
+        uint32_t value = 0xD6B4A291u;
+        uint32_t address = base + 0x121u + (uint32_t)(width_index * 8u);
+        gbl_bus_result result;
+
+        if (width == 1u && !byte_writes) {
+            continue;
+        }
+        result = gbl_bus_write(machine, address, width,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, value);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+        CHECK(result.cycles == 1u);
+        result = gbl_bus_read(machine, address + mirror_delta, width,
+                              GBL_BUS_CLASS_SEQUENTIAL);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+        CHECK(result.value == (value & width_value_mask(width)));
+        CHECK(result.cycles == 1u);
+        CHECK(result.access_class == GBL_BUS_CLASS_SEQUENTIAL);
+    }
+}
+
+static void check_decode_boundaries(gbl_machine *machine)
+{
+    /* Section names are attached per case. The GBATEK memory map says SRAM
+     * exists at 0x0E000000; the current profile deliberately leaves all
+     * backup memory unmapped because no save device is implemented. */
+    static const decode_boundary_case cases[] = {
+        { 0x00000000u, GBL_BUS_OUTCOME_BIOS_ABSENT,
+          "Reading from BIOS/Unused Memory" },
+        { 0x00003FFFu, GBL_BUS_OUTCOME_BIOS_ABSENT,
+          "Reading from BIOS/Unused Memory" },
+        { 0x00004000u, GBL_BUS_OUTCOME_UNMAPPED, "GBA Memory Map" },
+        { 0x01000000u, GBL_BUS_OUTCOME_UNMAPPED, "GBA Memory Map" },
+        { 0x02000000u, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x02FFFFFFu, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x03000000u, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x03FFFFFFu, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x04000000u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
+        { 0x04000001u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
+        { 0x04000002u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
+        { 0x040003FFu, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
+        { 0x04000400u, GBL_BUS_OUTCOME_UNMAPPED, "GBA I/O Map" },
+        { 0x04000800u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED,
+          "Memory Mirrors" },
+        { 0x04010800u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED,
+          "Memory Mirrors" },
+        { 0x04FF0800u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED,
+          "Memory Mirrors" },
+        { 0x05000000u, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x05FFFFFFu, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x06000000u, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x06017FFFu, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x06018000u, GBL_BUS_OUTCOME_RAM,
+          "Memory Mirrors" },
+        { 0x06020000u, GBL_BUS_OUTCOME_RAM,
+          "Memory Mirrors" },
+        { 0x06FFFFFFu, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x07000000u, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x070003FFu, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x07000400u, GBL_BUS_OUTCOME_RAM,
+          "Memory Mirrors" },
+        { 0x07FFFFFFu, GBL_BUS_OUTCOME_RAM,
+          "GBA Memory Map; Memory Mirrors" },
+        { 0x08000000u, GBL_BUS_OUTCOME_ROM, "GBA Memory Map" },
+        { 0x09FFFFFFu, GBL_BUS_OUTCOME_ROM_TAIL, "GBA Memory Map" },
+        { 0x0A000000u, GBL_BUS_OUTCOME_ROM, "GBA Memory Map" },
+        { 0x0BFFFFFFu, GBL_BUS_OUTCOME_ROM_TAIL, "GBA Memory Map" },
+        { 0x0C000000u, GBL_BUS_OUTCOME_ROM, "GBA Memory Map" },
+        { 0x0DFFFFFFu, GBL_BUS_OUTCOME_ROM_TAIL, "GBA Memory Map" },
+        { 0x0E000000u, GBL_BUS_OUTCOME_UNMAPPED, "GBA Memory Map" },
+        { 0x0E00FFFFu, GBL_BUS_OUTCOME_UNMAPPED, "GBA Memory Map" },
+        { 0x0E010000u, GBL_BUS_OUTCOME_UNMAPPED, "GBA Memory Map" },
+        { 0x0FFFFFFFu, GBL_BUS_OUTCOME_UNMAPPED, "GBA Memory Map" },
+        { 0x10000000u, GBL_BUS_OUTCOME_UNMAPPED, "GBA Memory Map" },
+    };
+    size_t case_index;
+
+    for (case_index = 0u; case_index < sizeof(cases) / sizeof(cases[0]);
+         ++case_index) {
+        const uint32_t latch = 0xA1B2C3D4u;
+        uint64_t before_cycles = machine->master_cycles;
+        gbl_bus_result result;
+
+        CHECK(cases[case_index].reference_section[0] != '\0');
+        machine->open_bus = latch;
+        result = gbl_bus_read(machine, cases[case_index].address, 1u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(result.outcome == cases[case_index].outcome);
+        CHECK(result.cycles == 1u);
+        CHECK(result.access_class == GBL_BUS_CLASS_NONSEQUENTIAL);
+        CHECK(machine->master_cycles == before_cycles + 1u);
+        if (cases[case_index].outcome == GBL_BUS_OUTCOME_BIOS_ABSENT ||
+            cases[case_index].outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED ||
+            cases[case_index].outcome == GBL_BUS_OUTCOME_ROM_TAIL ||
+            cases[case_index].outcome == GBL_BUS_OUTCOME_UNMAPPED) {
+            CHECK(result.value == 0xD4u);
+            CHECK(machine->open_bus == latch);
+        } else {
+            CHECK(machine->open_bus ==
+                  ((result.value & 0xFFu) * 0x01010101u));
+        }
+    }
+}
+
 /* Compare canonical content rather than structure padding, allocator
  * callbacks, or pointer identity. ROM bytes are part of canonical state. */
 static bool canonical_equal(const gbl_machine *left,
@@ -385,13 +527,23 @@ static int run_decode(void)
     CHECK(result.outcome == GBL_BUS_OUTCOME_ROM);
     CHECK(result.value == image[0x40u]);
 
+    (void)gbl_bus_write(machine, 0x02000000u, 1u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, 0x5Au);
     result = gbl_bus_read(machine, 0x02000000u, 1u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
     result = gbl_bus_read(machine, 0x080000C0u, 1u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_ROM_TAIL);
-    CHECK(result.value == (machine->open_bus & 0xFFu));
+    CHECK(result.value == 0x5Au);
+    CHECK(machine->open_bus == 0x5A5A5A5Au);
+
+    check_ram_widths(machine, 0x02000000u, GBL_EWRAM_SIZE, true);
+    check_ram_widths(machine, 0x03000000u, GBL_IWRAM_SIZE, true);
+    check_ram_widths(machine, 0x05000000u, GBL_PRAM_SIZE, true);
+    check_ram_widths(machine, 0x06000000u, 0x00020000u, true);
+    check_ram_widths(machine, 0x07000000u, GBL_OAM_SIZE, false);
+    check_decode_boundaries(machine);
 
     free_machine(machine);
     if (CHECK_DONE() == 0) {
