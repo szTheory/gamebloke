@@ -17,6 +17,17 @@ gbl_add_test(
   LABELS core unit
   COMMAND $<TARGET_FILE:version_test>)
 
+add_executable(bus_test tests/bus_test.c)
+target_link_libraries(bus_test PRIVATE gamebloke_core gbl_warnings)
+gbl_add_test(
+  NAME bus.timing
+  LABELS bus core unit
+  COMMAND $<TARGET_FILE:bus_test> timing)
+gbl_add_test(
+  NAME machine.state
+  LABELS core machine unit
+  COMMAND $<TARGET_FILE:bus_test> state)
+
 gbl_add_test(
   NAME runner.help
   LABELS runner unit

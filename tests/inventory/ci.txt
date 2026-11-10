@@ -1,6 +1,7 @@
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
 # Sorted (byte order) expected-test inventory for the ci lane.
 build.nc.compiler_id_guard build,control
+bus.timing bus,core,unit
 ci.actions.nc.no_version_comment ci,control
 ci.actions.nc.unpinned ci,control
 ci.actions.pinned ci,gate
@@ -133,6 +134,7 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+machine.state core,machine,unit
 manifest.lint gate,manifest
 manifest.nc.bad_bios_requirement control,manifest
 manifest.nc.bad_id control,manifest
