@@ -70,10 +70,15 @@ fetch.nc.download_failed control,fetch
 fetch.nc.missing_pins control,fetch
 fetch.nc.no_curl control,fetch
 fetch.nc.no_row control,fetch
+fetch.nc.not_git control,fetch
+fetch.nc.not_ignored control,fetch
 fetch.nc.symlink control,fetch
+fetch.nc.tracked control,fetch
+fetch.nc.untracked_usage control,fetch
 fetch.nc.usage control,fetch
 fetch.pos.fetch_ok fetch,positive
 fetch.pos.idempotent fetch,positive
+fetch.untracked fetch,gate
 hygiene.hook hygiene,unit
 hygiene.nc.credential control,hygiene
 hygiene.nc.credential_upper control,hygiene

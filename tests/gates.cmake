@@ -315,12 +315,20 @@ set(GBL_FETCH_CASE "${CMAKE_SOURCE_DIR}/tests/gates/fetch_case.cmake")
 
 foreach(case IN ITEMS
     bad_dest bad_digest bad_row bad_url dest_is_dir digest_mismatch download_failed
-    missing_pins no_curl no_row symlink usage)
+    missing_pins no_curl no_row not_git not_ignored symlink tracked untracked_usage usage)
   gbl_add_test(
     NAME fetch.nc.${case}
     LABELS control fetch
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_FETCH_CASE}")
 endforeach()
+
+# The real repository ignores .fixtures/ and tracks nothing under it; this runs in the
+# canonical command. The controls above plant each failure in a sandbox repository.
+gbl_add_test(
+  NAME fetch.untracked
+  LABELS fetch gate
+  COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckFixtureDir.cmake")
 
 foreach(case IN ITEMS fetch_ok idempotent)
   gbl_add_test(

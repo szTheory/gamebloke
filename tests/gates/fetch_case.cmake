@@ -260,6 +260,66 @@ elseif(CASE STREQUAL "dest_is_dir")
     message(FATAL_ERROR "fetch-case: something was placed inside the directory")
   endif()
 
+elseif(CASE STREQUAL "not_ignored" OR CASE STREQUAL "tracked"
+    OR CASE STREQUAL "not_git" OR CASE STREQUAL "untracked_usage")
+  # The untracked-fixtures gate (cmake/CheckFixtureDir.cmake) over sandbox repositories.
+  # git runs with the GIT_* state scrubbed, no system config, and HOME and the XDG
+  # config home pointed at the sandbox, so a developer's global excludes cannot hide the
+  # planted state.
+  set(CHECK_FIXTURE "${SRC}/cmake/CheckFixtureDir.cmake")
+  set(GIT_ENV "${CMAKE_COMMAND}" -E env
+    --unset=GIT_DIR --unset=GIT_WORK_TREE --unset=GIT_INDEX_FILE
+    --unset=GIT_CEILING_DIRECTORIES
+    "GIT_CONFIG_NOSYSTEM=1" "HOME=${dir}" "XDG_CONFIG_HOME=${dir}")
+  set(repo "${dir}/repo")
+
+  function(git_in)
+    execute_process(COMMAND ${GIT_ENV} git ${ARGN}
+      WORKING_DIRECTORY "${repo}"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE text ERROR_VARIABLE text)
+    if(NOT rc EQUAL 0)
+      message(FATAL_ERROR "fetch-case: git ${ARGN} failed (${rc}) in the sandbox:\n${text}")
+    endif()
+  endfunction()
+
+  if(CASE STREQUAL "not_ignored")
+    # A repository with no ignore rule for .fixtures.
+    file(MAKE_DIRECTORY "${repo}")
+    git_in(init -q)
+    gbl_expect_fail(
+      COMMAND ${GIT_ENV} "${CMAKE_COMMAND}" "-DROOT=${repo}" -P "${CHECK_FIXTURE}"
+      REGEX "fixture-dir: not-ignored")
+
+  elseif(CASE STREQUAL "tracked")
+    # .fixtures is ignored, but one file was force-added to the index.
+    file(MAKE_DIRECTORY "${repo}/.fixtures")
+    git_in(init -q)
+    file(WRITE "${repo}/.gitignore" "/.fixtures/\n")
+    file(WRITE "${repo}/.fixtures/x.dat" "synthesized\n")
+    git_in(add -f .fixtures/x.dat)
+    gbl_expect_fail(
+      COMMAND ${GIT_ENV} "${CMAKE_COMMAND}" "-DROOT=${repo}" -P "${CHECK_FIXTURE}"
+      REGEX "fixture-dir: tracked")
+
+  elseif(CASE STREQUAL "not_git")
+    # A plain directory. The ceiling is the PARENT of the sandbox directory, so discovery
+    # cannot climb into the repository that holds the build tree (a ceiling equal to the
+    # directory itself still finds an enclosing repository).
+    set(plain "${dir}/plain")
+    file(MAKE_DIRECTORY "${plain}")
+    get_filename_component(ceiling "${dir}" DIRECTORY)
+    gbl_expect_fail(
+      COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${ceiling}"
+        "GIT_CONFIG_NOSYSTEM=1" "HOME=${dir}" "XDG_CONFIG_HOME=${dir}"
+        "${CMAKE_COMMAND}" "-DROOT=${plain}" -P "${CHECK_FIXTURE}"
+      REGEX "fixture-dir: git-failed")
+
+  else()
+    gbl_expect_fail(
+      COMMAND "${CMAKE_COMMAND}" -P "${CHECK_FIXTURE}"
+      REGEX "fixture-dir: usage")
+  endif()
+
 else()
   message(FATAL_ERROR "fetch-case: unknown case: ${CASE}")
 endif()
