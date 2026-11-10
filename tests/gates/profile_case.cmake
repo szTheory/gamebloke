@@ -152,6 +152,23 @@ elseif(CASE STREQUAL "bus_policy_doc")
   gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
     "<!--\n${valid_table}\n-->\n| Setting | Value | Label | Citation |")
   expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
+  profile_copy(p raw_html_table)
+  doc_copy(d raw_html_table)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
+    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+  file(READ "${SRC}/docs/profile-agb.md" source_doc)
+  string(FIND "${source_doc}" "| Setting | Value | Label | Citation |" table_start)
+  string(FIND "${source_doc}" "\n## Initialization policy" table_end)
+  if(table_start EQUAL -1 OR table_end EQUAL -1 OR table_end LESS table_start)
+    message(FATAL_ERROR "mutate: no-match: source bus policy table")
+  endif()
+  math(EXPR table_length "${table_end}-${table_start}")
+  string(SUBSTRING "${source_doc}" ${table_start} ${table_length} valid_table)
+  gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
+    "<pre>\n${valid_table}\n</pre>\n| Setting | Value | Label | Citation |")
+  expect_detail(bus-policy-doc
+    "bus_policy: unsupported raw HTML block <pre>" "${p}" "${d}")
   profile_copy(p extra_row)
   doc_copy(d extra_row)
   gbl_text_mutate("${d}"
@@ -461,6 +478,11 @@ elseif(CASE STREQUAL "doc_version_mismatch")
   doc_copy(d deleted)
   gbl_text_mutate("${d}" "\nprofile_version: 2\n" "\n")
   expect_code(doc-version-mismatch "${p}" "${d}")
+  profile_copy(p commented_version)
+  doc_copy(d commented_version)
+  gbl_text_mutate("${d}" "\nprofile_version: 2\n"
+    "\n<!--\nprofile_version: 2\n-->\n")
+  expect_detail(doc-version-mismatch "no profile_version line" "${p}" "${d}")
 
 elseif(CASE STREQUAL "doc_no_section")
   # A renamed heading, then the right heading with every table row removed: an
@@ -478,6 +500,17 @@ elseif(CASE STREQUAL "doc_no_section")
   endif()
   string(SUBSTRING "${content}" 0 ${at} head)
   file(WRITE "${d}" "${head}")
+  expect_code(doc-no-section "${p}" "${d}")
+  profile_copy(p commented_unmodeled)
+  doc_copy(d commented_unmodeled)
+  file(READ "${d}" content)
+  string(FIND "${content}" "| Id | What is not modeled |" table_start)
+  if(table_start EQUAL -1)
+    message(FATAL_ERROR "mutate: no-match: unmodeled table")
+  endif()
+  string(SUBSTRING "${content}" 0 ${table_start} head)
+  string(SUBSTRING "${content}" ${table_start} -1 table)
+  file(WRITE "${d}" "${head}<!--\n${table}-->\n")
   expect_code(doc-no-section "${p}" "${d}")
 
 elseif(CASE STREQUAL "coordinated_change")
