@@ -8,6 +8,15 @@
 #
 # The hygiene lane builds nothing, so any test that needs a build tree or a
 # compiler stays in the ci guard.
+# hygiene-safe: cheap, no build targets, and meaningful on a .planning/-only
+# pull request. Every action in the workflow is pinned to a commit SHA with a
+# version comment (D-10); runs in both lanes and is listed in both inventories.
+gbl_add_test(
+  NAME ci.actions.pinned
+  LABELS ci gate
+  COMMAND sh scripts/check-action-pins.sh .github/workflows/ci.yml
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 if(GBL_LANE STREQUAL "ci")
   # Classifier case table (D-11): heavy=false only for a complete, .planning/-only listing.
   gbl_add_test(
@@ -39,4 +48,20 @@ if(GBL_LANE STREQUAL "ci")
     COMMAND "${CMAKE_COMMAND}" -DCASE=compiler_id_guard "-DSRC=${CMAKE_SOURCE_DIR}"
       "-DBIN=${CMAKE_BINARY_DIR}"
       -P "${CMAKE_SOURCE_DIR}/tests/ci/ci_cases.cmake")
+
+  # Pin-gate controls: each mutates a copy of the real ci.yml (the case driver
+  # stops with `mutate: no-match` when its anchor is gone), so a gate that
+  # stopped checking pins fails here.
+  gbl_add_test(
+    NAME ci.actions.nc.unpinned
+    LABELS ci control
+    COMMAND "${CMAKE_COMMAND}" -DCASE=pins_unpinned "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
+  gbl_add_test(
+    NAME ci.actions.nc.no_version_comment
+    LABELS ci control
+    COMMAND "${CMAKE_COMMAND}" -DCASE=pins_no_version_comment "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
 endif()

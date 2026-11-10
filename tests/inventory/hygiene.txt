@@ -1,5 +1,6 @@
 # Sorted (byte order) expected-test inventory for the hygiene lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+ci.actions.pinned ci,gate
 hygiene.hook hygiene,unit
 hygiene.nc.credential control,hygiene
 hygiene.nc.email control,hygiene
