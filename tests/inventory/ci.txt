@@ -107,6 +107,9 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+manifest.lint gate,manifest
+manifest.nc.unpinned_revision control,manifest
+manifest.pos.complete_row manifest,positive
 nc.meta.pass_requires_exit_status control,meta
 nc.meta.passing_gate_fails_wrapper control,meta
 profile.lint gate,profile

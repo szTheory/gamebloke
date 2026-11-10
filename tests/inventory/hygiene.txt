@@ -43,6 +43,9 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+manifest.lint gate,manifest
+manifest.nc.unpinned_revision control,manifest
+manifest.pos.complete_row manifest,positive
 profile.lint gate,profile
 profile.nc.bad_bios_provider control,profile
 profile.nc.bad_boot control,profile

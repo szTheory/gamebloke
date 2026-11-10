@@ -1,0 +1,14 @@
+# gamebloke.pins/1 <sha256> <url> <dest>
+#
+# Pinned fetches for fixtures that are downloaded, never committed. One row per file:
+#   <sha256> <url> <dest>
+# Fields are separated by single spaces. The digest is 64 lowercase hex characters.
+# The URL is https:// only; scripts/fetch-pin.sh accepts file:// only under a test-only
+# environment variable, and file:// never appears in this file.
+# The dest is relative to .fixtures/ (letters, digits, dot, underscore, dash, slash; no
+# empty, . or .. component and no leading slash).
+# A bump changes the digest and the URL together in one reviewed commit.
+# A pin names a single raw file at a 40-hex commit, or a maintainer-uploaded release
+# asset. It never names a generated archive, whose bytes can change under the same URL.
+#
+# No rows yet: Phase 5 and 6 add the first fixtures.

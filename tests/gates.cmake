@@ -159,6 +159,20 @@ gbl_add_test(
   LABELS positive traps
   COMMAND ${GBL_SIG_DRIVER} -DCASE=clean -P "${GBL_SIGNAL_CASE}")
 
+# ---- manifest lint (VERIF-01, EVID-02) --------------------------------------
+# The real manifest and pins file are linted against the real dispute registry and
+# vocabulary inside the canonical command. Controls for it follow in the evidence
+# section below.
+gbl_add_test(
+  NAME manifest.lint
+  LABELS gate manifest
+  COMMAND "${CMAKE_COMMAND}" -DMODE=all
+    "-DMANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+    "-DPINS=${CMAKE_SOURCE_DIR}/pins.txt"
+    "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckManifest.cmake")
+
 # ---- evidence contracts (Phase 2) -------------------------------------------
 # The Phase 2 validator gates and their controls follow, run in the ci and
 # hygiene lanes. Register only through gbl_add_test at this top-level directory
@@ -249,6 +263,27 @@ foreach(case IN ITEMS copy extra_entry)
     NAME registry.pos.${case}
     LABELS positive registry
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_REGISTRY_CASE}")
+endforeach()
+
+# ---- fixture manifest (Phase 2) ---------------------------------------------
+# A control per manifest reason code mutates a copy of the committed complete example
+# row; the positives prove a complete row, the empty real manifest, and all three source
+# kinds are accepted.
+set(GBL_MANIFEST_CASE "${CMAKE_SOURCE_DIR}/tests/gates/manifest_case.cmake")
+
+foreach(case IN ITEMS
+    unpinned_revision)
+  gbl_add_test(
+    NAME manifest.nc.${case}
+    LABELS control manifest
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_MANIFEST_CASE}")
+endforeach()
+
+foreach(case IN ITEMS complete_row)
+  gbl_add_test(
+    NAME manifest.pos.${case}
+    LABELS manifest positive
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_MANIFEST_CASE}")
 endforeach()
 
 # ---- strict JSON loader (Phase 2) -------------------------------------------
