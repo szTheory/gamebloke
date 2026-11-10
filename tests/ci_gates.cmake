@@ -14,10 +14,10 @@
 gbl_add_test(
   NAME ci.actions.pinned
   LABELS ci gate
-  COMMAND sh scripts/check-action-pins.sh .github/workflows/ci.yml
+  COMMAND sh scripts/check-action-pins.sh
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
-# hygiene-safe: static policy gate over the real workflow (moving labels, path
+# hygiene-safe: static policy gate over every real workflow file (moving labels, path
 # filters, pull_request_target, CI required needs, expressions in run blocks,
 # preset-only heavy lanes, timeouts, credentials, permissions). Reads text and
 # asks cmake only for preset names, so it needs no build tree; WORKING_DIRECTORY
@@ -25,7 +25,7 @@ gbl_add_test(
 gbl_add_test(
   NAME ci.yml.policy
   LABELS ci gate
-  COMMAND sh scripts/check-workflow.sh .github/workflows/ci.yml
+  COMMAND sh scripts/check-workflow.sh
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 if(GBL_LANE STREQUAL "ci")
@@ -87,7 +87,8 @@ if(GBL_LANE STREQUAL "ci")
   foreach(case IN ITEMS
       moving_label path_filter pr_target needs_missing expression_in_run
       non_preset_run unknown_preset no_timeout persist_credentials continue_on_error
-      permissions required_check)
+      permissions required_check job_permissions job_permissions_inline
+      run_by_path run_script)
     gbl_add_test(
       NAME ci.yml.nc.${case}
       LABELS ci control
@@ -95,6 +96,31 @@ if(GBL_LANE STREQUAL "ci")
         "-DBIN=${CMAKE_BINARY_DIR}"
         -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
   endforeach()
+
+  # The two workflow gates above are registered without a file argument.
+  gbl_add_test(
+    NAME ci.workflow.coverage
+    LABELS ci unit
+    COMMAND "${CMAKE_COMMAND}" -DCASE=registered_no_file_arg "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
+
+  # Every workflow file is covered (WR-01): sandbox roots holding a second
+  # workflow, checked with no file argument exactly as the gates above run.
+  foreach(case IN ITEMS extra_file extra_file_pins no_ci_yml)
+    gbl_add_test(
+      NAME ci.yml.nc.${case}
+      LABELS ci control
+      COMMAND "${CMAKE_COMMAND}" -DCASE=${case} "-DSRC=${CMAKE_SOURCE_DIR}"
+        "-DBIN=${CMAKE_BINARY_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
+  endforeach()
+  gbl_add_test(
+    NAME ci.yml.pos.all_files
+    LABELS ci positive
+    COMMAND "${CMAKE_COMMAND}" -DCASE=all_files_clean "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
 
   # Ruleset validator (D-13, resolution 2): the committed ruleset must stay
   # inside the owner's authorization, and each refusal has its own control.

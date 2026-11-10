@@ -70,4 +70,4 @@ gbl_add_test(
   LABELS post
   COMMAND sh "${CMAKE_SOURCE_DIR}/scripts/check-junit.sh"
     "${CMAKE_BINARY_DIR}/junit.xml"
-    "${CMAKE_SOURCE_DIR}/tests/inventory/${GBL_LANE}.txt" post)
+    "${CMAKE_SOURCE_DIR}/tests/inventory/${GBL_LANE}.txt" "^post$")

@@ -1,7 +1,14 @@
 # Sorted (byte order) expected-test inventory for the asan lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+core.nc.comment control,core
+core.nc.computed control,core
+core.nc.continuation control,core
+core.nc.empty control,core
 core.nc.host_include control,core
+core.nc.missing control,core
+core.nc.quoted control,core
 core.no_host_includes core,gate
+core.pos.in_tree core,positive
 core.version core,unit
 inventory.junit post
 runner.help runner,unit

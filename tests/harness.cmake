@@ -7,7 +7,7 @@ set(GBL_HARNESS_DRIVER
 foreach(case IN ITEMS
     missing extra duplicate failed skipped_not_allowed skipped_no_reason
     disabled empty_junit no_junit configure_mismatch unsorted
-    add_test_bad_name add_test_no_labels)
+    add_test_bad_name add_test_no_labels label_substring)
   gbl_add_test(
     NAME inventory.nc.${case}
     LABELS control inventory
@@ -33,4 +33,12 @@ gbl_add_test(
   NAME nc.meta.passing_gate_fails_wrapper
   LABELS control meta
   COMMAND ${GBL_HARNESS_DRIVER} -DCASE=meta
+    -P "${CMAKE_SOURCE_DIR}/tests/harness_case.cmake")
+
+# Meta-control: the pass wrapper that the runner tests use requires exit status 0
+# as well as the output text.
+gbl_add_test(
+  NAME nc.meta.pass_requires_exit_status
+  LABELS control meta
+  COMMAND ${GBL_HARNESS_DRIVER} -DCASE=meta_pass_exit
     -P "${CMAKE_SOURCE_DIR}/tests/harness_case.cmake")

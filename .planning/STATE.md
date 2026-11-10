@@ -6,10 +6,10 @@ current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: verifying
 stopped_at: Completed 01-11-PLAN.md
-last_updated: "2026-11-10T02:00:16.494Z"
+last_updated: "2026-11-10T03:46:53.865Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: e83ece20f622fab5a1c82538c2ebdda7c06e64b5
+state_head: 3247bba1e5ffa07665d930749505053f33acb2f5
 progress:
   total_phases: 6
   completed_phases: 0
@@ -104,6 +104,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-10: the main ruleset requires `CI required` with no bypass, so GSD now uses per-phase branches (`git.branching_strategy: phase`, template `gsd/phase-{phase}-{slug}` unchanged) and every change reaches main through a PR
 - [Phase 01]: 01-10: PR A (.planning-only) ran heavy=false with CI required success; ruleset 26908822 applied last and PR A merged through it; owner chose close-out-pr (one additional close-out PR, exercised by plan 11)
 - [Phase 01]: 01-11: owner replied `pending` for the real logo digest (EVID-04 real-logo item is owner-pending, human-needed; logo.sha256 unchanged); close-out reached main through one PR (#3) squash-merged through the ruleset; EVID-04 left Pending in REQUIREMENTS.md until the verifier decides
+- [Phase 01]: Owner authorized (2026-11-10): one PR for the Phase 1 review fixes, and a standing one-PR-per-phase policy for Phases 2-6: push the phase branch, open one PR, squash-merge through the ruleset once CI required is green. Stop and report on red CI; never bypass the ruleset or change repo settings; any other publication needs a fresh answer. — Ruleset 26908822 only accepts changes through PRs; phase work cannot reach main otherwise.
 
 ### Pending Todos
 

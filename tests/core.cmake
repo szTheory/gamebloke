@@ -1,10 +1,14 @@
 # Core and runner tests. Included from the top-level CMakeLists.txt (never
 # add_subdirectory(): see Pitfall 4 note there).
+# --version and --help document exit status 0, so these require BOTH the exit
+# status and the text (EXPECT=pass). PASS_REGULAR_EXPRESSION alone would make
+# CTest ignore the exit status.
 gbl_add_test(
   NAME runner.version
   LABELS runner unit
-  COMMAND $<TARGET_FILE:gamebloke-run> --version
-  PASS_REGULAR_EXPRESSION "^gamebloke-run 0\\.0\\.0")
+  COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
+    -DARGS=--version "-DREGEX=^gamebloke-run 0\\.0\\.0"
+    -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
 add_executable(version_test tests/version_test.c)
 target_link_libraries(version_test PRIVATE gamebloke_core gbl_warnings)
@@ -16,8 +20,9 @@ gbl_add_test(
 gbl_add_test(
   NAME runner.help
   LABELS runner unit
-  COMMAND $<TARGET_FILE:gamebloke-run> --help
-  PASS_REGULAR_EXPRESSION "exit codes: 0 success, 2 usage error")
+  COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
+    -DARGS=--help "-DREGEX=exit codes: 0 success, 2 usage error"
+    -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
 # The documented usage-error exit code is exactly 2 (unlike a sanitizer abort).
 gbl_add_test(
@@ -33,7 +38,11 @@ gbl_add_test(
     -DEXIT=2 "-DREGEX=usage: gamebloke-run"
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
-# The core uses no host includes (D-05), with a control that plants one.
+# The core uses no host includes (D-05), with a control that plants one. Further
+# controls plant each bypass shape (a quoted system header, a line continuation,
+# a comment between the directive and the header, a computed include) and the
+# two ways to pass by scanning nothing (an empty and a missing directory); the
+# positive companion is an in-tree quoted include plus freestanding headers.
 gbl_add_test(
   NAME core.no_host_includes
   LABELS core gate
@@ -44,4 +53,16 @@ gbl_add_test(
   NAME core.nc.host_include
   LABELS control core
   COMMAND "${CMAKE_COMMAND}" "-DPLANT=${CMAKE_BINARY_DIR}/nc/host_include"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckCoreIncludes.cmake")
+foreach(shape IN ITEMS quoted continuation comment computed empty missing)
+  gbl_add_test(
+    NAME core.nc.${shape}
+    LABELS control core
+    COMMAND "${CMAKE_COMMAND}" "-DPLANT=${CMAKE_BINARY_DIR}/nc/core_${shape}" "-DSHAPE=${shape}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/CheckCoreIncludes.cmake")
+endforeach()
+gbl_add_test(
+  NAME core.pos.in_tree
+  LABELS core positive
+  COMMAND "${CMAKE_COMMAND}" "-DPLANT=${CMAKE_BINARY_DIR}/nc/core_in_tree" -DSHAPE=in_tree
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckCoreIncludes.cmake")

@@ -9,6 +9,11 @@
 # Script mode (a ';' inside one add_test argument would be split, so the
 # program is -DCMD= and extra arguments are -DARGS= separated by '|'):
 #   cmake -DCMD=<program> [-DARGS=a|b] -DREGEX=<re> [-DEXIT=<n>] -P cmake/ExpectFail.cmake
+#   cmake -DEXPECT=pass -DCMD=<program> [-DARGS=a|b] [-DREGEX=<re>] -P cmake/ExpectFail.cmake
+#
+# EXPECT=pass is the way to assert a program's output: it requires exit status 0
+# AND the regex. A test registered with PASS_REGULAR_EXPRESSION alone would pass
+# whatever the exit status is, because CTest ignores it when that property is set.
 #
 # EXIT exists only for documented program exit codes (the runner's 2). Never
 # assert an exact exit code for a sanitizer control: macOS aborts with 134 and
@@ -93,7 +98,18 @@ endfunction()
 
 # Script-mode entry (inert when this file is include()d by another script).
 if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
-  foreach(var CMD REGEX)
+  set(expect_mode "fail")
+  if(DEFINED EXPECT AND NOT "${EXPECT}" STREQUAL "")
+    set(expect_mode "${EXPECT}")
+  endif()
+  if(NOT expect_mode STREQUAL "fail" AND NOT expect_mode STREQUAL "pass")
+    message(FATAL_ERROR "expect-fail: -DEXPECT= must be fail or pass, got '${expect_mode}'")
+  endif()
+  set(required CMD)
+  if(expect_mode STREQUAL "fail")
+    list(APPEND required REGEX)
+  endif()
+  foreach(var IN LISTS required)
     if(NOT DEFINED ${var} OR "${${var}}" STREQUAL "")
       message(FATAL_ERROR "expect-fail: -D${var}= is required")
     endif()
@@ -102,9 +118,17 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   if(DEFINED ARGS AND NOT "${ARGS}" STREQUAL "")
     string(REPLACE "|" ";" arg_list "${ARGS}")
   endif()
-  set(extra "")
-  if(DEFINED EXIT AND NOT "${EXIT}" STREQUAL "")
-    set(extra EXIT "${EXIT}")
+  if(expect_mode STREQUAL "pass")
+    set(extra "")
+    if(DEFINED REGEX AND NOT "${REGEX}" STREQUAL "")
+      set(extra REGEX "${REGEX}")
+    endif()
+    gbl_expect_pass(COMMAND "${CMD}" ${arg_list} ${extra})
+  else()
+    set(extra "")
+    if(DEFINED EXIT AND NOT "${EXIT}" STREQUAL "")
+      set(extra EXIT "${EXIT}")
+    endif()
+    gbl_expect_fail(COMMAND "${CMD}" ${arg_list} REGEX "${REGEX}" ${extra})
   endif()
-  gbl_expect_fail(COMMAND "${CMD}" ${arg_list} REGEX "${REGEX}" ${extra})
 endif()

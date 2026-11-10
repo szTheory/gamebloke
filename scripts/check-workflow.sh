@@ -1,30 +1,42 @@
 #!/bin/sh
-# Static policy gate for the CI workflow (D-01, D-10, D-11, D-16).
+# Static policy gate for the CI workflows (D-01, D-10, D-11, D-16).
 #
-#   check-workflow.sh [workflow-file]        default: .github/workflows/ci.yml
+#   check-workflow.sh [workflow-file]        default: every .yml/.yaml under .github/workflows
 #
-# Reads the workflow as text (POSIX sh plus awk; two-space-style block YAML
+# Reads each workflow as text (POSIX sh plus awk; two-space-style block YAML
 # like ci.yml) and reports every violation, so a later edit cannot quietly
 # weaken the required check. Workflow preset names come from
 # `cmake --workflow --list-presets` run at the repo root.
 #
-# Reason lines (a trailing `: <detail>` is a job id, preset name or line number):
+# Every file gets the general rules (moving-label, path-filter, pr-target,
+# continue-on-error, expression-in-run, no-timeout, permissions, job-permissions,
+# persist-credentials, no-jobs). A file named ci.yml also gets the rules that
+# belong to the required-check workflow: required-check, needs-missing, and the
+# preset-only rule for its heavy jobs. With no argument the gate also fails
+# when .github/workflows/ci.yml is absent (missing-ci-yml), so deleting or
+# renaming it cannot exempt the strict rules.
+#
+# Reason lines (a trailing `: <detail>` is a job id, preset name or line number;
+# each line ends with ` [<file name>]`):
 #   workflow: moving-label: <line>           a runner value ending in -latest
 #   workflow: path-filter: <line>            paths:/paths-ignore: under on:
 #   workflow: pr-target: <line>              pull_request_target trigger
 #   workflow: needs-missing: <job>           job absent from the CI required needs
 #   workflow: required-check                 no job named `CI required` with if: always()
 #   workflow: expression-in-run: <line>      ${{ ... }} in a run: value or block
-#   workflow: non-preset-run: <job>          build/asan/hygiene run line that invokes
-#                                            cmake, ctest, cpack, ninja or make other
-#                                            than `cmake --workflow --preset <name>`
+#   workflow: non-preset-run: <job>          build/asan/hygiene run line that is neither
+#                                            `cmake --workflow --preset <name>` nor the
+#                                            apt-get toolchain setup line (allowlist)
 #   workflow: unknown-preset: <name>         preset not in --list-presets
 #   workflow: no-timeout: <job>              job without timeout-minutes
 #   workflow: permissions                    top-level permissions not exactly contents: read
+#   workflow: job-permissions: <job>         job-level permissions beyond contents: read and
+#                                            pull-requests: read (or `{}`)
+#   workflow: missing-ci-yml                 no argument given and .github/workflows/ci.yml is absent
 #   workflow: persist-credentials: <line>    checkout without persist-credentials: false
 #   workflow: continue-on-error: <line>      continue-on-error anywhere
 #   workflow: no-jobs                        no job found (an unreadable shape fails closed)
-#   workflow: ok (<n> jobs)                  nothing found
+#   workflow: ok (<f> files, <n> jobs)       nothing found
 # Exit 1 on any finding; exit 2 on usage or when presets cannot be listed.
 set -eu
 LC_ALL=C
@@ -36,11 +48,19 @@ if [ "$#" -gt 1 ]; then
   echo "workflow: usage: check-workflow.sh [workflow-file]" >&2
   exit 2
 fi
-file=${1:-"$root/.github/workflows/ci.yml"}
-if [ ! -f "$file" ]; then
-  echo "workflow: usage: not a file: $file" >&2
-  exit 2
+missing_ci=0
+if [ "$#" -eq 0 ]; then
+  for f in "$root"/.github/workflows/*.yml "$root"/.github/workflows/*.yaml; do
+    [ -f "$f" ] && set -- "$@" "$f"
+  done
+  [ -f "$root/.github/workflows/ci.yml" ] || missing_ci=1
 fi
+for f in "$@"; do
+  if [ ! -f "$f" ]; then
+    echo "workflow: usage: not a file: $f" >&2
+    exit 2
+  fi
+done
 
 if ! listing=$(cd "$root" && "${CMAKE:-cmake}" --workflow --list-presets 2>&1); then
   echo "workflow: usage: cmake --workflow --list-presets failed" >&2
@@ -53,14 +73,21 @@ if [ -z "$presets" ]; then
   exit 2
 fi
 
-awk -v presets="$presets" '
+# check_one <file>: the awk policy pass over one workflow. Prints the findings
+# and a final `JOBS <n>` line; exits 1 when there is a finding.
+check_one() {
+  case ${1##*/} in
+    ci.yml) strict=1 ;;
+    *) strict=0 ;;
+  esac
+  awk -v presets="$presets" -v strict="$strict" -v fname="${1##*/}" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
 function indent_of(s) { match(s, /^ */); return RLENGTH }
 function unquote(s) {
   if (s ~ /^".*"$/ || s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
   return s
 }
-function report(msg) { findings++; print msg }
+function report(msg) { findings++; print msg " [" fname "]" }
 function in_list(item, list,   n, a, i) {
   n = split(list, a, " ")
   for (i = 1; i <= n; i++) if (a[i] == item) return 1
@@ -81,7 +108,9 @@ function strip_comment(s,   i, n, ch, q) {
 
 BEGIN {
   heavy["build"] = 1; heavy["asan"] = 1; heavy["hygiene"] = 1
-  cmd_re = "(^|[^A-Za-z0-9_./-])(cmake|ctest|cpack|ninja|make)([^A-Za-z0-9_-]|$)"
+  # The only run lines a heavy job may have besides `cmake --workflow --preset
+  # <name>`: the toolchain install guard (package names only).
+  setup_re = "^dpkg -s [a-z0-9.+ -]+ >/dev/null 2>&1 \\|\\| \\{ sudo apt-get update && sudo apt-get install -y [a-z0-9.+ -]+; \\}$"
 }
 
 {
@@ -158,14 +187,21 @@ BEGIN {
       njobs++; jobid[njobs] = job
       jkey[job] = 0
       collecting = ""
+      permcol = ""
     } else if (job != "") {
       if (jkey[job] == 0) jkey[job] = ind
       if (!dashed && ind == jkey[job]) {
         collecting = ""
+        permcol = ""
         key = kw
         sub(/:.*/, "", key)
         val = kw
         sub(/^[^:]*:[ \t]*/, "", val)
+        if (key == "permissions") {
+          # Job-level permissions override the top-level default.
+          if (val == "") permcol = job
+          else if (val != "{}") jperm_bad[job] = 1
+        }
         if (key == "name") jname[job] = unquote(val)
         if (key == "if") jif[job] = val
         if (key == "timeout-minutes") jtimeout[job] = 1
@@ -179,6 +215,10 @@ BEGIN {
       } else if (dashed && collecting != "") {
         item = unquote(trim(kw))
         jneeds[collecting] = jneeds[collecting] " " item
+      } else if (permcol != "") {
+        pl = t
+        gsub(/[ \t]+/, " ", pl)
+        if (pl != "contents: read" && pl != "pull-requests: read") jperm_bad[permcol] = 1
       }
     }
   }
@@ -198,17 +238,18 @@ END {
   for (r = 1; r <= nruns; r++) {
     v = rl_val[r]
     if (index(v, "${{") > 0) report("workflow: expression-in-run: " rl_line[r])
-    if (rl_job[r] in heavy) {
-      s = trim(v)
-      if (rl_blk[r] && s ~ /^#/) continue
-      if (s ~ cmd_re) {
-        if (s ~ /^cmake --workflow --preset [A-Za-z0-9_.-]+$/) {
-          name = s
-          sub(/^cmake --workflow --preset /, "", name)
-          if (!in_list(name, presets)) report("workflow: unknown-preset: " name)
-        } else {
-          report("workflow: non-preset-run: " rl_job[r])
-        }
+    if (strict && (rl_job[r] in heavy)) {
+      # Allowlist, not a denylist of tool names: a heavy lane runs the workflow
+      # preset or the toolchain install guard, so a tool called by path, a
+      # script, or an appended command is refused whatever it is called.
+      s = unquote(trim(v))
+      if (s == "" || (rl_blk[r] && s ~ /^#/)) continue
+      if (s ~ /^cmake --workflow --preset [A-Za-z0-9_.-]+$/) {
+        name = s
+        sub(/^cmake --workflow --preset /, "", name)
+        if (!in_list(name, presets)) report("workflow: unknown-preset: " name)
+      } else if (s !~ setup_re) {
+        report("workflow: non-preset-run: " rl_job[r])
       }
     }
   }
@@ -217,13 +258,19 @@ END {
   for (j = 1; j <= njobs; j++)
     if (!(jobid[j] in jtimeout)) report("workflow: no-timeout: " jobid[j])
 
+  # Job-level permissions may only read contents and pull requests.
+  for (j = 1; j <= njobs; j++)
+    if (jobid[j] in jperm_bad) report("workflow: job-permissions: " jobid[j])
+
   # The single required check runs always and needs every other job.
-  rid = ""
-  for (j = 1; j <= njobs; j++) if (jname[jobid[j]] == "CI required") rid = jobid[j]
-  if (rid == "" || jif[rid] != "always()") report("workflow: required-check")
-  if (rid != "") {
-    for (j = 1; j <= njobs; j++)
-      if (jobid[j] != rid && !in_list(jobid[j], jneeds[rid])) report("workflow: needs-missing: " jobid[j])
+  if (strict) {
+    rid = ""
+    for (j = 1; j <= njobs; j++) if (jname[jobid[j]] == "CI required") rid = jobid[j]
+    if (rid == "" || jif[rid] != "always()") report("workflow: required-check")
+    if (rid != "") {
+      for (j = 1; j <= njobs; j++)
+        if (jobid[j] != rid && !in_list(jobid[j], jneeds[rid])) report("workflow: needs-missing: " jobid[j])
+    }
   }
 
   # Top-level permissions are exactly contents: read.
@@ -247,7 +294,25 @@ END {
     if (!ok) report("workflow: persist-credentials: " ln)
   }
 
+  print "JOBS " njobs + 0
   if (findings > 0) exit 1
-  print "workflow: ok (" njobs " jobs)"
 }
-' "$file"
+' "$1"
+}
+
+rc=0
+files_n=0
+jobs_n=0
+for f in "$@"; do
+  files_n=$((files_n + 1))
+  out=$(check_one "$f") || rc=1
+  n=$(printf '%s\n' "$out" | sed -n 's/^JOBS //p')
+  jobs_n=$((jobs_n + ${n:-0}))
+  printf '%s\n' "$out" | grep -v '^JOBS ' || true
+done
+if [ "$missing_ci" -eq 1 ]; then
+  echo "workflow: missing-ci-yml [.github/workflows]"
+  rc=1
+fi
+[ "$rc" -eq 0 ] || exit 1
+echo "workflow: ok ($files_n files, $jobs_n jobs)"
