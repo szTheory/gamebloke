@@ -387,17 +387,6 @@ static void exercise_refusals(gbl_machine *machine, host_storage *storage,
                              GBL_LOAD_REASON_ALLOCATION, 1u);
 }
 
-static uint8_t expected_header_checksum(const uint8_t *image)
-{
-    uint8_t checksum = 0x19u;
-    size_t index;
-
-    for (index = 0xA0u; index <= 0xBCu; ++index) {
-        checksum = (uint8_t)(checksum - image[index]);
-    }
-    return checksum;
-}
-
 static void set_synthetic_game_code(uint8_t *image, const char code[4])
 {
     size_t index;
@@ -413,6 +402,7 @@ static int run_diagnostics(void)
     gbl_machine *machine = new_machine(&storage);
     uint8_t image[GBL_TEST_MIN_ROM_SIZE];
     uint8_t original[GBL_TEST_MIN_ROM_SIZE];
+    uint8_t checksum_probe[GBL_TEST_MIN_ROM_SIZE] = { 0 };
     uint8_t synthetic_actual[4] = { 0x13u, 0x37u, 0xA5u, 0x5Au };
     uint8_t synthetic_expected[4] = { 0x13u, 0x37u, 0xA5u, 0x5Au };
     gbl_header_diagnostics diagnostics;
@@ -447,9 +437,30 @@ static int run_diagnostics(void)
                                    sizeof(synthetic_actual)) ==
           GBL_HEADER_COMPARE_INVALID_ARGUMENT);
 
-    fill_synthetic(image, sizeof(image), 0x72u);
+    /* Zero checksum bytes produce 0xE7; byte A0 = 1 decrements it to 0xE6. */
+    checksum_probe[0xBDu] = 0xE7u;
+    load = gbl_load_rom(machine, checksum_probe, sizeof(checksum_probe));
+    CHECK(load.status == GBL_LOAD_STATUS_OK);
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(diagnostics.loaded);
+    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
+    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
+    CHECK(diagnostics.logo_window == GBL_HEADER_LOGO_WINDOW_ZERO);
+    CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_OK);
+    CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_UNUSUAL);
+    checksum_probe[0xA0u] = 1u;
+    checksum_probe[0xBDu] = 0xE6u;
+    load = gbl_load_rom(machine, checksum_probe, sizeof(checksum_probe));
+    CHECK(load.status == GBL_LOAD_STATUS_OK);
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_OK);
+
+    memset(image, 0, sizeof(image));
+    image[0x04u] = 0x72u;
     set_synthetic_game_code(image, "AB19");
-    image[0xBDu] = expected_header_checksum(image);
+    /* AB19 plus one byte at A0 has the fixed checksum 0xF9. */
+    image[0xA0u] = 1u;
+    image[0xBDu] = 0xF9u;
     for (index = 0u; index < sizeof(image); ++index) {
         original[index] = image[index];
     }
@@ -465,6 +476,10 @@ static int run_diagnostics(void)
     CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_ORDINARY);
 
     set_nondefault_state(machine);
+    storage.fail_next = true;
+    expect_failure_unchanged(machine, &storage, image, original, sizeof(image),
+                             sizeof(image), GBL_LOAD_STATUS_RESOURCE_FAILURE,
+                             GBL_LOAD_REASON_ALLOCATION, 1u);
     expect_failure_unchanged(machine, &storage, image, original, sizeof(image),
                              0xBFu, GBL_LOAD_STATUS_REFUSED,
                              GBL_LOAD_REASON_ROM_SHORT, 0u);
@@ -477,10 +492,11 @@ static int run_diagnostics(void)
     CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_OK);
     CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_ORDINARY);
 
-    fill_synthetic(image, sizeof(image), 0xB6u);
-    memset(image + 0x04u, 0, 0x9Cu);
+    memset(image, 0, sizeof(image));
     set_synthetic_game_code(image, "ab?1");
-    image[0xBDu] = (uint8_t)(expected_header_checksum(image) ^ 1u);
+    /* ab?1 plus byte A0 = 1 expects 0xB3; 0xB4 is one off. */
+    image[0xA0u] = 1u;
+    image[0xBDu] = 0xB4u;
     for (index = 0u; index < sizeof(image); ++index) {
         original[index] = image[index];
     }

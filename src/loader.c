@@ -5,7 +5,7 @@ static gbl_header_diagnostics gbl_header_diagnostics_from_candidate(
 {
     static const uint8_t zero_logo_window[0x9Cu] = { 0 };
     gbl_header_diagnostics diagnostics = { 0 };
-    uint8_t checksum = 0x19u;
+    uint8_t checksum = 0u;
     bool ordinary_game_code = true;
     size_t index;
 
@@ -22,6 +22,7 @@ static gbl_header_diagnostics gbl_header_diagnostics_from_candidate(
     for (index = 0xA0u; index <= 0xBCu; ++index) {
         checksum = (uint8_t)(checksum - candidate[index]);
     }
+    checksum = (uint8_t)(checksum - 0x19u);
     diagnostics.checksum = candidate[0xBDu] == checksum
                                ? GBL_HEADER_CHECKSUM_OK
                                : GBL_HEADER_CHECKSUM_MISMATCH;
