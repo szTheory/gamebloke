@@ -86,7 +86,8 @@ if(GBL_LANE STREQUAL "ci")
       -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
   foreach(case IN ITEMS
       moving_label path_filter pr_target needs_missing expression_in_run
-      non_preset_run unknown_preset no_timeout persist_credentials continue_on_error)
+      non_preset_run unknown_preset no_timeout persist_credentials continue_on_error
+      permissions required_check)
     gbl_add_test(
       NAME ci.yml.nc.${case}
       LABELS ci control

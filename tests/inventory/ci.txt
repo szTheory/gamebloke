@@ -14,8 +14,10 @@ ci.yml.nc.needs_missing ci,control
 ci.yml.nc.no_timeout ci,control
 ci.yml.nc.non_preset_run ci,control
 ci.yml.nc.path_filter ci,control
+ci.yml.nc.permissions ci,control
 ci.yml.nc.persist_credentials ci,control
 ci.yml.nc.pr_target ci,control
+ci.yml.nc.required_check ci,control
 ci.yml.nc.unknown_preset ci,control
 ci.yml.policy ci,gate
 ci.yml.pos.copy ci,positive
