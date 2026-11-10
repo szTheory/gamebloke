@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
-status: executing
-stopped_at: Completed 01-10-PLAN.md
-last_updated: "2026-11-10T01:56:07.875Z"
+status: verifying
+stopped_at: Completed 01-11-PLAN.md
+last_updated: "2026-11-10T02:00:16.494Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: 56a89f9d4b4097f406b60567f3d426452f3a01c2
+state_head: e83ece20f622fab5a1c82538c2ebdda7c06e64b5
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-09 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P08 | not measured | 2 tasks | 6 files |
 | Phase 01 P09 | 10 min | 2 tasks | 14 files |
 | Phase 01 P10 | not measured | 3 tasks | 4 files |
+| Phase 01 P11 | not measured | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase 01]: PR B (#1) squash-merged as d1b5932; main push run 42737946832 reports CI required success; local main reset to origin/main with backup/phase-01-pre-squash
 - [Phase 01]: 01-10: the main ruleset requires `CI required` with no bypass, so GSD now uses per-phase branches (`git.branching_strategy: phase`, template `gsd/phase-{phase}-{slug}` unchanged) and every change reaches main through a PR
 - [Phase 01]: 01-10: PR A (.planning-only) ran heavy=false with CI required success; ruleset 26908822 applied last and PR A merged through it; owner chose close-out-pr (one additional close-out PR, exercised by plan 11)
+- [Phase 01]: 01-11: owner replied `pending` for the real logo digest (EVID-04 real-logo item is owner-pending, human-needed; logo.sha256 unchanged); close-out reached main through one PR (#3) squash-merged through the ruleset; EVID-04 left Pending in REQUIREMENTS.md until the verifier decides
 
 ### Pending Todos
 
@@ -126,6 +128,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:56:07.851Z
-Stopped at: Completed 01-10-PLAN.md
+Last session: 2026-11-10T02:00:16.464Z
+Stopped at: Completed 01-11-PLAN.md
 Resume file: None
