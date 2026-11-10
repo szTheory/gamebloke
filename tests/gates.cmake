@@ -205,7 +205,9 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckProfile.cmake")
 
 foreach(case IN ITEMS
-    unmodeled_missing)
+    bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
+    hblank_edge_hardcoded missing_field missing_source timing_arithmetic
+    unmodeled_bad_entry unmodeled_missing usage)
   gbl_add_test(
     NAME profile.nc.${case}
     LABELS control profile

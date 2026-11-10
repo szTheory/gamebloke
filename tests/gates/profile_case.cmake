@@ -93,6 +93,129 @@ elseif(CASE STREQUAL "unmodeled_missing")
     expect_code("unmodeled-missing: ${id}" "${p}")
   endforeach()
 
+elseif(CASE STREQUAL "usage")
+  doc_copy(d usage)
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" "-DDOC=${d}" "-DREGISTRY=${REGISTRY_COPY}"
+      "-DVOCAB=${VOCAB_COPY}" -P "${CHECK}"
+    REGEX "profile: usage")
+
+elseif(CASE STREQUAL "bad_schema")
+  profile_copy(p schema)
+  gbl_json_mutate_set("${p}" "\"gamebloke.profile/2\"" schema)
+  expect_code(bad-schema "${p}")
+
+elseif(CASE STREQUAL "bad_version")
+  # Zero, negative, fractional, and a string are all outside a positive integer.
+  set(i 0)
+  foreach(v IN ITEMS "0" "-1" "1.5" "\"1\"")
+    profile_copy(p version${i})
+    gbl_json_mutate_set("${p}" "${v}" profile_version)
+    expect_code(bad-version "${p}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "missing_field")
+  # Each of the nine required top-level fields, then one timing key.
+  set(i 0)
+  foreach(field IN ITEMS
+      schema profile_version id machine boot bios_provider cart timing unmodeled)
+    profile_copy(p field${i})
+    gbl_json_mutate_remove("${p}" ${field})
+    expect_code(missing-field "${p}")
+    math(EXPR i "${i}+1")
+  endforeach()
+  profile_copy(p timing_key)
+  gbl_json_mutate_remove("${p}" timing cycles_per_line)
+  expect_code(missing-field "${p}")
+
+elseif(CASE STREQUAL "bad_machine")
+  profile_copy(p machine)
+  gbl_json_mutate_set("${p}" "\"agb-micro\"" machine)
+  expect_code(bad-machine "${p}")
+  profile_copy(p id)
+  gbl_json_mutate_set("${p}" "\"ags\"" id)
+  expect_code(bad-machine "${p}")
+
+elseif(CASE STREQUAL "bad_boot")
+  profile_copy(p boot)
+  gbl_json_mutate_set("${p}" "\"bios\"" boot)
+  expect_code(bad-boot "${p}")
+
+elseif(CASE STREQUAL "bad_bios_provider")
+  # Empty and malformed hle lists, a branch name where a commit is required, a
+  # short digest, a retired milestone label, and a wrong-case keyword.
+  set(i 0)
+  foreach(v IN ITEMS
+      "hle:" "hle:a,,b" "hle:a," "replacement:x@main" "user-official@abc" "M0" "NONE")
+    profile_copy(p bios${i})
+    gbl_json_mutate_set("${p}" "\"${v}\"" bios_provider)
+    expect_code(bad-bios-provider "${p}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "bad_cart")
+  profile_copy(p kind)
+  gbl_json_mutate_set("${p}" "\"flash\"" cart kind)
+  expect_code(bad-cart "${p}")
+  profile_copy(p string)
+  gbl_json_mutate_set("${p}" "\"rom-only\"" cart)
+  expect_code(bad-cart "${p}")
+
+elseif(CASE STREQUAL "missing_source")
+  profile_copy(p source)
+  gbl_json_mutate_remove("${p}" timing dots_visible source)
+  expect_code(missing-source "${p}")
+  profile_copy(p cite)
+  gbl_json_mutate_remove("${p}" timing lines_visible cite)
+  expect_code(missing-source "${p}")
+
+elseif(CASE STREQUAL "bad_source_label")
+  # A reserved later-phase label, a lower-case variant, and two labels in one string.
+  set(i 0)
+  foreach(v IN ITEMS "calibrated:arm-basic" "ref" "REF,SRC")
+    profile_copy(p label${i})
+    gbl_json_mutate_set("${p}" "\"${v}\"" timing master_clock_hz source)
+    expect_code(bad-source-label "${p}")
+    math(EXPR i "${i}+1")
+  endforeach()
+
+elseif(CASE STREQUAL "timing_arithmetic")
+  profile_copy(p line)
+  gbl_json_mutate_set("${p}" "1231" timing cycles_per_line value)
+  expect_code(timing-arithmetic "${p}")
+  profile_copy(p vblank)
+  gbl_json_mutate_set("${p}" "67" timing lines_vblank value)
+  expect_code(timing-arithmetic "${p}")
+  profile_copy(p clock)
+  gbl_json_mutate_set("${p}" "16780000" timing master_clock_hz value)
+  expect_code(timing-arithmetic "${p}")
+
+elseif(CASE STREQUAL "hblank_edge_hardcoded")
+  # 960 is the visible drawing time; 1006 is one of the disputed edge values.
+  foreach(v IN ITEMS 960 1006)
+    profile_copy(p edge${v})
+    gbl_json_mutate_set("${p}" "${v}" timing hblank_flag_edge_cycle value)
+    expect_code(hblank-edge-hardcoded "${p}")
+  endforeach()
+
+elseif(CASE STREQUAL "unmodeled_bad_entry")
+  # prefetch is entry 1, dma entry 5, sp-micro-differences entry 0.
+  profile_copy(p status)
+  gbl_json_mutate_set("${p}" "\"todo\"" unmodeled 1 status)
+  expect_code(unmodeled-bad-entry "${p}")
+  profile_copy(p reason)
+  gbl_json_mutate_set("${p}" "\"\"" unmodeled 1 reason)
+  expect_code(unmodeled-bad-entry "${p}")
+  profile_copy(p duplicate)
+  gbl_json_mutate_set("${p}"
+    [=[{"id": "dma", "status": "unmodeled", "reason": "A duplicated entry used only by this control."}]=]
+    unmodeled 9)
+  expect_code(unmodeled-bad-entry "${p}")
+  profile_copy(p details)
+  gbl_json_mutate_set("${p}" [=["The Micro has no cartridge switch."]=] unmodeled 0 details 0)
+  expect_code(unmodeled-bad-entry "${p}")
+
 else()
   message(FATAL_ERROR "profile-case: unknown case: ${CASE}")
 endif()
