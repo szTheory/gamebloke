@@ -88,7 +88,8 @@ typedef enum gbl_header_logo_status {
 } gbl_header_logo_status;
 
 typedef enum gbl_header_logo_reason {
-    GBL_HEADER_LOGO_REASON_OWNER_PENDING = 0
+    GBL_HEADER_LOGO_REASON_OWNER_PENDING = 0,
+    GBL_HEADER_LOGO_REASON_CHECKED = 1
 } gbl_header_logo_reason;
 
 typedef enum gbl_header_logo_window {

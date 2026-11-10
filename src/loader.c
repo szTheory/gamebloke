@@ -1,4 +1,9 @@
 #include "gamebloke/gamebloke.h"
+#include "logo_sha256.h"
+
+#ifndef GBL_LOGO_EXPECTED_SHA256
+#define GBL_LOGO_EXPECTED_SHA256 ""
+#endif
 
 static gbl_header_diagnostics gbl_header_diagnostics_from_candidate(
     const uint8_t *candidate)
@@ -12,6 +17,17 @@ static gbl_header_diagnostics gbl_header_diagnostics_from_candidate(
     diagnostics.loaded = true;
     diagnostics.canonical_logo = GBL_HEADER_LOGO_UNCHECKED;
     diagnostics.logo_reason = GBL_HEADER_LOGO_REASON_OWNER_PENDING;
+    if (GBL_LOGO_EXPECTED_SHA256[0] != '\0') {
+        uint8_t actual_digest[32];
+
+        gbl_logo_sha256_fixed_156(candidate + 0x04u, actual_digest);
+        diagnostics.canonical_logo =
+            gbl_logo_sha256_matches_hex(actual_digest,
+                                        GBL_LOGO_EXPECTED_SHA256)
+                ? GBL_HEADER_LOGO_CHECKED_MATCH
+                : GBL_HEADER_LOGO_CHECKED_MISMATCH;
+        diagnostics.logo_reason = GBL_HEADER_LOGO_REASON_CHECKED;
+    }
     diagnostics.logo_window =
         gbl_header_compare_bytes(candidate + 0x04u, zero_logo_window,
                                  sizeof(zero_logo_window)) ==

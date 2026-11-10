@@ -111,8 +111,13 @@ gbl_add_test(
 
 add_executable(loader_test tests/loader_test.c)
 target_link_libraries(loader_test PRIVATE gamebloke_core gbl_warnings)
+target_compile_definitions(loader_test PRIVATE
+  "GBL_TEST_LOGO_EXPECTATION_MODE=${GBL_PRODUCTION_LOGO_TEST_MODE}")
 add_executable(loader_logo_test tests/loader_test.c)
-target_link_libraries(loader_logo_test PRIVATE gamebloke_core gbl_warnings)
+target_link_libraries(loader_logo_test PRIVATE
+  gamebloke_core_logo_synthetic gbl_warnings)
+target_compile_definitions(loader_logo_test PRIVATE
+  GBL_TEST_LOGO_EXPECTATION_MODE=1)
 gbl_add_test(
   NAME loader.lengths
   LABELS core loader unit

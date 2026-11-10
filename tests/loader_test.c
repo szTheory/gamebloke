@@ -1,6 +1,7 @@
 #include "check.h"
 #include "gamebloke/gamebloke.h"
 #include "state_check.h"
+#include "../src/logo_sha256.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -10,6 +11,14 @@
 #define GBL_TEST_MIN_ROM_SIZE 0xC0u
 #define GBL_TEST_IMAGE_CAPACITY ((size_t)GBL_TEST_MAX_ROM_SIZE + 1u)
 #define GBL_TEST_ALLOCATIONS 4u
+
+#ifndef GBL_TEST_LOGO_EXPECTATION_MODE
+#define GBL_TEST_LOGO_EXPECTATION_MODE 0
+#endif
+
+#if GBL_TEST_LOGO_EXPECTATION_MODE != 0 && GBL_TEST_LOGO_EXPECTATION_MODE != 1
+#error "GBL_TEST_LOGO_EXPECTATION_MODE must be 0 (pending) or 1 (checked)"
+#endif
 
 typedef struct host_block {
     uint8_t *raw;
@@ -37,6 +46,18 @@ typedef struct expected_load {
     gbl_load_status status;
     gbl_load_reason reason;
 } expected_load;
+
+static void check_loaded_logo(const gbl_header_diagnostics *diagnostics)
+{
+#if GBL_TEST_LOGO_EXPECTATION_MODE == 0
+    CHECK(diagnostics->canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
+    CHECK(diagnostics->logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
+#else
+    CHECK(diagnostics->canonical_logo == GBL_HEADER_LOGO_CHECKED_MATCH ||
+          diagnostics->canonical_logo == GBL_HEADER_LOGO_CHECKED_MISMATCH);
+    CHECK(diagnostics->logo_reason == GBL_HEADER_LOGO_REASON_CHECKED);
+#endif
+}
 
 static uint8_t synthetic_byte(size_t index)
 {
@@ -487,9 +508,8 @@ static int run_diagnostics(void)
     CHECK(load.status == GBL_LOAD_STATUS_OK);
     diagnostics = gbl_rom_diagnostics(machine);
     CHECK(diagnostics.loaded);
-    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
-    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
     CHECK(diagnostics.logo_window == GBL_HEADER_LOGO_WINDOW_ZERO);
+    check_loaded_logo(&diagnostics);
     CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_OK);
     CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_UNUSUAL);
     checksum_probe[0xA0u] = 1u;
@@ -513,9 +533,8 @@ static int run_diagnostics(void)
     CHECK(load.reason == GBL_LOAD_REASON_NONE);
     diagnostics = gbl_rom_diagnostics(machine);
     CHECK(diagnostics.loaded);
-    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
-    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
     CHECK(diagnostics.logo_window == GBL_HEADER_LOGO_WINDOW_NONZERO);
+    check_loaded_logo(&diagnostics);
     CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_OK);
     CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_ORDINARY);
 
@@ -530,9 +549,8 @@ static int run_diagnostics(void)
     gbl_machine_reset(machine);
     diagnostics = gbl_rom_diagnostics(machine);
     CHECK(diagnostics.loaded);
-    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
-    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
     CHECK(diagnostics.logo_window == GBL_HEADER_LOGO_WINDOW_NONZERO);
+    check_loaded_logo(&diagnostics);
     CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_OK);
     CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_ORDINARY);
 
@@ -549,9 +567,8 @@ static int run_diagnostics(void)
     CHECK(load.reason == GBL_LOAD_REASON_NONE);
     diagnostics = gbl_rom_diagnostics(machine);
     CHECK(diagnostics.loaded);
-    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
-    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
     CHECK(diagnostics.logo_window == GBL_HEADER_LOGO_WINDOW_ZERO);
+    check_loaded_logo(&diagnostics);
     CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_MISMATCH);
     CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_UNUSUAL);
     owned_rom = gbl_rom_data(machine);
@@ -576,22 +593,70 @@ static int run_diagnostics(void)
     return CHECK_DONE();
 }
 
+static void check_logo_sha256_vectors(void)
+{
+    static const uint8_t expected_zero[32] = {
+        0x59u, 0xBFu, 0x90u, 0x91u, 0xF4u, 0xCBu, 0xBDu, 0x2Au,
+        0x87u, 0x96u, 0xBFu, 0xE0u, 0x86u, 0xA5u, 0x01u, 0xC5u,
+        0x72u, 0x26u, 0xC4u, 0x27u, 0x39u, 0xDCu, 0xF8u, 0xADu,
+        0x32u, 0x3Eu, 0x74u, 0x93u, 0xADu, 0x51u, 0xE3u, 0x8Fu
+    };
+    static const uint8_t expected_pattern[32] = {
+        0x8Eu, 0xC8u, 0xD3u, 0x0Au, 0xF0u, 0xACu, 0xB1u, 0xE6u,
+        0xFFu, 0x15u, 0xD8u, 0xEAu, 0x33u, 0x2Au, 0x0Eu, 0x6Bu,
+        0x60u, 0xABu, 0x60u, 0xABu, 0x41u, 0xCEu, 0xF9u, 0x68u,
+        0xE0u, 0x7Cu, 0x77u, 0x06u, 0xB3u, 0x49u, 0xD9u, 0xD1u
+    };
+    uint8_t zero_storage[157] = { 0 };
+    uint8_t pattern_storage[157] = { 0 };
+    uint8_t digest[32];
+    uint8_t *zero_window = &zero_storage[1u];
+    uint8_t *pattern_window = &pattern_storage[1u];
+    size_t index;
+
+    for (index = 0u; index < 156u; ++index) {
+        pattern_window[index] = (uint8_t)(index + 1u);
+    }
+    gbl_logo_sha256_fixed_156(zero_window, digest);
+    CHECK(gbl_test_bytes_equal(digest, expected_zero, sizeof(digest)));
+    gbl_logo_sha256_fixed_156(pattern_window, digest);
+    CHECK(gbl_test_bytes_equal(digest, expected_pattern, sizeof(digest)));
+    CHECK(gbl_logo_sha256_matches_hex(
+        digest,
+        "8ec8d30af0acb1e6ff15d8ea332a0e6b60ab60ab41cef968e07c7706b349d9d1"));
+    CHECK(!gbl_logo_sha256_matches_hex(
+        digest,
+        "0000000000000000000000000000000000000000000000000000000000000000"));
+}
+
 static int run_logo_digest(void)
 {
     host_storage storage = { 0 };
     gbl_machine *machine = new_machine(&storage);
     uint8_t image[GBL_TEST_MIN_ROM_SIZE] = { 0 };
+    uint8_t original[GBL_TEST_MIN_ROM_SIZE];
     size_t index;
     gbl_load_result load;
     gbl_header_diagnostics diagnostics;
+    const uint8_t *owned_rom;
 
     if (machine == NULL) {
         fprintf(stderr, "loader.logo-digest: host setup allocation failed\n");
         return 1;
     }
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(!diagnostics.loaded);
+    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
+    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
+    check_logo_sha256_vectors();
     for (index = 0u; index < 0x9Cu; ++index) {
         image[0x04u + index] = (uint8_t)(index + 1u);
     }
+    image[0x03u] = 0xA5u;
+    image[0xA0u] = 0x01u;
+    set_synthetic_game_code(image, "ab?1");
+    image[0xBDu] = 0xB4u;
+    memcpy(original, image, sizeof(image));
 
     load = gbl_load_rom(machine, image, sizeof(image));
     CHECK(load.status == GBL_LOAD_STATUS_OK);
@@ -599,6 +664,54 @@ static int run_logo_digest(void)
     diagnostics = gbl_rom_diagnostics(machine);
     CHECK(diagnostics.loaded);
     CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MATCH);
+    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_CHECKED);
+    CHECK(diagnostics.checksum == GBL_HEADER_CHECKSUM_MISMATCH);
+    CHECK(diagnostics.game_code == GBL_HEADER_GAME_CODE_UNUSUAL);
+    CHECK(diagnostics.logo_window == GBL_HEADER_LOGO_WINDOW_NONZERO);
+    owned_rom = gbl_rom_data(machine);
+    CHECK(owned_rom != NULL);
+    CHECK(owned_rom != image);
+    if (owned_rom != NULL) {
+        CHECK(gbl_test_bytes_equal(owned_rom, image, sizeof(image)));
+    }
+
+    image[0x04u] ^= 0x01u;
+    load = gbl_load_rom(machine, image, sizeof(image));
+    CHECK(load.status == GBL_LOAD_STATUS_OK);
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MISMATCH);
+    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_CHECKED);
+    image[0x04u] ^= 0x01u;
+
+    image[0x9Fu] ^= 0x01u;
+    load = gbl_load_rom(machine, image, sizeof(image));
+    CHECK(load.status == GBL_LOAD_STATUS_OK);
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MISMATCH);
+    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_CHECKED);
+    image[0x9Fu] ^= 0x01u;
+
+    load = gbl_load_rom(machine, image, sizeof(image));
+    CHECK(load.status == GBL_LOAD_STATUS_OK);
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MATCH);
+    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_CHECKED);
+    memcpy(original, image, sizeof(image));
+    set_nondefault_state(machine);
+    storage.fail_next = true;
+    expect_failure_unchanged(machine, &storage, image, original, sizeof(image),
+                             sizeof(image), GBL_LOAD_STATUS_RESOURCE_FAILURE,
+                             GBL_LOAD_REASON_ALLOCATION, 1u);
+    expect_failure_unchanged(machine, &storage, image, original, sizeof(image),
+                             0xBFu, GBL_LOAD_STATUS_REFUSED,
+                             GBL_LOAD_REASON_ROM_SHORT, 0u);
+
+    gbl_machine_reset(machine);
+    diagnostics = gbl_rom_diagnostics(machine);
+    CHECK(diagnostics.loaded);
+    CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MATCH);
+    CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_CHECKED);
+    CHECK(gbl_test_bytes_equal(gbl_rom_data(machine), original, sizeof(original)));
 
     gbl_machine_dispose(machine);
     CHECK(host_has_no_live_allocations(&storage));
@@ -932,8 +1045,7 @@ static int run_integration(void)
                                    sizeof(expected)));
         diagnostics = gbl_rom_diagnostics(machines[index]);
         CHECK(diagnostics.loaded);
-        CHECK(diagnostics.canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
-        CHECK(diagnostics.logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
+        check_loaded_logo(&diagnostics);
     }
     if (index != MACHINE_COUNT) {
         for (index = 0u; index < MACHINE_COUNT; ++index) {
