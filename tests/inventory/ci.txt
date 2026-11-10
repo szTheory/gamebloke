@@ -117,6 +117,11 @@ profile.nc.bad_machine control,profile
 profile.nc.bad_schema control,profile
 profile.nc.bad_source_label control,profile
 profile.nc.bad_version control,profile
+profile.nc.dispute_unknown control,profile
+profile.nc.doc_extra_id control,profile
+profile.nc.doc_missing_id control,profile
+profile.nc.doc_no_section control,profile
+profile.nc.doc_version_mismatch control,profile
 profile.nc.hblank_edge_hardcoded control,profile
 profile.nc.missing_field control,profile
 profile.nc.missing_source control,profile
@@ -124,6 +129,7 @@ profile.nc.timing_arithmetic control,profile
 profile.nc.unmodeled_bad_entry control,profile
 profile.nc.unmodeled_missing control,profile
 profile.nc.usage control,profile
+profile.pos.coordinated_change positive,profile
 profile.pos.copy positive,profile
 registry.lint gate,registry
 registry.nc.bad_id control,registry

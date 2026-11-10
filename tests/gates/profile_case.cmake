@@ -50,6 +50,17 @@ function(doc_copy out variant)
   set(${out} "${path}" PARENT_SCOPE)
 endfunction()
 
+# doc_drop_row(<file> <id>): delete the table row whose first backticked token is
+# <id>; a stale anchor fails with `mutate: no-match`.
+function(doc_drop_row file id)
+  file(READ "${file}" content)
+  string(REGEX REPLACE "\n\\| `${id}`[^\n]*" "" after "${content}")
+  if("${after}" STREQUAL "${content}")
+    message(FATAL_ERROR "mutate: no-match: ${file}")
+  endif()
+  file(WRITE "${file}" "${after}")
+endfunction()
+
 # check_command(<out-var> <profile> <doc>): the validator command line.
 function(check_command out profile doc)
   set(${out}
@@ -215,6 +226,71 @@ elseif(CASE STREQUAL "unmodeled_bad_entry")
   profile_copy(p details)
   gbl_json_mutate_set("${p}" [=["The Micro has no cartridge switch."]=] unmodeled 0 details 0)
   expect_code(unmodeled-bad-entry "${p}")
+
+elseif(CASE STREQUAL "dispute_unknown")
+  # An id the registry does not hold, on the unmodeled entry and on the timing entry.
+  profile_copy(p unmodeled)
+  gbl_json_mutate_set("${p}" "\"disp-nope\"" unmodeled 2 dispute)
+  expect_code(dispute-unknown "${p}")
+  profile_copy(p timing)
+  gbl_json_mutate_set("${p}" "\"disp-nope\"" timing hblank_flag_edge_cycle dispute)
+  expect_code(dispute-unknown "${p}")
+
+elseif(CASE STREQUAL "doc_missing_id")
+  profile_copy(p missing)
+  doc_copy(d missing)
+  doc_drop_row("${d}" prefetch)
+  expect_code(doc-missing-id "${p}" "${d}")
+
+elseif(CASE STREQUAL "doc_extra_id")
+  profile_copy(p extra)
+  doc_copy(d extra)
+  gbl_text_mutate("${d}" "| `backup-media` |"
+    "| `cgb-mode` | A row used only by this control. |\n| `backup-media` |")
+  expect_code(doc-extra-id "${p}" "${d}")
+
+elseif(CASE STREQUAL "doc_version_mismatch")
+  profile_copy(p bumped)
+  doc_copy(d bumped)
+  gbl_text_mutate("${d}" "\nprofile_version: 1\n" "\nprofile_version: 2\n")
+  expect_code(doc-version-mismatch "${p}" "${d}")
+  profile_copy(p deleted)
+  doc_copy(d deleted)
+  gbl_text_mutate("${d}" "\nprofile_version: 1\n" "\n")
+  expect_code(doc-version-mismatch "${p}" "${d}")
+
+elseif(CASE STREQUAL "doc_no_section")
+  # A renamed heading, then the right heading with every table row removed: an
+  # empty parse is a failure, not a pass.
+  profile_copy(p renamed)
+  doc_copy(d renamed)
+  gbl_text_mutate("${d}" "\n## Unmodeled\n" "\n## Not modeled\n")
+  expect_code(doc-no-section "${p}" "${d}")
+  profile_copy(p rows)
+  doc_copy(d rows)
+  file(READ "${d}" content)
+  string(FIND "${content}" "| Id | What" at)
+  if(at EQUAL -1)
+    message(FATAL_ERROR "mutate: no-match: ${d}")
+  endif()
+  string(SUBSTRING "${content}" 0 ${at} head)
+  file(WRITE "${d}" "${head}")
+  expect_code(doc-no-section "${p}" "${d}")
+
+elseif(CASE STREQUAL "coordinated_change")
+  # A new unmodeled entry and a version bump, made in both files, is accepted.
+  profile_copy(p coordinated)
+  doc_copy(d coordinated)
+  gbl_json_mutate_set("${p}"
+    [=[{"id": "serial-link", "status": "unmodeled", "reason": "Not emulated in v1.0; no result may claim serial link behavior."}]=]
+    unmodeled 9)
+  gbl_json_mutate_set("${p}" "2" profile_version)
+  gbl_text_mutate("${d}" "| `backup-media` |"
+    "| `serial-link` | The serial link port. |\n| `backup-media` |")
+  gbl_text_mutate("${d}" "\nprofile_version: 1\n" "\nprofile_version: 2\n")
+  check_command(cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${cmd}
+    REGEX "profile: ok \\(agb v2, 11 timing constants, 10 unmodeled\\)")
 
 else()
   message(FATAL_ERROR "profile-case: unknown case: ${CASE}")

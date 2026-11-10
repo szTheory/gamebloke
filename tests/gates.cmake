@@ -206,6 +206,7 @@ gbl_add_test(
 
 foreach(case IN ITEMS
     bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
+    dispute_unknown doc_extra_id doc_missing_id doc_no_section doc_version_mismatch
     hblank_edge_hardcoded missing_field missing_source timing_arithmetic
     unmodeled_bad_entry unmodeled_missing usage)
   gbl_add_test(
@@ -214,7 +215,7 @@ foreach(case IN ITEMS
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PROFILE_CASE}")
 endforeach()
 
-foreach(case IN ITEMS copy)
+foreach(case IN ITEMS coordinated_change copy)
   gbl_add_test(
     NAME profile.pos.${case}
     LABELS positive profile
