@@ -149,6 +149,28 @@ elseif(CASE STREQUAL "bus_policy_doc")
   gbl_text_mutate("${d}" "## Machine\n"
     "## Machine\n| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n")
   expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
+  profile_copy(p same_section_fence)
+  doc_copy(d same_section_fence)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n"
+    "")
+  gbl_text_mutate("${d}" "## Initialization policy"
+    "```text\n| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n```\n\n## Initialization policy")
+  expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
+  profile_copy(p same_section_indented)
+  doc_copy(d same_section_indented)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n"
+    "")
+  gbl_text_mutate("${d}" "## Initialization policy"
+    "    | bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n\t| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n\n## Initialization policy")
+  expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
+  profile_copy(p duplicate_key)
+  doc_copy(d duplicate_key)
+  gbl_text_mutate("${d}"
+    "| bus_policy.request_cycles.oam | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
+    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+  expect_detail(bus-policy-doc "bus_policy: expected key bus_policy\\.request_cycles\\.rom exactly once in policy table, found 2" "${p}" "${d}")
 
 elseif(CASE STREQUAL "init_policy")
   profile_copy(p missing)
