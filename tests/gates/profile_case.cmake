@@ -168,7 +168,7 @@ elseif(CASE STREQUAL "bus_policy_doc")
   gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
     "<pre>\n${valid_table}\n</pre>\n| Setting | Value | Label | Citation |")
   expect_detail(bus-policy-doc
-    "unsupported raw HTML block <pre>" "${p}" "${d}")
+    "unsupported raw HTML element <pre>" "${p}" "${d}")
   profile_copy(p hidden_bus_heading)
   doc_copy(d hidden_bus_heading)
   gbl_text_mutate("${d}" "\n## Bus policy\n"
@@ -179,7 +179,21 @@ elseif(CASE STREQUAL "bus_policy_doc")
   gbl_text_mutate("${d}" "\n## Bus policy\n"
     "\n<pre>\n## Bus policy\n")
   file(APPEND "${d}" "\n<!-- </pre> -->\n")
-  expect_detail(bus-policy-doc "unsupported raw HTML block <pre>" "${p}" "${d}")
+  expect_detail(bus-policy-doc "unsupported raw HTML element <pre>" "${p}" "${d}")
+  profile_copy(p raw_html_section)
+  doc_copy(d raw_html_section)
+  gbl_text_mutate("${d}" "## Bus policy\n"
+    "<section>\n## Bus policy\n")
+  file(APPEND "${d}" "\n</section>\n")
+  expect_detail(bus-policy-doc
+    "unsupported raw HTML element <section>" "${p}" "${d}")
+  profile_copy(p raw_html_custom_element)
+  doc_copy(d raw_html_custom_element)
+  gbl_text_mutate("${d}" "## Bus policy\n"
+    "<gamebloke-profile>\n## Bus policy\n")
+  file(APPEND "${d}" "\n</gamebloke-profile>\n")
+  expect_detail(bus-policy-doc
+    "unsupported raw HTML element <gamebloke-profile>" "${p}" "${d}")
   profile_copy(p extra_row)
   doc_copy(d extra_row)
   gbl_text_mutate("${d}"
@@ -264,6 +278,8 @@ elseif(CASE STREQUAL "read_policy")
 elseif(CASE STREQUAL "bus_policy_copy")
   profile_copy(p bus_policy)
   doc_copy(d bus_policy_fenced_pre)
+  gbl_text_mutate("${d}" "This canonical profile document uses plain Markdown only."
+    "This canonical profile document uses plain Markdown only. The code span ``<section>`` is literal text.")
   file(READ "${SRC}/docs/profile-agb.md" source_doc)
   string(FIND "${source_doc}" "| Setting | Value | Label | Citation |" table_start)
   string(FIND "${source_doc}" "\n## Initialization policy" table_end)
