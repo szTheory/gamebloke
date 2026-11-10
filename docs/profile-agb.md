@@ -11,6 +11,9 @@ section headings, and pipe tables to be visible.
 Raw HTML elements, declarations, and processing instructions are unsupported
 anywhere outside those ignored examples and comments; use Markdown code spans or
 fenced code examples when showing HTML text.
+Synchronized tables require both outer pipes on every row, the documented
+headers and separators, and a blank line or heading after the table (or end of
+document). Every Unmodeled ID must occur exactly once.
 
 profile_version: 2
 
