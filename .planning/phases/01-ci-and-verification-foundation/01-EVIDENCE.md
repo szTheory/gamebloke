@@ -144,7 +144,15 @@ repo-settings: advisory: rules not requested: deletion, non_fast_forward, requir
 
 ## Real logo digest
 
-Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
+- Status: `owner-pending (human-needed)`. Recorded 2026-11-10 UTC by plan 01-11 Task 2 from the owner's Task 1 reply, `pending`.
+- Owner: the repository owner. No agent opened, copied, or hashed any owner-held file; no digest crossed.
+- Next action: the owner runs `sh scripts/signature-digest.sh logo <file>` on a GBA-header-bearing file they already hold,
+  outside the repository, and commits the printed `<64 hex> nintendo-logo-window` line through a PR, replacing the single
+  `owner-pending nintendo-logo-window` row in `tests/signatures/logo.sha256`. A matching hash proves identity, not rights.
+- Current visible state: `tests/signatures/logo.sha256` is unchanged (the `owner-pending` row). `signature.logo.real_digest`
+  reports SKIPPED with its reason (never PASS), `signature.owner_local` reports SKIPPED, and the inventory summary shows
+  `skipped 2 (allowed 2)`. CI stays green. EVID-04's real-logo item is a human-needed gap; the synthesized logo-window
+  controls still guard the rule path.
 
 ## Close-out publication
 
@@ -153,5 +161,7 @@ Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
   rules: `CI required` must pass and the PR is squash-merged through the ruleset, no admin bypass, no direct push to main).
 - The authorization is exercised by plan 01-11 Task 3, not by plan 01-10. Plan 01-10 opened no third PR and pushed nothing;
   the close-out branch `gsd/phase-01-ci-and-verification-foundation` is still local and unpushed.
-- The real-logo rule stays inactive on origin/main until a digest lands (the exact line is under `## Ruleset`, and the
-  `tests/signatures/logo.sha256` row is owner-pending). Plan 01-11 updates that line with the digest outcome.
+- Plan 01-11 (2026-11-10 UTC): the owner replied `pending` to the digest request, so the status line is unchanged:
+  real-logo rule inactive on origin/main until a digest lands
+- Plan 01-11 Task 3 exercises the authorization: the close-out branch is pushed and merged through one PR (squash,
+  through the ruleset, no admin bypass). The PR number and run IDs are in 01-11-SUMMARY.md and the plan 01-11 report.
