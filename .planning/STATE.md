@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 03
 current_phase_name: Bus API, Memory Map, and ROM Loading
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-11-10T17:19:48.717Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-11-10T17:59:56.785Z"
 last_activity: 2026-11-10
-last_activity_desc: Plan 03-03 complete; Phase 03 execution continues
-state_head: f56c14b20fcc1301d7f5868b1848baf933dd95c6
+last_activity_desc: Plan 03-04 complete; Phase 03 execution continues
+state_head: b6370dc946a287d25938e95fb103bee58a940bc7
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 03 (Bus API, Memory Map, and ROM Loading) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6 (03-05 next)
 Status: Ready to execute
-Last activity: 2026-11-10 — Plan 03-03 complete; Phase 03 execution continues
+Last activity: 2026-11-10 — Plan 03-04 complete; Phase 03 execution continues
 
 Progress: [███░░░░░░░] 33%
 
@@ -78,6 +78,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03 P01 | 26 min | 3 tasks | 10 files |
 | Phase 03 P02 | 21 min | 2 tasks | 7 files |
 | Phase 03 P03 | 20 min | 3 tasks | 10 files |
+| Phase 03 P04 | 38 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,9 @@ Recent decisions affecting current work:
 - [Phase 03]: ROM load size refusals are ordered: zero, below 0xC0, above 32 MiB, then odd; valid-size pointer and allocator checks follow.
 - [Phase 03]: The host allocator owns copied ROM storage; successful replacement commits and cold-resets before releasing the previous allocation.
 - [Phase 03]: Refusal evidence compares canonical machine fields and arrays, ROM contents, and caller bytes; the digest is secondary evidence.
+- [Phase 03]: 03-04: ROM-tail reads use the current-latch project policy; shorter-cartridge hardware behavior remains explicitly unverified.
+- [Phase 03]: 03-04: Model only DISPCNT mode bits 0-2; mode 6-7 video-byte threshold behavior is project policy, not hardware evidence.
+- [Phase 03]: 03-04: Cite GBATEK as community reference evidence and keep BUS-02/BUS-03 pending until integrated phase evidence and final verification support completion.
 
 ### Pending Todos
 
@@ -152,6 +156,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10T17:19:48.505Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-11-10T17:59:56.683Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
