@@ -146,7 +146,32 @@ Plans:
   3. Two fresh instances have byte-identical memory and register contents at power-on, and those contents match the fill policy recorded in the profile.
   4. Zero-length, below-header-size, above-32-MiB, and odd-length images each give a distinct REFUSED reason. A full-state digest and a caller-buffer comparison prove that a refused load leaves both byte-identical. After a successful load, changing the caller's buffer does not change the instance.
   5. Under `direct-start`, a ROM with a missing or mismatched logo, a bad header checksum, or an unusual game code still loads, and each finding is reported as a loader diagnostic, not a refusal.
-**Plans**: TBD
+**Plans**: 0/6 plans executed in six dependency-ordered waves (not executed)
+
+Plans:
+**Wave 1**
+- [ ] 03-01-PLAN.md — Deterministic machine lifecycle and timing-bearing bus contract
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 03-02-PLAN.md — Versioned bus and initialization profile policy with controls
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 03-03-PLAN.md — Transactional owned ROM loading and refusal evidence
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 03-04-PLAN.md — Complete region decode, video width rules and semantic controls
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 03-05-PLAN.md — Advisory header diagnostics and synthetic comparison controls
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 03-06-PLAN.md — Integrated lifecycle evidence and visible remaining acceptance gaps
+
+**Cross-cutting constraints:** <!-- gsd:generated -->
+- Repeated cold reset returns all canonical mutable fields/arrays to the documented zeros, preserves installed owned ROM, and matches a fresh loaded instance.
+
+**Planning evidence limits:** LOAD-02 canonical-logo mismatch remains partial until the owner supplies the pending digest; synthetic comparison tests do not close it. ROM-tail reads use an explicitly unverified project policy. Planning does not claim phase acceptance or hardware accuracy.
+
 **Research flag**: Light research. Read the GBATEK 3.06 memory-map, mirror, width, and open-bus sections. Power-on RAM contents are [UNK], so the fill policy is a documented project choice, not a hardware claim. Cite GBATEK 3.06, not the 2.9b-derived fork.
 **Owner gates**: None blocking. G1 reuse rule: do not copy code from GPL (NanoBoyAdvance) or MPL (mGBA) sources; read them for behavior only.
 
@@ -260,7 +285,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
-| 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
+| 3. Bus API, Memory Map, and ROM Loading | 0/6 | Planned     | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
