@@ -231,6 +231,18 @@ static bool canonical_equal(const gbl_machine *left,
         left->master_cycles != right->master_cycles ||
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
+        left->header_diagnostics.loaded !=
+            right->header_diagnostics.loaded ||
+        left->header_diagnostics.canonical_logo !=
+            right->header_diagnostics.canonical_logo ||
+        left->header_diagnostics.logo_reason !=
+            right->header_diagnostics.logo_reason ||
+        left->header_diagnostics.logo_window !=
+            right->header_diagnostics.logo_window ||
+        left->header_diagnostics.checksum !=
+            right->header_diagnostics.checksum ||
+        left->header_diagnostics.game_code !=
+            right->header_diagnostics.game_code ||
         left->rom_length != right->rom_length ||
         ((left->rom == NULL) != (right->rom == NULL))) {
         return false;
@@ -286,6 +298,18 @@ static uint64_t canonical_digest(const gbl_machine *machine)
     digest = digest_u64(digest, machine->master_cycles);
     digest = digest_u64(digest, machine->open_bus);
     digest = digest_u64(digest, machine->dispcnt);
+    digest = digest_byte(digest,
+                         machine->header_diagnostics.loaded ? 1u : 0u);
+    digest = digest_u64(
+        digest, (uint64_t)machine->header_diagnostics.canonical_logo);
+    digest = digest_u64(digest,
+                        (uint64_t)machine->header_diagnostics.logo_reason);
+    digest = digest_u64(digest,
+                        (uint64_t)machine->header_diagnostics.logo_window);
+    digest = digest_u64(digest,
+                        (uint64_t)machine->header_diagnostics.checksum);
+    digest = digest_u64(digest,
+                        (uint64_t)machine->header_diagnostics.game_code);
     digest = digest_bytes(digest, machine->ewram, GBL_EWRAM_SIZE);
     digest = digest_bytes(digest, machine->iwram, GBL_IWRAM_SIZE);
     digest = digest_bytes(digest, machine->pram, GBL_PRAM_SIZE);
@@ -307,7 +331,6 @@ static int run_timing(void)
     gbl_machine *uninitialized = calloc(1u, sizeof(*uninitialized));
     gbl_machine *snapshot = malloc(sizeof(*snapshot));
     gbl_bus_result result;
-    uint64_t before_digest;
 
     if (machine == NULL || uninitialized == NULL || snapshot == NULL) {
         fprintf(stderr, "bus.timing: host allocation failed\n");
@@ -383,36 +406,36 @@ static int run_timing(void)
     CHECK(machine->open_bus == 0u);
     CHECK(machine->master_cycles == 8u);
 
-    before_digest = canonical_digest(machine);
+    memcpy(snapshot, machine, sizeof(*snapshot));
     result = gbl_bus_read(machine, base, 3u, GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_digest(machine) == before_digest);
+    CHECK(canonical_equal(machine, snapshot));
     result = gbl_bus_write(machine, base, 3u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFFFFFFFu);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_digest(machine) == before_digest);
+    CHECK(canonical_equal(machine, snapshot));
     result = gbl_bus_write(machine, base, 1u,
                            (gbl_bus_access_class)99, 0xFFu);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_digest(machine) == before_digest);
+    CHECK(canonical_equal(machine, snapshot));
     result = gbl_bus_read(machine, UINT32_MAX, 2u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_digest(machine) == before_digest);
+    CHECK(canonical_equal(machine, snapshot));
     result = gbl_bus_write(machine, UINT32_MAX, 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFFFu);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
     CHECK(result.cycles == 0u);
-    CHECK(canonical_digest(machine) == before_digest);
+    CHECK(canonical_equal(machine, snapshot));
     result = gbl_bus_read(NULL, base, 1u, GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_INVALID_ARGUMENT);
     CHECK(result.value == 0u);
