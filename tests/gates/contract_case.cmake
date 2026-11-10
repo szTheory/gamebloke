@@ -36,11 +36,17 @@ function(vocab_copy out variant)
   set(${out} "${path}" PARENT_SCOPE)
 endfunction()
 
-# expect_code(<code> <file>): the real validator on <file> fails with <code>.
+# expect_code(<code> <file> [<detail-regex>]): the real validator on <file> fails with
+# <code>, and with the specific finding detail when one is given. findings are printed
+# with message(), which is not wrapped, so the detail is matched as printed.
 function(expect_code code file)
+  set(detail "")
+  if(NOT "${ARGV2}" STREQUAL "")
+    set(detail ": ${ARGV2}")
+  endif()
   gbl_expect_fail(
     COMMAND "${CMAKE_COMMAND}" "-DVOCAB=${file}" -P "${CHECK}"
-    REGEX "contract: ${code}")
+    REGEX "contract: ${code}${detail}")
 endfunction()
 
 if(CASE STREQUAL "copy")
@@ -114,6 +120,57 @@ elseif(CASE STREQUAL "bad_state_rule")
   vocab_copy(f refusal_key)
   gbl_json_mutate_set("${f}" "\"required\"" states 6 refusal)
   expect_code(bad-state-rule "${f}")
+
+elseif(CASE STREQUAL "weakened_state_rule")
+  # Each variant weakens ONE locked rule to a value that is individually valid (so the
+  # generic allowed-value check stays silent) and asserts the pinned-rule finding text.
+  # states[0] PASS, [6] MISSING, [7] SKIPPED, [8] REFUSED.
+  vocab_copy(f pass_digest)
+  gbl_json_mutate_set("${f}" "\"optional\"" states 0 digest)
+  expect_code(bad-state-rule "${f}" "PASS: digest must be required")
+  vocab_copy(f pass_ran)
+  gbl_json_mutate_set("${f}" "\"false\"" states 0 ran)
+  expect_code(bad-state-rule "${f}" "PASS: ran must be true")
+  vocab_copy(f missing_ran)
+  gbl_json_mutate_set("${f}" "\"true\"" states 6 ran)
+  expect_code(bad-state-rule "${f}" "MISSING: ran must be false")
+  vocab_copy(f missing_reason)
+  gbl_json_mutate_set("${f}" "\"optional\"" states 6 reason)
+  expect_code(bad-state-rule "${f}" "MISSING: reason must be required")
+  vocab_copy(f skipped_ran)
+  gbl_json_mutate_set("${f}" "\"either\"" states 7 ran)
+  expect_code(bad-state-rule "${f}" "SKIPPED: ran must be false")
+  vocab_copy(f skipped_reason)
+  gbl_json_mutate_set("${f}" "\"optional\"" states 7 reason)
+  expect_code(bad-state-rule "${f}" "SKIPPED: reason must be required")
+  vocab_copy(f refused_ran)
+  gbl_json_mutate_set("${f}" "\"either\"" states 8 ran)
+  expect_code(bad-state-rule "${f}" "REFUSED: ran must be false")
+  vocab_copy(f refused_refusal_removed)
+  gbl_json_mutate_remove("${f}" states 8 refusal)
+  expect_code(bad-state-rule "${f}" "REFUSED: refusal must be required")
+
+elseif(CASE STREQUAL "semicolon_item")
+  # One JSON string that holds the whole pinned set joined by `;` would split into five
+  # list elements and fake it; every vocabulary array and the state names reject it.
+  vocab_copy(f labels)
+  gbl_json_mutate_set("${f}" "[\"REF;SRC;IMPL;INF;UNK\"]" source_labels)
+  expect_code(missing-field "${f}" "source_labels\\[0\\]: contains a semicolon")
+  vocab_copy(f classes)
+  gbl_json_mutate_set("${f}"
+    "[\"project-authored;hardware-observed;reference-emulator;suite-self-checking;disputed\"]"
+    provenance_classes)
+  expect_code(missing-field "${f}" "provenance_classes\\[0\\]: contains a semicolon")
+  vocab_copy(f claims)
+  gbl_json_mutate_set("${f}"
+    "[\"machine;boot;bios_provider;cart;input_timeline;evidence\"]" claim_fields)
+  expect_code(missing-field "${f}" "claim_fields\\[0\\]: contains a semicolon")
+  vocab_copy(f non_string)
+  gbl_json_mutate_set("${f}" "7" source_labels 0)
+  expect_code(missing-field "${f}" "source_labels\\[0\\]")
+  vocab_copy(f state_name)
+  gbl_json_mutate_set("${f}" "\"PASS;X\"" states 0 name)
+  expect_code(bad-state-rule "${f}" "states\\[0\\]: name")
 
 elseif(CASE STREQUAL "usage")
   gbl_expect_fail(COMMAND "${CMAKE_COMMAND}" -P "${CHECK}" REGEX "contract: usage")

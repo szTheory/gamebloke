@@ -15,13 +15,16 @@
 #   usage           script mode without -DVOCAB=
 #   bad-schema      schema is not exactly gamebloke.evidence/1
 #   missing-field   source_labels, provenance_classes, claim_fields, or states is
-#                   absent or not an array of strings (states: of objects)
+#                   absent or not an array of strings (states: of objects), or a
+#                   string item contains a semicolon (it would split into several
+#                   list elements and fake the pinned set)
 #   label-set       source_labels is not exactly REF, SRC, IMPL, INF, UNK
 #   class-set       provenance_classes is not exactly the five pinned classes
 #   claim-set       claim_fields is not exactly the six pinned claim fields
 #   state-set       the state names are not exactly the nine pinned names
-#   bad-state-rule  a rule value outside its allowed set, a refusal key on any
-#                   state but REFUSED, or a break of a pinned locked rule
+#   bad-state-rule  a rule value outside its allowed set, a state name that is not
+#                   [A-Za-z0-9_]+ (a `;` or space), a refusal key on any state but
+#                   REFUSED, or a break of a pinned locked rule
 # The json: codes come from cmake/GblJson.cmake (the loader).
 #
 # On success gbl_contract_read sets in the caller's scope <prefix>_SOURCE_LABELS,
@@ -64,6 +67,10 @@ function(gbl__contract_strings out doc field)
       gbl_json_string(item "${doc}" ${field} ${i})
       if("${item}" STREQUAL "<missing>")
         gbl_finding(contract missing-field "${field}[${i}]")
+      elseif("${item}" MATCHES ";")
+        # A `;` would split into several CMake list elements and hide that the
+        # JSON array holds one string (GblJson.cmake names this hazard).
+        gbl_finding(contract missing-field "${field}[${i}]: contains a semicolon")
       else()
         list(APPEND items "${item}")
       endif()
@@ -163,6 +170,11 @@ function(gbl_contract_read prefix vocab)
         continue()
       endif()
       gbl_json_string(name "${doc}" states ${i} name)
+      if(NOT "${name}" MATCHES "^[A-Za-z0-9_]+$")
+        # Also keeps `;` and spaces out of DEFINED GBL_PIN_RULE_${name} below.
+        gbl_finding(contract bad-state-rule "states[${i}]: name")
+        continue()
+      endif()
       list(APPEND names "${name}")
       gbl_json_string(ran "${doc}" states ${i} ran)
       gbl_json_string(digest "${doc}" states ${i} digest)

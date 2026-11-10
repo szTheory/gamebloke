@@ -191,7 +191,8 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckContract.cmake")
 
 foreach(case IN ITEMS
-    bad_schema bad_state_rule claim_set class_set label_set missing_field state_set usage)
+    bad_schema bad_state_rule claim_set class_set label_set missing_field semicolon_item
+    state_set usage weakened_state_rule)
   gbl_add_test(
     NAME contract.nc.${case}
     LABELS contract control

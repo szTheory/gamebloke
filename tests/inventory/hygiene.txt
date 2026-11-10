@@ -9,8 +9,10 @@ contract.nc.claim_set contract,control
 contract.nc.class_set contract,control
 contract.nc.label_set contract,control
 contract.nc.missing_field contract,control
+contract.nc.semicolon_item contract,control
 contract.nc.state_set contract,control
 contract.nc.usage contract,control
+contract.nc.weakened_state_rule contract,control
 contract.pos.copy contract,positive
 fetch.nc.bad_dest control,fetch
 fetch.nc.bad_digest control,fetch
