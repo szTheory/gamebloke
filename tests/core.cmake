@@ -33,7 +33,11 @@ gbl_add_test(
     -DEXIT=2 "-DREGEX=usage: gamebloke-run"
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
-# The core uses no host includes (D-05), with a control that plants one.
+# The core uses no host includes (D-05), with a control that plants one. Further
+# controls plant each bypass shape (a quoted system header, a line continuation,
+# a comment between the directive and the header, a computed include) and the
+# two ways to pass by scanning nothing (an empty and a missing directory); the
+# positive companion is an in-tree quoted include plus freestanding headers.
 gbl_add_test(
   NAME core.no_host_includes
   LABELS core gate
@@ -44,4 +48,16 @@ gbl_add_test(
   NAME core.nc.host_include
   LABELS control core
   COMMAND "${CMAKE_COMMAND}" "-DPLANT=${CMAKE_BINARY_DIR}/nc/host_include"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckCoreIncludes.cmake")
+foreach(shape IN ITEMS quoted continuation comment computed empty missing)
+  gbl_add_test(
+    NAME core.nc.${shape}
+    LABELS control core
+    COMMAND "${CMAKE_COMMAND}" "-DPLANT=${CMAKE_BINARY_DIR}/nc/core_${shape}" "-DSHAPE=${shape}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/CheckCoreIncludes.cmake")
+endforeach()
+gbl_add_test(
+  NAME core.pos.in_tree
+  LABELS core positive
+  COMMAND "${CMAKE_COMMAND}" "-DPLANT=${CMAKE_BINARY_DIR}/nc/core_in_tree" -DSHAPE=in_tree
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckCoreIncludes.cmake")
