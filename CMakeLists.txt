@@ -49,10 +49,14 @@ endif()
 # add_subdirectory(): the TESTS directory property is directory-scoped at the
 # CMake 3.25 floor (Pitfall 4).
 # Extension points:
-#   tests/core.cmake   core and runner tests
-#   tests/gates.cmake  gate tests (hygiene and signature in this phase, and the
+#   tests/core.cmake    core and runner tests
+#   tests/harness.cmake inventory controls (ci lane only)
+#   tests/gates.cmake   gate tests (hygiene and signature in this phase, and the
 #                      Phase 2 `manifest.lint` test that completes VERIF-01's
 #                      manifest clause, EVID-02); created by plan 03
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   include(tests/core.cmake)
+endif()
+if(GBL_LANE STREQUAL "ci")
+  include(tests/harness.cmake)
 endif()

@@ -1,4 +1,20 @@
 # Sorted (byte order) expected-test inventory for the ci lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
 inventory.junit post
+inventory.nc.add_test_bad_name control,inventory
+inventory.nc.add_test_no_labels control,inventory
+inventory.nc.configure_mismatch control,inventory
+inventory.nc.disabled control,inventory
+inventory.nc.duplicate control,inventory
+inventory.nc.empty_junit control,inventory
+inventory.nc.extra control,inventory
+inventory.nc.failed control,inventory
+inventory.nc.missing control,inventory
+inventory.nc.no_junit control,inventory
+inventory.nc.skipped_no_reason control,inventory
+inventory.nc.skipped_not_allowed control,inventory
+inventory.nc.unsorted control,inventory
+inventory.pos.pass inventory,positive
+inventory.pos.skip_reported inventory,positive
+nc.meta.passing_gate_fails_wrapper control,meta
 runner.version runner,unit

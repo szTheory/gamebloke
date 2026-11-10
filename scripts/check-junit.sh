@@ -2,12 +2,21 @@
 # check-junit.sh JUNIT INVENTORY [EXCLUDE_LABEL_REGEX]
 #
 # Compares the CTest junit file against the sorted tests/inventory/<lane>.txt.
-# Tracer subset (plan 02 completes the contract). Reason lines:
-#   inventory: no-junit
+# ctest exits 0 for skipped and disabled tests, so this check is what makes a
+# silently omitted test fail the verdict. Every finding is reported before the
+# script exits. Reason lines (stable; negative controls match on them):
+#   inventory: no-junit: <path>
+#   inventory: empty-junit
 #   inventory: missing: <name>
 #   inventory: extra: <name>
+#   inventory: duplicate: <name>
 #   inventory: failed: <name>
-# Always prints one summary line, which later plans and CI grep verbatim:
+#   inventory: disabled: <name>
+#   inventory: skipped-not-allowed: <name>
+#   inventory: skipped-no-reason: <name>
+# Every skipped test that is allowed is listed as
+#   SKIPPED <name>: <mechanism> | <reason>
+# and one summary line is always printed, which later plans and CI grep:
 #   inventory: expected N, ran M, skipped K (allowed J)
 # Exit codes: 0 ok, 1 inventory failure, 2 usage error.
 set -eu
@@ -27,72 +36,107 @@ if [ ! -f "$inventory" ]; then
   exit 2
 fi
 
+nojunit=0
 junit_arg=$junit
 if [ ! -f "$junit" ]; then
   echo "inventory: no-junit: $junit"
   junit_arg=/dev/null
+  nojunit=1
 fi
 
-awk -v exclude="$exclude" -v nojunit="$([ -f "$junit" ] && echo 0 || echo 1)" '
-function attr(line, key,    m, s) {
-  if (match(line, key "=\"[^\"]*\"")) {
-    s = substr(line, RSTART + length(key) + 2, RLENGTH - length(key) - 3)
+awk -v exclude="$exclude" -v nojunit="$nojunit" '
+# Value of the first attribute named key (written as " key=\"...\"") in tag.
+function attr(tag, key,    s) {
+  if (match(tag, " " key "=\"[^\"]*\"")) {
+    s = substr(tag, RSTART + length(key) + 3, RLENGTH - length(key) - 4)
     return s
   }
   return ""
 }
-function finish_case() {
-  incase = 0
-}
 FNR == 1 { fileno++ }
 fileno == 1 {
-  # inventory: "<name> <labels>[ skip-ok]"
+  # inventory line: "<name> <labels>[ skip-ok]"
   if ($0 ~ /^#/ || $0 ~ /^[ \t]*$/) next
   name = $1
   labels = $2
-  listed[name] = 1
   skipok[name] = ($3 == "skip-ok")
   skip = 0
   if (exclude != "") {
     n = split(labels, parts, ",")
     for (i = 1; i <= n; i++) if (parts[i] ~ exclude) skip = 1
   }
-  if (!skip) { expected[name] = 1; nexpected++ }
+  if (!skip) { expected[name] = 1; order[++norder] = name; nexpected++ }
+  listed[name] = 1
   next
 }
-fileno == 2 {
-  if (insysout) {
-    if (index($0, "</system-out>")) insysout = 0
-    next
-  }
-  if (index($0, "<system-out>") && !index($0, "</system-out>")) { insysout = 1; next }
-  if (index($0, "<testcase ")) {
-    cur = attr($0, "name")
-    st = attr($0, "status")
-    seen[cur]++
-    status[cur] = st
-    incase = !($0 ~ /\/>[ \t]*$/)
-    next
-  }
-  if (incase) {
-    if (index($0, "<failure") || index($0, "<error")) failed[cur] = 1
-    if (index($0, "<skipped")) skipped[cur] = 1
-    if (index($0, "</testcase>")) incase = 0
-  }
-}
+fileno == 2 { buf = buf $0 "\n" }
 END {
-  bad = 0; ran = 0; nskipped = 0; allowed = 0
-  for (name in expected) {
+  # One chunk per testcase. system-out can hold any text, including
+  # semicolons, so the junit is split in awk and never held in a CMake list.
+  ncases = split(buf, chunks, "<testcase ") - 1
+  if (ncases < 0) ncases = 0
+  if (!nojunit && ncases == 0) { print "inventory: empty-junit"; bad = 1 }
+  for (i = 2; i <= ncases + 1; i++) {
+    chunk = chunks[i]
+    gt = index(chunk, ">")
+    tag = substr(chunk, 1, gt)
+    body = substr(chunk, gt + 1)
+    cur = attr(" " tag, "name")
+    if (!(cur in seen)) seq[++nseq] = cur
+    seen[cur]++
+    status[cur] = attr(" " tag, "status")
+    if (index(body, "<failure") || index(body, "<error")) failed[cur] = 1
+    sk = index(body, "<skipped")
+    if (sk) {
+      skipped[cur] = 1
+      stag = substr(body, sk, index(substr(body, sk), ">"))
+      mech[cur] = attr(stag, "message")
+    }
+    so = index(body, "<system-out>")
+    if (so) {
+      out = substr(body, so + 12)
+      ec = index(out, "</system-out>")
+      if (ec) out = substr(out, 1, ec - 1)
+      r = index(out, "SKIPPED: ")
+      if (r) {
+        reason = substr(out, r + 9)
+        nl = index(reason, "\n")
+        if (nl) reason = substr(reason, 1, nl - 1)
+        why[cur] = reason
+      }
+    }
+  }
+
+  ran = 0; nskipped = 0; allowed = 0
+  for (i = 1; i <= norder; i++) {
+    name = order[i]
     if (!(name in seen)) { print "inventory: missing: " name; bad = 1 }
   }
-  for (name in seen) {
+  for (i = 1; i <= nseq; i++) {
+    name = seq[i]
     if (!(name in listed)) { print "inventory: extra: " name; bad = 1; continue }
     if (!(name in expected)) continue
-    if (status[name] == "run" && !(name in failed)) { ran++; continue }
-    if (name in skipped) {
-      nskipped++
-      if (skipok[name]) allowed++
+    if (seen[name] > 1) { print "inventory: duplicate: " name; bad = 1; continue }
+    if (status[name] == "disabled") {
+      # CTest records no reason for DISABLED, so it is never allowed.
+      print "inventory: disabled: " name; bad = 1; continue
     }
+    if (name in failed || status[name] == "fail") {
+      print "inventory: failed: " name; bad = 1; continue
+    }
+    if (name in skipped || status[name] == "notrun") {
+      nskipped++
+      if (!skipok[name]) {
+        print "inventory: skipped-not-allowed: " name; bad = 1; continue
+      }
+      if (!(name in why) || why[name] == "") {
+        print "inventory: skipped-no-reason: " name; bad = 1; continue
+      }
+      allowed++
+      print "SKIPPED " name ": " mech[name] " | " why[name]
+      continue
+    }
+    if (status[name] == "run") { ran++; continue }
     print "inventory: failed: " name; bad = 1
   }
   printf "inventory: expected %d, ran %d, skipped %d (allowed %d)\n", nexpected + 0, ran, nskipped, allowed
