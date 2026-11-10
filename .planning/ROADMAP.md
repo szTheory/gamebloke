@@ -146,7 +146,7 @@ Plans:
   3. Two fresh instances have byte-identical memory and register contents at power-on, and those contents match the fill policy recorded in the profile.
   4. Zero-length, below-header-size, above-32-MiB, and odd-length images each give a distinct REFUSED reason. A full-state digest and a caller-buffer comparison prove that a refused load leaves both byte-identical. After a successful load, changing the caller's buffer does not change the instance.
   5. Under `direct-start`, a ROM with a missing or mismatched logo, a bad header checksum, or an unusual game code still loads, and each finding is reported as a loader diagnostic, not a refusal.
-**Plans**: 1/6 plans executed in six dependency-ordered waves (not executed)
+**Plans**: 1/6 plans executed in six dependency-ordered waves
 
 Plans:
 **Wave 1**
