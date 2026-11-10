@@ -110,8 +110,17 @@ json.pos.strict_clean json,positive
 nc.meta.pass_requires_exit_status control,meta
 nc.meta.passing_gate_fails_wrapper control,meta
 registry.lint gate,registry
+registry.nc.bad_id control,registry
+registry.nc.bad_schema control,registry
+registry.nc.bad_source_label control,registry
+registry.nc.bad_status control,registry
+registry.nc.duplicate_id control,registry
+registry.nc.missing_field control,registry
+registry.nc.no_sources control,registry
 registry.nc.seed_missing control,registry
+registry.nc.usage control,registry
 registry.pos.copy positive,registry
+registry.pos.extra_entry positive,registry
 runner.help runner,unit
 runner.no_args runner,unit
 runner.usage_error runner,unit

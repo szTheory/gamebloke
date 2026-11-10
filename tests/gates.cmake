@@ -202,14 +202,16 @@ gbl_add_test(
     "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckRegistry.cmake")
 
-foreach(case IN ITEMS seed_missing)
+foreach(case IN ITEMS
+    bad_id bad_schema bad_source_label bad_status duplicate_id missing_field no_sources
+    seed_missing usage)
   gbl_add_test(
     NAME registry.nc.${case}
     LABELS control registry
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_REGISTRY_CASE}")
 endforeach()
 
-foreach(case IN ITEMS copy)
+foreach(case IN ITEMS copy extra_entry)
   gbl_add_test(
     NAME registry.pos.${case}
     LABELS positive registry
