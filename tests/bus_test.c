@@ -147,8 +147,8 @@ static void check_decode_boundaries(gbl_machine *machine)
           "GBA Memory Map; Memory Mirrors" },
         { 0x03FFFFFFu, GBL_BUS_OUTCOME_RAM,
           "GBA Memory Map; Memory Mirrors" },
-        { 0x04000000u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
-        { 0x04000001u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
+        { 0x04000000u, GBL_BUS_OUTCOME_IO_MODE_SUBSET, "GBA I/O Map" },
+        { 0x04000001u, GBL_BUS_OUTCOME_IO_MODE_SUBSET, "GBA I/O Map" },
         { 0x04000002u, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
         { 0x040003FFu, GBL_BUS_OUTCOME_IO_UNIMPLEMENTED, "GBA I/O Map" },
         { 0x04000400u, GBL_BUS_OUTCOME_UNMAPPED, "GBA I/O Map" },
@@ -553,24 +553,172 @@ static int run_decode(void)
     return 1;
 }
 
+static void check_video_mode_threshold(gbl_machine *machine, uint8_t mode,
+                                       uint32_t threshold)
+{
+    /* The 0x10000 OBJ base for modes 0-2 and 0x14000 base for modes 3-5
+     * follow GBATEK 3.06 "Writing 8bit Data to Video Memory" and
+     * "LCD VRAM Overview". Modes 6-7 are an explicit Gamebloke policy. */
+    gbl_bus_result result;
+    gbl_bus_outcome byte_outcome =
+        mode >= 6u ? GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY
+                   : GBL_BUS_OUTCOME_RAM;
+    static const uint32_t boundaries[] = { 0x10000u, 0x14000u };
+    static const int32_t deltas[] = { -1, 0, 1 };
+    static const uint8_t widths[] = { 1u, 2u, 4u };
+    size_t boundary_number;
+
+    result = gbl_bus_write(machine, 0x04000000u, 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, mode);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
+    CHECK(result.cycles == 1u);
+    CHECK(machine->dispcnt == (uint16_t)mode);
+    result = gbl_bus_read(machine, 0x04000000u, 1u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
+    CHECK(result.value == (uint32_t)mode);
+    CHECK(result.cycles == 1u);
+    result = gbl_bus_read(machine, 0x04000001u, 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
+    CHECK(result.value == 0u);
+
+    for (boundary_number = 0u;
+         boundary_number < sizeof(boundaries) / sizeof(boundaries[0]);
+         ++boundary_number) {
+        size_t delta_index;
+
+        for (delta_index = 0u; delta_index < sizeof(deltas) / sizeof(deltas[0]);
+             ++delta_index) {
+            uint32_t offset =
+                (uint32_t)((int64_t)boundaries[boundary_number] +
+                           (int64_t)deltas[delta_index]);
+            size_t width_index;
+
+            for (width_index = 0u;
+                 width_index < sizeof(widths) / sizeof(widths[0]);
+                 ++width_index) {
+                uint8_t width = widths[width_index];
+                uint32_t address = 0x06000000u + offset;
+                uint32_t value = 0xD6B4A291u;
+
+                if (width == 1u) {
+                    uint32_t halfword_address =
+                        0x06000000u + (offset & ~1u);
+                    uint32_t physical = offset & 0x1FFFFu;
+                    bool should_write = physical < threshold;
+                    uint32_t before = 0xBEEFu;
+                    uint32_t expected = should_write ? 0x5A5Au : before;
+
+                    result = gbl_bus_write(
+                        machine, halfword_address, 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, before);
+                    CHECK(result.status == GBL_BUS_STATUS_OK);
+                    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+                    result = gbl_bus_write(machine, address, 1u,
+                                           GBL_BUS_CLASS_SEQUENTIAL, 0x5Au);
+                    CHECK(result.status == GBL_BUS_STATUS_OK);
+                    CHECK(result.outcome == byte_outcome);
+                    CHECK(result.cycles == 1u);
+                    result = gbl_bus_read(machine, halfword_address, 2u,
+                                          GBL_BUS_CLASS_NONSEQUENTIAL);
+                    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+                    CHECK(result.value == expected);
+                } else {
+                    result = gbl_bus_write(machine, address, width,
+                                           GBL_BUS_CLASS_NONSEQUENTIAL, value);
+                    CHECK(result.status == GBL_BUS_STATUS_OK);
+                    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+                    CHECK(result.cycles == 1u);
+                    result = gbl_bus_read(machine, address, width,
+                                          GBL_BUS_CLASS_SEQUENTIAL);
+                    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+                    CHECK(result.value ==
+                          (value & width_value_mask(width)));
+                    CHECK(result.cycles == 1u);
+                }
+            }
+        }
+    }
+
+    /* A VRAM logical mirror is translated to physical storage before the
+     * mode threshold decides whether an 8-bit store is ignored. */
+    result = gbl_bus_write(machine, 0x06010000u, 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xC35Au);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    result = gbl_bus_write(machine, 0x06018000u, 1u,
+                           GBL_BUS_CLASS_SEQUENTIAL, 0x11u);
+    CHECK(result.outcome == byte_outcome);
+    result = gbl_bus_read(machine, 0x06010000u, 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.value == ((0x10000u < threshold) ? 0x1111u : 0xC35Au));
+
+    result = gbl_bus_write(machine, 0x06017FFFu, 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xA6B7u);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    result = gbl_bus_read(machine, 0x0601FFFFu, 2u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.value == 0xA6B7u);
+    result = gbl_bus_write(machine, 0x06020042u, 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xCDEFu);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    result = gbl_bus_read(machine, 0x06000042u, 2u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.value == 0xCDEFu);
+}
+
 static int run_video(void)
 {
+    typedef struct video_mode_case {
+        uint8_t mode;
+        uint32_t obj_threshold;
+        const char *evidence;
+    } video_mode_case;
+    static const video_mode_case mode_cases[] = {
+        { 0u, 0x10000u, "GBATEK 3.06: Writing 8bit Data to Video Memory" },
+        { 1u, 0x10000u, "GBATEK 3.06: Writing 8bit Data to Video Memory" },
+        { 2u, 0x10000u, "GBATEK 3.06: Writing 8bit Data to Video Memory" },
+        { 3u, 0x14000u, "GBATEK 3.06: LCD VRAM Overview" },
+        { 4u, 0x14000u, "GBATEK 3.06: LCD VRAM Overview" },
+        { 5u, 0x14000u, "GBATEK 3.06: LCD VRAM Overview" },
+        { 6u, 0x14000u, "Gamebloke IMPL invalid-mode threshold policy" },
+        { 7u, 0x14000u, "Gamebloke IMPL invalid-mode threshold policy" },
+    };
     gbl_machine *machine = new_machine();
+    gbl_machine *snapshot = malloc(sizeof(*snapshot));
     gbl_bus_result result;
+    size_t mode_index;
 
-    if (machine == NULL) {
+    if (machine == NULL || snapshot == NULL) {
         fprintf(stderr, "bus.video: host allocation failed\n");
+        free_machine(machine);
+        free(snapshot);
         return 1;
     }
 
-    result = gbl_bus_write(machine, 0x05000020u, 2u,
-                           GBL_BUS_CLASS_NONSEQUENTIAL, 0x1234u);
+    /* GBATEK 3.06: Writing 8bit Data to Video Memory. */
+    result = gbl_bus_write(machine, 0x05000021u, 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0x5Au);
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.cycles == 1u);
     result = gbl_bus_read(machine, 0x05000420u, 2u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
-    CHECK(result.value == 0x1234u);
+    CHECK(result.value == 0x5A5Au);
+
+    result = gbl_bus_write(machine, 0x07000020u, 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xBEEFu);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    result = gbl_bus_write(machine, 0x07000421u, 1u,
+                           GBL_BUS_CLASS_SEQUENTIAL, 0x11u);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.cycles == 1u);
+    result = gbl_bus_read(machine, 0x07000020u, 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.value == 0xBEEFu);
 
     result = gbl_bus_write(machine, 0x07000020u, 4u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0x89ABCDEFu);
@@ -581,6 +729,57 @@ static int run_video(void)
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
     CHECK(result.value == 0x89ABCDEFu);
 
+    /* The mode subset retains only DISPCNT mode bits. Addresses above its
+     * two-byte portion remain distinct unsupported I/O. */
+    result = gbl_bus_write(machine, 0x04000000u, 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFu);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
+    CHECK(machine->dispcnt == 7u);
+    result = gbl_bus_write(machine, 0x04000001u, 1u,
+                           GBL_BUS_CLASS_SEQUENTIAL, 0xFFu);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
+    CHECK(machine->dispcnt == 7u);
+    machine->open_bus = 0xAABBCCDDu;
+    result = gbl_bus_write(machine, 0x04000000u, 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0x44332203u);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
+    CHECK(result.cycles == 1u);
+    CHECK(machine->dispcnt == 3u);
+    CHECK(machine->open_bus == 0xAABBCCDDu);
+    result = gbl_bus_read(machine, 0x04000000u, 4u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
+    CHECK(result.value == 0xAABB0003u);
+    CHECK(machine->open_bus == 0xAABBCCDDu);
+
+    /* GBATEK 3.06 "LCD I/O Display Control" locates DISPCNT at 0x04000000. */
+    for (mode_index = 0u;
+         mode_index < sizeof(mode_cases) / sizeof(mode_cases[0]);
+         ++mode_index) {
+        CHECK(mode_cases[mode_index].evidence[0] != '\0');
+        check_video_mode_threshold(machine, mode_cases[mode_index].mode,
+                                   mode_cases[mode_index].obj_threshold);
+    }
+
+    /* Overflow is checked before any register, video, latch, or clock effect. */
+    result = gbl_bus_write(machine, 0x04000000u, 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 2u);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
+    machine->open_bus = 0x12345678u;
+    machine->master_cycles = UINT64_MAX;
+    memcpy(snapshot, machine, sizeof(*snapshot));
+    result = gbl_bus_write(machine, 0x04000000u, 1u,
+                           GBL_BUS_CLASS_SEQUENTIAL, 3u);
+    CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
+    CHECK(result.cycles == 0u);
+    CHECK(canonical_equal(machine, snapshot));
+    result = gbl_bus_write(machine, 0x06000020u, 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0xAAu);
+    CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
+    CHECK(result.cycles == 0u);
+    CHECK(canonical_equal(machine, snapshot));
+
+    free(snapshot);
     free_machine(machine);
     if (CHECK_DONE() == 0) {
         puts("bus: video ok");

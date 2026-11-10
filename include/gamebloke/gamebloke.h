@@ -41,7 +41,9 @@ typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_IO_UNIMPLEMENTED = 3,
     GBL_BUS_OUTCOME_ROM = 4,
     GBL_BUS_OUTCOME_ROM_TAIL = 5,
-    GBL_BUS_OUTCOME_UNMAPPED = 6
+    GBL_BUS_OUTCOME_UNMAPPED = 6,
+    GBL_BUS_OUTCOME_IO_MODE_SUBSET = 7,
+    GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY = 8
 } gbl_bus_outcome;
 
 typedef enum gbl_bus_access_class {
