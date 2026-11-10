@@ -1,6 +1,10 @@
 #!/bin/sh
 # check-junit.sh JUNIT INVENTORY [EXCLUDE_LABEL_REGEX]
 #
+# EXCLUDE_LABEL_REGEX is matched against each WHOLE label (it is anchored here,
+# like the ctest preset's `^post$`), so a label that merely contains the text,
+# such as `postgres`, is never excluded from the expected set.
+#
 # Compares the CTest junit file against the sorted tests/inventory/<lane>.txt.
 # ctest exits 0 for skipped and disabled tests, so this check is what makes a
 # silently omitted test fail the verdict. Every finding is reported before the
@@ -53,6 +57,14 @@ function attr(tag, key,    s) {
   }
   return ""
 }
+BEGIN {
+  # Anchor the whole label: a leading ^ or trailing $ the caller wrote is
+  # dropped first, so `post` and `^post$` mean the same thing.
+  exclude_re = exclude
+  sub(/^\^/, "", exclude_re)
+  sub(/\$$/, "", exclude_re)
+  exclude_re = "^(" exclude_re ")$"
+}
 FNR == 1 { fileno++ }
 fileno == 1 {
   # inventory line: "<name> <labels>[ skip-ok]"
@@ -63,7 +75,7 @@ fileno == 1 {
   skip = 0
   if (exclude != "") {
     n = split(labels, parts, ",")
-    for (i = 1; i <= n; i++) if (parts[i] ~ exclude) skip = 1
+    for (i = 1; i <= n; i++) if (parts[i] ~ exclude_re) skip = 1
   }
   if (!skip) { expected[name] = 1; order[++norder] = name; nexpected++ }
   listed[name] = 1

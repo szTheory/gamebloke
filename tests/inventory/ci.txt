@@ -76,6 +76,7 @@ inventory.nc.duplicate control,inventory
 inventory.nc.empty_junit control,inventory
 inventory.nc.extra control,inventory
 inventory.nc.failed control,inventory
+inventory.nc.label_substring control,inventory
 inventory.nc.missing control,inventory
 inventory.nc.no_junit control,inventory
 inventory.nc.skipped_no_reason control,inventory

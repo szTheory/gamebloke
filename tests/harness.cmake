@@ -7,7 +7,7 @@ set(GBL_HARNESS_DRIVER
 foreach(case IN ITEMS
     missing extra duplicate failed skipped_not_allowed skipped_no_reason
     disabled empty_junit no_junit configure_mismatch unsorted
-    add_test_bad_name add_test_no_labels)
+    add_test_bad_name add_test_no_labels label_substring)
   gbl_add_test(
     NAME inventory.nc.${case}
     LABELS control inventory

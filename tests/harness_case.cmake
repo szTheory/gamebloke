@@ -111,7 +111,7 @@ tc(RUN_ALPHA TC_RUN syn.alpha)
 tc(RUN_BETA TC_RUN syn.beta)
 tc(RUN_GAMMA TC_RUN syn.gamma)
 
-set(check_cmd sh "${SRC}/scripts/check-junit.sh" "${junit}" "${inventory}" post)
+set(check_cmd sh "${SRC}/scripts/check-junit.sh" "${junit}" "${inventory}" "^post$")
 
 # ---- cases ----------------------------------------------------------------
 if(CASE STREQUAL "pass")
@@ -160,13 +160,30 @@ elseif(CASE STREQUAL "disabled")
   write_junit(3 "${RUN_ALPHA}${OFF_BETA}${RUN_GAMMA}")
   gbl_expect_fail(COMMAND ${check_cmd} REGEX "inventory: disabled: syn.beta")
 
+elseif(CASE STREQUAL "label_substring")
+  # A label that only CONTAINS `post` is not the post label: its test is still
+  # expected, so a missing run is reported (WR-06). Both spellings of the
+  # exclude (bare and anchored) must behave the same.
+  file(WRITE "${inventory}" [==[
+syn.alpha unit
+syn.beta unit
+syn.gamma owner,unit skip-ok
+syn.postgres postgres
+syn.post post
+]==])
+  write_junit(3 "${RUN_ALPHA}${RUN_BETA}${RUN_GAMMA}")
+  gbl_expect_fail(COMMAND ${check_cmd} REGEX "inventory: missing: syn.postgres")
+  gbl_expect_fail(
+    COMMAND sh "${SRC}/scripts/check-junit.sh" "${junit}" "${inventory}" post
+    REGEX "inventory: missing: syn.postgres")
+
 elseif(CASE STREQUAL "empty_junit")
   write_junit(0 "")
   gbl_expect_fail(COMMAND ${check_cmd} REGEX "inventory: empty-junit")
 
 elseif(CASE STREQUAL "no_junit")
   gbl_expect_fail(
-    COMMAND sh "${SRC}/scripts/check-junit.sh" "${dir}/does-not-exist.xml" "${inventory}" post
+    COMMAND sh "${SRC}/scripts/check-junit.sh" "${dir}/does-not-exist.xml" "${inventory}" "^post$"
     REGEX "inventory: no-junit")
 
 elseif(CASE STREQUAL "configure_mismatch")
