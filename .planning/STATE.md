@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
 status: executing
-stopped_at: Completed 01-08-PLAN.md
-last_updated: "2026-11-10T01:34:53.796Z"
+stopped_at: Completed 01-09-PLAN.md
+last_updated: "2026-11-10T01:47:38.365Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: 3199f994c21ef17fbb245d08bf64bd3d9d0cf6fc
+state_head: d1b59327fc348138ff725781b8c29f04c5f6f350
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 9 of 11
+Plan: 10 of 11
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 01 execution started
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P06 | 10 min | 3 tasks | 10 files |
 | Phase 01 P07 | 4 min | 2 tasks | 6 files |
 | Phase 01 P08 | not measured | 2 tasks | 6 files |
+| Phase 01 P09 | 10 min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,9 @@ Recent decisions affecting current work:
 - [Phase 01]: check-workflow.sh permissions and required-check rules have no committed mutation control (plan fixes ten cases and 81/41 totals); exercised by scratch mutations only — Adding controls would change inventory totals later plans may rely on; recorded as a Known Gap for the owner or checker
 - [Phase 01]: 01-08: main ruleset limited to pull_request and required_status_checks (CI required, 15368), bypass_actors empty; apply script writes only that ruleset and refuses until a CI required run succeeded on main
 - [Phase 01]: 01-08: --check compares the live ruleset projected onto the committed file's keys (server defaults are not drift); other repo settings stay advisory
+- [Phase 01]: Every cmake -P entry script pins cmake_minimum_required(VERSION 3.25) so the gates run on the 3.25 floor (CMP0057 IN_LIST)
+- [Phase 01]: All six ci.yml job timeouts are 3 minutes: slowest measured job was 36 s, so the plan floor of 3 applies (runs 42737527955#1,#2)
+- [Phase 01]: PR B (#1) squash-merged as d1b5932; main push run 42737946832 reports CI required success; local main reset to origin/main with backup/phase-01-pre-squash
 
 ### Pending Todos
 
@@ -117,6 +121,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:34:53.771Z
-Stopped at: Completed 01-08-PLAN.md
+Last session: 2026-11-10T01:47:38.327Z
+Stopped at: Completed 01-09-PLAN.md
 Resume file: None
