@@ -106,6 +106,39 @@ function(expect_findings root code count)
   endif()
 endfunction()
 
+# ---- git sandbox helpers (staged cases) -----------------------------------
+# A real git repository under BIN, with a noreply identity assembled from
+# fragments. The environment is scrubbed of GIT_* state so a run inside a hook
+# or a CI job cannot leak into the sandbox, and cannot supply an identity.
+set(STAGED_ENV "${CMAKE_COMMAND}" -E env
+  --unset=GIT_DIR --unset=GIT_WORK_TREE --unset=GIT_INDEX_FILE
+  --unset=GIT_AUTHOR_NAME --unset=GIT_AUTHOR_EMAIL
+  --unset=GIT_COMMITTER_NAME --unset=GIT_COMMITTER_EMAIL)
+
+function(git_in root)
+  execute_process(COMMAND ${STAGED_ENV} git ${ARGN}
+    WORKING_DIRECTORY "${root}"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE text ERROR_VARIABLE text)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "hygiene-case: git ${ARGN} failed (${rc}) in sandbox:\n${text}")
+  endif()
+endfunction()
+
+function(init_sandbox_repo root)
+  git_in("${root}" -c init.defaultBranch=main init -q)
+  j(noreply "szSomeone" "@users.noreply." "github.com")
+  git_in("${root}" config user.email "${noreply}")
+  git_in("${root}" config user.name "Sandbox")
+endfunction()
+
+# run_hook_case(<hook path> <regex>) runs the hook check on a planted path.
+function(run_hook_case hook regex)
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" -DCASE=hook "-DHOOK=${hook}"
+      "-DSRC=${SRC}" "-DBIN=${BIN}" -P "${SRC}/tests/gates/hygiene_case.cmake"
+    REGEX "${regex}")
+endfunction()
+
 # ---- cases ----------------------------------------------------------------
 if(CASE STREQUAL "credential")
   line_aws(l1)
@@ -149,6 +182,79 @@ elseif(CASE STREQUAL "newline_name")
 elseif(CASE STREQUAL "clean")
   write_clean_sandbox("${dir}")
   gbl_expect_pass(COMMAND ${HYGIENE} --dir "${dir}" REGEX "hygiene: ok \\(2 files\\)")
+
+elseif(CASE STREQUAL "staged_home_path")
+  # The scanner reads the staged blob, not the working file: stage the planted
+  # path, then overwrite the working copy with clean text. Still a finding.
+  mac_home(m)
+  init_sandbox_repo("${dir}")
+  file(WRITE "${dir}/notes.txt" "${m}\n")
+  git_in("${dir}" add -- notes.txt)
+  file(WRITE "${dir}/notes.txt" "nothing to see\n")
+  gbl_expect_fail(
+    COMMAND ${STAGED_ENV} ${HYGIENE} --staged
+    WORKING_DIRECTORY "${dir}"
+    REGEX "hygiene: home-path")
+
+elseif(CASE STREQUAL "staged_identity")
+  # Clean content, but the author address is outside the noreply set. The
+  # address is built from fragments and never printed by the gate.
+  init_sandbox_repo("${dir}")
+  write_clean_sandbox("${dir}")
+  git_in("${dir}" add -- .)
+  j(bad "someone" "@elsewhere." "invalid")
+  gbl_expect_fail(
+    COMMAND ${STAGED_ENV} "GIT_AUTHOR_EMAIL=${bad}" ${HYGIENE} --staged
+    WORKING_DIRECTORY "${dir}"
+    REGEX "hygiene: identity: author")
+
+elseif(CASE STREQUAL "staged_clean")
+  init_sandbox_repo("${dir}")
+  write_clean_sandbox("${dir}")
+  git_in("${dir}" add -- .)
+  gbl_expect_pass(
+    COMMAND ${STAGED_ENV} ${HYGIENE} --staged
+    WORKING_DIRECTORY "${dir}"
+    REGEX "hygiene: ok \\(2 files\\)")
+
+elseif(CASE STREQUAL "hook")
+  # The opt-in hook must exist, be executable, and call the staged scan.
+  # -DHOOK=<path> lets the controls point this check at planted copies.
+  if(NOT DEFINED HOOK OR "${HOOK}" STREQUAL "")
+    set(HOOK "${SRC}/.githooks/pre-commit")
+  endif()
+  if(NOT EXISTS "${HOOK}")
+    message(FATAL_ERROR "hygiene: hook-missing: ${HOOK}")
+  endif()
+  # IF(IS_EXECUTABLE) is not available at the 3.25 floor; ask sh.
+  execute_process(COMMAND sh -c "test -x \"$1\"" sh "${HOOK}" RESULT_VARIABLE rc)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "hygiene: hook-not-executable: ${HOOK}")
+  endif()
+  file(STRINGS "${HOOK}" calls REGEX "^[^#]*scripts/hygiene\\.sh\"? +--staged")
+  if(NOT calls)
+    message(FATAL_ERROR "hygiene: hook-no-staged: ${HOOK}")
+  endif()
+  message("hygiene: hook ok")
+
+elseif(CASE STREQUAL "hook_missing")
+  run_hook_case("${dir}/absent-hook" "hygiene: hook-missing")
+
+elseif(CASE STREQUAL "hook_not_executable")
+  file(COPY_FILE "${SRC}/.githooks/pre-commit" "${dir}/pre-commit")
+  file(CHMOD "${dir}/pre-commit" PERMISSIONS OWNER_READ OWNER_WRITE)
+  run_hook_case("${dir}/pre-commit" "hygiene: hook-not-executable")
+
+elseif(CASE STREQUAL "hook_no_staged")
+  file(READ "${SRC}/.githooks/pre-commit" content)
+  string(REPLACE "--staged" "" mutated "${content}")
+  if(mutated STREQUAL content)
+    message(FATAL_ERROR "mutate: no-match: the real hook has no --staged to remove")
+  endif()
+  file(WRITE "${dir}/pre-commit" "${mutated}")
+  file(CHMOD "${dir}/pre-commit" PERMISSIONS
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  run_hook_case("${dir}/pre-commit" "hygiene: hook-no-staged")
 
 elseif(CASE STREQUAL "usage")
   gbl_expect_fail(COMMAND ${HYGIENE} --bogus REGEX "hygiene: usage" EXIT 2)

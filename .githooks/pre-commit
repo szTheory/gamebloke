@@ -1,0 +1,11 @@
+#!/bin/sh
+# Opt-in pre-commit hook: refuses staged credentials, non-noreply email
+# addresses, and absolute home paths, and checks the commit identity.
+#
+# It is not enabled automatically. To turn it on in your clone:
+#   git config core.hooksPath .githooks
+# To turn it off again:
+#   git config --unset core.hooksPath
+#
+# The hook is a convenience. The CI hygiene job is the enforcing gate.
+exec sh "$(git rev-parse --show-toplevel)/scripts/hygiene.sh" --staged

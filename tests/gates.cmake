@@ -31,3 +31,28 @@ gbl_add_test(
   NAME hygiene.usage
   LABELS hygiene unit
   COMMAND ${GBL_HYGIENE_DRIVER} -DCASE=usage -P "${GBL_HYGIENE_CASE}")
+
+# Staged mode scans the staged blobs and checks the commit identity.
+foreach(case IN ITEMS staged_home_path staged_identity)
+  gbl_add_test(
+    NAME hygiene.nc.${case}
+    LABELS control hygiene
+    COMMAND ${GBL_HYGIENE_DRIVER} "-DCASE=${case}" -P "${GBL_HYGIENE_CASE}")
+endforeach()
+gbl_add_test(
+  NAME hygiene.pos.staged_clean
+  LABELS hygiene positive
+  COMMAND ${GBL_HYGIENE_DRIVER} -DCASE=staged_clean -P "${GBL_HYGIENE_CASE}")
+
+# The opt-in hook (D-14) stays present, executable, and wired to `--staged`.
+# One control per failure reason, each on a planted copy of the real hook.
+gbl_add_test(
+  NAME hygiene.hook
+  LABELS hygiene unit
+  COMMAND ${GBL_HYGIENE_DRIVER} -DCASE=hook -P "${GBL_HYGIENE_CASE}")
+foreach(case IN ITEMS hook_missing hook_not_executable hook_no_staged)
+  gbl_add_test(
+    NAME hygiene.nc.${case}
+    LABELS control hygiene
+    COMMAND ${GBL_HYGIENE_DRIVER} "-DCASE=${case}" -P "${GBL_HYGIENE_CASE}")
+endforeach()

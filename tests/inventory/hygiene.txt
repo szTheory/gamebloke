@@ -1,0 +1,19 @@
+# Sorted (byte order) expected-test inventory for the hygiene lane.
+# Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+hygiene.hook hygiene,unit
+hygiene.nc.credential control,hygiene
+hygiene.nc.email control,hygiene
+hygiene.nc.home_path control,hygiene
+hygiene.nc.home_path_encoded control,hygiene
+hygiene.nc.hook_missing control,hygiene
+hygiene.nc.hook_no_staged control,hygiene
+hygiene.nc.hook_not_executable control,hygiene
+hygiene.nc.newline_name control,hygiene
+hygiene.nc.private_key control,hygiene
+hygiene.nc.staged_home_path control,hygiene
+hygiene.nc.staged_identity control,hygiene
+hygiene.pos.clean hygiene,positive
+hygiene.pos.staged_clean hygiene,positive
+hygiene.tree gate,hygiene
+hygiene.usage hygiene,unit
+inventory.junit post

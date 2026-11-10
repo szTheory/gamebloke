@@ -16,10 +16,20 @@
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "GBL_LANE": "ci"
       }
+    },
+    {
+      "name": "hygiene",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "hygiene"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "ci", "configurePreset": "ci" }
+    { "name": "ci", "configurePreset": "ci" },
+    { "name": "hygiene", "configurePreset": "hygiene" }
   ],
   "testPresets": [
     {
@@ -38,6 +48,23 @@
       "output": { "verbosity": "verbose" },
       "filter": { "include": { "label": "^post$" } },
       "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "hygiene",
+      "configurePreset": "hygiene",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/hygiene/junit.xml"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "hygiene-post",
+      "configurePreset": "hygiene",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
     }
   ],
   "workflowPresets": [
@@ -48,6 +75,15 @@
         { "type": "build", "name": "ci" },
         { "type": "test", "name": "ci" },
         { "type": "test", "name": "ci-post" }
+      ]
+    },
+    {
+      "name": "hygiene",
+      "steps": [
+        { "type": "configure", "name": "hygiene" },
+        { "type": "build", "name": "hygiene" },
+        { "type": "test", "name": "hygiene" },
+        { "type": "test", "name": "hygiene-post" }
       ]
     }
   ]
