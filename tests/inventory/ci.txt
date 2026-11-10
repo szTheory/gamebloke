@@ -60,6 +60,8 @@ core.nc.quoted control,core
 core.no_host_includes core,gate
 core.pos.in_tree core,positive
 core.version core,unit
+fetch.nc.digest_mismatch control,fetch
+fetch.pos.fetch_ok fetch,positive
 hygiene.hook hygiene,unit
 hygiene.nc.credential control,hygiene
 hygiene.nc.credential_upper control,hygiene

@@ -58,7 +58,7 @@ set -eu
 export DEBIAN_FRONTEND=noninteractive
 echo "linux-lane: preset ${GBL_PRESET}, compiler ${CC}, arch $(uname -m)"
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends ca-certificates cmake ninja-build git libc6-dev $GBL_PACKAGES >/dev/null
+apt-get install -y -qq --no-install-recommends ca-certificates cmake curl ninja-build git libc6-dev $GBL_PACKAGES >/dev/null
 mkdir -p /work
 cp -R /src/. /work
 rm -rf /work/build

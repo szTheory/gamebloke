@@ -307,6 +307,27 @@ gbl_add_test(
   LABELS pins positive
   COMMAND ${GBL_EVID_DRIVER} -DCASE=rows -P "${GBL_PINS_CASE}")
 
+# ---- pinned fetch (Phase 2) -------------------------------------------------
+# scripts/fetch-pin.sh is exercised only through synthesized file:// fixtures under the
+# build directory (D-16: no network); each negative control asserts a non-zero exit, the
+# stable reason text, and that nothing was placed.
+set(GBL_FETCH_CASE "${CMAKE_SOURCE_DIR}/tests/gates/fetch_case.cmake")
+
+foreach(case IN ITEMS
+    digest_mismatch)
+  gbl_add_test(
+    NAME fetch.nc.${case}
+    LABELS control fetch
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_FETCH_CASE}")
+endforeach()
+
+foreach(case IN ITEMS fetch_ok)
+  gbl_add_test(
+    NAME fetch.pos.${case}
+    LABELS fetch positive
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_FETCH_CASE}")
+endforeach()
+
 # ---- strict JSON loader (Phase 2) -------------------------------------------
 # One negative control per loader reason code, plus the two helper controls
 # (`mutate: no-match`, `no-echo: leaked`), and positives on tricky and real input.

@@ -12,6 +12,8 @@ contract.nc.missing_field contract,control
 contract.nc.state_set contract,control
 contract.nc.usage contract,control
 contract.pos.copy contract,positive
+fetch.nc.digest_mismatch control,fetch
+fetch.pos.fetch_ok fetch,positive
 hygiene.hook hygiene,unit
 hygiene.nc.credential control,hygiene
 hygiene.nc.credential_upper control,hygiene
