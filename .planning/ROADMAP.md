@@ -41,7 +41,7 @@ determinism gates.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: CI and Verification Foundation** - One canonical verify command, the required `CI required` check, sanitizer lanes, test inventory, hygiene and signature scans, each with negative controls (completed 2026-11-09)
-- [ ] **Phase 2: Profile, Fixture Manifest, and Result Contract** - Versioned `agb` profile, claim tuple, manifest and linter, pinned fetch, result taxonomy, and dispute registry
+- [x] **Phase 2: Profile, Fixture Manifest, and Result Contract** - Versioned `agb` profile, claim tuple, manifest and linter, pinned fetch, result taxonomy, and dispute registry (completed 2026-11-10)
 - [ ] **Phase 3: Bus API, Memory Map, and ROM Loading** - Final cost-returning bus API on a u64 master clock, full memory map, deterministic power-on state, and a loader that refuses bad input safely
 - [ ] **Phase 4: CPU Execution Core and Headless Runner** - Explicit-pipeline ARM7TDMI with modes and exceptions, and a runner that emits one bounded JSON result with mailbox, peek, and trace
 - [ ] **Phase 5: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion** - Reproducible pinned toolchain, project-authored diagnostics with negative variants, and full ARMv4T ARM and Thumb coverage
@@ -109,7 +109,7 @@ Plans:
   3. Fetching a pinned third-party fixture by SHA-256 from `pins.txt` puts it in an untracked location. A digest-mismatch negative control exits non-zero with a loud error, and `git ls-files` lists no third-party binary.
   4. The result schema defines PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, and REFUSED, plus the claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. Its validator rejects a BIOS provider outside the R1 values and rejects a PASS for a fixture that did not run.
   5. The dispute registry holds the seeded entries (DMA latch, GBATEK errata, HBlank edge sources, mGBA-suite #22/#24/#27). A fixture whose expected value points at a registry entry produces a result labeled disputed.
-**Plans**: 7/7 plans executed (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
+**Plans**: 7/7 plans complete (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
 
 Plans:
 **Wave 1**
@@ -259,7 +259,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
-| 2. Profile, Fixture Manifest, and Result Contract | 7/7 | In Progress | - |
+| 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
 | 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |

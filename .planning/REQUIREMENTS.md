@@ -27,7 +27,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 ### Verification and CI
 
-- [ ] **VERIF-01**: Developer can run one canonical command (`cmake --workflow --preset ci`). It builds, tests, lints the manifest, scans signatures, and checks the test inventory locally, and it is identical to the required CI check.
+- [x] **VERIF-01**: Developer can run one canonical command (`cmake --workflow --preset ci`). It builds, tests, lints the manifest, scans signatures, and checks the test inventory locally, and it is identical to the required CI check.
 - [x] **VERIF-02**: Every gate has at least one negative control that must fail for a stated reason. The verify command fails if a negative control passes.
 - [x] **VERIF-03**: A test-inventory check (CTest + junit) fails if any expected test is missing or silently skipped. Skipped tests are reported with a reason.
 - [ ] **VERIF-04**: A missing toolchain or BIOS reports SKIPPED with a reason, never a silent fallback or PASS.
@@ -162,7 +162,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | EVID-04 | Phase 1 | Pending (partial: real-logo digest is an owner gate; BIOS, extension, and binary rules live) |
 | EVID-05 | Phase 2 | Complete |
 | EVID-06 | Phase 2 | Complete |
-| VERIF-01 | Phase 1 (manifest-lint clause: Phase 2) | Pending (partial: canonical command and CI parity done; manifest lint joins in Phase 2) |
+| VERIF-01 | Phase 1 (manifest-lint clause: Phase 2) | Complete (manifest.lint runs in the canonical command since Phase 2, PR #5) |
 | VERIF-02 | Phase 1 | Complete |
 | VERIF-03 | Phase 1 | Complete |
 | VERIF-04 | Phase 5 | Pending |
