@@ -3,7 +3,14 @@
 ci.actions.pinned ci,gate
 ci.yml.policy ci,gate
 contract.lint contract,gate
+contract.nc.bad_schema contract,control
+contract.nc.bad_state_rule contract,control
+contract.nc.claim_set contract,control
+contract.nc.class_set contract,control
+contract.nc.label_set contract,control
+contract.nc.missing_field contract,control
 contract.nc.state_set contract,control
+contract.nc.usage contract,control
 contract.pos.copy contract,positive
 hygiene.hook hygiene,unit
 hygiene.nc.credential control,hygiene

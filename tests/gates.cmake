@@ -176,7 +176,8 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}" "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckContract.cmake")
 
-foreach(case IN ITEMS state_set)
+foreach(case IN ITEMS
+    bad_schema bad_state_rule claim_set class_set label_set missing_field state_set usage)
   gbl_add_test(
     NAME contract.nc.${case}
     LABELS contract control
