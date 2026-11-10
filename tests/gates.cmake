@@ -187,3 +187,24 @@ gbl_add_test(
   NAME contract.pos.copy
   LABELS contract positive
   COMMAND ${GBL_EVID_DRIVER} -DCASE=copy -P "${GBL_CONTRACT_CASE}")
+
+# ---- strict JSON loader (Phase 2) -------------------------------------------
+# One negative control per loader reason code, plus the two helper controls
+# (`mutate: no-match`, `no-echo: leaked`), and positives on tricky and real input.
+set(GBL_JSON_CASE "${CMAKE_SOURCE_DIR}/tests/gates/json_case.cmake")
+
+foreach(case IN ITEMS
+    comment duplicate_key mutate_no_match no_echo_guard not_json not_object
+    trailing_comma trailing_content unreadable usage)
+  gbl_add_test(
+    NAME json.nc.${case}
+    LABELS control json
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_JSON_CASE}")
+endforeach()
+
+foreach(case IN ITEMS strict_clean real_docs)
+  gbl_add_test(
+    NAME json.pos.${case}
+    LABELS json positive
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_JSON_CASE}")
+endforeach()

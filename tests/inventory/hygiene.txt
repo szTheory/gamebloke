@@ -24,6 +24,18 @@ hygiene.signal hygiene,unit
 hygiene.tree gate,hygiene
 hygiene.usage hygiene,unit
 inventory.junit post
+json.nc.comment control,json
+json.nc.duplicate_key control,json
+json.nc.mutate_no_match control,json
+json.nc.no_echo_guard control,json
+json.nc.not_json control,json
+json.nc.not_object control,json
+json.nc.trailing_comma control,json
+json.nc.trailing_content control,json
+json.nc.unreadable control,json
+json.nc.usage control,json
+json.pos.real_docs json,positive
+json.pos.strict_clean json,positive
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature
