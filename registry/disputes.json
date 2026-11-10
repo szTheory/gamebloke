@@ -16,9 +16,9 @@
           "note": "The implementation keeps one shared transfer register for all channels, which disagrees with the per-channel reading above."
         },
         {
-          "label": "REF",
+          "label": "INF",
           "ref": "GBATEK no$gba 3.06 extract, DMA section",
-          "note": "No statement about a DMA latch was found in the extract that was read, so the reference neither settles nor contradicts either implementation."
+          "note": "Inference from a partial read: no statement about a DMA latch was found in the DMA section of the extract that was read, so that extract neither settles nor contradicts either implementation."
         }
       ],
       "status": "open",
