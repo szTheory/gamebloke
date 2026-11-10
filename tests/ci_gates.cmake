@@ -17,6 +17,17 @@ gbl_add_test(
   COMMAND sh scripts/check-action-pins.sh .github/workflows/ci.yml
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# hygiene-safe: static policy gate over the real workflow (moving labels, path
+# filters, pull_request_target, CI required needs, expressions in run blocks,
+# preset-only heavy lanes, timeouts, credentials, permissions). Reads text and
+# asks cmake only for preset names, so it needs no build tree; WORKING_DIRECTORY
+# is the source root because CTest otherwise runs in the build directory.
+gbl_add_test(
+  NAME ci.yml.policy
+  LABELS ci gate
+  COMMAND sh scripts/check-workflow.sh .github/workflows/ci.yml
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 if(GBL_LANE STREQUAL "ci")
   # Classifier case table (D-11): heavy=false only for a complete, .planning/-only listing.
   gbl_add_test(
@@ -64,4 +75,23 @@ if(GBL_LANE STREQUAL "ci")
     COMMAND "${CMAKE_COMMAND}" -DCASE=pins_no_version_comment "-DSRC=${CMAKE_SOURCE_DIR}"
       "-DBIN=${CMAKE_BINARY_DIR}"
       -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
+
+  # Policy-gate controls: a clean copy of ci.yml must pass, and each mutation
+  # of a copy must fail with its own reason.
+  gbl_add_test(
+    NAME ci.yml.pos.copy
+    LABELS ci positive
+    COMMAND "${CMAKE_COMMAND}" -DCASE=clean "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
+  foreach(case IN ITEMS
+      moving_label path_filter pr_target needs_missing expression_in_run
+      non_preset_run unknown_preset no_timeout persist_credentials continue_on_error)
+    gbl_add_test(
+      NAME ci.yml.nc.${case}
+      LABELS ci control
+      COMMAND "${CMAKE_COMMAND}" -DCASE=${case} "-DSRC=${CMAKE_SOURCE_DIR}"
+        "-DBIN=${CMAKE_BINARY_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/ci/workflow_cases.cmake")
+  endforeach()
 endif()
