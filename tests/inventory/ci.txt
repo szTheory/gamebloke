@@ -1,0 +1,4 @@
+# Sorted (byte order) expected-test inventory for the ci lane.
+# Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+inventory.junit post
+runner.version runner,unit

@@ -1,0 +1,54 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "ci",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "ci"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "ci", "configurePreset": "ci" }
+  ],
+  "testPresets": [
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/ci/junit.xml"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "ci-post",
+      "configurePreset": "ci",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "ci",
+      "steps": [
+        { "type": "configure", "name": "ci" },
+        { "type": "build", "name": "ci" },
+        { "type": "test", "name": "ci" },
+        { "type": "test", "name": "ci-post" }
+      ]
+    }
+  ]
+}
