@@ -56,6 +56,7 @@ function(gbl__copy_inputs sandbox)
   foreach(source IN ITEMS version.c machine.c bus.c loader.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
+  file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/bus_test.c" "${sandbox}/tests/bus_test.c")
@@ -138,6 +139,14 @@ function(gbl__mutate_loader loader_source mutation)
     gbl_text_mutate("${loader_source}"
       "    diagnostics.canonical_logo = GBL_HEADER_LOGO_UNCHECKED;"
       "    diagnostics.canonical_logo = GBL_HEADER_LOGO_CHECKED_MATCH;")
+  elseif(mutation STREQUAL "logo_digest_bypass")
+    gbl_text_mutate("${loader_source}"
+      [=[    if (GBL_LOGO_EXPECTED_SHA256[0] != '\0') {]=]
+      [=[    if (candidate == NULL) {]=])
+  elseif(mutation STREQUAL "logo_digest_forced_match")
+    gbl_text_mutate("${loader_source}"
+      "                : GBL_HEADER_LOGO_CHECKED_MISMATCH;"
+      "                : GBL_HEADER_LOGO_CHECKED_MATCH;")
   else()
     message(FATAL_ERROR "mutation: unknown loader case '${mutation}'")
   endif()
@@ -149,6 +158,7 @@ function(gbl__copy_loader_inputs sandbox)
   foreach(source IN ITEMS version.c machine.c bus.c loader.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
+  file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/loader_test.c" "${sandbox}/tests/loader_test.c")
@@ -157,7 +167,7 @@ function(gbl__copy_loader_inputs sandbox)
     "${sandbox}/tests/state_check.h")
 endfunction()
 
-function(gbl__compile_loader sandbox mutation output_executable)
+function(gbl__compile_loader sandbox mutation output_executable expectation_mode)
   gbl__copy_loader_inputs("${sandbox}")
   if(NOT mutation STREQUAL "")
     gbl__mutate_loader("${sandbox}/src/loader.c" "${mutation}")
@@ -171,10 +181,17 @@ function(gbl__compile_loader sandbox mutation output_executable)
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes
     -Wmissing-prototypes -Wundef -Wcast-qual -Werror)
   set(core_flags -fno-stack-protector -U_FORTIFY_SOURCE)
+  set(logo_flags "")
+  if(expectation_mode STREQUAL "synthetic")
+    set(logo_flags
+      "-DGBL_LOGO_EXPECTED_SHA256=\"8ec8d30af0acb1e6ff15d8ea332a0e6b60ab60ab41cef968e07c7706b349d9d1\""
+      -DGBL_TEST_LOGO_EXPECTATION_MODE=1)
+  endif()
   set(executable "${sandbox}/loader_test")
   execute_process(
     COMMAND "${COMPILER}" -std=c17 ${base_flags} ${config_flags}
       ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
+      ${logo_flags}
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
       "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
@@ -192,14 +209,26 @@ endfunction()
 function(gbl__run_loader_pair mutation label)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-${label}-${run_id}")
-  gbl__compile_loader("${root}/mutant" "${mutation}" mutant_executable)
+  set(expectation_mode "")
+  if(mutation MATCHES "^logo_digest_(bypass|forced_match)$")
+    set(expectation_mode synthetic)
+  endif()
+  gbl__compile_loader("${root}/mutant" "${mutation}" mutant_executable
+    "${expectation_mode}")
   set(failure_regex "check failed")
   if(mutation MATCHES "^refusal_(rom|allocator)_identity$")
     set(failure_regex "check failed: gbl_test_same_instance_identity_equal")
+  elseif(mutation STREQUAL "logo_digest_bypass")
+    set(failure_regex
+      "check failed: diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MATCH")
+  elseif(mutation STREQUAL "logo_digest_forced_match")
+    set(failure_regex
+      "check failed: diagnostics.canonical_logo == GBL_HEADER_LOGO_CHECKED_MISMATCH")
   endif()
   gbl_expect_fail(COMMAND "${mutant_executable}" "${SELECTOR}"
     REGEX "${failure_regex}")
-  gbl__compile_loader("${root}/clean" "" clean_executable)
+  gbl__compile_loader("${root}/clean" "" clean_executable
+    "${expectation_mode}")
   gbl_expect_pass(COMMAND "${clean_executable}" "${SELECTOR}"
     REGEX "loader: ${SELECTOR} ok")
 endfunction()
@@ -207,7 +236,7 @@ endfunction()
 function(gbl__run_loader_clean)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
-  gbl__compile_loader("${root}/clean" "" clean_executable)
+  gbl__compile_loader("${root}/clean" "" clean_executable "")
   gbl_expect_pass(COMMAND "${clean_executable}" lengths
     REGEX "loader: lengths ok")
   gbl_expect_pass(COMMAND "${clean_executable}" diagnostics

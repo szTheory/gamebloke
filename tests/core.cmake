@@ -102,6 +102,10 @@ gbl__add_loader_mutation_test(
 gbl__add_loader_mutation_test(loader.nc.allocation_state allocation_state diagnostics)
 gbl__add_loader_mutation_test(loader.nc.caller_bytes caller_bytes diagnostics)
 gbl__add_loader_mutation_test(loader.nc.logo_claim logo_claim diagnostics)
+gbl__add_loader_mutation_test(
+  loader.nc.logo_digest_bypass logo_digest_bypass logo-digest)
+gbl__add_loader_mutation_test(
+  loader.nc.logo_digest_forced_match logo_digest_forced_match logo-digest)
 gbl__add_loader_mutation_test(loader.pos.clean clean diagnostics)
 
 gbl_add_test(
@@ -138,6 +142,12 @@ gbl_add_test(
   NAME loader.logo_digest
   LABELS core integration loader unit
   COMMAND $<TARGET_FILE:loader_logo_test> logo-digest)
+gbl_add_test(
+  NAME logo_digest.authority_cases
+  LABELS control loader
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/logo_digest_case.cmake")
 
 gbl_add_test(
   NAME runner.help
