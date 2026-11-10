@@ -1,0 +1,10 @@
+# Binary and extension allowlist for scripts/signature-scan.sh (D-07).
+#
+# One repository-relative path per line; blank lines and lines starting with #
+# are ignored. Matching is exact.
+#
+# Scope: an entry exempts a path from the rom-extension and binary-not-allowlisted
+# rules only. It never exempts the logo-window or bios-digest rules, so listing
+# a file here cannot let logo bytes or a known BIOS through.
+#
+# Empty on purpose: the repository holds no binary files today.

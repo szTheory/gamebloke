@@ -1,0 +1,15 @@
+# Nintendo logo window digest (EVID-04, D-07). Only a SHA-256 digest is
+# committed, never logo bytes. A matching hash proves identity, not rights.
+#
+# The window is 156 bytes at header offset 0x04 (bytes 4..159 of a cartridge
+# image, GBATEK). The scan hashes that window for every regular file of at
+# least 160 bytes and refuses a file whose digest is listed here.
+#
+# The real digest is owner-supplied: the owner runs
+#   scripts/signature-digest.sh logo <file>
+# on a file they already hold, outside this repository (plan 11), and replaces
+# the single row below with the printed line. Until then the row is the
+# `owner-pending` marker, and signature.logo.real_digest reports SKIPPED.
+#
+# Exactly one non-comment row: <64 lowercase hex> <label> or owner-pending <label>.
+owner-pending nintendo-logo-window

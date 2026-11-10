@@ -56,3 +56,39 @@ foreach(case IN ITEMS hook_missing hook_not_executable hook_no_staged)
     LABELS control hygiene
     COMMAND ${GBL_HYGIENE_DRIVER} "-DCASE=${case}" -P "${GBL_HYGIENE_CASE}")
 endforeach()
+
+# ---- signature scan (EVID-04, VERIF-02, VERIF-03) -------------------------
+# Digest-only: the lists under tests/signatures/ hold SHA-256 values, never
+# bytes. The scan hashes with `cmake -E sha256sum`, so the CMake that runs the
+# tests is passed through the CMAKE environment variable.
+set(GBL_SIG_ENV "${CMAKE_COMMAND}" -E env "CMAKE=${CMAKE_COMMAND}")
+set(GBL_SIG_CHECK "${CMAKE_SOURCE_DIR}/cmake/CheckSignatureDigests.cmake")
+
+gbl_add_test(
+  NAME signature.tree
+  LABELS gate signature
+  COMMAND ${GBL_SIG_ENV} sh scripts/signature-scan.sh --tree
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# The committed lists are well formed and the scan reads exactly these files.
+gbl_add_test(
+  NAME signature.digests.wellformed
+  LABELS signature unit
+  COMMAND "${CMAKE_COMMAND}" -DMODE=wellformed "-DSRC=${CMAKE_SOURCE_DIR}"
+    -P "${GBL_SIG_CHECK}")
+
+# While the logo row is `owner-pending` this reports SKIPPED, never PASS.
+gbl_add_test(
+  NAME signature.logo.real_digest
+  LABELS signature unit
+  SKIPPABLE
+  COMMAND "${CMAKE_COMMAND}" -DMODE=real-logo "-DSRC=${CMAKE_SOURCE_DIR}"
+    -P "${GBL_SIG_CHECK}")
+
+# Owner-local cross-check; skips unless GBL_OWNER_LOGO_FILE names a file.
+gbl_add_test(
+  NAME signature.owner_local
+  LABELS owner signature
+  SKIPPABLE
+  COMMAND "${CMAKE_COMMAND}" -DMODE=owner-local "-DSRC=${CMAKE_SOURCE_DIR}"
+    -P "${GBL_SIG_CHECK}")

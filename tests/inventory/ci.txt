@@ -40,3 +40,7 @@ runner.help runner,unit
 runner.no_args runner,unit
 runner.usage_error runner,unit
 runner.version runner,unit
+signature.digests.wellformed signature,unit
+signature.logo.real_digest signature,unit skip-ok
+signature.owner_local owner,signature skip-ok
+signature.tree gate,signature
