@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 02
 current_phase_name: Profile, Fixture Manifest, and Result Contract
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-11-10T06:17:11.766Z"
+stopped_at: Completed 02-06-PLAN.md
+last_updated: "2026-11-10T06:25:56.097Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 complete, transitioned to Phase 2
-state_head: bd8e6180193a0def642625fb3eebe4299ad9221a
+state_head: 561d7ce47c131ed3151b03fc4a60449d587fa9c7
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 02 (Profile, Fixture Manifest, and Result Contract) — READY TO EXECUTE
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 complete, transitioned to Phase 2
 
@@ -74,6 +74,7 @@ Progress: [██░░░░░░░░] 17%
 | Phase 02 P03 | 25 min | 3 tasks | 8 files |
 | Phase 02 P04 | 35 min | 3 tasks | 9 files |
 | Phase 02 P05 | 7 min | 3 tasks | 8 files |
+| Phase 02 P06 | 20 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,7 @@ Recent decisions affecting current work:
 - [Phase 02]: pins: bad-url reuses the manifest URL rule (https only, no whitespace, quote, or backslash); a row with a forbidden character reports bad-row plus its field codes
 - [Phase 02]: fetch-pin.sh runs ${CURL:-curl} (the program its presence check tests); fetch controls assert non-zero exit plus reason text, never an exact status
 - [Phase 02]: fixture-dir gate counts git ls-files output lines (no -z: a CMake variable cannot hold NUL); prints only the count
+- [Phase 02]: Result validator hard-codes only the disputed label (I2); ROADMAP SC5 delivered at validator level in Phase 2, producer half moves to Phase 4 when the runner emits results
 
 ### Pending Todos
 
@@ -142,6 +144,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T06:17:11.666Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-11-10T06:25:56.046Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None

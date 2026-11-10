@@ -109,7 +109,7 @@ Plans:
   3. Fetching a pinned third-party fixture by SHA-256 from `pins.txt` puts it in an untracked location. A digest-mismatch negative control exits non-zero with a loud error, and `git ls-files` lists no third-party binary.
   4. The result schema defines PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, and REFUSED, plus the claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. Its validator rejects a BIOS provider outside the R1 values and rejects a PASS for a fixture that did not run.
   5. The dispute registry holds the seeded entries (DMA latch, GBATEK errata, HBlank edge sources, mGBA-suite #22/#24/#27). A fixture whose expected value points at a registry entry produces a result labeled disputed.
-**Plans**: 5/7 plans executed (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
+**Plans**: 6/7 plans executed (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
 
 Plans:
 **Wave 1**
@@ -128,7 +128,7 @@ Plans:
 - [x] 02-05-PLAN.md — `scripts/fetch-pin.sh` verify-before-place with `file://` controls, `.fixtures/` ignored and untracked gate, curl in the Linux lane
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 02-06-PLAN.md — Result validator: claim tuple, state rules, R1 provider, dispute disclosure, with controls and all-states positive
+- [x] 02-06-PLAN.md — Result validator: claim tuple, state rules, R1 provider, dispute disclosure, with controls and all-states positive
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 02-07-PLAN.md — Contract guide and verify-guide reason codes, CMake 3.25.3 floor run, Linux lane, timings evidence, validation sign-off
@@ -259,7 +259,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
-| 2. Profile, Fixture Manifest, and Result Contract | 5/7 | In Progress | - |
+| 2. Profile, Fixture Manifest, and Result Contract | 6/7 | In Progress | - |
 | 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |
