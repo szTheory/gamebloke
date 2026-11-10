@@ -1,0 +1,33 @@
+{
+  "schema": "gamebloke.manifest/1",
+  "note": "One illustrative complete row, used by tests and documentation. It describes no real fixture and its URL is a reserved example domain.",
+  "fixtures": [
+    {
+      "id": "example-row",
+      "source": {
+        "kind": "git",
+        "url": "https://example.invalid/example-suite.git",
+        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "tag": "v0.0.0-example"
+      },
+      "license": {
+        "spdx": "LicenseRef-Example",
+        "notices": ["Illustrative row; no fixture exists."],
+        "redistributable": "unknown"
+      },
+      "build": {
+        "recipe": "prebuilt-upstream",
+        "toolchain": {
+          "identity": "prebuilt-upstream",
+          "sha256": null
+        }
+      },
+      "bios_requirement": "none",
+      "expected": {
+        "provenance_class": "suite-self-checking",
+        "dispute": null
+      },
+      "permitted_use": ["local-only"]
+    }
+  ]
+}

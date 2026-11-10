@@ -1,0 +1,17 @@
+{
+  "schema": "gamebloke.evidence/1",
+  "source_labels": ["REF", "SRC", "IMPL", "INF", "UNK"],
+  "provenance_classes": ["project-authored", "hardware-observed", "reference-emulator", "suite-self-checking", "disputed"],
+  "claim_fields": ["machine", "boot", "bios_provider", "cart", "input_timeline", "evidence"],
+  "states": [
+    {"name": "PASS", "ran": "true", "digest": "required", "reason": "optional"},
+    {"name": "GUEST_FAIL", "ran": "true", "digest": "required", "reason": "optional"},
+    {"name": "GUEST_STOP", "ran": "true", "digest": "required", "reason": "optional"},
+    {"name": "HARNESS_FAIL", "ran": "either", "digest": "optional", "reason": "optional"},
+    {"name": "TIMEOUT", "ran": "true", "digest": "required", "reason": "optional"},
+    {"name": "CANCELLED", "ran": "either", "digest": "optional", "reason": "optional"},
+    {"name": "MISSING", "ran": "false", "digest": "optional", "reason": "required"},
+    {"name": "SKIPPED", "ran": "false", "digest": "optional", "reason": "required"},
+    {"name": "REFUSED", "ran": "false", "digest": "optional", "reason": "optional", "refusal": "required"}
+  ]
+}

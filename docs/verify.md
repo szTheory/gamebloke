@@ -31,7 +31,7 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 | ---- | ------- | ----- |
 | `ci` | `cmake --workflow --preset ci` | Default lane: build, unit tests, gates, controls. |
 | `asan` | `sh scripts/linux-lane.sh asan` | AddressSanitizer and UBSan with clang-21. Linux only; the script runs it in a digest-pinned `ubuntu:26.04` container (needs Docker). |
-| `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, with no compile of the product. |
+| `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, plus the Phase 2 evidence validators and their controls, with no compile of the product. |
 
 `sh scripts/linux-lane.sh <preset> [gcc|clang]` runs any workflow preset on the
 host's native architecture. `sh scripts/hygiene.sh --tree` and
@@ -58,6 +58,22 @@ only when the gate fails AND its output carries the reason code, so a gate that 
 for the wrong reason, or passes, fails the control. Build the bad input at test time;
 never commit it.
 
+## Adding a fixture
+
+A fixture is data first. See [evidence-contract.md](evidence-contract.md) for every field.
+
+1. Write the row in `tests/fixtures/manifest.json` (source, license, build, BIOS need,
+   provenance class, permitted use). `manifest.lint` rejects a row with a missing field,
+   a branch instead of a 40-hex commit, or an unknown provenance class.
+2. For a fetched file, add a row to `pins.txt` (`<sha256> <url> <dest>`, https only) and
+   set the row's `fetch.pin_dest` to the same destination.
+3. Run `sh scripts/fetch-pin.sh <dest>`. The file lands in `.fixtures/` only after its
+   digest matches the pin.
+4. Run `cmake --workflow --preset ci`.
+
+Never commit fetched bytes: `.fixtures/` is git-ignored and the `fetch.untracked` gate
+fails if anything under it is tracked. A matching hash proves identity, not rights.
+
 ## Reason codes
 
 Each gate prints a stable `<family>: <code>` line:
@@ -82,6 +98,51 @@ Each gate prints a stable `<family>: <code>` line:
   `missing-ci-yml` fires if it is absent. Each line ends with the file name in brackets.
 - `title`: `not-conventional`, `too-long`, `empty` (Conventional Commits PR titles).
 - `ruleset`, `repo-settings`: the checked-in `main` ruleset and its guarded apply script.
+
+The evidence validators (the contracts are described in [evidence-contract.md](evidence-contract.md))
+print `<family>: <code>: <detail>` lines and report every finding, not only the first.
+Every JSON file is read by a strict loader: it rejects any text after the root object
+(a structural walk, not a parse check), comments, trailing commas, and duplicate keys.
+`pins.txt` must start with the `# gamebloke.pins/1 <sha256> <url> <dest>` header line.
+
+- `json`: `usage`, `unreadable`, `not-json`, `not-object`, `comment`, `trailing-comma`,
+  `trailing-content`, `duplicate-key` (success in script mode prints `json: ok`).
+- `contract`: `usage`, `bad-schema`, `missing-field`, `label-set`, `class-set`,
+  `claim-set`, `state-set`, `bad-state-rule` (`contracts/evidence.json`).
+- `registry`: `usage`, `bad-schema`, `missing-field`, `bad-id`, `duplicate-id`,
+  `bad-status`, `no-sources`, `bad-source-label`, `seed-missing`
+  (`registry/disputes.json`).
+- `profile`: `usage`, `bad-schema`, `bad-version`, `missing-field`, `bad-machine`,
+  `bad-boot`, `bad-bios-provider`, `bad-cart`, `missing-source`, `bad-source-label`,
+  `timing-arithmetic`, `hblank-edge-hardcoded`, `unmodeled-missing`,
+  `unmodeled-bad-entry`, `dispute-unknown`, `doc-no-section`, `doc-missing-id`,
+  `doc-extra-id`, `doc-version-mismatch` (`profiles/agb.json` against
+  `docs/profile-agb.md`).
+- `manifest`: `usage`, `bad-schema`, `missing-field`, `wrong-type`, `bad-id`,
+  `duplicate-id`, `bad-source-kind`, `unpinned-revision`, `missing-digest`, `bad-url`,
+  `bad-path`, `bad-provenance-class`, `bad-bios-requirement`, `bad-permitted-use`,
+  `bad-redistributable`, `rights-mismatch`, `dispute-unknown`, `dispute-class-mismatch`,
+  `pin-mismatch`
+  (`tests/fixtures/manifest.json`).
+- `pins`: `missing-file`, `missing-header`, `bad-row`, `bad-digest`, `bad-url`,
+  `bad-dest`, `duplicate-dest` (`pins.txt`).
+- `fetch-pin`: `usage`, `missing-pins`, `no-curl`, `no-cmake`, `bad-dest`, `no-row`,
+  `bad-row`, `bad-digest`, `bad-url`, `download-failed`, `bad-status` (not a 2xx answer;
+  redirects are not followed), `empty-response`, `digest-tool-failed`, `digest-mismatch`,
+  `symlink`, `dest-is-dir` (`scripts/fetch-pin.sh`; stderr lines, exit 2 for `usage`,
+  `missing-pins`, `no-curl`, `no-cmake`, exit 1 for the rest; success prints
+  `fetch-pin: ok: <dest>`).
+- `fixture-dir`: `usage`, `git-failed`, `not-ignored`, `tracked` (the `.fixtures/`
+  directory must be git-ignored and hold nothing tracked).
+- `result`: `usage`, `bad-schema`, `missing-field`, `unknown-status`, `pass-without-run`,
+  `pass-without-digest`, `ran-state-mismatch`, `missing-digest`, `missing-reason`,
+  `missing-refusal`, `bad-machine`, `bad-boot`, `bad-bios-provider`, `bad-cart`,
+  `bad-input-timeline`, `bad-evidence`, `claim-mismatch`, `unknown-fixture`,
+  `unknown-dispute`, `undisclosed-dispute`, `label-without-dispute`, `bad-label`,
+  `empty-limits` (result documents).
+- Test helpers (`tests/gates/json_mutate.cmake`): `mutate: no-match` (a control's mutation
+  changed nothing, so the control would have tested an unmutated copy) and
+  `no-echo: leaked` (a validator printed file content it must never print).
 
 ## Signatures, allowlist, and the logo digest
 
@@ -121,5 +182,7 @@ is never left pending.
 
 ## Extension points
 
-Phase 2 adds the manifest lint (VERIF-01, EVID-02) as a `manifest.lint` gate test
-registered in `tests/gates.cmake`, with no preset change.
+`manifest.lint` is registered in `tests/gates.cmake` and runs inside
+`cmake --workflow --preset ci` with no preset change (VERIF-01 manifest clause,
+EVID-02). The other Phase 2 registrations, the validator gates and their controls, live
+in the evidence section of the same file.

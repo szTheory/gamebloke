@@ -1,0 +1,103 @@
+{
+  "schema": "gamebloke.disputes/1",
+  "entries": [
+    {
+      "id": "disp-dma-latch",
+      "summary": "Open question whether each DMA channel keeps its own transfer latch or all channels share one. A result whose expected value depends on this must not be presented as settled.",
+      "sources": [
+        {
+          "label": "IMPL",
+          "ref": "nba-emu/hw-test, dma/latch/source/main.c at master fbc99140e06f",
+          "note": "The test program asserts a separate latch per channel and that a 16-bit value is duplicated into both halves of the latch. The repository does not state where the expected values came from, so hardware provenance is unknown."
+        },
+        {
+          "label": "IMPL",
+          "ref": "mGBA tag 0.10.5, src/gba/dma.c",
+          "note": "The implementation keeps one shared transfer register for all channels, which disagrees with the per-channel reading above."
+        },
+        {
+          "label": "INF",
+          "ref": "GBATEK no$gba 3.06 extract, DMA section",
+          "note": "Inference from a partial read: no statement about a DMA latch was found in the DMA section of the extract that was read, so that extract neither settles nor contradicts either implementation."
+        }
+      ],
+      "status": "open",
+      "affects": ["dma"]
+    },
+    {
+      "id": "disp-gbatek-errata",
+      "summary": "A community errata list for GBATEK exists and names twelve places where the document is incomplete or wrong: readability of the blend alpha and brightness registers, sprite semi-transparency versus brighten and darken, window wrapping, audio registers while the audio circuit is disabled, direction wording of the serial JOY registers, Game Boy Player rumble with variable speed, cartridge variable-strength rumble being PWM, per-scanline latching of the blend registers, rejection of invalid DMA address writes, a DMA3 SRAM-to-ROM hard lock, DMA1 and DMA2 reads of SRAM and ROM, and DMA0 reads of SRAM returning mostly zeroes.",
+      "sources": [
+        {
+          "label": "SRC",
+          "ref": "mGBA forum post Game Boy Advance Documentation, forums.mgba.io showthread tid=343, posted 2015-11-13, last edited 2017-10-13",
+          "note": "SRC only for the existence of the list and its twelve items. Every hardware claim inside the list is UNK: none was reproduced here and none was re-checked against the current GBATEK text, which may have been corrected since the 2017 edit. Several items are marked as unresolved by their author."
+        }
+      ],
+      "status": "open",
+      "affects": ["ppu", "audio", "dma", "serial", "input"]
+    },
+    {
+      "id": "disp-hblank-flag-edge",
+      "summary": "Three different cycle values are given for when the HBlank flag changes within a scanline: 1,006, 1,007, and 1,008. The 960-cycle figure is the visible drawing time, not the flag edge, and must not be used as one. Until resolved, no constant for the flag edge is hard-coded and any result depending on it must be labeled as disputed.",
+      "sources": [
+        {
+          "label": "REF",
+          "ref": "GBATEK, section LCD I/O Interrupts and Status",
+          "note": "States the flag is 0 for 1,006 cycles. Reference text, not a measurement by this project."
+        },
+        {
+          "label": "IMPL",
+          "ref": "NanoBoyAdvance, src/nba/src/hw/ppu/ppu.cc at 2da64afb5863",
+          "note": "The scheduled event for the flag sits at 1,007 cycles. Whether the author derived this from hardware is not stated."
+        },
+        {
+          "label": "INF",
+          "ref": "mGBA 0.10.5, include/mgba/internal/gba/video.h",
+          "note": "The constant VIDEO_HDRAW_LENGTH was read and has the value 1008. That the flag is set at 1,008 is inferred from the name; the place where the constant is used was not read."
+        }
+      ],
+      "status": "open",
+      "affects": ["ppu", "hblank-flag-edge"]
+    },
+    {
+      "id": "disp-mgba-suite-22",
+      "summary": "Open suite issue reporting that the memory out-of-bounds load tests fail on real hardware. The reports run on flash carts, which can change cartridge-bus behavior, so the hardware claim stays unknown.",
+      "sources": [
+        {
+          "label": "SRC",
+          "ref": "https://github.com/mgba-emu/suite/issues/22, Memory out-of-bounds load failing on real HW",
+          "note": "The first report used an AGS-001 console with an Omega flash cart on suite r88 and lists Memory 1514 of 1552. A later comment reports three AGS-001 consoles with an EverDrive mini on r76: Memory 1514 of 1552, DMA 1244 of 1256, and Misc. Edge Case 7 of 10. Flash-cart contamination is not ruled out, so the hardware claim is UNK."
+        }
+      ],
+      "status": "open",
+      "affects": ["memory", "dma"]
+    },
+    {
+      "id": "disp-mgba-suite-24",
+      "summary": "Open suite issue reporting that the HBlank timing tests do not work on a Game Boy Player. That machine is a GameCube accessory, not an AGB console, so it is not evidence about the profile under test.",
+      "sources": [
+        {
+          "label": "SRC",
+          "ref": "https://github.com/mgba-emu/suite/issues/24, HBlank timing tests not working on hardware (GBP)",
+          "note": "Reported on a Game Boy Player with a dev cart. The hardware claim is UNK: the platform differs from an AGB and the report does not isolate the cause."
+        }
+      ],
+      "status": "open",
+      "affects": ["ppu", "hblank-flag-edge"]
+    },
+    {
+      "id": "disp-mgba-suite-27",
+      "summary": "Open suite issue claiming wrong expected values in the misc HBlank tests, the Layer Toggle 2 test, and the Window offscreen reset test. Confirmation exists only on open_agb_firm, which runs GBA mode on a 3DS and is not a retail GBA.",
+      "sources": [
+        {
+          "label": "SRC",
+          "ref": "https://github.com/mgba-emu/suite/issues/27, suite commit e6942030d25f",
+          "note": "Confirmed only on open_agb_firm (3DS GBA mode). The hardware claim is UNK: no retail GBA result is recorded in the issue."
+        }
+      ],
+      "status": "open",
+      "affects": ["ppu"]
+    }
+  ]
+}

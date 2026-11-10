@@ -158,3 +158,240 @@ gbl_add_test(
   NAME traps.pos.clean
   LABELS positive traps
   COMMAND ${GBL_SIG_DRIVER} -DCASE=clean -P "${GBL_SIGNAL_CASE}")
+
+# ---- manifest lint (VERIF-01, EVID-02) --------------------------------------
+# The real manifest and pins file are linted against the real dispute registry and
+# vocabulary inside the canonical command. Controls for it follow in the evidence
+# section below.
+gbl_add_test(
+  NAME manifest.lint
+  LABELS gate manifest
+  COMMAND "${CMAKE_COMMAND}" -DMODE=all
+    "-DMANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+    "-DPINS=${CMAKE_SOURCE_DIR}/pins.txt"
+    "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckManifest.cmake")
+
+# ---- evidence contracts (Phase 2) -------------------------------------------
+# The Phase 2 validator gates and their controls follow, run in the ci and
+# hygiene lanes. Register only through gbl_add_test at this top-level directory
+# scope (D-04): every validator reason code gets a negative control that mutates
+# a copy of a real input at test time, and every validator gets a positive
+# control. No bad example is committed.
+set(GBL_EVID_DRIVER
+  "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}")
+set(GBL_CONTRACT_CASE "${CMAKE_SOURCE_DIR}/tests/gates/contract_case.cmake")
+
+# The real vocabulary passes the validator that pins the nine states.
+gbl_add_test(
+  NAME contract.lint
+  LABELS contract gate
+  COMMAND "${CMAKE_COMMAND}" "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckContract.cmake")
+
+foreach(case IN ITEMS
+    bad_schema bad_state_rule claim_set class_set label_set missing_field semicolon_item
+    state_set usage weakened_state_rule)
+  gbl_add_test(
+    NAME contract.nc.${case}
+    LABELS contract control
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_CONTRACT_CASE}")
+endforeach()
+
+gbl_add_test(
+  NAME contract.pos.copy
+  LABELS contract positive
+  COMMAND ${GBL_EVID_DRIVER} -DCASE=copy -P "${GBL_CONTRACT_CASE}")
+
+# ---- agb profile (Phase 2) --------------------------------------------------
+# The real profile is checked against the real document, dispute registry, and
+# vocabulary; a control per reason code mutates a copy of the real profile or
+# document, and the positives prove the check is not a frozen-file comparison.
+set(GBL_PROFILE_CASE "${CMAKE_SOURCE_DIR}/tests/gates/profile_case.cmake")
+
+gbl_add_test(
+  NAME profile.lint
+  LABELS gate profile
+  COMMAND "${CMAKE_COMMAND}" "-DPROFILE=${CMAKE_SOURCE_DIR}/profiles/agb.json"
+    "-DDOC=${CMAKE_SOURCE_DIR}/docs/profile-agb.md"
+    "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckProfile.cmake")
+
+foreach(case IN ITEMS
+    bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
+    dispute_unknown doc_extra_id doc_missing_id doc_no_section doc_version_mismatch
+    hblank_edge_hardcoded missing_field missing_source timing_arithmetic
+    unmodeled_bad_entry unmodeled_missing usage)
+  gbl_add_test(
+    NAME profile.nc.${case}
+    LABELS control profile
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PROFILE_CASE}")
+endforeach()
+
+foreach(case IN ITEMS coordinated_change copy)
+  gbl_add_test(
+    NAME profile.pos.${case}
+    LABELS positive profile
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PROFILE_CASE}")
+endforeach()
+
+# ---- dispute registry (Phase 2) ---------------------------------------------
+# The real registry is checked against the real vocabulary; a control per reason
+# code mutates a copy of the real registry (the six seed ids are pinned, so a
+# well-formed extra entry is accepted but a dropped seed is not).
+set(GBL_REGISTRY_CASE "${CMAKE_SOURCE_DIR}/tests/gates/registry_case.cmake")
+
+gbl_add_test(
+  NAME registry.lint
+  LABELS gate registry
+  COMMAND "${CMAKE_COMMAND}" "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckRegistry.cmake")
+
+foreach(case IN ITEMS
+    bad_id bad_schema bad_source_label bad_status duplicate_id missing_field no_sources
+    seed_missing usage)
+  gbl_add_test(
+    NAME registry.nc.${case}
+    LABELS control registry
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_REGISTRY_CASE}")
+endforeach()
+
+foreach(case IN ITEMS copy extra_entry)
+  gbl_add_test(
+    NAME registry.pos.${case}
+    LABELS positive registry
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_REGISTRY_CASE}")
+endforeach()
+
+# ---- fixture manifest (Phase 2) ---------------------------------------------
+# A control per manifest reason code mutates a copy of the committed complete example
+# row; the positives prove a complete row, the empty real manifest, and all three source
+# kinds are accepted.
+set(GBL_MANIFEST_CASE "${CMAKE_SOURCE_DIR}/tests/gates/manifest_case.cmake")
+
+foreach(case IN ITEMS
+    bad_bios_requirement bad_id bad_path bad_permitted_use bad_provenance_class
+    bad_redistributable bad_schema bad_source_kind bad_url dispute_class_mismatch
+    dispute_unknown duplicate_id missing_digest missing_field pin_cross_check pin_mismatch
+    rights_mismatch unpinned_revision usage wrong_type)
+  gbl_add_test(
+    NAME manifest.nc.${case}
+    LABELS control manifest
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_MANIFEST_CASE}")
+endforeach()
+
+foreach(case IN ITEMS complete_row empty public_ci_ok source_kinds)
+  gbl_add_test(
+    NAME manifest.pos.${case}
+    LABELS manifest positive
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_MANIFEST_CASE}")
+endforeach()
+
+# ---- pinned fetch list (Phase 2) --------------------------------------------
+# One control per pins reason code on a sandbox copy of pins.txt with two good rows; the
+# header is required, so an empty or header-less file cannot pass as the zero-row state.
+set(GBL_PINS_CASE "${CMAKE_SOURCE_DIR}/tests/gates/pins_case.cmake")
+
+foreach(case IN ITEMS
+    bad_dest bad_digest bad_row bad_url duplicate_dest missing_file missing_header)
+  gbl_add_test(
+    NAME pins.nc.${case}
+    LABELS control pins
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PINS_CASE}")
+endforeach()
+
+gbl_add_test(
+  NAME pins.pos.rows
+  LABELS pins positive
+  COMMAND ${GBL_EVID_DRIVER} -DCASE=rows -P "${GBL_PINS_CASE}")
+
+# ---- pinned fetch (Phase 2) -------------------------------------------------
+# scripts/fetch-pin.sh is exercised only through synthesized file:// fixtures under the
+# build directory (D-16: no network); each negative control asserts a non-zero exit, the
+# stable reason text, and that nothing was placed.
+set(GBL_FETCH_CASE "${CMAKE_SOURCE_DIR}/tests/gates/fetch_case.cmake")
+
+foreach(case IN ITEMS
+    bad_dest bad_digest bad_row bad_status bad_url dest_is_dir digest_mismatch
+    digest_tool_failed download_failed empty_response missing_pins no_cmake no_curl no_row
+    not_git not_ignored symlink symlink_new_subdir tracked untracked_usage usage)
+  gbl_add_test(
+    NAME fetch.nc.${case}
+    LABELS control fetch
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_FETCH_CASE}")
+endforeach()
+
+# The real repository ignores .fixtures/ and tracks nothing under it; this runs in the
+# canonical command. The controls above plant each failure in a sandbox repository.
+gbl_add_test(
+  NAME fetch.untracked
+  LABELS fetch gate
+  COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckFixtureDir.cmake")
+
+foreach(case IN ITEMS fetch_ok idempotent)
+  gbl_add_test(
+    NAME fetch.pos.${case}
+    LABELS fetch positive
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_FETCH_CASE}")
+endforeach()
+
+# ---- result contract (Phase 2) ----------------------------------------------
+# The committed illustrative result is checked against the committed example manifest, the
+# real dispute registry, and the real vocabulary inside the canonical command. A control
+# per result reason code mutates a copy of that example; the positives prove all nine
+# states, and every R1 BIOS provider form.
+set(GBL_RESULT_CASE "${CMAKE_SOURCE_DIR}/tests/gates/result_case.cmake")
+
+gbl_add_test(
+  NAME result.example
+  LABELS gate result
+  COMMAND "${CMAKE_COMMAND}" "-DRESULT=${CMAKE_SOURCE_DIR}/contracts/examples/result-pass.json"
+    "-DMANIFEST=${CMAKE_SOURCE_DIR}/contracts/examples/manifest.json"
+    "-DREGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+    "-DVOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+    -P "${CMAKE_SOURCE_DIR}/cmake/CheckResult.cmake")
+
+foreach(case IN ITEMS
+    bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_label
+    bad_machine bad_schema claim_mismatch empty_limits label_without_dispute manifest_digest
+    missing_digest missing_field missing_reason missing_refusal pass_without_digest pass_without_run
+    ran_state_mismatch undisclosed_dispute unknown_dispute unknown_fixture unknown_status
+    usage)
+  gbl_add_test(
+    NAME result.nc.${case}
+    LABELS control result
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
+endforeach()
+
+foreach(case IN ITEMS
+    all_states bios_provider_forms disputed)
+  gbl_add_test(
+    NAME result.pos.${case}
+    LABELS positive result
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
+endforeach()
+
+# ---- strict JSON loader (Phase 2) -------------------------------------------
+# One negative control per loader reason code, plus the two helper controls
+# (`mutate: no-match`, `no-echo: leaked`), and positives on tricky and real input.
+set(GBL_JSON_CASE "${CMAKE_SOURCE_DIR}/tests/gates/json_case.cmake")
+
+foreach(case IN ITEMS
+    comment duplicate_key mutate_no_match no_echo_guard not_json not_object
+    trailing_comma trailing_content unreadable usage)
+  gbl_add_test(
+    NAME json.nc.${case}
+    LABELS control json
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_JSON_CASE}")
+endforeach()
+
+foreach(case IN ITEMS strict_clean real_docs)
+  gbl_add_test(
+    NAME json.pos.${case}
+    LABELS json positive
+    COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_JSON_CASE}")
+endforeach()

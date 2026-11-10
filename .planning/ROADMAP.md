@@ -40,7 +40,7 @@ determinism gates.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: CI and Verification Foundation** - One canonical verify command, the required `CI required` check, sanitizer lanes, test inventory, hygiene and signature scans, each with negative controls
+- [x] **Phase 1: CI and Verification Foundation** - One canonical verify command, the required `CI required` check, sanitizer lanes, test inventory, hygiene and signature scans, each with negative controls (completed 2026-11-09)
 - [ ] **Phase 2: Profile, Fixture Manifest, and Result Contract** - Versioned `agb` profile, claim tuple, manifest and linter, pinned fetch, result taxonomy, and dispute registry
 - [ ] **Phase 3: Bus API, Memory Map, and ROM Loading** - Final cost-returning bus API on a u64 master clock, full memory map, deterministic power-on state, and a loader that refuses bad input safely
 - [ ] **Phase 4: CPU Execution Core and Headless Runner** - Explicit-pipeline ARM7TDMI with modes and exceptions, and a runner that emits one bounded JSON result with mailbox, peek, and trace
@@ -60,7 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. ASan and UBSan builds of the core and runner run in CI. A deliberate undefined-behavior negative control, such as a shift by 32, is caught by the UBSan lane.
   4. The CTest plus junit test-inventory check fails when an expected test is removed or silently skipped, and it lists every skipped test with its reason.
   5. The hygiene check fails on planted credentials, non-noreply email addresses, and absolute home-directory paths. The signature scan fails on planted Nintendo-logo, known-BIOS, and out-of-allowlist ROM/save signatures. These negative controls are synthesized at test time, and no real logo or BIOS bytes are committed. If any negative control passes, the verify command itself fails.
-**Plans**: 11/11 plans executed (waves 1-11, serial chain: shared edits to CMakeLists.txt, CMakePresets.json, .github/workflows/ci.yml, tests/ci_gates.cmake, and the per-lane inventories, then publication order)
+**Plans**: 11/11 plans complete (waves 1-11, serial chain: shared edits to CMakeLists.txt, CMakePresets.json, .github/workflows/ci.yml, tests/ci_gates.cmake, and the per-lane inventories, then publication order)
 
 Plans:
 **Wave 1**
@@ -109,7 +109,29 @@ Plans:
   3. Fetching a pinned third-party fixture by SHA-256 from `pins.txt` puts it in an untracked location. A digest-mismatch negative control exits non-zero with a loud error, and `git ls-files` lists no third-party binary.
   4. The result schema defines PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, and REFUSED, plus the claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. Its validator rejects a BIOS provider outside the R1 values and rejects a PASS for a fixture that did not run.
   5. The dispute registry holds the seeded entries (DMA latch, GBATEK errata, HBlank edge sources, mGBA-suite #22/#24/#27). A fixture whose expected value points at a registry entry produces a result labeled disputed.
-**Plans**: TBD
+**Plans**: 7/7 plans executed (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
+
+Plans:
+**Wave 1**
+- [x] 02-01-PLAN.md — Tracer: strict JSON loader, `contracts/evidence.json` vocabulary (nine states as data, labels, classes, claim fields), contract validator in the ci command, json and contract controls
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 02-02-PLAN.md — Dispute registry seeded with six verified entries and its validator, with a control per reason code
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 02-03-PLAN.md — Versioned `agb` profile, `docs/profile-agb.md` with doc-sync check, R1 BIOS-provider grammar, profile validator and controls
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 02-04-PLAN.md — Fixture manifest (zero rows) and example row, pins.txt lint with a required header line, `manifest.lint` registered in the canonical command, manifest and pins controls
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [x] 02-05-PLAN.md — `scripts/fetch-pin.sh` verify-before-place with `file://` controls, `.fixtures/` ignored and untracked gate, curl in the Linux lane
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [x] 02-06-PLAN.md — Result validator: claim tuple, state rules, R1 provider, dispute disclosure, with controls and all-states positive
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [x] 02-07-PLAN.md — Contract guide and verify-guide reason codes, CMake 3.25.3 floor run, Linux lane, timings evidence, validation sign-off
 **Research flag**: Standard patterns (manifest, linter, and pinned fetch are sibling-proven). Settle SP and AGS model naming in the profile document using the R8 position.
 **Owner gates**: None blocking. Reversible defaults apply: G3 (pinned fetch, no third-party binaries in tree) and G2 (no logo bytes in owned fixtures). G9 (differentiator wording) uses the working wording and does not block engineering.
 
@@ -136,7 +158,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. CPU tests use instruction words built in memory by test code, with no committed ROM files. They show PC reads +8 in ARM state and +4 in Thumb state, the open-bus latch updated as explicit state, and no decode cache or fused-instruction path. Shift and overflow helper tests cover shifts of 32 or more, `ROR #0`/RRX, and signed overflow, and the UBSan lane stays clean.
   2. Mode and exception tests show the correct register bank, return address, and SPSR for every ARM7TDMI mode and exception entry. Under BIOS provider `none`, an IRQ entry, SWI, undefined instruction, or coprocessor opcode each ends the run as GUEST_STOP with the cause named, never as silent continuation.
-  3. Running the runner on a ROM image with a cycle or frame bound produces one JSON document with separate `status`, semantic result, machine time in cycles, claim tuple, and `limits` fields. The semantic result is read from the IWRAM mailbox by `peek`, and a test shows that `peek` leaves the state digest and the master clock unchanged.
+  3. Running the runner on a ROM image with a cycle or frame bound produces one JSON document with separate `status`, semantic result, machine time in cycles, claim tuple, and `limits` fields. The semantic result is read from the IWRAM mailbox by `peek`, and a test shows that `peek` leaves the state digest and the master clock unchanged. When the fixture's manifest row carries a dispute id, the emitted result lists that id and carries the `disputed` label, and the Phase 2 result validator accepts the document (this completes the producer half of Phase 2 criterion 5).
   4. A trace run with a category mask writes only the selected categories (instruction, bus access, exception) into a bounded buffer. With an undersized buffer, the run ends with an explicit output-full status and drops no records silently.
   5. The runner CLI is installed with `cmake --install` to one prefix, then moved to another directory. From there it runs and produces a JSON result identical to the one from the build tree.
 **Plans**: TBD
@@ -236,8 +258,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. CI and Verification Foundation | 11/11 | In Progress | - |
-| 2. Profile, Fixture Manifest, and Result Contract | 0/TBD | Not started | - |
+| 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
+| 2. Profile, Fixture Manifest, and Result Contract | 7/7 | In Progress | - |
 | 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |

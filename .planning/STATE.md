@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 01
-current_phase_name: CI and Verification Foundation
+current_phase: 02
+current_phase_name: Profile, Fixture Manifest, and Result Contract
 status: verifying
-stopped_at: Completed 01-11-PLAN.md
-last_updated: "2026-11-10T03:46:53.865Z"
+stopped_at: Completed 02-07-PLAN.md
+last_updated: "2026-11-10T06:34:56.097Z"
 last_activity: 2026-11-09
-last_activity_desc: Phase 01 execution started
-state_head: 3247bba1e5ffa07665d930749505053f33acb2f5
+last_activity_desc: Phase 1 complete, transitioned to Phase 2
+state_head: f0f9938b76d4a4c4157b872780f4da7c6d29fbeb
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 11
-  completed_plans: 11
+  completed_phases: 1
+  total_plans: 18
+  completed_plans: 18
 ---
 
 # Project State
@@ -25,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 01 — CI and Verification Foundation
+**Current focus:** Phase 02 — Profile, Fixture Manifest, and Result Contract
 
 ## Current Position
 
-Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 11 of 11
+Phase: 02 (Profile, Fixture Manifest, and Result Contract) — READY TO EXECUTE
+Plan: 7 of 7
 Status: Phase complete — ready for verification
-Last activity: 2026-11-09 — Phase 01 execution started
+Last activity: 2026-11-09 — Phase 1 complete, transitioned to Phase 2
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
+- Total plans completed: 11
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -47,7 +47,7 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1 | 11 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -69,6 +69,13 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P09 | 10 min | 2 tasks | 14 files |
 | Phase 01 P10 | not measured | 3 tasks | 4 files |
 | Phase 01 P11 | not measured | 3 tasks | 3 files |
+| Phase 02 P01 | 45 min | 3 tasks | 9 files |
+| Phase 02 P02 | 25 min | 2 tasks | 6 files |
+| Phase 02 P03 | 25 min | 3 tasks | 8 files |
+| Phase 02 P04 | 35 min | 3 tasks | 9 files |
+| Phase 02 P05 | 7 min | 3 tasks | 8 files |
+| Phase 02 P06 | 20 min | 3 tasks | 6 files |
+| Phase 02 P07 | 25 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -105,6 +112,17 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-10: PR A (.planning-only) ran heavy=false with CI required success; ruleset 26908822 applied last and PR A merged through it; owner chose close-out-pr (one additional close-out PR, exercised by plan 11)
 - [Phase 01]: 01-11: owner replied `pending` for the real logo digest (EVID-04 real-logo item is owner-pending, human-needed; logo.sha256 unchanged); close-out reached main through one PR (#3) squash-merged through the ruleset; EVID-04 left Pending in REQUIREMENTS.md until the verifier decides
 - [Phase 01]: Owner authorized (2026-11-10): one PR for the Phase 1 review fixes, and a standing one-PR-per-phase policy for Phases 2-6: push the phase branch, open one PR, squash-merge through the ruleset once CI required is green. Stop and report on red CI; never bypass the ruleset or change repo settings; any other publication needs a fresh answer. — Ruleset 26908822 only accepts changes through PRs; phase work cannot reach main otherwise.
+- [Phase 02]: result_labels omitted from contracts/evidence.json: the only label, disputed, is a rule (plan 06 hard-codes it) not a vocabulary entry
+- [Phase 02]: Strict JSON loader uses a structural depth walk for trailing content, not a bracket-class regex; findings never echo file content
+- [Phase 02]: 02-02: Errata dispute entry enumerates twelve topics from the primary mGBA forum post (RESEARCH merged two rumble lines into eleven); issue and errata hardware claims are labeled SRC with UNK noted, never REF
+- [Phase 02]: Profile timing includes dots_per_line (308, REF) so all five timing invariants are checkable; hblank_flag_edge_cycle must carry a dispute id (dispute-unknown otherwise)
+- [Phase 02]: Manifest field names fixed for gamebloke.manifest/1 (source, license, build, bios_requirement, expected, permitted_use, optional fetch.pin_dest); renaming needs a /2 bump
+- [Phase 02]: pins: bad-url reuses the manifest URL rule (https only, no whitespace, quote, or backslash); a row with a forbidden character reports bad-row plus its field codes
+- [Phase 02]: fetch-pin.sh runs ${CURL:-curl} (the program its presence check tests); fetch controls assert non-zero exit plus reason text, never an exact status
+- [Phase 02]: fixture-dir gate counts git ls-files output lines (no -z: a CMake variable cannot hold NUL); prints only the count
+- [Phase 02]: Result validator hard-codes only the disputed label (I2); ROADMAP SC5 delivered at validator level in Phase 2, producer half moves to Phase 4 when the runner emits results
+- [Phase 02]: 02-07: pins.txt is linted by manifest.lint (MODE=all); no separate pins gate exists
+- [Phase 02]: 02-07: floor (3.25.3) and Linux container (aarch64) runs pass 252/250/2; live CI and RESEARCH A1 stay pending with the orchestrator
 
 ### Pending Todos
 
@@ -129,6 +147,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T02:00:16.464Z
-Stopped at: Completed 01-11-PLAN.md
+Last session: 2026-11-10T06:34:56.039Z
+Stopped at: Completed 02-07-PLAN.md
 Resume file: None
