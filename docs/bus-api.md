@@ -1,9 +1,9 @@
 # Internal machine and bus contract
 
 This guide documents the Phase 3 internal C contract used by the CPU work in
-Phase 4. The structs and functions are not a stable embedding ABI. The current
-implementation provides deterministic machine lifecycle and EWRAM access; it
-does not yet implement the complete GBA memory map or CPU execution.
+Phase 4. The structs and functions are not a stable embedding ABI. The bus
+implements the profile's memory windows and observable project policies; it
+does not implement CPU execution or all GBA devices.
 
 ## Ownership and lifecycle
 
@@ -55,7 +55,7 @@ The result fields are:
 | Field | Meaning |
 |---|---|
 | `status` | `OK`, `INVALID_ARGUMENT`, or `TIME_OVERFLOW` |
-| `outcome` | `NONE`, `RAM`, `BIOS_ABSENT`, `IO_UNIMPLEMENTED`, `ROM`, `ROM_TAIL`, or `UNMAPPED` |
+| `outcome` | `NONE`, `RAM`, `BIOS_ABSENT`, `IO_UNIMPLEMENTED`, `IO_MODE_SUBSET`, `ROM`, `ROM_TAIL`, `UNMAPPED`, or `VIDEO_INVALID_MODE_POLICY` |
 | `value` | Read value; zero for writes and refusals |
 | `cycles` | Cost charged to the machine clock; zero for refusals |
 | `access_class` | Requested class for a valid read/write, or non-sequential for internal cycles |
@@ -67,27 +67,66 @@ exceed `UINT64_MAX` returns `TIME_OVERFLOW` with zero value/cycles and no
 memory, latch, or clock change. A zero-cycle internal request is valid even
 when the clock is `UINT64_MAX`; it leaves the full machine state unchanged.
 
-## Implemented memory behavior
+## Memory windows and access policy
 
-The current bus maps the EWRAM window `0x02000000–0x02FFFFFF` to its 256 KiB
-backing array, mirrored every `0x40000` bytes. Raw transfers use consecutive
-addresses and little-endian byte assembly/disassembly. The bus does not align
-or rotate misaligned CPU words. A request that extends beyond this implemented
-window currently takes the unmapped path as a whole; later full-map decoding
-will dispatch individual lanes and charge once per request.
+The table distinguishes the address map described in the community
+[GBATEK 3.06 reference](https://mgba-emu.github.io/gbatek/) from Gamebloke's
+selected behavior. GBATEK text is reference evidence, not Nintendo
+documentation or physical hardware qualification.
 
-An EWRAM read updates the explicit open-bus latch by replicating an 8-bit read
-four times, replicating a 16-bit read twice, or storing the full 32-bit read.
-Writes leave the latch unchanged. An unmapped read returns the current latch
-masked to the requested width and preserves the latch; unmapped writes are
-ignored and leave the latch unchanged. These latch rules are project policy
-for this stage. They do not claim to reproduce opcode-prefetch-dependent
-hardware behavior.
+| Window | Backing and translation | Raw read/write behavior | Evidence and limit |
+|---|---|---|---|
+| `0x00000000–0x00003FFF` BIOS | No BIOS provider is installed. | Reads return the saved latch and report `BIOS_ABSENT`; writes are ignored. | GBATEK's “GBA Memory Map” and “Memory Mirrors” describe the window and say BIOS is not mirrored. Current-latch behavior is an unverified project placeholder, not BIOS protection. |
+| `0x02000000–0x02FFFFFF` EWRAM | 256 KiB backing, `address & 0x3FFFF`. | Raw 8/16/32-bit reads and writes. | GBATEK's “GBA Memory Map” and “Memory Mirrors”; one-cycle cost is Gamebloke project policy. |
+| `0x03000000–0x03FFFFFF` IWRAM | 32 KiB backing, `address & 0x7FFF`. | Raw 8/16/32-bit reads and writes. | GBATEK's “GBA Memory Map” and “Memory Mirrors”; one-cycle cost is Gamebloke project policy. |
+| `0x04000000–0x040003FF` I/O | The byte-address window is decoded. Only DISPCNT bytes `0x04000000–0x04000001` are modeled; all other registers are unsupported. | DISPCNT exposes only bits 0–2 (BG mode) and reports `IO_MODE_SUBSET`. Unsupported reads return the saved latch and report `IO_UNIMPLEMENTED`; unsupported writes are ignored. | GBATEK's “GBA I/O Map” and “LCD I/O Display Control”. This is a mode selector for bus classification, not a PPU or full DISPCNT implementation. |
+| `0x04000800–0x04FFFFFF` port aliases | The special port is recognized at each 64 KiB alias whose low 16 bits are `0x0800–0x0803`. | Reads use the current-latch placeholder and report `IO_UNIMPLEMENTED`; writes have no effect. | GBATEK's “Memory Mirrors” calls this port undocumented and says it repeats every 64 KiB. Gamebloke does not model its internal-memory-control effect. |
+| `0x05000000–0x05FFFFFF` palette RAM | 1 KiB backing, `address & 0x3FF`. | Reads and 16/32-bit writes are raw. A byte write duplicates its value to both bytes of the containing aligned halfword. | GBATEK's “GBA Memory Map”, “Memory Mirrors”, and “Writing 8bit Data to Video Memory”. |
+| `0x06000000–0x06FFFFFF` VRAM | 128 KiB address period: `address & 0x1FFFF`, then offsets `0x18000–0x1FFFF` subtract `0x8000` into the preceding physical 32 KiB. | Reads and 16/32-bit writes use raw little-endian lanes. In modes 0–2 byte writes duplicate below physical `0x10000` and are ignored at/above it. In modes 3–5 the threshold is `0x14000`. Modes 6–7 use the same `0x14000` threshold as explicit project policy; byte writes report `VIDEO_INVALID_MODE_POLICY`. | GBATEK's “Memory Mirrors”, “LCD VRAM Overview”, “LCD I/O Display Control”, and “Writing 8bit Data to Video Memory” support the mirror and valid-mode threshold cases. Modes 6–7 are not claimed as hardware behavior. |
+| `0x07000000–0x07FFFFFF` OAM | 1 KiB backing, `address & 0x3FF`. | Reads and 16/32-bit writes are raw. Byte writes are ignored. | GBATEK's “GBA Memory Map”, “Memory Mirrors”, and “Writing 8bit Data to Video Memory”. |
+| `0x08000000–0x0DFFFFFF` Game Pak ROM | Each 32 MiB window (`0x08000000`, `0x0A000000`, `0x0C000000`) uses `address & 0x1FFFFFF` into the host-owned copy. | Reads within the loaded image return copied bytes. An offset beyond its actual length returns the corresponding byte of the saved latch, reports `ROM_TAIL`, and does not replace the latch. Writes are ignored and report `ROM`. | GBATEK's “GBA Memory Map” identifies the three wait-state windows. Short-image tail behavior is explicitly unverified; the current-latch result is a project policy, not inferred from that reference. |
+| Other addresses, including `0x04000400–0x04FFFFFF` except the port aliases, and `0x0E000000–0x0FFFFFFF` | Unmapped in this profile; backup memory has no device implementation. Full 32-bit address identity is preserved. | Reads return the saved latch and report `UNMAPPED`; writes are ignored. | GBATEK's “GBA Memory Map” documents SRAM in part of `0x0E000000–0x0FFFFFFF`; Gamebloke leaves that area unmapped until a declared save device is implemented. The current-latch result is a project placeholder, not a hardware claim. |
 
-Other outcome values reserve room for the planned BIOS, I/O, and cartridge
-decode paths. Their presence does not mean those regions are implemented yet.
-The full map, video access rules, and ROM-tail policy are handled by later
-Phase 3 plans. No BIOS bytes or game ROMs are bundled.
+The per-request access contract is independent of that map:
+
+- Width is a byte count of 1, 2, or 4. Each lane decodes its own consecutive
+  32-bit address and mirror translation. Values use little-endian lane order;
+  the bus does not align or rotate an unaligned CPU load. CPU-specific
+  misalignment fixups belong in the CPU adapter.
+- The complete address span and one-cycle clock addition are checked before
+  any lane changes memory, DISPCNT, the latch, or the clock. Every successful
+  read or write costs one cycle regardless of width, region, or class. This is
+  a project placeholder, not hardware timing.
+- A fallback read lane takes the corresponding byte from the saved latch as it
+  existed before the request. If any lane falls back, the read leaves the
+  latch unchanged. If every lane has concrete data, the result value updates
+  the latch by byte/halfword replication or as a full word. Writes never
+  replace the latch.
+- When a request spans several regions, its result outcome uses this fallback
+  priority: `IO_UNIMPLEMENTED`, `BIOS_ABSENT`, `ROM_TAIL`, then `UNMAPPED`.
+  Without a fallback lane, the result reports the starting lane's region or
+  policy outcome. Supported memory lanes in a mixed write still take effect;
+  unsupported lanes are ignored. Cost remains one cycle for the request.
+
+## Deferred CPU and device behavior
+
+The bus contract does not imply the following behavior:
+
+- CPU instruction execution, pipeline state, PC-relative reads, and ARM
+  misaligned load rotation.
+- WAITCNT region-specific sequential/non-sequential timing, Game Pak
+  prefetch, and CPU pipeline-dependent open-bus values.
+- BIOS protection and access rules beyond the absent-provider placeholder.
+- I/O behavior other than the DISPCNT mode bits: display-control bits other
+  than mode, PPU registers and rendering, audio, timers, DMA, interrupts,
+  keypad input, and other peripherals.
+- PPU display-period access restrictions, bus contention, and scanline timing.
+- The undocumented `0x04000800` port's internal-memory-control behavior.
+- Game Pak SRAM, flash/EEPROM, save devices, and other cartridge peripherals.
+
+No BIOS bytes, commercial ROMs, or other copyrighted game content are bundled.
+The synthetic test images are generated in memory and are not redistributed
+fixtures.
 
 ## ROM loading and host allocation
 

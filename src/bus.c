@@ -202,6 +202,11 @@ static gbl_bus_outcome gbl_bus_region_outcome(gbl_bus_region region)
     return GBL_BUS_OUTCOME_UNMAPPED;
 }
 
+static bool gbl_bus_is_dispcnt_byte(uint32_t address)
+{
+    return address == 0x04000000u || address == 0x04000001u;
+}
+
 static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
                               uint8_t *value, gbl_bus_outcome *outcome)
 {
@@ -227,8 +232,17 @@ static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
         *outcome = GBL_BUS_OUTCOME_ROM_TAIL;
         return false;
     }
-    case GBL_BUS_REGION_BIOS:
     case GBL_BUS_REGION_IO:
+        if (gbl_bus_is_dispcnt_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_MODE_SUBSET;
+            *value = address == 0x04000000u
+                         ? (uint8_t)(machine->dispcnt & 0x0007u)
+                         : (uint8_t)(machine->dispcnt >> 8u);
+            return true;
+        }
+        *value = 0u;
+        return false;
+    case GBL_BUS_REGION_BIOS:
     case GBL_BUS_REGION_UNMAPPED:
         *value = 0u;
         return false;
@@ -239,7 +253,8 @@ static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
 }
 
 static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
-                                          uint32_t address, uint8_t value)
+                                          uint32_t address, uint8_t value,
+                                          uint8_t request_width)
 {
     gbl_bus_region region = gbl_bus_region_for(address);
     uint8_t *memory_byte;
@@ -247,15 +262,57 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
     switch (region) {
     case GBL_BUS_REGION_EWRAM:
     case GBL_BUS_REGION_IWRAM:
+        memory_byte = gbl_bus_memory_byte(machine, region, address);
+        *memory_byte = value;
+        return GBL_BUS_OUTCOME_RAM;
     case GBL_BUS_REGION_PRAM:
+        memory_byte = gbl_bus_memory_byte(machine, region, address);
+        if (request_width == 1u) {
+            uint32_t index = address & (GBL_PRAM_SIZE - 1u);
+            uint32_t halfword_index = index & ~1u;
+
+            machine->pram[halfword_index] = value;
+            machine->pram[halfword_index + 1u] = value;
+        } else {
+            *memory_byte = value;
+        }
+        return GBL_BUS_OUTCOME_RAM;
     case GBL_BUS_REGION_VRAM:
+        memory_byte = gbl_bus_memory_byte(machine, region, address);
+        if (request_width == 1u) {
+            uint32_t mode = machine->dispcnt & 0x0007u;
+            uint32_t obj_base = mode <= 2u ? 0x10000u : 0x14000u;
+            uint32_t index = gbl_bus_physical_vram_offset(address);
+            gbl_bus_outcome outcome =
+                mode >= 6u ? GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY
+                           : GBL_BUS_OUTCOME_RAM;
+
+            if (index < obj_base) {
+                uint32_t halfword_index = index & ~1u;
+
+                machine->vram[halfword_index] = value;
+                machine->vram[halfword_index + 1u] = value;
+            }
+            return outcome;
+        }
+        *memory_byte = value;
+        return GBL_BUS_OUTCOME_RAM;
     case GBL_BUS_REGION_OAM:
+        if (request_width == 1u) {
+            return GBL_BUS_OUTCOME_RAM;
+        }
         memory_byte = gbl_bus_memory_byte(machine, region, address);
         *memory_byte = value;
         return GBL_BUS_OUTCOME_RAM;
     case GBL_BUS_REGION_BIOS:
         return GBL_BUS_OUTCOME_BIOS_ABSENT;
     case GBL_BUS_REGION_IO:
+        if (gbl_bus_is_dispcnt_byte(address)) {
+            if (address == 0x04000000u) {
+                machine->dispcnt = (uint16_t)(value & 0x07u);
+            }
+            return GBL_BUS_OUTCOME_IO_MODE_SUBSET;
+        }
         return GBL_BUS_OUTCOME_IO_UNIMPLEMENTED;
     case GBL_BUS_REGION_ROM:
         return GBL_BUS_OUTCOME_ROM;
@@ -339,7 +396,7 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         gbl_bus_outcome lane_outcome = gbl_bus_write_lane(
             machine, address + lane,
-            (uint8_t)((value >> (lane * 8u)) & 0xFFu));
+            (uint8_t)((value >> (lane * 8u)) & 0xFFu), width);
 
         if (lane == 0u) {
             first_outcome = lane_outcome;

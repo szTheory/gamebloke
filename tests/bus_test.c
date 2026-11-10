@@ -348,17 +348,17 @@ static int run_timing(void)
     result = gbl_bus_read(machine, 0x03000000u, 2u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(result.outcome == GBL_BUS_OUTCOME_UNMAPPED);
-    CHECK(result.value == 0x3456u);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.value == 0u);
     CHECK(result.cycles == 1u);
     CHECK(result.access_class == GBL_BUS_CLASS_SEQUENTIAL);
-    CHECK(machine->open_bus == 0x34563456u);
+    CHECK(machine->open_bus == 0u);
     CHECK(machine->master_cycles == 4u);
     result = gbl_bus_read(machine, 0x03000000u, 4u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(result.value == 0x34563456u);
-    CHECK(machine->open_bus == 0x34563456u);
+    CHECK(result.value == 0u);
+    CHECK(machine->open_bus == 0u);
     CHECK(machine->master_cycles == 5u);
 
     result = gbl_bus_write(machine, last_ewram, 1u,
@@ -367,7 +367,7 @@ static int run_timing(void)
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
     CHECK(result.cycles == 1u);
     CHECK(machine->master_cycles == 6u);
-    CHECK(machine->open_bus == 0x34563456u);
+    CHECK(machine->open_bus == 0u);
     result = gbl_bus_read(machine, last_ewram, 1u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_OK);
@@ -378,9 +378,9 @@ static int run_timing(void)
     result = gbl_bus_read(machine, 0x03000000u, 1u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(result.outcome == GBL_BUS_OUTCOME_UNMAPPED);
-    CHECK(result.value == 0x5Au);
-    CHECK(machine->open_bus == 0x5A5A5A5Au);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.value == 0u);
+    CHECK(machine->open_bus == 0u);
     CHECK(machine->master_cycles == 8u);
 
     before_digest = canonical_digest(machine);
@@ -657,9 +657,15 @@ static void check_video_mode_threshold(gbl_machine *machine, uint8_t mode,
     result = gbl_bus_write(machine, 0x06017FFFu, 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xA6B7u);
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
-    result = gbl_bus_read(machine, 0x0601FFFFu, 2u,
+    result = gbl_bus_read(machine, 0x06017FFFu, 1u,
                           GBL_BUS_CLASS_SEQUENTIAL);
-    CHECK(result.value == 0xA6B7u);
+    CHECK(result.value == 0xB7u);
+    result = gbl_bus_read(machine, 0x0601FFFFu, 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.value == 0xB7u);
+    result = gbl_bus_read(machine, 0x06018000u, 1u,
+                          GBL_BUS_CLASS_SEQUENTIAL);
+    CHECK(result.value == 0xA6u);
     result = gbl_bus_write(machine, 0x06020042u, 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xCDEFu);
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
