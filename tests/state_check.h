@@ -20,9 +20,19 @@ static bool gbl_test_bytes_equal(const uint8_t *left, const uint8_t *right,
     return true;
 }
 
+static bool gbl_test_diagnostics_equal(const gbl_header_diagnostics *left,
+                                       const gbl_header_diagnostics *right)
+{
+    return left->loaded == right->loaded &&
+           left->canonical_logo == right->canonical_logo &&
+           left->logo_reason == right->logo_reason &&
+           left->logo_window == right->logo_window &&
+           left->checksum == right->checksum &&
+           left->game_code == right->game_code;
+}
+
 /* Compare canonical fields and contents, excluding struct padding, allocator
- * identity, and ROM pointer identity. Extend this list if diagnostics become
- * canonical machine fields in a later loader plan. */
+ * identity, and ROM pointer identity. */
 static bool gbl_test_canonical_equal(const gbl_machine *left,
                                      const gbl_machine *right)
 {
@@ -31,6 +41,8 @@ static bool gbl_test_canonical_equal(const gbl_machine *left,
         left->master_cycles != right->master_cycles ||
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
+        !gbl_test_diagnostics_equal(&left->header_diagnostics,
+                                    &right->header_diagnostics) ||
         left->rom_length != right->rom_length ||
         ((left->rom == NULL) != (right->rom == NULL))) {
         return false;
@@ -90,6 +102,18 @@ static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
     digest = gbl_test_digest_u64(digest, machine->master_cycles);
     digest = gbl_test_digest_u64(digest, machine->open_bus);
     digest = gbl_test_digest_u64(digest, machine->dispcnt);
+    digest = gbl_test_digest_byte(digest,
+                                  machine->header_diagnostics.loaded ? 1u : 0u);
+    digest = gbl_test_digest_u64(
+        digest, (uint64_t)machine->header_diagnostics.canonical_logo);
+    digest = gbl_test_digest_u64(
+        digest, (uint64_t)machine->header_diagnostics.logo_reason);
+    digest = gbl_test_digest_u64(
+        digest, (uint64_t)machine->header_diagnostics.logo_window);
+    digest = gbl_test_digest_u64(
+        digest, (uint64_t)machine->header_diagnostics.checksum);
+    digest = gbl_test_digest_u64(
+        digest, (uint64_t)machine->header_diagnostics.game_code);
     digest = gbl_test_digest_bytes(digest, machine->ewram, GBL_EWRAM_SIZE);
     digest = gbl_test_digest_bytes(digest, machine->iwram, GBL_IWRAM_SIZE);
     digest = gbl_test_digest_bytes(digest, machine->pram, GBL_PRAM_SIZE);

@@ -83,3 +83,22 @@ size_t gbl_rom_size(const gbl_machine *machine)
     }
     return machine->rom_length;
 }
+
+gbl_header_diagnostics gbl_rom_diagnostics(const gbl_machine *machine)
+{
+    gbl_header_diagnostics empty = { 0 };
+
+    if (machine == NULL || !machine->initialized) {
+        return empty;
+    }
+    return machine->header_diagnostics;
+}
+
+gbl_header_compare_result gbl_header_compare_bytes(
+    const uint8_t *actual, const uint8_t *expected, size_t length)
+{
+    (void)actual;
+    (void)expected;
+    (void)length;
+    return GBL_HEADER_COMPARE_INVALID_ARGUMENT;
+}

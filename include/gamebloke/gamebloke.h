@@ -81,6 +81,50 @@ typedef struct gbl_load_result {
     gbl_load_reason reason;
 } gbl_load_result;
 
+typedef enum gbl_header_logo_status {
+    GBL_HEADER_LOGO_UNCHECKED = 0,
+    GBL_HEADER_LOGO_CHECKED_MATCH = 1,
+    GBL_HEADER_LOGO_CHECKED_MISMATCH = 2
+} gbl_header_logo_status;
+
+typedef enum gbl_header_logo_reason {
+    GBL_HEADER_LOGO_REASON_OWNER_PENDING = 0
+} gbl_header_logo_reason;
+
+typedef enum gbl_header_logo_window {
+    GBL_HEADER_LOGO_WINDOW_ZERO = 0,
+    GBL_HEADER_LOGO_WINDOW_NONZERO = 1
+} gbl_header_logo_window;
+
+typedef enum gbl_header_checksum {
+    GBL_HEADER_CHECKSUM_NOT_LOADED = 0,
+    GBL_HEADER_CHECKSUM_OK = 1,
+    GBL_HEADER_CHECKSUM_MISMATCH = 2
+} gbl_header_checksum;
+
+typedef enum gbl_header_game_code {
+    GBL_HEADER_GAME_CODE_NOT_LOADED = 0,
+    GBL_HEADER_GAME_CODE_ORDINARY = 1,
+    GBL_HEADER_GAME_CODE_UNUSUAL = 2
+} gbl_header_game_code;
+
+/* Bounded advisory findings for a successfully loaded direct-start image.
+ * A false loaded field is the zero/not-loaded lifecycle representation. */
+typedef struct gbl_header_diagnostics {
+    bool loaded;
+    gbl_header_logo_status canonical_logo;
+    gbl_header_logo_reason logo_reason;
+    gbl_header_logo_window logo_window;
+    gbl_header_checksum checksum;
+    gbl_header_game_code game_code;
+} gbl_header_diagnostics;
+
+typedef enum gbl_header_compare_result {
+    GBL_HEADER_COMPARE_EQUAL = 0,
+    GBL_HEADER_COMPARE_DIFFERENT = 1,
+    GBL_HEADER_COMPARE_INVALID_ARGUMENT = 2
+} gbl_header_compare_result;
+
 typedef struct gbl_machine {
     uint64_t master_cycles;
     uint32_t open_bus;
@@ -94,6 +138,7 @@ typedef struct gbl_machine {
     uint8_t *rom;
     size_t rom_length;
     gbl_allocator allocator;
+    gbl_header_diagnostics header_diagnostics;
 } gbl_machine;
 
 /* Initialize fresh caller-owned storage. A non-NULL allocator must be a
@@ -120,6 +165,9 @@ gbl_load_result gbl_load_rom(gbl_machine *machine, const uint8_t *image,
                              size_t length);
 const uint8_t *gbl_rom_data(const gbl_machine *machine);
 size_t gbl_rom_size(const gbl_machine *machine);
+gbl_header_diagnostics gbl_rom_diagnostics(const gbl_machine *machine);
+gbl_header_compare_result gbl_header_compare_bytes(
+    const uint8_t *actual, const uint8_t *expected, size_t length);
 
 #ifdef __cplusplus
 }
