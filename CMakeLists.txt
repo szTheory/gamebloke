@@ -41,8 +41,8 @@ file(REMOVE "${CMAKE_BINARY_DIR}/junit.xml")
 include(cmake/GblTests.cmake)
 
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
-  # Host-independent machine core: no host includes, only gbl_version().
-  add_library(gamebloke_core STATIC src/version.c)
+  # Host-independent machine core: no host includes or host services.
+  add_library(gamebloke_core STATIC src/version.c src/machine.c src/bus.c)
   target_include_directories(gamebloke_core PUBLIC include)
   target_compile_definitions(gamebloke_core PRIVATE "GBL_VERSION_STRING=\"${PROJECT_VERSION}\"")
   target_compile_options(gamebloke_core PRIVATE
