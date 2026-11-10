@@ -109,7 +109,29 @@ Plans:
   3. Fetching a pinned third-party fixture by SHA-256 from `pins.txt` puts it in an untracked location. A digest-mismatch negative control exits non-zero with a loud error, and `git ls-files` lists no third-party binary.
   4. The result schema defines PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, and REFUSED, plus the claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. Its validator rejects a BIOS provider outside the R1 values and rejects a PASS for a fixture that did not run.
   5. The dispute registry holds the seeded entries (DMA latch, GBATEK errata, HBlank edge sources, mGBA-suite #22/#24/#27). A fixture whose expected value points at a registry entry produces a result labeled disputed.
-**Plans**: TBD
+**Plans**: 7 plans (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
+
+Plans:
+**Wave 1**
+- [ ] 02-01-PLAN.md — Tracer: strict JSON loader, `contracts/evidence.json` vocabulary (nine states as data, labels, classes, claim fields), contract validator in the ci command, json and contract controls
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 02-02-PLAN.md — Dispute registry seeded with six verified entries and its validator, with a control per reason code
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 02-03-PLAN.md — Versioned `agb` profile, `docs/profile-agb.md` with doc-sync check, R1 BIOS-provider grammar, profile validator and controls
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 02-04-PLAN.md — Fixture manifest (zero rows) and example row, pins.txt lint with a required header line, `manifest.lint` registered in the canonical command, manifest and pins controls
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 02-05-PLAN.md — `scripts/fetch-pin.sh` verify-before-place with `file://` controls, `.fixtures/` ignored and untracked gate, curl in the Linux lane
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 02-06-PLAN.md — Result validator: claim tuple, state rules, R1 provider, dispute disclosure, with controls and all-states positive
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 02-07-PLAN.md — Contract guide and verify-guide reason codes, CMake 3.25.3 floor run, Linux lane, timings evidence, validation sign-off
 **Research flag**: Standard patterns (manifest, linter, and pinned fetch are sibling-proven). Settle SP and AGS model naming in the profile document using the R8 position.
 **Owner gates**: None blocking. Reversible defaults apply: G3 (pinned fetch, no third-party binaries in tree) and G2 (no logo bytes in owned fixtures). G9 (differentiator wording) uses the working wording and does not block engineering.
 
@@ -237,7 +259,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
-| 2. Profile, Fixture Manifest, and Result Contract | 0/TBD | Not started | - |
+| 2. Profile, Fixture Manifest, and Result Contract | 0/7 | Planned | - |
 | 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |

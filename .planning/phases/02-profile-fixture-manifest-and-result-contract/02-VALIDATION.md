@@ -18,7 +18,7 @@ created: "2026-11-10"
 |----------|-------|
 | **Framework** | CTest via `gbl_add_test` plus the Phase 1 sorted-inventory and junit checks |
 | **Config file** | `CMakeLists.txt`, `CMakePresets.json`, `tests/gates.cmake`, `tests/inventory/{ci,hygiene}.txt` |
-| **Quick run command** | `cmake -S . -B build/hygiene -G Ninja -DGBL_LANE=hygiene && ctest --test-dir build/hygiene -LE post -R '^(json\|contract\|registry\|profile\|manifest\|pins\|fetch\|result)\.' -j4` |
+| **Quick run command** | `cmake -S . -B build/hygiene -G Ninja -DGBL_LANE=hygiene && ctest --test-dir build/hygiene -LE post -R '^(json|contract|registry|profile|manifest|pins|fetch|result)\.' --no-tests=error -j4` |
 | **Full suite command** | `cmake --workflow --preset ci` and `cmake --workflow --preset hygiene` |
 | **Floor run** | Kitware 3.25.3 `cmake --workflow --preset ci` once at the phase end (per `docs/verify.md` slow-lane checks) |
 
@@ -37,9 +37,9 @@ created: "2026-11-10"
 | PROF-02 | Claim tuple present; BIOS provider outside R1 rejected | control | `ctest -R '^result\.nc\.'` | ❌ W0 | ⬜ pending |
 | EVID-01 | Complete manifest row accepted; all eight fields required | positive + control | `ctest -R '^manifest\.'` | ❌ W0 | ⬜ pending |
 | EVID-02 | Missing field, branch pin, unknown provenance class each rejected with a reason; linter runs in the canonical command | control + gate | `ctest -R '^manifest\.'`; `cmake --workflow --preset ci` | ❌ W0 | ⬜ pending |
-| EVID-03 | Pinned fetch verifies before placing; mismatch exits non-zero loudly with nothing placed; `.fixtures/` ignored; no third-party binary tracked | positive + control + gate | `ctest -R '^(fetch\|pins)\.'` | ❌ W0 | ⬜ pending |
-| EVID-05 | Nine states as data; unknown state and PASS-without-run rejected | control | `ctest -R '^(contract\|result)\.nc\.'` | ❌ W0 | ⬜ pending |
-| EVID-06 | Registry holds six seeds; a result pointing at an entry must carry `disputed` | gate + control | `ctest -R '^registry\.'`; `ctest -R '^result\.nc\.(undisclosed_dispute\|unknown_dispute)'` | ❌ W0 | ⬜ pending |
+| EVID-03 | Pinned fetch verifies before placing; mismatch exits non-zero loudly with nothing placed; `.fixtures/` ignored; no third-party binary tracked | positive + control + gate | `ctest -R '^fetch\.'`; `ctest -R '^pins\.'` | ❌ W0 | ⬜ pending |
+| EVID-05 | Nine states as data; unknown state and PASS-without-run rejected | control | `ctest -R '^contract\.nc\.'`; `ctest -R '^result\.nc\.'` | ❌ W0 | ⬜ pending |
+| EVID-06 | Registry holds six seeds; a result pointing at an entry must carry `disputed` | gate + control | `ctest -R '^registry\.'`; `ctest -R '^result\.nc\.undisclosed_dispute'`; `ctest -R '^result\.nc\.unknown_dispute'` | ❌ W0 | ⬜ pending |
 | VERIF-01 (manifest clause) | `manifest.lint` runs inside `cmake --workflow --preset ci` | gate | `cmake --workflow --preset ci` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
