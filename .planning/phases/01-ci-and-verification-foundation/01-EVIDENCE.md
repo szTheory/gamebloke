@@ -86,16 +86,82 @@ Observed via `gh run view`.
 
 ## PR A (.planning-only)
 
-Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
+Observed via `gh pr view` and `gh run view`, 2026-11-10 UTC.
+
+- PR: https://github.com/szTheory/gamebloke/pull/2, title `docs(01): record CI routing evidence and switch to phase branches`.
+  Every changed path is under `.planning/` (7 files). Opened before the ruleset existed; merged after it, through it.
+- Run 42738583708 (pull_request, head `6a166ea`): conclusion `success`. The `changes` job printed `heavy=false`
+  (`CHANGED_FILES: 7`), and the `CI required` job printed `ci-required: ok (5 jobs, heavy=false, event=pull_request)`.
+
+| Job | Conclusion |
+|-----|------------|
+| changes | success |
+| hygiene | success |
+| title | success |
+| build (ubuntu-26.04 and macos-26 matrix) | skipped |
+| asan | skipped |
+| CI required | success |
+
+  The two build legs are one matrix job in the run's job list, reported `skipped` as a whole.
+- Merge: `gh pr merge 2 --squash --delete-branch`, no admin flag, no re-run needed; merged 2026-11-10T01:51:21Z as
+  `599559c5cf48d575795dec679b37974ee77acce2` on main. The merge was accepted through the active ruleset; the
+  command's local fast-forward of the checked-out branch then failed because local main still carried the plan 09
+  commit under a different hash (a local-only step; handled by the tree-equality check and reset below).
+- Main push run 42738703843 (head `599559c`): conclusion `success`. The push event runs every lane: hygiene, changes,
+  asan, build ubuntu-26.04 GNU, build macos-26 AppleClang and CI required are `success` (title `skipped` by design).
+  Durations (s): hygiene 9, changes 4, asan 11, build ubuntu 23, build macos 20, CI required 6.
+  The `CI required` check run on main is `success`.
+- Local follow-up: `git diff --quiet origin/main 6a166ea` (the unmerged PR commit) reported equal trees; local main
+  was reset to origin/main; the phase close-out branch `gsd/phase-01-ci-and-verification-foundation` was created
+  from origin/main and is not pushed.
 
 ## Ruleset
 
-Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
+Observed via `scripts/apply-repo-settings.sh`, `gh api`, 2026-11-10 UTC.
+
+- Order (D-13, orchestrator resolution 2): applied only after main already had a successful `CI required` check run
+  (push run 42737946832), and after PR A's `.planning/`-only run was green.
+- `sh scripts/apply-repo-settings.sh --apply`: `repo-settings: created ruleset main`, then `repo-settings: ruleset ok (id 26908822)`.
+  The live API accepted `.github/rulesets/main.json` unchanged (no `allowed_merge_methods` fix was needed).
+- Ruleset ID: 26908822, enforcement `active`, target branch `~DEFAULT_BRANCH`.
+- `sh scripts/apply-repo-settings.sh --check`: exit 0. Output, verbatim:
+
+```
+repo-settings: ruleset ok (id 26908822)
+repo-settings: advisory: squash_merge_commit_title=COMMIT_OR_PR_TITLE (not applied: outside the owner's ruleset-only authorization)
+repo-settings: advisory: actions sha_pinning_required=false (not applied: outside the owner's ruleset-only authorization)
+repo-settings: advisory: secret_scanning=enabled (not applied: outside the owner's ruleset-only authorization)
+repo-settings: advisory: secret_scanning_push_protection=enabled (not applied: outside the owner's ruleset-only authorization)
+repo-settings: advisory: rules not requested: deletion, non_fast_forward, required_linear_history, merge-method restriction (not applied: outside the owner's ruleset-only authorization)
+```
+
+- `gh api repos/szTheory/gamebloke/rules/branches/main` lists `pull_request` and `required_status_checks` (context
+  `CI required`), both from ruleset 26908822. `gh api repos/szTheory/gamebloke/rulesets/26908822 --jq '.bypass_actors | length'`
+  prints `0`.
+- Unchanged settings after the apply: `squash_merge_commit_title` is `COMMIT_OR_PR_TITLE`, Actions
+  `sha_pinning_required` is `false`. Nothing other than the ruleset was written.
+- Open item: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
 
 ## Real logo digest
 
-Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
+- Status: `owner-pending (human-needed)`. Recorded 2026-11-10 UTC by plan 01-11 Task 2 from the owner's Task 1 reply, `pending`.
+- Owner: the repository owner. No agent opened, copied, or hashed any owner-held file; no digest crossed.
+- Next action: the owner runs `sh scripts/signature-digest.sh logo <file>` on a GBA-header-bearing file they already hold,
+  outside the repository, and commits the printed `<64 hex> nintendo-logo-window` line through a PR, replacing the single
+  `owner-pending nintendo-logo-window` row in `tests/signatures/logo.sha256`. A matching hash proves identity, not rights.
+- Current visible state: `tests/signatures/logo.sha256` is unchanged (the `owner-pending` row). `signature.logo.real_digest`
+  reports SKIPPED with its reason (never PASS), `signature.owner_local` reports SKIPPED, and the inventory summary shows
+  `skipped 2 (allowed 2)`. CI stays green. EVID-04's real-logo item is a human-needed gap; the synthesized logo-window
+  controls still guard the rule path.
 
 ## Close-out publication
 
-Pending: recorded by plan 09 Task 2 / plan 10 / plan 11.
+- Date: 2026-11-10 UTC. Plan 01-10 Task 3 (checkpoint:decision, `gate="blocking-human"`, no auto-select).
+- Owner's answer, copied from the decision line: `close-out-pr` (authorize ONE additional close-out PR under the same
+  rules: `CI required` must pass and the PR is squash-merged through the ruleset, no admin bypass, no direct push to main).
+- The authorization is exercised by plan 01-11 Task 3, not by plan 01-10. Plan 01-10 opened no third PR and pushed nothing;
+  the close-out branch `gsd/phase-01-ci-and-verification-foundation` is still local and unpushed.
+- Plan 01-11 (2026-11-10 UTC): the owner replied `pending` to the digest request, so the status line is unchanged:
+  real-logo rule inactive on origin/main until a digest lands
+- Plan 01-11 Task 3 exercises the authorization: the close-out branch is pushed and merged through one PR (squash,
+  through the ruleset, no admin bypass). The PR number and run IDs are in 01-11-SUMMARY.md and the plan 01-11 report.

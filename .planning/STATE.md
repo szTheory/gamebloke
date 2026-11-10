@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 01
 current_phase_name: CI and Verification Foundation
-status: executing
-stopped_at: Completed 01-09-PLAN.md
-last_updated: "2026-11-10T01:47:38.365Z"
+status: verifying
+stopped_at: Completed 01-11-PLAN.md
+last_updated: "2026-11-10T02:00:16.494Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 01 execution started
-state_head: d1b59327fc348138ff725781b8c29f04c5f6f350
+state_head: e83ece20f622fab5a1c82538c2ebdda7c06e64b5
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 11
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 01 (CI and Verification Foundation) — EXECUTING
-Plan: 10 of 11
-Status: Ready to execute
+Plan: 11 of 11
+Status: Phase complete — ready for verification
 Last activity: 2026-11-09 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -67,6 +67,8 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P07 | 4 min | 2 tasks | 6 files |
 | Phase 01 P08 | not measured | 2 tasks | 6 files |
 | Phase 01 P09 | 10 min | 2 tasks | 14 files |
+| Phase 01 P10 | not measured | 3 tasks | 4 files |
+| Phase 01 P11 | not measured | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -100,6 +102,8 @@ Recent decisions affecting current work:
 - [Phase 01]: All six ci.yml job timeouts are 3 minutes: slowest measured job was 36 s, so the plan floor of 3 applies (runs 42737527955#1,#2)
 - [Phase 01]: PR B (#1) squash-merged as d1b5932; main push run 42737946832 reports CI required success; local main reset to origin/main with backup/phase-01-pre-squash
 - [Phase 01]: 01-10: the main ruleset requires `CI required` with no bypass, so GSD now uses per-phase branches (`git.branching_strategy: phase`, template `gsd/phase-{phase}-{slug}` unchanged) and every change reaches main through a PR
+- [Phase 01]: 01-10: PR A (.planning-only) ran heavy=false with CI required success; ruleset 26908822 applied last and PR A merged through it; owner chose close-out-pr (one additional close-out PR, exercised by plan 11)
+- [Phase 01]: 01-11: owner replied `pending` for the real logo digest (EVID-04 real-logo item is owner-pending, human-needed; logo.sha256 unchanged); close-out reached main through one PR (#3) squash-merged through the ruleset; EVID-04 left Pending in REQUIREMENTS.md until the verifier decides
 
 ### Pending Todos
 
@@ -110,7 +114,8 @@ None yet.
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
 - Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
-- Phase 1: the real-logo digest (EVID-04) is owner-pending; the owner supplies it with `scripts/signature-digest.sh` in plan 11.
+- Phase 1: the real-logo digest (EVID-04) is `owner-pending (human-needed)`. The owner replied `pending` at plan 11; next action: owner runs `scripts/signature-digest.sh logo <file>` on a file they hold and commits the digest through a PR.
+- Phase 1: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
 ## Deferred Items
@@ -123,6 +128,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:47:38.327Z
-Stopped at: Completed 01-09-PLAN.md
+Last session: 2026-11-10T02:00:16.464Z
+Stopped at: Completed 01-11-PLAN.md
 Resume file: None
