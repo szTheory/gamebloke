@@ -96,7 +96,10 @@ canonical-logo acceptance and flagged-unverified review items remain open.
 - [ ] ci, hygiene and available sanitizer evidence recorded after implementation
 - [ ] No fabricated real-logo acceptance; LOAD-02 canonical gap remains partial
 
-**Approval:** pending execution. Do not set nyquist_compliant or wave_0_complete merely because plans exist.
+**Approval:** Automated task coverage has been audited and exercised. Overall
+phase acceptance remains pending the real-logo requirement; no owner acceptance
+is inferred. The legacy probe classifications above are historical tool limits,
+not substitutes for the current source/test evidence.
 
 ## Validation Audit 2026-11-10
 

@@ -140,6 +140,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Header findings are advisory for every size-valid direct-start image and commit only with a successful copied-ROM load.
 - [Phase 03]: Canonical logo stays UNCHECKED/OWNER_PENDING; synthetic comparisons prove mechanics only.
 - [Phase 03]: Compute the header checksum by subtracting bytes 0xA0-0xBC and 0x19 from zero modulo 256 before comparing byte 0xBD.
+- [Phase 03]: Canonical profile document synchronization supports plain Markdown plus fenced/indented examples and HTML comments; reject unsupported raw HTML blocks. Normalize once before any metadata, heading, section, or table discovery, and use that same visible content everywhere; require exactly one visible standalone version line.
+- [Phase 03]: For document-parser fixes, add controls for hidden headings/tables, adjacent contradictory metadata, and markup opened before and closed after the synchronized section. After a broad phase review, target follow-up review at changed files and the confirmed root-cause family; do not repeat unchanged core review without a new concern.
+- [Phase 03]: Profile document controls exercise distinct mutations. The final `profile.nc.bus_policy_doc` test took 3.15 s in CI and 2.88 s in hygiene, below each lane's five slowest tests; no duplicate validator setup was supported by the measurements. CI (17:03:57–17:06:02) and hygiene (17:06:11–17:07:25) did not overlap. The broader runtime increase from earlier 49–97 second CI samples is unexplained by retained logs; no optimization was justified.
 
 ### Pending Todos
 
