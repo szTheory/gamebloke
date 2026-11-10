@@ -23,4 +23,20 @@ if(GBL_LANE STREQUAL "ci")
     LABELS ci unit
     COMMAND "${CMAKE_COMMAND}" -DCASE=needs "-DSRC=${CMAKE_SOURCE_DIR}"
       -P "${CMAKE_SOURCE_DIR}/tests/ci/ci_cases.cmake")
+
+  # Pull request title rule (D-14): Conventional Commits, at most 100 characters.
+  gbl_add_test(
+    NAME ci.title.cases
+    LABELS ci unit
+    COMMAND sh tests/ci/title_cases.sh
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+  # The compiler-identity guard must stay live: a wrong GBL_EXPECT_C_ID fails
+  # configure, so the Linux GCC leg is proven rather than assumed.
+  gbl_add_test(
+    NAME build.nc.compiler_id_guard
+    LABELS build control
+    COMMAND "${CMAKE_COMMAND}" -DCASE=compiler_id_guard "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/ci/ci_cases.cmake")
 endif()

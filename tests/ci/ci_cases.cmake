@@ -8,6 +8,10 @@
 # reason is given, print it too (`&` separates several required fragments; `\ `
 # is a space inside one).
 #
+# compiler_id_guard: configuring with GBL_EXPECT_C_ID=NoSuchCompiler must fail
+# with `gamebloke: compiler-id-mismatch`, so the identity guard cannot rot into
+# a no-op. Needs -DBIN=<build root>; works in a sandbox under it.
+#
 # Reason codes this file prints:
 #   needs-case: FAIL <n>: <line>
 #   needs-cases: <n> ok
@@ -90,6 +94,18 @@ if(CASE STREQUAL "needs")
     message(FATAL_ERROR "needs-case: FAIL (see above)")
   endif()
   message("needs-cases: ${n} ok")
+elseif(CASE STREQUAL "compiler_id_guard")
+  if(NOT DEFINED BIN)
+    message(FATAL_ERROR "ci-cases: -DBIN= is required for compiler_id_guard")
+  endif()
+  include("${SRC}/cmake/ExpectFail.cmake")
+  set(sandbox "${BIN}/nc/compiler_id_guard")
+  file(REMOVE_RECURSE "${sandbox}")
+  file(MAKE_DIRECTORY "${sandbox}")
+  gbl_expect_fail(
+    COMMAND "${CMAKE_COMMAND}" -E env GBL_EXPECT_C_ID=NoSuchCompiler
+      "${CMAKE_COMMAND}" -S "${SRC}" -B "${sandbox}" -G Ninja -DGBL_LANE=hygiene
+    REGEX "gamebloke: compiler-id-mismatch")
 else()
   message(FATAL_ERROR "ci-cases: unknown CASE '${CASE}'")
 endif()

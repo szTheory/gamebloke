@@ -1,7 +1,9 @@
 # Sorted (byte order) expected-test inventory for the ci lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+build.nc.compiler_id_guard build,control
 ci.classify.cases ci,unit
 ci.required.cases ci,unit
+ci.title.cases ci,unit
 core.nc.host_include control,core
 core.no_host_includes core,gate
 core.version core,unit

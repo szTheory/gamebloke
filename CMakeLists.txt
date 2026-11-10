@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.25)
 project(gamebloke VERSION 0.0.0 LANGUAGES C)
 
+# Compiler identity guard. CI sets GBL_EXPECT_C_ID (GNU, Clang, AppleClang) so
+# "Linux GCC" and "macOS arm64" are proven by configure, not assumed from a
+# runner label. Unset or empty means no expectation (local builds).
+if(NOT "$ENV{GBL_EXPECT_C_ID}" STREQUAL ""
+    AND NOT "$ENV{GBL_EXPECT_C_ID}" STREQUAL "${CMAKE_C_COMPILER_ID}")
+  message(FATAL_ERROR
+    "gamebloke: compiler-id-mismatch: expected $ENV{GBL_EXPECT_C_ID} got ${CMAKE_C_COMPILER_ID}")
+endif()
+
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
