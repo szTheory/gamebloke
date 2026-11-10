@@ -43,7 +43,10 @@ Register it with `gbl_add_test(NAME ... LABELS ... COMMAND ...)` (see
 `cmake/GblTests.cmake`), then add its line to the sorted inventory for each lane
 that runs it (`tests/inventory/<lane>.txt`, format `<name> <labels>`). Configure
 fails with `inventory: configure-mismatch` or `inventory: unsorted` until both
-agree. Mark a test `SKIPPABLE` and add `skip-ok` to its inventory line only when it
+agree. A test that checks a program's output must also check its exit status: CTest ignores the
+exit code when `PASS_REGULAR_EXPRESSION` is set, so run the program through
+`cmake -DEXPECT=pass -DCMD=<program> -DARGS=<a|b> -DREGEX=<re> -P cmake/ExpectFail.cmake`
+(see `runner.version`). Mark a test `SKIPPABLE` and add `skip-ok` to its inventory line only when it
 prints `SKIPPED: <reason>`; any other skip is `inventory: skipped-not-allowed`.
 
 ## Negative controls
@@ -64,7 +67,13 @@ Each gate prints a stable `<family>: <code>` line:
   `bad-digest-row`, `missing-list`.
 - `inventory`: `missing`, `extra`, `duplicate`, `unsorted`, `failed`, `skipped-not-allowed`,
   `skipped-no-reason`, `disabled`, `no-junit`, `empty-junit`, `configure-mismatch`.
-- `core`: `host-include` (the machine core may include only freestanding headers).
+- `core`: `host-include` (the machine core may include only freestanding headers; a quoted
+  include must resolve inside the scanned tree, a continued or commented include is still
+  an include, and a computed include is refused) and `no-files` (a scanned directory is
+  absent or holds no source file).
+- `traps`: `exit-with-signals`, `no-signal-handler`, `no-files` (`scripts/check-traps.sh`: a
+  script that cleans up on `EXIT` must end on `HUP`, `INT` and `TERM` with `trap 'exit <n>'`;
+  one `trap ... EXIT HUP INT TERM` line lets a signalled scan resume and print `ok`).
 - `workflow`: the policy gate over every `.github/workflows/*.yml` and `*.yaml` (for example
   `persist-credentials`, `moving-label`, `no-timeout`, `pr-target`, `expression-in-run`,
   `job-permissions`) and the action-pin gate over the same files. `ci.yml` also gets the
