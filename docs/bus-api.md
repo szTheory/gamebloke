@@ -30,8 +30,11 @@ allocation and allocator callbacks.
 `gbl_machine_dispose` detaches the ROM and allocator, clears canonical mutable
 state, marks the instance uninitialized, then releases the detached ROM if one
 was installed. Disposing an initialized empty machine is safe to repeat. The
-host must not use the instance from a release callback or call into the same
-instance concurrently or reentrantly.
+release callback used during disposal must not reenter or mutate the disposed
+instance. On successful ROM replacement, the old-ROM release callback may
+inspect the newly committed, cold-reset instance read-only, but must not reenter
+or mutate it. Same-instance concurrency and reentrancy remain host contract
+violations.
 
 Distinct machine instances have independent backing arrays and clocks. The
 host is responsible for synchronizing all access to a single instance.
@@ -85,3 +88,61 @@ Other outcome values reserve room for the planned BIOS, I/O, and cartridge
 decode paths. Their presence does not mean those regions are implemented yet.
 The full map, video access rules, and ROM-tail policy are handled by later
 Phase 3 plans. No BIOS bytes or game ROMs are bundled.
+
+## ROM loading and host allocation
+
+`gbl_load_rom` copies a caller-provided image into storage returned by the
+machine's host allocator. It never keeps the caller pointer. The input must be
+a readable span for the declared size and remain immutable for the duration of
+the call. ROM file selection and file reads stay in a host adapter; the core
+does not open files or use a default heap.
+
+Validation returns a `gbl_load_result` by value. The result contains a status
+and reason; there is no caller-owned diagnostic buffer for a refusal to mutate.
+An uninitialized or null machine is `INVALID_ARGUMENT/ARGUMENT`. For an
+initialized machine, size checks run before checking the image pointer or
+allocator callbacks, in this order:
+
+| Condition | Result |
+|---|---|
+| Length is zero | `REFUSED/ROM_ZERO` |
+| Length is below `0xC0` | `REFUSED/ROM_SHORT` |
+| Length exceeds `0x02000000` (32 MiB) | `REFUSED/ROM_TOO_LARGE` |
+| Length is odd | `REFUSED/ROM_ODD` |
+| Valid length with null image or missing/incomplete callback pair | `INVALID_ARGUMENT/ARGUMENT` |
+| Host allocation returns null | `RESOURCE_FAILURE/ALLOCATION` |
+
+This order gives short length precedence over odd length, and the 32 MiB
+maximum precedence over odd length. These are deterministic API rules, not
+hardware-derived cartridge behavior.
+
+The host allocator is a trusted boundary with these obligations:
+
+- `allocate(context, length)` receives the exact validated length and returns
+  suitably aligned writable storage for that many bytes, or null. A candidate
+  must be fresh and disjoint from machine storage, the input span, and the
+  currently installed ROM.
+- `release(context, pointer, length)` receives the exact pointer and length
+  from that allocator context, cannot fail, and must not retain access after
+  it returns. It must not reenter or mutate the machine.
+- Same-instance calls are ordered by the host. Callbacks must not use the
+  machine to start another call while the current load is in progress.
+
+After validation, the core allocates and copies into a candidate before
+changing machine state. It installs the candidate pointer and length, cold
+resets all canonical mutable fields and arrays, then calls release for the
+detached prior ROM. A replacement release callback can observe the new ROM and
+zeroed machine state read-only. No failure-prone core operation follows commit.
+Allocation failure and every refusal preserve the prior machine state and
+caller input. Successful reset preserves the installed ROM; a fresh loaded
+machine and a repeatedly reset loaded machine have equal canonical fields and
+ROM contents. Disposal clears and detaches the ROM before releasing it, and a
+second disposal does not release again.
+
+`gbl_rom_data` exposes a const pointer to the installed owned bytes, and
+`gbl_rom_size` returns their byte length. Both are read-only accessors and
+return null/zero for a null or uninitialized machine. Header diagnostics are
+not implemented in this loader slice; later header findings remain advisory
+under `direct-start`, and the owner-pending canonical logo digest stays a
+separate gate. This work does not establish hardware accuracy or broad game
+compatibility.

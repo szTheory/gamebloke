@@ -24,6 +24,10 @@ typedef struct host_storage {
     size_t last_allocate_size;
     size_t last_release_size;
     uintptr_t last_released_address;
+    uint8_t *last_allocated_image;
+    gbl_machine *observe_machine;
+    bool inspect_next_release;
+    bool saw_committed_replacement;
     bool fail_next;
     host_block blocks[GBL_TEST_ALLOCATIONS];
 } host_storage;
@@ -84,7 +88,36 @@ static void *host_allocate(void *context, size_t size)
     block->image = raw + 1u;
     block->length = size;
     block->active = true;
+    storage->last_allocated_image = block->image;
     return block->image;
+}
+
+static bool bytes_are_zero(const uint8_t *bytes, size_t length)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        if (bytes[index] != 0u) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool machine_is_cold_with_candidate(const host_storage *storage)
+{
+    const gbl_machine *machine = storage->observe_machine;
+
+    return machine != NULL && machine->initialized &&
+           machine->rom == storage->last_allocated_image &&
+           machine->rom_length == storage->last_allocate_size &&
+           machine->master_cycles == 0u && machine->open_bus == 0u &&
+           machine->dispcnt == 0u &&
+           bytes_are_zero(machine->ewram, GBL_EWRAM_SIZE) &&
+           bytes_are_zero(machine->iwram, GBL_IWRAM_SIZE) &&
+           bytes_are_zero(machine->pram, GBL_PRAM_SIZE) &&
+           bytes_are_zero(machine->vram, GBL_VRAM_SIZE) &&
+           bytes_are_zero(machine->oam, GBL_OAM_SIZE);
 }
 
 static void host_release(void *context, void *pointer, size_t size)
@@ -95,6 +128,13 @@ static void host_release(void *context, void *pointer, size_t size)
     ++storage->release_calls;
     storage->last_release_size = size;
     storage->last_released_address = (uintptr_t)pointer;
+    if (storage->inspect_next_release) {
+        storage->saw_committed_replacement =
+            machine_is_cold_with_candidate(storage);
+        CHECK(storage->saw_committed_replacement);
+        CHECK(storage->last_allocated_image != pointer);
+        storage->inspect_next_release = false;
+    }
     for (index = 0u; index < GBL_TEST_ALLOCATIONS; ++index) {
         host_block *block = &storage->blocks[index];
 
@@ -394,6 +434,8 @@ static int run_transaction(void)
 
     previous_rom_address = (uintptr_t)loaded->rom;
     releases_before = loaded_storage.release_calls;
+    loaded_storage.observe_machine = loaded;
+    loaded_storage.inspect_next_release = true;
     reference = new_machine(&reference_storage);
     if (reference == NULL) {
         fprintf(stderr, "loader.transaction: reference machine allocation failed\n");
@@ -407,6 +449,7 @@ static int run_transaction(void)
     CHECK(result.status == GBL_LOAD_STATUS_OK);
     result = gbl_load_rom(loaded, replacement, GBL_TEST_MIN_ROM_SIZE);
     CHECK(result.status == GBL_LOAD_STATUS_OK);
+    CHECK(loaded_storage.saw_committed_replacement);
     CHECK(loaded_storage.release_calls == releases_before + 1u);
     CHECK(loaded_storage.last_released_address == previous_rom_address);
     CHECK(loaded->rom != replacement);
