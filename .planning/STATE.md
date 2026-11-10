@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 03
 current_phase_name: Bus API, Memory Map, and ROM Loading
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-11-10T16:02:50.361Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-11-10T16:39:52.175Z"
 last_activity: 2026-11-10
 last_activity_desc: Plan 03-01 complete; Phase 03 execution continues
-state_head: 077d7eb85261f3d8869d0091a3c07ae3bb7c10d9
+state_head: 1137c55eb711c55bb7fc7594ac816707e7f2fab6
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 24
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 03 (Bus API, Memory Map, and ROM Loading) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-11-10 — Plan 03-01 complete; Phase 03 execution continues
 
@@ -76,6 +76,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 02 P06 | 20 min | 3 tasks | 6 files |
 | Phase 02 P07 | 25 min | 3 tasks | 5 files |
 | Phase 03 P01 | 26 min | 3 tasks | 10 files |
+| Phase 03 P02 | 21 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,9 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-07: pins.txt is linted by manifest.lint (MODE=all); no separate pins gate exists
 - [Phase 02]: 02-07: floor (3.25.3) and Linux container (aarch64) runs pass 252/250/2; live CI and RESEARCH A1 stay pending with the orchestrator
 - [Phase 03]: Phase 03-01: caller-owned deterministic state; raw access uses little-endian EWRAM, one project-policy cycle, checked atomic time, and host-managed same-instance synchronization.
+- [Phase 03]: Keep schema gamebloke.profile/1 and bump the additive policy-bearing profile to profile_version 2.
+- [Phase 03]: Record one-cycle bus costs and zero initialization as IMPL project policy, not measured hardware behavior.
+- [Phase 03]: Keep absent-BIOS, unsupported-I/O, and ROM-tail current-latch reads explicitly unverified; WAITCNT, prefetch, BIOS protection, and active I/O devices remain unmodeled.
 
 ### Pending Todos
 
@@ -144,6 +148,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10T16:02:50.293Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-11-10T16:39:52.111Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

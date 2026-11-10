@@ -45,7 +45,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 ### Bus and memory
 
-- [ ] **BUS-01**: Every CPU memory access goes through a bus API that returns its cycle cost and its sequential/non-sequential class, and advances one `u64` master clock in 16,777,216 Hz cycles. Placeholder costs are allowed, but the API is final.
+- [x] **BUS-01**: Every CPU memory access goes through a bus API that returns its cycle cost and its sequential/non-sequential class, and advances one `u64` master clock in 16,777,216 Hz cycles. Placeholder costs are allowed, but the API is final.
 - [ ] **BUS-02**: The bus decodes the full GBA memory map (BIOS, EWRAM, IWRAM, I/O, PRAM, VRAM, OAM, Game Pak ROM) with documented mirrors and width rules, and unmapped reads return the open-bus value.
 - [ ] **BUS-03**: Power-on memory and register contents are filled deterministically according to a documented, profile-recorded policy.
 - [ ] **BUS-04**: A trace-hash gate fails if any handler advances machine time without going through the bus API.
@@ -174,7 +174,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | CPU-03 | Phase 4 | Pending |
 | CPU-04 | Phase 4 | Pending |
 | CPU-05 | Phase 4 | Pending |
-| BUS-01 | Phase 3 | Pending |
+| BUS-01 | Phase 3 | Complete |
 | BUS-02 | Phase 3 | Pending |
 | BUS-03 | Phase 3 | Pending |
 | BUS-04 | Phase 6 | Pending |
