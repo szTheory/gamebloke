@@ -16,10 +16,66 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 # Lane selection. Each lane has its own sorted test inventory under
 # tests/inventory/<lane>.txt. Later plans add each lane's content.
-set(GBL_LANE "ci" CACHE STRING "Verification lane: ci | asan | hygiene")
-set_property(CACHE GBL_LANE PROPERTY STRINGS ci asan hygiene)
-if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene)$")
-  message(FATAL_ERROR "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, or hygiene)")
+set(GBL_LANE "ci" CACHE STRING
+  "Verification lane: ci | asan | hygiene | diagnostics")
+set_property(CACHE GBL_LANE PROPERTY STRINGS ci asan hygiene diagnostics)
+if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics)$")
+  message(FATAL_ERROR
+    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, or diagnostics)")
+endif()
+
+set(GBL_DIAGNOSTIC_STAGE "admitted" CACHE STRING
+  "Diagnostic fixture authority stage: proof | admitted")
+set_property(CACHE GBL_DIAGNOSTIC_STAGE PROPERTY STRINGS proof admitted)
+if(NOT GBL_DIAGNOSTIC_STAGE MATCHES "^(proof|admitted)$")
+  message(FATAL_ERROR
+    "gamebloke: unknown-diagnostic-stage: '${GBL_DIAGNOSTIC_STAGE}'")
+endif()
+set(GBL_TOOLCHAIN_ROOT "${CMAKE_SOURCE_DIR}/build/toolchains" CACHE PATH
+  "Ignored cache root for the pinned ARM diagnostics toolchain")
+option(GBL_REQUIRE_DIAGNOSTICS
+  "Require a verified host ARM diagnostics toolchain during configure" OFF)
+
+if(GBL_LANE STREQUAL "diagnostics" OR GBL_REQUIRE_DIAGNOSTICS)
+  execute_process(COMMAND uname -s RESULT_VARIABLE gbl_uname_system_rc
+    OUTPUT_VARIABLE gbl_uname_system OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process(COMMAND uname -m RESULT_VARIABLE gbl_uname_machine_rc
+    OUTPUT_VARIABLE gbl_uname_machine OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT "${gbl_uname_system_rc}" STREQUAL "0" OR
+     NOT "${gbl_uname_machine_rc}" STREQUAL "0")
+    message(FATAL_ERROR "gamebloke: diagnostics-host-detection-failed")
+  endif()
+  if(gbl_uname_system STREQUAL "Darwin" AND
+     gbl_uname_machine MATCHES "^(arm64|aarch64)$")
+    set(GBL_DIAGNOSTIC_HOST darwin-arm64)
+    set(GBL_DIAGNOSTIC_OUTPUT_LEAF native)
+  elseif(gbl_uname_system STREQUAL "Linux" AND
+     gbl_uname_machine MATCHES "^(x86_64|amd64)$")
+    set(GBL_DIAGNOSTIC_HOST linux-x64)
+    set(GBL_DIAGNOSTIC_OUTPUT_LEAF hosted-linux-x64)
+  elseif(gbl_uname_system STREQUAL "Linux" AND
+     gbl_uname_machine MATCHES "^(aarch64|arm64)$")
+    set(GBL_DIAGNOSTIC_HOST linux-arm64)
+    set(GBL_DIAGNOSTIC_OUTPUT_LEAF linux-arm64)
+  else()
+    message(FATAL_ERROR
+      "gamebloke: unsupported-diagnostics-host: ${gbl_uname_system}/${gbl_uname_machine}")
+  endif()
+  cmake_path(ABSOLUTE_PATH GBL_TOOLCHAIN_ROOT BASE_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    NORMALIZE OUTPUT_VARIABLE GBL_TOOLCHAIN_ROOT_ABSOLUTE)
+  if(GBL_REQUIRE_DIAGNOSTICS)
+    execute_process(
+      COMMAND sh "${CMAKE_SOURCE_DIR}/scripts/fetch-toolchain.sh" --check
+        --host "${GBL_DIAGNOSTIC_HOST}" --root "${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      RESULT_VARIABLE gbl_toolchain_check_rc
+      OUTPUT_VARIABLE gbl_toolchain_check_out
+      ERROR_VARIABLE gbl_toolchain_check_error)
+    if(NOT "${gbl_toolchain_check_rc}" STREQUAL "0")
+      message(FATAL_ERROR
+        "gamebloke: required-diagnostics-toolchain-invalid: ${gbl_toolchain_check_error}${gbl_toolchain_check_out}")
+    endif()
+  endif()
 endif()
 
 # Warning set (Pitfall 11). Warnings become errors through the preset cache
@@ -31,15 +87,6 @@ target_compile_options(gbl_warnings INTERFACE
 # Not include(CTest): that adds Dart/dashboard targets we do not want.
 enable_testing()
 
-# Narrow TDD hook used to prove the diagnostics preset contract fails closed
-# before the diagnostics lane is implemented. The normal diagnostics lane
-# registers the same check from tests/toolchain.cmake.
-if(GBL_TOOLCHAIN_TESTING)
-  add_test(NAME diagnostics.presets
-    COMMAND "${CMAKE_COMMAND}" "-DCASE=preset-contract"
-      "-DSRC=${CMAKE_SOURCE_DIR}" -P "${CMAKE_SOURCE_DIR}/tests/toolchain.cmake")
-endif()
-
 # NOTE: running ctest alone is NOT the verify command. The verify command is
 #   cmake --workflow --preset ci
 # which reconfigures (deleting any stale junit.xml), builds, runs the tests, and
@@ -49,7 +96,8 @@ file(REMOVE "${CMAKE_BINARY_DIR}/junit.xml")
 
 include(cmake/GblTests.cmake)
 
-if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
+   GBL_LANE STREQUAL "diagnostics")
   include(cmake/ReadLogoDigest.cmake)
   set(GBL_LOGO_AUTHORITY "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -246,4 +294,20 @@ endif()
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "hygiene")
   include(tests/gates.cmake)
   include(tests/ci_gates.cmake)
+endif()
+if(GBL_LANE STREQUAL "diagnostics")
+  set(GBL_DIAGNOSTIC_OUTPUT_ROOT
+    "${CMAKE_SOURCE_DIR}/build/phase05-spike/${GBL_DIAGNOSTIC_OUTPUT_LEAF}")
+  add_custom_target(gbl_diagnostics ALL
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DOUT=${GBL_DIAGNOSTIC_OUTPUT_ROOT}"
+      "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+      "-DHOST=${GBL_DIAGNOSTIC_HOST}"
+      "-DMODE=smoke"
+      -P "${CMAKE_SOURCE_DIR}/cmake/BuildArmDiagnostics.cmake"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Building pinned ARMv4T diagnostics for ${GBL_DIAGNOSTIC_HOST}"
+    VERBATIM)
+  include(tests/toolchain.cmake)
 endif()

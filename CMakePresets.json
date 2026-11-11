@@ -37,12 +37,25 @@
         "CMAKE_C_FLAGS": "-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
       }
+    },
+    {
+      "name": "diagnostics",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "diagnostics",
+        "GBL_DIAGNOSTIC_STAGE": "proof",
+        "GBL_REQUIRE_DIAGNOSTICS": "ON",
+        "GBL_TOOLCHAIN_ROOT": "${sourceDir}/build/toolchains"
+      }
     }
   ],
   "buildPresets": [
     { "name": "ci", "configurePreset": "ci" },
     { "name": "hygiene", "configurePreset": "hygiene" },
-    { "name": "asan", "configurePreset": "asan" }
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "diagnostics", "configurePreset": "diagnostics" }
   ],
   "testPresets": [
     {
@@ -96,6 +109,23 @@
       "output": { "verbosity": "verbose" },
       "filter": { "include": { "label": "^post$" } },
       "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "diagnostics",
+      "configurePreset": "diagnostics",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/diagnostics/junit.xml"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "diagnostics-post",
+      "configurePreset": "diagnostics",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
     }
   ],
   "workflowPresets": [
@@ -124,6 +154,15 @@
         { "type": "build", "name": "asan" },
         { "type": "test", "name": "asan" },
         { "type": "test", "name": "asan-post" }
+      ]
+    },
+    {
+      "name": "diagnostics",
+      "steps": [
+        { "type": "configure", "name": "diagnostics" },
+        { "type": "build", "name": "diagnostics" },
+        { "type": "test", "name": "diagnostics" },
+        { "type": "test", "name": "diagnostics-post" }
       ]
     }
   ]

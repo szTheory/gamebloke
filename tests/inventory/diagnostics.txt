@@ -1,0 +1,7 @@
+# Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+# Sorted (byte order) expected-test inventory for the diagnostics lane.
+diagnostics.presets diagnostics,gate
+diagnostics.spike diagnostics,gate,integration
+diagnostics.toolchain diagnostics,gate
+inventory.junit post
+toolchain.offline control,diagnostics
