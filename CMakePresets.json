@@ -115,7 +115,8 @@
       "configurePreset": "diagnostics",
       "output": {
         "outputOnFailure": true,
-        "outputJUnitFile": "${sourceDir}/build/diagnostics/junit.xml"
+        "outputJUnitFile": "${sourceDir}/build/diagnostics/junit.xml",
+        "verbosity": "verbose"
       },
       "filter": { "exclude": { "label": "^post$" } },
       "execution": { "noTestsAction": "error" }

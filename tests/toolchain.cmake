@@ -56,9 +56,12 @@ function(check_preset_contract source_root)
     output outputJUnitFile)
   string(JSON no_tests_action GET "${presets}" testPresets ${test_index}
     execution noTestsAction)
+  string(JSON test_verbosity GET "${presets}" testPresets ${test_index}
+    output verbosity)
   if(NOT test_configure STREQUAL "diagnostics" OR
      NOT junit_file STREQUAL "\${sourceDir}/build/diagnostics/junit.xml" OR
-     NOT no_tests_action STREQUAL "error")
+     NOT no_tests_action STREQUAL "error" OR
+     NOT test_verbosity STREQUAL "verbose")
     message(FATAL_ERROR "toolchain: diagnostics-test-preset-contract-mismatch")
   endif()
 
@@ -94,6 +97,35 @@ function(check_toolchain source_root toolchain_root host)
       "toolchain: required-toolchain-invalid: ${check_error}${check_out}")
   endif()
   message(STATUS "toolchain: pinned host install verified (${host})")
+endfunction()
+
+function(report_architecture_attributes output_root host variant name)
+  set(attribute_path "${output_root}/proof/${variant}/${name}.attributes.txt")
+  if(NOT EXISTS "${attribute_path}" OR IS_DIRECTORY "${attribute_path}" OR
+     IS_SYMLINK "${attribute_path}")
+    message(FATAL_ERROR
+      "toolchain: diagnostic-architecture-attributes-missing-${variant}-${name}")
+  endif()
+  file(STRINGS "${attribute_path}" attribute_lines
+    REGEX "^[ \t]*Tag_(CPU_name|CPU_arch|ARM_ISA_use|THUMB_ISA_use): ")
+  set(normalized_attribute_lines "")
+  foreach(attribute_line IN LISTS attribute_lines)
+    string(STRIP "${attribute_line}" attribute_line)
+    list(APPEND normalized_attribute_lines "${attribute_line}")
+  endforeach()
+  set(attribute_lines "${normalized_attribute_lines}")
+  foreach(expected IN ITEMS
+      "Tag_CPU_arch: v4T"
+      "Tag_ARM_ISA_use: Yes" "Tag_THUMB_ISA_use: Thumb-1")
+    list(FIND attribute_lines "${expected}" found)
+    if(found EQUAL -1)
+      message(FATAL_ERROR
+        "toolchain: diagnostic-architecture-attribute-mismatch-${variant}-${name}")
+    endif()
+  endforeach()
+  string(JOIN "; " attribute_summary ${attribute_lines})
+  message(STATUS
+    "toolchain: ${host}/${variant}/${name} attributes: ${attribute_summary}")
 endfunction()
 
 function(assert_spike_outputs source_root output_root host runner)
@@ -155,6 +187,10 @@ function(assert_spike_outputs source_root output_root host runner)
        IS_SYMLINK "${rom_path}" OR NOT EXISTS "${variant_receipt_path}")
       message(FATAL_ERROR "toolchain: diagnostic-output-missing-${variant}")
     endif()
+    foreach(attribute_name IN ITEMS startup smoke elf)
+      report_architecture_attributes(
+        "${output_root}" "${host}" "${variant}" "${attribute_name}")
+    endforeach()
     file(READ "${variant_receipt_path}" variant_receipt)
     string(JSON variant_name GET "${variant_receipt}" variant)
     string(JSON variant_host GET "${variant_receipt}" host)
