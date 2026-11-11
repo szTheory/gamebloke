@@ -19,6 +19,308 @@ function(require_line expected)
   endif()
 endfunction()
 
+function(run_offline_suite)
+  set(bin_root "${BIN}")
+  cmake_path(ABSOLUTE_PATH bin_root BASE_DIRECTORY "${SRC}" NORMALIZE)
+  set(tool_dir "${bin_root}/offline-tools")
+  file(MAKE_DIRECTORY "${tool_dir}")
+  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    set(native_host darwin-arm64)
+  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+    set(native_host linux-x64)
+  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(native_host linux-arm64)
+  else()
+    message(FATAL_ERROR "toolchain-case unsupported-native-host")
+  endif()
+  set(root_name "xpack-arm-none-eabi-gcc-15.2.1-1.1")
+  set(curl "${tool_dir}/fake-curl.sh")
+  set(curl_text [=[
+#!/bin/sh
+set -eu
+out= url=
+while [ "$#" -gt 0 ]; do case "$1" in --output) out=$2; shift 2;; --url) url=$2; shift 2;; *) shift;; esac; done
+case "$url" in
+ https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/*)
+  printf 'stable\n' >> "$TOOLCHAIN_TEST_CURL_LOG"
+  case "$TOOLCHAIN_FAKE_MODE" in
+   unexpected-status) printf '503\n\n';;
+   wrong-redirect-host) printf '302\nhttps://evil.invalid/file?fake-signed-token=x\n';;
+   redirect-downgrade) printf '302\nhttp://release-assets.githubusercontent.com/file?fake-signed-token=x\n';;
+   *) printf '302\nhttps://release-assets.githubusercontent.com/file?fake-signed-token=x\n';;
+  esac
+  : > "$out";;
+ *)
+  printf 'redirect\n' >> "$TOOLCHAIN_TEST_CURL_LOG"
+  case "$TOOLCHAIN_FAKE_MODE" in
+   redirect-count) printf '302';;
+   redirected-status) printf '503';;
+   empty-payload) : > "$out"; printf '200';;
+   short-payload) cp "$TOOLCHAIN_TEST_SHORT" "$out"; printf '200';;
+   long-payload) cp "$TOOLCHAIN_TEST_LONG" "$out"; printf '200';;
+   *) cp "$TOOLCHAIN_TEST_ARCHIVE" "$out"; printf '200';;
+  esac;;
+esac
+]=])
+  file(WRITE "${curl}" "${curl_text}")
+  file(CHMOD "${curl}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+
+  set(tar "${tool_dir}/fake-tar.sh")
+  set(tar_text [=[
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$TOOLCHAIN_TEST_TAR_LOG"
+case "$1" in
+ -tzf)
+  case "$TOOLCHAIN_FAKE_TAR_CASE" in
+   corrupt-archive) exit 1;;
+   absolute-member) printf '/tmp/gbl-escape\n';;
+   parent-member) printf '%s\n' '@@ROOT@@/../../outside';;
+   top-level-member) printf 'different-root/file\n';;
+   escaping-symlink) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/escape';;
+   special-node) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/dev/null';;
+   malformed-listing) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/arm-none-eabi-as';;
+   *) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/' '@@ROOT@@/bin/arm-none-eabi-as' \
+     '@@ROOT@@/bin/arm-none-eabi-readelf' '@@ROOT@@/bin/arm-none-eabi-gcc' \
+     '@@ROOT@@/notices/' '@@ROOT@@/notices/LICENSE' '@@ROOT@@/NOTICE-copy' '@@ROOT@@/bin/as-link';;
+  esac;;
+ -tvzf)
+  case "$TOOLCHAIN_FAKE_TAR_CASE" in
+   absolute-member) printf '%s\n' '-rw-r--r-- 0/0 1 Jan 1 00:00 /tmp/gbl-escape';;
+   parent-member) printf '%s\n' '-rw-r--r-- 0/0 1 Jan 1 00:00 @@ROOT@@/../../outside';;
+   top-level-member) printf '%s\n' '-rw-r--r-- 0/0 1 Jan 1 00:00 different-root/file';;
+   escaping-symlink) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'lrwxrwxrwx 0/0 0 Jan 1 00:00 @@ROOT@@/bin/escape -> ../../../../outside';;
+   special-node) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'crw------- 0/0 0 Jan 1 00:00 @@ROOT@@/dev/null';;
+   malformed-listing) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/';;
+   *) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/bin/' \
+     '-rwxr-xr-x 0/0 1 Jan 1 00:00 @@ROOT@@/bin/arm-none-eabi-as' \
+     '-rwxr-xr-x 0/0 1 Jan 1 00:00 @@ROOT@@/bin/arm-none-eabi-readelf' \
+     '-rwxr-xr-x 0/0 1 Jan 1 00:00 @@ROOT@@/bin/arm-none-eabi-gcc' \
+     'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/notices/' \
+     '-rw-r--r-- 0/0 1 Jan 1 00:00 @@ROOT@@/notices/LICENSE' \
+     'hrw-r--r-- 0/0 1 Jan 1 00:00 @@ROOT@@/NOTICE-copy link to @@ROOT@@/notices/LICENSE' \
+     'lrwxrwxrwx 0/0 0 Jan 1 00:00 @@ROOT@@/bin/as-link -> arm-none-eabi-as';;
+  esac;;
+ --no-same-owner)
+  dest=
+  while [ "$#" -gt 0 ]; do if [ "$1" = '-C' ]; then dest=$2; shift 2; else shift; fi; done
+  case "$TOOLCHAIN_FAKE_TAR_CASE" in absolute-member|parent-member|top-level-member|escaping-symlink|special-node|malformed-listing) : > "$TOOLCHAIN_TEST_OUTSIDE";; esac
+  p="$dest/@@ROOT@@"; mkdir -p "$p/bin" "$p/notices"
+  cp "$TOOLCHAIN_TEST_AS" "$p/bin/arm-none-eabi-as"
+  cp "$TOOLCHAIN_TEST_READELF" "$p/bin/arm-none-eabi-readelf"
+  cp "$TOOLCHAIN_TEST_GCC" "$p/bin/arm-none-eabi-gcc"
+  printf 'notice\n' > "$p/notices/LICENSE"
+  ln "$p/notices/LICENSE" "$p/NOTICE-copy"
+  ln -s arm-none-eabi-as "$p/bin/as-link";;
+ *) exit 2;;
+esac
+]=])
+  string(REPLACE "@@ROOT@@" "${root_name}" tar_text "${tar_text}")
+  file(WRITE "${tar}" "${tar_text}")
+  file(CHMOD "${tar}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+  foreach(tool arm-none-eabi-as arm-none-eabi-readelf arm-none-eabi-gcc)
+    if(tool STREQUAL "arm-none-eabi-as")
+      set(v "GNU assembler test")
+    elseif(tool STREQUAL "arm-none-eabi-readelf")
+      set(v "GNU readelf test")
+    else()
+      set(v "GNU Arm Embedded GCC test 15.2.1")
+    endif()
+    file(WRITE "${tool_dir}/${tool}" "#!/bin/sh\nprintf '%s\\\\n' '${v}'\n")
+    file(CHMOD "${tool_dir}/${tool}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+  endforeach()
+
+  set(cases wrong-release wrong-host wrong-host-row wrong-redirect-host redirect-downgrade
+    redirect-count unexpected-status redirected-status empty-payload short-payload long-payload
+    digest-mismatch corrupt-archive absolute-member parent-member top-level-member escaping-symlink
+    special-node malformed-listing prior-install valid-redirect)
+  if("${CASE}" STREQUAL "offline-all")
+    foreach(s IN LISTS cases)
+      run_offline_case("${s}")
+    endforeach()
+  else()
+    list(FIND cases "${CASE}" idx)
+    if(idx EQUAL -1)
+      message(FATAL_ERROR "toolchain-case unsupported-offline-case: ${CASE}")
+    endif()
+    run_offline_case("${CASE}")
+  endif()
+endfunction()
+
+function(make_case_lock path payload wrong_hash wrong_release)
+  file(SIZE "${payload}" n)
+  file(SHA256 "${payload}" hash)
+  if(NOT "${wrong_hash}" STREQUAL "")
+    set(hash "${wrong_hash}")
+  endif()
+  file(STRINGS "${lock}" rows)
+  set(contents "")
+  foreach(row IN LISTS rows)
+    if(row MATCHES "^${native_host} ")
+      string(REGEX REPLACE "^[^ ]+ [0-9]+ [0-9a-f]+" "${native_host} ${n} ${hash}" row "${row}")
+    elseif(wrong_release AND row MATCHES "^release=")
+      set(row "release=15.2.1-9.9")
+    endif()
+    string(APPEND contents "${row}\n")
+  endforeach()
+  file(WRITE "${path}" "${contents}")
+endfunction()
+
+function(run_offline_case s)
+  set(d "${bin_root}/offline/${s}")
+  file(REMOVE_RECURSE "${d}")
+  file(MAKE_DIRECTORY "${d}")
+  set(payload "${d}/payload")
+  set(short "${d}/short")
+  set(long "${d}/long")
+  file(WRITE "${payload}" "synthetic xPack archive payload")
+  file(WRITE "${short}" "short")
+  file(WRITE "${long}" "synthetic xPack archive payload plus bytes")
+  set(case_lock "${d}/lock")
+  set(badhash "")
+  set(badrelease false)
+  if("${s}" STREQUAL "digest-mismatch")
+    set(badhash "0000000000000000000000000000000000000000000000000000000000000000")
+  elseif("${s}" STREQUAL "wrong-release")
+    set(badrelease true)
+  endif()
+  make_case_lock("${case_lock}" "${payload}" "${badhash}" "${badrelease}")
+  if("${s}" STREQUAL "wrong-host-row")
+    file(READ "${case_lock}" text)
+    if("${native_host}" STREQUAL "linux-x64")
+      set(other linux-arm64)
+    else()
+      set(other linux-x64)
+    endif()
+    string(REPLACE "${native_host}.tar.gz" "${other}.tar.gz" text "${text}")
+    file(WRITE "${case_lock}" "${text}")
+  endif()
+
+  set(root "${d}/root")
+  set(curl_log "${d}/curl.log")
+  set(tar_log "${d}/tar.log")
+  set(outside "${bin_root}/offline/${s}-outside")
+  file(REMOVE "${outside}")
+  set(sent "${payload}")
+  set(args)
+  if("${s}" STREQUAL "short-payload")
+    set(sent "${short}")
+  elseif("${s}" STREQUAL "long-payload")
+    set(sent "${long}")
+  elseif("${s}" STREQUAL "wrong-host")
+    if("${native_host}" STREQUAL "linux-x64")
+      set(other darwin-arm64)
+    else()
+      set(other linux-x64)
+    endif()
+    list(APPEND args --host "${other}")
+  elseif("${s}" STREQUAL "prior-install")
+    set(old "${root}/arm-none-eabi/${native_host}-15.2.1-1.1")
+    file(MAKE_DIRECTORY "${old}")
+    file(WRITE "${old}/keep" "preserve\n")
+  endif()
+  set(envs "CURL=${curl}" "TAR=${tar}" "TOOLCHAIN_FAKE_MODE=${s}" "TOOLCHAIN_FAKE_TAR_CASE=${s}"
+    "TOOLCHAIN_TEST_ARCHIVE=${sent}" "TOOLCHAIN_TEST_SHORT=${short}" "TOOLCHAIN_TEST_LONG=${long}"
+    "TOOLCHAIN_TEST_CURL_LOG=${curl_log}" "TOOLCHAIN_TEST_TAR_LOG=${tar_log}"
+    "TOOLCHAIN_TEST_OUTSIDE=${outside}" "TOOLCHAIN_TEST_AS=${tool_dir}/arm-none-eabi-as"
+    "TOOLCHAIN_TEST_READELF=${tool_dir}/arm-none-eabi-readelf" "TOOLCHAIN_TEST_GCC=${tool_dir}/arm-none-eabi-gcc")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E env ${envs} "${SRC}/scripts/fetch-toolchain.sh"
+    --lock "${case_lock}" --root "${root}" ${args}
+    RESULT_VARIABLE result OUTPUT_VARIABLE out ERROR_VARIABLE err)
+
+  if("${s}" STREQUAL "valid-redirect")
+    if(NOT "${result}" STREQUAL "0")
+      message(FATAL_ERROR "valid redirect failed: ${out}${err}")
+    endif()
+    set(install "${root}/arm-none-eabi/${native_host}-15.2.1-1.1")
+    file(READ "${install}/install.json" receipt)
+    string(FIND "${receipt}" "fake-signed-token" leak)
+    if(NOT leak EQUAL -1)
+      message(FATAL_ERROR "signed URL present in receipt")
+    endif()
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E env ${envs} "${SRC}/scripts/fetch-toolchain.sh"
+      --lock "${case_lock}" --root "${root}" --check RESULT_VARIABLE check
+      OUTPUT_VARIABLE check_out ERROR_VARIABLE check_err)
+    if(NOT "${check}" STREQUAL "0" OR NOT check_out MATCHES "toolchain-check PASSED")
+      message(FATAL_ERROR "valid redirect check failed: ${check_out}${check_err}")
+    endif()
+    message(STATUS "toolchain-case valid-redirect PASSED with safe internal links")
+    return()
+  endif()
+
+  if("${s}" STREQUAL "wrong-release")
+    set(reason lock-release)
+  elseif("${s}" STREQUAL "wrong-host")
+    set(reason foreign-host)
+  elseif("${s}" STREQUAL "wrong-host-row")
+    set(reason lock-url)
+  elseif("${s}" STREQUAL "wrong-redirect-host" OR "${s}" STREQUAL "redirect-downgrade")
+    set(reason redirect-host-or-scheme)
+  elseif("${s}" STREQUAL "unexpected-status")
+    set(reason redirect-status)
+  elseif("${s}" STREQUAL "redirect-count" OR "${s}" STREQUAL "redirected-status")
+    set(reason redirected-status)
+  elseif("${s}" MATCHES "^(empty|short|long)-payload$")
+    set(reason size-mismatch)
+  elseif("${s}" STREQUAL "digest-mismatch")
+    set(reason digest-mismatch)
+  elseif("${s}" STREQUAL "corrupt-archive")
+    set(reason corrupt-archive)
+  elseif("${s}" MATCHES "^(absolute|parent|top-level)-member$")
+    set(reason unsafe-member-path)
+  elseif("${s}" STREQUAL "escaping-symlink")
+    set(reason escaping-symlink)
+  elseif("${s}" STREQUAL "special-node")
+    set(reason unsafe-member-type)
+  elseif("${s}" STREQUAL "malformed-listing")
+    set(reason malformed-archive-listing)
+  elseif("${s}" STREQUAL "prior-install")
+    set(reason install-exists-use-check)
+  endif()
+  set(combined "${out}${err}")
+  if("${result}" STREQUAL "0" OR NOT combined MATCHES "toolchain: ${reason}")
+    message(FATAL_ERROR "${s} expected ${reason}, got ${result}: ${combined}")
+  endif()
+  string(FIND "${combined}" "fake-signed-token" leak)
+  if(NOT leak EQUAL -1)
+    message(FATAL_ERROR "signed URL query was logged")
+  endif()
+  if("${s}" STREQUAL "prior-install")
+    file(READ "${old}/keep" keep)
+    if(NOT keep STREQUAL "preserve\n")
+      message(FATAL_ERROR "prior installation changed")
+    endif()
+  else()
+    set(install "${root}/arm-none-eabi/${native_host}-15.2.1-1.1")
+    if(EXISTS "${install}")
+      message(FATAL_ERROR "refused install was left behind")
+    endif()
+  endif()
+  file(GLOB leftovers LIST_DIRECTORIES TRUE "${root}/.arm-none-eabi-${native_host}.*")
+  if(leftovers OR EXISTS "${outside}")
+    message(FATAL_ERROR "temporary or out-of-root effects remain")
+  endif()
+  if("${s}" MATCHES "^(wrong-release|wrong-host|wrong-host-row|unexpected-status|empty-payload|short-payload|long-payload|digest-mismatch|prior-install)$")
+    if(EXISTS "${tar_log}")
+      message(FATAL_ERROR "tar invoked before request identity passed")
+    endif()
+  elseif(EXISTS "${tar_log}")
+    file(READ "${tar_log}" calls)
+    string(FIND "${calls}" "--no-same-owner" extraction)
+    if(NOT extraction EQUAL -1)
+      message(FATAL_ERROR "extraction ran before archive validation")
+    endif()
+  endif()
+  if("${s}" MATCHES "^(wrong-release|wrong-host|wrong-host-row|prior-install)$" AND EXISTS "${curl_log}")
+    message(FATAL_ERROR "curl invoked before refusal")
+  endif()
+  message(STATUS "toolchain-case ${s} PASSED")
+endfunction()
+
+
 if(CASE STREQUAL "lock")
   require_line("format=gamebloke.arm-none-eabi/1")
   require_line("release=15.2.1-1.1")
@@ -69,6 +371,8 @@ elseif(CASE STREQUAL "lock-host-mismatch")
     message(FATAL_ERROR "toolchain-case mismatched-host-url-reached-curl")
   endif()
   message(STATUS "toolchain-case lock-host-mismatch PASSED native=${native_host} refused=${other_host}-asset-before-curl")
+elseif(CASE MATCHES "^(offline-all|wrong-release|wrong-host|wrong-host-row|wrong-redirect-host|redirect-downgrade|redirect-count|unexpected-status|redirected-status|empty-payload|short-payload|long-payload|digest-mismatch|corrupt-archive|absolute-member|parent-member|top-level-member|escaping-symlink|special-node|malformed-listing|prior-install|valid-redirect)$")
+  run_offline_suite()
 elseif(CASE STREQUAL "installed")
   if(NOT DEFINED BIN OR "${BIN}" STREQUAL "")
     message(FATAL_ERROR "toolchain-case missing-bin-root")
