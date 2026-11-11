@@ -184,11 +184,76 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   add_custom_target(gbl_owned_instruction_images
     DEPENDS ${GBL_OWNED_FIXTURE_FILES})
 
+  set(GBL_DIAGNOSTIC_INDEX_DEPENDS "")
+  if(GBL_LANE STREQUAL "diagnostics")
+    set(GBL_DIAGNOSTIC_OUTPUT_ROOT
+      "${CMAKE_SOURCE_DIR}/build/phase05-spike/${GBL_DIAGNOSTIC_OUTPUT_LEAF}")
+    set(GBL_DIAGNOSTIC_RAW_ROMS
+      "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke.gba"
+      "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke-broken.gba")
+    set(GBL_DIAGNOSTIC_SOURCE_DEPENDS
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/startup.S"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/smoke.S"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/linker.ld"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/NOTICE"
+      "${CMAKE_SOURCE_DIR}/cmake/BuildArmDiagnostics.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/FixGbaHeader.cmake"
+      "${CMAKE_SOURCE_DIR}/scripts/fetch-toolchain.sh"
+      "${CMAKE_SOURCE_DIR}/scripts/signature-scan.sh"
+      "${CMAKE_SOURCE_DIR}/scripts/lib/signature-common.sh"
+      "${CMAKE_SOURCE_DIR}/tests/signatures/allowlist.txt"
+      "${CMAKE_SOURCE_DIR}/tests/signatures/bios.sha256"
+      "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256"
+      "${CMAKE_SOURCE_DIR}/toolchain/arm-none-eabi.lock")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/cases.json")
+      list(APPEND GBL_DIAGNOSTIC_SOURCE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/cases.json")
+    endif()
+    add_custom_command(
+      OUTPUT ${GBL_DIAGNOSTIC_RAW_ROMS}
+      COMMAND "${CMAKE_COMMAND}"
+        "-DSRC=${CMAKE_SOURCE_DIR}"
+        "-DOUT=${GBL_DIAGNOSTIC_OUTPUT_ROOT}"
+        "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+        "-DHOST=${GBL_DIAGNOSTIC_HOST}"
+        "-DMODE=smoke"
+        -P "${CMAKE_SOURCE_DIR}/cmake/BuildArmDiagnostics.cmake"
+      DEPENDS ${GBL_DIAGNOSTIC_SOURCE_DEPENDS}
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      COMMENT "Building pinned ARMv4T diagnostic source outputs"
+      VERBATIM)
+    add_custom_target(gbl_diagnostics ALL DEPENDS ${GBL_DIAGNOSTIC_RAW_ROMS})
+
+    if(GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
+      set(GBL_DIAGNOSTIC_ARTIFACT_ROOT
+        "${CMAKE_BINARY_DIR}/generated/diagnostics/armv4t")
+      set(GBL_DIAGNOSTIC_ARTIFACT_ROMS
+        "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke.gba"
+        "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke-broken.gba")
+      add_custom_command(
+        OUTPUT ${GBL_DIAGNOSTIC_ARTIFACT_ROMS}
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+          "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+          "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke.gba"
+          "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke.gba"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+          "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke-broken.gba"
+          "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke-broken.gba"
+        DEPENDS ${GBL_DIAGNOSTIC_RAW_ROMS}
+        COMMENT "Placing verified diagnostic images under the build artifact root"
+        VERBATIM)
+      list(APPEND GBL_DIAGNOSTIC_INDEX_DEPENDS ${GBL_DIAGNOSTIC_ARTIFACT_ROMS})
+    endif()
+  endif()
+
   add_custom_command(
     OUTPUT "${GBL_PRODUCTION_INDEX}" "${GBL_CONTROL_INDEX}"
       "${GBL_CONTROL_MANIFEST}"
     COMMAND "${CMAKE_COMMAND}"
       "-DGBL_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+      "-DGBL_ARTIFACT_ROOT=${CMAKE_BINARY_DIR}"
       "-DGBL_CONTROL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
       "-DGBL_CONTROL_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-fail.gba"
       "-DGBL_CONTROL_SKIP_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
@@ -200,7 +265,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "-DGBL_OUT_PRODUCTION=${GBL_PRODUCTION_INDEX}"
       "-DGBL_OUT_CONTROL=${GBL_CONTROL_INDEX}"
       -P "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake"
-    DEPENDS ${GBL_OWNED_FIXTURE_FILES}
+    DEPENDS ${GBL_OWNED_FIXTURE_FILES} ${GBL_DIAGNOSTIC_INDEX_DEPENDS}
       "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "${CMAKE_SOURCE_DIR}/registry/disputes.json"
       "${CMAKE_SOURCE_DIR}/contracts/evidence.json"
@@ -296,18 +361,8 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "hygiene")
   include(tests/ci_gates.cmake)
 endif()
 if(GBL_LANE STREQUAL "diagnostics")
-  set(GBL_DIAGNOSTIC_OUTPUT_ROOT
-    "${CMAKE_SOURCE_DIR}/build/phase05-spike/${GBL_DIAGNOSTIC_OUTPUT_LEAF}")
-  add_custom_target(gbl_diagnostics ALL
-    COMMAND "${CMAKE_COMMAND}"
-      "-DSRC=${CMAKE_SOURCE_DIR}"
-      "-DOUT=${GBL_DIAGNOSTIC_OUTPUT_ROOT}"
-      "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
-      "-DHOST=${GBL_DIAGNOSTIC_HOST}"
-      "-DMODE=smoke"
-      -P "${CMAKE_SOURCE_DIR}/cmake/BuildArmDiagnostics.cmake"
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Building pinned ARMv4T diagnostics for ${GBL_DIAGNOSTIC_HOST}"
-    VERBATIM)
+  if(GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
+    add_dependencies(gbl_fixture_indexes gbl_diagnostics)
+  endif()
   include(tests/toolchain.cmake)
 endif()

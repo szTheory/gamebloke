@@ -1,0 +1,15 @@
+cmake/BuildArmDiagnostics.cmake
+cmake/FixGbaHeader.cmake
+diagnostics/armv4t/NOTICE
+diagnostics/armv4t/cases.json
+diagnostics/armv4t/inputs.txt
+diagnostics/armv4t/linker.ld
+diagnostics/armv4t/smoke.S
+diagnostics/armv4t/startup.S
+scripts/fetch-toolchain.sh
+scripts/lib/signature-common.sh
+scripts/signature-scan.sh
+tests/signatures/allowlist.txt
+tests/signatures/bios.sha256
+tests/signatures/logo.sha256
+toolchain/arm-none-eabi.lock
