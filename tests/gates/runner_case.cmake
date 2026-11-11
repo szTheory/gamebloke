@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 3.25)
 
-foreach(required IN ITEMS SRC BIN)
+foreach(required IN ITEMS SRC BIN VALIDATE_PRODUCER)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "runner-case: usage: -D${required}= is required")
   endif()
 endforeach()
+if(NOT VALIDATE_PRODUCER)
+  message(FATAL_ERROR "runner-case: VALIDATE_PRODUCER must be enabled")
+endif()
 get_filename_component(SRC "${SRC}" ABSOLUTE)
 get_filename_component(BIN "${BIN}" ABSOLUTE)
 
@@ -218,8 +221,8 @@ expect_result_rejection("uint64-cycle-overflow" "${overflow_cycles}"
 string(JSON missing_cycles REMOVE "${pass_json}" time cycles)
 expect_result_rejection("missing-cycle-count" "${missing_cycles}" "missing-field")
 
-string(JSON missing_dispute REMOVE "${pass_json}" disputes)
-expect_result_rejection("dispute-id-removed" "${missing_dispute}"
+string(JSON missing_dispute_id SET "${pass_json}" disputes "[]")
+expect_result_rejection("dispute-id-removed" "${missing_dispute_id}"
   "undisclosed-dispute")
 string(JSON wrong_dispute_label SET "${pass_json}" labels "[]")
 expect_result_rejection("disputed-label-removed" "${wrong_dispute_label}"
@@ -316,9 +319,10 @@ foreach(exception IN ITEMS swi undefined coprocessor)
   else()
     set(exception_reason "no-bios-coprocessor")
   endif()
-  run_json("${exception}_json" "no-bios-${exception}" "${production}" 1
+  run_json(no_bios_json "no-bios-${exception}" "${production}" 1
     GUEST_STOP "${exception_reason}" --rom "${fixtures}/owned-arm-${exception}.gba"
     --cycles 1000)
+  expect_json_field("${no_bios_json}" "${exception_reason}" termination)
 endforeach()
 
 run_json(trace_full_json trace-output-full "${control}" 1 HARNESS_FAIL
@@ -378,4 +382,4 @@ expect_usage(frames-product-overflow "${control}" --rom "${pass_rom}"
 expect_usage(trace-capacity-overflow "${control}" --rom "${pass_rom}"
   --cycles 1 --trace-capacity 65537)
 
-message("runner-case: actual CLI status, bounds, trace and refusal matrix passed")
+message("runner-case: actual producer contract, CLI status, bounds, trace and refusal matrix passed")
