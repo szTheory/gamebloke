@@ -7,9 +7,12 @@
 
 /*
  * Known answers are taken from the IETF RFC 6234 SHA-256 example and the
- * NIST CAVP SHA-256 ShortMsg/LongMsg response files. NIST describes these
+ * NIST CAVP SHA256ShortMsg.rsp / SHA256LongMsg.rsp files. NIST describes these
  * response files as informal implementation checks, not validation results.
- * The generated 65- and 192-byte synthetic spans were independently checked
+ * Sources: https://www.rfc-editor.org/rfc/rfc6234.html and
+ * https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program/secure-hashing
+ * The generated 65-byte range span and 192-byte synthetic image (byte i is
+ * (i * 29 + 7) modulo 256) and final-byte mutation were independently checked
  * with Python hashlib and OpenSSL before their results were pinned here.
  */
 
@@ -89,7 +92,7 @@ int main(void)
         "c8a61ac8924711f895c5ed90ef17745ed2d728abd22a5f7a13479a462d71b56c"
         "19a74a40b655c58edfe0a188ad2cf46cbf30524f65d423c837dd1ff2bf462ac"
         "4198007345bb44dbb7b1c861298cdf61982a833afc728fae1eda2f87aa2c9480"
-        "85bec";
+        "858bec";
     static const char multi_block_digest[] =
         "3c593aa539fdcdae516cdf2f15000f6634185c88f505b39775fb9ab137a10aa2";
     char output[GBL_SHA256_HEX_CAPACITY];
