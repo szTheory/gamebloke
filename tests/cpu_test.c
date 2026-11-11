@@ -973,15 +973,28 @@ static void test_thumb(void)
     loaded = machine_load(&machine, image);
 
     machine.cpu.r0_7[0] = UINT32_C(0x08000011);
+    machine.cpu.usr_r8_14[6] = UINT32_C(0xA5A5A5A5);
+    {
+        const uint64_t cycles_before = machine.master_cycles;
+        const bool one_short = loaded && run_arm_instruction(
+            &machine, UINT32_C(0xE12FFF10), 0u, 1u, &result) &&
+            result.termination == GBL_RUN_TIMEOUT &&
+            result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+            result.cycles == 0u && machine.master_cycles == cycles_before &&
+            machine.cpu.execution_address == UINT32_C(0x08000000) &&
+            (machine.cpu.cpsr & UINT32_C(0x20)) == 0u &&
+            machine.cpu.usr_r8_14[6] == UINT32_C(0xA5A5A5A5);
     ran = loaded && run_arm_instruction(&machine, UINT32_C(0xE12FFF10), 0u,
                                         2u, &result);
-    test_case(ran && result.cycles == 2u && result.instructions == 1u &&
+    test_case(one_short && ran && result.cycles == 2u &&
+                  result.instructions == 1u &&
                   machine.cpu.execution_address == UINT32_C(0x08000010) &&
                   (machine.cpu.cpsr & UINT32_C(0x20)) != 0u &&
                   machine.cpu.pipeline[0].width == 2u &&
                   machine.cpu.pipeline[0].opcode == UINT32_C(0x2342) &&
                   machine.cpu.pipeline[1].opcode == UINT32_C(0x2301),
-              "ARM BX enters Thumb and refills both halfwords through the bus");
+              "ARM BX preflights its budget then enters Thumb through bus refill");
+    }
 
     ran = loaded && run_units(&machine, 1u, 1u, &result);
     test_case(ran && result.cycles == 1u && result.instructions == 1u &&
@@ -999,14 +1012,14 @@ static void test_thumb(void)
                       (TEST_CPSR_C | TEST_CPSR_V),
               "Thumb MOV immediate updates N/Z and preserves C/V");
 
-    machine.cpu.r0_7[0] = UINT32_C(0x7F);
+    machine.cpu.r0_7[0] = UINT32_C(0x7FFFFFFF);
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0x3001), 0u,
                                           1u, &result);
-    test_case(ran && machine.cpu.r0_7[0] == UINT32_C(0x80) &&
+    test_case(ran && machine.cpu.r0_7[0] == UINT32_C(0x80000000) &&
                   (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
                                        TEST_CPSR_C | TEST_CPSR_V)) ==
                       (TEST_CPSR_N | TEST_CPSR_V),
-              "Thumb ADD immediate wraps and sets signed overflow");
+              "Thumb ADD immediate wraps at signed maximum and sets overflow");
 
     machine.cpu.r0_7[0] = UINT32_C(0x80000000);
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0x3801), 0u,
@@ -1083,13 +1096,22 @@ static void test_decode(void)
                   machine.cpu.pipeline[0].address == UINT32_C(0x08000004),
               "condition-failed ARM branch uses sequential fetch only");
 
-    ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xE002), 0u,
-                                          2u, &result);
-    test_case(ran && result.cycles == 2u &&
+    {
+        const uint64_t cycles_before = machine.master_cycles;
+        const bool one_short = loaded && run_thumb_instruction(
+            &machine, UINT16_C(0xE002), 0u, 1u, &result) &&
+            result.termination == GBL_RUN_TIMEOUT &&
+            result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+            result.cycles == 0u && machine.master_cycles == cycles_before &&
+            machine.cpu.execution_address == UINT32_C(0x08000000);
+        ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xE002), 0u,
+                                              2u, &result);
+        test_case(one_short && ran && result.cycles == 2u &&
                   machine.cpu.execution_address == UINT32_C(0x08000008) &&
                   machine.cpu.pipeline[0].opcode == UINT32_C(0x2001) &&
                   machine.cpu.pipeline[0].width == 2u,
-              "Thumb unconditional branch refills and discards stale slots");
+                  "Thumb branch preflights budget and discards stale slots");
+    }
 
     {
         const bool taken = loaded && run_thumb_instruction(
@@ -1128,6 +1150,28 @@ static void test_decode(void)
                   result.reason == GBL_RUN_REASON_UNDEFINED_INSTRUCTION &&
                   machine.cpu.stop_reason == GBL_CPU_STOP_UNDEFINED_INSTRUCTION,
               "reserved Thumb conditional encoding is undefined, not a no-op");
+
+    {
+        const uint64_t cycles_before = machine.master_cycles;
+        bool invalid_arm_alignment;
+        bool invalid_refill_extent;
+
+        machine.cpu.r0_7[0] = UINT32_C(0x08000002);
+        invalid_arm_alignment = loaded && run_thumb_instruction(
+            &machine, UINT16_C(0x4700), 0u, 2u, &result) &&
+            result.termination == GBL_RUN_STOPPED &&
+            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.cycles == 0u && machine.master_cycles == cycles_before;
+        machine.cpu.r0_7[0] = UINT32_C(0xFFFFFFFC);
+        invalid_refill_extent = loaded && run_arm_instruction(
+            &machine, UINT32_C(0xE12FFF10), 0u, 2u, &result) &&
+            result.termination == GBL_RUN_STOPPED &&
+            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.cycles == 0u && machine.master_cycles == cycles_before;
+
+        test_case(invalid_arm_alignment && invalid_refill_extent,
+                  "BX rejects ARM misalignment and refill extent before effects");
+    }
 
     gbl_machine_dispose(&machine);
 }
@@ -1209,14 +1253,29 @@ static void test_alignment(void)
     machine.cpu.r0_7[2] = UINT32_C(0xA5);
     ran = ran && run_thumb_instruction(&machine, UINT16_C(0x704A), 0u,
                                        2u, &result);
-    test_case(ran && machine.cpu.r0_7[0] == UINT32_C(0x78563412) &&
-                  machine.iwram[0x31u] == UINT8_C(0xA5),
-              "Thumb immediate word load and byte store use low registers");
+    machine.cpu.r0_7[0] = UINT32_C(0xAABBCCDD);
+    machine.cpu.r0_7[1] = UINT32_C(0x03000040);
+    ran = ran && run_thumb_instruction(&machine, UINT16_C(0x6048), 0u,
+                                       2u, &result);
+    machine.iwram[0x50u] = UINT8_C(0x11);
+    machine.iwram[0x51u] = UINT8_C(0xAB);
+    machine.cpu.r0_7[1] = UINT32_C(0x03000050);
+    ran = ran && run_thumb_instruction(&machine, UINT16_C(0x784A), 0u,
+                                       2u, &result);
+    test_case(ran && machine.cpu.r0_7[0] == UINT32_C(0xAABBCCDD) &&
+                  machine.cpu.r0_7[2] == UINT32_C(0xAB) &&
+                  machine.iwram[0x31u] == UINT8_C(0xA5) &&
+                  machine.iwram[0x44u] == UINT8_C(0xDD) &&
+                  machine.iwram[0x45u] == UINT8_C(0xCC) &&
+                  machine.iwram[0x46u] == UINT8_C(0xBB) &&
+                  machine.iwram[0x47u] == UINT8_C(0xAA),
+              "Thumb immediate word/byte loads and stores use low registers");
 
     machine.iwram[0x10u] = UINT8_C(0x11);
     machine.iwram[0x11u] = UINT8_C(0x22);
     machine.iwram[0x12u] = UINT8_C(0x33);
     machine.iwram[0x13u] = UINT8_C(0x44);
+    machine.cpu.r0_7[0] = UINT32_C(0x03000011);
     machine.cpu.execution_address = UINT32_C(0x08000000);
     machine.cpu.cpsr = TEST_CPSR_SYSTEM;
     machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
@@ -1250,7 +1309,7 @@ static void test_alignment(void)
                                        &exact_result) == GBL_RUN_STATUS_OK &&
                            exact_result.termination == GBL_RUN_PROGRESS &&
                            exact_result.cycles == 2u &&
-                           machine.cpu.r0_7[2] == UINT32_C(0x44332211);
+                           machine.cpu.r0_7[2] == UINT32_C(0x11443322);
 
         test_case(one_short && exact,
                   "transfer preflight refuses one-short and commits exact cost");
@@ -1281,7 +1340,7 @@ int main(int argc, char **argv)
         printf("1..8\n");
         test_thumb();
     } else if (strcmp(argv[1], "decode") == 0) {
-        printf("1..6\n");
+        printf("1..7\n");
         test_decode();
     } else if (strcmp(argv[1], "alignment") == 0) {
         printf("1..8\n");
