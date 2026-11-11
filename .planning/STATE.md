@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 status: executing
-stopped_at: Phase 4 complete, ready to plan Phase 5
-last_updated: "2026-11-11T16:08:20.103Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-11-11T18:22:16.173Z"
 last_activity: 2026-11-11
-last_activity_desc: Phase 4 complete, transitioned to Phase 5
-state_head: 6ad95bfacd0442a7cc3d9bf761c6cc43f705ef9a
+last_activity_desc: Phase 05 execution started
+state_head: c6ce7680ef0e9affc5582c061388b724e728f978
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 38
+  completed_plans: 40
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 5 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
+**Current focus:** Phase 05 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 
 ## Current Position
 
-Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — READY TO EXECUTE
-Plan: Not started
+Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
+Plan: 3 of 25
 Status: Ready to execute
-Last activity: 2026-11-11 — Phase 4 complete, transitioned to Phase 5
+Last activity: 2026-11-11 — Phase 05 execution started
 
 Progress: [███████░░░] 67%
 
@@ -96,6 +96,8 @@ Progress: [███████░░░] 67%
 | Phase 04 P11 | 28min-from-first-commit | 2 tasks | 11 files |
 | Phase 04 P12 | 30min-from-first-commit | 2 tasks | 10 files |
 | Phase 04 P13 | 29min35s | 2 tasks | 7 files |
+| Phase 05 P01 | 50min | 2 tasks | 3 files |
+| Phase 05 P02 | 68min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -191,6 +193,10 @@ Recent decisions affecting current work:
 - [Phase 04]: All thirteen implementation plans are committed and locally verified, including moved-prefix production CLI results/traces, final CI, fresh ASan/UBSan and hygiene inventories. Independent validation, security, code review and goal verification remain before phase acceptance. Review the explicit write-trace limitation: successful store records currently copy the bus API result value zero rather than the attempted payload; no waiver or hardware qualification is inferred. Preserve the Plan 12 guide-clarity human-judgment item until the phase-boundary review.
 
 - [Phase 04]: Owner replied "yes i accpet" to the explicit guide-clarity question. The canonical UAT predicate and verification status pass; all eleven probe rows remain unresolved and rights/qualification restrictions remain active. This is acceptance of the documented current scope, not a waiver.
+- [Phase 05]: Pinned xPack release 15.2.1-1.1 with exact separate archive identities for Darwin arm64, Linux x64, and Linux arm64.
+- [Phase 05]: Bound each host lock row to its exact official release asset URL and allowed only one HTTPS redirect to release-assets.githubusercontent.com.
+- [Phase 05]: Keep the production runner GUEST_STOP/unregistered-content exit 1 as the raw result and assert mailbox state and case identity separately.
+- [Phase 05]: Limit parity to local macOS arm64 and native Linux arm64; hosted Linux x64 remains separate and no ROM digest is admitted here.
 
 ### Pending Todos
 
@@ -225,6 +231,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-11
-Stopped at: Phase 4 complete, ready to plan Phase 5
+Last session: 2026-11-11T18:22:15.998Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
