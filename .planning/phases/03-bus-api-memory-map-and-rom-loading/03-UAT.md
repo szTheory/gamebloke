@@ -1,21 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 03-bus-api-memory-map-and-rom-loading
 source: [03-VERIFICATION.md]
 started: 2026-11-11T00:18:48Z
-updated: 2026-11-11T01:05:41Z
+updated: 2026-11-11T01:19:38.976Z
 ---
 
 ## Current Test
 
-number: 2
-name: Review project-policy descriptions
-expected: |
-  Timing, initialization, latch and ROM-tail behavior are labelled project
-  policy or unverified behavior. The phase does not claim measured hardware
-  accuracy or broad game compatibility. The synthetic/local evidence review
-  also preserves provenance and redistribution limits.
-awaiting: remaining judgment-tier claim review; data prerequisite has been supplied and tested
+[testing complete]
 
 ## Tests
 
@@ -26,26 +19,28 @@ reported: Owner supplied two local paths and explicitly delegated copying, hashi
 
 ### 2. Review project-policy descriptions
 expected: The timing, initialization, latch and ROM-tail descriptions in `docs/profile-agb.md` and `docs/bus-api.md` remain labelled project policy or unverified behavior, without hardware-accuracy or broad-compatibility claims. Human judgment is required by the verification workflow; automated review is recorded separately.
-result: [pending]
+result: pass
+reported: Owner replied "yes" to the explicit Phase 3 acceptance question after the two claim limits were stated. This accepts the documented scope, without granting redistribution rights or claiming hardware/game compatibility.
 
 ### 3. Review synthetic-evidence limits
 expected: `docs/verify.md` describes synthetic logo tests as comparison mechanics without presenting them as genuine Nintendo identity, canonical acceptance or redistribution permission.
-result: [pending]
+result: pass
+reported: Owner replied "yes" to the explicit Phase 3 acceptance question after the two claim limits were stated. This accepts the documented scope, without granting redistribution rights or claiming hardware/game compatibility.
 
 ## Summary
 
 total: 3
-passed: 1
+passed: 3
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
 No open implementation gaps are reported. The production authority is supplied
-and tested; judgment-tier items above remain unresolved. Do not advance Phase 3
-or start Phase 4 until its acceptance route is resolved.
+and tested; the owner has accepted both judgment-tier claim limits. No open
+UAT item remains. Use the canonical completion predicate before transition.
 
 ## Future claim condition
 
