@@ -1,8 +1,8 @@
 ---
 phase: 04-cpu-execution-core-and-headless-runner
-verified: 2026-11-11T12:53:27Z
-status: gaps_found
-score: 40/41 must-haves verified
+verified: 2026-11-11T13:00:22Z
+status: human_needed
+score: 41/41 must-haves verified
 covered_files:
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-01-PLAN.md
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-01-SUMMARY.md
@@ -31,10 +31,10 @@ covered_files:
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-13-PLAN.md
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-13-SUMMARY.md
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-FINAL-CHECKS.md
+  - .planning/phases/04-cpu-execution-core-and-headless-runner/04-PROBE-STATUS.json
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-REVIEW-DISPOSITION.md
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-REVIEW.md
   - CMakeLists.txt
-  - build/phase04-research/edge-coverage.json
   - cmake/CheckProfile.cmake
   - cmake/CheckResult.cmake
   - cmake/GenerateFixtureIndex.cmake
@@ -72,29 +72,30 @@ covered_files:
   - tests/inventory/hygiene.txt
   - tests/runner_test.c
   - tests/state_check.h
-covered_digest: "v4:sha256:1d72386f5b8ce1f6f838d7bcc786b5a391e459ac66dc840ede278958d2ee5f42"
+covered_digest: "v4:sha256:9565d56008eea9dc2bb2089a1d02b490ce20bf3c9db01446ed9289de68ceb737"
 behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - truth: "The evidence guide states the exact unresolved status of every probe-taxonomy row."
-    status: failed
-    reason: "docs/evidence-contract.md describes five category-labeled rows as explicit, but build/phase04-research/edge-coverage.json records all 11 rows as unresolved (five category-labeled and six unclassified). This makes the documented status ambiguous."
-    artifacts:
-      - path: "docs/evidence-contract.md"
-        issue: "Lines 239-242 say five rows are classified as explicit and only six are unresolved."
-      - path: "build/phase04-research/edge-coverage.json"
-        issue: "All 11 rows have status unresolved; coverage.resolved is 0."
-    missing:
-      - "State that all 11 rows remain unresolved: five have category labels (three CPU-04 and two RUN-01), and six are unclassified."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 40/41
+  gaps_closed:
+    - "Evidence guide now states that all 11 probe-taxonomy rows remain unresolved: five category-labeled and six unclassified."
+  gaps_remaining: []
+  regressions: []
+advisory: []
+human_verification:
+  - test: "Review docs/evidence-contract.md for clarity about the real CLI, mailbox, metadata authority, and rights/claim boundaries."
+    expected: "A core developer can distinguish what synthetic validation proves from fixture rights, hardware accuracy, BIOS behavior, and compatibility claims; the 11 taxonomy rows remain explicitly unresolved."
+    why_human: "Plan 04-12 D3 asks for a subjective clarity judgment that automated checks cannot make. This does not waive restrictions or resolve taxonomy rows."
 ---
 
 # Phase 04: CPU Execution Core and Headless Runner Verification Report
 
 **Phase Goal:** As a core developer, I want to execute ARM7TDMI code from a fresh bus-backed instance and obtain bounded headless JSON results with separate status, semantic result, machine time, claim and limits, so that I can inspect deterministic CPU behavior and judge exactly what each diagnostic result establishes.
 
-**Verified:** 2026-11-11T12:53:27Z
-**Status:** gaps_found
-**Re-verification:** No; initial verification
+**Verified:** 2026-11-11T13:00:22Z
+**Status:** human_needed
+**Re-verification:** Yes — after documentation gap closure
 
 ## User Flow Coverage
 
@@ -105,11 +106,11 @@ The roadmap goal is a valid MVP user story. The GSD user-story validator returne
 | Start from a fresh machine and execute bus-backed ARM/Thumb instructions. | CPU state, fetches and machine time come from the canonical machine and bus. | src/machine.c, src/cpu.c; cpu.tracer, cpu.arithmetic and lifecycle witnesses. | VERIFIED |
 | Bound a headless run by cycles or frames. | Run stops at its checked budget without overshoot. | runner/main.c, runner/run.c; runner boundary tests and CI inventory. | VERIFIED |
 | Inspect one machine-readable result. | Status, mailbox semantics, time, claim tuple and limits remain separate fields. | runner/result.c, cmake/CheckResult.cmake; actual producer-to-checker gate. | VERIFIED |
-| Decide exactly what unresolved diagnostic policy records establish. | Documentation agrees with the taxonomy status and does not imply an unresolved row is resolved. | docs/evidence-contract.md conflicts with build/phase04-research/edge-coverage.json for five category-labeled rows. | FAILED |
+| Decide exactly what unresolved diagnostic policy records establish. | Documentation agrees with the taxonomy status and does not imply an unresolved row is resolved. | docs/evidence-contract.md and tracked 04-PROBE-STATUS.json agree that all 11 remain unresolved. | VERIFIED |
 
 ## Goal Achievement
 
-The five roadmap success criteria and 35 plan-level must-have truths were checked against implementation, tests and wiring. The single additional truth derived from the phase outcome—accurate disclosure of unresolved probe status—fails because the evidence guide and taxonomy data disagree. Score: 40/41.
+The five roadmap criteria, 35 plan-level truths, and one outcome-derived disclosure truth are verified. The prior documentation gap is closed. The phase remains human_needed solely because the subjective D3 clarity judgment is still pending. Score: 41/41.
 
 ### Observable Truths
 
@@ -133,11 +134,11 @@ The five roadmap success criteria and 35 plan-level must-have truths were checke
 | P11.a–c | Cycle/frame conversion is checked; trace-full/cancel/missing/refusal/timeout/guest-stop remain distinct and paths are excluded; producer tests exercise bounded outcomes. | VERIFIED | runner/run.c, tests/runner_test.c, tests/gates/runner_case.cmake; full CI and result-contract tests. |
 | P12.a–c | Actual registered producer JSON passes the Phase 2 checker; semantic/time/dispute/trace mutations fail with named reasons; raw diagnostics cannot validate as evidence PASS. | VERIFIED | cmake/CheckResult.cmake, tests/gates/runner_case.cmake, contracts/examples/result-pass.json; runner.result_contract passed. |
 | P13.a–c | Relocated production CLI preserves output and identity; no new fixture authority appears; final workflows/inventories cover current sources and controls. | VERIFIED | CMakeLists.txt, tests/gates/runner_relocation.cmake, docs/verify.md; relocation, inventory and final lane evidence. |
-| G1 | Evidence documentation reports the current state of the 11 taxonomy rows without implying any is resolved. | FAILED | docs/evidence-contract.md:239-242 describes five as explicit; build/phase04-research/edge-coverage.json:4-110 marks all 11 unresolved and resolved=0. See structured gap above. |
+| G1 | Evidence documentation reports the current state of the 11 taxonomy rows without implying any is resolved. | VERIFIED | docs/evidence-contract.md states all 11 are unresolved; tracked 04-PROBE-STATUS.json has unresolved=11, unclassified=6, resolved=0. The tracked snapshot is byte-identical to the prior ignored audit input. |
 
 ## Required Artifacts
 
-All 36 artifact entries declared across plans 04-01 through 04-13 passed the artifact verifier. Direct source review confirmed substantive implementations and wiring; the rows below group each plan’s declared artifacts.
+All 36 artifact entries declared across plans 04-01 through 04-13 passed the artifact verifier. Direct source review confirmed substantive implementations and wiring; the rows below group each plan’s declared artifacts. The added 04-PROBE-STATUS.json is portable taxonomy evidence, not a product fixture or rights grant.
 
 | Plan | Declared artifacts | Status |
 | --- | --- | --- |
@@ -154,6 +155,8 @@ All 36 artifact entries declared across plans 04-01 through 04-13 passed the art
 | 04-11 | tests/runner_test.c; tests/gates/runner_case.cmake; tests/core.cmake | VERIFIED |
 | 04-12 | cmake/CheckResult.cmake; tests/gates/runner_case.cmake; contracts/examples/result-pass.json | VERIFIED |
 | 04-13 | CMakeLists.txt; tests/gates/runner_relocation.cmake; docs/verify.md | VERIFIED |
+
+The documentation-only correction also passed profile.lint and contract.lint. The tracked 04-PROBE-STATUS.json preserves the taxonomy input outside ignored build output.
 
 ## Key Link Verification
 
@@ -191,11 +194,12 @@ The synthetic control index is intentionally used only for producer/checker cont
 
 | Behavior | Command/evidence | Result | Status |
 | --- | --- | --- | --- |
-| CPU arithmetic, modes, no-BIOS stops and trace behavior; result contract; install relocation. | ctest --test-dir build/ci -R '^(cpu\\.tracer|cpu\\.arithmetic|cpu\\.modes|cpu\\.no_bios|runner\\.result_contract|runner\\.relocation)$' --no-tests=error --output-on-failure | 6/6 passed in 1.05 seconds. | PASS |
+| CPU arithmetic, modes, no-BIOS stops and trace behavior; result contract; install relocation. | ctest --test-dir build/ci -R '^(cpu\.tracer|cpu\.arithmetic|cpu\.modes|cpu\.no_bios|runner\.result_contract|runner\.relocation)$' --no-tests=error --output-on-failure | 6/6 passed in 1.05 seconds. | PASS |
 | Current native canonical workflow. | Recorded in 04-FINAL-CHECKS.md; cmake --workflow --preset ci | Exit 0; inventory 329 expected, 328 passed and one allowed owner-local skip. | PASS |
 | Fresh native ASan/UBSan workflow. | Recorded in 04-FINAL-CHECKS.md | 72/72 passed; zero skips. | PASS |
 | Pinned Ubuntu GNU 15.2.0 canonical workflow. | Recorded in 04-FINAL-CHECKS.md | Exit 0; 329 expected, 328 passed and one allowed owner-local skip. | PASS |
 | Hygiene and signature gates. | Recorded in 04-FINAL-CHECKS.md | Exit 0; inventory passed with the allowed owner-local skip. | PASS |
+| Corrected profile/evidence policy. | ctest --test-dir build/ci -R '^(profile\\.lint|contract\\.lint)$' --no-tests=error --output-on-failure | profile.lint and contract.lint passed, 2/2 in 0.07 seconds. | PASS |
 
 The recorded complete workflows are fresh evidence; they were not rerun for this verification. No private ROM or BIOS was executed.
 
@@ -204,8 +208,9 @@ The recorded complete workflows are fresh evidence; they were not rerun for this
 | Probe | Command | Result | Status |
 | --- | --- | --- | --- |
 | Phase-declared/conventional probe scripts | Searched plan/summary declarations and scripts/*/tests/probe-*.sh | No probe scripts or declared script paths found; nothing to execute. | N/A |
+| Probe status taxonomy | Parsed tracked 04-PROBE-STATUS.json and compared exact bytes with the prior local audit input. | 11 items; all unresolved; 5 category-labeled; 6 unclassified; resolved=0; byte-identical. | PASS |
 
-The separate edge-coverage record contains 11 unresolved entries: five category-labeled (CPU-04 adjacency, empty, ordering; RUN-01 boundary and precision) and six unclassified (CPU-03, CPU-05, PROF-03, RUN-02, RUN-03, RUN-04). Concrete tests establish implementation behavior; they do not resolve the taxonomy metadata. The two descriptor-less standing restrictions also remain visible: rights-bearing/private inputs must not be repurposed or treated as rights-granted by synthetic metadata, and evidence must not inflate hardware, BIOS or compatibility claims.
+The tracked 04-PROBE-STATUS.json contains 11 unresolved entries: five category-labeled (CPU-04 adjacency, empty, ordering; RUN-01 boundary and precision) and six unclassified (CPU-03, CPU-05, PROF-03, RUN-02, RUN-03, RUN-04). Concrete tests establish implementation behavior; they do not resolve the taxonomy metadata. The two descriptor-less standing restrictions also remain visible: rights-bearing/private inputs must not be repurposed or treated as rights-granted by synthetic metadata, and evidence must not inflate hardware, BIOS or compatibility claims.
 
 ## Requirements Coverage
 
@@ -234,15 +239,19 @@ The named CTest cases are present in the lane inventories. The checked controls 
 
 ## Human Verification Required
 
-Plan 04-12 decision D3 remains pending. After the exact taxonomy wording correction and narrow re-verification, a human should judge whether docs/evidence-contract.md explains the real CLI, mailbox, metadata authority and rights/claim boundaries clearly to a core developer. The required outcome is a clear explanation of what synthetic validation does and does not establish; this is a clarity review, not a waiver of rights restrictions or a resolution of the taxonomy rows. No human acceptance is inferred here.
+Plan 04-12 decision D3 remains pending. A human should judge whether docs/evidence-contract.md explains the real CLI, mailbox, metadata authority and rights/claim boundaries clearly to a core developer. The expected outcome is a clear explanation of what synthetic validation does and does not establish; this is a clarity review, not a waiver of rights restrictions or a resolution of the taxonomy rows. No human acceptance is inferred here.
 
 Other implementation limits remain explicit: this phase does not deliver the full ARM/Thumb diagnostic scope (Phase 5), deeper determinism work (Phase 6), BIOS execution/HLE, hardware qualification, broad game compatibility or real fixture approvals. Five exception mappings are API/classifier/writer tested but not triggered by guest instructions or CLI because no interrupt/device source is modeled. Trace write records expose the bus API's result value, currently zero, rather than the attempted write payload.
 
 ## Gaps Summary
 
-The executable CPU and runner requirements are implemented and supported by direct tests and fresh lane evidence. One documentation truth fails: the guide calls five category-labeled probe rows explicit even though the edge-coverage record leaves every row unresolved. Correct the sentence to say all 11 rows remain unresolved, with five category-labeled and six unclassified, then rerun the narrow documentation/policy review and refresh this report fingerprint. The pending D3 human clarity judgment remains separate and must not be auto-approved.
+The executable CPU and runner requirements are implemented and supported by direct tests and fresh lane evidence. The prior documentation mismatch is closed: the guide now says all 11 probe rows remain unresolved, identifies five category-labeled and six unclassified rows, and links the portable snapshot. The narrow policy checks passed and the fingerprint has been refreshed. D3 remains a human clarity judgment and is not auto-approved.
 
-No plan-declared shell probe was missing. No requirement gap was found in the CPU or runner behavior. Broader ISA coverage and deeper determinism remain explicitly assigned to later phases.
+No plan-declared shell probe was missing. No current implementation or documentation gap remains. Broader ISA coverage and deeper determinism remain explicitly assigned to later phases.
+
+### Advisory (New Scope, Unevidenced)
+
+No new-scope advisory findings.
 
 ## Decision Coverage
 
@@ -250,5 +259,5 @@ The GSD decision-coverage query found no trackable decision records for this pha
 
 ---
 
-_Verified: 2026-11-11T12:53:27Z_
+_Verified: 2026-11-11T13:00:22Z_
 _Verifier: gsd-verifier_

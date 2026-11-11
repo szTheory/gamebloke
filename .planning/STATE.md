@@ -5,7 +5,7 @@ milestone_name: Evidence Spine
 current_phase: 4
 current_phase_name: CPU Execution Core and Headless Runner
 status: verifying
-stopped_at: Phase 4 plans checked, ready to execute
+stopped_at: Phase 4 technically verified; preparing draft PR and human guide review
 last_updated: "2026-11-11T11:26:44.976Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 4 execution started
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 
 Phase: 4 (CPU Execution Core and Headless Runner) — EXECUTING
 Plan: 13 of 13
-Status: Phase complete — ready for verification
+Status: Implementation verified — human guide review pending
 Last activity: 2026-11-10 — Phase 4 execution started
 
 Progress: [█████░░░░░] 50%
@@ -195,7 +195,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 4 code and targeted security rechecks are clean after mailbox, Thumb alignment and ARM condition fixes. Final regression/sanitizer/GNU checks and independent goal verification are in progress. Preserve the guide-clarity human judgment and policy/probe limits until phase-boundary review; no risk or hardware claim is accepted.
+- Phase 4 code and targeted security rechecks are clean after mailbox, Thumb alignment and ARM condition fixes. Final regression, fresh sanitizers, native GNU checks and independent goal verification pass. The exact probe-status documentation mismatch is corrected and independently rechecked. Preserve the guide-clarity human judgment and policy/probe limits until phase-boundary review; no risk or hardware claim is accepted.
 
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
@@ -221,5 +221,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-10T23:59:45.464Z
-Stopped at: Phase 4 plans checked, ready to execute
+Stopped at: Phase 4 technically verified; preparing draft PR and human guide review
 Resume file: None
