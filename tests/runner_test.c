@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -176,7 +177,10 @@ static bool gbl_test_cli_cancel_budget(const char *runner_path,
                                        const char *directory,
                                        const char *budget_option,
                                        const char *budget_value,
-                                       const char *expected_budget)
+                                       const char *expected_budget,
+                                       const char *expected_status,
+                                       const char *expected_reason,
+                                       const char *trace_output_path)
 {
     char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char error_path[GBL_RUNNER_TEST_PATH_CAPACITY];
@@ -212,8 +216,15 @@ static bool gbl_test_cli_cancel_budget(const char *runner_path,
         (void)close(out_fd);
         (void)close(err_fd);
         (void)signal(SIGINT, SIG_DFL);
-        execl(runner_path, "gamebloke-run-control", "--rom", loop_path,
-              budget_option, budget_value, (char *)NULL);
+        if (trace_output_path == NULL) {
+            execl(runner_path, "gamebloke-run-control", "--rom", loop_path,
+                  budget_option, budget_value, (char *)NULL);
+        } else {
+            execl(runner_path, "gamebloke-run-control", "--rom", loop_path,
+                  budget_option, budget_value, "--trace-mask", "0",
+                  "--trace-capacity", "0", "--trace-output",
+                  trace_output_path, (char *)NULL);
+        }
         _exit(127);
     }
 
@@ -246,8 +257,21 @@ static bool gbl_test_cli_cancel_budget(const char *runner_path,
                 !gbl_test_read_file(output_path, output, sizeof output)) {
                 return false;
             }
-            return strstr(output, "\"status\":\"CANCELLED\"") != NULL &&
-                   strstr(output, "\"reason\":\"cancelled\"") != NULL &&
+            char status_fragment[96];
+            char reason_fragment[128];
+            const int status_length =
+                snprintf(status_fragment, sizeof status_fragment,
+                         "\"status\":\"%s\"", expected_status);
+            const int reason_length =
+                snprintf(reason_fragment, sizeof reason_fragment,
+                         "\"reason\":\"%s\"", expected_reason);
+
+            return status_length > 0 &&
+                   (size_t)status_length < sizeof status_fragment &&
+                   reason_length > 0 &&
+                   (size_t)reason_length < sizeof reason_fragment &&
+                   strstr(output, status_fragment) != NULL &&
+                   strstr(output, reason_fragment) != NULL &&
                    strstr(output, expected_budget_json) != NULL;
         }
         if (waited < 0 && errno != EINTR) {
@@ -266,12 +290,122 @@ static bool gbl_test_cli_cancel(const char *runner_path,
                                 const char *loop_path,
                                 const char *directory)
 {
+    char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+
+    if (!gbl_test_path(trace_path, sizeof trace_path, directory,
+                       "signal-trace-existing.jsonl") ||
+        !gbl_test_write_file(trace_path, 0u, 0u)) {
+        return false;
+    }
     return gbl_test_cli_cancel_budget(
                runner_path, loop_path, directory, "--cycles",
-               "18446744073709551615", "18446744073709551615") &&
+               "18446744073709551615", "18446744073709551615", "CANCELLED",
+               "cancelled", NULL) &&
            gbl_test_cli_cancel_budget(
                runner_path, loop_path, directory, "--frames",
-               "65671081374279", "18446744073709473984");
+               "65671081374279", "18446744073709473984", "CANCELLED",
+               "cancelled", NULL) &&
+           gbl_test_cli_cancel_budget(
+               runner_path, loop_path, directory, "--cycles",
+               "18446744073709551615", "18446744073709551615", "HARNESS_FAIL",
+               "trace-write-failed", trace_path);
+}
+
+static bool gbl_test_cli_trace_write_limit(const char *runner_path,
+                                           const char *pass_path,
+                                           const char *directory)
+{
+    char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char output[8192];
+    struct rlimit limit;
+    struct timespec poll_wait = { 0, 10000000L };
+    pid_t child;
+    int pipe_fds[2];
+    int status = 0;
+    size_t tick;
+    size_t output_length = 0u;
+    bool finished = false;
+
+    if (!gbl_test_path(trace_path, sizeof trace_path, directory,
+                       "trace-write-limit.jsonl")) {
+        return false;
+    }
+    (void)remove(trace_path);
+    if (pipe(pipe_fds) != 0) {
+        return false;
+    }
+    child = fork();
+    if (child < 0) {
+        (void)close(pipe_fds[0]);
+        (void)close(pipe_fds[1]);
+        return false;
+    }
+    if (child == 0) {
+        (void)close(pipe_fds[0]);
+        if (dup2(pipe_fds[1], STDOUT_FILENO) < 0) {
+            _exit(126);
+        }
+        (void)close(pipe_fds[1]);
+        (void)signal(SIGXFSZ, SIG_IGN);
+        limit.rlim_cur = (rlim_t)1u;
+        limit.rlim_max = (rlim_t)1u;
+        if (setrlimit(RLIMIT_FSIZE, &limit) != 0) {
+            _exit(126);
+        }
+        execl(runner_path, "gamebloke-run-control", "--rom", pass_path,
+              "--fixture", "synthetic-control-pass", "--cycles", "1000",
+              "--trace-mask", "1", "--trace-capacity", "65536",
+              "--trace-output", trace_path, (char *)NULL);
+        _exit(127);
+    }
+    (void)close(pipe_fds[1]);
+    for (tick = 0u; tick < GBL_RUNNER_TEST_WATCHDOG_TICKS; ++tick) {
+        const pid_t waited = waitpid(child, &status, WNOHANG);
+
+        if (waited == child) {
+            finished = true;
+            break;
+        }
+        if (waited < 0 && errno != EINTR) {
+            (void)kill(child, SIGKILL);
+            (void)waitpid(child, &status, 0);
+            (void)close(pipe_fds[0]);
+            return false;
+        }
+        (void)nanosleep(&poll_wait, NULL);
+    }
+    if (!finished) {
+        (void)kill(child, SIGKILL);
+        (void)waitpid(child, &status, 0);
+        (void)close(pipe_fds[0]);
+        return false;
+    }
+    for (;;) {
+        const ssize_t amount = read(pipe_fds[0], output + output_length,
+                                    sizeof output - 1u - output_length);
+
+        if (amount == 0) {
+            break;
+        }
+        if (amount < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            (void)close(pipe_fds[0]);
+            return false;
+        }
+        output_length += (size_t)amount;
+        if (output_length >= sizeof output - 1u) {
+            (void)close(pipe_fds[0]);
+            return false;
+        }
+    }
+    (void)close(pipe_fds[0]);
+    output[output_length] = '\0';
+    return WIFEXITED(status) && WEXITSTATUS(status) == 1 &&
+           strstr(output, "\"status\":\"HARNESS_FAIL\"") != NULL &&
+           strstr(output, "\"reason\":\"trace-write-failed\"") != NULL &&
+           strstr(output, "\"state\":\"pass\"") != NULL;
 }
 
 static bool gbl_test_registered_result(const char *path, const char *fixture,
@@ -557,7 +691,9 @@ static bool gbl_test_execute_all(const char *fixture_directory,
            result.semantic.status == GBL_MAILBOX_PASS && result.ran &&
            !result.trace_emitted;
     gbl_runner_result_dispose(&result);
-    gbl_test_case(okay, "trace write failure overrides completed guest PASS");
+    okay = okay && gbl_test_cli_trace_write_limit(
+                       runner_path, path, scratch_directory);
+    gbl_test_case(okay, "trace open and close failures override completed guest PASS");
 
     memset(&result, 0, sizeof result);
     okay = gbl_test_execute(path, "synthetic-control-pass", UINT64_MAX,
