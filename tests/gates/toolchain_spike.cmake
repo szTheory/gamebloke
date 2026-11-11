@@ -183,6 +183,93 @@ if(CASE STREQUAL "offline-controls")
     message(FATAL_ERROR "toolchain-spike: missing-hosted-proof-did-not-fail-closed")
   endif()
   message(STATUS "toolchain-spike: missing-hosted-proof fail-closed")
+
+  execute_process(COMMAND git -C "${source_root}" rev-parse HEAD
+    RESULT_VARIABLE control_head_rc OUTPUT_VARIABLE control_head
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT "${control_head_rc}" STREQUAL "0" OR
+     NOT control_head MATCHES "^[0-9a-f]+$")
+    message(FATAL_ERROR "toolchain-spike: hosted-control-source-head-unavailable")
+  endif()
+  set(hosted_control_root "${control_root}/hosted-control")
+  set(hosted_control_roms "${hosted_control_root}/roms")
+  file(MAKE_DIRECTORY "${hosted_control_roms}")
+  file(WRITE "${hosted_control_roms}/smoke.gba" "synthetic hosted smoke row\n")
+  file(WRITE "${hosted_control_roms}/smoke-broken.gba"
+    "synthetic hosted broken row\n")
+  file(SHA256 "${hosted_control_roms}/smoke.gba" control_smoke_sha)
+  file(SHA256 "${hosted_control_roms}/smoke-broken.gba" control_broken_sha)
+
+  function(make_hosted_control_row name digest output_name)
+    set(row "{}")
+    string(JSON row SET "${row}" name "\"${name}\"")
+    string(JSON row SET "${row}" sha256 "\"${digest}\"")
+    set(${output_name} "${row}" PARENT_SCOPE)
+  endfunction()
+  function(run_hosted_control label outputs_json expected)
+    set(receipt "{}")
+    string(JSON receipt SET "${receipt}" format
+      "\"gamebloke.hosted-diagnostic-proof/1\"")
+    string(JSON receipt SET "${receipt}" source_head "\"${control_head}\"")
+    string(JSON receipt SET "${receipt}" host "\"linux-x64\"")
+    string(JSON receipt SET "${receipt}" job_id "\"control-job\"")
+    string(JSON receipt SET "${receipt}" job_name "\"diagnostics (control)\"")
+    string(JSON receipt SET "${receipt}" job_result "\"success\"")
+    string(JSON receipt SET "${receipt}" elapsed_seconds 1)
+    string(JSON receipt SET "${receipt}" output_names
+      "[\"smoke.gba\",\"smoke-broken.gba\"]")
+    string(JSON receipt SET "${receipt}" outputs "${outputs_json}")
+    set(receipt_path "${hosted_control_root}/${label}.json")
+    file(WRITE "${receipt_path}" "${receipt}\n")
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" -DCASE=hosted-proof
+        "-DSRC=${source_root}" "-DBIN=${bin_root}"
+        "-DHOSTED_RECEIPT=${receipt_path}"
+        "-DHOSTED_OUTPUT_DIR=${hosted_control_roms}"
+        -P "${source_root}/tests/gates/toolchain_spike.cmake"
+      RESULT_VARIABLE control_rc OUTPUT_VARIABLE control_out
+      ERROR_VARIABLE control_error)
+    set(control_report "${control_out}\n${control_error}")
+    if(expected STREQUAL "pass")
+      if(NOT "${control_rc}" STREQUAL "0" OR
+         NOT control_report MATCHES "toolchain-spike: hosted-proof")
+        message(FATAL_ERROR
+          "toolchain-spike: hosted-${label}-control-failed: ${control_report}")
+      endif()
+    elseif("${control_rc}" STREQUAL "0" OR
+       NOT control_report MATCHES "${expected}")
+      message(FATAL_ERROR
+        "toolchain-spike: hosted-${label}-control-missed: ${control_report}")
+    endif()
+    message(STATUS "toolchain-spike: hosted-${label} ${expected}")
+  endfunction()
+
+  make_hosted_control_row("smoke.gba" "${control_smoke_sha}" smoke_row)
+  make_hosted_control_row("smoke-broken.gba" "${control_broken_sha}" broken_row)
+  set(clean_outputs "[]")
+  string(JSON clean_outputs SET "${clean_outputs}" 0 "${smoke_row}")
+  string(JSON clean_outputs SET "${clean_outputs}" 1 "${broken_row}")
+  run_hosted_control(clean "${clean_outputs}" pass)
+
+  set(duplicate_outputs "[]")
+  string(JSON duplicate_outputs SET "${duplicate_outputs}" 0 "${smoke_row}")
+  string(JSON duplicate_outputs SET "${duplicate_outputs}" 1 "${smoke_row}")
+  run_hosted_control(duplicate "${duplicate_outputs}"
+    "toolchain-spike: hosted-proof-output-name-set-mismatch")
+
+  set(missing_outputs "[]")
+  string(JSON missing_outputs SET "${missing_outputs}" 0 "${smoke_row}")
+  run_hosted_control(missing "${missing_outputs}"
+    "toolchain-spike: hosted-proof-output-count")
+
+  set(extra_outputs "[]")
+  string(JSON extra_outputs SET "${extra_outputs}" 0 "${smoke_row}")
+  string(JSON extra_outputs SET "${extra_outputs}" 1 "${broken_row}")
+  make_hosted_control_row("surprise.gba" "${control_smoke_sha}" extra_row)
+  string(JSON extra_outputs SET "${extra_outputs}" 2 "${extra_row}")
+  run_hosted_control(extra "${extra_outputs}"
+    "toolchain-spike: hosted-proof-output-count")
+
   message(STATUS "toolchain-spike: offline-controls ok")
   return()
 endif()
