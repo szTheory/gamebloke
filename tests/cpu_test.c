@@ -15,6 +15,10 @@
 static unsigned int test_number;
 static unsigned int test_failures;
 
+typedef struct cpu_test_allocator_state {
+    bool fail_next_allocation;
+} cpu_test_allocator_state;
+
 static void test_case(bool passed, const char *description)
 {
     test_number++;
@@ -27,7 +31,12 @@ static void test_case(bool passed, const char *description)
 
 static void *cpu_test_allocate(void *context, size_t size)
 {
-    (void)context;
+    cpu_test_allocator_state *state = context;
+
+    if (state != NULL && state->fail_next_allocation) {
+        state->fail_next_allocation = false;
+        return NULL;
+    }
     return malloc(size);
 }
 
@@ -60,15 +69,23 @@ static void make_program(uint8_t image[TEST_IMAGE_SIZE])
     write_word(image, 0x10u, TEST_MOV_R2_R0);
 }
 
-static bool machine_load(gbl_machine *machine,
-                         const uint8_t image[TEST_IMAGE_SIZE])
+static bool machine_initialize(gbl_machine *machine,
+                               cpu_test_allocator_state *allocator_state)
 {
     const gbl_allocator allocator = {
-        NULL, cpu_test_allocate, cpu_test_release
+        allocator_state, cpu_test_allocate, cpu_test_release
     };
+
+    return gbl_machine_init(machine, &allocator) == GBL_BUS_STATUS_OK;
+}
+
+static bool machine_load_with_allocator(
+    gbl_machine *machine, const uint8_t image[TEST_IMAGE_SIZE],
+    cpu_test_allocator_state *allocator_state)
+{
     gbl_load_result load_result;
 
-    if (gbl_machine_init(machine, &allocator) != GBL_BUS_STATUS_OK) {
+    if (!machine_initialize(machine, allocator_state)) {
         return false;
     }
     load_result = gbl_load_rom(machine, image, TEST_IMAGE_SIZE);
@@ -80,42 +97,44 @@ static bool machine_load(gbl_machine *machine,
     return true;
 }
 
-static bool cpu_is_direct_start(const gbl_cpu_state *cpu)
+static bool machine_load(gbl_machine *machine,
+                         const uint8_t image[TEST_IMAGE_SIZE])
+{
+    return machine_load_with_allocator(machine, image, NULL);
+}
+
+static void seed_nondefault_cpu_state(gbl_cpu_state *cpu)
 {
     size_t index;
 
-    if (cpu->cpsr != UINT32_C(0x000000DF) ||
-        cpu->execution_address != UINT32_C(0x08000000) ||
-        cpu->pipeline[0].address != 0u || cpu->pipeline[0].opcode != 0u ||
-        cpu->pipeline[0].width != 0u || cpu->pipeline[0].valid ||
-        cpu->pipeline[1].address != 0u || cpu->pipeline[1].opcode != 0u ||
-        cpu->pipeline[1].width != 0u || cpu->pipeline[1].valid ||
-        cpu->next_fetch_sequential || cpu->retired_instructions != 0u ||
-        cpu->stopped || cpu->stop_reason != GBL_CPU_STOP_NONE) {
-        return false;
-    }
     for (index = 0u; index < 8u; ++index) {
-        if (cpu->r0_7[index] != 0u) {
-            return false;
-        }
+        cpu->r0_7[index] = UINT32_C(0x11000000) + (uint32_t)index;
     }
     for (index = 0u; index < 7u; ++index) {
-        if (cpu->usr_r8_14[index] != 0u || cpu->fiq_r8_14[index] != 0u) {
-            return false;
-        }
+        cpu->usr_r8_14[index] = UINT32_C(0x22000000) + (uint32_t)index;
+        cpu->fiq_r8_14[index] = UINT32_C(0x33000000) + (uint32_t)index;
     }
     for (index = 0u; index < 2u; ++index) {
-        if (cpu->irq_r13_14[index] != 0u || cpu->svc_r13_14[index] != 0u ||
-            cpu->abt_r13_14[index] != 0u || cpu->und_r13_14[index] != 0u) {
-            return false;
-        }
+        cpu->irq_r13_14[index] = UINT32_C(0x44000000) + (uint32_t)index;
+        cpu->svc_r13_14[index] = UINT32_C(0x55000000) + (uint32_t)index;
+        cpu->abt_r13_14[index] = UINT32_C(0x66000000) + (uint32_t)index;
+        cpu->und_r13_14[index] = UINT32_C(0x77000000) + (uint32_t)index;
     }
     for (index = 0u; index < 5u; ++index) {
-        if (cpu->spsr[index] != 0u) {
-            return false;
-        }
+        cpu->spsr[index] = UINT32_C(0x88000000) + (uint32_t)index;
     }
-    return true;
+    cpu->cpsr = UINT32_C(0xA0000013);
+    cpu->execution_address = UINT32_C(0x08000040);
+    cpu->pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000040), UINT32_C(0xE1A00000), 4u, true
+    };
+    cpu->pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000044), UINT32_C(0xE1A01000), 4u, true
+    };
+    cpu->next_fetch_sequential = true;
+    cpu->retired_instructions = UINT64_C(0x123456789);
+    cpu->stopped = true;
+    cpu->stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
 }
 
 static bool run_units(gbl_machine *machine, uint64_t cycles, uint64_t units,
@@ -129,35 +148,45 @@ static bool run_units(gbl_machine *machine, uint64_t cycles, uint64_t units,
 static void test_lifecycle(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
+    uint8_t image_before[TEST_IMAGE_SIZE];
     uint8_t replacement[TEST_IMAGE_SIZE];
+    uint8_t replacement_before[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    cpu_test_allocator_state allocator_state = { false };
     bool loaded;
 
     make_program(image);
+    memcpy(image_before, image, sizeof(image_before));
     make_program(replacement);
-    loaded = machine_load(&machine, image);
-    test_case(loaded && machine.initialized && cpu_is_direct_start(&machine.cpu),
+    memcpy(replacement_before, replacement, sizeof(replacement_before));
+    loaded = machine_load_with_allocator(&machine, image, &allocator_state);
+    test_case(loaded && machine.initialized &&
+                  gbl_test_cpu_is_direct_start(&machine.cpu),
               "load initializes the complete direct-start CPU state");
     if (!loaded) {
         test_case(false, "reset clears CPU banks and restores the direct-start policy");
         test_case(false, "successful replacement load cold-resets pipeline and counters");
         test_case(false, "canonical equality and digest cover every CPU field");
         test_case(false, "invalid run arguments preserve machine and output storage");
+        test_case(false, "failed allocation preserves CPU state and caller bytes");
         test_case(false, "refused ROM load preserves every persistent CPU field");
+        test_case(false, "run without a loaded ROM is refused without effects");
+        test_case(false, "CPU state remains isolated between machine instances");
         return;
     }
 
-    machine.cpu.r0_7[0] = UINT32_C(0xA5A5A5A5);
-    machine.cpu.pipeline[0].valid = true;
+    seed_nondefault_cpu_state(&machine.cpu);
     machine.master_cycles = 33u;
     gbl_machine_reset(&machine);
-    test_case(cpu_is_direct_start(&machine.cpu) && machine.master_cycles == 0u,
+    test_case(gbl_test_cpu_is_direct_start(&machine.cpu) &&
+                  machine.master_cycles == 0u,
               "reset clears CPU banks and restores the direct-start policy");
 
-    (void)run_units(&machine, 2u, 1u, &result);
+    seed_nondefault_cpu_state(&machine.cpu);
+    machine.master_cycles = UINT64_C(0x123456789);
     (void)gbl_load_rom(&machine, replacement, sizeof(replacement));
-    test_case(cpu_is_direct_start(&machine.cpu) && machine.master_cycles == 0u,
+    test_case(gbl_test_cpu_is_direct_start(&machine.cpu) &&
+                  machine.master_cycles == 0u,
               "successful replacement load cold-resets pipeline and counters");
 
     {
@@ -200,21 +229,34 @@ static void test_lifecycle(void)
                             GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION);
 #undef CHECK_CPU_FIELD
 
-        test_case(all_fields_detected,
-                  "canonical equality and digest cover every CPU field");
+        int alternate_allocator_identity = 1;
+        changed = machine;
+        changed.allocator.context = &alternate_allocator_identity;
+        test_case(all_fields_detected &&
+                      gbl_test_canonical_equal(&machine, &changed) &&
+                      !gbl_test_same_instance_identity_equal(&machine,
+                                                             &changed),
+                  "canonical equality and digest cover every CPU field while allocator identity stays separate");
     }
 
+    seed_nondefault_cpu_state(&machine.cpu);
+    machine.master_cycles = UINT64_C(0x123456789);
     {
         const gbl_machine before = machine;
         const gbl_run_result output_before = {
             GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u
         };
+        const gbl_run_options options = { 1u, 1u };
         gbl_run_result output = output_before;
-        const bool refused =
-            gbl_cpu_run(&machine, NULL, &output) ==
-            GBL_RUN_STATUS_INVALID_ARGUMENT;
+        const bool null_options = gbl_cpu_run(&machine, NULL, &output) ==
+                                  GBL_RUN_STATUS_INVALID_ARGUMENT;
+        const bool null_machine = gbl_cpu_run(NULL, &options, &output) ==
+                                  GBL_RUN_STATUS_INVALID_ARGUMENT;
+        const bool null_result = gbl_cpu_run(&machine, &options, NULL) ==
+                                 GBL_RUN_STATUS_INVALID_ARGUMENT;
 
-        test_case(refused && gbl_test_canonical_equal(&before, &machine) &&
+        test_case(null_options && null_machine && null_result &&
+                      gbl_test_canonical_equal(&before, &machine) &&
                       gbl_test_same_instance_identity_equal(&before, &machine) &&
                       output.termination == output_before.termination &&
                       output.reason == output_before.reason &&
@@ -226,14 +268,94 @@ static void test_lifecycle(void)
     {
         const gbl_machine before = machine;
         const uint64_t digest_before = gbl_test_canonical_digest(&machine);
+        gbl_load_result refused;
+
+        allocator_state.fail_next_allocation = true;
+        refused = gbl_load_rom(&machine, replacement, sizeof(replacement));
+        test_case(refused.status == GBL_LOAD_STATUS_RESOURCE_FAILURE &&
+                      refused.reason == GBL_LOAD_REASON_ALLOCATION &&
+                      gbl_test_canonical_equal(&before, &machine) &&
+                      gbl_test_same_instance_identity_equal(&before, &machine) &&
+                      digest_before == gbl_test_canonical_digest(&machine) &&
+                      gbl_test_bytes_equal(replacement, replacement_before,
+                                           sizeof(replacement)),
+                  "failed allocation preserves CPU state and caller bytes");
+    }
+
+    {
+        const gbl_machine before = machine;
+        const uint64_t digest_before = gbl_test_canonical_digest(&machine);
         const gbl_load_result refused = gbl_load_rom(&machine, image, 0u);
 
         test_case(refused.status == GBL_LOAD_STATUS_REFUSED &&
                       refused.reason == GBL_LOAD_REASON_ROM_ZERO &&
                       gbl_test_canonical_equal(&before, &machine) &&
                       gbl_test_same_instance_identity_equal(&before, &machine) &&
-                      digest_before == gbl_test_canonical_digest(&machine),
+                      digest_before == gbl_test_canonical_digest(&machine) &&
+                      gbl_test_bytes_equal(image, image_before,
+                                           sizeof(image)),
                   "refused ROM load preserves every persistent CPU field");
+    }
+
+    {
+        gbl_machine no_rom = { 0 };
+        cpu_test_allocator_state no_rom_allocator_state = { false };
+        const gbl_run_options options = { 2u, 0u };
+        const gbl_run_result output_before = {
+            GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u
+        };
+        const bool initialized = machine_initialize(&no_rom,
+                                                    &no_rom_allocator_state);
+
+        if (initialized) {
+            const gbl_machine before = no_rom;
+            gbl_run_result output = output_before;
+            const gbl_run_status status =
+                gbl_cpu_run(&no_rom, &options, &output);
+
+            test_case(status == GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                          gbl_test_canonical_equal(&before, &no_rom) &&
+                          gbl_test_same_instance_identity_equal(&before,
+                                                               &no_rom) &&
+                          output.termination == output_before.termination &&
+                          output.reason == output_before.reason &&
+                          output.cycles == output_before.cycles &&
+                          output.instructions == output_before.instructions,
+                      "run without a loaded ROM is refused without effects");
+            gbl_machine_dispose(&no_rom);
+        } else {
+            test_case(false,
+                      "run without a loaded ROM is refused without effects");
+        }
+    }
+
+    {
+        uint8_t second_image[TEST_IMAGE_SIZE];
+        gbl_machine first = { 0 };
+        gbl_machine second = { 0 };
+        gbl_run_result first_result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool first_loaded;
+        bool second_loaded;
+        bool first_ran;
+
+        make_program(second_image);
+        first_loaded = machine_load(&first, image);
+        second_loaded = machine_load(&second, second_image);
+        first_ran = first_loaded &&
+                    run_units(&first, 3u, 2u, &first_result);
+        test_case(first_loaded && second_loaded && first_ran &&
+                      first_result.termination == GBL_RUN_PROGRESS &&
+                      first_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      first_result.cycles == 3u &&
+                      first.cpu.r0_7[0] == UINT32_C(0x08000008) &&
+                      first.master_cycles == 3u &&
+                      gbl_test_cpu_is_direct_start(&second.cpu) &&
+                      second.master_cycles == 0u,
+                  "CPU state remains isolated between machine instances");
+        gbl_machine_dispose(&first);
+        gbl_machine_dispose(&second);
     }
     gbl_machine_dispose(&machine);
 }
@@ -313,6 +435,7 @@ static void test_budget(void)
         test_case(false, "clock overflow is rejected before a refill");
         test_case(false, "retired-instruction overflow is rejected before MOV");
         test_case(false, "fetch extent overflow is refused without bus effects");
+        test_case(false, "clock at UINT64_MAX refuses the next fetch atomically");
         return;
     }
 
@@ -397,6 +520,24 @@ static void test_budget(void)
                                                        &overflow_machine),
                           "clock overflow is rejected before a refill");
             }
+            overflow_machine.master_cycles = UINT64_MAX - UINT64_C(2);
+            {
+                const bool exact_ran =
+                    run_units(&overflow_machine, 2u, 1u, &result);
+                const gbl_machine at_limit = overflow_machine;
+                const bool refused_at_limit =
+                    run_units(&overflow_machine, 1u, 1u, &result);
+
+                test_case(exact_ran &&
+                              at_limit.master_cycles == UINT64_MAX &&
+                              result.termination == GBL_RUN_STOPPED &&
+                              result.reason ==
+                                  GBL_RUN_REASON_COUNTER_OVERFLOW &&
+                              result.cycles == 0u && refused_at_limit &&
+                              gbl_test_canonical_equal(&at_limit,
+                                                       &overflow_machine),
+                          "clock at UINT64_MAX refuses the next fetch atomically");
+            }
             overflow_machine.cpu.pipeline[0].valid = true;
             overflow_machine.cpu.pipeline[0].address =
                 UINT32_C(0x08000000);
@@ -454,13 +595,13 @@ int main(int argc, char **argv)
     }
     printf("TAP version 13\n");
     if (strcmp(argv[1], "lifecycle") == 0) {
-        printf("1..6\n");
+        printf("1..9\n");
         test_lifecycle();
     } else if (strcmp(argv[1], "tracer") == 0) {
         printf("1..4\n");
         test_tracer();
     } else if (strcmp(argv[1], "budget") == 0) {
-        printf("1..8\n");
+        printf("1..9\n");
         test_budget();
     } else {
         return 2;

@@ -76,6 +76,44 @@ static bool gbl_test_cpu_equal(const gbl_cpu_state *left,
     return true;
 }
 
+static bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
+{
+    size_t index;
+
+    if (cpu->cpsr != UINT32_C(0x000000DF) ||
+        cpu->execution_address != UINT32_C(0x08000000) ||
+        cpu->pipeline[0].address != 0u || cpu->pipeline[0].opcode != 0u ||
+        cpu->pipeline[0].width != 0u || cpu->pipeline[0].valid ||
+        cpu->pipeline[1].address != 0u || cpu->pipeline[1].opcode != 0u ||
+        cpu->pipeline[1].width != 0u || cpu->pipeline[1].valid ||
+        cpu->next_fetch_sequential || cpu->retired_instructions != 0u ||
+        cpu->stopped || cpu->stop_reason != GBL_CPU_STOP_NONE) {
+        return false;
+    }
+    for (index = 0u; index < 8u; ++index) {
+        if (cpu->r0_7[index] != 0u) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 7u; ++index) {
+        if (cpu->usr_r8_14[index] != 0u || cpu->fiq_r8_14[index] != 0u) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 2u; ++index) {
+        if (cpu->irq_r13_14[index] != 0u || cpu->svc_r13_14[index] != 0u ||
+            cpu->abt_r13_14[index] != 0u || cpu->und_r13_14[index] != 0u) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 5u; ++index) {
+        if (cpu->spsr[index] != 0u) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Compare canonical fields and contents, excluding struct padding, allocator
  * identity, and ROM pointer identity. */
 static bool gbl_test_canonical_equal(const gbl_machine *left,
