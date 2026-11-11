@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 2
 waived_count: 0
-fixed_count: 2
-total_count: 4
-last_updated: 2026-11-11T06:38:11.804Z
+fixed_count: 3
+total_count: 5
+last_updated: 2026-11-11T07:52:28.943Z
 ---
 
 # Broken Windows Ledger
@@ -19,6 +19,7 @@ last_updated: 2026-11-11T06:38:11.804Z
 | 2 | 04 | stub | profiles/agb.json | 129 | The current-latch response for absent BIOS, unsupported I/O, and ROM tails remains an unverified placeholder; no hardware behavior is claimed. | open |  | 2026-11-11T05:59:19.341Z |  |
 | 3 | 04 | skipped-test | tests/gates.cmake | 88 | signature.owner_local skipped because GBL_OWNER_LOGO_FILE was unset; the optional owner-local cross-check remains unrun. | fixed |  | 2026-11-11T05:59:19.431Z | 2026-11-11T06:05:21.279Z |
 | 4 | 04 | deviation | src/inspect.c |  | Plan 04-06 core include verification rejected string.h in inspection code. Replaced memcpy with an original bounded byte-copy helper; focused inspection, core include, canonical CI and ASan/UBSan checks pass. | fixed |  | 2026-11-11T06:38:11.723Z | 2026-11-11T06:38:11.804Z |
+| 5 | 04 | deviation | tests/hash_test.c | 95 | Corrected a malformed NIST long-message test vector; the final standard-vector, strict-warning and ASan/UBSan checks pass. | fixed |  | 2026-11-11T07:52:28.871Z | 2026-11-11T07:52:28.943Z |
 
 ````json
 [
@@ -72,6 +73,19 @@ last_updated: 2026-11-11T06:38:11.804Z
     "reason": "",
     "recorded_at": "2026-11-11T06:38:11.723Z",
     "resolved_at": "2026-11-11T06:38:11.804Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 5,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "tests/hash_test.c",
+    "line": 95,
+    "description": "Corrected a malformed NIST long-message test vector; the final standard-vector, strict-warning and ASan/UBSan checks pass.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-11T07:52:28.871Z",
+    "resolved_at": "2026-11-11T07:52:28.943Z",
     "milestone": "v1.0"
   }
 ]
