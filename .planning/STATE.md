@@ -195,6 +195,9 @@ None yet.
 
 ### Blockers/Concerns
 
+- Phase 4 security review: two high authored mitigations remain open through one root cause. The mailbox parser accepts a completed PASS with case ID zero although the result/1 contract requires a nonzero ID. Fix parser and actual identity-valid producer regressions, then obtain targeted security closure before phase advancement. No risk is accepted; local remediation and code review continue under existing authority.
+
+
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
 - Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
