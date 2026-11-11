@@ -47,6 +47,10 @@
 #   bus-policy-doc         bus policy narrative is missing, stale, or has an extra row
 #   init-policy            initialization policy structure, provenance, or zero value is wrong
 #   read-policy            read policy structure, provenance, or placeholder value is wrong
+#   cpu-policy-missing     cpu_policy is absent, null, or not an object
+#   cpu-policy-source      CPU policy or sourced ARM architecture evidence is inflated or stale
+#   cpu-policy-value       CPU direct-start values or supported/excluded instruction scope is wrong
+#   cpu-policy-doc         visible CPU policy or instruction-scope table is missing, stale, or duplicated
 # The json:, contract:, and registry: codes come from the loader and the vocabulary
 # and registry readers this file calls.
 
@@ -73,6 +77,24 @@ set(GBL_PROFILE_INIT_CITE
   "Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown.")
 set(GBL_PROFILE_READ_CITE
   "Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails.")
+set(GBL_PROFILE_CPU_CITE
+  "Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops.")
+set(GBL_PROFILE_CPU_ARCH_CITE
+  "ARM7TDMI Technical Reference Manual (DDI 0029G, Issue G), ARM state, Thumb state, and processor modes sections.")
+set(GBL_PROFILE_CPU_SUPPORTED
+  "ARM data processing: MOV, ADD, SUB, CMP, AND, ORR, rotated immediate or register operand, immediate or register-specified LSL/LSR/ASR/ROR, S flag supported, destinations r0-r14"
+  "ARM control flow: B, BL, BX"
+  "ARM single transfer: LDR/STR byte or word, immediate 12-bit offset, pre-indexed, no writeback, U plus or minus, r0-r14 base/data, PC base only for positive LDR literal"
+  "Thumb data processing: MOV immediate8, ADD/SUB immediate8, CMP immediate8"
+  "Thumb high-register operations: MOV to r0-r14 and BX"
+  "Thumb control flow: conditional B except SWI/reserved conditions, and unconditional B"
+  "Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers")
+set(GBL_PROFILE_CPU_EXCLUDED
+  "ARM register-specified shifts involving r15, r15 destinations other than branch/BX, STR with PC source, and PC reads"
+  "ARM post-indexed or writeback transfers, halfword/signed transfers, block transfers, multiply, swap, full PSR transfers, and coprocessor execution"
+  "Thumb data-processing writes to r15 outside BX/branch, Thumb BL pair, and non-listed transfer forms"
+  "All other valid-but-unimplemented opcodes and operands stop as unsupported, reserved undefined encodings remain distinct"
+  "Later ARM architecture extensions and every instruction family absent from the supported array")
 
 # Validate a policy's source and citation as project-authored evidence. Hardware
 # claims are not inferred from these placeholders.
@@ -297,6 +319,90 @@ function(gbl__profile_read_policy doc)
   if(NOT "${write_latch}" STREQUAL "preserve")
     gbl_finding(profile read-policy "read_policy.write_latch: expected preserve")
   endif()
+endfunction()
+
+function(gbl__profile_cpu_policy doc)
+  gbl_json_type(pty "${doc}" cpu_policy)
+  if(NOT "${pty}" STREQUAL "OBJECT")
+    gbl_finding(profile cpu-policy-missing "cpu_policy: missing or not an object")
+    return()
+  endif()
+  string(JSON plen LENGTH "${doc}" cpu_policy)
+  if(NOT plen EQUAL 19)
+    gbl_finding(profile cpu-policy-value "cpu_policy: field count")
+  endif()
+
+  gbl__profile_policy_source("${doc}" cpu_policy "${GBL_PROFILE_CPU_CITE}" cpu-policy-source)
+  gbl_json_string(architecture_source "${doc}" cpu_policy architecture_source)
+  gbl_json_string(architecture_cite "${doc}" cpu_policy architecture_cite)
+  if(NOT "${architecture_source}" STREQUAL "REF" OR
+     NOT "${architecture_cite}" STREQUAL "${GBL_PROFILE_CPU_ARCH_CITE}")
+    gbl_finding(profile cpu-policy-source "cpu_policy: ARM architecture source/citation")
+  endif()
+
+  foreach(pair IN ITEMS
+      "entry_address|134217728"
+      "cpsr|223"
+      "register_bank_fill|0"
+      "spsr_fill|0"
+      "arm_pc_offset|8"
+      "thumb_pc_offset|4"
+      "exception_entry_cycles|1")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected)
+    gbl_json_type(vty "${doc}" cpu_policy "${key}")
+    if(NOT "${vty}" STREQUAL "NUMBER")
+      gbl_finding(profile cpu-policy-value "cpu_policy.${key}: expected ${expected}")
+    else()
+      string(JSON value GET "${doc}" cpu_policy "${key}")
+      if(NOT "${value}" STREQUAL "${expected}")
+        gbl_finding(profile cpu-policy-value "cpu_policy.${key}: expected ${expected}")
+      endif()
+    endif()
+  endforeach()
+
+  foreach(pair IN ITEMS
+      "user_system_spsr|absent"
+      "register_banks|User/System share r8-r14, FIQ has private r8-r14, IRQ/SVC/ABT/UND each have private r13-r14, and FIQ/IRQ/SVC/ABT/UND have SPSRs."
+      "pipeline|empty"
+      "timing|unit-preflight-one-cycle-bus"
+      "bios_none_stop|after-entry-before-vector-fetch"
+      "execution|single-interpreter")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected)
+    gbl_json_string(value "${doc}" cpu_policy "${key}")
+    if(NOT "${value}" STREQUAL "${expected}")
+      gbl_finding(profile cpu-policy-value "cpu_policy.${key}: expected ${expected}")
+    endif()
+  endforeach()
+
+  foreach(spec IN ITEMS "supported_opcode_operands|GBL_PROFILE_CPU_SUPPORTED"
+                        "excluded_opcode_operands|GBL_PROFILE_CPU_EXCLUDED")
+    string(REPLACE "|" ";" fields "${spec}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected_var)
+    gbl_json_type(aty "${doc}" cpu_policy "${key}")
+    if(NOT "${aty}" STREQUAL "ARRAY")
+      gbl_finding(profile cpu-policy-value "cpu_policy.${key}: expected array")
+      continue()
+    endif()
+    string(JSON actual_length LENGTH "${doc}" cpu_policy "${key}")
+    list(LENGTH ${expected_var} expected_length)
+    if(NOT actual_length EQUAL expected_length)
+      gbl_finding(profile cpu-policy-value "cpu_policy.${key}: expected ${expected_length} rows, found ${actual_length}")
+      continue()
+    endif()
+    math(EXPR last "${expected_length}-1")
+    foreach(i RANGE ${last})
+      string(JSON actual GET "${doc}" cpu_policy "${key}" ${i})
+      list(GET ${expected_var} ${i} expected)
+      if(NOT "${actual}" STREQUAL "${expected}")
+        gbl_finding(profile cpu-policy-value "cpu_policy.${key}[${i}]: unexpected opcode/operand scope")
+      endif()
+    endforeach()
+  endforeach()
 endfunction()
 
 # gbl__profile_dispute(<doc> <where> <key>...): when a `dispute` member exists at
@@ -1019,9 +1125,17 @@ endfunction()
 # Check one table in the already-normalized canonical document against rows
 # built from the profile values. Matching rows elsewhere cannot satisfy it.
 function(gbl__profile_doc_policy_table normalized_text heading prefix expected_count expected_rows_var)
+  set(finding_code bus-policy-doc)
+  set(expected_header "Setting;Value;Label;Citation")
+  if(ARGC GREATER 5)
+    set(expected_header "${ARGV5}")
+  endif()
+  if(ARGC GREATER 6)
+    set(finding_code "${ARGV6}")
+  endif()
   string(FIND "${normalized_text}" "\n${heading}\n" heading_at)
   if(heading_at EQUAL -1)
-    gbl_finding(profile bus-policy-doc "missing ${heading} section")
+    gbl_finding(profile "${finding_code}" "missing ${heading} section")
     return()
   endif()
   string(LENGTH "\n${heading}\n" heading_length)
@@ -1034,9 +1148,9 @@ function(gbl__profile_doc_policy_table normalized_text heading prefix expected_c
   endif()
 
   gbl__profile_doc_first_table(table "${section}" "${prefix}"
-    "Setting;Value;Label;Citation")
+    "${expected_header}")
   if("${table}" STREQUAL "")
-    gbl_finding(profile bus-policy-doc "${prefix}: missing policy table")
+    gbl_finding(profile "${finding_code}" "${prefix}: missing policy table")
     return()
   endif()
 
@@ -1067,11 +1181,11 @@ function(gbl__profile_doc_policy_table normalized_text heading prefix expected_c
     if(line_index GREATER 1 AND NOT "${line}" STREQUAL "")
       gbl__profile_doc_pipe_row_shape(cell_count row_key "${line}")
       if(NOT cell_count EQUAL 4)
-        gbl_finding(profile bus-policy-doc
+        gbl_finding(profile "${finding_code}"
           "${prefix}: expected 4 cells per body row, found ${cell_count}")
       else()
         if(NOT "${row_key}" IN_LIST expected_keys)
-          gbl_finding(profile bus-policy-doc "${prefix}: unexpected policy row ${row_key}")
+          gbl_finding(profile "${finding_code}" "${prefix}: unexpected policy row ${row_key}")
         endif()
       endif()
       math(EXPR body_row_count "${body_row_count}+1")
@@ -1083,7 +1197,7 @@ function(gbl__profile_doc_policy_table normalized_text heading prefix expected_c
     endif()
   endwhile()
   if(NOT body_row_count EQUAL expected_count)
-    gbl_finding(profile bus-policy-doc "${prefix}: expected ${expected_count} rows, found ${body_row_count}")
+    gbl_finding(profile "${finding_code}" "${prefix}: expected ${expected_count} rows, found ${body_row_count}")
   endif()
 
   foreach(row IN LISTS ${expected_rows_var})
@@ -1105,11 +1219,11 @@ function(gbl__profile_doc_policy_table normalized_text heading prefix expected_c
       string(SUBSTRING "${remaining_table}" ${after_key} -1 remaining_table)
     endwhile()
     if(NOT key_count EQUAL 1)
-      gbl_finding(profile bus-policy-doc "${prefix}: expected key ${key} exactly once in policy table, found ${key_count}")
+      gbl_finding(profile "${finding_code}" "${prefix}: expected key ${key} exactly once in policy table, found ${key_count}")
     else()
       string(FIND "${table}" "\n${row}\n" at)
       if(at EQUAL -1)
-        gbl_finding(profile bus-policy-doc "${prefix}: missing or stale row")
+        gbl_finding(profile "${finding_code}" "${prefix}: missing or stale row")
       endif()
     endif()
   endforeach()
@@ -1183,6 +1297,12 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
       gbl_finding(profile bus-policy-doc "missing ${heading} section")
     endif()
   endforeach()
+  foreach(heading IN ITEMS "## CPU direct-start policy" "## CPU instruction scope")
+    string(FIND "${normalized_text}" "${heading}" heading_at)
+    if(heading_at EQUAL -1)
+      gbl_finding(profile cpu-policy-doc "missing ${heading} section")
+    endif()
+  endforeach()
 
   gbl_json_string(bus_source "${profile}" bus_policy source)
   gbl_json_string(bus_cite "${profile}" bus_policy cite)
@@ -1217,6 +1337,40 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     "| read_policy.latch_update | mapped-read-width-replicated | ${read_source} | ${read_cite_row} |"
     "| read_policy.write_latch | preserve | ${read_source} | ${read_cite_row} |")
   gbl__profile_doc_policy_table("${normalized_text}" "## Read policy" read_policy 5 read_rows)
+
+  set(cpu_rows
+    "| cpu_policy.entry_address | 134217728 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.cpsr | 223 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.register_bank_fill | 0 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.spsr_fill | 0 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.user_system_spsr | absent | REF | ${GBL_PROFILE_CPU_ARCH_CITE} |"
+    "| cpu_policy.register_banks | User/System share r8-r14, FIQ has private r8-r14, IRQ/SVC/ABT/UND each have private r13-r14, and FIQ/IRQ/SVC/ABT/UND have SPSRs. | REF | ${GBL_PROFILE_CPU_ARCH_CITE} |"
+    "| cpu_policy.pipeline | empty | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.arm_pc_offset | 8 | REF | ${GBL_PROFILE_CPU_ARCH_CITE} |"
+    "| cpu_policy.thumb_pc_offset | 4 | REF | ${GBL_PROFILE_CPU_ARCH_CITE} |"
+    "| cpu_policy.timing | unit-preflight-one-cycle-bus | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.exception_entry_cycles | 1 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.bios_none_stop | after-entry-before-vector-fetch | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.execution | single-interpreter | IMPL | ${GBL_PROFILE_CPU_CITE} |")
+  gbl__profile_doc_policy_table("${normalized_text}" "## CPU direct-start policy"
+    cpu_policy 13 cpu_rows "Setting;Value;Label;Citation" cpu-policy-doc)
+
+  set(cpu_scope_rows)
+  set(scope_index 0)
+  foreach(scope IN LISTS GBL_PROFILE_CPU_SUPPORTED)
+    math(EXPR scope_index "${scope_index}+1")
+    list(APPEND cpu_scope_rows
+      "| cpu_scope.supported.${scope_index} | ${scope} | IMPL | ${GBL_PROFILE_CPU_CITE} |")
+  endforeach()
+  set(scope_index 0)
+  foreach(scope IN LISTS GBL_PROFILE_CPU_EXCLUDED)
+    math(EXPR scope_index "${scope_index}+1")
+    list(APPEND cpu_scope_rows
+      "| cpu_scope.excluded.${scope_index} | ${scope} | IMPL | ${GBL_PROFILE_CPU_CITE} |")
+  endforeach()
+  list(LENGTH cpu_scope_rows cpu_scope_count)
+  gbl__profile_doc_policy_table("${normalized_text}" "## CPU instruction scope"
+    cpu_scope ${cpu_scope_count} cpu_scope_rows "Scope;Opcode / operand forms;Label;Citation" cpu-policy-doc)
 
   string(FIND "${normalized_text}" "\n## Unmodeled\n" at)
   set(doc_ids "")
@@ -1366,6 +1520,7 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   gbl__profile_bus_policy("${doc}")
   gbl__profile_initialization_policy("${doc}")
   gbl__profile_read_policy("${doc}")
+  gbl__profile_cpu_policy("${doc}")
 
   set(json_ids "")
   gbl_json_length(um_len "${doc}" unmodeled)

@@ -35,6 +35,9 @@ file(COPY_FILE "${SRC}/contracts/evidence.json" "${dir}/evidence.json")
 file(COPY_FILE "${SRC}/registry/disputes.json" "${dir}/disputes.json")
 set(VOCAB_COPY "${dir}/evidence.json")
 set(REGISTRY_COPY "${dir}/disputes.json")
+file(READ "${SRC}/profiles/agb.json" base_profile)
+string(JSON PROFILE_VERSION GET "${base_profile}" profile_version)
+math(EXPR NEXT_PROFILE_VERSION "${PROFILE_VERSION}+1")
 
 # profile_copy(<out-var> <variant>): a fresh sandbox copy of the real profile.
 function(profile_copy out variant)
@@ -99,7 +102,101 @@ if(CASE STREQUAL "copy")
   doc_copy(d copy)
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v3, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
+
+elseif(CASE STREQUAL "cpu_policy_value")
+  profile_copy(p positive_cpu_policy)
+  doc_copy(d positive_cpu_policy)
+  check_command(cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${cmd}
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
+
+  profile_copy(p missing_cpu_policy)
+  gbl_json_mutate_remove("${p}" cpu_policy)
+  expect_code(cpu-policy-missing "${p}")
+
+  profile_copy(p wrong_entry)
+  gbl_json_mutate_set("${p}" "134217732" cpu_policy entry_address)
+  expect_detail(cpu-policy-value "cpu_policy\\.entry_address: expected 134217728" "${p}")
+
+  profile_copy(p wrong_mode)
+  gbl_json_mutate_set("${p}" "211" cpu_policy cpsr)
+  expect_detail(cpu-policy-value "cpu_policy\\.cpsr: expected 223" "${p}")
+
+  profile_copy(p wrong_flags)
+  gbl_json_mutate_set("${p}" "2147483871" cpu_policy cpsr)
+  expect_detail(cpu-policy-value "cpu_policy\\.cpsr: expected 223" "${p}")
+
+  profile_copy(p wrong_arm_pc)
+  gbl_json_mutate_set("${p}" "4" cpu_policy arm_pc_offset)
+  expect_detail(cpu-policy-value "cpu_policy\\.arm_pc_offset: expected 8" "${p}")
+
+  profile_copy(p fake_user_spsr)
+  gbl_json_mutate_set("${p}" "\"present\"" cpu_policy user_system_spsr)
+  expect_detail(cpu-policy-value "cpu_policy\\.user_system_spsr: expected absent" "${p}")
+
+  profile_copy(p wrong_stop_edge)
+  gbl_json_mutate_set("${p}" "\"after-vector-fetch\"" cpu_policy bios_none_stop)
+  expect_detail(cpu-policy-value "cpu_policy\\.bios_none_stop: expected after-entry-before-vector-fetch" "${p}")
+
+  profile_copy(p inflated_policy_source)
+  gbl_json_mutate_set("${p}" "\"REF\"" cpu_policy source)
+  expect_code(cpu-policy-source "${p}")
+
+  profile_copy(p inflated_arch_source)
+  gbl_json_mutate_set("${p}" "\"SRC\"" cpu_policy architecture_source)
+  expect_code(cpu-policy-source "${p}")
+
+  profile_copy(p omitted_supported_rows)
+  gbl_json_mutate_set("${p}" "[]" cpu_policy supported_opcode_operands)
+  expect_code(cpu-policy-value "${p}")
+
+  profile_copy(p excess_supported_rows)
+  gbl_text_mutate("${p}"
+    "\"Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers\"\n    ],"
+    "\"Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers\",\n      \"Extra instruction family not implemented\"\n    ],")
+  expect_code(cpu-policy-value "${p}")
+
+  profile_copy(p omitted_excluded_rows)
+  gbl_json_mutate_set("${p}" "[]" cpu_policy excluded_opcode_operands)
+  expect_code(cpu-policy-value "${p}")
+
+elseif(CASE STREQUAL "cpu_policy_doc")
+  profile_copy(p positive_cpu_policy_doc)
+  doc_copy(d positive_cpu_policy_doc)
+  check_command(cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${cmd}
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
+
+  set(entry_row "| cpu_policy.entry_address | 134217728 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |")
+  profile_copy(p stale_cpu_value)
+  doc_copy(d stale_cpu_value)
+  gbl_text_mutate("${d}" "${entry_row}"
+    "| cpu_policy.entry_address | 134217732 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |")
+  expect_code(cpu-policy-doc "${p}" "${d}")
+
+  profile_copy(p duplicated_cpu_row)
+  doc_copy(d duplicated_cpu_row)
+  gbl_text_mutate("${d}" "${entry_row}" "${entry_row}\n${entry_row}")
+  expect_code(cpu-policy-doc "${p}" "${d}")
+
+  profile_copy(p hidden_cpu_row)
+  doc_copy(d hidden_cpu_row)
+  gbl_text_mutate("${d}" "${entry_row}"
+    "<!--\n${entry_row}\n-->\n```markdown\n${entry_row}\n```")
+  expect_code(cpu-policy-doc "${p}" "${d}")
+
+  profile_copy(p inflated_cpu_doc_source)
+  doc_copy(d inflated_cpu_doc_source)
+  gbl_text_mutate("${d}" "| cpu_policy.entry_address | 134217728 | IMPL |"
+    "| cpu_policy.entry_address | 134217728 | REF |")
+  expect_code(cpu-policy-doc "${p}" "${d}")
+
+  profile_copy(p stale_cpu_scope)
+  doc_copy(d stale_cpu_scope)
+  gbl_text_mutate("${d}" "ARM control flow: B, BL, BX"
+    "ARM control flow: B, BL, BX, and extra opcode")
+  expect_code(cpu-policy-doc "${p}" "${d}")
 
 elseif(CASE STREQUAL "bus_policy_missing")
   profile_copy(p missing_bus_policy)
@@ -192,9 +289,9 @@ elseif(CASE STREQUAL "bus_policy_doc")
   expect_detail(bus-policy-doc "missing ## Bus policy section" "${p}" "${d}")
   profile_copy(p multiline_inline_hidden_version)
   doc_copy(d multiline_inline_hidden_version)
-  gbl_text_mutate("${d}" "\nprofile_version: 3\n"
-    "\n``\nprofile_version: 3\n``\nprofile_version: 999\n")
-  expect_detail(doc-version-mismatch "document 999, profile 3" "${p}" "${d}")
+  gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n"
+    "\n``\nprofile_version: ${PROFILE_VERSION}\n``\nprofile_version: ${NEXT_PROFILE_VERSION}\n")
+  expect_detail(doc-version-mismatch "document ${NEXT_PROFILE_VERSION}, profile ${PROFILE_VERSION}" "${p}" "${d}")
   profile_copy(p html_crosses_policy_sections)
   doc_copy(d html_crosses_policy_sections)
   gbl_text_mutate("${d}" "\n## Bus policy\n"
@@ -377,7 +474,7 @@ elseif(CASE STREQUAL "bus_policy_copy")
     "## Bus policy\n\n```html\n<pre>\n${valid_table}\n</pre>\n```\n")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v3, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
 
 elseif(CASE STREQUAL "unmodeled_missing")
   # Remove each of the eleven required entries in turn from a fresh copy; each
@@ -619,21 +716,21 @@ elseif(CASE STREQUAL "doc_extra_id")
 elseif(CASE STREQUAL "doc_version_mismatch")
   profile_copy(p bumped)
   doc_copy(d bumped)
-  gbl_text_mutate("${d}" "\nprofile_version: 3\n" "\nprofile_version: 4\n")
+  gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n" "\nprofile_version: ${NEXT_PROFILE_VERSION}\n")
   expect_code(doc-version-mismatch "${p}" "${d}")
   profile_copy(p deleted)
   doc_copy(d deleted)
-  gbl_text_mutate("${d}" "\nprofile_version: 3\n" "\n")
+  gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n" "\n")
   expect_code(doc-version-mismatch "${p}" "${d}")
   profile_copy(p commented_version)
   doc_copy(d commented_version)
-  gbl_text_mutate("${d}" "\nprofile_version: 3\n"
-    "\n<!--\nprofile_version: 3\n-->\n")
+  gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n"
+    "\n<!--\nprofile_version: ${PROFILE_VERSION}\n-->\n")
   expect_detail(doc-version-mismatch "no profile_version line" "${p}" "${d}")
   profile_copy(p duplicate_version)
   doc_copy(d duplicate_version)
-  gbl_text_mutate("${d}" "\nprofile_version: 3\n"
-    "\nprofile_version: 3\nprofile_version: 999\n")
+  gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n"
+    "\nprofile_version: ${PROFILE_VERSION}\nprofile_version: ${NEXT_PROFILE_VERSION}\n")
   expect_detail(doc-version-mismatch
     "expected exactly one profile_version line, found 2" "${p}" "${d}")
 
@@ -672,20 +769,20 @@ elseif(CASE STREQUAL "doc_no_section")
   expect_code(doc-no-section "${p}" "${d}")
 
 elseif(CASE STREQUAL "coordinated_change")
-  # Version 4 plus a coordinated unmodeled addition is accepted while every
+  # The next profile version plus a coordinated unmodeled addition is accepted while every
   # bus, initialization, and read policy value remains unchanged.
   profile_copy(p coordinated)
   doc_copy(d coordinated)
   gbl_json_mutate_set("${p}"
     [=[{"id": "serial-link", "status": "unmodeled", "reason": "Not emulated in v1.0; no result may claim serial link behavior."}]=]
     unmodeled 11)
-  gbl_json_mutate_set("${p}" "4" profile_version)
+  gbl_json_mutate_set("${p}" "${NEXT_PROFILE_VERSION}" profile_version)
   gbl_text_mutate("${d}" "| `backup-media` |"
     "| `serial-link` | The serial link port. |\n| `backup-media` |")
-  gbl_text_mutate("${d}" "\nprofile_version: 3\n" "\nprofile_version: 4\n")
+  gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n" "\nprofile_version: ${NEXT_PROFILE_VERSION}\n")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v4, 11 timing constants, 12 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${NEXT_PROFILE_VERSION}, 11 timing constants, 12 unmodeled\\)")
 
 else()
   message(FATAL_ERROR "profile-case: unknown case: ${CASE}")
