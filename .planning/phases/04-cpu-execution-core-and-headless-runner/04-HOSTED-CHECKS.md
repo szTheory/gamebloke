@@ -34,3 +34,7 @@ Owner: judge whether `docs/evidence-contract.md` clearly explains the bounded ru
 Agent after owner response: record the actual UAT result, use the canonical verification transition/predicate, complete Phase 4 bookkeeping only if permitted, publish the bookkeeping through this same PR and inspect required CI, then squash-merge under the standing policy and verify main. If any new hosted run is red, preserve the standing stop and report before fixing or retrying. Begin Phase 5 only after the phase boundary passes. No tag, release, LICENSE or unrelated publication is authorized.
 
 Pre-existing AGENTS.md, config.json, state cache and research cache edits remain preserved and excluded from these commits. Private inputs remain ignored and were never CPU fixtures.
+
+## Owner acceptance and publication follow-up
+
+Owner replied "yes i accpet" to the pending evidence-guide clarity question. The canonical UAT completion and verification transition pass. The initial snapshot above remains historical evidence for its exact tested head; final accepted bookkeeping is being published through the same PR and must pass required CI before squash merge. No source change or new rights/qualification claim follows.

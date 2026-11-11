@@ -1,7 +1,7 @@
 ---
 phase: 04-cpu-execution-core-and-headless-runner
 verified: 2026-11-11T13:00:22Z
-status: human_needed
+status: passed
 score: 41/41 must-haves verified
 covered_files:
   - .planning/phases/04-cpu-execution-core-and-headless-runner/04-01-PLAN.md
@@ -261,3 +261,7 @@ The GSD decision-coverage query found no trackable decision records for this pha
 
 _Verified: 2026-11-11T13:00:22Z_
 _Verifier: gsd-verifier_
+
+## Owner acceptance audit
+
+On 2026-11-11 the owner replied "yes i accpet" to the explicit evidence-guide clarity question after the software-evidence and rights/qualification limits were stated. 04-UAT.md records the actual response. The canonical UAT predicate passes and the owning verification transition set status to passed. The historical human_needed narrative above is superseded for D3 only. All eleven probe statuses and rights/qualification restrictions remain unchanged.

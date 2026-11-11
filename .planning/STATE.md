@@ -2,44 +2,45 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 4
-current_phase_name: CPU Execution Core and Headless Runner
-status: verifying
-stopped_at: Phase 4 draft PR 7 green; awaiting owner guide clarity review
-last_updated: "2026-11-11T11:26:44.976Z"
-last_activity: 2026-11-10
-last_activity_desc: Phase 4 execution started
-state_head: 671a3a632fb09900c5eb34bfdffc1a3ffaf3fdd2
+current_phase: 5
+current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
+status: planning
+stopped_at: Phase 4 complete, ready to plan Phase 5
+last_updated: "2026-11-11T14:02:14.800Z"
+last_activity: 2026-11-11
+last_activity_desc: Phase 4 complete, transitioned to Phase 5
+state_head: 034cd2f7bbaa741417156bf78ddd944c98d52dad
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 38
   completed_plans: 38
+  percent: 67
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-10)
+See: .planning/PROJECT.md (updated 2026-11-11)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 4 — CPU Execution Core and Headless Runner
+**Current focus:** Phase 5 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 
 ## Current Position
 
-Phase: 4 (CPU Execution Core and Headless Runner) — EXECUTING
-Plan: 13 of 13
-Status: Implementation verified — human guide review pending
-Last activity: 2026-11-10 — Phase 4 execution started
+Phase: 5 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-11 — Phase 4 complete, transitioned to Phase 5
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
+- Total plans completed: 38
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -50,6 +51,7 @@ Progress: [█████░░░░░] 50%
 | 1 | 11 | - | - |
 | 2 | 7 | - | - |
 | 3 | 7 | - | - |
+| 4 | 13 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -189,13 +191,15 @@ Recent decisions affecting current work:
 
 - [Phase 04]: All thirteen implementation plans are committed and locally verified, including moved-prefix production CLI results/traces, final CI, fresh ASan/UBSan and hygiene inventories. Independent validation, security, code review and goal verification remain before phase acceptance. Review the explicit write-trace limitation: successful store records currently copy the bus API result value zero rather than the attempted payload; no waiver or hardware qualification is inferred. Preserve the Plan 12 guide-clarity human-judgment item until the phase-boundary review.
 
+- [Phase 04]: Owner replied "yes i accpet" to the explicit guide-clarity question. The canonical UAT predicate and verification status pass; all eleven probe rows remain unresolved and rights/qualification restrictions remain active. This is acceptance of the documented current scope, not a waiver.
+
 ### Pending Todos
 
 None yet.
 
 ### Blockers/Concerns
 
-- Phase 4 code and targeted security rechecks are clean after mailbox, Thumb alignment and ARM condition fixes. Final regression, fresh sanitizers, native GNU checks and independent goal verification pass. The exact probe-status documentation mismatch is corrected and independently rechecked. Draft PR #7 has green required CI on its published head. Awaiting only the owner guide-clarity judgment in 04-UAT.md; no implementation gap remains. Preserve policy/probe limits; no risk or hardware claim is accepted. See 04-HOSTED-CHECKS.md. Agent resumes UAT/completion and the same PR after the owner response; Phase 5 has not started.
+- Phase 4 owner accepted the guide-clarity judgment. Technical and UAT completion predicates pass; final publication through PR #7 is in progress before Phase 5 work. No new rights, probe-status or hardware/game qualification is accepted.
 
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
@@ -210,6 +214,8 @@ None yet.
 
 ## Deferred Items
 
+- Phase 4 completion scanner reports generated/production/fixture_index.h and generated/control/fixture_index.h as absent at repository-relative paths. They are generated build outputs under build/ci and build/asan; the production/control metadata tests and relocated runner passed. This is a path-reference warning, not missing implementation.
+
 - Before milestone close, reconcile Phase 3 Nyquist document status/taxonomy with
   its actual passing behavior evidence. The artifact remains draft; phase
   completion emits this nonblocking metadata warning. Do not fabricate probe
@@ -220,6 +226,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-10T23:59:45.464Z
-Stopped at: Phase 4 draft PR 7 green; awaiting owner guide clarity review
+Last session: 2026-11-11
+Stopped at: Phase 4 complete, ready to plan Phase 5
 Resume file: None

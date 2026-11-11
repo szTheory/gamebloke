@@ -14,7 +14,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 - [x] **PROF-01**: Developer can read a versioned `agb` profile document. It records machine `agb`, boot `direct-start`, BIOS provider, cartridge (ROM-only for v1.0), timing constants with their source labels, and an explicit unmodeled list. The list includes SP/Micro machine-visible differences, prefetch (until modeled), and the HBlank edge (U1).
 - [x] **PROF-02**: Every runner result carries a claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. BIOS provider uses only the R1 values (`none`, `project-stub`, `hle:<list>`, `replacement:<name>@<commit>`, `user-official@<digest>`).
-- [ ] **PROF-03**: Under BIOS provider `none`, a guest that takes an IRQ or executes SWI, an undefined instruction, or a coprocessor opcode ends in a classified status (GUEST_STOP), never silent continuation.
+- [x] **PROF-03**: Under BIOS provider `none`, a guest that takes an IRQ or executes SWI, an undefined instruction, or a coprocessor opcode ends in a classified status (GUEST_STOP), never silent continuation.
 
 ### Fixtures and evidence
 
@@ -39,9 +39,9 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 - [ ] **CPU-01**: The core executes the ARM7TDMI ARM (ARMv4T) instruction set, including barrel-shifter carry, LDM/STM edge cases (empty list, base in list, user-bank transfer), misaligned load rotation, multiply flags, and PSR transfers. Each case is pinned by a diagnostic.
 - [ ] **CPU-02**: The core executes the Thumb instruction set, including the BL prefix/suffix pair as two separate instructions.
-- [ ] **CPU-03**: The core models the two-stage-visible pipeline (PC reads +8/+4) and the open-bus latch as explicit state, with no decode cache or fused-instruction shortcuts.
-- [ ] **CPU-04**: The core switches modes and banks registers correctly for all ARM7TDMI modes. Exception entry saves the correct return address and SPSR.
-- [ ] **CPU-05**: CPU arithmetic is free of C undefined behavior (shift ≥32, `ROR #0`/RRX, signed overflow), enforced by shift helpers and the UBSan lane.
+- [x] **CPU-03**: The core models the two-stage-visible pipeline (PC reads +8/+4) and the open-bus latch as explicit state, with no decode cache or fused-instruction shortcuts.
+- [x] **CPU-04**: The core switches modes and banks registers correctly for all ARM7TDMI modes. Exception entry saves the correct return address and SPSR.
+- [x] **CPU-05**: CPU arithmetic is free of C undefined behavior (shift ≥32, `ROR #0`/RRX, signed overflow), enforced by shift helpers and the UBSan lane.
 
 ### Bus and memory
 
@@ -58,10 +58,10 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 ### Runner and observability
 
-- [ ] **RUN-01**: Developer can run a ROM headless from a fresh instance with a cycle or frame bound, and get one JSON result. Status, semantic result, machine time (cycles), claim tuple, and a `limits` field naming what the result does not prove are kept as separate fields.
-- [ ] **RUN-02**: The runner reads a fixture's semantic result from an IWRAM mailbox through a side-effect-free `peek` that does not advance time or change state.
-- [ ] **RUN-03**: The runner can emit a category-masked guest-time trace (instruction, bus access, exception) into a bounded buffer. It stops with an explicit output-full status instead of dropping records.
-- [ ] **RUN-04**: The installed runner CLI works after relocation (`cmake --install` to one prefix, moved to another, then run).
+- [x] **RUN-01**: Developer can run a ROM headless from a fresh instance with a cycle or frame bound, and get one JSON result. Status, semantic result, machine time (cycles), claim tuple, and a `limits` field naming what the result does not prove are kept as separate fields.
+- [x] **RUN-02**: The runner reads a fixture's semantic result from an IWRAM mailbox through a side-effect-free `peek` that does not advance time or change state.
+- [x] **RUN-03**: The runner can emit a category-masked guest-time trace (instruction, bus access, exception) into a bounded buffer. It stops with an explicit output-full status instead of dropping records.
+- [x] **RUN-04**: The installed runner CLI works after relocation (`cmake --install` to one prefix, moved to another, then run).
 
 ### Diagnostics and fixtures
 
@@ -155,7 +155,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 |-------------|-------|--------|
 | PROF-01 | Phase 2 | Complete |
 | PROF-02 | Phase 2 | Complete |
-| PROF-03 | Phase 4 | Pending |
+| PROF-03 | Phase 4 | Complete |
 | EVID-01 | Phase 2 | Complete |
 | EVID-02 | Phase 2 | Complete |
 | EVID-03 | Phase 2 | Complete |
@@ -171,9 +171,9 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | VERIF-07 | Phase 1 | Complete |
 | CPU-01 | Phase 5 | Pending |
 | CPU-02 | Phase 5 | Pending |
-| CPU-03 | Phase 4 | Pending |
-| CPU-04 | Phase 4 | Pending |
-| CPU-05 | Phase 4 | Pending |
+| CPU-03 | Phase 4 | Complete |
+| CPU-04 | Phase 4 | Complete |
+| CPU-05 | Phase 4 | Complete |
 | BUS-01 | Phase 3 | Complete |
 | BUS-02 | Phase 3 | Complete (declared project contract; see Phase 3 verification limits) |
 | BUS-03 | Phase 3 | Complete (declared project contract; see Phase 3 verification limits) |
@@ -181,10 +181,10 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | LOAD-01 | Phase 3 | Complete |
 | LOAD-02 | Phase 3 | Complete for configured diagnostic behavior; rights, provenance and compatibility remain unclaimed |
 | LOAD-03 | Phase 3 | Complete |
-| RUN-01 | Phase 4 | Pending |
-| RUN-02 | Phase 4 | Pending |
-| RUN-03 | Phase 4 | Pending |
-| RUN-04 | Phase 4 | Pending |
+| RUN-01 | Phase 4 | Complete |
+| RUN-02 | Phase 4 | Complete |
+| RUN-03 | Phase 4 | Complete |
+| RUN-04 | Phase 4 | Complete |
 | DIAG-01 | Phase 5 | Pending |
 | DIAG-02 | Phase 5 | Pending |
 | DIAG-03 | Phase 5 | Pending |
