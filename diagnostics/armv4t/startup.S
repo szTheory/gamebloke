@@ -25,8 +25,10 @@ _start:
     str r0, [r1, #8]
     ldr r2, =0x00005001
     str r2, [r1, #12]
+    ldr r2, =0x434F4D50
+    str r2, [r1, #16]
 
-    /* RED probe: completion is intentionally absent until the GREEN change. */
+    /* A valid terminal mailbox is published only after the final marker. */
 .Lhalt:
     b .Lhalt
     .ltorg
