@@ -60,11 +60,11 @@ loader.pos.clean core,loader,positive
 loader.transaction core,loader,unit
 logo_digest.authority_cases control,loader
 machine.state core,machine,unit
-runner.cases gate,integration,runner
 runner.hash runner,unit
 runner.help runner,unit
 runner.metadata gate,runner
 runner.no_args runner,unit
+runner.result_contract gate,integration,runner
 runner.tracer integration,runner
 runner.unit runner,unit
 runner.usage_error runner,unit

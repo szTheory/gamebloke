@@ -361,8 +361,8 @@ foreach(case IN ITEMS
     bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_label
     bad_machine bad_schema claim_mismatch empty_limits label_without_dispute manifest_digest
     missing_digest missing_field missing_reason missing_refusal pass_without_digest pass_without_run
-    ran_state_mismatch undisclosed_dispute unknown_dispute unknown_fixture unknown_status
-    usage)
+    ran_state_mismatch semantic_time undisclosed_dispute unknown_dispute unknown_fixture
+    unknown_status usage)
   gbl_add_test(
     NAME result.nc.${case}
     LABELS control result

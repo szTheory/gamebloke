@@ -440,10 +440,6 @@ function(gbl_result_check file manifest registry vocab)
         "${time_instructions}" STREQUAL "0"))
       gbl_finding(result status-semantic-mismatch "PASS requires executed guest progress")
     endif()
-    if("${trace_complete_kind}" STREQUAL "BOOLEAN" AND
-        "${trace_complete}" STREQUAL "OFF")
-      gbl_finding(result incomplete-trace "PASS cannot have an incomplete trace")
-    endif()
   elseif("${status}" STREQUAL "GUEST_FAIL")
     if(NOT "${semantic_state}" STREQUAL "fail")
       gbl_finding(result status-semantic-mismatch
@@ -467,8 +463,12 @@ function(gbl_result_check file manifest registry vocab)
   elseif("${status}" STREQUAL "CANCELLED" AND
       NOT "${termination}" STREQUAL "cancelled")
     gbl_finding(result bad-termination "CANCELLED requires cancelled termination")
-  elseif("${status}" STREQUAL "HARNESS_FAIL" AND
+  endif()
+
+  set(trace_output_full FALSE)
+  if("${status}" STREQUAL "HARNESS_FAIL" AND
       "${result_reason}" STREQUAL "trace-output-full")
+    set(trace_output_full TRUE)
     if(NOT "${termination}" STREQUAL "trace-output-full")
       gbl_finding(result bad-termination
         "trace-output-full HARNESS_FAIL requires matching termination")
@@ -478,13 +478,19 @@ function(gbl_result_check file manifest registry vocab)
       gbl_finding(result incomplete-trace
         "trace-output-full HARNESS_FAIL requires trace.complete false")
     endif()
-  elseif("${termination}" STREQUAL "trace-output-full")
+  endif()
+  if("${termination}" STREQUAL "trace-output-full" AND NOT trace_output_full)
     gbl_finding(result bad-termination
       "trace-output-full requires HARNESS_FAIL with matching reason")
-  elseif("${trace_complete_kind}" STREQUAL "BOOLEAN" AND
-      "${trace_complete}" STREQUAL "OFF")
-    gbl_finding(result incomplete-trace
-      "incomplete trace requires trace-output-full HARNESS_FAIL")
+  endif()
+  if("${trace_complete_kind}" STREQUAL "BOOLEAN" AND
+      "${trace_complete}" STREQUAL "OFF" AND NOT trace_output_full)
+    if("${status}" STREQUAL "PASS")
+      gbl_finding(result incomplete-trace "PASS cannot have an incomplete trace")
+    else()
+      gbl_finding(result incomplete-trace
+        "incomplete trace requires trace-output-full HARNESS_FAIL")
+    endif()
   endif()
 
   # ---- claim tuple -------------------------------------------------------------

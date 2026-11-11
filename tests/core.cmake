@@ -29,10 +29,11 @@ gbl_add_test(
   LABELS runner unit
   COMMAND $<TARGET_FILE:runner_test>)
 gbl_add_test(
-  NAME runner.cases
+  NAME runner.result_contract
   LABELS runner integration gate
   COMMAND "${CMAKE_COMMAND}"
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DVALIDATE_PRODUCER=ON
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
 
 add_executable(version_test tests/version_test.c)

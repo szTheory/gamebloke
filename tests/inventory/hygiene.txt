@@ -166,6 +166,7 @@ result.nc.missing_refusal control,result
 result.nc.pass_without_digest control,result
 result.nc.pass_without_run control,result
 result.nc.ran_state_mismatch control,result
+result.nc.semantic_time control,result
 result.nc.undisclosed_dispute control,result
 result.nc.unknown_dispute control,result
 result.nc.unknown_fixture control,result
