@@ -19,20 +19,158 @@ function(require_line expected)
   endif()
 endfunction()
 
+function(resolve_native_host system_name machine_name success_name host_name reason_name)
+  set(success FALSE)
+  set(host "")
+  set(reason "")
+  if(system_name STREQUAL "Darwin" AND
+     machine_name MATCHES "^(arm64|aarch64)$")
+    set(success TRUE)
+    set(host darwin-arm64)
+  elseif(system_name STREQUAL "Linux" AND
+     machine_name MATCHES "^(x86_64|amd64)$")
+    set(success TRUE)
+    set(host linux-x64)
+  elseif(system_name STREQUAL "Linux" AND
+     machine_name MATCHES "^(aarch64|arm64)$")
+    set(success TRUE)
+    set(host linux-arm64)
+  else()
+    set(reason unsupported-native-host)
+  endif()
+  set(${success_name} "${success}" PARENT_SCOPE)
+  set(${host_name} "${host}" PARENT_SCOPE)
+  set(${reason_name} "${reason}" PARENT_SCOPE)
+endfunction()
+
+function(detect_native_host uname_command success_name host_name system_name
+    machine_name reason_name)
+  set(success FALSE)
+  set(host "")
+  set(system "")
+  set(machine "")
+  set(reason "")
+
+  execute_process(COMMAND "${uname_command}" -s
+    RESULT_VARIABLE system_rc OUTPUT_VARIABLE system_output
+    ERROR_VARIABLE system_error OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT "${system_rc}" STREQUAL "0")
+    set(reason uname-system-command-failed)
+  else()
+    string(STRIP "${system_output}" system)
+    if(system STREQUAL "")
+      set(reason uname-system-output-empty)
+    else()
+      execute_process(COMMAND "${uname_command}" -m
+        RESULT_VARIABLE machine_rc OUTPUT_VARIABLE machine_output
+        ERROR_VARIABLE machine_error OUTPUT_STRIP_TRAILING_WHITESPACE)
+      if(NOT "${machine_rc}" STREQUAL "0")
+        set(reason uname-machine-command-failed)
+      else()
+        string(STRIP "${machine_output}" machine)
+        if(machine STREQUAL "")
+          set(reason uname-machine-output-empty)
+        else()
+          resolve_native_host("${system}" "${machine}" success host reason)
+        endif()
+      endif()
+    endif()
+  endif()
+
+  set(${success_name} "${success}" PARENT_SCOPE)
+  set(${host_name} "${host}" PARENT_SCOPE)
+  set(${system_name} "${system}" PARENT_SCOPE)
+  set(${machine_name} "${machine}" PARENT_SCOPE)
+  set(${reason_name} "${reason}" PARENT_SCOPE)
+endfunction()
+
+function(assert_host_detection_failure label uname_command expected_reason)
+  detect_native_host("${uname_command}" detected_ok detected_host
+    detected_system detected_machine detected_reason)
+  if(detected_ok OR NOT detected_reason STREQUAL expected_reason)
+    message(FATAL_ERROR
+      "toolchain-case host-detection-${label}-control-failed: ok=${detected_ok} host=${detected_host} reason=${detected_reason}")
+  endif()
+  message(STATUS "toolchain-case host-detection-${label} PASSED (${detected_reason})")
+endfunction()
+
+function(run_host_detection_controls bin_root)
+  # Reproduce the empty script-mode value observed on the supported hosts;
+  # detection must still come from the uname subprocess.
+  set(CMAKE_HOST_SYSTEM_PROCESSOR "")
+  detect_native_host(uname detected_ok detected_host detected_system
+    detected_machine detected_reason)
+  if(NOT detected_ok OR NOT detected_reason STREQUAL "")
+    message(FATAL_ERROR
+      "toolchain-case script-mode-host-detection-failed: ${detected_reason}")
+  endif()
+  message(STATUS
+    "toolchain-case script-mode host=${detected_host} uname=${detected_system}/${detected_machine} CMAKE_HOST_SYSTEM_PROCESSOR='${CMAKE_HOST_SYSTEM_PROCESSOR}'")
+
+  resolve_native_host(Darwin arm64 darwin_ok darwin_host darwin_reason)
+  if(NOT darwin_ok OR NOT darwin_host STREQUAL "darwin-arm64")
+    message(FATAL_ERROR "toolchain-case darwin-arm64-host-map-failed")
+  endif()
+  resolve_native_host(Darwin x86_64 unsupported_ok unsupported_host
+    unsupported_reason)
+  if(unsupported_ok OR NOT unsupported_reason STREQUAL "unsupported-native-host")
+    message(FATAL_ERROR "toolchain-case unsupported-darwin-host-control-failed")
+  endif()
+  message(STATUS "toolchain-case darwin architecture mapping PASSED")
+
+  set(control_root "${bin_root}/host-detection-controls")
+  file(MAKE_DIRECTORY "${control_root}")
+  set(unsupported_uname "${control_root}/uname-unsupported")
+  file(WRITE "${unsupported_uname}" [=[#!/bin/sh
+set -eu
+case "$1" in
+  -s) printf 'Linux\n' ;;
+  -m) printf 'riscv64\n' ;;
+  *) exit 2 ;;
+esac
+]=])
+  set(failed_uname "${control_root}/uname-failed")
+  file(WRITE "${failed_uname}" [=[#!/bin/sh
+set -eu
+case "$1" in
+  -s) printf 'Linux\n' ;;
+  -m) exit 7 ;;
+  *) exit 2 ;;
+esac
+]=])
+  set(empty_uname "${control_root}/uname-empty")
+  file(WRITE "${empty_uname}" [=[#!/bin/sh
+set -eu
+case "$1" in
+  -s) printf 'Linux\n' ;;
+  -m) printf '   \n' ;;
+  *) exit 2 ;;
+esac
+]=])
+  foreach(fake_uname IN ITEMS "${unsupported_uname}" "${failed_uname}"
+      "${empty_uname}")
+    file(CHMOD "${fake_uname}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+  endforeach()
+  assert_host_detection_failure(unsupported "${unsupported_uname}"
+    unsupported-native-host)
+  assert_host_detection_failure(failed "${failed_uname}"
+    uname-machine-command-failed)
+  assert_host_detection_failure(empty "${empty_uname}"
+    uname-machine-output-empty)
+endfunction()
+
 function(run_offline_suite)
   set(bin_root "${BIN}")
   cmake_path(ABSOLUTE_PATH bin_root BASE_DIRECTORY "${SRC}" NORMALIZE)
   set(tool_dir "${bin_root}/offline-tools")
   file(MAKE_DIRECTORY "${tool_dir}")
-  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    set(native_host darwin-arm64)
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
-    set(native_host linux-x64)
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-    set(native_host linux-arm64)
-  else()
-    message(FATAL_ERROR "toolchain-case unsupported-native-host")
+  detect_native_host(uname host_ok native_host host_system host_machine
+    host_error)
+  if(NOT host_ok)
+    message(FATAL_ERROR "toolchain-case ${host_error}")
   endif()
+  message(STATUS
+    "toolchain-case native-host=${native_host} uname=${host_system}/${host_machine} CMAKE_HOST_SYSTEM_PROCESSOR='${CMAKE_HOST_SYSTEM_PROCESSOR}'")
   set(root_name "xpack-arm-none-eabi-gcc-15.2.1-1.1")
   set(curl "${tool_dir}/fake-curl.sh")
   set(curl_text [=[
@@ -328,24 +466,28 @@ if(CASE STREQUAL "lock")
   require_line("linux-x64 307090703 da6a49ad4003944b823c6c93702a8787c922ab34bd7e918ec0eaf6933a9b1ff6 https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v15.2.1-1.1/xpack-arm-none-eabi-gcc-15.2.1-1.1-linux-x64.tar.gz release-assets.githubusercontent.com xpack-arm-none-eabi-gcc-15.2.1-1.1")
   require_line("linux-arm64 302624714 67980c7990eba7bb7ffdf39699102effd70889f5ac427be19a8c8a6c5fab2972 https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v15.2.1-1.1/xpack-arm-none-eabi-gcc-15.2.1-1.1-linux-arm64.tar.gz release-assets.githubusercontent.com xpack-arm-none-eabi-gcc-15.2.1-1.1")
   message(STATUS "toolchain-case lock PASSED")
+elseif(CASE STREQUAL "host-detection-controls")
+  if(NOT DEFINED BIN OR "${BIN}" STREQUAL "")
+    message(FATAL_ERROR "toolchain-case missing-bin-root")
+  endif()
+  run_host_detection_controls("${BIN}")
+  message(STATUS "toolchain-case host-detection-controls PASSED")
 elseif(CASE STREQUAL "lock-host-mismatch")
   if(NOT DEFINED BIN OR "${BIN}" STREQUAL "")
     message(FATAL_ERROR "toolchain-case missing-bin-root")
   endif()
   set(fetcher "${SRC}/scripts/fetch-toolchain.sh")
-  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    set(native_host darwin-arm64)
+  detect_native_host(uname host_ok native_host host_system host_machine
+    host_error)
+  if(NOT host_ok)
+    message(FATAL_ERROR "toolchain-case ${host_error}")
+  endif()
+  if(native_host STREQUAL "darwin-arm64")
     set(other_host linux-x64)
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
-         CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
-    set(native_host linux-x64)
+  elseif(native_host STREQUAL "linux-x64")
     set(other_host darwin-arm64)
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
-         CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-    set(native_host linux-arm64)
-    set(other_host linux-x64)
   else()
-    message(FATAL_ERROR "toolchain-case unsupported-native-host")
+    set(other_host linux-x64)
   endif()
   file(MAKE_DIRECTORY "${BIN}/lock-host-mismatch")
   set(bad_lock "${BIN}/lock-host-mismatch/arm-none-eabi.lock")
@@ -387,16 +529,10 @@ elseif(CASE STREQUAL "installed")
   set(root_abs "${TOOLCHAIN_ROOT}")
   cmake_path(ABSOLUTE_PATH root_abs BASE_DIRECTORY "${SRC}" NORMALIZE)
   set(native_dir "${root_abs}/arm-none-eabi")
-  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    set(native_host darwin-arm64)
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
-         CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
-    set(native_host linux-x64)
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
-         CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-    set(native_host linux-arm64)
-  else()
-    message(FATAL_ERROR "toolchain-case unsupported-native-host")
+  detect_native_host(uname host_ok native_host host_system host_machine
+    host_error)
+  if(NOT host_ok)
+    message(FATAL_ERROR "toolchain-case ${host_error}")
   endif()
   set(install_dir "${native_dir}/${native_host}-15.2.1-1.1")
   if(EXISTS "${install_dir}/install.json")

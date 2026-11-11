@@ -299,6 +299,20 @@ if(DEFINED CASE)
     if(NOT DEFINED BIN OR "${BIN}" STREQUAL "")
       message(FATAL_ERROR "toolchain: missing-BIN")
     endif()
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}" "-DBIN=${BIN}"
+        -DCASE=host-detection-controls
+        -P "${source_root}/tests/gates/toolchain_case.cmake"
+      RESULT_VARIABLE host_controls_rc OUTPUT_VARIABLE host_controls_out
+      ERROR_VARIABLE host_controls_error)
+    if(NOT "${host_controls_rc}" STREQUAL "0" OR
+       NOT "${host_controls_out}${host_controls_error}" MATCHES
+         "toolchain-case host-detection-controls PASSED")
+      message(FATAL_ERROR
+        "toolchain: host-detection-controls-failed: ${host_controls_error}${host_controls_out}")
+    endif()
+    message("${host_controls_out}")
+
     set(installer_case_script "${source_root}/tests/gates/toolchain_case.cmake")
     run_installer_offline_suite("${installer_case_script}" "${source_root}"
       "${BIN}" installer_offline_ok installer_offline_report)
