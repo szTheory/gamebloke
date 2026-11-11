@@ -147,3 +147,15 @@ expectation; it proves the comparison path, not the genuine Nintendo digest,
 identity, rights, or completion of LOAD-02. The owner remains the next actor for
 the approved digest through the existing reviewed workflow. No profile version
 change, phase sign-off, release, or hardware claim is made.
+
+## Owner-authorized production authority activation
+
+The owner subsequently supplied two existing files and authorized agent-managed
+ignored copies, digest extraction and verification. Their window digests agree.
+Only the authority row enters source control; no input bytes are public fixtures.
+Profile v3 activates the production comparison. See 03-LOGO-ACTIVATION.md for
+provenance limits, exact local witnesses, retained logs and the current CI
+295-run/one-permitted-skip and fresh ASan 42-run/zero-skip results. Both private
+production-header witnesses also pass with ASan/UBSan. The bounded activation
+review is clean in 03-LOGO-REVIEW.md. Prior owner-pending snapshots above are
+historical and are not the current configured production authority state.

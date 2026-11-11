@@ -225,13 +225,17 @@ Only SHA-256 digests are committed, never logo, BIOS or ROM bytes. The digest li
 are `tests/signatures/logo.sha256` (a 156-byte window at header offset 4) and
 `tests/signatures/bios.sha256` (a 16384-byte file). `tests/signatures/allowlist.txt`
 exempts exact paths from the `rom-extension` and `binary-not-allowlisted` rules only;
-it never exempts the logo or BIOS digests. The logo row remains `owner-pending` until an
-approved digest is supplied through the established review workflow. The existing digest
-tool can calculate a candidate line from an image already held by its owner, outside this
-repository. A matching hash proves identity, not rights. While pending,
-`signature.logo.real_digest` reports `SKIPPED`; `signature.owner_local` also skips unless
-`GBL_OWNER_LOGO_FILE` names an owner-held file. The synthetic loader result does not
-change either gate.
+it never exempts the logo or BIOS digests. The current logo row was derived from
+two owner-provided local files under explicit authorization; their windows
+matched. Only the digest is published. Profile version 3 activates the loader
+comparison, and `signature.logo.real_digest` checks that the authority is present.
+
+`GBL_OWNER_LOGO_FILE` optionally enables a local cross-check against an owner-held
+file. It remains skipped in public CI, which receives no private file. Local
+copies live in the already-ignored `/private/owner-roms/` folder; no additional
+allowlist exemption is added. A matching hash proves identity, not rights,
+original-cartridge provenance or broad compatibility. Pending-authority builds
+remain supported and explicitly report unchecked/skipped rather than success.
 
 ## Opt-in hook
 

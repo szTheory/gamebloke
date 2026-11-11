@@ -99,7 +99,7 @@ if(CASE STREQUAL "copy")
   doc_copy(d copy)
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v2, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v3, 11 timing constants, 11 unmodeled\\)")
 
 elseif(CASE STREQUAL "bus_policy_missing")
   profile_copy(p missing_bus_policy)
@@ -192,9 +192,9 @@ elseif(CASE STREQUAL "bus_policy_doc")
   expect_detail(bus-policy-doc "missing ## Bus policy section" "${p}" "${d}")
   profile_copy(p multiline_inline_hidden_version)
   doc_copy(d multiline_inline_hidden_version)
-  gbl_text_mutate("${d}" "\nprofile_version: 2\n"
-    "\n``\nprofile_version: 2\n``\nprofile_version: 999\n")
-  expect_detail(doc-version-mismatch "document 999, profile 2" "${p}" "${d}")
+  gbl_text_mutate("${d}" "\nprofile_version: 3\n"
+    "\n``\nprofile_version: 3\n``\nprofile_version: 999\n")
+  expect_detail(doc-version-mismatch "document 999, profile 3" "${p}" "${d}")
   profile_copy(p html_crosses_policy_sections)
   doc_copy(d html_crosses_policy_sections)
   gbl_text_mutate("${d}" "\n## Bus policy\n"
@@ -377,7 +377,7 @@ elseif(CASE STREQUAL "bus_policy_copy")
     "## Bus policy\n\n```html\n<pre>\n${valid_table}\n</pre>\n```\n")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v2, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v3, 11 timing constants, 11 unmodeled\\)")
 
 elseif(CASE STREQUAL "unmodeled_missing")
   # Remove each of the eleven required entries in turn from a fresh copy; each
@@ -619,21 +619,21 @@ elseif(CASE STREQUAL "doc_extra_id")
 elseif(CASE STREQUAL "doc_version_mismatch")
   profile_copy(p bumped)
   doc_copy(d bumped)
-  gbl_text_mutate("${d}" "\nprofile_version: 2\n" "\nprofile_version: 3\n")
+  gbl_text_mutate("${d}" "\nprofile_version: 3\n" "\nprofile_version: 4\n")
   expect_code(doc-version-mismatch "${p}" "${d}")
   profile_copy(p deleted)
   doc_copy(d deleted)
-  gbl_text_mutate("${d}" "\nprofile_version: 2\n" "\n")
+  gbl_text_mutate("${d}" "\nprofile_version: 3\n" "\n")
   expect_code(doc-version-mismatch "${p}" "${d}")
   profile_copy(p commented_version)
   doc_copy(d commented_version)
-  gbl_text_mutate("${d}" "\nprofile_version: 2\n"
-    "\n<!--\nprofile_version: 2\n-->\n")
+  gbl_text_mutate("${d}" "\nprofile_version: 3\n"
+    "\n<!--\nprofile_version: 3\n-->\n")
   expect_detail(doc-version-mismatch "no profile_version line" "${p}" "${d}")
   profile_copy(p duplicate_version)
   doc_copy(d duplicate_version)
-  gbl_text_mutate("${d}" "\nprofile_version: 2\n"
-    "\nprofile_version: 2\nprofile_version: 999\n")
+  gbl_text_mutate("${d}" "\nprofile_version: 3\n"
+    "\nprofile_version: 3\nprofile_version: 999\n")
   expect_detail(doc-version-mismatch
     "expected exactly one profile_version line, found 2" "${p}" "${d}")
 
@@ -672,20 +672,20 @@ elseif(CASE STREQUAL "doc_no_section")
   expect_code(doc-no-section "${p}" "${d}")
 
 elseif(CASE STREQUAL "coordinated_change")
-  # Version 3 plus a coordinated unmodeled addition is accepted while every
+  # Version 4 plus a coordinated unmodeled addition is accepted while every
   # bus, initialization, and read policy value remains unchanged.
   profile_copy(p coordinated)
   doc_copy(d coordinated)
   gbl_json_mutate_set("${p}"
     [=[{"id": "serial-link", "status": "unmodeled", "reason": "Not emulated in v1.0; no result may claim serial link behavior."}]=]
     unmodeled 11)
-  gbl_json_mutate_set("${p}" "3" profile_version)
+  gbl_json_mutate_set("${p}" "4" profile_version)
   gbl_text_mutate("${d}" "| `backup-media` |"
     "| `serial-link` | The serial link port. |\n| `backup-media` |")
-  gbl_text_mutate("${d}" "\nprofile_version: 2\n" "\nprofile_version: 3\n")
+  gbl_text_mutate("${d}" "\nprofile_version: 3\n" "\nprofile_version: 4\n")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v3, 11 timing constants, 12 unmodeled\\)")
+    REGEX "profile: ok \\(agb v4, 11 timing constants, 12 unmodeled\\)")
 
 else()
   message(FATAL_ERROR "profile-case: unknown case: ${CASE}")

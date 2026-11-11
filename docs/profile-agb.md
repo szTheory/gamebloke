@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 2
+profile_version: 3
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -132,6 +132,22 @@ about the physical cartridge bus.
 | read_policy.rom_tail | current-open-bus | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
 | read_policy.latch_update | mapped-read-width-replicated | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
 | read_policy.write_latch | preserve | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
+
+## Header diagnostics
+
+Profile version 3 activates the configured logo-window comparison using the
+owner-authorized SHA-256 row in `tests/signatures/logo.sha256`. The loader hashes
+only the copied candidate window `[0x04, 0xA0)` and reports checked match or checked
+mismatch. A mismatch, missing-window convention, checksum finding or unusual
+game code remains advisory under `direct-start`; it never refuses a size-valid
+image. A pending-authority build reports unchecked with an owner-pending reason.
+
+Two owner-provided local files yielded the same configured digest. This proves
+identity of those windows and supports the configured comparison result. It
+does not establish original-cartridge provenance, redistribution rights, BIOS
+boot behavior, game execution, or broad compatibility. The ROM files are local
+ignored inputs and are not public fixtures or CI inputs. Timing, fill, latch and
+ROM-tail policies remain unchanged and unverified as hardware behavior.
 
 ## SP and AGS naming
 

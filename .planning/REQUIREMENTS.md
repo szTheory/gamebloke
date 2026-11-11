@@ -21,7 +21,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 - [x] **EVID-01**: Developer can declare each fixture in a manifest row with: source URL, pinned revision, license and notices, build recipe, toolchain identity/digest, BIOS requirement, expected-value provenance class, and permitted use.
 - [x] **EVID-02**: A manifest linter rejects rows with missing fields, unpinned (branch) revisions, or an unknown provenance class.
 - [x] **EVID-03**: Third-party fixtures are fetched by SHA-256 from `pins.txt`. A digest mismatch fails loudly. No third-party binary is committed.
-- [ ] **EVID-04**: A signature scan in the verify command fails if a committed file contains Nintendo logo bytes, a known BIOS image, or a ROM/save file outside the allowlist.
+- [x] **EVID-04**: A signature scan in the verify command fails if a committed file contains Nintendo logo bytes, a known BIOS image, or a ROM/save file outside the allowlist.
 - [x] **EVID-05**: The runner reports results using a distinct taxonomy: PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, REFUSED. A fixture that did not run is never PASS.
 - [x] **EVID-06**: A dispute registry records known reference disagreements, seeded with the DMA-latch dispute, the GBATEK errata, the HBlank edge sources, and mGBA-suite issues #22/#24/#27. A fixture whose expected value is disputed is labeled as such in its results.
 
@@ -53,7 +53,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 ### Content loading
 
 - [x] **LOAD-01**: The core copies a ROM image on load and validates its length (zero, below header size, above 32 MiB, odd length are distinct refusals) before allocation or state mutation.
-- [ ] **LOAD-02**: Header findings (logo, checksum, game code) are reported as loader diagnostics, not refusals, under `direct-start`.
+- [x] **LOAD-02**: Header findings (logo, checksum, game code) are reported as loader diagnostics, not refusals, under `direct-start`.
 - [x] **LOAD-03**: A refused load leaves the instance state and caller buffers byte-identical to before the call, verified by test.
 
 ### Runner and observability
@@ -159,7 +159,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | EVID-01 | Phase 2 | Complete |
 | EVID-02 | Phase 2 | Complete |
 | EVID-03 | Phase 2 | Complete |
-| EVID-04 | Phase 1 | Pending (partial: real-logo digest is an owner gate; BIOS, extension, and binary rules live) |
+| EVID-04 | Phase 1 | Complete on Phase 3 branch (owner-authorized logo authority verified; main activation awaits PR merge) |
 | EVID-05 | Phase 2 | Complete |
 | EVID-06 | Phase 2 | Complete |
 | VERIF-01 | Phase 1 (manifest-lint clause: Phase 2) | Complete (manifest.lint runs in the canonical command since Phase 2, PR #5) |
@@ -179,7 +179,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | BUS-03 | Phase 3 | Complete (declared project contract; see Phase 3 verification limits) |
 | BUS-04 | Phase 6 | Pending |
 | LOAD-01 | Phase 3 | Complete |
-| LOAD-02 | Phase 3 | Pending (comparison mechanics verified; approved production logo digest remains owner-pending) |
+| LOAD-02 | Phase 3 | Complete for configured diagnostic behavior; rights, provenance and compatibility remain unclaimed |
 | LOAD-03 | Phase 3 | Complete |
 | RUN-01 | Phase 4 | Pending |
 | RUN-02 | Phase 4 | Pending |

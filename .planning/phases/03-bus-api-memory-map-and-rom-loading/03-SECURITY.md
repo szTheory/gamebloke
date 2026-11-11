@@ -74,3 +74,16 @@ length binaries, core-purity checking, current ASan inventory/JUnit reconciliati
 and both owned digest vectors. No source changes or owner acceptance were inferred.
 The production authority remains unchanged/pending; trusted native-host/build
 preconditions and all prior qualification limits remain in force.
+
+## Owner-authorized authority activation
+
+The owner explicitly supplied two local files and delegated local copying,
+hashing and verification. This replaces the prior missing authority input, not
+the parser or loader trust boundary. The fixed-path parser, candidate extent
+checks, copied-window hashing and advisory commit path are unchanged. The real
+scan detects both local files; tree scans exclude the ignored private copies.
+Only digest metadata and byte-free reports are proposed for the phase PR.
+The focused activation review is clean; no new runtime callback, dependency,
+public fixture or publication right is introduced. Existing 22 threat rows and
+zero open high/critical findings are retained; no new owner risk acceptance is
+inferred from the successful comparisons.

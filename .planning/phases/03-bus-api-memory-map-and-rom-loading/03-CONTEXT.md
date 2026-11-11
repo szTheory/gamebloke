@@ -126,3 +126,13 @@ cross-reference ambiguity and reference errata explicitly in planning research.
   before milestone close rather than treating the historical pass as current.
 
 </deferred>
+
+## Owner-authorized activation follow-up
+
+The owner supplied two local files and explicitly delegated copying, digest
+extraction and follow-through to the agent. Earlier pending/owner-only-helper
+statements above describe the original discussion state. They no longer prohibit
+reading these supplied inputs for the authorized local check. Private copies
+remain ignored; only the shared digest row may enter the existing phase PR.
+Profile version 3 activates the configured comparison under the existing policy;
+see 03-LOGO-ACTIVATION.md for measured results and remaining claim limits.

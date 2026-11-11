@@ -53,8 +53,8 @@ static void check_loaded_logo(const gbl_header_diagnostics *diagnostics)
     CHECK(diagnostics->canonical_logo == GBL_HEADER_LOGO_UNCHECKED);
     CHECK(diagnostics->logo_reason == GBL_HEADER_LOGO_REASON_OWNER_PENDING);
 #else
-    CHECK(diagnostics->canonical_logo == GBL_HEADER_LOGO_CHECKED_MATCH ||
-          diagnostics->canonical_logo == GBL_HEADER_LOGO_CHECKED_MISMATCH);
+    /* Every image using this helper is synthetic, without the configured logo. */
+    CHECK(diagnostics->canonical_logo == GBL_HEADER_LOGO_CHECKED_MISMATCH);
     CHECK(diagnostics->logo_reason == GBL_HEADER_LOGO_REASON_CHECKED);
 #endif
 }

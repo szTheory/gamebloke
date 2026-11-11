@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 03
 current_phase_name: HUMAN VERIFICATION
-status: Waiting for owner data and human verification; hosted checks on draft PR 6
+status: Waiting for judgment-tier phase acceptance; hosted checks on draft PR 6
 stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-11-11T00:32:07.428Z"
+last_updated: "2026-11-11T01:00:20.745Z"
 last_activity: 2026-11-10
-last_activity_desc: Authorized explicit-byte fix passes local GCC and fresh sanitizers; corrected head proceeds through the existing draft PR with the red-CI stop retained
-state_head: 8e8c210250d31c1440b28031d13c642a0e5aca1c
+last_activity_desc: Authorized logo activation verifies all technical criteria; only two claim-description reviews remain before phase acceptance
+state_head: 5e1d62dd7aca098404e3a882839353cb7853edda
 progress:
   total_phases: 6
   completed_phases: 2
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 Phase: 03 (Bus API, Memory Map, and ROM Loading) — HUMAN VERIFICATION
 Plan: 7 of 7 implementation plans complete; acceptance pending
-Status: Waiting for owner data and human verification; hosted checks on draft PR 6
-Last activity: 2026-11-10 — Authorized explicit-byte fix passes local GCC and fresh sanitizers; corrected head proceeds through the existing draft PR with the red-CI stop retained
+Status: Waiting for judgment-tier phase acceptance; hosted checks on draft PR 6
+Last activity: 2026-11-10 — Authorized logo activation verifies all technical criteria; only two claim-description reviews remain before phase acceptance
 
 Progress: [███░░░░░░░] 33%
 
@@ -154,6 +154,10 @@ Recent decisions affecting current work:
 
 - [Phase 03]: Owner authorized the explicit test-helper byte conversion and bounded local/hosted verification on existing PR #6. Preserve all warning flags. Renew the standing stop if the new hosted run is red; logo authority/manual acceptance and Phase 4 hold are unchanged.
 
+- [Phase 03]: Owner supplied two local files and explicitly authorized ignored copies plus agent-run logo hashing/verification. Both windows agree; profile version 3 activates the configured digest. Current CI, fresh sanitizers and instrumented local production-header witnesses pass. Refreshing phase acceptance; no private bytes are published and no hardware/game-compatibility or rights claim follows.
+
+- [Phase 03]: Activation verification confirms every technical must-have. Only two judgment-tier claim reviews remain; no further owner data/helper action is needed. The owner explicitly delegated local file handling, which supersedes the earlier owner-must-run procedure for those inputs. Preserve that authority across runtimes instead of asking the owner to repeat commands the agent can perform.
+
 ### Pending Todos
 
 None yet.
@@ -163,11 +167,11 @@ None yet.
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
 - Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
-- Phase 1: the real-logo digest (EVID-04) is `owner-pending (human-needed)`. The owner replied `pending` at plan 11; next action: owner runs `scripts/signature-digest.sh logo <file>` on a file they hold and commits the digest through a PR.
+- Phase 1 follow-up: the owner-authorized digest is supplied and verified on the Phase 3 branch. No further owner file/helper task remains. EVID-04 activation on main awaits the existing phase PR merge.
 - Phase 1: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
-- Phase 3: acceptance is human-needed. Implementation and local verification are complete, but LOAD-02 needs the approved production logo digest and the manual claim review recorded in 03-UAT.md. Phase 4 remains stopped. Keep the single Phase 3 PR draft while this owner gate is unresolved; do not treat CI success as phase acceptance.
+- Phase 3: all technical truths, including configured production logo diagnostics, are verified. Two judgment-tier claim reviews in 03-UAT.md keep acceptance human-needed. Keep PR #6 draft and Phase 4 stopped until that actual phase boundary is resolved. No additional file, digest or local command is needed from the owner.
 
 - Phase 3: the initial hosted GCC failure has an owner-authorized explicit-conversion fix, verified locally with GNU and fresh sanitizers. PR #6 remains draft for owner acceptance. The corrected head must pass live hosted checks; any new red result renews the standing stop. No merge or Phase 4 start while the independent owner-data/manual gate remains unresolved.
 

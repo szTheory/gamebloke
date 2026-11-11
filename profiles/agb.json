@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 2,
+  "profile_version": 3,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",

@@ -111,3 +111,18 @@ not substitutes for the current source/test evidence.
 | Gaps found | 1 |
 | Resolved | 1 |
 | Escalated | 0 |
+
+## Owner-authorized activation update
+
+The earlier canonical-logo PARTIAL/OWNER_PENDING rows describe their original
+execution snapshots. The owner now supplied the authority inputs and explicitly
+authorized the agent-run local procedure. Profile v3, the configured production
+loader and local normal/sanitized header witnesses now establish match and
+advisory mismatch against that authority; see 03-LOGO-ACTIVATION.md. Public
+automation still uses only owned synthetic bytes and the digest metadata.
+The owner-local public-CI check remains an explicit permitted skip.
+
+This closes the data/mechanics prerequisite behind the earlier LOAD-02
+canonical-comparison omission. It does not fabricate a probe taxonomy result,
+redistribution rights, game compatibility or human judgment acceptance. Preserve
+the draft/Nyquist flags until the relevant verification disposition is made.

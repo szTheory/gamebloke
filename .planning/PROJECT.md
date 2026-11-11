@@ -43,7 +43,7 @@ REQUIREMENTS.md.
 - [ ] An original or rights-reviewed diagnostic plus a legally cleared playable homebrew scenario, visible early
 - [ ] A defined public API boundary (lifecycle, load/unload, input timing, bounded advancement, buffer ownership, reset, errors, refusal postconditions) before it is exposed
 - [ ] An installed, relocatable external consumer once packaging exists
-- [ ] Real Nintendo-logo window digest supplied by the owner so the EVID-04 real-logo rule is armed on main (owner gate; the rule is control-proven but inactive for real files until then)
+- [x] Owner-authorized logo-window digest derived and verified locally on the Phase 3 branch; activation on main awaits the existing phase PR merge. No private input bytes enter source control or public CI.
 - [ ] Named benchmark workloads measured only after a correctness baseline exists
 
 ### Out of Scope
@@ -101,7 +101,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
 | Required check `CI required` on `ubuntu-26.04` + `macos-26` (arm64), actions SHA-pinned, `main` protected by a PR-only ruleset with no bypass actors (owner-authorized, 2026-11-10) | One command, same verdict locally and in CI; nothing reaches main except through a green PR | ✓ Good (Phase 1) |
 | Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | — Pending (exercised from Phase 2) |
-| Real-logo digest `owner-pending` (owner chose to defer, 2026-11-10) | Owner must supply a digest from a file they hold; no primary source publishes it | — Pending (owner gate) |
+| Owner-authorized logo authority (2026-11-10) | Owner supplied two existing local files and delegated ignored copies, hashing and checks; only the shared digest is published | Verified on Phase 3 branch; main activation awaits PR merge. No rights/provenance inference. |
 | Project license | Owner authority. The repo is public with no LICENSE file yet, so default copyright applies until the owner chooses one. | — Pending (owner gate) |
 
 ## Evolution

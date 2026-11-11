@@ -199,7 +199,8 @@ exactly. The selector also runs the lifecycle cases for refusal and allocation
 failure atomicity, candidate commit before prior-ROM release, source-buffer
 edits, repeated loaded reset, and independent disposal. Reset must preserve the
 owned ROM and restore the same canonical machine fields as a fresh load.
-Header diagnostics remain advisory and canonical-logo state remains
+Header diagnostics remain advisory. With the configured authority, these
+synthetic images report checked logo mismatch; pending-authority builds report
 `UNCHECKED`/`OWNER_PENDING`.
 
 This is an in-tree integration witness over synthetic bytes. It does not claim
@@ -214,8 +215,8 @@ after a successful ROM load. The remaining fields are bounded enums:
 
 | Field | Values and meaning |
 |---|---|
-| `canonical_logo` | Always `UNCHECKED` while the real expected-logo digest is owner-pending. Checked-match values are reserved for a future authorized oracle. |
-| `logo_reason` | `OWNER_PENDING`; synthetic comparisons do not change this. |
+| `canonical_logo` | `CHECKED_MATCH` or `CHECKED_MISMATCH` against the configured owner-authorized digest; `UNCHECKED` when no authority is configured or no image is loaded. |
+| `logo_reason` | `CHECKED` when the configured comparison ran; otherwise the zero-state `OWNER_PENDING` value. |
 | `logo_window` | `ZERO` when bytes `[0x04, 0xA0)` are all zero, otherwise `NONZERO`. Zero is a project convention for a missing window, not a canonical logo result. |
 | `checksum` | `NOT_LOADED`, `OK`, or `MISMATCH`. For a loaded image, subtract bytes `0xA0` through `0xBC` and `0x19` from zero modulo 256, then compare with byte `0xBD`. |
 | `game_code` | `NOT_LOADED`, `ORDINARY`, or `UNUSUAL`. The four bytes at `[0xAC, 0xB0)` are ordinary only when each is ASCII `A`–`Z` or `0`–`9`; their contents are not retained. |
@@ -232,9 +233,14 @@ qualification.
 `gbl_header_compare_bytes` is a generic span-comparison helper for valid,
 caller-owned spans: it returns `INVALID_ARGUMENT` for a null span or zero
 length, `EQUAL` when all bytes match, and `DIFFERENT` on the first mismatch.
-Tests use only synthetic spans to prove this comparison mechanics. No real
-logo bytes or expected digest are embedded or inferred from these tests.
-Canonical logo comparison therefore remains `UNCHECKED` with reason
-`OWNER_PENDING`, including when the window is all zero. LOAD-02 remains
-**PARTIAL/Pending** until the owner supplies the real digest. This work does
-not establish hardware accuracy or broad game compatibility.
+Its tests use synthetic spans to prove comparison mechanics. The actual loader
+separately computes SHA-256 of the copied 156-byte window and compares it with
+the configured digest from `tests/signatures/logo.sha256`. Profile version 3
+activates the owner-authorized row; a zero window reports a checked mismatch
+against it. Digest mismatch never refuses an otherwise size-valid load.
+
+A separate synthetic-core target still exercises match/mismatch with owned
+patterns. Local owner-authorized header checks establish the configured result
+for those files; no game or logo bytes are embedded in public tests. This work
+does not establish redistribution permission, hardware accuracy, BIOS boot
+behavior, game execution or broad game compatibility.
