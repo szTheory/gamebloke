@@ -1084,11 +1084,27 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
             unit, gbl_cpu_decode_thumb(cpu, unit, next_fetch_address));
     }
     if ((opcode & UINT32_C(0x0F000000)) == UINT32_C(0x0F000000)) {
+        if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+            unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+            if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                   false)) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            }
+            return true;
+        }
         gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
         return true;
     }
     if ((opcode & UINT32_C(0x0E000000)) == UINT32_C(0x0C000000) ||
         (opcode & UINT32_C(0x0F000000)) == UINT32_C(0x0E000000)) {
+        if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+            unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+            if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                   false)) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            }
+            return true;
+        }
         gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_COPROCESSOR);
         return true;
     }

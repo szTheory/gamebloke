@@ -1795,6 +1795,43 @@ static void test_decode(void)
               "condition-failed ARM branch uses sequential fetch only");
 
     {
+        const uint32_t original_svc_spsr = UINT32_C(0x13572468);
+        const uint32_t original_svc_lr = UINT32_C(0x24681357);
+        bool swi_skipped;
+        bool coprocessor_skipped;
+
+        machine.cpu.spsr[2] = original_svc_spsr;
+        machine.cpu.svc_r13_14[1] = original_svc_lr;
+        ran = loaded && run_arm_instruction(
+            &machine, UINT32_C(0x0F000042), 0u, 1u, &result);
+        swi_skipped = ran && result.termination == GBL_RUN_PROGRESS &&
+            result.instructions == 1u && result.cycles == 1u &&
+            machine.cpu.execution_address == UINT32_C(0x08000004) &&
+            machine.cpu.pipeline[0].address == UINT32_C(0x08000004) &&
+            machine.cpu.cpsr == TEST_CPSR_SYSTEM && !machine.cpu.stopped &&
+            machine.cpu.stop_reason == GBL_CPU_STOP_NONE &&
+            machine.cpu.spsr[2] == original_svc_spsr &&
+            machine.cpu.svc_r13_14[1] == original_svc_lr &&
+            machine.cpu.last_exception.kind == GBL_EXCEPTION_NONE;
+
+        ran = loaded && run_arm_instruction(
+            &machine, UINT32_C(0x0C000010), 0u, 1u, &result);
+        coprocessor_skipped = ran &&
+            result.termination == GBL_RUN_PROGRESS &&
+            result.instructions == 1u && result.cycles == 1u &&
+            machine.cpu.execution_address == UINT32_C(0x08000004) &&
+            machine.cpu.pipeline[0].address == UINT32_C(0x08000004) &&
+            machine.cpu.cpsr == TEST_CPSR_SYSTEM && !machine.cpu.stopped &&
+            machine.cpu.stop_reason == GBL_CPU_STOP_NONE &&
+            machine.cpu.spsr[2] == original_svc_spsr &&
+            machine.cpu.svc_r13_14[1] == original_svc_lr &&
+            machine.cpu.last_exception.kind == GBL_EXCEPTION_NONE;
+
+        test_case(swi_skipped && coprocessor_skipped,
+                  "condition-failed ARM SWI and coprocessor instructions advance without exception entry");
+    }
+
+    {
         const uint64_t cycles_before = machine.master_cycles;
         const bool one_short = loaded && run_thumb_instruction(
             &machine, UINT16_C(0xE002), 0u, 1u, &result) &&
