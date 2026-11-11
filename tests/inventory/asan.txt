@@ -19,8 +19,15 @@ core.nc.quoted control,core
 core.no_host_includes core,gate
 core.pos.in_tree core,positive
 core.version core,unit
+cpu.alignment core,cpu,unit
+cpu.arithmetic core,cpu,unit
 cpu.budget core,cpu,unit
+cpu.decode core,cpu,unit
 cpu.lifecycle core,cpu,unit
+cpu.nc.pc_refill control,core,cpu
+cpu.nc.shift_carry control,core,cpu
+cpu.pos.clean core,cpu,positive
+cpu.thumb core,cpu,unit
 cpu.tracer core,cpu,unit
 inventory.junit post
 loader.diagnostics core,loader,unit

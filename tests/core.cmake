@@ -46,6 +46,12 @@ gbl_add_test(
   NAME cpu.budget
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
+foreach(selector IN ITEMS arithmetic thumb decode alignment)
+  gbl_add_test(
+    NAME cpu.${selector}
+    LABELS cpu core unit
+    COMMAND $<TARGET_FILE:cpu_test> ${selector})
+endforeach()
 
 # Compile selected disposable bus mutants against the real bus test. Pass the
 # configured compiler, build flags, warning policy, and sanitizer flags so the
@@ -122,6 +128,32 @@ gbl__add_loader_mutation_test(
 gbl__add_loader_mutation_test(
   loader.nc.logo_digest_forced_match logo_digest_forced_match logo-digest)
 gbl__add_loader_mutation_test(loader.pos.clean clean diagnostics)
+
+function(gbl__add_cpu_mutation_test test_name mutation selector)
+  if(mutation STREQUAL "clean")
+    set(labels core cpu positive)
+  else()
+    set(labels control core cpu)
+  endif()
+  gbl_add_test(
+    NAME "${test_name}"
+    LABELS ${labels}
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=cpu_${mutation}" "-DSELECTOR=${selector}"
+      "-DCOMPILER=${CMAKE_C_COMPILER}"
+      "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
+      "-DC_FLAGS=${CMAKE_C_FLAGS}"
+      "-DC_FLAGS_CONFIG=${GBL_MUTATION_C_FLAGS_CONFIG}"
+      "-DLINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+      "-DLINKER_FLAGS_CONFIG=${GBL_MUTATION_LINK_FLAGS_CONFIG}"
+      "-DVERSION=${PROJECT_VERSION}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/core_mutation.cmake")
+endfunction()
+
+gbl__add_cpu_mutation_test(cpu.nc.pc_refill pc_refill decode)
+gbl__add_cpu_mutation_test(cpu.nc.shift_carry shift_carry arithmetic)
+gbl__add_cpu_mutation_test(cpu.pos.clean clean all)
 
 gbl_add_test(
   NAME machine.state
