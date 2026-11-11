@@ -3,6 +3,14 @@
 # --version and --help document exit status 0, so these require BOTH the exit
 # status and the text (EXPECT=pass). PASS_REGULAR_EXPRESSION alone would make
 # CTest ignore the exit status.
+add_executable(hash_test tests/hash_test.c runner/sha256.c)
+target_include_directories(hash_test PRIVATE runner)
+target_link_libraries(hash_test PRIVATE gbl_warnings)
+gbl_add_test(
+  NAME runner.hash
+  LABELS runner unit
+  COMMAND $<TARGET_FILE:hash_test>)
+
 gbl_add_test(
   NAME runner.version
   LABELS runner unit
@@ -210,6 +218,14 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
     -DARGS=--help "-DREGEX=exit codes: 0 success, 2 usage error"
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
+
+gbl_add_test(
+  NAME runner.metadata
+  LABELS runner gate
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    "-DHASH_TEST=$<TARGET_FILE:hash_test>"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_metadata.cmake")
 
 # The documented usage-error exit code is exactly 2 (unlike a sanitizer abort).
 gbl_add_test(

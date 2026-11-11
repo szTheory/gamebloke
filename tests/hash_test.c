@@ -84,7 +84,27 @@ static bool matches_vector(const char *input_hex, const char *expected_hex)
            strcmp(actual, expected_hex) == 0;
 }
 
-int main(void)
+static int run_wrong_expected_digest_control(void)
+{
+    static const uint8_t input[] = { UINT8_C(0x61), UINT8_C(0x62),
+                                     UINT8_C(0x63) };
+    static const char wrong_expected[] =
+        "aa7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    char actual[GBL_SHA256_HEX_CAPACITY];
+    const bool accepted = gbl_sha256_span(input, sizeof input, actual) &&
+                          strcmp(actual, wrong_expected) == 0;
+
+    if (accepted) {
+        fputs("not ok 1 - deliberately wrong independent digest was accepted\n",
+              stderr);
+        return 1;
+    }
+    puts("1..1");
+    puts("ok 1 - deliberately wrong independent digest is rejected");
+    return 0;
+}
+
+int main(int argc, char **argv)
 {
     static const char multi_block_input[] =
         "451101250ec6f26652249d59dc974b7361d571a8101cdfd36aba3b5854d3ae086"
@@ -103,6 +123,14 @@ int main(void)
     uint8_t vector_bytes[163];
     size_t vector_length = 0u;
     size_t index;
+
+    if (argc == 2 && strcmp(argv[1], "--wrong-independent-digest") == 0) {
+        return run_wrong_expected_digest_control();
+    }
+    if (argc != 1) {
+        fputs("usage: hash_test [--wrong-independent-digest]\n", stderr);
+        return 2;
+    }
 
     printf("1..%u\n", HASH_TEST_COUNT);
 

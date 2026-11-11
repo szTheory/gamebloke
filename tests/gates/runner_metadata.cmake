@@ -149,4 +149,32 @@ if("${drift_result}" STREQUAL "0" OR
 endif()
 message("runner-metadata: stale-image-digest-rejected")
 
+if(DEFINED HASH_TEST AND NOT "${HASH_TEST}" STREQUAL "")
+  if(NOT EXISTS "${HASH_TEST}" OR IS_DIRECTORY "${HASH_TEST}")
+    message(FATAL_ERROR "runner-metadata: hash-test-executable-missing")
+  endif()
+  execute_process(
+    COMMAND "${HASH_TEST}" --wrong-independent-digest
+    RESULT_VARIABLE wrong_digest_result
+    OUTPUT_VARIABLE wrong_digest_stdout
+    ERROR_VARIABLE wrong_digest_stderr)
+  if(NOT "${wrong_digest_result}" STREQUAL "0" OR
+      NOT "${wrong_digest_stdout}" MATCHES
+        "ok 1 - deliberately wrong independent digest is rejected")
+    message(FATAL_ERROR "runner-metadata: wrong-independent-digest-accepted")
+  endif()
+
+  execute_process(
+    COMMAND "${HASH_TEST}" unknown-selector
+    RESULT_VARIABLE unknown_selector_result
+    OUTPUT_VARIABLE unknown_selector_stdout
+    ERROR_VARIABLE unknown_selector_stderr)
+  if(NOT "${unknown_selector_result}" STREQUAL "2" OR
+      NOT "${unknown_selector_stderr}" MATCHES
+        "usage: hash_test \\[--wrong-independent-digest\\]")
+    message(FATAL_ERROR "runner-metadata: hash-test-accepted-unknown-selector")
+  endif()
+  message("runner-metadata: wrong-hash-expectation-rejected; unknown-selector-rejected")
+endif()
+
 message("runner-metadata: ok (production empty, synthetic control indexed, parity verified)")
