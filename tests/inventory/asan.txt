@@ -1,5 +1,14 @@
 # Sorted (byte order) expected-test inventory for the asan lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+bus.decode bus,core,unit
+bus.nc.clock_overflow bus,control
+bus.nc.ewram_mirror bus,control
+bus.nc.iwram_mirror bus,control
+bus.nc.video_bytes bus,control
+bus.nc.vram_mirror bus,control
+bus.pos.clean bus,positive
+bus.timing bus,core,unit
+bus.video bus,core,unit
 core.nc.comment control,core
 core.nc.computed control,core
 core.nc.continuation control,core
@@ -11,6 +20,23 @@ core.no_host_includes core,gate
 core.pos.in_tree core,positive
 core.version core,unit
 inventory.junit post
+loader.diagnostics core,loader,unit
+loader.integration core,integration,loader,unit
+loader.lengths core,loader,unit
+loader.logo_digest core,integration,loader,unit
+loader.nc.allocate_before_validate control,core,loader
+loader.nc.allocation_state control,core,loader
+loader.nc.caller_bytes control,core,loader
+loader.nc.logo_claim control,core,loader
+loader.nc.logo_digest_bypass control,core,loader
+loader.nc.logo_digest_forced_match control,core,loader
+loader.nc.refusal_allocator_identity control,core,loader
+loader.nc.refusal_rom_identity control,core,loader
+loader.nc.refusal_state control,core,loader
+loader.pos.clean core,loader,positive
+loader.transaction core,loader,unit
+logo_digest.authority_cases control,loader
+machine.state core,machine,unit
 runner.help runner,unit
 runner.no_args runner,unit
 runner.usage_error runner,unit

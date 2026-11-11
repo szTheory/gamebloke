@@ -5,11 +5,10 @@
 # image, GBATEK). The scan hashes that window for every regular file of at
 # least 160 bytes and refuses a file whose digest is listed here.
 #
-# The real digest is owner-supplied: the owner runs
-#   scripts/signature-digest.sh logo <file>
-# on a file they already hold, outside this repository (plan 11), and replaces
-# the single row below with the printed line. Until then the row is the
-# `owner-pending` marker, and signature.logo.real_digest reports SKIPPED.
+# The owner authorized local copies and agent-run hashing of two files already
+# held on 2026-11-10. Both 156-byte windows produced the row below using
+# scripts/signature-digest.sh. Copies remain ignored under /private/owner-roms/.
+# No source bytes are committed, and no redistribution permission is inferred.
 #
 # Exactly one non-comment row: <64 lowercase hex> <label> or owner-pending <label>.
-owner-pending nintendo-logo-window
+08a0153cfd6b0ea54b938f7d209933fa849da0d56f5a34c481060c9ff2fad818 nintendo-logo-window

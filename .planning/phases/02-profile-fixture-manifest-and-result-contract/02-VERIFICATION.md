@@ -1,7 +1,7 @@
 ---
 phase: 02-profile-fixture-manifest-and-result-contract
 verified: 2026-11-10T02:30:00Z
-status: human_needed
+status: passed
 score: 4/5 must-haves verified
 covered_files:
   - ".gitignore"
@@ -178,3 +178,10 @@ No failed truth, missing artifact, or unwired link. Phase 2 delivers a machine-c
 
 _Verified: 2026-11-10_
 _Verifier: Claude (gsd-verifier)_
+
+## Human Verification Outcome (2026-11-10)
+
+1. **SC5 producer half:** anchored. ROADMAP Phase 4 success criterion 3 now requires the runner's result to list the dispute id and carry the `disputed` label, accepted by the Phase 2 validator. Phase 2 delivers the validator-level rule only, by design.
+2. **Live CI of the phase PR:** done. PR #5 (squash `c5886d2`), run 42773157216: all seven jobs success (hygiene 26 s, ubuntu build 33 s, macOS build 56 s, asan 7 s), `CI required` success, 193 expected / 191 ran / 2 skipped, merged through the ruleset with no bypass.
+3. **RESEARCH A1 (curl on the ubuntu-26.04 runner):** resolved. The hosted hygiene and build jobs ran `fetch.pos.fetch_ok` and `fetch.pos.idempotent` (they need curl) and passed.
+

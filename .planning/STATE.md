@@ -2,44 +2,45 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 02
-current_phase_name: Profile, Fixture Manifest, and Result Contract
-status: verifying
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-11-10T06:34:56.097Z"
-last_activity: 2026-11-09
-last_activity_desc: Phase 1 complete, transitioned to Phase 2
-state_head: f0f9938b76d4a4c4157b872780f4da7c6d29fbeb
+current_phase: 4
+current_phase_name: CPU Execution Core and Headless Runner
+status: planning
+stopped_at: Phase 3 complete, ready to plan Phase 4
+last_updated: "2026-11-11T01:20:53.971Z"
+last_activity: 2026-11-10
+last_activity_desc: Phase 3 complete, transitioned to Phase 4
+state_head: 03cc5c00c7d4ddecbac18e9338de893703a04ebe
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 18
-  completed_plans: 18
+  completed_phases: 3
+  total_plans: 25
+  completed_plans: 25
+  percent: 50
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-09)
+See: .planning/PROJECT.md (updated 2026-11-10)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 02 — Profile, Fixture Manifest, and Result Contract
+**Current focus:** Phase 04 — CPU Execution Core and Headless Runner (after Phase 3 publication)
 
 ## Current Position
 
-Phase: 02 (Profile, Fixture Manifest, and Result Contract) — READY TO EXECUTE
-Plan: 7 of 7
-Status: Phase complete — ready for verification
-Last activity: 2026-11-09 — Phase 1 complete, transitioned to Phase 2
+Phase: 4 — CPU Execution Core and Headless Runner
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-10 — Phase 3 complete, transitioned to Phase 4
 
-Progress: [██░░░░░░░░] 17%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 25
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -48,10 +49,10 @@ Progress: [██░░░░░░░░] 17%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 11 | - | - |
+| 2 | 7 | - | - |
+| 3 | 7 | - | - |
 
-**Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+**Recent Trend:** Not enough data to calculate yet.
 
 *Updated after each plan completion*
 **Per-Plan Metrics:**
@@ -76,6 +77,12 @@ Progress: [██░░░░░░░░] 17%
 | Phase 02 P05 | 7 min | 3 tasks | 8 files |
 | Phase 02 P06 | 20 min | 3 tasks | 6 files |
 | Phase 02 P07 | 25 min | 3 tasks | 5 files |
+| Phase 03 P01 | 26 min | 3 tasks | 10 files |
+| Phase 03 P02 | 21 min | 2 tasks | 7 files |
+| Phase 03 P03 | 20 min | 3 tasks | 10 files |
+| Phase 03 P04 | 38 min | 3 tasks | 8 files |
+| Phase 03 P05 | 23min | 2 tasks | 10 files |
+| Phase 03 P07 | 44 min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -123,6 +130,38 @@ Recent decisions affecting current work:
 - [Phase 02]: Result validator hard-codes only the disputed label (I2); ROADMAP SC5 delivered at validator level in Phase 2, producer half moves to Phase 4 when the runner emits results
 - [Phase 02]: 02-07: pins.txt is linted by manifest.lint (MODE=all); no separate pins gate exists
 - [Phase 02]: 02-07: floor (3.25.3) and Linux container (aarch64) runs pass 252/250/2; live CI and RESEARCH A1 stay pending with the orchestrator
+- [Phase 03]: Phase 03-01: caller-owned deterministic state; raw access uses little-endian EWRAM, one project-policy cycle, checked atomic time, and host-managed same-instance synchronization.
+- [Phase 03]: Keep schema gamebloke.profile/1 and bump the additive policy-bearing profile to profile_version 2.
+- [Phase 03]: Record one-cycle bus costs and zero initialization as IMPL project policy, not measured hardware behavior.
+- [Phase 03]: Keep absent-BIOS, unsupported-I/O, and ROM-tail current-latch reads explicitly unverified; WAITCNT, prefetch, BIOS protection, and active I/O devices remain unmodeled.
+- [Phase 03]: ROM load size refusals are ordered: zero, below 0xC0, above 32 MiB, then odd; valid-size pointer and allocator checks follow.
+- [Phase 03]: The host allocator owns copied ROM storage; successful replacement commits and cold-resets before releasing the previous allocation.
+- [Phase 03]: Refusal evidence compares canonical machine fields and arrays, ROM contents, and caller bytes; the digest is secondary evidence.
+- [Phase 03]: 03-04: ROM-tail reads use the current-latch project policy; shorter-cartridge hardware behavior remains explicitly unverified.
+- [Phase 03]: 03-04: Model only DISPCNT mode bits 0-2; mode 6-7 video-byte threshold behavior is project policy, not hardware evidence.
+- [Phase 03]: 03-04: Cite GBATEK as community reference evidence and keep BUS-02/BUS-03 pending until integrated phase evidence and final verification support completion.
+- [Phase 03]: Header findings are advisory for every size-valid direct-start image and commit only with a successful copied-ROM load.
+- [Phase 03]: Canonical logo stays UNCHECKED/OWNER_PENDING; synthetic comparisons prove mechanics only.
+- [Phase 03]: Compute the header checksum by subtracting bytes 0xA0-0xBC and 0x19 from zero modulo 256 before comparing byte 0xBD.
+- [Phase 03]: Canonical profile document synchronization supports plain Markdown plus fenced/indented examples and HTML comments; reject unsupported raw HTML blocks. Normalize once before any metadata, heading, section, or table discovery, and use that same visible content everywhere; require exactly one visible standalone version line.
+- [Phase 03]: For document-parser fixes, add controls for hidden headings/tables, adjacent contradictory metadata, and markup opened before and closed after the synchronized section. After a broad phase review, target follow-up review at changed files and the confirmed root-cause family; do not repeat unchanged core review without a new concern.
+- [Phase 03]: Profile document controls exercise distinct mutations. The final `profile.nc.bus_policy_doc` test took 3.15 s in CI and 2.88 s in hygiene, below each lane's five slowest tests; no duplicate validator setup was supported by the measurements. CI (17:03:57–17:06:02) and hygiene (17:06:11–17:07:25) did not overlap. The broader runtime increase from earlier 49–97 second CI samples is unexplained by retained logs; no optimization was justified.
+
+- [Phase 03]: Verifier MVP-format repair: restated the existing approved technical goal as an As-a/I-want-to/so-that story; retained the original technical boundary and every success criterion. This is agent-authored formatting, not new owner scope or risk acceptance; no replanning or gate bypass.
+
+- [Phase 03]: Plan 07 wires the bounded digest comparison through the real copied-ROM loader and validates the fixed build authority. Fresh current-inventory sanitizer evidence and clean independent code/security reviews close the implementation gaps. Production authority remains owner-pending; synthetic matches do not complete LOAD-02.
+
+- [Phase 03]: Initial hosted stop: draft PR #6 failed GNU compilation on an implicit unsigned-to-byte conversion in the test-state helper. No fix or retry preceded owner authorization. The subsequent authorized correction and local retest are recorded in 03-CI-HANDOFF.md; use the PR live checks for the corrected hosted head.
+
+- [Phase 03]: Owner authorized the explicit test-helper byte conversion and bounded local/hosted verification on existing PR #6. Preserve all warning flags. Renew the standing stop if the new hosted run is red; logo authority/manual acceptance and Phase 4 hold are unchanged.
+
+- [Phase 03]: Owner supplied two local files and explicitly authorized ignored copies plus agent-run logo hashing/verification. Both windows agree; profile version 3 activates the configured digest. Current CI, fresh sanitizers and instrumented local production-header witnesses pass. Refreshing phase acceptance; no private bytes are published and no hardware/game-compatibility or rights claim follows.
+
+- [Phase 03]: Activation verification confirms every technical must-have. Only two judgment-tier claim reviews remain; no further owner data/helper action is needed. The owner explicitly delegated local file handling, which supersedes the earlier owner-must-run procedure for those inputs. Preserve that authority across runtimes instead of asking the owner to repeat commands the agent can perform.
+
+- [Phase 03]: Published activation head passes hosted Linux GCC, macOS AppleClang, Clang sanitizers, hygiene and CI required on PR #6. Measured longest lane was macOS: about 94 seconds job-log span and 81.42 seconds tests, with one configure/build sequence. No low-risk duplicate-build remedy was established. A metadata-triggered old-head run was superseded/cancelled; its fail-closed aggregator does not represent a failure of the tested activation head. Retained results: build/phase03-logo-activation/hosted-result.json. Final local acceptance bookkeeping is held for the next phase-boundary commit to avoid triggering an unchanged full CI run.
+
+- [Phase 03]: The owner explicitly accepted both documented phase claim limits. UAT and canonical verification pass; all seven implementation plans are complete. Existing PR #6 is the publication path; push final acceptance bookkeeping once and wait for green required checks before squash merge. No further acceptance prompt is needed for these same limits. The phase contains no frontend; visual review is not applicable. Graduation scan has only two completed prior phases, below its threshold.
 
 ### Pending Todos
 
@@ -133,20 +172,26 @@ None yet.
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
 - Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
-- Phase 1: the real-logo digest (EVID-04) is `owner-pending (human-needed)`. The owner replied `pending` at plan 11; next action: owner runs `scripts/signature-digest.sh logo <file>` on a file they hold and commits the digest through a PR.
+- Phase 1 follow-up: the owner-authorized digest is supplied and verified on the Phase 3 branch. No further owner file/helper task remains. EVID-04 activation on main awaits the existing phase PR merge.
 - Phase 1: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
+- Phase 3: owner acceptance is recorded and canonical verification passes. Complete the existing green-PR publication path before starting Phase 4. No further owner input is needed for this accepted scope.
+
+- Phase 3: the initial hosted GCC failure has an owner-authorized explicit-conversion fix, verified locally with GNU and fresh sanitizers. PR #6 remains draft for owner acceptance. The corrected head must pass live hosted checks; any new red result renews the standing stop. No merge or Phase 4 start while the independent owner-data/manual gate remains unresolved.
+
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close, most recent first:
+- Before milestone close, reconcile Phase 3 Nyquist document status/taxonomy with
+  its actual passing behavior evidence. The artifact remains draft; phase
+  completion emits this nonblocking metadata warning. Do not fabricate probe
+  results or turn it into a missing production-code claim. The summary path
+  warning for the portable `~/.codex` runtime reference is a prose-path scanner
+  limitation, not a missing shipped artifact.
 
-| Category | Item | Status | Deferred At | Milestone |
-|----------|------|--------|-------------|-----------|
-| *(none)* | | | | |
 
 ## Session Continuity
 
-Last session: 2026-11-10T06:34:56.039Z
-Stopped at: Completed 02-07-PLAN.md
+Last session: 2026-11-10T23:59:45.464Z
+Stopped at: Phase 3 complete, ready to plan Phase 4
 Resume file: None

@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 1,
+  "profile_version": 3,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -63,6 +63,41 @@
       "dispute": "disp-hblank-flag-edge"
     }
   },
+  "bus_policy": {
+    "source": "IMPL",
+    "cite": "Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim.",
+    "request_cycles": {
+      "bios": 1,
+      "ewram": 1,
+      "iwram": 1,
+      "io": 1,
+      "pram": 1,
+      "vram": 1,
+      "oam": 1,
+      "rom": 1,
+      "unmapped": 1
+    },
+    "widths_bytes": [1, 2, 4],
+    "access_classes": ["nonsequential", "sequential"],
+    "internal_cycle_unit": 1
+  },
+  "initialization_policy": {
+    "source": "IMPL",
+    "cite": "Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown.",
+    "memory_fill": 0,
+    "register_fill": 0,
+    "master_cycles": 0,
+    "open_bus": 0
+  },
+  "read_policy": {
+    "source": "IMPL",
+    "cite": "Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails.",
+    "absent_bios": "current-open-bus",
+    "unsupported_io": "current-open-bus",
+    "rom_tail": "current-open-bus",
+    "latch_update": "mapped-read-width-replicated",
+    "write_latch": "preserve"
+  },
   "unmodeled": [
     {
       "id": "sp-micro-differences",
@@ -113,6 +148,16 @@
       "id": "backup-media",
       "status": "unmodeled",
       "reason": "Cartridge backup storage (save memory) is not emulated in v1.0; the profile cart is ROM-only."
+    },
+    {
+      "id": "bios-protection",
+      "status": "unmodeled",
+      "reason": "BIOS read protection and CPU pipeline-dependent behavior are not implemented."
+    },
+    {
+      "id": "io-devices",
+      "status": "unmodeled",
+      "reason": "I/O device register semantics are not implemented; unsupported reads use a project-policy placeholder."
     }
   ]
 }

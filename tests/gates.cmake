@@ -221,8 +221,9 @@ gbl_add_test(
 
 foreach(case IN ITEMS
     bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
+    bus_policy_doc bus_policy_missing bus_policy_source bus_policy_value
     dispute_unknown doc_extra_id doc_missing_id doc_no_section doc_version_mismatch
-    hblank_edge_hardcoded missing_field missing_source timing_arithmetic
+    hblank_edge_hardcoded init_policy missing_field missing_source read_policy timing_arithmetic
     unmodeled_bad_entry unmodeled_missing usage)
   gbl_add_test(
     NAME profile.nc.${case}
@@ -230,7 +231,7 @@ foreach(case IN ITEMS
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_PROFILE_CASE}")
 endforeach()
 
-foreach(case IN ITEMS coordinated_change copy)
+foreach(case IN ITEMS bus_policy_copy coordinated_change copy)
   gbl_add_test(
     NAME profile.pos.${case}
     LABELS positive profile
@@ -395,3 +396,14 @@ foreach(case IN ITEMS strict_clean real_docs)
     LABELS json positive
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_JSON_CASE}")
 endforeach()
+
+# The digest-authority configure controls also run in the hygiene lane. CI gets
+# this test from tests/core.cmake, so keep this registration lane-specific.
+if(GBL_LANE STREQUAL "hygiene")
+  gbl_add_test(
+    NAME logo_digest.authority_cases
+    LABELS control loader
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/logo_digest_case.cmake")
+endif()

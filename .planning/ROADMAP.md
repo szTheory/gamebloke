@@ -41,8 +41,8 @@ determinism gates.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: CI and Verification Foundation** - One canonical verify command, the required `CI required` check, sanitizer lanes, test inventory, hygiene and signature scans, each with negative controls (completed 2026-11-09)
-- [ ] **Phase 2: Profile, Fixture Manifest, and Result Contract** - Versioned `agb` profile, claim tuple, manifest and linter, pinned fetch, result taxonomy, and dispute registry
-- [ ] **Phase 3: Bus API, Memory Map, and ROM Loading** - Final cost-returning bus API on a u64 master clock, full memory map, deterministic power-on state, and a loader that refuses bad input safely
+- [x] **Phase 2: Profile, Fixture Manifest, and Result Contract** - Versioned `agb` profile, claim tuple, manifest and linter, pinned fetch, result taxonomy, and dispute registry (completed 2026-11-10)
+- [x] **Phase 3: Bus API, Memory Map, and ROM Loading** - Final cost-returning bus API on a u64 master clock, full memory map, deterministic power-on state, and a loader that refuses bad input safely (completed 2026-11-10)
 - [ ] **Phase 4: CPU Execution Core and Headless Runner** - Explicit-pipeline ARM7TDMI with modes and exceptions, and a runner that emits one bounded JSON result with mailbox, peek, and trace
 - [ ] **Phase 5: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion** - Reproducible pinned toolchain, project-authored diagnostics with negative variants, and full ARMv4T ARM and Thumb coverage
 - [ ] **Phase 6: Determinism Gates and Third-Party CPU Fixtures** - Repeat, optimization-level, two-compiler, and interleave equality, the bus-only time gate, and jsmolka CPU suites through a verified result channel
@@ -109,7 +109,7 @@ Plans:
   3. Fetching a pinned third-party fixture by SHA-256 from `pins.txt` puts it in an untracked location. A digest-mismatch negative control exits non-zero with a loud error, and `git ls-files` lists no third-party binary.
   4. The result schema defines PASS, GUEST_FAIL, GUEST_STOP, HARNESS_FAIL, TIMEOUT, CANCELLED, MISSING, SKIPPED, and REFUSED, plus the claim tuple `{machine, boot, bios_provider, cart, input_timeline, evidence}`. Its validator rejects a BIOS provider outside the R1 values and rejects a PASS for a fixture that did not run.
   5. The dispute registry holds the seeded entries (DMA latch, GBATEK errata, HBlank edge sources, mGBA-suite #22/#24/#27). A fixture whose expected value points at a registry entry produces a result labeled disputed.
-**Plans**: 7/7 plans executed (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
+**Plans**: 7/7 plans complete (waves 1-7, serial chain: shared edits to tests/gates.cmake and the ci and hygiene inventories; final counts ci 252 expected, hygiene 182, asan 16 unchanged)
 
 Plans:
 **Wave 1**
@@ -136,7 +136,8 @@ Plans:
 **Owner gates**: None blocking. Reversible defaults apply: G3 (pinned fetch, no third-party binaries in tree) and G2 (no logo bytes in owned fixtures). G9 (differentiator wording) uses the working wording and does not block engineering.
 
 ### Phase 3: Bus API, Memory Map, and ROM Loading
-**Goal**: The canonical core has its final timing-bearing bus API, the full GBA memory map, deterministic power-on state, and a ROM loader that validates untrusted input before it allocates memory or mutates state.
+**Goal**: As a core developer, I want to build the canonical core with its final timing-bearing bus API, full GBA memory map, deterministic power-on state, and a ROM loader that validates untrusted input before allocation or state mutation, so that subsequent CPU work has a deterministic, testable and safe machine boundary.
+**Technical boundary (unchanged):** The canonical core has its final timing-bearing bus API, the full GBA memory map, deterministic power-on state, and a ROM loader that validates untrusted input before it allocates memory or mutates state.
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: BUS-01, BUS-02, BUS-03, LOAD-01, LOAD-02, LOAD-03
@@ -146,7 +147,34 @@ Plans:
   3. Two fresh instances have byte-identical memory and register contents at power-on, and those contents match the fill policy recorded in the profile.
   4. Zero-length, below-header-size, above-32-MiB, and odd-length images each give a distinct REFUSED reason. A full-state digest and a caller-buffer comparison prove that a refused load leaves both byte-identical. After a successful load, changing the caller's buffer does not change the instance.
   5. Under `direct-start`, a ROM with a missing or mismatched logo, a bad header checksum, or an unusual game code still loads, and each finding is reported as a loader diagnostic, not a refusal.
-**Plans**: TBD
+**Plans**: 7/7 plans complete in six dependency-ordered waves
+
+Plans:
+- [x] 03-07-PLAN.md
+
+**Wave 1**
+- [x] 03-01-PLAN.md — Deterministic machine lifecycle and timing-bearing bus contract
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 03-02-PLAN.md — Versioned bus and initialization profile policy with controls
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 03-03-PLAN.md — Transactional owned ROM loading and refusal evidence
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 03-04-PLAN.md — Complete region decode, video width rules and semantic controls
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [x] 03-05-PLAN.md — Advisory header diagnostics and synthetic comparison controls
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [x] 03-06-PLAN.md — Integrated lifecycle evidence and visible remaining acceptance gaps
+
+**Cross-cutting constraints:** <!-- gsd:generated -->
+- Repeated cold reset returns all canonical mutable fields/arrays to the documented zeros, preserves installed owned ROM, and matches a fresh loaded instance.
+
+**Planning evidence limits:** LOAD-02 canonical-logo mismatch remains partial until the owner supplies the pending digest; synthetic comparison tests do not close it. ROM-tail reads use an explicitly unverified project policy. Planning does not claim phase acceptance or hardware accuracy.
+
 **Research flag**: Light research. Read the GBATEK 3.06 memory-map, mirror, width, and open-bus sections. Power-on RAM contents are [UNK], so the fill policy is a documented project choice, not a hardware claim. Cite GBATEK 3.06, not the 2.9b-derived fork.
 **Owner gates**: None blocking. G1 reuse rule: do not copy code from GPL (NanoBoyAdvance) or MPL (mGBA) sources; read them for behavior only.
 
@@ -259,8 +287,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
-| 2. Profile, Fixture Manifest, and Result Contract | 7/7 | In Progress | - |
-| 3. Bus API, Memory Map, and ROM Loading | 0/TBD | Not started | - |
+| 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
+| 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |

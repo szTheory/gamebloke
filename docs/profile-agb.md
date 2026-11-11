@@ -4,7 +4,18 @@
 that explains it; a check compares the two, so a change to the unmodeled list or
 the version must be made in both files together.
 
-profile_version: 1
+This canonical profile document uses plain Markdown only. The synchronization
+check ignores fenced and indented examples, inline code spans (including spans
+that cross line breaks), and HTML comments, and requires its version line,
+section headings, and pipe tables to be visible.
+Raw HTML elements, declarations, and processing instructions are unsupported
+anywhere outside those ignored examples and comments; use Markdown code spans or
+fenced code examples when showing HTML text.
+Synchronized tables require both outer pipes on every row, the documented
+headers and separators, and a blank line or heading after the table (or end of
+document). Every Unmodeled ID must occur exactly once.
+
+profile_version: 3
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -71,6 +82,73 @@ The cycle at which the HBlank flag changes is not recorded. Sources disagree
 time, not the flag edge. The constant stays null with label UNK until the dispute
 is settled by evidence.
 
+## Bus policy
+
+The following one-cycle request costs are Gamebloke project policy. They are
+not measured hardware timing, do not model WAITCNT or prefetch, and do not
+establish hardware accuracy or broad compatibility.
+
+| Setting | Value | Label | Citation |
+| ------- | ----- | ----- | -------- |
+| bus_policy.request_cycles.bios | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.ewram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.iwram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.io | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.pram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.vram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.oam | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.widths_bytes | [1, 2, 4] | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.access_classes | [nonsequential, sequential] | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+
+## Initialization policy
+
+Mutable machine memory, registers, the master clock and the open-bus latch are
+initialized to zero for deterministic project behavior. Hardware power-on RAM
+contents remain unknown, and this policy does not set Phase 4 CPU direct-start
+registers.
+
+| Setting | Value | Label | Citation |
+| ------- | ----- | ----- | -------- |
+| initialization_policy.memory_fill | 0 | IMPL | Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown. |
+| initialization_policy.register_fill | 0 | IMPL | Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown. |
+| initialization_policy.master_cycles | 0 | IMPL | Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown. |
+| initialization_policy.open_bus | 0 | IMPL | Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown. |
+
+## Read policy
+
+The choices below are unverified Gamebloke project behavior for the current
+minimal bus. BIOS protection, active I/O devices, WAITCNT, and prefetch remain
+unmodeled. The actual behavior of reads beyond a short ROM image remains
+unverified; the current-latch response is only a placeholder and says nothing
+about the physical cartridge bus.
+
+| Setting | Value | Label | Citation |
+| ------- | ----- | ----- | -------- |
+| read_policy.absent_bios | current-open-bus | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
+| read_policy.unsupported_io | current-open-bus | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
+| read_policy.rom_tail | current-open-bus | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
+| read_policy.latch_update | mapped-read-width-replicated | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
+| read_policy.write_latch | preserve | IMPL | Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails. |
+
+## Header diagnostics
+
+Profile version 3 activates the configured logo-window comparison using the
+owner-authorized SHA-256 row in `tests/signatures/logo.sha256`. The loader hashes
+only the copied candidate window `[0x04, 0xA0)` and reports checked match or checked
+mismatch. A mismatch, missing-window convention, checksum finding or unusual
+game code remains advisory under `direct-start`; it never refuses a size-valid
+image. A pending-authority build reports unchecked with an owner-pending reason.
+
+Two owner-provided local files yielded the same configured digest. This proves
+identity of those windows and supports the configured comparison result. It
+does not establish original-cartridge provenance, redistribution rights, BIOS
+boot behavior, game execution, or broad compatibility. The ROM files are local
+ignored inputs and are not public fixtures or CI inputs. Timing, fill, latch and
+ROM-tail policies remain unchanged and unverified as hardware behavior.
+
 ## SP and AGS naming
 
 The only profile id is `agb`. The SP is `agb` plus a host presentation preset, and
@@ -104,3 +182,5 @@ must not claim the behavior of anything in this table.
 | `timers` | Hardware timers. |
 | `irq-controller` | The interrupt controller. |
 | `backup-media` | Cartridge backup storage (save memory). |
+| `bios-protection` | BIOS read protection and CPU pipeline-dependent behavior. |
+| `io-devices` | I/O device register semantics. |

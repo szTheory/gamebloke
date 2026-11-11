@@ -41,13 +41,49 @@ file(REMOVE "${CMAKE_BINARY_DIR}/junit.xml")
 include(cmake/GblTests.cmake)
 
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
-  # Host-independent machine core: no host includes, only gbl_version().
-  add_library(gamebloke_core STATIC src/version.c)
-  target_include_directories(gamebloke_core PUBLIC include)
-  target_compile_definitions(gamebloke_core PRIVATE "GBL_VERSION_STRING=\"${PROJECT_VERSION}\"")
-  target_compile_options(gamebloke_core PRIVATE
-    "$<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-fno-stack-protector;-U_FORTIFY_SOURCE>")
-  target_link_libraries(gamebloke_core PRIVATE gbl_warnings)
+  include(cmake/ReadLogoDigest.cmake)
+  set(GBL_LOGO_AUTHORITY "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${GBL_LOGO_AUTHORITY}")
+  gbl_read_logo_digest("${GBL_LOGO_AUTHORITY}" GBL_LOGO_EXPECTED_SHA256)
+
+  set(GBL_LOGO_PATTERN_FILE "${CMAKE_BINARY_DIR}/logo-digest/pattern1through156.bin")
+  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/logo-digest")
+  set(GBL_LOGO_PATTERN_BYTES "")
+  foreach(value RANGE 1 156)
+    string(ASCII ${value} character)
+    string(APPEND GBL_LOGO_PATTERN_BYTES "${character}")
+  endforeach()
+  file(WRITE "${GBL_LOGO_PATTERN_FILE}" "${GBL_LOGO_PATTERN_BYTES}")
+  file(SHA256 "${GBL_LOGO_PATTERN_FILE}" GBL_LOGO_SYNTHETIC_SHA256)
+  if(NOT GBL_LOGO_SYNTHETIC_SHA256 STREQUAL
+      "8ec8d30af0acb1e6ff15d8ea332a0e6b60ab60ab41cef968e07c7706b349d9d1")
+    message(FATAL_ERROR "gamebloke: logo-digest: synthetic-vector-mismatch")
+  endif()
+
+  # Both targets compile the same host-independent core sources and options;
+  # only their private configure-time expectation differs.
+  set(GBL_CORE_SOURCES src/version.c src/machine.c src/bus.c src/loader.c)
+  function(gbl__add_core_target target expected_digest)
+    add_library(${target} STATIC ${GBL_CORE_SOURCES})
+    target_include_directories(${target} PUBLIC include)
+    target_compile_definitions(${target} PRIVATE
+      "GBL_VERSION_STRING=\"${PROJECT_VERSION}\"")
+    target_compile_definitions(${target} PRIVATE
+      "GBL_LOGO_EXPECTED_SHA256=\"${expected_digest}\"")
+    target_compile_options(${target} PRIVATE
+      "$<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-fno-stack-protector;-U_FORTIFY_SOURCE>")
+    target_link_libraries(${target} PRIVATE gbl_warnings)
+  endfunction()
+
+  gbl__add_core_target(gamebloke_core "${GBL_LOGO_EXPECTED_SHA256}")
+  gbl__add_core_target(gamebloke_core_logo_synthetic
+    "${GBL_LOGO_SYNTHETIC_SHA256}")
+  if(GBL_LOGO_EXPECTED_SHA256 STREQUAL "")
+    set(GBL_PRODUCTION_LOGO_TEST_MODE 0)
+  else()
+    set(GBL_PRODUCTION_LOGO_TEST_MODE 1)
+  endif()
 
   add_executable(gamebloke-run runner/main.c)
   target_link_libraries(gamebloke-run PRIVATE gamebloke_core gbl_warnings)

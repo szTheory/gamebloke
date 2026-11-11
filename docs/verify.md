@@ -33,9 +33,84 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 | `asan` | `sh scripts/linux-lane.sh asan` | AddressSanitizer and UBSan with clang-21. Linux only; the script runs it in a digest-pinned `ubuntu:26.04` container (needs Docker). |
 | `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, plus the Phase 2 evidence validators and their controls, with no compile of the product. |
 
+For a fresh local macOS ASan/UBSan run with the installed AppleClang, use
+`cmake --fresh --preset asan -DCMAKE_C_COMPILER=/usr/bin/clang && cmake --build --preset asan && ctest --preset asan && ctest --preset asan-post`.
+
 `sh scripts/linux-lane.sh <preset> [gcc|clang]` runs any workflow preset on the
 host's native architecture. `sh scripts/hygiene.sh --tree` and
 `sh scripts/signature-scan.sh --tree` run the two repository scans directly.
+
+## Phase 3 bus and loader checks
+
+The focused core command configures and builds before selecting the bus,
+machine, and loader checks:
+
+```sh
+cmake --preset ci && cmake --build --preset ci && \
+  ctest --test-dir build/ci -R '^(bus|machine|loader)\.' --no-tests=error --output-on-failure
+```
+
+`bus_test` selectors are `decode`, `timing`, `video`, and `state`; `state` is
+registered as `machine.state`. `loader_test` selectors are `lengths`,
+`transaction`, `diagnostics`, and `integration`. CTest registers them as
+`loader.lengths`, `loader.transaction`, `loader.diagnostics`, and
+`loader.integration`. The separate `loader_logo_test` target uses the same
+`tests/loader_test.c` and canonical core source list with only an owned synthetic
+expected digest. Its `logo-digest` selector is registered as `loader.logo_digest`.
+`logo_digest.authority_cases` exercises the configure-time parser with owned scratch
+metadata. The integration selector composes the loaded lifecycle
+with ROM alias, mirrored RAM, mode-sensitive video, bus-clock, and independent
+interleaving checks. It uses synthesized in-memory bytes and does not qualify an
+installed consumer or a stable ABI.
+
+The profile validator also checks the Phase 3 project-policy fields. Its
+policy-specific reason codes are `bus-policy-missing`, `bus-policy-value`,
+`bus-policy-source`, `bus-policy-doc`, `init-policy`, and `read-policy`; their
+negative controls mutate a scratch copy and the positive companions validate
+clean copies.
+
+Bus and loader scratch controls compile disposable source mutations with the
+configured compiler and flags. A mutation is negative evidence only when its
+scratch build succeeds and the intended semantic assertion fails with the
+expected reason. A compiler or setup error is an infrastructure failure, not a
+successful control. Every mutation family has a clean companion that must pass.
+
+The host owns ROM storage and provides allocation callbacks. The core validates
+declared lengths before reading the image or allocating, copies into the exact
+size returned by the host, and commits a complete candidate before releasing
+the previous ROM. A refused or allocation-failed load preserves canonical
+machine state and caller bytes; reset retains the owned ROM; disposal releases
+it once. The callbacks must return suitably sized disjoint storage, must not
+reenter or mutate the machine, and must not retain a released pointer. See
+[bus-api.md](bus-api.md#rom-loading-and-host-allocation) for the complete
+postconditions. These tests prove the selected project contract, not hardware
+ROM-tail behavior.
+
+### Logo-window digest diagnostic
+
+After ordinary ROM length, pointer, and allocator validation succeeds, the loader copies
+the candidate image and hashes exactly 156 bytes at offsets `[0x04, 0xA0)` (the 0x9C-byte
+header window). The resulting match or mismatch is an advisory diagnostic: it does not
+refuse the ROM or change the established load transaction. Tests check first- and
+last-window-byte changes, bytes just outside the window, loaded reset, and refusal-state
+preservation through the real `gbl_load_rom` path.
+
+The production core gets its private expected digest only by reading the existing
+`tests/signatures/logo.sha256` row at configure time. Its strict parser accepts comments
+and requires one `nintendo-logo-window` row with either `owner-pending` or exactly 64
+lowercase hexadecimal characters separated by one space. Invalid metadata fails
+configuration with `logo-digest: invalid-authority` and does not echo the row. The
+authority file is a configure dependency; the runtime loader never reads it.
+
+The synthetic test core compiles the same source list and target options as production,
+but receives an expected digest derived from an owned build-tree pattern containing bytes
+1 through 156. This synthetic expectation is independent of the Nintendo authority row.
+Zero-byte and pattern-window vectors are fixed independently from the helper, and CMake
+also checks the pattern file with `file(SHA256)`. The private helper is an original
+fixed-window implementation based on NIST FIPS 180-4 sections 4.1.2, 4.2.2, 5.1.1,
+5.3.3, and 6.2.2; this is not a FIPS validation claim and adds no dependency. A synthetic
+match proves the loader comparison mechanics only, not Nintendo identity, canonical-logo
+acceptance, or rights.
 
 ## Adding a test
 
@@ -150,11 +225,17 @@ Only SHA-256 digests are committed, never logo, BIOS or ROM bytes. The digest li
 are `tests/signatures/logo.sha256` (a 156-byte window at header offset 4) and
 `tests/signatures/bios.sha256` (a 16384-byte file). `tests/signatures/allowlist.txt`
 exempts exact paths from the `rom-extension` and `binary-not-allowlisted` rules only;
-it never exempts the logo or BIOS digests. The logo row is `owner-pending` until the
-owner supplies a digest: run `sh scripts/signature-digest.sh logo <file>` on a cartridge
-image you already hold, outside this repository, and replace the row with the printed
-line. A matching hash proves identity, not rights. Until then `signature.logo.real_digest`
-reports `SKIPPED`.
+it never exempts the logo or BIOS digests. The current logo row was derived from
+two owner-provided local files under explicit authorization; their windows
+matched. Only the digest is published. Profile version 3 activates the loader
+comparison, and `signature.logo.real_digest` checks that the authority is present.
+
+`GBL_OWNER_LOGO_FILE` optionally enables a local cross-check against an owner-held
+file. It remains skipped in public CI, which receives no private file. Local
+copies live in the already-ignored `/private/owner-roms/` folder; no additional
+allowlist exemption is added. A matching hash proves identity, not rights,
+original-cartridge provenance or broad compatibility. Pending-authority builds
+remain supported and explicitly report unchecked/skipped rather than success.
 
 ## Opt-in hook
 
