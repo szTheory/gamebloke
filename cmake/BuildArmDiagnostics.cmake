@@ -375,6 +375,7 @@ if(NOT "${common_startup_rc}" STREQUAL "0")
 endif()
 require_v4t("${tool_bin}/arm-none-eabi-readelf"
   "${common_root}/startup.o" "${common_root}/startup.attributes.txt")
+file(READ "${common_root}/startup.attributes.txt" common_startup_attributes)
 file(WRITE "${common_root}/object-identity.txt"
   "Reused for the clean and assertion-broken member of each case pair.\n")
 
@@ -386,6 +387,9 @@ function(build_variant variant broken rom_name)
   set(variant_relative "${output_relative}/proof/${variant}")
   set(variant_root "${output_root}/proof/${variant}")
   file(MAKE_DIRECTORY "${variant_root}")
+  # Retain the earlier per-variant proof path while linking the shared object.
+  file(WRITE "${variant_root}/startup.attributes.txt"
+    "${common_startup_attributes}")
   epoch_seconds(variant_started)
 
   execute_process(
