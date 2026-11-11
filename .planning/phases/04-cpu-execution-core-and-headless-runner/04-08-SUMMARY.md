@@ -82,7 +82,7 @@ status: complete
 
 ## TDD Gate Compliance
 
-- **RED:** Compiled the test against a temporary RED-only API stub using strict warnings. TAP reported the target empty-span digest assertion as `not ok`; the stub returned 64 zeroes instead of the NIST digest. All 14 tests executed, with the four invalid-input controls passing. `node /Users/jon/.codex/gsd-core/bin/gsd-tools.cjs check tdd-red-evidence build/phase04-tracer/hash-red-evidence.json --raw` returned `RED_EVIDENCE_OK` (`target_test_failed`). The stub lives outside the repository and is not part of the implementation.
+- **RED:** Compiled the test against a temporary RED-only API stub using strict warnings. TAP reported the target empty-span digest assertion as `not ok`; the stub returned 64 zeroes instead of the NIST digest. All 14 tests executed, with the four invalid-input controls passing. `node ${HOME}/.codex/gsd-core/bin/gsd-tools.cjs check tdd-red-evidence build/phase04-tracer/hash-red-evidence.json --raw` returned `RED_EVIDENCE_OK` (`target_test_failed`). The stub lives outside the repository and is not part of the implementation.
 - **GREEN:** The production implementation passed all 14 cases. A first GREEN run exposed a transcription error in the 163-byte NIST message; that fixture was corrected to match the source response file, then the full set passed. Review also tightened invalid-span assertions to compare the entire 65-byte output buffer; the normal, strict-warning, and sanitizer runs passed after that test change.
 - **REFACTOR:** No separate refactor commit was needed; the production code remains a small isolated module.
 

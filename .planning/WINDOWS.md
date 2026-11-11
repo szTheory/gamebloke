@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 2
 waived_count: 0
-fixed_count: 3
-total_count: 5
-last_updated: 2026-11-11T07:52:28.943Z
+fixed_count: 4
+total_count: 6
+last_updated: 2026-11-11T08:26:24.917Z
 ---
 
 # Broken Windows Ledger
@@ -20,6 +20,7 @@ last_updated: 2026-11-11T07:52:28.943Z
 | 3 | 04 | skipped-test | tests/gates.cmake | 88 | signature.owner_local skipped because GBL_OWNER_LOGO_FILE was unset; the optional owner-local cross-check remains unrun. | fixed |  | 2026-11-11T05:59:19.431Z | 2026-11-11T06:05:21.279Z |
 | 4 | 04 | deviation | src/inspect.c |  | Plan 04-06 core include verification rejected string.h in inspection code. Replaced memcpy with an original bounded byte-copy helper; focused inspection, core include, canonical CI and ASan/UBSan checks pass. | fixed |  | 2026-11-11T06:38:11.723Z | 2026-11-11T06:38:11.804Z |
 | 5 | 04 | deviation | tests/hash_test.c | 95 | Corrected a malformed NIST long-message test vector; the final standard-vector, strict-warning and ASan/UBSan checks pass. | fixed |  | 2026-11-11T07:52:28.871Z | 2026-11-11T07:52:28.943Z |
+| 6 | 04 | deviation | .planning/phases/04-cpu-execution-core-and-headless-runner/04-08-SUMMARY.md | 85 | Replaced the machine-specific GSD command path in the hash summary with a portable HOME reference. Repository scans and the canonical CI workflow including JUnit inventory pass on the corrected tree. | fixed |  | 2026-11-11T08:26:24.848Z | 2026-11-11T08:26:24.917Z |
 
 ````json
 [
@@ -86,6 +87,19 @@ last_updated: 2026-11-11T07:52:28.943Z
     "reason": "",
     "recorded_at": "2026-11-11T07:52:28.871Z",
     "resolved_at": "2026-11-11T07:52:28.943Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 6,
+    "kind": "deviation",
+    "phase": "04",
+    "file": ".planning/phases/04-cpu-execution-core-and-headless-runner/04-08-SUMMARY.md",
+    "line": 85,
+    "description": "Replaced the machine-specific GSD command path in the hash summary with a portable HOME reference. Repository scans and the canonical CI workflow including JUnit inventory pass on the corrected tree.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-11T08:26:24.848Z",
+    "resolved_at": "2026-11-11T08:26:24.917Z",
     "milestone": "v1.0"
   }
 ]

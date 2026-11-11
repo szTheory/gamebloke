@@ -180,3 +180,7 @@ The generated `owned-arm-pass.gba` image and synthetic control index are availab
 - Generated index script, image generator, metadata gate, and this summary exist.
 - Task commits `4af53e1` and `1cda649` are ancestors of the current phase branch.
 - Focused CI and ASan checks passed; the full CI failure is recorded above for parent-owned repair.
+
+## Parent Verification Reconciliation
+
+The parent corrected the pre-existing machine-specific command path in the Plan 08 summary, then reran repository hygiene and signature scans successfully. A fresh canonical CI workflow passed in 79.10 seconds on the corrected tree, including JUnit inventory: 323 expected, 322 ran successfully, and the one allowed owner-local signature skip. The earlier failed run above remains historical evidence. Local logs: `build/phase04-tracer/plan09-ci-reconciled.log` and `.json`. Plan 09 may now advance.
