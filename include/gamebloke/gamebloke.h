@@ -149,7 +149,8 @@ typedef enum gbl_cpu_status {
     GBL_CPU_STATUS_INVALID_EXCEPTION = 4,
     GBL_CPU_STATUS_INVALID_CONTEXT = 5,
     GBL_CPU_STATUS_COUNTER_OVERFLOW = 6,
-    GBL_CPU_STATUS_BUS_ERROR = 7
+    GBL_CPU_STATUS_BUS_ERROR = 7,
+    GBL_CPU_STATUS_MASKED = 8
 } gbl_cpu_status;
 
 typedef enum gbl_exception_kind {
@@ -279,7 +280,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                            gbl_run_result *result);
 
 /* Internal CPU state operations. These contracts are not a stable embedding
- * ABI. Invalid and absent-bank operations leave state and output untouched. */
+ * ABI. Invalid and absent-bank operations leave state and output untouched.
+ * Masked IRQ/FIQ requests return GBL_CPU_STATUS_MASKED without effects. */
 gbl_cpu_status gbl_cpu_set_cpsr(gbl_machine *machine, uint32_t cpsr);
 gbl_cpu_status gbl_cpu_get_spsr(const gbl_machine *machine,
                                 uint32_t *spsr_out);

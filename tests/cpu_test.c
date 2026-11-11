@@ -568,6 +568,47 @@ static void test_exceptions(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_masked_requests(void)
+{
+    gbl_machine machine = { 0 };
+    const gbl_cpu_exception_context context = {
+        UINT32_C(0x08000000), UINT32_C(0x08000004),
+        UINT32_C(0x08000000), false
+    };
+    gbl_cpu_status status;
+
+    if (!machine_initialize(&machine, NULL)) {
+        test_case(false, "masked IRQ request preserves state and time");
+        test_case(false, "masked FIQ request preserves state and time");
+        return;
+    }
+    machine.master_cycles = UINT64_C(17);
+    machine.open_bus = UINT32_C(0xA5A55A5A);
+    machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0xE1A01000), 4u, true
+    };
+    machine.cpu.next_fetch_sequential = true;
+    {
+        const gbl_machine before = machine;
+
+        status = gbl_cpu_enter_exception(&machine, GBL_EXCEPTION_IRQ,
+                                         &context);
+        test_case(status == GBL_CPU_STATUS_MASKED &&
+                      gbl_test_canonical_equal(&before, &machine),
+                  "masked IRQ request preserves state and time");
+        machine = before;
+        status = gbl_cpu_enter_exception(&machine, GBL_EXCEPTION_FIQ,
+                                         &context);
+        test_case(status == GBL_CPU_STATUS_MASKED &&
+                      gbl_test_canonical_equal(&before, &machine),
+                  "masked FIQ request preserves state and time");
+    }
+    gbl_machine_dispose(&machine);
+}
+
 static void test_budget(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -1420,8 +1461,9 @@ int main(int argc, char **argv)
         printf("1..4\n");
         test_tracer();
     } else if (strcmp(argv[1], "exceptions") == 0) {
-        printf("1..5\n");
+        printf("1..7\n");
         test_exceptions();
+        test_masked_requests();
     } else if (strcmp(argv[1], "budget") == 0) {
         printf("1..9\n");
         test_budget();
