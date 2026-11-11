@@ -156,6 +156,10 @@ The initial mutation-control run exposed the ineffective RRX input/mutant pairin
 
 This is a deliberately bounded ARM/Thumb execution slice. Block transfers, multiply, halfword/signed transfers, writeback/post-index modes, PSR transfers, Thumb BL pairs, and other unimplemented instruction families remain unsupported. Tests establish deterministic software behavior for these vectors, not physical hardware qualification or broad game compatibility.
 
+## Known Stubs
+
+- `include/gamebloke/gamebloke.h:232` — The pre-existing bus API documents a placeholder master-cycle cost. Plan 04-03 uses that project policy for deterministic budgeting and does not establish hardware timing accuracy. This entry is recorded in `.planning/WINDOWS.md`.
+
 ## Next Phase Readiness
 
 The arithmetic, control-flow, transfer, and semantic-control seams are ready for later CPU expansion. The parent retains ownership of phase state and requirement roll-up; no phase-level completion is asserted here.
