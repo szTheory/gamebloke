@@ -178,7 +178,8 @@ static bool gbl_test_cli_cancel(const char *runner_path,
     char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char error_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char output[8192];
-    struct timespec pause = { 0, 10000000L };
+    struct timespec startup_wait = { 0, 100000000L };
+    struct timespec poll_wait = { 0, 10000000L };
     pid_t child;
     int status = 0;
     size_t tick;
@@ -212,7 +213,7 @@ static bool gbl_test_cli_cancel(const char *runner_path,
     }
 
     /* Give the real CLI time to install its handler and enter its bounded loop. */
-    (void)nanosleep(&pause, NULL);
+    (void)nanosleep(&startup_wait, NULL);
     exited = waitpid(child, &status, WNOHANG) == child;
     if (exited) {
         return false;
@@ -241,7 +242,7 @@ static bool gbl_test_cli_cancel(const char *runner_path,
             (void)waitpid(child, &status, 0);
             return false;
         }
-        (void)nanosleep(&pause, NULL);
+        (void)nanosleep(&poll_wait, NULL);
     }
     (void)kill(child, SIGKILL);
     (void)waitpid(child, &status, 0);

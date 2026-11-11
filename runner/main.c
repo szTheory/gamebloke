@@ -1,3 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
+
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -7,6 +10,52 @@
 #include "run.h"
 
 enum { GBL_RUN_USAGE_ERROR = 2 };
+
+static volatile sig_atomic_t gbl_runner_interrupted;
+
+static void gbl_runner_handle_sigint(int signal_number)
+{
+    (void)signal_number;
+    gbl_runner_interrupted = 1;
+}
+
+static bool gbl_runner_cancelled(void *context)
+{
+    (void)context;
+    return gbl_runner_interrupted != 0;
+}
+
+static bool gbl_runner_install_sigint(void)
+{
+    struct sigaction action;
+
+    memset(&action, 0, sizeof action);
+    action.sa_handler = gbl_runner_handle_sigint;
+    if (sigemptyset(&action.sa_mask) != 0) {
+        return false;
+    }
+    return sigaction(SIGINT, &action, NULL) == 0;
+}
+
+static int gbl_runner_signal_setup_failure(void)
+{
+    gbl_runner_result result;
+    bool written;
+
+    memset(&result, 0, sizeof result);
+    result.status = GBL_RUNNER_HARNESS_FAIL;
+    result.semantic.status = GBL_MAILBOX_ABSENT;
+    result.trace_complete = true;
+    (void)snprintf(result.reason, sizeof result.reason,
+                   "sigint-handler-install-failed");
+    (void)snprintf(result.termination, sizeof result.termination,
+                   "not-started");
+    written = gbl_runner_write_json(stdout, &result);
+    if (!written) {
+        fputs("gamebloke-run: result-write-failed\n", stderr);
+    }
+    return 1;
+}
 
 static bool nonempty_string_fits(const char *text, size_t capacity)
 {
@@ -215,6 +264,11 @@ int main(int argc, char **argv)
         print_usage(stderr);
         return GBL_RUN_USAGE_ERROR;
     }
+    if (!gbl_runner_install_sigint()) {
+        return gbl_runner_signal_setup_failure();
+    }
+    options.cancelled = gbl_runner_cancelled;
+    options.cancel_context = NULL;
 
     status = gbl_runner_execute(&options, &result);
     if (!gbl_runner_write_json(stdout, &result)) {
