@@ -291,7 +291,7 @@ endfunction()
 
 function(audit_variant host_root variant label)
   set(proof "${host_root}/proof/${variant}")
-  set(objects "${proof}/startup.o;${proof}/smoke.o")
+  set(objects "${host_root}/proof/common/startup.o;${proof}/smoke.o")
   set(attributes
     "${proof}/startup.attributes.txt;${proof}/smoke.attributes.txt;${proof}/elf.attributes.txt")
   run_linkmap("${label}-${variant}" "${proof}/smoke.map" "${objects}"
