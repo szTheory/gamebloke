@@ -1,12 +1,23 @@
 ---
 phase: 03-bus-api-memory-map-and-rom-loading
-reviewed: 2026-11-10T22:23:08Z
+reviewed: 2026-11-11T00:09:04Z
 depth: standard
-files_reviewed: 3
+files_reviewed: 14
 files_reviewed_list:
-  - cmake/CheckProfile.cmake
-  - tests/gates/profile_case.cmake
-  - docs/profile-agb.md
+  - CMakeLists.txt
+  - cmake/ReadLogoDigest.cmake
+  - docs/verify.md
+  - include/gamebloke/gamebloke.h
+  - src/loader.c
+  - src/logo_sha256.h
+  - tests/core.cmake
+  - tests/gates.cmake
+  - tests/gates/core_mutation.cmake
+  - tests/gates/logo_digest_case.cmake
+  - tests/inventory/asan.txt
+  - tests/inventory/ci.txt
+  - tests/inventory/hygiene.txt
+  - tests/loader_test.c
 findings:
   critical: 0
   warning: 0
@@ -18,16 +29,21 @@ status: clean
 
 # Phase 03: Code Review Report
 
-**Reviewed:** 2026-11-10T22:23:08Z · **Depth:** standard · **Files Reviewed:** 3 · **Status:** clean
+**Reviewed:** 2026-11-11T00:09:04Z
+**Depth:** standard
+**Files Reviewed:** 14
+**Status:** clean
 
 ## Summary
 
-Follow-up review covered only the delta after `d0a852c` in the three listed files. Both previously reported warnings are closed: the Unmodeled table checker compares row totals and detects duplicate IDs even when one duplicate replaces a different expected ID (`cmake/CheckProfile.cmake:1249-1272`); both synchronized-table collectors reject nonblank continuations unless they are actual ATX headings, so unwrapped rows and `#text` cannot silently end a table (`cmake/CheckProfile.cmake:870-880, 941-950`). The documentation now states the supported outer-pipe and table-ending rules (`docs/profile-agb.md:14-16`), and focused negative controls cover duplicate/replacement IDs and malformed row shapes (`tests/gates/profile_case.cmake:131-147, 593-617`). No new defect was found in this delta. The handoff reports the focused profile suite green at 29/29; I did not rerun it while the canonical shared build run was active.
+This follow-up review covers the 14 non-planning files changed in the Plan 07 implementation delta (`980b4ef..HEAD`). It is scoped to the fixed-window logo digest integration, authority parsing, synthetic loader coverage, mutation controls, lane inventories, and verification documentation. The SHA-256 helper uses unsigned 32-bit rounds, three padded blocks for the 156-byte input, and the correct 1248-bit length; its unaligned zero and 1-through-156 vectors are checked. The real loader hashes the copied candidate after existing validation and before commit, with mismatches remaining advisory. The production expectation remains empty while the owner authority is pending, and production-mode test assertions are conditional so a future approved digest activates checked diagnostics without requiring pending status.
+
+No findings were identified in this delta. Retained current evidence shows CI passed 296/296 with the two documented owner skips, hygiene passed 201/201 with those same skips, and the fresh ASan/UBSan inventory passed 42/42 with no skips. Both digest semantic mutants and their clean companions, both refusal-identity mutants and their clean companions, and the strict authority parser cases ran. These local results do not establish the genuine logo digest, Nintendo identity or rights, hardware accuracy, or broad compatibility; LOAD-02 remains owner-pending.
 
 ## Narrative Findings (AI reviewer)
 
-No open findings in the reviewed delta.
+No findings in the reviewed delta.
 
 ---
 
-_Reviewed: 2026-11-10T22:23:08Z_ · _Reviewer: the agent (gsd-code-reviewer)_ · _Depth: standard_
+_Reviewed: 2026-11-11T00:09:04Z_ · _Reviewer: the agent (gsd-code-reviewer)_ · _Depth: standard_

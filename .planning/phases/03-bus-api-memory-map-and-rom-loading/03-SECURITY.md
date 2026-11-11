@@ -40,6 +40,10 @@ created: "2026-11-10"
 | T-03-16 | Repudiation | phase evidence and test inventories | high | mitigate | The linked integration test, inventory post-checks and `03-EVIDENCE.md` record current commands, results, skips and claim limits. | closed |
 | T-03-17 | Tampering | verification lanes and controls | medium | mitigate | Sanitizer flags and no-tests-error policy are configured; mutation controls distinguish semantic failures from infrastructure errors and have clean companions. | closed |
 | T-03-SC | Tampering | dependency and package boundary | high | mitigate | No dependency, install rule, external acquisition or CI/preset compiler mapping was added; the in-tree C header makes no stable embedding ABI promise. | closed |
+| T-03-18 | Tampering | candidate digest and commit | high | mitigate | `src/loader.c` validates bounds/callbacks and copies the candidate before fixed-window hashing and diagnostic commit; `src/logo_sha256.h` uses unsigned operations, bytewise assembly, fixed 156-byte input and 1248-bit padding; independent vectors and integrated boundary/refusal tests pass. | closed |
+| T-03-19 | Tampering | digest configure metadata | high | mitigate | Fixed authority path and configure dependency in CMakeLists; `cmake/ReadLogoDigest.cmake` validates one exact pending/64-hex row without echo; malformed and disabled-parser controls pass. | closed |
+| T-03-20 | Repudiation | synthetic/canonical distinction | high | mitigate | Shared source/options for both core targets; integrated synthetic witness and bypass/forced-match mutants with clean companions; docs preserve actual owner-pending acceptance and no rights/identity inference. | closed |
+| T-03-21 | Repudiation | current sanitizer membership | high | mitigate | Fresh installed-Clang build, retained compile commands/JUnit and current-inventory reconciliation prove 42 ran with zero skips, including both ownership and digest controls. | closed |
 
 ## Accepted Risks Log
 
@@ -59,3 +63,14 @@ No risks have been accepted by the owner. T-03-09 is recorded as a verified trus
 - [x] ASVS L1 threat register was checked against implementation, tests, documentation and current verification evidence.
 
 **Approval:** verified 2026-11-10. The remaining T-03-09 host-misuse limitation is below the blocking threshold and outside the guest-controlled boundary; no sandbox claim is made.
+
+## Plan 07 security follow-up
+
+An independent gsd-security-auditor reviewed the digest delta after implementation
+and found all four added high-severity mitigations closed, with no regression in
+the prior 18 boundaries. Total verified threat rows: 22; open high/critical: zero.
+The auditor independently ran existing instrumented logo-digest, transaction and
+length binaries, core-purity checking, current ASan inventory/JUnit reconciliation
+and both owned digest vectors. No source changes or owner acceptance were inferred.
+The production authority remains unchanged/pending; trusted native-host/build
+preconditions and all prior qualification limits remain in force.
