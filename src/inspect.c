@@ -170,7 +170,7 @@ gbl_mailbox_result gbl_mailbox_read(const gbl_machine *machine)
     if (completion_marker != GBL_MAILBOX_COMPLETION_MARKER) {
         return (gbl_mailbox_result){ GBL_MAILBOX_PENDING, case_id };
     }
-    if (state == (uint32_t)GBL_MAILBOX_STATE_FAIL && case_id == 0u) {
+    if (case_id == 0u) {
         return (gbl_mailbox_result){ GBL_MAILBOX_MALFORMED, 0u };
     }
     return (gbl_mailbox_result){

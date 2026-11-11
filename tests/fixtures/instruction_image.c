@@ -152,6 +152,10 @@ static bool generate_all(const char *directory)
     make_mailbox_image(image, UINT32_C(2), UINT32_C(0x9001), true);
     okay = write_image(directory, "owned-arm-pass.gba", image) && okay;
 
+    make_mailbox_image(image, UINT32_C(2), 0u, true);
+    okay = write_image(directory, "owned-arm-pass-zero-case.gba", image) &&
+           okay;
+
     make_mailbox_image(image, UINT32_C(3), UINT32_C(0x9002), true);
     okay = write_image(directory, "owned-arm-fail.gba", image) && okay;
 

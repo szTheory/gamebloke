@@ -2291,13 +2291,19 @@ static void test_mailbox_statuses(void)
         write_mailbox(&machine, GBL_MAILBOX_MAGIC, GBL_MAILBOX_VERSION,
                       GBL_MAILBOX_STATE_FAIL, 0u,
                       GBL_MAILBOX_COMPLETION_MARKER);
-        test_case(invalid_state && gbl_mailbox_read(&machine).status ==
-                                      GBL_MAILBOX_MALFORMED,
-                  "invalid state and failing verdict without a case ID are malformed");
+        const bool fail_without_id =
+            gbl_mailbox_read(&machine).status == GBL_MAILBOX_MALFORMED;
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC, GBL_MAILBOX_VERSION,
+                      GBL_MAILBOX_STATE_PASS, 0u,
+                      GBL_MAILBOX_COMPLETION_MARKER);
+        test_case(invalid_state && fail_without_id &&
+                      gbl_mailbox_read(&machine).status ==
+                          GBL_MAILBOX_MALFORMED,
+                  "invalid state and completed PASS/FAIL without case IDs are malformed");
     } else {
         test_case(false, "wrong magic and version never produce a verdict");
         test_case(false, "running and partially written terminal mailboxes stay pending");
-        test_case(false, "invalid state and failing verdict without a case ID are malformed");
+        test_case(false, "invalid state and completed PASS/FAIL without case IDs are malformed");
     }
     gbl_machine_dispose(&machine);
 }

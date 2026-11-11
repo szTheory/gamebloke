@@ -13,13 +13,14 @@ set(production_index "${generated}/production/fixture_index.h")
 set(control_index "${generated}/control/fixture_index.h")
 set(control_manifest "${generated}/control/manifest.json")
 set(pass_image "${generated}/fixtures/owned-arm-pass.gba")
+set(zero_case_image "${generated}/fixtures/owned-arm-pass-zero-case.gba")
 set(fail_image "${generated}/fixtures/owned-arm-fail.gba")
 set(mutated_image "${generated}/fixtures/owned-arm-pass-mutated.gba")
 set(wiring_file "${generated}/runner-target-wiring.txt")
 set(generator_script "${SRC}/cmake/GenerateFixtureIndex.cmake")
 
 foreach(path IN ITEMS "${production_index}" "${control_index}"
-    "${control_manifest}" "${pass_image}" "${fail_image}"
+    "${control_manifest}" "${pass_image}" "${zero_case_image}" "${fail_image}"
     "${mutated_image}" "${wiring_file}")
   if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
     message(FATAL_ERROR "runner-metadata: required generated input is missing")
@@ -37,10 +38,12 @@ endif()
 if(NOT "${control_text}" MATCHES "synthetic-control-pass" OR
     NOT "${control_text}" MATCHES "synthetic-control-fail" OR
     NOT "${control_text}" MATCHES "synthetic-control-bios-required" OR
+    NOT "${control_text}" MATCHES "synthetic-control-pass-zero-case" OR
     NOT "${control_text}" MATCHES "rom_sha256" OR
     NOT "${control_text}" MATCHES "disp-gbatek-errata" OR
     NOT "${control_text}" MATCHES "five-word-v1-final-marker" OR
     NOT "${control_manifest_text}" MATCHES "LicenseRef-Gamebloke-Synthetic-Control" OR
+    NOT "${control_manifest_text}" MATCHES "synthetic-control-pass-zero-case" OR
     NOT "${control_manifest_text}" MATCHES "redistributable\\\": \\\"unknown")
   message(FATAL_ERROR "runner-metadata: synthetic-control-row-incomplete")
 endif()
@@ -55,9 +58,11 @@ endif()
 # The independently computed byte digest in CMake must be present in the
 # synthetic immutable index, and the generated one-byte variant must not match.
 file(SHA256 "${pass_image}" pass_digest)
+file(SHA256 "${zero_case_image}" zero_case_digest)
 file(SHA256 "${mutated_image}" mutated_digest)
 if("${pass_digest}" STREQUAL "${mutated_digest}" OR
-    NOT "${control_text}" MATCHES "${pass_digest}")
+    NOT "${control_text}" MATCHES "${pass_digest}" OR
+    NOT "${control_text}" MATCHES "${zero_case_digest}")
   message(FATAL_ERROR "runner-metadata: stale-generated-image-digest-accepted")
 endif()
 

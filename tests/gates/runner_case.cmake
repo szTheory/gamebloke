@@ -18,6 +18,7 @@ set(fixtures "${BIN}/generated/fixtures")
 set(scratch "${BIN}/runner-cases")
 foreach(path IN ITEMS "${control}" "${production}" "${unit_test}"
     "${fixtures}/owned-arm-pass.gba" "${fixtures}/owned-arm-fail.gba"
+    "${fixtures}/owned-arm-pass-zero-case.gba"
     "${fixtures}/owned-arm-partial.gba" "${fixtures}/owned-arm-pass-mutated.gba"
     "${fixtures}/owned-arm-loop.gba" "${fixtures}/owned-arm-swi.gba"
     "${fixtures}/owned-arm-undefined.gba"
@@ -170,6 +171,7 @@ if(NOT "${selector_result}" STREQUAL "2" OR
 endif()
 
 set(pass_rom "${fixtures}/owned-arm-pass.gba")
+set(zero_case_rom "${fixtures}/owned-arm-pass-zero-case.gba")
 set(fail_rom "${fixtures}/owned-arm-fail.gba")
 set(partial_rom "${fixtures}/owned-arm-partial.gba")
 set(mutated_rom "${fixtures}/owned-arm-pass-mutated.gba")
@@ -195,6 +197,17 @@ if(NOT pass_dispute_count EQUAL 1 OR
     "runner-case: actual disputed producer output lost its exact dispute disclosure")
 endif()
 expect_result_acceptance("registered-disputed-pass" "${pass_json}")
+
+# This generated control has a valid indexed identity and a completed PASS state,
+# but case ID zero is malformed. It must run through the guest path without ever
+# becoming producer PASS; a digest mismatch would leave fixture.ran false.
+run_json(zero_case_json registered-zero-case-pass "${control}" 1 TIMEOUT
+  cycle-budget --rom "${zero_case_rom}"
+  --fixture synthetic-control-pass-zero-case --cycles 1000)
+expect_json_boolean("${zero_case_json}" true fixture ran)
+expect_json_field("${zero_case_json}" synthetic-control-pass-zero-case fixture id)
+expect_json_field("${zero_case_json}" malformed semantic state)
+expect_json_field("${zero_case_json}" 0 semantic case_id)
 
 # The same actual bytes are intentionally absent from the production manifest. The
 # generated row is only an artificial local validator input, not a fixture or rights grant.
