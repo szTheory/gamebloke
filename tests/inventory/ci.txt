@@ -222,6 +222,8 @@ profile.nc.bus_policy_doc control,profile
 profile.nc.bus_policy_missing control,profile
 profile.nc.bus_policy_source control,profile
 profile.nc.bus_policy_value control,profile
+profile.nc.cpu_policy_doc control,profile
+profile.nc.cpu_policy_value control,profile
 profile.nc.dispute_unknown control,profile
 profile.nc.doc_extra_id control,profile
 profile.nc.doc_missing_id control,profile
