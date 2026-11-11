@@ -13,7 +13,7 @@ provides:
 affects: [phase-05-diagnostics, toolchain, ci, verification]
 
 actuals:
-  tokens: 14755 # 59,020 changed diff characters / 4; excludes this summary and state/roadmap bookkeeping.
+  tokens: 14866 # floor(59,465 changed diff characters / 4); excludes this summary and state/roadmap bookkeeping.
   tasks: 2
   commits: 9 # measured from the persisted 05-03 plan ledger to the tested source head.
 plan_head_before: 3bb6871765b717733e5b447e009bdb19de8de209
