@@ -171,17 +171,22 @@ static bool gbl_test_read_file(const char *path, char *output, size_t capacity)
     return true;
 }
 
-static bool gbl_test_cli_cancel(const char *runner_path,
-                                const char *loop_path,
-                                const char *directory)
+static bool gbl_test_cli_cancel_budget(const char *runner_path,
+                                       const char *loop_path,
+                                       const char *directory,
+                                       const char *budget_option,
+                                       const char *budget_value,
+                                       const char *expected_budget)
 {
     char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char error_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char expected_budget_json[128];
     char output[8192];
     struct timespec startup_wait = { 0, 100000000L };
     struct timespec poll_wait = { 0, 10000000L };
     pid_t child;
     int status = 0;
+    int budget_text_length;
     size_t tick;
     bool exited;
     int out_fd;
@@ -208,8 +213,18 @@ static bool gbl_test_cli_cancel(const char *runner_path,
         (void)close(err_fd);
         (void)signal(SIGINT, SIG_DFL);
         execl(runner_path, "gamebloke-run-control", "--rom", loop_path,
-              "--cycles", "18446744073709551615", (char *)NULL);
+              budget_option, budget_value, (char *)NULL);
         _exit(127);
+    }
+
+    budget_text_length =
+        snprintf(expected_budget_json, sizeof expected_budget_json,
+                 "\"budget_cycles\":\"%s\"", expected_budget);
+    if (budget_text_length < 0 ||
+        (size_t)budget_text_length >= sizeof expected_budget_json) {
+        (void)kill(child, SIGKILL);
+        (void)waitpid(child, &status, 0);
+        return false;
     }
 
     /* Give the real CLI time to install its handler and enter its bounded loop. */
@@ -233,9 +248,7 @@ static bool gbl_test_cli_cancel(const char *runner_path,
             }
             return strstr(output, "\"status\":\"CANCELLED\"") != NULL &&
                    strstr(output, "\"reason\":\"cancelled\"") != NULL &&
-                   strstr(output,
-                          "\"budget_cycles\":\"18446744073709551615\"") !=
-                       NULL;
+                   strstr(output, expected_budget_json) != NULL;
         }
         if (waited < 0 && errno != EINTR) {
             (void)kill(child, SIGKILL);
@@ -247,6 +260,18 @@ static bool gbl_test_cli_cancel(const char *runner_path,
     (void)kill(child, SIGKILL);
     (void)waitpid(child, &status, 0);
     return false;
+}
+
+static bool gbl_test_cli_cancel(const char *runner_path,
+                                const char *loop_path,
+                                const char *directory)
+{
+    return gbl_test_cli_cancel_budget(
+               runner_path, loop_path, directory, "--cycles",
+               "18446744073709551615", "18446744073709551615") &&
+           gbl_test_cli_cancel_budget(
+               runner_path, loop_path, directory, "--frames",
+               "65671081374279", "18446744073709473984");
 }
 
 static bool gbl_test_registered_result(const char *path, const char *fixture,
@@ -608,13 +633,49 @@ static bool gbl_test_execute_all(const char *fixture_directory,
     return true;
 }
 
+static bool gbl_test_prepare_refusal_inputs(const char *directory)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+
+    if (mkdir(directory, 0700) != 0 && errno != EEXIST) {
+        return false;
+    }
+    return gbl_test_path(path, sizeof path, directory, "empty.gba") &&
+           gbl_test_write_file(path, 0u, 0u) &&
+           gbl_test_path(path, sizeof path, directory, "short.gba") &&
+           gbl_test_write_file(path, 0xBFu, (unsigned char)'x') &&
+           gbl_test_path(path, sizeof path, directory, "odd.gba") &&
+           gbl_test_write_file(path, 0xC1u, (unsigned char)'x') &&
+           gbl_test_path(path, sizeof path, directory, "oversized.gba") &&
+           gbl_test_write_file(path, GBL_RUNNER_MAX_ROM_BYTES + 1u,
+                               (unsigned char)'x');
+}
+
 int main(int argc, char **argv)
 {
     struct stat info;
 
+    if (argc == 1) {
+        puts("1..22");
+        if (!gbl_test_execute_all(GBL_RUNNER_TEST_FIXTURE_DIR,
+                                 GBL_RUNNER_TEST_SCRATCH_DIR,
+                                 GBL_RUNNER_TEST_CLI)) {
+            fputs("runner_test: test setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u &&
+                       gbl_test_number == GBL_RUNNER_TEST_COUNT
+                   ? 0
+                   : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "prepare") == 0 &&
+        argv[2][0] != '\0') {
+        return gbl_test_prepare_refusal_inputs(argv[2]) ? 0 : 1;
+    }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
-        fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH\n",
+        fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH | "
+              "runner_test prepare DIR\n",
               stderr);
         return 2;
     }
