@@ -126,6 +126,40 @@ typedef enum gbl_header_compare_result {
     GBL_HEADER_COMPARE_INVALID_ARGUMENT = 2
 } gbl_header_compare_result;
 
+typedef enum gbl_cpu_stop_reason {
+    GBL_CPU_STOP_NONE = 0,
+    GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION = 1,
+    GBL_CPU_STOP_BUS_ERROR = 2,
+    GBL_CPU_STOP_COUNTER_OVERFLOW = 3
+} gbl_cpu_stop_reason;
+
+typedef struct gbl_cpu_pipeline_entry {
+    uint32_t address;
+    uint32_t opcode;
+    uint8_t width;
+    bool valid;
+} gbl_cpu_pipeline_entry;
+
+/* Per-instance ARM7TDMI state. Direct-start values are deterministic project
+ * policy for agb/direct-start with no BIOS provider, not a BIOS handoff. */
+typedef struct gbl_cpu_state {
+    uint32_t r0_7[8];
+    uint32_t usr_r8_14[7];
+    uint32_t fiq_r8_14[7];
+    uint32_t irq_r13_14[2];
+    uint32_t svc_r13_14[2];
+    uint32_t abt_r13_14[2];
+    uint32_t und_r13_14[2];
+    uint32_t spsr[5];
+    uint32_t cpsr;
+    uint32_t execution_address;
+    gbl_cpu_pipeline_entry pipeline[2];
+    bool next_fetch_sequential;
+    uint64_t retired_instructions;
+    bool stopped;
+    gbl_cpu_stop_reason stop_reason;
+} gbl_cpu_state;
+
 typedef struct gbl_machine {
     uint64_t master_cycles;
     uint32_t open_bus;
@@ -140,6 +174,7 @@ typedef struct gbl_machine {
     size_t rom_length;
     gbl_allocator allocator;
     gbl_header_diagnostics header_diagnostics;
+    gbl_cpu_state cpu;
 } gbl_machine;
 
 /* Initialize fresh caller-owned storage. A non-NULL allocator must be a
