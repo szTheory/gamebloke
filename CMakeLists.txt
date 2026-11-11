@@ -31,6 +31,15 @@ target_compile_options(gbl_warnings INTERFACE
 # Not include(CTest): that adds Dart/dashboard targets we do not want.
 enable_testing()
 
+# Narrow TDD hook used to prove the diagnostics preset contract fails closed
+# before the diagnostics lane is implemented. The normal diagnostics lane
+# registers the same check from tests/toolchain.cmake.
+if(GBL_TOOLCHAIN_TESTING)
+  add_test(NAME diagnostics.presets
+    COMMAND "${CMAKE_COMMAND}" "-DCASE=preset-contract"
+      "-DSRC=${CMAKE_SOURCE_DIR}" -P "${CMAKE_SOURCE_DIR}/tests/toolchain.cmake")
+endif()
+
 # NOTE: running ctest alone is NOT the verify command. The verify command is
 #   cmake --workflow --preset ci
 # which reconfigures (deleting any stale junit.xml), builds, runs the tests, and
