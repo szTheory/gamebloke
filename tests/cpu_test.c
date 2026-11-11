@@ -152,6 +152,13 @@ static void seed_nondefault_cpu_state(gbl_cpu_state *cpu)
     cpu->retired_instructions = UINT64_C(0x123456789);
     cpu->stopped = true;
     cpu->stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+    cpu->last_exception = (gbl_cpu_last_exception){
+        GBL_EXCEPTION_FIQ,
+        UINT32_C(0x08000050),
+        UINT32_C(0x08000054),
+        UINT32_C(0x08000050),
+        false
+    };
 }
 
 static bool run_units(gbl_machine *machine, uint64_t cycles, uint64_t units,
@@ -294,6 +301,12 @@ static void test_lifecycle(void)
         CHECK_CPU_FIELD(changed.cpu.stopped = true);
         CHECK_CPU_FIELD(changed.cpu.stop_reason =
                             GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION);
+        CHECK_CPU_FIELD(changed.cpu.last_exception.kind =
+                            GBL_EXCEPTION_UNDEFINED);
+        CHECK_CPU_FIELD(changed.cpu.last_exception.current_address = 1u);
+        CHECK_CPU_FIELD(changed.cpu.last_exception.next_address = 1u);
+        CHECK_CPU_FIELD(changed.cpu.last_exception.fault_address = 1u);
+        CHECK_CPU_FIELD(changed.cpu.last_exception.thumb_state = true);
 #undef CHECK_CPU_FIELD
 
         int alternate_allocator_identity = 1;
@@ -502,12 +515,38 @@ static void test_exceptions(void)
         return;
     }
 
+    {
+        gbl_machine short_machine = { 0 };
+        gbl_run_result short_result;
+        const bool short_loaded = machine_load(&short_machine, image);
+        if (short_loaded) {
+            short_machine.cpu.cpsr = TEST_CPSR_SYSTEM;
+        }
+        const bool short_run = short_loaded &&
+            run_units(&short_machine, UINT64_C(2), 0u, &short_result);
+
+        test_case(short_run &&
+                      short_result.termination == GBL_RUN_TIMEOUT &&
+                      short_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+                      short_result.cycles == UINT64_C(2) &&
+                      short_machine.master_cycles == UINT64_C(2) &&
+                      short_machine.cpu.cpsr == TEST_CPSR_SYSTEM &&
+                      short_machine.cpu.svc_r13_14[1] == 0u &&
+                      short_machine.cpu.spsr[2] == 0u &&
+                      !short_machine.cpu.stopped &&
+                      short_machine.cpu.last_exception.kind ==
+                          GBL_EXCEPTION_NONE,
+                  "one-short cycle budget leaves the SWI entry uncommitted");
+        gbl_machine_dispose(&short_machine);
+    }
+
     machine.cpu.cpsr = UINT32_C(0xA000001F); /* N/C, System, F clear */
     exact = run_units(&machine, UINT64_C(3), 0u, &result);
     test_case(exact && result.termination == GBL_RUN_STOPPED &&
-                  result.reason != GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                  result.reason == GBL_RUN_REASON_GUEST_STOP &&
                   result.cycles == UINT64_C(3) &&
-                  result.instructions == UINT64_C(1),
+                  result.instructions == UINT64_C(1) &&
+                  machine.cpu.stop_reason == GBL_CPU_STOP_SWI_NO_BIOS,
               "ARM SWI consumes its internal entry cycle and stops as guest");
     test_case(machine.cpu.cpsr == UINT32_C(0xA0000093) &&
                   machine.cpu.svc_r13_14[1] == UINT32_C(0x08000004) &&
@@ -516,7 +555,15 @@ static void test_exceptions(void)
     test_case(machine.cpu.execution_address == UINT32_C(0x00000008) &&
                   !machine.cpu.pipeline[0].valid &&
                   !machine.cpu.pipeline[1].valid &&
-                  machine.open_bus == UINT32_C(0xE3A0002A),
+                  machine.open_bus == UINT32_C(0xE3A0002A) &&
+                  machine.cpu.last_exception.kind == GBL_EXCEPTION_SWI &&
+                  machine.cpu.last_exception.current_address ==
+                      UINT32_C(0x08000000) &&
+                  machine.cpu.last_exception.next_address ==
+                      UINT32_C(0x08000004) &&
+                  machine.cpu.last_exception.fault_address ==
+                      UINT32_C(0x08000000) &&
+                  !machine.cpu.last_exception.thumb_state,
               "ARM SWI selects vector PC without fetching absent handler bytes");
     gbl_machine_dispose(&machine);
 }
@@ -1174,8 +1221,10 @@ static void test_decode(void)
         const bool later_condition = loaded && run_arm_instruction(
             &machine, UINT32_C(0xF1A00000), 0u, 1u, &result) &&
             result.termination == GBL_RUN_STOPPED &&
-            result.reason == GBL_RUN_REASON_UNDEFINED_INSTRUCTION &&
-            machine.cpu.stop_reason == GBL_CPU_STOP_UNDEFINED_INSTRUCTION;
+            result.reason == GBL_RUN_REASON_GUEST_STOP &&
+            machine.cpu.stop_reason == GBL_CPU_STOP_UNDEFINED_NO_BIOS &&
+            machine.cpu.spsr[4] == TEST_CPSR_SYSTEM &&
+            machine.cpu.execution_address == UINT32_C(4);
 
         test_case(multiply && later_condition,
                   "valid unsupported and reserved ARM words stop distinctly");
@@ -1184,8 +1233,11 @@ static void test_decode(void)
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xDE00), 0u,
                                           1u, &result);
     test_case(ran && result.termination == GBL_RUN_STOPPED &&
-                  result.reason == GBL_RUN_REASON_UNDEFINED_INSTRUCTION &&
-                  machine.cpu.stop_reason == GBL_CPU_STOP_UNDEFINED_INSTRUCTION,
+                  result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                  machine.cpu.stop_reason == GBL_CPU_STOP_UNDEFINED_NO_BIOS &&
+                  machine.cpu.spsr[4] ==
+                      (TEST_CPSR_SYSTEM | UINT32_C(0x20)) &&
+                  machine.cpu.execution_address == UINT32_C(4),
               "reserved Thumb conditional encoding is undefined, not a no-op");
 
     {
@@ -1368,7 +1420,7 @@ int main(int argc, char **argv)
         printf("1..4\n");
         test_tracer();
     } else if (strcmp(argv[1], "exceptions") == 0) {
-        printf("1..4\n");
+        printf("1..5\n");
         test_exceptions();
     } else if (strcmp(argv[1], "budget") == 0) {
         printf("1..9\n");

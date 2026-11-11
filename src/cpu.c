@@ -25,7 +25,8 @@ typedef enum gbl_cpu_unit_kind {
     GBL_CPU_UNIT_SEQUENTIAL,
     GBL_CPU_UNIT_BRANCH,
     GBL_CPU_UNIT_UNSUPPORTED,
-    GBL_CPU_UNIT_UNDEFINED
+    GBL_CPU_UNIT_UNDEFINED,
+    GBL_CPU_UNIT_EXCEPTION
 } gbl_cpu_unit_kind;
 
 /* One ephemeral decode is used both to preflight this unit and to execute it. */
@@ -54,10 +55,14 @@ typedef struct gbl_cpu_unit {
     bool thumb_state;
     bool writes_destination;
     bool writes_flags;
+    gbl_exception_kind exception_kind;
     uint32_t fetch_address[2];
     gbl_bus_access_class fetch_class[2];
     uint64_t cycle_cost;
 } gbl_cpu_unit;
+
+static void gbl_cpu_write_register(gbl_cpu_state *cpu, uint8_t index,
+                                   uint32_t value);
 
 static bool gbl_cpu_address_add(uint32_t address, uint32_t amount,
                                 uint32_t *sum)
@@ -67,6 +72,272 @@ static bool gbl_cpu_address_add(uint32_t address, uint32_t amount,
     }
     *sum = address + amount;
     return true;
+}
+
+static bool gbl_cpu_mode_valid(uint32_t cpsr)
+{
+    switch (cpsr & GBL_CPU_CPSR_MODE_MASK) {
+    case UINT32_C(0x10):
+    case GBL_CPU_MODE_FIQ:
+    case GBL_CPU_MODE_IRQ:
+    case GBL_CPU_MODE_SVC:
+    case GBL_CPU_MODE_ABT:
+    case GBL_CPU_MODE_UND:
+    case UINT32_C(0x1F):
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool gbl_cpu_spsr_index(uint32_t mode, size_t *index)
+{
+    size_t selected;
+
+    if (index == NULL) {
+        return false;
+    }
+    switch (mode & GBL_CPU_CPSR_MODE_MASK) {
+    case GBL_CPU_MODE_FIQ: selected = 0u; break;
+    case GBL_CPU_MODE_IRQ: selected = 1u; break;
+    case GBL_CPU_MODE_SVC: selected = 2u; break;
+    case GBL_CPU_MODE_ABT: selected = 3u; break;
+    case GBL_CPU_MODE_UND: selected = 4u; break;
+    default: return false;
+    }
+    *index = selected;
+    return true;
+}
+
+typedef struct gbl_cpu_exception_plan {
+    uint32_t mode;
+    uint32_t vector;
+    uint32_t link_register;
+    size_t spsr_index;
+    gbl_cpu_stop_reason stop_reason;
+    bool reset_policy;
+} gbl_cpu_exception_plan;
+
+static bool gbl_cpu_prepare_exception(
+    const gbl_machine *machine, gbl_exception_kind kind,
+    const gbl_cpu_exception_context *context,
+    gbl_cpu_exception_plan *plan)
+{
+    uint32_t return_address = 0u;
+    uint32_t instruction_width;
+    uint32_t destination_mode;
+    uint32_t vector;
+    gbl_cpu_stop_reason stop_reason;
+    bool reset_policy = false;
+    size_t spsr_index;
+
+    if (machine == NULL || context == NULL || plan == NULL ||
+        !machine->initialized) {
+        return false;
+    }
+    if (!gbl_cpu_mode_valid(machine->cpu.cpsr)) {
+        return false;
+    }
+    instruction_width = context->thumb_state ? UINT32_C(2) : UINT32_C(4);
+    if (context->thumb_state !=
+            ((machine->cpu.cpsr & GBL_CPU_CPSR_T) != 0u) ||
+        (context->current_address & (instruction_width - 1u)) != 0u ||
+        (context->next_address & (instruction_width - 1u)) != 0u ||
+        (context->fault_address & (instruction_width - 1u)) != 0u) {
+        return false;
+    }
+
+    switch (kind) {
+    case GBL_EXCEPTION_RESET:
+        destination_mode = GBL_CPU_MODE_SVC;
+        vector = 0u;
+        return_address = 0u;
+        stop_reason = GBL_CPU_STOP_RESET_NO_BIOS;
+        reset_policy = true;
+        break;
+    case GBL_EXCEPTION_UNDEFINED:
+        destination_mode = GBL_CPU_MODE_UND;
+        vector = 4u;
+        stop_reason = GBL_CPU_STOP_UNDEFINED_NO_BIOS;
+        if (!gbl_cpu_address_add(context->current_address, instruction_width,
+                                 &return_address)) {
+            return false;
+        }
+        break;
+    case GBL_EXCEPTION_SWI:
+        destination_mode = GBL_CPU_MODE_SVC;
+        vector = 8u;
+        stop_reason = GBL_CPU_STOP_SWI_NO_BIOS;
+        if (!gbl_cpu_address_add(context->current_address, instruction_width,
+                                 &return_address)) {
+            return false;
+        }
+        break;
+    case GBL_EXCEPTION_PREFETCH_ABORT:
+        destination_mode = GBL_CPU_MODE_ABT;
+        vector = 12u;
+        stop_reason = GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS;
+        if (!gbl_cpu_address_add(context->fault_address, UINT32_C(4),
+                                 &return_address)) {
+            return false;
+        }
+        break;
+    case GBL_EXCEPTION_DATA_ABORT:
+        destination_mode = GBL_CPU_MODE_ABT;
+        vector = 16u;
+        stop_reason = GBL_CPU_STOP_DATA_ABORT_NO_BIOS;
+        if (!gbl_cpu_address_add(context->fault_address, UINT32_C(8),
+                                 &return_address)) {
+            return false;
+        }
+        break;
+    case GBL_EXCEPTION_IRQ:
+        destination_mode = GBL_CPU_MODE_IRQ;
+        vector = 24u;
+        stop_reason = GBL_CPU_STOP_IRQ_NO_BIOS;
+        if (!gbl_cpu_address_add(context->next_address, UINT32_C(4),
+                                 &return_address)) {
+            return false;
+        }
+        break;
+    case GBL_EXCEPTION_FIQ:
+        destination_mode = GBL_CPU_MODE_FIQ;
+        vector = 28u;
+        stop_reason = GBL_CPU_STOP_FIQ_NO_BIOS;
+        if (!gbl_cpu_address_add(context->next_address, UINT32_C(4),
+                                 &return_address)) {
+            return false;
+        }
+        break;
+    case GBL_EXCEPTION_COPROCESSOR:
+        destination_mode = GBL_CPU_MODE_UND;
+        vector = 4u;
+        stop_reason = GBL_CPU_STOP_COPROCESSOR_NO_BIOS;
+        if (!gbl_cpu_address_add(context->current_address, instruction_width,
+                                 &return_address)) {
+            return false;
+        }
+        break;
+    case GBL_EXCEPTION_NONE:
+    default:
+        return false;
+    }
+
+    if (!gbl_cpu_spsr_index(destination_mode, &spsr_index)) {
+        return false;
+    }
+    plan->mode = destination_mode;
+    plan->vector = vector;
+    plan->link_register = return_address;
+    plan->spsr_index = spsr_index;
+    plan->stop_reason = stop_reason;
+    plan->reset_policy = reset_policy;
+    return true;
+}
+
+gbl_cpu_status gbl_cpu_set_cpsr(gbl_machine *machine, uint32_t cpsr)
+{
+    const bool new_thumb = (cpsr & GBL_CPU_CPSR_T) != 0u;
+    bool old_thumb;
+
+    if (machine == NULL || !machine->initialized) {
+        return GBL_CPU_STATUS_INVALID_ARGUMENT;
+    }
+    if (!gbl_cpu_mode_valid(cpsr)) {
+        return GBL_CPU_STATUS_INVALID_MODE;
+    }
+    old_thumb = (machine->cpu.cpsr & GBL_CPU_CPSR_T) != 0u;
+    if (old_thumb != new_thumb) {
+        const uint32_t alignment = new_thumb ? UINT32_C(1) : UINT32_C(3);
+
+        if ((machine->cpu.execution_address & alignment) != 0u) {
+            return GBL_CPU_STATUS_INVALID_CONTEXT;
+        }
+        machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){ 0 };
+        machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){ 0 };
+        machine->cpu.next_fetch_sequential = false;
+    }
+    machine->cpu.cpsr = cpsr;
+    return GBL_CPU_STATUS_OK;
+}
+
+gbl_cpu_status gbl_cpu_get_spsr(const gbl_machine *machine,
+                                uint32_t *spsr_out)
+{
+    size_t index;
+
+    if (machine == NULL || spsr_out == NULL || !machine->initialized) {
+        return GBL_CPU_STATUS_INVALID_ARGUMENT;
+    }
+    if (!gbl_cpu_mode_valid(machine->cpu.cpsr)) {
+        return GBL_CPU_STATUS_INVALID_MODE;
+    }
+    if (!gbl_cpu_spsr_index(machine->cpu.cpsr, &index)) {
+        return GBL_CPU_STATUS_SPSR_ABSENT;
+    }
+    *spsr_out = machine->cpu.spsr[index];
+    return GBL_CPU_STATUS_OK;
+}
+
+gbl_cpu_status gbl_cpu_enter_exception(
+    gbl_machine *machine, gbl_exception_kind kind,
+    const gbl_cpu_exception_context *context)
+{
+    gbl_cpu_exception_plan plan;
+    gbl_cpu_state *cpu;
+    gbl_bus_result internal_result;
+    uint32_t saved_cpsr;
+    uint32_t next_cpsr;
+
+    if (machine == NULL || context == NULL || !machine->initialized) {
+        return GBL_CPU_STATUS_INVALID_ARGUMENT;
+    }
+    if (kind <= GBL_EXCEPTION_NONE || kind > GBL_EXCEPTION_COPROCESSOR) {
+        return GBL_CPU_STATUS_INVALID_EXCEPTION;
+    }
+    if (!gbl_cpu_mode_valid(machine->cpu.cpsr)) {
+        return GBL_CPU_STATUS_INVALID_MODE;
+    }
+    if (!gbl_cpu_prepare_exception(machine, kind, context, &plan)) {
+        return GBL_CPU_STATUS_INVALID_CONTEXT;
+    }
+    if (machine->master_cycles == UINT64_MAX) {
+        return GBL_CPU_STATUS_COUNTER_OVERFLOW;
+    }
+
+    internal_result = gbl_bus_internal(machine, UINT64_C(1));
+    if (internal_result.status == GBL_BUS_STATUS_TIME_OVERFLOW) {
+        return GBL_CPU_STATUS_COUNTER_OVERFLOW;
+    }
+    if (internal_result.status != GBL_BUS_STATUS_OK ||
+        internal_result.cycles != UINT64_C(1)) {
+        return GBL_CPU_STATUS_BUS_ERROR;
+    }
+
+    cpu = &machine->cpu;
+    saved_cpsr = cpu->cpsr;
+    cpu->spsr[plan.spsr_index] = plan.reset_policy ? 0u : saved_cpsr;
+    next_cpsr = saved_cpsr & ~(GBL_CPU_CPSR_T | GBL_CPU_CPSR_MODE_MASK);
+    next_cpsr |= plan.mode | UINT32_C(0x00000080);
+    if (kind == GBL_EXCEPTION_RESET || kind == GBL_EXCEPTION_FIQ) {
+        next_cpsr |= UINT32_C(0x00000040);
+    }
+    cpu->cpsr = next_cpsr;
+    gbl_cpu_write_register(cpu, (uint8_t)14u, plan.link_register);
+    cpu->execution_address = plan.vector;
+    cpu->pipeline[0] = (gbl_cpu_pipeline_entry){ 0 };
+    cpu->pipeline[1] = (gbl_cpu_pipeline_entry){ 0 };
+    cpu->next_fetch_sequential = false;
+    cpu->last_exception = (gbl_cpu_last_exception){
+        kind,
+        context->current_address,
+        context->next_address,
+        context->fault_address,
+        context->thumb_state
+    };
+    cpu->stopped = true;
+    cpu->stop_reason = plan.stop_reason;
+    return GBL_CPU_STATUS_OK;
 }
 
 static bool gbl_cpu_fetch_address_valid(uint32_t address, uint8_t width)
@@ -468,6 +739,26 @@ static bool gbl_cpu_schedule_branch(gbl_cpu_unit *unit, uint32_t target,
     return true;
 }
 
+static void gbl_cpu_schedule_exception(gbl_cpu_unit *unit,
+                                      gbl_exception_kind kind)
+{
+    unit->kind = GBL_CPU_UNIT_EXCEPTION;
+    unit->exception_kind = kind;
+    unit->internal_cycles = (uint8_t)1u;
+    unit->cycle_cost = UINT64_C(1);
+}
+
+static bool gbl_cpu_finalize_decoded(gbl_cpu_unit *unit, bool decoded)
+{
+    if (!decoded) {
+        return false;
+    }
+    if (unit->kind == GBL_CPU_UNIT_UNDEFINED) {
+        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_UNDEFINED);
+    }
+    return true;
+}
+
 static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
                                                gbl_cpu_unit *unit,
                                                uint32_t next_fetch_address)
@@ -532,6 +823,11 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
 {
     const uint16_t opcode = (uint16_t)unit->opcode;
     const uint32_t instruction_address = unit->instruction_address;
+
+    if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xDF00)) {
+        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
+        return true;
+    }
 
     if ((opcode & UINT16_C(0xF800)) == UINT16_C(0x2000) ||
         (opcode & UINT16_C(0xF800)) == UINT16_C(0x3000) ||
@@ -764,11 +1060,21 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
         return true;
     }
 
-    if (thumb) {
-        return gbl_cpu_decode_thumb(cpu, unit, next_fetch_address);
-    }
     if ((opcode >> 28u) == UINT32_C(0x0F)) {
-        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_UNDEFINED);
+        return true;
+    }
+    if (thumb) {
+        return gbl_cpu_finalize_decoded(
+            unit, gbl_cpu_decode_thumb(cpu, unit, next_fetch_address));
+    }
+    if ((opcode & UINT32_C(0x0F000000)) == UINT32_C(0x0F000000)) {
+        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
+        return true;
+    }
+    if ((opcode & UINT32_C(0x0E000000)) == UINT32_C(0x0C000000) ||
+        (opcode & UINT32_C(0x0F000000)) == UINT32_C(0x0E000000)) {
+        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_COPROCESSOR);
         return true;
     }
 
@@ -822,11 +1128,11 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
     }
     if ((opcode & UINT32_C(0x0C000000)) == 0u) {
         if (gbl_cpu_decode_data_processing(cpu, unit, next_fetch_address)) {
-            return true;
+            return gbl_cpu_finalize_decoded(unit, true);
         }
     }
     if (gbl_cpu_decode_arm_single_transfer(cpu, unit, next_fetch_address)) {
-        return true;
+        return gbl_cpu_finalize_decoded(unit, true);
     }
 
     unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
@@ -839,6 +1145,7 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
                               gbl_run_reason *reason)
 {
     const bool has_data_access = unit->data_read || unit->data_write;
+    const bool exception = unit->kind == GBL_CPU_UNIT_EXCEPTION;
     const uint64_t expected_cost = (uint64_t)unit->fetch_count +
                                    (uint64_t)unit->internal_cycles +
                                    (has_data_access ? UINT64_C(1) : UINT64_C(0));
@@ -861,10 +1168,15 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         *reason = GBL_RUN_REASON_COUNTER_OVERFLOW;
         return false;
     }
-    if (unit->fetch_count == 0u ||
-        unit->cycle_cost != expected_cost ||
-        !gbl_cpu_fetch_address_valid(unit->fetch_address[0],
-                                     unit->fetch_width) ||
+    if (unit->cycle_cost != expected_cost || unit->fetch_count > 2u ||
+        (exception &&
+         (unit->fetch_count != 0u || unit->internal_cycles != 1u ||
+          has_data_access || unit->exception_kind <= GBL_EXCEPTION_NONE ||
+          unit->exception_kind > GBL_EXCEPTION_COPROCESSOR)) ||
+        (!exception &&
+         (unit->fetch_count == 0u ||
+          !gbl_cpu_fetch_address_valid(unit->fetch_address[0],
+                                       unit->fetch_width))) ||
         (has_data_access &&
          (unit->data_read == unit->data_write ||
           !gbl_cpu_data_span_valid(unit->data_address, unit->data_width)))) {
@@ -932,10 +1244,17 @@ static gbl_run_reason gbl_cpu_stop_result(gbl_cpu_stop_reason reason)
     switch (reason) {
     case GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION:
         return GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION;
-    case GBL_CPU_STOP_UNDEFINED_INSTRUCTION:
-        return GBL_RUN_REASON_UNDEFINED_INSTRUCTION;
     case GBL_CPU_STOP_COUNTER_OVERFLOW:
         return GBL_RUN_REASON_COUNTER_OVERFLOW;
+    case GBL_CPU_STOP_RESET_NO_BIOS:
+    case GBL_CPU_STOP_UNDEFINED_NO_BIOS:
+    case GBL_CPU_STOP_SWI_NO_BIOS:
+    case GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS:
+    case GBL_CPU_STOP_DATA_ABORT_NO_BIOS:
+    case GBL_CPU_STOP_IRQ_NO_BIOS:
+    case GBL_CPU_STOP_FIQ_NO_BIOS:
+    case GBL_CPU_STOP_COPROCESSOR_NO_BIOS:
+        return GBL_RUN_REASON_GUEST_STOP;
     case GBL_CPU_STOP_NONE:
     case GBL_CPU_STOP_BUS_ERROR:
     default:
@@ -989,13 +1308,9 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             break;
         }
-        if (unit.kind == GBL_CPU_UNIT_UNSUPPORTED ||
-            unit.kind == GBL_CPU_UNIT_UNDEFINED) {
+        if (unit.kind == GBL_CPU_UNIT_UNSUPPORTED) {
             machine->cpu.stopped = true;
-            machine->cpu.stop_reason =
-                unit.kind == GBL_CPU_UNIT_UNDEFINED
-                    ? GBL_CPU_STOP_UNDEFINED_INSTRUCTION
-                    : GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+            machine->cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = gbl_cpu_stop_result(machine->cpu.stop_reason);
             break;
@@ -1013,6 +1328,33 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         if (!gbl_cpu_fetch_unit(machine, &unit, fetched)) {
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = GBL_RUN_REASON_BUS_ERROR;
+            break;
+        }
+        if (unit.kind == GBL_CPU_UNIT_EXCEPTION) {
+            const gbl_cpu_exception_context context = {
+                unit.instruction_address,
+                machine->cpu.pipeline[1].address,
+                unit.instruction_address,
+                (machine->cpu.cpsr & GBL_CPU_CPSR_T) != 0u
+            };
+            const gbl_cpu_status exception_status = gbl_cpu_enter_exception(
+                machine, unit.exception_kind, &context);
+
+            if (exception_status != GBL_CPU_STATUS_OK) {
+                run_result.termination = GBL_RUN_STOPPED;
+                run_result.reason =
+                    exception_status == GBL_CPU_STATUS_COUNTER_OVERFLOW
+                        ? GBL_RUN_REASON_COUNTER_OVERFLOW
+                        : exception_status == GBL_CPU_STATUS_BUS_ERROR
+                              ? GBL_RUN_REASON_BUS_ERROR
+                              : GBL_RUN_REASON_INVALID_CPU_STATE;
+                break;
+            }
+            machine->cpu.retired_instructions++;
+            run_result.instructions++;
+            run_result.cycles += unit.cycle_cost;
+            run_result.termination = GBL_RUN_STOPPED;
+            run_result.reason = GBL_RUN_REASON_GUEST_STOP;
             break;
         }
         if (unit.internal_cycles != 0u) {

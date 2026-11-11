@@ -131,8 +131,56 @@ typedef enum gbl_cpu_stop_reason {
     GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION = 1,
     GBL_CPU_STOP_BUS_ERROR = 2,
     GBL_CPU_STOP_COUNTER_OVERFLOW = 3,
-    GBL_CPU_STOP_UNDEFINED_INSTRUCTION = 4
+    GBL_CPU_STOP_RESET_NO_BIOS = 4,
+    GBL_CPU_STOP_UNDEFINED_NO_BIOS = 5,
+    GBL_CPU_STOP_SWI_NO_BIOS = 6,
+    GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS = 7,
+    GBL_CPU_STOP_DATA_ABORT_NO_BIOS = 8,
+    GBL_CPU_STOP_IRQ_NO_BIOS = 9,
+    GBL_CPU_STOP_FIQ_NO_BIOS = 10,
+    GBL_CPU_STOP_COPROCESSOR_NO_BIOS = 11
 } gbl_cpu_stop_reason;
+
+typedef enum gbl_cpu_status {
+    GBL_CPU_STATUS_OK = 0,
+    GBL_CPU_STATUS_INVALID_ARGUMENT = 1,
+    GBL_CPU_STATUS_INVALID_MODE = 2,
+    GBL_CPU_STATUS_SPSR_ABSENT = 3,
+    GBL_CPU_STATUS_INVALID_EXCEPTION = 4,
+    GBL_CPU_STATUS_INVALID_CONTEXT = 5,
+    GBL_CPU_STATUS_COUNTER_OVERFLOW = 6,
+    GBL_CPU_STATUS_BUS_ERROR = 7
+} gbl_cpu_status;
+
+typedef enum gbl_exception_kind {
+    GBL_EXCEPTION_NONE = 0,
+    GBL_EXCEPTION_RESET = 1,
+    GBL_EXCEPTION_UNDEFINED = 2,
+    GBL_EXCEPTION_SWI = 3,
+    GBL_EXCEPTION_PREFETCH_ABORT = 4,
+    GBL_EXCEPTION_DATA_ABORT = 5,
+    GBL_EXCEPTION_IRQ = 6,
+    GBL_EXCEPTION_FIQ = 7,
+    GBL_EXCEPTION_COPROCESSOR = 8
+} gbl_exception_kind;
+
+/* Addresses are explicit architectural context, not offsets from an
+ * implementation-visible program counter. The fault address identifies the
+ * instruction that caused an abort; thumb_state records the pre-entry state. */
+typedef struct gbl_cpu_exception_context {
+    uint32_t current_address;
+    uint32_t next_address;
+    uint32_t fault_address;
+    bool thumb_state;
+} gbl_cpu_exception_context;
+
+typedef struct gbl_cpu_last_exception {
+    gbl_exception_kind kind;
+    uint32_t current_address;
+    uint32_t next_address;
+    uint32_t fault_address;
+    bool thumb_state;
+} gbl_cpu_last_exception;
 
 typedef struct gbl_cpu_pipeline_entry {
     uint32_t address;
@@ -159,6 +207,7 @@ typedef struct gbl_cpu_state {
     uint64_t retired_instructions;
     bool stopped;
     gbl_cpu_stop_reason stop_reason;
+    gbl_cpu_last_exception last_exception;
 } gbl_cpu_state;
 
 typedef enum gbl_run_status {
@@ -180,7 +229,8 @@ typedef enum gbl_run_reason {
     GBL_RUN_REASON_BUS_ERROR = 4,
     GBL_RUN_REASON_COUNTER_OVERFLOW = 5,
     GBL_RUN_REASON_INVALID_CPU_STATE = 6,
-    GBL_RUN_REASON_UNDEFINED_INSTRUCTION = 7
+    GBL_RUN_REASON_UNDEFINED_INSTRUCTION = 7,
+    GBL_RUN_REASON_GUEST_STOP = 8
 } gbl_run_reason;
 
 typedef struct gbl_run_options {
@@ -227,6 +277,15 @@ void gbl_machine_dispose(gbl_machine *machine);
 gbl_run_status gbl_cpu_run(gbl_machine *machine,
                            const gbl_run_options *options,
                            gbl_run_result *result);
+
+/* Internal CPU state operations. These contracts are not a stable embedding
+ * ABI. Invalid and absent-bank operations leave state and output untouched. */
+gbl_cpu_status gbl_cpu_set_cpsr(gbl_machine *machine, uint32_t cpsr);
+gbl_cpu_status gbl_cpu_get_spsr(const gbl_machine *machine,
+                                uint32_t *spsr_out);
+gbl_cpu_status gbl_cpu_enter_exception(
+    gbl_machine *machine, gbl_exception_kind kind,
+    const gbl_cpu_exception_context *context);
 
 /* Width is a byte count: 1, 2, or 4. Reads and writes report their requested
  * sequence class and cost exactly one placeholder master cycle. */

@@ -62,7 +62,16 @@ static bool gbl_test_cpu_equal(const gbl_cpu_state *left,
         left->next_fetch_sequential != right->next_fetch_sequential ||
         left->retired_instructions != right->retired_instructions ||
         left->stopped != right->stopped ||
-        left->stop_reason != right->stop_reason) {
+        left->stop_reason != right->stop_reason ||
+        left->last_exception.kind != right->last_exception.kind ||
+        left->last_exception.current_address !=
+            right->last_exception.current_address ||
+        left->last_exception.next_address !=
+            right->last_exception.next_address ||
+        left->last_exception.fault_address !=
+            right->last_exception.fault_address ||
+        left->last_exception.thumb_state !=
+            right->last_exception.thumb_state) {
         return false;
     }
     for (index = 0u; index < 2u; ++index) {
@@ -87,7 +96,12 @@ static inline bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
         cpu->pipeline[1].address != 0u || cpu->pipeline[1].opcode != 0u ||
         cpu->pipeline[1].width != 0u || cpu->pipeline[1].valid ||
         cpu->next_fetch_sequential || cpu->retired_instructions != 0u ||
-        cpu->stopped || cpu->stop_reason != GBL_CPU_STOP_NONE) {
+        cpu->stopped || cpu->stop_reason != GBL_CPU_STOP_NONE ||
+        cpu->last_exception.kind != GBL_EXCEPTION_NONE ||
+        cpu->last_exception.current_address != 0u ||
+        cpu->last_exception.next_address != 0u ||
+        cpu->last_exception.fault_address != 0u ||
+        cpu->last_exception.thumb_state) {
         return false;
     }
     for (index = 0u; index < 8u; ++index) {
@@ -227,6 +241,14 @@ static uint64_t gbl_test_digest_cpu(uint64_t digest,
     digest = gbl_test_digest_u64(digest, cpu->retired_instructions);
     digest = gbl_test_digest_byte(digest, cpu->stopped ? 1u : 0u);
     digest = gbl_test_digest_u64(digest, (uint64_t)cpu->stop_reason);
+    digest = gbl_test_digest_u64(digest,
+                                 (uint64_t)cpu->last_exception.kind);
+    digest = gbl_test_digest_u64(
+        digest, cpu->last_exception.current_address);
+    digest = gbl_test_digest_u64(digest, cpu->last_exception.next_address);
+    digest = gbl_test_digest_u64(digest, cpu->last_exception.fault_address);
+    digest = gbl_test_digest_byte(
+        digest, cpu->last_exception.thumb_state ? 1u : 0u);
     return digest;
 }
 
