@@ -63,11 +63,12 @@ with ROM alias, mirrored RAM, mode-sensitive video, bus-clock, and independent
 interleaving checks. It uses synthesized in-memory bytes and does not qualify an
 installed consumer or a stable ABI.
 
-The profile validator also checks the Phase 3 project-policy fields. Its
-policy-specific reason codes are `bus-policy-missing`, `bus-policy-value`,
-`bus-policy-source`, `bus-policy-doc`, `init-policy`, and `read-policy`; their
-negative controls mutate a scratch copy and the positive companions validate
-clean copies.
+The profile validator also checks the Phase 3 and Phase 4 project-policy
+fields. Its policy-specific reason codes are `bus-policy-missing`,
+`bus-policy-value`, `bus-policy-source`, `bus-policy-doc`, `init-policy`,
+`read-policy`, `cpu-policy-missing`, `cpu-policy-source`, `cpu-policy-value`,
+and `cpu-policy-doc`; their negative controls mutate a scratch copy and the
+positive companions validate clean copies.
 
 ## Phase 4 runner checks
 
@@ -268,7 +269,9 @@ Every JSON file is read by a strict loader: it rejects any text after the root o
   `missing-refusal`, `bad-machine`, `bad-boot`, `bad-bios-provider`, `bad-cart`,
   `bad-input-timeline`, `bad-evidence`, `claim-mismatch`, `unknown-fixture`,
   `unknown-dispute`, `undisclosed-dispute`, `label-without-dispute`, `bad-label`,
-  `empty-limits` (result documents).
+  `empty-limits`, `bad-semantic`, `status-semantic-mismatch`, `bad-time`,
+  `time-overflow`, `cycles-exceed-budget`, `bad-termination`, `bad-trace`,
+  `incomplete-trace` (result documents).
 - Test helpers (`tests/gates/json_mutate.cmake`): `mutate: no-match` (a control's mutation
   changed nothing, so the control would have tested an unmutated copy) and
   `no-echo: leaked` (a validator printed file content it must never print).
