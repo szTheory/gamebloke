@@ -46,7 +46,7 @@ gbl_add_test(
   NAME cpu.budget
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
-foreach(selector IN ITEMS arithmetic thumb decode alignment)
+foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions no_bios)
   gbl_add_test(
     NAME cpu.${selector}
     LABELS cpu core unit
@@ -153,6 +153,9 @@ endfunction()
 
 gbl__add_cpu_mutation_test(cpu.nc.pc_refill pc_refill decode)
 gbl__add_cpu_mutation_test(cpu.nc.shift_carry shift_carry arithmetic)
+gbl__add_cpu_mutation_test(cpu.nc.bank_alias bank_alias modes)
+gbl__add_cpu_mutation_test(cpu.nc.exception_lr exception_lr exceptions)
+gbl__add_cpu_mutation_test(cpu.nc.vector_fetch vector_fetch no_bios)
 gbl__add_cpu_mutation_test(cpu.pos.clean clean all)
 
 gbl_add_test(

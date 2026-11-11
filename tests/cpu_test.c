@@ -1067,7 +1067,8 @@ static bool run_guest_exception_case(bool thumb, uint32_t opcode,
         machine.cpu.cpsr = TEST_CPSR_SYSTEM |
             (thumb ? UINT32_C(0x00000020) : 0u);
     }
-    ran = loaded && run_units(&machine, UINT64_C(3), 0u, &result);
+    /* Leave room for a broken stop latch to fetch from the absent vector. */
+    ran = loaded && run_units(&machine, UINT64_C(5), 0u, &result);
     if (!ran) {
         gbl_machine_dispose(&machine);
         return false;

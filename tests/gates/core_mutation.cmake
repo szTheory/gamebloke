@@ -178,6 +178,22 @@ function(gbl__mutate_cpu cpu_source mutation)
     gbl_text_mutate("${cpu_source}"
       "result.value = ((uint32_t)carry_in << 31u) | (value >> 1u);"
       "result.value = ((uint32_t)carry_in << 31u) | (value >> 2u);")
+  elseif(mutation STREQUAL "bank_alias")
+    gbl_text_mutate("${cpu_source}" "if (mode == GBL_CPU_MODE_FIQ) {"
+      "if (mode == UINT32_C(0x10)) {")
+  elseif(mutation STREQUAL "exception_lr")
+    # The first next+4 rule is IRQ; leave FIQ's independent rule intact.
+    gbl_text_mutate("${cpu_source}"
+      "context->next_address, UINT32_C(4),"
+      "context->next_address, UINT32_C(8),")
+  elseif(mutation STREQUAL "vector_fetch")
+    gbl_text_mutate("${cpu_source}" "cpu->stopped = true;"
+      "cpu->stopped = false;")
+    gbl_text_mutate("${cpu_source}"
+      [=[            run_result.reason = GBL_RUN_REASON_GUEST_STOP;
+            break;]=]
+      [=[            run_result.reason = GBL_RUN_REASON_GUEST_STOP;
+            continue;]=])
   else()
     message(FATAL_ERROR "mutation: unknown CPU case '${mutation}'")
   endif()
@@ -242,8 +258,16 @@ function(gbl__run_cpu_pair mutation label selector)
   gbl__compile_cpu("${root}/mutant" "${mutation}" mutant_executable)
   if(mutation STREQUAL "pc_refill")
     set(failure_regex "not ok 1 - ARM BL links the next instruction and refills without stale slots")
-  else()
+  elseif(mutation STREQUAL "shift_carry")
     set(failure_regex "not ok 2 - shift helper distinguishes RRX, LSR zero and ASR zero")
+  elseif(mutation STREQUAL "bank_alias")
+    set(failure_regex "not ok 1 - all seven modes select shared and private physical registers")
+  elseif(mutation STREQUAL "exception_lr")
+    set(failure_regex "not ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
+  elseif(mutation STREQUAL "vector_fetch")
+    set(failure_regex "not ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
+  else()
+    message(FATAL_ERROR "mutation: no semantic failure assertion for '${mutation}'")
   endif()
   gbl_expect_fail(COMMAND "${mutant_executable}" "${selector}"
     REGEX "${failure_regex}")
@@ -251,6 +275,12 @@ function(gbl__run_cpu_pair mutation label selector)
   gbl__compile_cpu("${root}/clean" "" clean_executable)
   if(selector STREQUAL "arithmetic")
     set(clean_regex "ok 28 - helper defines large LSR/ASR/ROR counts without host UB")
+  elseif(selector STREQUAL "modes")
+    set(clean_regex "ok 1 - all seven modes select shared and private physical registers")
+  elseif(selector STREQUAL "exceptions")
+    set(clean_regex "ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
+  elseif(selector STREQUAL "no_bios")
+    set(clean_regex "ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
   else()
     set(clean_regex "ok 1 - ARM BL links the next instruction and refills without stale slots")
   endif()
@@ -262,7 +292,7 @@ function(gbl__run_cpu_clean)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
   gbl__compile_cpu("${root}/clean" "" clean_executable)
-  foreach(selector IN ITEMS arithmetic thumb decode alignment)
+  foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions no_bios)
     gbl_expect_pass(COMMAND "${clean_executable}" "${selector}")
   endforeach()
 endfunction()

@@ -75,9 +75,15 @@ cpu.alignment core,cpu,unit
 cpu.arithmetic core,cpu,unit
 cpu.budget core,cpu,unit
 cpu.decode core,cpu,unit
+cpu.exceptions core,cpu,unit
 cpu.lifecycle core,cpu,unit
+cpu.modes core,cpu,unit
+cpu.nc.bank_alias control,core,cpu
+cpu.nc.exception_lr control,core,cpu
 cpu.nc.pc_refill control,core,cpu
 cpu.nc.shift_carry control,core,cpu
+cpu.nc.vector_fetch control,core,cpu
+cpu.no_bios core,cpu,unit
 cpu.pos.clean core,cpu,positive
 cpu.thumb core,cpu,unit
 cpu.tracer core,cpu,unit
