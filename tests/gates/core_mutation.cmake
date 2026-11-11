@@ -199,10 +199,35 @@ function(gbl__mutate_cpu cpu_source mutation)
   endif()
 endfunction()
 
+function(gbl__mutate_peek inspect_source public_header mutation)
+  if(NOT mutation STREQUAL "peek_effect")
+    message(FATAL_ERROR "mutation: unknown peek case '${mutation}'")
+  endif()
+
+  file(READ "${inspect_source}" inspect_text)
+  string(REPLACE "gbl_machine_peek(const gbl_machine *machine,"
+    "gbl_machine_peek(gbl_machine *machine," inspect_text "${inspect_text}")
+  string(REPLACE "gbl_mailbox_read(const gbl_machine *machine)"
+    "gbl_mailbox_read(gbl_machine *machine)" inspect_text "${inspect_text}")
+  string(REPLACE "    gbl_inspect_copy_bytes(out, &machine->iwram[offset], length);" [=[    if (length == 1u && address == UINT32_C(0x03000000)) {
+        machine->master_cycles += UINT64_C(1);
+    }
+    gbl_inspect_copy_bytes(out, &machine->iwram[offset], length);]=] inspect_text
+    "${inspect_text}")
+  file(WRITE "${inspect_source}" "${inspect_text}")
+
+  file(READ "${public_header}" header_text)
+  string(REPLACE "gbl_machine_peek(const gbl_machine *machine,"
+    "gbl_machine_peek(gbl_machine *machine," header_text "${header_text}")
+  string(REPLACE "gbl_mailbox_read(const gbl_machine *machine)"
+    "gbl_mailbox_read(gbl_machine *machine)" header_text "${header_text}")
+  file(WRITE "${public_header}" "${header_text}")
+endfunction()
+
 function(gbl__copy_cpu_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
+  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c inspect.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
@@ -221,6 +246,9 @@ function(gbl__compile_cpu sandbox mutation output_executable)
   if(NOT mutation STREQUAL "")
     if(mutation STREQUAL "shift_carry")
       gbl__mutate_cpu("${sandbox}/src/cpu_helpers.h" "${mutation}")
+    elseif(mutation STREQUAL "peek_effect")
+      gbl__mutate_peek("${sandbox}/src/inspect.c"
+        "${sandbox}/include/gamebloke/gamebloke.h" "${mutation}")
     else()
       gbl__mutate_cpu("${sandbox}/src/cpu.c" "${mutation}")
     endif()
@@ -241,7 +269,8 @@ function(gbl__compile_cpu sandbox mutation output_executable)
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
       "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
-      "${sandbox}/src/cpu.c" "${sandbox}/tests/cpu_test.c"
+      "${sandbox}/src/cpu.c" "${sandbox}/src/inspect.c"
+      "${sandbox}/tests/cpu_test.c"
       -o "${executable}" ${link_flags} ${link_config_flags}
     RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
     ERROR_VARIABLE compile_err)
@@ -266,6 +295,8 @@ function(gbl__run_cpu_pair mutation label selector)
     set(failure_regex "not ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
   elseif(mutation STREQUAL "vector_fetch")
     set(failure_regex "not ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
+  elseif(mutation STREQUAL "peek_effect")
+    set(failure_regex "not ok 3 - peek and mailbox reads leave full state and caller guards unchanged")
   else()
     message(FATAL_ERROR "mutation: no semantic failure assertion for '${mutation}'")
   endif()
@@ -281,6 +312,10 @@ function(gbl__run_cpu_pair mutation label selector)
     set(clean_regex "ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
   elseif(selector STREQUAL "no_bios")
     set(clean_regex "ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
+  elseif(selector STREQUAL "peek")
+    set(clean_regex "ok 3 - peek and mailbox reads leave full state and caller guards unchanged")
+  elseif(selector STREQUAL "mailbox")
+    set(clean_regex "ok 4 - invalid state and failing verdict without a case ID are malformed")
   else()
     set(clean_regex "ok 1 - ARM BL links the next instruction and refills without stale slots")
   endif()
@@ -292,7 +327,8 @@ function(gbl__run_cpu_clean)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
   gbl__compile_cpu("${root}/clean" "" clean_executable)
-  foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions no_bios)
+  foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
+      no_bios peek mailbox)
     gbl_expect_pass(COMMAND "${clean_executable}" "${selector}")
   endforeach()
 endfunction()

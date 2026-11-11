@@ -1,7 +1,5 @@
 #include "gamebloke/gamebloke.h"
 
-#include <string.h>
-
 static bool gbl_inspect_span_valid(uint32_t address, size_t length)
 {
     const uint64_t iwram_start = UINT64_C(0x03000000);
@@ -68,6 +66,16 @@ static bool gbl_inspect_all_zero(const uint8_t *bytes, size_t length)
     return true;
 }
 
+static void gbl_inspect_copy_bytes(uint8_t *destination,
+                                  const uint8_t *source, size_t length)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        destination[index] = source[index];
+    }
+}
+
 gbl_peek_status gbl_machine_peek(const gbl_machine *machine,
                                 uint32_t address, void *out, size_t length)
 {
@@ -116,7 +124,7 @@ gbl_peek_status gbl_machine_peek(const gbl_machine *machine,
         return GBL_PEEK_STATUS_OVERLAP;
     }
 
-    memcpy(out, &machine->iwram[offset], length);
+    gbl_inspect_copy_bytes(out, &machine->iwram[offset], length);
     return GBL_PEEK_STATUS_OK;
 }
 
