@@ -158,60 +158,74 @@ if("${expected_sha_smoke}" STREQUAL "${expected_sha_smoke-broken}")
 endif()
 
 set(build_output_root "${source_root}/build/phase05-spike/05-05-admission")
-set(needs_build FALSE)
+execute_process(
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${source_root}"
+    "-DOUT=${build_output_root}"
+    "-DTOOLCHAIN_ROOT=${toolchain_root}"
+    -DMODE=case
+    -DCASE_ID=20481
+    "-DSOURCE_COMMIT=${source_commit}"
+    -P "${source_root}/cmake/BuildArmDiagnostics.cmake"
+  WORKING_DIRECTORY "${source_root}"
+  RESULT_VARIABLE build_rc OUTPUT_VARIABLE build_out ERROR_VARIABLE build_error)
+if(NOT "${build_rc}" STREQUAL "0")
+  message(FATAL_ERROR
+    "diagnostics-case: source-build-failed: ${build_error}${build_out}")
+endif()
+set(common_startup_object "${build_output_root}/proof/common/startup.o")
+set(common_identity "${build_output_root}/proof/common/object-identity.txt")
+if(NOT EXISTS "${common_startup_object}" OR IS_DIRECTORY "${common_startup_object}" OR
+   NOT EXISTS "${common_identity}")
+  message(FATAL_ERROR "diagnostics-case: common-startup-object-missing")
+endif()
+file(STRINGS "${common_identity}" common_identity_lines)
+if(NOT common_identity_lines MATCHES "Reused for the clean and assertion-broken")
+  message(FATAL_ERROR "diagnostics-case: common-startup-reuse-unproven")
+endif()
+set(common_map_line
+  "project-object build/phase05-spike/05-05-admission/proof/common/startup.o")
+foreach(variant IN ITEMS smoke smoke-broken)
+  set(map_inputs "${build_output_root}/proof/${variant}/map-inputs.txt")
+  if(NOT EXISTS "${map_inputs}")
+    message(FATAL_ERROR "diagnostics-case: map-input-proof-missing: ${variant}")
+  endif()
+  file(STRINGS "${map_inputs}" map_lines)
+  list(FIND map_lines "${common_map_line}" common_map_found)
+  if(common_map_found EQUAL -1)
+    message(FATAL_ERROR "diagnostics-case: common-object-not-shared: ${variant}")
+  endif()
+endforeach()
+file(MAKE_DIRECTORY "${artifact_root}/roms")
 foreach(fixture_id IN LISTS fixture_ids)
+  set(source_image "${build_output_root}/roms/${fixture_id}.gba")
   set(artifact_image "${binary_root}/generated/diagnostics/armv4t/roms/${fixture_id}.gba")
   set(expected_sha_name "expected_sha_${fixture_id}")
   set(expected_sha "${${expected_sha_name}}")
+  if(NOT EXISTS "${source_image}" OR IS_DIRECTORY "${source_image}" OR
+     IS_SYMLINK "${source_image}")
+    message(FATAL_ERROR "diagnostics-case: built-image-missing: ${fixture_id}")
+  endif()
+  file(SHA256 "${source_image}" source_sha)
+  if(NOT "${source_sha}" STREQUAL "${expected_sha}")
+    message(FATAL_ERROR
+      "diagnostics-case: built-image-digest-mismatch: ${fixture_id}")
+  endif()
   if(IS_SYMLINK "${artifact_image}" OR
      (EXISTS "${artifact_image}" AND IS_DIRECTORY "${artifact_image}"))
     message(FATAL_ERROR "diagnostics-case: unsafe-artifact-path: ${fixture_id}")
   endif()
-  if(NOT EXISTS "${artifact_image}")
-    set(needs_build TRUE)
-  else()
+  set(copy_artifact TRUE)
+  if(EXISTS "${artifact_image}")
     file(SHA256 "${artifact_image}" actual_artifact_sha)
-    if(NOT "${actual_artifact_sha}" STREQUAL "${expected_sha}")
-      set(needs_build TRUE)
+    if("${actual_artifact_sha}" STREQUAL "${expected_sha}")
+      set(copy_artifact FALSE)
     endif()
+  endif()
+  if(copy_artifact)
+    file(COPY_FILE "${source_image}" "${artifact_image}" ONLY_IF_DIFFERENT)
   endif()
 endforeach()
-
-if(needs_build)
-  # The proof-mode builder preserves the Plan 03 raw smoke names. Task 2 adds
-  # explicit case selection and input-revision validation for admitted builds.
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}"
-      "-DSRC=${source_root}"
-      "-DOUT=${build_output_root}"
-      "-DTOOLCHAIN_ROOT=${toolchain_root}"
-      -DMODE=smoke
-      -P "${source_root}/cmake/BuildArmDiagnostics.cmake"
-    WORKING_DIRECTORY "${source_root}"
-    RESULT_VARIABLE build_rc OUTPUT_VARIABLE build_out ERROR_VARIABLE build_error)
-  if(NOT "${build_rc}" STREQUAL "0")
-    message(FATAL_ERROR
-      "diagnostics-case: source-build-failed: ${build_error}${build_out}")
-  endif()
-  file(MAKE_DIRECTORY "${artifact_root}/roms")
-  foreach(fixture_id IN LISTS fixture_ids)
-    set(source_image "${build_output_root}/roms/${fixture_id}.gba")
-    set(artifact_image
-      "${binary_root}/generated/diagnostics/armv4t/roms/${fixture_id}.gba")
-    set(expected_sha_name "expected_sha_${fixture_id}")
-    set(expected_sha "${${expected_sha_name}}")
-    if(NOT EXISTS "${source_image}" OR IS_DIRECTORY "${source_image}" OR
-       IS_SYMLINK "${source_image}")
-      message(FATAL_ERROR "diagnostics-case: built-image-missing: ${fixture_id}")
-    endif()
-    file(SHA256 "${source_image}" source_sha)
-    if(NOT "${source_sha}" STREQUAL "${expected_sha}")
-      message(FATAL_ERROR
-        "diagnostics-case: built-image-digest-mismatch: ${fixture_id}")
-    endif()
-    file(COPY_FILE "${source_image}" "${artifact_image}" ONLY_IF_DIFFERENT)
-  endforeach()
-endif()
 file(MAKE_DIRECTORY "${result_root}")
 foreach(fixture_id IN LISTS fixture_ids)
   set(artifact_image
@@ -296,8 +310,15 @@ foreach(fixture_id IN LISTS fixture_ids)
     termination)
   string(JSON expected_sha ERROR_VARIABLE expected_error GET "${runner_json}"
     expected_sha256)
+  string(JSON cycles ERROR_VARIABLE cycles_error GET "${runner_json}"
+    time cycles)
+  string(JSON instructions ERROR_VARIABLE instructions_error GET "${runner_json}"
+    time instructions)
+  string(JSON budget_cycles ERROR_VARIABLE budget_error GET "${runner_json}"
+    time budget_cycles)
   foreach(error IN ITEMS status_error reason_error ran_error loaded_error
-      semantic_error case_error termination_error expected_error)
+      semantic_error case_error termination_error expected_error cycles_error
+      instructions_error budget_error)
     if(NOT "${${error}}" STREQUAL "NOTFOUND")
       message(FATAL_ERROR "diagnostics-case: runner-result-invalid-${fixture_id}")
     endif()
@@ -311,7 +332,11 @@ foreach(fixture_id IN LISTS fixture_ids)
      NOT "${expected_sha}" STREQUAL "${manifest_sha}" OR
      NOT "${semantic}" STREQUAL "${expected_semantic}" OR
      NOT "${case_id}" STREQUAL "20481" OR
-     NOT "${termination}" STREQUAL "mailbox-complete")
+     NOT "${termination}" STREQUAL "mailbox-complete" OR
+     NOT "${cycles}" MATCHES "^[0-9]+$" OR
+     NOT "${instructions}" MATCHES "^[0-9]+$" OR
+     NOT "${budget_cycles}" STREQUAL "1000" OR
+     cycles LESS 1 OR instructions LESS 1 OR cycles GREATER budget_cycles)
     message(FATAL_ERROR
       "diagnostics-case: semantic-or-identity-mismatch-${fixture_id}: ${runner_json}")
   endif()

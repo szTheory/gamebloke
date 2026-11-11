@@ -1,3 +1,10 @@
+# ROM production and admission inputs; every path is checked against the selected
+# Git revision before output builds. Any listed change requires a
+# rebuild and output re-admission.
+# Top-level CMakeLists.txt is intentionally omitted: it wires consumers and
+# future CPU test targets. The authoritative ROM command and byte-affecting
+# flags live in cmake/BuildArmDiagnostics.cmake.
+# Add every future case-specific assembly source here before enabling that case.
 cmake/BuildArmDiagnostics.cmake
 cmake/FixGbaHeader.cmake
 diagnostics/armv4t/NOTICE
