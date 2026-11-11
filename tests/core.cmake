@@ -35,6 +35,20 @@ gbl_add_test(
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     -DVALIDATE_PRODUCER=ON
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
+gbl_add_test(
+  NAME runner.relocation
+  LABELS gate integration runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DMODE=clean
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
+gbl_add_test(
+  NAME runner.relocation_control
+  LABELS control runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DMODE=missing-executable
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
 
 add_executable(version_test tests/version_test.c)
 target_link_libraries(version_test PRIVATE gamebloke_core gbl_warnings)

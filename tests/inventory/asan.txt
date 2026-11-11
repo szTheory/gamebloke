@@ -64,6 +64,8 @@ runner.hash runner,unit
 runner.help runner,unit
 runner.metadata gate,runner
 runner.no_args runner,unit
+runner.relocation gate,integration,runner
+runner.relocation_control control,runner
 runner.result_contract gate,integration,runner
 runner.tracer integration,runner
 runner.unit runner,unit
