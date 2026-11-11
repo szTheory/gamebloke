@@ -6,15 +6,15 @@ current_phase: 4
 current_phase_name: CPU Execution Core and Headless Runner
 status: executing
 stopped_at: Phase 4 plans checked, ready to execute
-last_updated: "2026-11-11T03:40:57.549Z"
+last_updated: "2026-11-11T04:07:11.736Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 4 execution started
-state_head: d1289c4490d3b1cb82cd496c9a2bb93f944904bc
+state_head: 1b3ff67ec816e1e263ad754b4c5cca875e10914f
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 38
-  completed_plans: 26
+  completed_plans: 27
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 4 (CPU Execution Core and Headless Runner) — EXECUTING
-Plan: 2 of 13
+Plan: 3 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 4 execution started
 
@@ -83,6 +83,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P05 | 23min | 2 tasks | 10 files |
 | Phase 03 P07 | 44 min | 3 tasks | 17 files |
 | Phase 04 P01 | not_measured | 1 tasks | 5 files |
+| Phase 04 P02 | not_measured | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -168,6 +169,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Required ARM7TDMI DDI0029G manual and GBATEK 3.06 CPU source reading are complete; independent CPU/GBA/runner notes and the synthesized context distinguish source observations from project policy. The GBA note was recovered complete after interrupting prolonged finalization, without repeating source reading. Routine reversible choices are recorded as agent decisions under standing autonomy, not fabricated owner votes. The original Phase 4 goal is retained verbatim as its technical boundary alongside the MVP user-story format.
 
 - [Phase 04]: Keep one canonical `04-RESEARCH.md`; supporting lenses use `*-NOTES.md`. The generic research-file resolver selected a partial ARM lens when several files ended in RESEARCH.md, creating a misleading drift warning and hiding the synthesized validation section. Supporting-note renaming and explicit context reconciliation fix the consumer input without repeating hardware research.
+
+- [Phase 04]: Plans 01–02 are committed. Configured production/synthetic and scratch builds share the CPU source; an empty loaded-ROM context now refuses before effects. Canonical CI and focused configured AppleClang ASan/UBSan CPU checks pass. The default sanitizer preset names Linux clang-21; local macOS uses the documented fresh /usr/bin/clang override. CPU/runner requirements remain partial; continue with Plan 03. Local sanitizer log: build/phase04-tracer/plan02-asan-macos.log.
 
 ### Pending Todos
 
