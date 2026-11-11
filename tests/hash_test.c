@@ -96,6 +96,7 @@ int main(void)
     static const char multi_block_digest[] =
         "3c593aa539fdcdae516cdf2f15000f6634185c88f505b39775fb9ab137a10aa2";
     char output[GBL_SHA256_HEX_CAPACITY];
+    char output_before[sizeof output];
     uint8_t image[192];
     uint8_t overlap[129];
     uint8_t overlap_before[sizeof overlap];
@@ -163,8 +164,9 @@ int main(void)
               "includes the final byte when hashing a complete image span");
 
     memset(output, 'Q', sizeof output);
+    memcpy(output_before, output, sizeof output);
     test_case(!gbl_sha256_span(NULL, 1u, output) &&
-                  output[0] == 'Q' && output[sizeof output - 1u] == 'Q',
+                  memcmp(output, output_before, sizeof output) == 0,
               "refuses a NULL nonempty span without changing output");
     test_case(!gbl_sha256_span(vector_bytes, 1u, NULL),
               "refuses a NULL output buffer");
@@ -179,11 +181,12 @@ int main(void)
 
 #if SIZE_MAX > UINT64_MAX / 8u
     memset(output, 'R', sizeof output);
+    memcpy(output_before, output, sizeof output);
     test_case(!gbl_sha256_span((const uint8_t *)(uintptr_t)1u,
                                (size_t)(UINT64_MAX / UINT64_C(8) +
                                         UINT64_C(1)),
                                output) &&
-                  output[0] == 'R' && output[sizeof output - 1u] == 'R',
+                  memcmp(output, output_before, sizeof output) == 0,
               "refuses a span whose SHA-256 bit length overflows");
 #endif
 
