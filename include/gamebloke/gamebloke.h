@@ -220,8 +220,8 @@ void gbl_machine_dispose(gbl_machine *machine);
 
 /* Execute a bounded ARM subset through the canonical bus. One complete
  * refill or instruction is a unit; unit_limit 1 returns progress after one
- * such unit. A zero cycle budget performs no work. Invalid arguments leave
- * both machine and result storage unchanged. */
+ * such unit. A zero cycle budget performs no work. Invalid arguments or an
+ * unloaded ROM return INVALID_ARGUMENT without changing machine or result. */
 gbl_run_status gbl_cpu_run(gbl_machine *machine,
                            const gbl_run_options *options,
                            gbl_run_result *result);

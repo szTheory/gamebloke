@@ -76,7 +76,7 @@ static bool gbl_test_cpu_equal(const gbl_cpu_state *left,
     return true;
 }
 
-static bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
+static inline bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
 {
     size_t index;
 

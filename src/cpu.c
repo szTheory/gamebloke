@@ -305,7 +305,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
     uint64_t completed_units = 0u;
 
     if (machine == NULL || options == NULL || result == NULL ||
-        !machine->initialized ||
+        !machine->initialized || machine->rom == NULL ||
+        machine->rom_length == 0u ||
         gbl_cpu_ranges_overlap(machine, sizeof(*machine), result,
                                sizeof(*result)) ||
         gbl_cpu_ranges_overlap(options, sizeof(*options), result,
