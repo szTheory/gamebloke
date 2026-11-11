@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 3
 waived_count: 0
 fixed_count: 0
-total_count: 1
-last_updated: 2026-11-11T04:51:53.172Z
+total_count: 3
+last_updated: 2026-11-11T05:59:19.431Z
 ---
 
 # Broken Windows Ledger
@@ -16,6 +16,8 @@ last_updated: 2026-11-11T04:51:53.172Z
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | 04 | stub | include/gamebloke/gamebloke.h | 232 | Bus accesses retain an explicit placeholder master-cycle cost; plan 04-03 uses that project policy and does not claim hardware timing accuracy. | open |  | 2026-11-11T04:51:53.172Z |  |
+| 2 | 04 | stub | profiles/agb.json | 129 | The current-latch response for absent BIOS, unsupported I/O, and ROM tails remains an unverified placeholder; no hardware behavior is claimed. | open |  | 2026-11-11T05:59:19.341Z |  |
+| 3 | 04 | skipped-test | tests/gates.cmake | 88 | signature.owner_local skipped because GBL_OWNER_LOGO_FILE was unset; the optional owner-local cross-check remains unrun. | open |  | 2026-11-11T05:59:19.431Z |  |
 
 ````json
 [
@@ -29,6 +31,32 @@ last_updated: 2026-11-11T04:51:53.172Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-11T04:51:53.172Z",
+    "resolved_at": null,
+    "milestone": "v1.0"
+  },
+  {
+    "id": 2,
+    "kind": "stub",
+    "phase": "04",
+    "file": "profiles/agb.json",
+    "line": 129,
+    "description": "The current-latch response for absent BIOS, unsupported I/O, and ROM tails remains an unverified placeholder; no hardware behavior is claimed.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-11T05:59:19.341Z",
+    "resolved_at": null,
+    "milestone": "v1.0"
+  },
+  {
+    "id": 3,
+    "kind": "skipped-test",
+    "phase": "04",
+    "file": "tests/gates.cmake",
+    "line": 88,
+    "description": "signature.owner_local skipped because GBL_OWNER_LOGO_FILE was unset; the optional owner-local cross-check remains unrun.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-11T05:59:19.431Z",
     "resolved_at": null,
     "milestone": "v1.0"
   }
