@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.25)
+
+foreach(required IN ITEMS SRC CASE)
+  if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+    message(FATAL_ERROR "diagnostics-case: missing-${required}")
+  endif()
+endforeach()
+if(NOT CASE STREQUAL "smoke-pair")
+  message(FATAL_ERROR "diagnostics-case: unsupported-case")
+endif()
+
+get_filename_component(source_root "${SRC}" ABSOLUTE)
+set(manifest "${source_root}/tests/fixtures/manifest.json")
+set(registry "${source_root}/registry/disputes.json")
+set(vocab "${source_root}/contracts/evidence.json")
+include("${source_root}/cmake/CheckManifest.cmake")
+gbl_contract_read(V "${vocab}")
+gbl_registry_read(R "${registry}" V)
+gbl_manifest_read(M "${manifest}" R V)
+
+foreach(fixture_id IN ITEMS smoke smoke-broken)
+  if(NOT fixture_id IN_LIST M_IDS)
+    message(FATAL_ERROR
+      "diagnostics-case: missing-production-fixture-row: ${fixture_id}")
+  endif()
+endforeach()
