@@ -174,7 +174,27 @@ static void seed_nondefault_cpu_state(gbl_cpu_state *cpu)
 static bool run_units(gbl_machine *machine, uint64_t cycles, uint64_t units,
                       gbl_run_result *result)
 {
-    const gbl_run_options options = { cycles, units };
+    const gbl_run_options options = {
+        .cycle_budget = cycles,
+        .unit_limit = units,
+        .category_mask = 0u,
+        .trace_buffer = NULL
+    };
+
+    return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
+}
+
+static bool run_traced_units(gbl_machine *machine, uint64_t cycles,
+                             uint64_t units, uint32_t category_mask,
+                             gbl_trace_buffer *trace,
+                             gbl_run_result *result)
+{
+    const gbl_run_options options = {
+        .cycle_budget = cycles,
+        .unit_limit = units,
+        .category_mask = category_mask,
+        .trace_buffer = trace
+    };
 
     return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
 }
@@ -356,7 +376,12 @@ static void test_lifecycle(void)
         const gbl_run_result output_before = {
             GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u
         };
-        const gbl_run_options options = { 1u, 1u };
+        const gbl_run_options options = {
+            .cycle_budget = 1u,
+            .unit_limit = 1u,
+            .category_mask = 0u,
+            .trace_buffer = NULL
+        };
         gbl_run_result output = output_before;
         const bool null_options = gbl_cpu_run(&machine, NULL, &output) ==
                                   GBL_RUN_STATUS_INVALID_ARGUMENT;
@@ -410,7 +435,12 @@ static void test_lifecycle(void)
     {
         gbl_machine no_rom = { 0 };
         cpu_test_allocator_state no_rom_allocator_state = { false };
-        const gbl_run_options options = { 2u, 0u };
+        const gbl_run_options options = {
+            .cycle_budget = 2u,
+            .unit_limit = 0u,
+            .category_mask = 0u,
+            .trace_buffer = NULL
+        };
         const gbl_run_result output_before = {
             GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u
         };
@@ -1962,8 +1992,18 @@ static void test_alignment(void)
     machine.cpu.stop_reason = GBL_CPU_STOP_NONE;
     {
         const gbl_machine before = machine;
-        const gbl_run_options short_options = { 1u, 1u };
-        const gbl_run_options exact_options = { 2u, 1u };
+        const gbl_run_options short_options = {
+            .cycle_budget = 1u,
+            .unit_limit = 1u,
+            .category_mask = 0u,
+            .trace_buffer = NULL
+        };
+        const gbl_run_options exact_options = {
+            .cycle_budget = 2u,
+            .unit_limit = 1u,
+            .category_mask = 0u,
+            .trace_buffer = NULL
+        };
         gbl_run_result short_result = {
             GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
         };
@@ -2262,6 +2302,166 @@ static void test_mailbox_statuses(void)
     gbl_machine_dispose(&machine);
 }
 
+static void seed_trace_store_machine(gbl_machine *machine)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE5810000)); /* STR r0, [r1] */
+    (void)machine_load(machine, image);
+    machine->cpu.execution_address = UINT32_C(0x08000000);
+    machine->cpu.cpsr = TEST_CPSR_SYSTEM;
+    machine->cpu.r0_7[0] = UINT32_C(0x12345678);
+    machine->cpu.r0_7[1] = UINT32_C(0x02000000);
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), UINT32_C(0xE5810000), 4u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+}
+
+static bool trace_record_is(const gbl_trace_record *record,
+                            uint64_t sequence, uint64_t guest_cycle,
+                            gbl_trace_category category,
+                            uint32_t instruction_address, uint32_t opcode,
+                            uint32_t address, uint32_t value, uint8_t width,
+                            gbl_bus_access_class access_class,
+                            gbl_bus_outcome bus_outcome,
+                            gbl_exception_kind exception_kind)
+{
+    return record->sequence == sequence &&
+           record->guest_cycle == guest_cycle &&
+           record->category == category &&
+           record->instruction_address == instruction_address &&
+           record->opcode == opcode && record->address == address &&
+           record->value == value && record->width == width &&
+           record->access_class == access_class &&
+           record->bus_outcome == bus_outcome &&
+           record->exception_kind == exception_kind;
+}
+
+static void test_trace_store_capacity(void)
+{
+    const gbl_trace_record prior = {
+        UINT64_C(16), UINT64_C(3), GBL_TRACE_BUS,
+        UINT32_C(0x08000040), UINT32_C(0xE1A00000),
+        UINT32_C(0x08000044), UINT32_C(0xE1A01000), 4u,
+        GBL_BUS_CLASS_SEQUENTIAL, GBL_BUS_OUTCOME_ROM, GBL_EXCEPTION_NONE
+    };
+    gbl_trace_record short_records[4] = { prior, { 0 } };
+    gbl_trace_record exact_records[4] = { prior, { 0 }, { 0 }, { 0 } };
+    gbl_trace_buffer short_trace = { short_records, 3u, 1u, UINT64_C(17) };
+    gbl_trace_buffer exact_trace = { exact_records, 4u, 1u, UINT64_C(17) };
+    gbl_machine short_machine = { 0 };
+    gbl_machine exact_machine = { 0 };
+    gbl_run_result short_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, UINT64_C(0xA5), UINT64_C(0x5A)
+    };
+    gbl_run_result exact_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    bool short_loaded;
+    bool exact_loaded;
+
+    seed_trace_store_machine(&short_machine);
+    seed_trace_store_machine(&exact_machine);
+    short_loaded = short_machine.initialized && short_machine.rom != NULL;
+    exact_loaded = exact_machine.initialized && exact_machine.rom != NULL;
+    if (short_loaded) {
+        const gbl_machine before = short_machine;
+        const gbl_trace_record prior_before = short_records[0];
+        const bool ran = run_traced_units(
+            &short_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
+            &short_trace, &short_result);
+
+        test_case(ran &&
+                      short_result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                      short_result.reason ==
+                          GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                      short_result.cycles == 0u &&
+                      short_result.instructions == 0u &&
+                      short_trace.count == 1u &&
+                      short_trace.next_sequence == UINT64_C(17) &&
+                      trace_record_is(&short_records[0], prior_before.sequence,
+                                      prior_before.guest_cycle,
+                                      prior_before.category,
+                                      prior_before.instruction_address,
+                                      prior_before.opcode, prior_before.address,
+                                      prior_before.value, prior_before.width,
+                                      prior_before.access_class,
+                                      prior_before.bus_outcome,
+                                      prior_before.exception_kind) &&
+                      gbl_test_canonical_equal(&before, &short_machine) &&
+                      gbl_test_canonical_digest(&before) ==
+                          gbl_test_canonical_digest(&short_machine) &&
+                      gbl_test_same_instance_identity_equal(&before,
+                                                            &short_machine),
+                  "one-short trace capacity preserves full machine and prior records");
+    } else {
+        test_case(false,
+                  "one-short trace capacity preserves full machine and prior records");
+    }
+
+    if (exact_loaded) {
+        const bool ran = run_traced_units(
+            &exact_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
+            &exact_trace, &exact_result);
+        const uint8_t *ewram = exact_machine.ewram;
+
+        test_case(ran && exact_result.termination == GBL_RUN_PROGRESS &&
+                      exact_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      exact_result.cycles == 2u &&
+                      exact_result.instructions == 1u &&
+                      exact_trace.count == 4u &&
+                      exact_trace.next_sequence == UINT64_C(20) &&
+                      trace_record_is(&exact_records[0], UINT64_C(17), 3u,
+                                      GBL_TRACE_BUS, UINT32_C(0x08000040),
+                                      UINT32_C(0xE1A00000),
+                                      UINT32_C(0x08000044),
+                                      UINT32_C(0xE1A01000), 4u,
+                                      GBL_BUS_CLASS_SEQUENTIAL,
+                                      GBL_BUS_OUTCOME_ROM,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&exact_records[1], UINT64_C(17), 0u,
+                                      GBL_TRACE_INSTRUCTION,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE5810000), 0u, 0u, 0u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      GBL_BUS_OUTCOME_NONE,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&exact_records[2], UINT64_C(18), 1u,
+                                      GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE5810000),
+                                      UINT32_C(0x02000000),
+                                      UINT32_C(0x12345678), 4u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      GBL_BUS_OUTCOME_RAM,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&exact_records[3], UINT64_C(19), 2u,
+                                      GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE5810000),
+                                      UINT32_C(0x08000008), 0u, 4u,
+                                      GBL_BUS_CLASS_SEQUENTIAL,
+                                      GBL_BUS_OUTCOME_ROM,
+                                      GBL_EXCEPTION_NONE) &&
+                      ewram[0] == UINT8_C(0x78) &&
+                      ewram[1] == UINT8_C(0x56) &&
+                      ewram[2] == UINT8_C(0x34) &&
+                      ewram[3] == UINT8_C(0x12),
+                  "exact trace capacity records instruction, data and refill order");
+    } else {
+        test_case(false,
+                  "exact trace capacity records instruction, data and refill order");
+    }
+
+    gbl_machine_dispose(&short_machine);
+    gbl_machine_dispose(&exact_machine);
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -2293,6 +2493,9 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "mailbox") == 0) {
         printf("1..4\n");
         test_mailbox_statuses();
+    } else if (strcmp(argv[1], "trace") == 0) {
+        printf("1..2\n");
+        test_trace_store_capacity();
     } else if (strcmp(argv[1], "budget") == 0) {
         printf("1..9\n");
         test_budget();

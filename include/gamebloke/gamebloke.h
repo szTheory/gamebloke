@@ -219,7 +219,8 @@ typedef enum gbl_run_status {
 typedef enum gbl_run_termination {
     GBL_RUN_PROGRESS = 0,
     GBL_RUN_TIMEOUT = 1,
-    GBL_RUN_STOPPED = 2
+    GBL_RUN_STOPPED = 2,
+    GBL_RUN_TRACE_OUTPUT_FULL = 3
 } gbl_run_termination;
 
 typedef enum gbl_run_reason {
@@ -231,13 +232,50 @@ typedef enum gbl_run_reason {
     GBL_RUN_REASON_COUNTER_OVERFLOW = 5,
     GBL_RUN_REASON_INVALID_CPU_STATE = 6,
     GBL_RUN_REASON_UNDEFINED_INSTRUCTION = 7,
-    GBL_RUN_REASON_GUEST_STOP = 8
+    GBL_RUN_REASON_GUEST_STOP = 8,
+    GBL_RUN_REASON_TRACE_OUTPUT_FULL = 9
 } gbl_run_reason;
+
+typedef enum gbl_trace_category {
+    GBL_TRACE_INSTRUCTION = 1u << 0,
+    GBL_TRACE_BUS = 1u << 1,
+    GBL_TRACE_EXCEPTION = 1u << 2
+} gbl_trace_category;
+
+#define GBL_TRACE_CATEGORY_MASK \
+    ((uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS | GBL_TRACE_EXCEPTION))
+
+typedef struct gbl_trace_record {
+    uint64_t sequence;
+    uint64_t guest_cycle;
+    gbl_trace_category category;
+    uint32_t instruction_address;
+    uint32_t opcode;
+    uint32_t address;
+    uint32_t value;
+    uint8_t width;
+    gbl_bus_access_class access_class;
+    gbl_bus_outcome bus_outcome;
+    gbl_exception_kind exception_kind;
+} gbl_trace_record;
+
+/* The host owns this append-only output. `next_sequence` is the sequence that
+ * will be assigned to the next record; it must have room for every selected
+ * record in a complete CPU unit. */
+typedef struct gbl_trace_buffer {
+    gbl_trace_record *records;
+    size_t capacity;
+    size_t count;
+    uint64_t next_sequence;
+} gbl_trace_buffer;
 
 typedef struct gbl_run_options {
     uint64_t cycle_budget;
     /* Zero allows as many complete units as fit in cycle_budget. */
     uint64_t unit_limit;
+    uint32_t category_mask;
+    /* Required only when category_mask selects at least one category. */
+    gbl_trace_buffer *trace_buffer;
 } gbl_run_options;
 
 typedef struct gbl_run_result {
@@ -321,8 +359,15 @@ gbl_mailbox_result gbl_mailbox_read(const gbl_machine *machine);
 
 /* Execute a bounded ARM subset through the canonical bus. One complete
  * refill or instruction is a unit; unit_limit 1 returns progress after one
- * such unit. A zero cycle budget performs no work. Invalid arguments or an
- * unloaded ROM return INVALID_ARGUMENT without changing machine or result. */
+ * such unit. A zero cycle budget performs no work. Selected records are
+ * appended to caller-owned trace storage with zero-based sequence values;
+ * instruction cycles are sampled at unit start, bus cycles at completion,
+ * and exception cycles after entry. Non-applicable record fields are zero.
+ * Capacity or sequence exhaustion returns GBL_RUN_TRACE_OUTPUT_FULL and
+ * GBL_RUN_REASON_TRACE_OUTPUT_FULL before the next whole unit. The machine,
+ * trace count, sequence and prior records are unchanged for that unit. Invalid
+ * arguments, masks, spans or aliases return INVALID_ARGUMENT without changing
+ * machine, result or trace output. A zero mask ignores trace_buffer entirely. */
 gbl_run_status gbl_cpu_run(gbl_machine *machine,
                            const gbl_run_options *options,
                            gbl_run_result *result);
