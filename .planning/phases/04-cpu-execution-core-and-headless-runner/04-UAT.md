@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 04-cpu-execution-core-and-headless-runner
 source: [04-01-SUMMARY.md, 04-02-SUMMARY.md, 04-03-SUMMARY.md, 04-04-SUMMARY.md, 04-05-SUMMARY.md, 04-06-SUMMARY.md, 04-07-SUMMARY.md, 04-08-SUMMARY.md, 04-09-SUMMARY.md, 04-10-SUMMARY.md, 04-11-SUMMARY.md, 04-12-SUMMARY.md, 04-13-SUMMARY.md]
 started: 2026-11-11T13:04:15.531833Z
-updated: 2026-11-11T13:04:15.531833Z
+updated: 2026-11-11T14:01:50.177Z
 ---
 
 ## Current Test
 
-number: 28
-name: Evidence guide clarity and rights/claim boundaries
-expected: |
-  The guide makes clear that the bounded runner and synthetic controls establish implemented software behavior. They do not grant fixture rights or establish hardware accuracy, BIOS boot, or broad game compatibility. All eleven probe rows remain unresolved.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -207,20 +203,21 @@ reported: Measured agent verification under existing authorization; not an owner
 
 ### 28. Evidence guide clarity and rights/claim boundaries
 expected: Evidence guide clarity and rights/claim boundaries
-result: pending
+result: pass
 source: human
 coverage_ref: 04-12-SUMMARY.md#D3; 04-VERIFICATION.md
+reported: Owner replied "yes i accpet" to the explicit evidence-guide clarity question after the scope and limits were stated. This accepts the documented explanation and current phase scope; it grants no fixture rights, hardware/BIOS/game-compatibility claim, or probe-status resolution.
 rationale: Plan 04-12 D3 reserves the subjective clarity judgment for a human. This does not ask for a rights waiver, hardware claim or probe-status resolution.
 
 ## Summary
 
 total: 28
-passed: 27
+passed: 28
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-No current implementation/documentation gap. One subjective clarity judgment remains pending. Legacy summaries were reconciled against their measured tests and the independent verification, not automatically passed from missing structured coverage. No owner answer is inferred.
+No current implementation/documentation gap. Owner accepted the subjective guide-clarity judgment; no current UAT item remains. Legacy summaries were reconciled against their measured tests and the independent verification, not automatically passed from missing structured coverage. No owner answer is inferred.
