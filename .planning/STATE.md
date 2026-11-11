@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 4
 current_phase_name: CPU Execution Core and Headless Runner
-status: executing
+status: verifying
 stopped_at: Phase 4 plans checked, ready to execute
-last_updated: "2026-11-11T10:46:07.070Z"
+last_updated: "2026-11-11T11:26:44.976Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 4 execution started
-state_head: 9f48adc464c6cc0ec88dd463a7e4a504f347ec3b
+state_head: 671a3a632fb09900c5eb34bfdffc1a3ffaf3fdd2
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 38
-  completed_plans: 37
+  completed_plans: 38
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 
 Phase: 4 (CPU Execution Core and Headless Runner) — EXECUTING
 Plan: 13 of 13
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-10 — Phase 4 execution started
 
 Progress: [█████░░░░░] 50%
@@ -94,6 +94,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04 P10 | 31min | 1 tasks | 6 files |
 | Phase 04 P11 | 28min-from-first-commit | 2 tasks | 11 files |
 | Phase 04 P12 | 30min-from-first-commit | 2 tasks | 10 files |
+| Phase 04 P13 | 29min35s | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -185,6 +186,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Profile version 4 and CPU policy validation are committed; focused profile, CI and hygiene checks pass. The optional owner-local signature test was then explicitly refreshed against both already-authorized ignored inputs and passed without skipping. Only the bounded header digest helper ran; no guest execution occurred. Ledger entry 3 is fixed, with local evidence in build/phase04-tracer/owner-local-refresh.log. Future public CI skips remain expected and do not create a new owner-data gate.
 
 - [Phase 04]: Preserve the direct-start CLI reachability limit: reset, IRQ, FIQ, prefetch-abort and data-abort stops have no modeled CLI source. Their production reason/JSON mapping is verified through the real CPU exception API and shared runner classifier/writer, alongside the CLI-reachable SWI/undefined/coprocessor cases. This is lower-boundary coverage, not fabricated CLI execution or a wider CPU/device model. Final CI and focused sanitizers pass; independent phase verification still owns requirement completion.
+
+- [Phase 04]: All thirteen implementation plans are committed and locally verified, including moved-prefix production CLI results/traces, final CI, fresh ASan/UBSan and hygiene inventories. Independent validation, security, code review and goal verification remain before phase acceptance. Review the explicit write-trace limitation: successful store records currently copy the bus API result value zero rather than the attempted payload; no waiver or hardware qualification is inferred. Preserve the Plan 12 guide-clarity human-judgment item until the phase-boundary review.
 
 ### Pending Todos
 
