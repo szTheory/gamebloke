@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: "Phase 05 Plan 03 complete; corrected hosted diagnostics gate passed"
-stopped_at: Completed 05-03-PLAN.md; corrected hosted diagnostics gate passed
-last_updated: "2026-11-11T20:01:42.722Z"
+status: Phase 05 Plan 04 complete; artifact identity contract and local CI passed
+stopped_at: Completed 05-04-PLAN.md
+last_updated: "2026-11-11T20:52:10.304Z"
 last_activity: 2026-11-11
-last_activity_desc: Phase 05 Plan 03 closed after local and corrected hosted diagnostics passed
-state_head: 2a18d8e1b2f7d24b11b40627e697cfd42b60c48b
+last_activity_desc: Phase 05 Plan 04 closed after artifact identity controls and canonical local CI passed
+state_head: 8af54e883f53732c25f3f729abc6900765887360
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 41
+  completed_plans: 42
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 4 of 25
-Status: Plan 03 complete; next plan not started
-Last activity: 2026-11-11 — Corrected hosted diagnostics run 43089440697 passed
+Plan: 5 of 25
+Status: Plan 04 complete; Plan 05 not started
+Last activity: 2026-11-11 — Artifact identity controls and canonical local CI passed
 
 Progress: [███████░░░] 67%
 
@@ -100,6 +100,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P01 | 50min | 2 tasks | 3 files |
 | Phase 05 P02 | 68min | 2 tasks | 8 files |
 | Phase 05 P03 | not measured (multi-resume execution) | 2 tasks | 12 files |
+| Phase 05 P04 | 39 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Keep the production runner GUEST_STOP/unregistered-content exit 1 as the raw result and assert mailbox state and case identity separately.
 - [Phase 05]: Limit parity to local macOS arm64 and native Linux arm64; hosted Linux x64 remains separate and no ROM digest is admitted here.
 - [Phase 05]: Corrected hosted diagnostics run 43089440697 passed at source head 2a18d8e1b2f7d24b11b40627e697cfd42b60c48b; the authorized Plan 03 stop is resolved, with hosted SHA identity kept separate from local literal cmp evidence and no ROM digest admitted.
+- [Phase 05]: Keep manifest/1 and result/1 versions unchanged; use optional build.artifact.path and build.artifact.sha256 for the output identity.
+- [Phase 05]: Keep source.commit and build.toolchain as provenance fields; project only the generated ROM digest into the existing rom_sha256 slot.
+- [Phase 05]: Do not admit a production diagnostic ROM digest or mark phase-wide DIAG requirements complete from this contract slice.
 
 ### Pending Todos
 
@@ -236,6 +240,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-11T20:01:42.463Z
-Stopped at: Completed 05-03-PLAN.md; corrected hosted diagnostics gate passed
+Last session: 2026-11-11T20:49:46.031Z
+Stopped at: Completed 05-04-PLAN.md
 Resume file: None
