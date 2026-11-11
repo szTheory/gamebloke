@@ -279,6 +279,8 @@ typedef enum gbl_peek_status {
 #define GBL_MAILBOX_VERSION UINT32_C(1)
 #define GBL_MAILBOX_COMPLETION_MARKER UINT32_C(0x434F4D50)
 
+/* Five little-endian words at offsets 0, 4, 8, 12, and 16: magic, version,
+ * state, case ID, and completion marker. Guest code writes the marker last. */
 typedef enum gbl_mailbox_state {
     GBL_MAILBOX_STATE_ABSENT = 0,
     GBL_MAILBOX_STATE_RUNNING = 1,
@@ -306,9 +308,10 @@ gbl_bus_status gbl_machine_init(gbl_machine *machine,
 void gbl_machine_reset(gbl_machine *machine);
 void gbl_machine_dispose(gbl_machine *machine);
 
-/* Copies only a contiguous byte span from physical IWRAM (0x03000000 through
- * 0x03007FFF). Zero-length requests accept addresses through one-past-end and
- * do not access out. Invalid requests leave out and machine unchanged. */
+/* Copies only a contiguous, byte-aligned-or-unaligned span from physical IWRAM
+ * (0x03000000 through 0x03007FFF). Zero-length requests accept addresses
+ * through one-past-end and do not access out. Invalid requests leave out and
+ * machine unchanged; output may not overlap machine or owned ROM storage. */
 gbl_peek_status gbl_machine_peek(const gbl_machine *machine,
                                 uint32_t address, void *out, size_t length);
 

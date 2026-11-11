@@ -25,7 +25,6 @@
 #define TEST_CPSR_UND UINT32_C(0x0000001B)
 #define TEST_CPSR_SYSTEM UINT32_C(0x0000001F)
 #define TEST_MAILBOX_OFFSET 0x7FC0u
-#define TEST_MAILBOX_BASE UINT32_C(0x03007FC0)
 #define TEST_MAILBOX_PASS_CASE UINT32_C(0x0000002A)
 #define TEST_MAILBOX_FAIL_CASE UINT32_C(0x0000BEEF)
 
@@ -2007,7 +2006,7 @@ static void make_mailbox_guest(uint8_t image[TEST_IMAGE_SIZE],
     write_word(image, 0x20u, UINT32_C(0xE581200C));
     write_word(image, 0x24u, UINT32_C(0xE59F2028));
     write_word(image, 0x28u, UINT32_C(0xE5812010));
-    write_word(image, 0x40u, TEST_MAILBOX_BASE);
+    write_word(image, 0x40u, GBL_MAILBOX_ADDRESS);
     write_word(image, 0x44u, GBL_MAILBOX_MAGIC);
     write_word(image, 0x48u, GBL_MAILBOX_VERSION);
     write_word(image, 0x4Cu, (uint32_t)state);
@@ -2090,7 +2089,6 @@ static void test_guest_mailbox_and_peek(void)
         } storage;
         gbl_machine before;
         uint64_t digest_before;
-        const uint32_t trace_count = 23u;
         static const uint8_t trace_before[8] = {
             UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC),
             UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC)
@@ -2124,7 +2122,6 @@ static void test_guest_mailbox_and_peek(void)
                       storage.trailing_guard[1] == UINT8_C(0xCC) &&
                       memcmp(storage.trace_storage, trace_before,
                              sizeof(trace_before)) == 0 &&
-                      trace_count == 23u &&
                       repeated.status == GBL_MAILBOX_PASS &&
                       repeated.case_id == TEST_MAILBOX_PASS_CASE &&
                       gbl_test_canonical_equal(&before, &machine) &&
