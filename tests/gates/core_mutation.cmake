@@ -53,7 +53,7 @@ endfunction()
 function(gbl__copy_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c)
+  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
@@ -86,6 +86,7 @@ function(gbl__compile_bus sandbox mutation output_executable)
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
       "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/cpu.c"
       "${sandbox}/tests/bus_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}
     RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
@@ -155,7 +156,7 @@ endfunction()
 function(gbl__copy_loader_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c)
+  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
@@ -195,6 +196,7 @@ function(gbl__compile_loader sandbox mutation output_executable expectation_mode
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
       "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/cpu.c"
       "${sandbox}/tests/loader_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}
     RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out

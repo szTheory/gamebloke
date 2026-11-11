@@ -71,6 +71,9 @@ core.nc.quoted control,core
 core.no_host_includes core,gate
 core.pos.in_tree core,positive
 core.version core,unit
+cpu.budget core,cpu,unit
+cpu.lifecycle core,cpu,unit
+cpu.tracer core,cpu,unit
 fetch.nc.bad_dest control,fetch
 fetch.nc.bad_digest control,fetch
 fetch.nc.bad_row control,fetch

@@ -32,6 +32,21 @@ gbl_add_test(
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> video)
 
+add_executable(cpu_test tests/cpu_test.c)
+target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)
+gbl_add_test(
+  NAME cpu.tracer
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> tracer)
+gbl_add_test(
+  NAME cpu.lifecycle
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> lifecycle)
+gbl_add_test(
+  NAME cpu.budget
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> budget)
+
 # Compile selected disposable bus mutants against the real bus test. Pass the
 # configured compiler, build flags, warning policy, and sanitizer flags so the
 # asan lane instruments these controls without repeating a project subbuild.
