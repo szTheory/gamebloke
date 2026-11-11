@@ -9,75 +9,308 @@ created: "2026-11-10"
 
 # Phase 04 — Validation Strategy
 
-## Test Infrastructure
+All rows below are PLANNED, not run. Implementation creates each named artifact before using its command. The parent workflow owns independent plan checking, implementation orchestration, current-evidence audit and publication. No test, timing or acceptance pass is asserted by this file.
 
-| Property | Value |
-| --- | --- |
-| Framework | Existing CTest + C17 assertion harness and CMake/POSIX controls |
-| Config | CMakePresets.json; tests/core.cmake; sorted lane inventories |
-| Quick command | `cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^(cpu\.|runner\.|peek\.|trace\.)' --no-tests=error --output-on-failure` |
-| Full suite | `cmake --workflow --preset ci` |
-| Sanitizers | Fresh installed-Clang local ASan/UBSan; canonical asan workflow in Linux CI |
-| Runtime baseline | Phase 3 hosted main tests about 70–73 seconds; Phase 4 not measured |
+## Test infrastructure and cadence
 
-## Sampling Rate
+Existing CTest/C17 assertion harness, CMake 3.25 floor, POSIX controls, sorted inventories and canonical source lists are retained. No package/runtime dependency or new testing framework is required.
 
-- After every task: run its named focused behavioral test and failure condition.
-- After each meaningful wave: canonical CI workflow and inventory post check.
-- Before verification/publication: final-source CI, fresh complete sanitizer lane,
-  hygiene, signature scan and current inventory reconciliation.
-- Preserve existing CI limits. Measure new feedback latency; avoid repeated full
-  builds for individual vectors and do not invent timing evidence before execution.
+- Task verification uses the exact commands below from the repository root, in the background.
+- Targeted CTest commands use --no-tests=error; direct selectors must fail for unknown/missing cases.
+- Do not rebuild the project for each opcode/vector. Compile one assertion executable, run its cases; small semantic scratch variants retain configured warnings and sanitizer flags.
+- Canonical final command: `cmake --workflow --preset ci`.
+- Fresh local sanitizer command: `cmake --fresh --preset asan -DCMAKE_C_COMPILER=/usr/bin/clang && cmake --build --preset asan && ctest --preset asan && ctest --preset asan-post`. Linux hosted CI keeps its canonical asan workflow.
+- Keep current three-minute hosted job limits. Record actual final critical-path durations before changing setup/build work. Source-list extensions may increase existing scratch compile cost: if measurements threaten the bound, prefer linking unchanged canonical objects plus the changed mutant unit with semantic wiring controls; no speculative cache/concurrency/dependency/timeout addition.
+- Existing allowed skips remain visible through inventory post checks. New CPU/runner/producer/relocation checks are required, not permitted silent skips. Do not invent future inventory totals or runtime measurements.
 
-## Per-Task Verification Map
+## Per-task plan/wave verification map
 
-The planner must replace this requirement seed with every concrete task id,
-plan/wave, unique threat reference, real command and artifact-creation dependency.
-No planned test below is represented as having already run.
+Each wave is serial because public header, CPU implementation, CMake and inventories overlap. The leading task in every plan is a real production tracer. No checkpoint is required by these reversible local changes.
 
-| Requirement | Secure behavior / acceptance witness | Test type | Creation / execution state |
-| --- | --- | --- | --- |
-| CPU-03 | Explicit PC/refill/latch state through canonical bus, bounded clock | core + semantic control | planned, CPU tests created by implementation tasks |
-| CPU-04 | Isolated banks and precise saved exception state | core + semantic control | planned |
-| CPU-05 | Defined arithmetic boundary results and sanitizer enforcement | unit + sanitizer | planned; existing sanitizer controls retained |
-| PROF-03 | Named no-BIOS stops before absent vector fetch | core/runner integration | planned |
-| RUN-01 | Fresh bounded run, manifest/digest-bound JSON result and explicit refusal/limits | producer + validator | planned |
-| RUN-02 | Neutral peek and versioned mailbox, zero/partial state never verdict | unit + integration | planned |
-| RUN-03 | Selected categories only, bounded records, explicit output full | unit + integration | planned |
-| RUN-04 | Moved-prefix installed CLI matches build-tree result | installed consumer | planned |
+| Task | Plan/wave | Requirements | Threat refs | Behavioral witness and test artifact creation dependency | Command | State |
+| --- | --- | --- | --- | --- | --- | --- |
+| 04-01-01 | 01 / 1 | CPU-03, RUN-01 | T-04-01 | The real ARM path and exact/one-short refill and MOV/B bounds pass with explicit bank/pipeline storage and no second interpreter. Creation dependency: Existing Phase3 bus/loader; this task creates the CPU interface and native cpu_test tracer. | V-04-01-01 | PLANNED |
+| 04-02-01 | 02 / 2 | CPU-03, RUN-01 | T-04-02 | Both cores compile canonical sources and the existing clean mutation controls execute them. Creation dependency: Plan04-01 complete; this task creates/extends tests/core.cmake, tests/gates/core_mutation.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt. | V-04-02-01 | PLANNED |
+| 04-02-02 | 02 / 2 | CPU-03, RUN-01 | T-04-02 | Every persistent CPU field participates in lifecycle, canonical comparison and non-default refusal evidence. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/cpu_test.c, tests/state_check.h. | V-04-02-02 | PLANNED |
+| 04-03-01 | 03 / 3 | CPU-03, CPU-05, RUN-01 | T-04-03, T-04-04 | Real shifted arithmetic uses defined helpers and the exact supported operand slice is enforced. Creation dependency: Plan04-02 complete; this task creates/extends tests/cpu_test.c. | V-04-03-01 | PLANNED |
+| 04-03-02 | 03 / 3 | CPU-03, CPU-05, RUN-01 | T-04-03, T-04-04 | Owned ARM-to-Thumb-to-ARM and IWRAM transfer paths work with precise supported/excluded operand classification. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/cpu_test.c. | V-04-03-02 | PLANNED |
+| 04-03-03 | 03 / 3 | CPU-03, CPU-05, RUN-01 | T-04-03, T-04-04 | The registered CPU gates catch concrete pipeline and arithmetic faults without repeated builds per vector. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/gates/core_mutation.cmake, tests/core.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt, tests/cpu_test.c. | V-04-03-03 | PLANNED |
+| 04-04-01 | 04 / 4 | CPU-04, PROF-03, CPU-03 | T-04-05, T-04-06 | A real guest SWI reaches a precise architected entry snapshot and explicit BIOS-none stop. Creation dependency: Plan04-03 complete; this task creates/extends tests/cpu_test.c, tests/state_check.h. | V-04-04-01 | PLANNED |
+| 04-04-02 | 04 / 4 | CPU-04, PROF-03, CPU-03 | T-04-05, T-04-06 | All modes and exception entries have exact state evidence and named BIOS-none stops; no active device controller is implied. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/cpu_test.c, tests/state_check.h. | V-04-04-02 | PLANNED |
+| 04-04-03 | 04 / 4 | CPU-04, PROF-03, CPU-03 | T-04-05, T-04-06 | Independent negative controls establish the mode and no-BIOS gates have teeth. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/gates/core_mutation.cmake, tests/core.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt. | V-04-04-03 | PLANNED |
+| 04-05-01 | 05 / 5 | CPU-03, CPU-04, CPU-05, PROF-03 | T-04-07 | Version4 profile, CPU implementation and visible narrative agree, with source and project-policy claims kept distinct. Creation dependency: Plan04-04 complete; this task creates/extends cmake/CheckProfile.cmake, tests/gates/profile_case.cmake. | V-04-05-01 | PLANNED |
+| 04-05-02 | 05 / 5 | CPU-03, CPU-04, CPU-05, PROF-03 | T-04-07 | The canonical profile gate checks CPU defaults, supported scope and narrative in both gate lanes. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/gates.cmake, tests/inventory/ci.txt, tests/inventory/hygiene.txt. | V-04-05-02 | PLANNED |
+| 04-06-01 | 06 / 6 | RUN-02, RUN-01 | T-04-08, T-04-09 | A real guest-written mailbox is observed through a bounded, state-neutral path. Creation dependency: Plan04-05 complete; this task creates/extends tests/cpu_test.c. | V-04-06-01 | PLANNED |
+| 04-06-02 | 06 / 6 | RUN-02, RUN-01 | T-04-08, T-04-09 | Both configured cores and scratch controls exercise the same neutral peek/mailbox implementation. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/core.cmake, tests/gates/core_mutation.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt. | V-04-06-02 | PLANNED |
+| 04-07-01 | 07 / 7 | RUN-03, RUN-01, RUN-02 | T-04-10, T-04-11 | The actual guest path emits bounded selected records with atomic capacity refusal. Creation dependency: Plan04-06 complete; this task creates/extends tests/cpu_test.c, tests/state_check.h. | V-04-07-01 | PLANNED |
+| 04-07-02 | 07 / 7 | RUN-03, RUN-01, RUN-02 | T-04-10, T-04-11 | Trace completeness, order, no-effect refusal and hard-cycle gates have meaningful negative evidence. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/cpu_test.c, tests/gates/core_mutation.cmake, tests/core.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt. | V-04-07-02 | PLANNED |
+| 04-08-01 | 08 / 8 | RUN-01 | T-04-12 | A bounded arbitrary-span helper has independent vectors and is ready to bind actual loaded bytes. Creation dependency: Plan04-07 complete; this task creates/extends tests/hash_test.c. | V-04-08-01 | PLANNED |
+| 04-09-01 | 09 / 9 | RUN-01, RUN-02 | T-04-13 | Canonical validated metadata and explicitly synthetic control metadata are generated separately from one authority path without a new rights grant. Creation dependency: Plan04-08 complete; this task creates/extends tests/fixtures/instruction_image.c, tests/gates/runner_metadata.cmake. | V-04-09-01 | PLANNED |
+| 04-09-02 | 09 / 9 | RUN-01, RUN-02 | T-04-13 | Hash/index gates run in both compiled lanes with meaningful clean/negative controls. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/core.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt, tests/gates/runner_metadata.cmake, tests/hash_test.c. | V-04-09-02 | PLANNED |
+| 04-10-01 | 10 / 10 | RUN-01, RUN-02 | T-04-15, T-04-16 | One actual canonical CLI path produces metadata-bound JSON and raw diagnostic execution stays non-PASS. Creation dependency: Plan04-09 complete; this task creates/extends runner/main.c. | V-04-10-01 | PLANNED |
+| 04-11-01 | 11 / 11 | RUN-01, RUN-02, RUN-03, PROF-03 | T-04-14 | Actual CLI outcomes and error precedence are deterministic, bounded, escaped and explicit. Creation dependency: Plan04-10 complete; this task creates/extends tests/runner_test.c, tests/gates/runner_case.cmake. | V-04-11-01 | PLANNED |
+| 04-11-02 | 11 / 11 | RUN-01, RUN-02, RUN-03, PROF-03 | T-04-14 | Canonical ci/asan lanes run the real producer and its bounded failure cases. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/core.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt. | V-04-11-02 | PLANNED |
+| 04-12-01 | 12 / 12 | RUN-01, RUN-02, RUN-03, PROF-03 | T-04-17, T-04-18 | The existing result checker accepts genuine matching producer documents and rejects meaningful actual-output corruptions. Creation dependency: Plan04-11 complete; this task creates/extends cmake/CheckResult.cmake, tests/gates/runner_case.cmake, tests/gates/result_case.cmake. | V-04-12-01 | PLANNED |
+| 04-12-02 | 12 / 12 | RUN-01, RUN-02, RUN-03, PROF-03 | T-04-17, T-04-18 | Producer/validator and legacy contract controls coexist without a detached evidence path. The evidence guide documents the real CLI, mailbox completion, exact time fields, synthetic authority and supported/unsupported scope. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/core.cmake, tests/gates.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt. | V-04-12-02 | PLANNED |
+| 04-13-01 | 13 / 13 | RUN-04, RUN-01, RUN-02, RUN-03, CPU-03, CPU-04, CPU-05, PROF-03 | T-04-19, T-04-20 | The installed production executable genuinely runs from a moved prefix and unrelated cwd with identical actual observations. Creation dependency: Plan04-12 complete; this task creates/extends tests/gates/runner_relocation.cmake, tests/core.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt. | V-04-13-01 | PLANNED |
+| 04-13-02 | 13 / 13 | RUN-04, RUN-01, RUN-02, RUN-03, CPU-03, CPU-04, CPU-05, PROF-03 | T-04-19, T-04-20 | Final source/inventory/sanitizer evidence is current and measured, with honest remaining claim/probe limits and no publication by this task. Creation dependency: Earlier task(s) in this plan create production/test interfaces; this task creates/extends tests/core.cmake, tests/gates/core_mutation.cmake. | V-04-13-02 | PLANNED |
 
-## Wave 0 Requirements
+## Exact commands and observable failure directions
 
-Existing infrastructure covers compilation, CTest, inventories and sanitizer
-controls. Each plan creates its missing test/source artifact before verification;
-the planner records these dependencies rather than using nonexistent commands as
-proof. No new test framework or runtime dependency is required.
+Each command is inherited from proven CMake/CTest patterns or names a target/script created by the ordered task. Commands introducing source files require those files to exist first; no nonexistent test is represented as execution evidence.
 
-## Manual-Only Verifications
+### V-04-01-01
 
-All required CPU/runner behavior has automated evidence planned. Claim wording
-and source/policy distinctions may retain judgment-tier flags under the GSD
-prohibition protocol; keep those visible at phase acceptance. Hardware post-BIOS,
-physical devices and game compatibility are outside this phase's claim.
+```sh
+cmake -E make_directory build/phase04-tracer && cc -std=c17 -DGBL_VERSION_STRING='"0.0.0"' -Iinclude src/version.c src/machine.c src/bus.c src/loader.c src/cpu.c tests/cpu_test.c -o build/phase04-tracer/cpu_test && build/phase04-tracer/cpu_test tracer
+```
 
-## Validation Sign-Off
+Fails when: A stale branch slot executes, visible PC differs from current+8, a fetch bypasses the latch, or a one-short unit changes any canonical field.
 
-- [ ] Every actual task has an automated verify and an explicit failing signal.
-- [ ] Every missing reference has a task that creates it before use.
-- [ ] No three consecutive tasks lack automated behavioral feedback.
-- [ ] Current inventory and permitted skips reconcile after each complete lane.
-- [ ] Final source is instrumented, and required negative controls actually run.
-- [ ] Measured runtime and CI critical-path review are recorded.
-- [ ] Nyquist audit disposition is recorded from actual evidence.
+### V-04-02-01
 
-Approval: pending execution and audit; no test or acceptance pass is claimed.
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^(core\.version|cpu\.tracer|bus\.pos\.clean|loader\.pos\.clean)$' --no-tests=error --output-on-failure
+```
 
-## Current-context reconciliation
+Fails when: Either configured core or scratch control fails to link the CPU, inventories disagree, or cpu.tracer is absent.
 
-Planning must assign explicit tests for zero/tiny cycle budgets, initial-refill
-preflight, whole-unit refusal/clock overflow without partial effects, and trace
-capacity before events. The metadata/producer slice tests index-to-loaded-digest
-binding, dispute propagation, raw-input non-PASS and relocation without runtime
-CMake/source paths. Direct-start CPU fields are deterministic project policy,
-versioned in the profile and included in full canonical state comparisons.
-These are current context obligations, all still planned rather than passed.
+### V-04-02-02
+
+```sh
+cmake --build --preset ci && ctest --test-dir build/ci -R '^(cpu\.(lifecycle|budget)|machine\.state|loader\.(transaction|diagnostics))$' --no-tests=error --output-on-failure
+```
+
+Fails when: Any new field survives reset incorrectly, disappears from equality/digest, leaks between instances, or changes on a refused load/run unit.
+
+### V-04-03-01
+
+```sh
+cmake --build --preset ci && build/ci/cpu_test arithmetic
+```
+
+Fails when: Any boundary helper or real decoded instruction has wrong carry/overflow, causes sanitizer UB, or applies effects for a failed condition.
+
+### V-04-03-02
+
+```sh
+cmake --build --preset ci && build/ci/cpu_test thumb && build/ci/cpu_test decode && build/ci/cpu_test alignment
+```
+
+Fails when: State switch keeps stale pipeline words, Thumb PC is wrong, transfer bypasses the bus or an excluded case silently executes.
+
+### V-04-03-03
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^cpu\.(arithmetic|thumb|decode|alignment|nc\.(pc_refill|shift_carry)|pos\.clean)$' --no-tests=error --output-on-failure
+```
+
+Fails when: A planted CPU semantic fault passes, a clean companion fails, or a new source/header is absent from a configured/scratch core.
+
+### V-04-04-01
+
+```sh
+cmake --build --preset ci && build/ci/cpu_test exceptions
+```
+
+Fails when: SWI saves a postentry CPSR, wrong LR/bank/vector, fetches handler bytes or exceeds its one-short cap.
+
+### V-04-04-02
+
+```sh
+cmake --build --preset ci && build/ci/cpu_test modes && build/ci/cpu_test exceptions && build/ci/cpu_test no_bios
+```
+
+Fails when: Adjacent banks alias, User/System exposes SPSR, a snapshot happens after mutation, any LR uses the wrong defined address, or stopped execution fetches a vector.
+
+### V-04-04-03
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^cpu\.(modes|exceptions|no_bios|nc\.(bank_alias|exception_lr|vector_fetch))$' --no-tests=error --output-on-failure
+```
+
+Fails when: Any deliberate bank/LR/vector fault passes or any named required witness is missing.
+
+### V-04-05-01
+
+```sh
+cmake -DCASE=cpu_policy_value -DSRC=. -DBIN=build/ci -P tests/gates/profile_case.cmake && cmake -DCASE=cpu_policy_doc -DSRC=. -DBIN=build/ci -P tests/gates/profile_case.cmake && cmake -DPROFILE=profiles/agb.json -DDOC=docs/profile-agb.md -DREGISTRY=registry/disputes.json -DVOCAB=contracts/evidence.json -P cmake/CheckProfile.cmake
+```
+
+Fails when: A concrete CPU default/support row contradicts implementation or a mutated/hidden table is accepted.
+
+### V-04-05-02
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^profile\.' --no-tests=error --output-on-failure
+```
+
+Fails when: Any old/new profile control disappears, accepts its deliberate corruption or reports a stale no-match mutation.
+
+### V-04-06-01
+
+```sh
+cc -std=c17 -DGBL_VERSION_STRING='"0.0.0"' -Iinclude src/version.c src/machine.c src/bus.c src/loader.c src/cpu.c src/inspect.c tests/cpu_test.c -o build/phase04-tracer/cpu_test && build/phase04-tracer/cpu_test peek
+```
+
+Fails when: Peek changes any canonical field, time/latch/trace or caller bytes on refusal, or incomplete/zero mailbox becomes PASS.
+
+### V-04-06-02
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^cpu\.(peek|mailbox|nc\.peek_effect)$' --no-tests=error --output-on-failure
+```
+
+Fails when: Invalid spans mutate buffer/state, a partial mailbox becomes terminal, or planted peek effects evade the gate.
+
+### V-04-07-01
+
+```sh
+cmake --build --preset ci && build/ci/cpu_test trace
+```
+
+Fails when: A disabled category appears, event values/time differ from real bus results, or one-short capacity alters state/records.
+
+### V-04-07-02
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^cpu\.(trace|trace_capacity|nc\.(trace_loss|budget_overshoot))$' --no-tests=error --output-on-failure
+```
+
+Fails when: A lost/overwritten record or cap overshoot passes, or masks/capacity affect guest state without an explicit refusal.
+
+### V-04-08-01
+
+```sh
+cmake -E make_directory build/phase04-tracer && cc -std=c17 -Irunner -Itests runner/sha256.c tests/hash_test.c -o build/phase04-tracer/hash_test && build/phase04-tracer/hash_test
+```
+
+Fails when: Any independent digest differs, boundary padding reads beyond span, refusal changes output, or host SHA arithmetic triggers UB.
+
+### V-04-09-01
+
+```sh
+cmake --preset ci && cmake --build --preset ci && cmake -DSRC=. -DBIN=build/ci -P tests/gates/runner_metadata.cmake
+```
+
+Fails when: Invalid manifest produces an index, empty canonical index grants a fixture, a changed image matches stale metadata, or control/production sources/options diverge.
+
+### V-04-09-02
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^runner\.(hash|metadata)$' --no-tests=error --output-on-failure
+```
+
+Fails when: A generated-authority mismatch, invalid metadata or deliberately wrong independent hash expectation is accepted.
+
+### V-04-10-01
+
+```sh
+cmake --preset ci && cmake --build --preset ci && build/ci/gamebloke-run-control --rom build/ci/generated/fixtures/owned-arm-pass.gba --fixture synthetic-control-pass --cycles 1000
+```
+
+Fails when: The producer does not execute real guest stores, emits more than one JSON document, omits real cycles/digest/semantic fields, or raw production input yields PASS.
+
+### V-04-11-01
+
+```sh
+cmake --build --preset ci && build/ci/runner_test && cmake -DSRC=. -DBIN=build/ci -P tests/gates/runner_case.cmake
+```
+
+Fails when: Any bounded read/conversion overshoots, result conflates termination with semantic outcome, cancellation escapes watchdog, or incomplete trace/zero mailbox yields PASS.
+
+### V-04-11-02
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^runner\.(tracer|unit|cases|help|version|usage_error|no_args)$' --no-tests=error --output-on-failure
+```
+
+Fails when: A required producer case is missing or detached, or legacy help/usage regresses.
+
+### V-04-12-01
+
+```sh
+cmake --build --preset ci && cmake -DSRC=. -DBIN=build/ci -DVALIDATE_PRODUCER=ON -P tests/gates/runner_case.cmake
+```
+
+Fails when: A synthetic canned producer is accepted despite changed guest code, missing dispute survives validation, or a malformed/overshooting semantic/time result validates.
+
+### V-04-12-02
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^(runner\.result_contract|result\.)' --no-tests=error --output-on-failure
+```
+
+Fails when: A result gate disappears, fails only from stale/no-match input, or actual producer validation is not registered. The evidence guide contradicting actual CLI flags, mailbox order, result fields or authority is an acceptance failure.
+
+### V-04-13-01
+
+```sh
+cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^runner\.relocation(_control)?$' --no-tests=error --output-on-failure
+```
+
+Fails when: Moved CLI needs source/CMake/old prefix, differs in JSON/trace/output status, invents PASS for raw data, or missing-executable control passes.
+
+### V-04-13-02
+
+```sh
+cmake --workflow --preset ci && cmake --fresh --preset asan -DCMAKE_C_COMPILER=/usr/bin/clang && cmake --build --preset asan && ctest --preset asan && ctest --preset asan-post && git diff --check
+```
+
+Fails when: Any required lane/control/inventory fails, instrumentation omits final sources, core includes host APIs, or execution evidence is missing/skipped without an allowed explicit reason.
+
+## Wave-0 / missing-test scaffold responsibilities
+
+The infrastructure already exists. There is no detached test-only foundation phase: every tracer writes the failing behavioral test and real production path together.
+
+| Missing artifact | Created by | First execution |
+| --- | --- | --- |
+| tests/cpu_test.c; CPU structs/interpreter | 04-01-01 | direct native compile and tracer selector |
+| cpu_test CMake target/initial selectors and source-list parity | 04-02-01 | targeted CTest |
+| arithmetic/Thumb/decode/alignment selectors | 04-03-01/02; registration and controls04-03-03 | direct selectors then CTest |
+| mode/exception/no-BIOS selectors and controls | 04-04-01/02; registration04-04-03 | direct selectors then CTest |
+| CPU profile validator/control cases | 04-05-01; registration04-05-02 | direct script then CTest |
+| inspect.c and peek/mailbox selectors | 04-06-01; source/registration/control04-06-02 | direct compile then CTest |
+| selected traces/capacity selectors and controls | 04-07-01/02 | direct selector then CTest |
+| sha256.c/h and tests/hash_test.c | 04-08-01; CMake target/registration04-09-02 | direct compile then CTest |
+| instruction-image generator, immutable index and metadata script | 04-09-01; registration04-09-02 | script then CTest |
+| actual production/control CLI sources and generated-index linking | 04-10-01 | direct actual CLI run |
+| runner_test, failure-injection host seams and runner_case script | 04-11-01; registration/inventories04-11-02 | direct executable/script then CTest |
+| actual-producer result checker witnesses | 04-12-01; registration04-12-02 | actual output through Phase2 checker |
+| moved-prefix installed production runner check | 04-13-01 | install/move/unrelated-cwd CTest |
+
+## Important controls and provenance
+
+- PC/refill, shifter carry, bank isolation, exception LR and absent-vector-fetch faults compile against the canonical core and must fail semantic assertions with clean companions.
+- Peek effects, trace record loss/overwrite and one-unit budget bypass faults must be caught by full state/record evidence. Compilation failure is never semantic evidence.
+- Whole-span SHA uses independently chosen expected vectors, not the private fixed156 helper as an arbitrary-ROM oracle.
+- Production metadata derives only from the validated canonical manifest, which may remain empty. Synthetic metadata/index inputs are hermetic contract controls and grant no rights. Production/control runner targets have identical sources/options/core; only immutable index input differs.
+- Producer controls mutate real guest code and actual stdout, proving the result path is not a detached canned JSON generator. Expected dispute ids/label come from the generated synthetic row, and actual emitted output reaches CheckResult.cmake.
+- Installed relocation compares the real production executable and actual raw diagnostic cycles/semantics/JSON/trace; unregistered bytes cannot PASS. A missing-executable negative control must fail for its named reason.
+- No Nintendo bytes, private ROM/BIOS CPU runs, external assemblers, BIOS HLE/stub, package installs, stable embedding ABI, project-license decision or release enters this phase.
+
+## Probe accounting and remaining judgment flags
+
+The actual spec-less report has11 surfaced edges: five resolved explicitly in plan04 (bank adjacency, absent/null SPSR, snapshot order) and plan11 (cap boundary, exact checked conversion), plus six unclassified rows retained as unresolved flagged assumptions in plan01 CPU-03, plan03 CPU-05, plan04 PROF-03, plan06 RUN-02, plan07 RUN-03 and plan13 RUN-04. Concrete behavioral checks do not falsely resolve a taxonomy miss. No-silent-drop equality:11=5+6.
+
+The in-prompt prohibition precision pass retained two descriptor-less standing-policy flags: no private/rights-bearing fixture repurposing or fake rights grants (plan01), and no inflated hardware/BIOS/compatibility claims (plan10). They remain unresolved/flagged-unverified for honest judgment disposition; no human acceptance or wired check was fabricated. No-silent-drop equality:2=2+0. Ordinary correctness and canon memory/security issues stay in behavioral tests and the security review.
+
+## Revision 2 context-budget disposition
+
+The checker warning boundary includes ten files. The three flagged plans now split at their existing task boundaries into thirteen plans with the same25 tasks and exact verification commands. Unique edit sets range from three to nine files. Original01 becomes01/02; original07 becomes08/09; original08 becomes10/11. Other plans shift in order, as recorded by the complete mapping in13-PLAN.
+
+The first ARM native tracer executes in01. Canonical configured cores and scratch compilation are wired in02 before arithmetic/Thumb expansion in03. Native hash vectors execute in08 before metadata/target registration in09. The real CLI smoke executes in10 before runner_test and failure-case target creation/registration in11. Single-task plans01,08 and10 are intentional coherent tracers; there is no new phase boundary, behavior reduction, rights grant or dependency.
+
+## Validation sign-off after execution
+
+- [ ] All25 actual task commands and observable failure directions have current evidence.
+- [ ] Every required test artifact exists before its first command; unknown/missing selectors fail.
+- [ ] Canonical source/header lists include all production and scratch dependencies.
+- [ ] All required controls fail for their intended semantic reason and clean companions pass.
+- [ ] Final CI, fresh sanitizer and post/inventory results reconcile; allowed skips remain visible.
+- [ ] Actual producer JSON, dispute ids/label, exact caps and moved installed output are verified.
+- [ ] Measured final feedback/critical path and any evidence-supported duplicate-build reduction are recorded.
+- [ ] Six unresolved classification assumptions and two judgment/rights flags retain honest dispositions.
+- [ ] Independent Nyquist/security/code-review results are recorded without invented acceptance.
+
+Approval and compliance remain pending execution and audit. No user action is required to run these authorized local checks.

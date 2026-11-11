@@ -190,7 +190,48 @@ Plans:
   3. Running the runner on a ROM image with a cycle or frame bound produces one JSON document with separate `status`, semantic result, machine time in cycles, claim tuple, and `limits` fields. The semantic result is read from the IWRAM mailbox by `peek`, and a test shows that `peek` leaves the state digest and the master clock unchanged. When the fixture's manifest row carries a dispute id, the emitted result lists that id and carries the `disputed` label, and the Phase 2 result validator accepts the document (this completes the producer half of Phase 2 criterion 5).
   4. A trace run with a category mask writes only the selected categories (instruction, bus access, exception) into a bounded buffer. With an undersized buffer, the run ends with an explicit output-full status and drops no records silently.
   5. The runner CLI is installed with `cmake --install` to one prefix, then moved to another directory. From there it runs and produces a JSON result identical to the one from the build tree.
-**Plans**: TBD
+**Plans**: 13 plans
+
+Plans:
+**Wave 1**
+- [ ] 04-01-PLAN.md — First bus-backed bounded ARM execution
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 04-02-PLAN.md — Canonical CPU build integration and lifecycle refusal evidence
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 04-03-PLAN.md — Defined arithmetic and the explicit ARM/Thumb execution slice
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 04-04-PLAN.md — All mode banks and precise no-BIOS exception transitions
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 04-05-PLAN.md — Versioned direct-start CPU policy and honest profile limits
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 04-06-PLAN.md — Neutral IWRAM inspection and a complete versioned mailbox
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 04-07-PLAN.md — Selected bounded traces with atomic capacity preflight
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 04-08-PLAN.md — Bounded whole-span content hashing
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 04-09-PLAN.md — Immutable fixture indexes and metadata identity controls
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 04-10-PLAN.md — First fresh CLI run through the canonical JSON producer
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 04-11-PLAN.md — Bounded CLI failures, cancellation, trace and canonical lanes
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [ ] 04-12-PLAN.md — Enforce semantic/time contracts against actual emitted producer JSON
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 04-13-PLAN.md — Relocated installed production runner and final source/inventory evidence
+
 **Research flag**: Needs research. Read the ARM7TDMI TRM (ARM DDI 0029G) and the GBATEK 3.06 CPU chapters in full, with ARMv4T version tags, before planning. Start the CP-3 post-boot state table for `direct-start` with BIOS provider `none`.
 **Owner gates**: None blocking. G1 reuse rule as in Phase 3.
 
