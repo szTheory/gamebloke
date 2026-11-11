@@ -179,7 +179,8 @@ Plans:
 **Owner gates**: None blocking. G1 reuse rule: do not copy code from GPL (NanoBoyAdvance) or MPL (mGBA) sources; read them for behavior only.
 
 ### Phase 4: CPU Execution Core and Headless Runner
-**Goal**: A fresh instance executes ARM7TDMI code only through the bus, with explicit pipeline, open-bus, mode, and exception state. The headless runner turns each bounded run into one JSON result that keeps status, semantic result, machine time, claim, and limits separate.
+**Goal**: As a core developer, I want to execute ARM7TDMI code from a fresh bus-backed instance and obtain bounded headless JSON results with separate status, semantic result, machine time, claim and limits, so that I can inspect deterministic CPU behavior and judge exactly what each diagnostic result establishes.
+**Technical boundary (unchanged):** A fresh instance executes ARM7TDMI code only through the bus, with explicit pipeline, open-bus, mode, and exception state. The headless runner turns each bounded run into one JSON result that keeps status, semantic result, machine time, claim, and limits separate.
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: CPU-03, CPU-04, CPU-05, PROF-03, RUN-01, RUN-02, RUN-03, RUN-04

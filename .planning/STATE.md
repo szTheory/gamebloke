@@ -6,10 +6,10 @@ current_phase: 4
 current_phase_name: CPU Execution Core and Headless Runner
 status: planning
 stopped_at: Phase 3 complete, ready to plan Phase 4
-last_updated: "2026-11-11T01:20:53.971Z"
+last_updated: "2026-11-11T02:04:03.827Z"
 last_activity: 2026-11-10
-last_activity_desc: Phase 3 complete, transitioned to Phase 4
-state_head: 03cc5c00c7d4ddecbac18e9338de893703a04ebe
+last_activity_desc: CPU/GBA/runner research, deterministic-start policy and validation strategy reconciled; mapping existing patterns before independent planning and check
+state_head: 110b914bcdf3351e02c17fa626af2c5bfd0c18b9
 progress:
   total_phases: 6
   completed_phases: 3
@@ -32,8 +32,8 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 
 Phase: 4 — CPU Execution Core and Headless Runner
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-10 — Phase 3 complete, transitioned to Phase 4
+Status: Planning Phase 4
+Last activity: 2026-11-10 — CPU/GBA/runner research, deterministic-start policy and validation strategy reconciled; mapping existing patterns before independent planning and check
 
 Progress: [█████░░░░░] 50%
 
@@ -163,6 +163,12 @@ Recent decisions affecting current work:
 
 - [Phase 03]: The owner explicitly accepted both documented phase claim limits. UAT and canonical verification pass; all seven implementation plans are complete. Existing PR #6 is the publication path; push final acceptance bookkeeping once and wait for green required checks before squash merge. No further acceptance prompt is needed for these same limits. The phase contains no frontend; visual review is not applicable. Graduation scan has only two completed prior phases, below its threshold.
 
+- [Phase 03]: PR #6 squash-merged through the ruleset; main required CI passes. Final-head and main timing/inventory snapshots are retained in build/phase03-logo-activation/merge-main-result.json. Private inputs and original user edits were preserved. A stash backup of only the generated state cache remains local after a clean restore; no reset or branch deletion was used.
+
+- [Phase 04]: Required ARM7TDMI DDI0029G manual and GBATEK 3.06 CPU source reading are complete; independent CPU/GBA/runner notes and the synthesized context distinguish source observations from project policy. The GBA note was recovered complete after interrupting prolonged finalization, without repeating source reading. Routine reversible choices are recorded as agent decisions under standing autonomy, not fabricated owner votes. The original Phase 4 goal is retained verbatim as its technical boundary alongside the MVP user-story format.
+
+- [Phase 04]: Keep one canonical `04-RESEARCH.md`; supporting lenses use `*-NOTES.md`. The generic research-file resolver selected a partial ARM lens when several files ended in RESEARCH.md, creating a misleading drift warning and hiding the synthesized validation section. Supporting-note renaming and explicit context reconciliation fix the consumer input without repeating hardware research.
+
 ### Pending Todos
 
 None yet.
@@ -172,11 +178,11 @@ None yet.
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
 - Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
-- Phase 1 follow-up: the owner-authorized digest is supplied and verified on the Phase 3 branch. No further owner file/helper task remains. EVID-04 activation on main awaits the existing phase PR merge.
-- Phase 1: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
+- Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
+- Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
-- Phase 3: owner acceptance is recorded and canonical verification passes. Complete the existing green-PR publication path before starting Phase 4. No further owner input is needed for this accepted scope.
+- Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
 
 - Phase 3: the initial hosted GCC failure has an owner-authorized explicit-conversion fix, verified locally with GNU and fresh sanitizers. PR #6 remains draft for owner acceptance. The corrected head must pass live hosted checks; any new red result renews the standing stop. No merge or Phase 4 start while the independent owner-data/manual gate remains unresolved.
 
