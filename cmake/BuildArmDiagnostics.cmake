@@ -74,7 +74,7 @@ if(MODE STREQUAL "case")
   string(JSON selected_family GET "${selected_row}" family)
   string(JSON selected_target GET "${selected_row}" inventory_target)
   if(NOT "${CASE_ID}" STREQUAL "20481" OR
-     NOT selected_state STREQUAL "source-verified-pending-admission" OR
+     NOT selected_state MATCHES "^(source-verified|verified)$" OR
      NOT selected_family STREQUAL "diagnostic-harness" OR selected_target)
     message(FATAL_ERROR "arm-diagnostics: case-builder-unimplemented: ${CASE_ID}")
   endif()

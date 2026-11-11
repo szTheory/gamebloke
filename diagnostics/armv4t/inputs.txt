@@ -1,6 +1,7 @@
 # ROM production and admission inputs; every path is checked against the selected
-# Git revision before output builds. Any listed change requires a
-# rebuild and output re-admission.
+# Git revision before output builds. Any listed change, including a ledger or
+# witness-state update, requires a rebuild and output re-admission. Adding the
+# canonical fixture manifest rows alone does not change producer inputs.
 # Top-level CMakeLists.txt is intentionally omitted: it wires consumers and
 # future CPU test targets. The authoritative ROM command and byte-affecting
 # flags live in cmake/BuildArmDiagnostics.cmake.

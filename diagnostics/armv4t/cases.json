@@ -8146,7 +8146,7 @@
       "observe": "Run both fixture IDs through the immutable production index and real runner; check canonical result, exact terminal status, mailbox case ID/state/progress and loaded bytes.",
       "expected": {
         "derivation": "The positive source asserts the mailbox pass code only after complete-last; the broken build changes the asserted operand from 5 to 6 so the guest reports the same case ID as a semantic failure.",
-        "value": "Positive: PASS, semantic=pass, case_id=20481. Broken: GUEST_FAIL, semantic=fail, case_id=20481. Final source/tool/output pins await exact-head hosted identity evidence."
+        "value": "Positive: PASS, semantic=pass, case_id=20481. Broken: GUEST_FAIL, semantic=fail, case_id=20481."
       },
       "source_reference": "diagnostics/armv4t/smoke.S; diagnostics/armv4t/startup.S; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-DIAGNOSTIC-NOTES.md",
       "cpu_quirk": [],
@@ -8155,7 +8155,7 @@
       "negative_fixture": "smoke-broken",
       "expected_fail_case_id": 20481,
       "trace_required": false,
-      "coverage_state": "source-verified-pending-admission",
+      "coverage_state": "source-verified",
       "broken_assertion": {
         "source": "diagnostics/armv4t/smoke.S GBL_BROKEN comparison operands",
         "arm_clean_operand": 5,
