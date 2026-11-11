@@ -3318,10 +3318,10 @@ int main(int argc, char **argv)
         printf("1..8\n");
         test_thumb();
     } else if (strcmp(argv[1], "decode") == 0) {
-        printf("1..7\n");
+        printf("1..8\n");
         test_decode();
     } else if (strcmp(argv[1], "alignment") == 0) {
-        printf("1..8\n");
+        printf("1..11\n");
         test_alignment();
     } else {
         return 2;
