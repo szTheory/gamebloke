@@ -130,7 +130,8 @@ typedef enum gbl_cpu_stop_reason {
     GBL_CPU_STOP_NONE = 0,
     GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION = 1,
     GBL_CPU_STOP_BUS_ERROR = 2,
-    GBL_CPU_STOP_COUNTER_OVERFLOW = 3
+    GBL_CPU_STOP_COUNTER_OVERFLOW = 3,
+    GBL_CPU_STOP_UNDEFINED_INSTRUCTION = 4
 } gbl_cpu_stop_reason;
 
 typedef struct gbl_cpu_pipeline_entry {
@@ -178,7 +179,8 @@ typedef enum gbl_run_reason {
     GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION = 3,
     GBL_RUN_REASON_BUS_ERROR = 4,
     GBL_RUN_REASON_COUNTER_OVERFLOW = 5,
-    GBL_RUN_REASON_INVALID_CPU_STATE = 6
+    GBL_RUN_REASON_INVALID_CPU_STATE = 6,
+    GBL_RUN_REASON_UNDEFINED_INSTRUCTION = 7
 } gbl_run_reason;
 
 typedef struct gbl_run_options {

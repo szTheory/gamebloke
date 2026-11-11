@@ -1,5 +1,6 @@
 #include "gamebloke/gamebloke.h"
 
+#include "../src/cpu_helpers.h"
 #include "state_check.h"
 
 #include <stdio.h>
@@ -166,7 +167,8 @@ static bool run_single_instruction(gbl_machine *machine, uint32_t opcode,
     machine->cpu.next_fetch_sequential = true;
     machine->cpu.stopped = false;
     machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
-    return run_units(machine, 1u, 1u, result);
+    return run_units(machine, (opcode & UINT32_C(0x10)) != 0u ? 2u : 1u,
+                     1u, result);
 }
 
 static void test_lifecycle(void)
@@ -623,6 +625,60 @@ static void test_arithmetic(void)
     make_program(image);
     loaded = machine_load(&machine, image);
 
+    {
+        static const uint8_t amounts[] = { 0u, 1u, 31u, 32u, 33u, 255u };
+        static const uint32_t expected_values[] = {
+            UINT32_C(0x80000001), UINT32_C(2), UINT32_C(0x80000000),
+            0u, 0u, 0u
+        };
+        static const bool expected_carries[] = {
+            true, true, false, true, false, false
+        };
+        bool vectors_match = true;
+        size_t index;
+
+        for (index = 0u; index < sizeof(amounts) / sizeof(amounts[0]);
+             ++index) {
+            const gbl_shift_result shifted = gbl_shift(
+                GBL_SHIFT_LSL, UINT32_C(0x80000001), amounts[index], true,
+                true);
+
+            if (shifted.value != expected_values[index] ||
+                shifted.carry != expected_carries[index]) {
+                vectors_match = false;
+            }
+        }
+        test_case(loaded && vectors_match,
+                  "shift helper defines counts zero, 1, 31, 32, 33 and 255");
+    }
+
+    {
+        const gbl_shift_result rrx = gbl_shift(
+            GBL_SHIFT_ROR, UINT32_C(3), 0u, true, false);
+        const gbl_shift_result lsr = gbl_shift(
+            GBL_SHIFT_LSR, UINT32_C(0x80000001), 0u, false, false);
+        const gbl_shift_result asr = gbl_shift(
+            GBL_SHIFT_ASR, UINT32_C(0x80000001), 0u, false, false);
+
+        test_case(loaded && rrx.value == UINT32_C(0x80000001) && rrx.carry &&
+                      lsr.value == 0u && lsr.carry &&
+                      asr.value == UINT32_MAX && asr.carry,
+                  "shift helper distinguishes RRX, LSR zero and ASR zero");
+    }
+
+    {
+        const gbl_arithmetic_result addition = gbl_add_flags(
+            UINT32_C(0x7FFFFFFF), UINT32_C(1));
+        const gbl_arithmetic_result subtraction = gbl_sub_flags(
+            UINT32_C(0x80000000), UINT32_C(1));
+
+        test_case(loaded && addition.value == UINT32_C(0x80000000) &&
+                      !addition.carry && addition.overflow &&
+                      subtraction.value == UINT32_C(0x7FFFFFFF) &&
+                      subtraction.carry && subtraction.overflow,
+                  "add/sub helpers return wrapped value, carry and overflow");
+    }
+
     machine.cpu.r0_7[0] = UINT32_C(0x7FFFFFFF);
     machine.cpu.r0_7[1] = UINT32_C(1);
     ran = loaded && run_single_instruction(&machine, UINT32_C(0xE0902001),
@@ -656,12 +712,12 @@ static void test_arithmetic(void)
               "MOVS LSL immediate one returns shifted bit as carry");
 
     machine.cpu.r0_7[0] = UINT32_C(0x80000001);
-    machine.cpu.r0_7[1] = 0u;
+    machine.cpu.r0_7[1] = UINT32_C(0x00000100);
     ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
                                             TEST_CPSR_C, &result);
     test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0x80000001) &&
                   (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
-              "register shift count zero preserves the value and old carry");
+              "register shift uses low eight count bits and preserves carry at zero");
 
     machine.cpu.r0_7[0] = UINT32_C(0x80000001);
     machine.cpu.r0_7[1] = UINT32_C(31);
@@ -677,8 +733,9 @@ static void test_arithmetic(void)
     ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
                                             0u, &result);
     test_case(ran && machine.cpu.r0_7[2] == 0u &&
+                  result.cycles == 2u &&
                   (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
-              "register LSL count 32 produces zero and old bit zero carry");
+              "register LSL count 32 costs an internal cycle and uses bit zero");
 
     machine.cpu.r0_7[0] = UINT32_C(0x80000001);
     machine.cpu.r0_7[1] = UINT32_C(33);
@@ -735,6 +792,128 @@ static void test_arithmetic(void)
                   machine.cpu.execution_address == UINT32_C(0x08000004),
               "failed ARM condition retires without data effects");
 
+    machine.cpu.r0_7[0] = 0u;
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE3A00102),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[0] == UINT32_C(0x80000000),
+              "MOV immediate rotates the eight-bit literal by an even amount");
+
+    machine.cpu.r0_7[2] = UINT32_C(0x80000000);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE2921102),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[1] == 0u &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                       TEST_CPSR_C | TEST_CPSR_V)) ==
+                      (TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V),
+              "ADDS immediate uses rotated operand and independent carry/overflow");
+
+    machine.cpu.r0_7[0] = UINT32_C(0xF0F0);
+    machine.cpu.r0_7[1] = UINT32_C(0x0FF0);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE0102001),
+                                            TEST_CPSR_C | TEST_CPSR_V, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0xF0) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                       TEST_CPSR_C | TEST_CPSR_V)) ==
+                      (TEST_CPSR_C | TEST_CPSR_V),
+              "ANDS updates N/Z/C while preserving V");
+
+    machine.cpu.r0_7[0] = UINT32_C(0xF0);
+    machine.cpu.r0_7[1] = UINT32_C(0x0F);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1803001),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[3] == UINT32_C(0xFF),
+              "ORR combines two register operands");
+
+    machine.cpu.r0_7[0] = UINT32_C(1);
+    machine.cpu.r0_7[1] = UINT32_C(1);
+    machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1500001),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0xA5A5A5A5) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                       TEST_CPSR_C | TEST_CPSR_V)) ==
+                      (TEST_CPSR_Z | TEST_CPSR_C),
+              "CMP sets flags without writing its encoded destination");
+
+    {
+        static const bool expected[] = {
+            false, true, true, false, false, true, false, true,
+            true, false, true, false, true, false, true
+        };
+        bool predicates_match = true;
+        uint8_t condition;
+
+        for (condition = 0u; condition < (uint8_t)15u; ++condition) {
+            const uint32_t opcode = ((uint32_t)condition << 28u) |
+                                    UINT32_C(0x01A04000);
+
+            machine.cpu.r0_7[0] = UINT32_C(0x12345678);
+            machine.cpu.r0_7[4] = UINT32_C(0xA5A5A5A5);
+            ran = loaded && run_single_instruction(
+                &machine, opcode, TEST_CPSR_C, &result);
+            if (!ran || result.instructions != 1u ||
+                machine.cpu.r0_7[4] !=
+                    (expected[condition] ? UINT32_C(0x12345678)
+                                         : UINT32_C(0xA5A5A5A5))) {
+                predicates_match = false;
+            }
+        }
+        test_case(loaded && predicates_match,
+                  "all ARM condition predicates select the expected effects");
+    }
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02000),
+                                            TEST_CPSR_C, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0x80000001) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "encoded LSL immediate zero leaves value and carry unchanged");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000003);
+    machine.cpu.r0_7[1] = UINT32_C(1);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02130),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0x40000001) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "register LSR shifts the selected operand and carry");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000003);
+    machine.cpu.r0_7[1] = UINT32_C(1);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02150),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0xC0000001) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "register ASR sign-extends with an explicit unsigned mask");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000003);
+    machine.cpu.r0_7[1] = UINT32_C(1);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02170),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0xC0000001) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "register ROR rotates by the low eight-bit count");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x12345678);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02460),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0x78123456) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) == 0u,
+              "nonzero immediate ROR rotates and reports result bit 31");
+
+    {
+        const gbl_shift_result lsr32 = gbl_shift(
+            GBL_SHIFT_LSR, UINT32_C(0x80000001), 32u, false, true);
+        const gbl_shift_result asr33 = gbl_shift(
+            GBL_SHIFT_ASR, UINT32_C(0x80000001), 33u, false, true);
+        const gbl_shift_result ror33 = gbl_shift(
+            GBL_SHIFT_ROR, UINT32_C(0x80000003), 33u, false, true);
+
+        test_case(lsr32.value == 0u && lsr32.carry &&
+                      asr33.value == UINT32_MAX && asr33.carry &&
+                      ror33.value == UINT32_C(0xC0000001) && ror33.carry,
+                  "helper defines large LSR/ASR/ROR counts without host UB");
+    }
+
     gbl_machine_dispose(&machine);
 }
 
@@ -754,7 +933,7 @@ int main(int argc, char **argv)
         printf("1..9\n");
         test_budget();
     } else if (strcmp(argv[1], "arithmetic") == 0) {
-        printf("1..13\n");
+        printf("1..28\n");
         test_arithmetic();
     } else {
         return 2;
