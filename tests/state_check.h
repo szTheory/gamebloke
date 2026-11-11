@@ -133,7 +133,8 @@ static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
     digest = gbl_test_digest_bytes(digest, machine->pram, GBL_PRAM_SIZE);
     digest = gbl_test_digest_bytes(digest, machine->vram, GBL_VRAM_SIZE);
     digest = gbl_test_digest_bytes(digest, machine->oam, GBL_OAM_SIZE);
-    digest = gbl_test_digest_byte(digest, machine->rom == NULL ? 0u : 1u);
+    digest = gbl_test_digest_byte(
+        digest, (uint8_t)(machine->rom == NULL ? 0u : 1u));
     digest = gbl_test_digest_u64(digest, (uint64_t)machine->rom_length);
     if (machine->rom != NULL && machine->rom_length != 0u) {
         digest = gbl_test_digest_bytes(digest, machine->rom,

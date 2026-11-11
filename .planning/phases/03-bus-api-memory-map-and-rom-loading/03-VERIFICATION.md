@@ -18,6 +18,7 @@ covered_files:
   - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-06-SUMMARY.md
   - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-07-PLAN.md
   - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-07-SUMMARY.md
+  - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-CI-HANDOFF.md
   - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-EVIDENCE.md
   - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-REVIEW-DISPOSITION.md
   - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-REVIEW.md
@@ -48,7 +49,7 @@ covered_files:
   - tests/signatures/logo.sha256
   - tests/state_check.h
   - tests/version_test.c
-covered_digest: "v4:sha256:539ca1fcd2009dee2534ae720447e4ee5be9bd81b6e466a937d95b48be35b41d"
+covered_digest: "v4:sha256:c8dd725e68ef8469b34c9509b45b2d392eb3bed7ddcbf7e7b8381a18796b2297"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -253,3 +254,24 @@ The remaining human gate is the genuine canonical-logo authority/result. Product
 
 _Verified: 2026-11-11T00:18:48Z_
 _Verifier: gsd-verifier_
+
+## Narrow GCC portability re-verification
+
+The parent reviewed the authorized explicit `uint8_t` conversion in the shared
+test-state digest helper after hosted GCC rejected the implicit conversion.
+Both conditional values are exactly representable; production behavior and
+warning flags are unchanged. The corrected source passed the full local
+GCC 15.2.0 Linux aarch64 workflow (294 run, two documented owner skips, inventory
+post-check passed) and a fresh installed-AppleClang ASan/UBSan run (42 run, zero
+skipped, inventory post-check passed). The container's initial nested-configure
+fixture failure and the local unavailable-compiler attempt are retained and
+distinguished in `03-CI-HANDOFF.md`; the successful runs followed environment
+correction. This addendum is parent-authored targeted re-verification, not a
+repeat of the prior independent whole-phase review.
+
+The source fingerprint is refreshed after this change. The original automated
+truths remain supported; `human_needed`, the canonical authority item and human
+judgment items remain unresolved. The corrected head's hosted status belongs
+to PR #6's live checks, not the earlier failed run.
+
+_Parent re-verification: 2026-11-11T00:32:07Z_

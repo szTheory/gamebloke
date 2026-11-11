@@ -3,13 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 03
-current_phase_name: STOPPED ON RED CI
-status: Stopped on red CI; waiting for owner authorization
+current_phase_name: HUMAN VERIFICATION
+status: Waiting for owner data and human verification; hosted checks on draft PR 6
 stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-11-11T00:25:07.946Z"
+last_updated: "2026-11-11T00:32:07.428Z"
 last_activity: 2026-11-10
-last_activity_desc: Draft PR 6 published; GCC test-helper conversion failure diagnosed; no fix or retry after the standing stop
-state_head: f9a82cdc0585bfe7b4f1a07189fbbb8e8b5535d6
+last_activity_desc: Authorized explicit-byte fix passes local GCC and fresh sanitizers; corrected head proceeds through the existing draft PR with the red-CI stop retained
+state_head: 8e8c210250d31c1440b28031d13c642a0e5aca1c
 progress:
   total_phases: 6
   completed_phases: 2
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 03 (Bus API, Memory Map, and ROM Loading) — STOPPED ON RED CI
-Plan: 7 of 7 implementation plans complete; hosted CI failed and acceptance pending
-Status: Stopped on red CI; waiting for owner authorization
-Last activity: 2026-11-10 — Draft PR 6 published; GCC test-helper conversion failure diagnosed; no fix or retry after the standing stop
+Phase: 03 (Bus API, Memory Map, and ROM Loading) — HUMAN VERIFICATION
+Plan: 7 of 7 implementation plans complete; acceptance pending
+Status: Waiting for owner data and human verification; hosted checks on draft PR 6
+Last activity: 2026-11-10 — Authorized explicit-byte fix passes local GCC and fresh sanitizers; corrected head proceeds through the existing draft PR with the red-CI stop retained
 
 Progress: [███░░░░░░░] 33%
 
@@ -150,7 +150,9 @@ Recent decisions affecting current work:
 
 - [Phase 03]: Plan 07 wires the bounded digest comparison through the real copied-ROM loader and validates the fixed build authority. Fresh current-inventory sanitizer evidence and clean independent code/security reviews close the implementation gaps. Production authority remains owner-pending; synthetic matches do not complete LOAD-02.
 
-- [Phase 03]: Draft PR #6 is published. Hosted GNU compilation failed on an implicit unsigned-to-byte conversion in the test-state helper. The standing red-CI stop is active: no fix, retry, push or merge without owner authorization. See 03-CI-HANDOFF.md for the exact failure, successful hosted lanes, proposed bounded remedy and remaining owner-data gate.
+- [Phase 03]: Initial hosted stop: draft PR #6 failed GNU compilation on an implicit unsigned-to-byte conversion in the test-state helper. No fix or retry preceded owner authorization. The subsequent authorized correction and local retest are recorded in 03-CI-HANDOFF.md; use the PR live checks for the corrected hosted head.
+
+- [Phase 03]: Owner authorized the explicit test-helper byte conversion and bounded local/hosted verification on existing PR #6. Preserve all warning flags. Renew the standing stop if the new hosted run is red; logo authority/manual acceptance and Phase 4 hold are unchanged.
 
 ### Pending Todos
 
@@ -167,7 +169,7 @@ None yet.
 
 - Phase 3: acceptance is human-needed. Implementation and local verification are complete, but LOAD-02 needs the approved production logo digest and the manual claim review recorded in 03-UAT.md. Phase 4 remains stopped. Keep the single Phase 3 PR draft while this owner gate is unresolved; do not treat CI success as phase acceptance.
 
-- Phase 3: hosted Linux GCC is red before tests; PR #6 remains draft. Owner acts next on the narrow portability fix/retest authorization. Local handoff bookkeeping after the stop is intentionally unpushed so it cannot trigger another hosted run.
+- Phase 3: the initial hosted GCC failure has an owner-authorized explicit-conversion fix, verified locally with GNU and fresh sanitizers. PR #6 remains draft for owner acceptance. The corrected head must pass live hosted checks; any new red result renews the standing stop. No merge or Phase 4 start while the independent owner-data/manual gate remains unresolved.
 
 ## Deferred Items
 
