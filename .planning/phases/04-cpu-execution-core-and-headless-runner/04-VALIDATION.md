@@ -19,6 +19,10 @@ The audit replay ran the CPU unit selectors, all eight CPU semantic mutation con
 
 The empty production fixture manifest remains authoritative. The generated instruction images and synthetic metadata are local validator inputs, not rights grants. API-level exception tests cover all eight exception classifications; guest/CLI execution currently reaches SWI, undefined, and coprocessor stops only. The five externally triggered exception kinds remain API-only. The write trace currently reports the bus result value `0`, not the attempted store payload; this remains documented for independent code review.
 
+## Review regression supplement
+
+The independent code review found and fixed completed PASS/zero-ID acceptance, unrotated unaligned Thumb word loads, condition-failed ARM exception entry, and missing reason-code documentation. The registered zero-ID producer control uses a generated digest-matching image so it reaches guest execution and reports malformed semantics rather than an identity refusal. The five mailbox/alignment/decode/producer/metadata checks passed after all fixes and TAP plan reconciliation. The standard re-review is clean; the targeted security recheck closed both mailbox threats and retained adjacent changed-path mitigations. These deterministic findings leave no separate human product/rights gate. The subjective guide review and existing policy/probe rows below remain open.
+
 ## Test infrastructure and cadence
 
 Existing CTest/C17 assertion harness, CMake 3.25 floor, POSIX controls, sorted inventories and canonical source lists are retained. No package/runtime dependency or new testing framework is required.
