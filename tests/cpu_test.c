@@ -11,6 +11,11 @@
 #define TEST_BRANCH_TO_08000010 UINT32_C(0xEA000001)
 #define TEST_MOV_R1_R0 UINT32_C(0xE1A01000)
 #define TEST_MOV_R2_R0 UINT32_C(0xE1A02000)
+#define TEST_CPSR_N UINT32_C(0x80000000)
+#define TEST_CPSR_Z UINT32_C(0x40000000)
+#define TEST_CPSR_C UINT32_C(0x20000000)
+#define TEST_CPSR_V UINT32_C(0x10000000)
+#define TEST_CPSR_SYSTEM UINT32_C(0x0000001F)
 
 static unsigned int test_number;
 static unsigned int test_failures;
@@ -143,6 +148,25 @@ static bool run_units(gbl_machine *machine, uint64_t cycles, uint64_t units,
     const gbl_run_options options = { cycles, units };
 
     return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
+}
+
+static bool run_single_instruction(gbl_machine *machine, uint32_t opcode,
+                                   uint32_t cpsr, gbl_run_result *result)
+{
+    const uint32_t address = UINT32_C(0x08000000);
+
+    machine->cpu.execution_address = address;
+    machine->cpu.cpsr = (cpsr & ~UINT32_C(0x1F)) | TEST_CPSR_SYSTEM;
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        address, opcode, 4u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        address + UINT32_C(4), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    machine->cpu.stopped = false;
+    machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
+    return run_units(machine, 1u, 1u, result);
 }
 
 static void test_lifecycle(void)
@@ -588,6 +612,132 @@ static void test_budget(void)
     }
 }
 
+static void test_arithmetic(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool ran;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+
+    machine.cpu.r0_7[0] = UINT32_C(0x7FFFFFFF);
+    machine.cpu.r0_7[1] = UINT32_C(1);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE0902001),
+                                            TEST_CPSR_V, &result);
+    test_case(ran && result.termination == GBL_RUN_PROGRESS &&
+                  result.instructions == 1u &&
+                  machine.cpu.r0_7[2] == UINT32_C(0x80000000) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_V |
+                                       TEST_CPSR_C | TEST_CPSR_Z)) ==
+                      (TEST_CPSR_N | TEST_CPSR_V),
+              "ADDS wraps at signed maximum and sets N/V independently");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000000);
+    machine.cpu.r0_7[1] = UINT32_C(1);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE0503001),
+                                            0u, &result);
+    test_case(ran && result.termination == GBL_RUN_PROGRESS &&
+                  result.instructions == 1u &&
+                  machine.cpu.r0_7[3] == UINT32_C(0x7FFFFFFF) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_V |
+                                       TEST_CPSR_C | TEST_CPSR_Z)) ==
+                      (TEST_CPSR_V | TEST_CPSR_C),
+              "SUBS wraps at signed minimum and sets carry/no-borrow and V");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02080),
+                                            TEST_CPSR_V, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(2) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_C | TEST_CPSR_V)) ==
+                      (TEST_CPSR_C | TEST_CPSR_V),
+              "MOVS LSL immediate one returns shifted bit as carry");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    machine.cpu.r0_7[1] = 0u;
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
+                                            TEST_CPSR_C, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0x80000001) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "register shift count zero preserves the value and old carry");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    machine.cpu.r0_7[1] = UINT32_C(31);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0x80000000) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_C)) ==
+                      TEST_CPSR_N,
+              "register LSL count 31 returns value and carry");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    machine.cpu.r0_7[1] = UINT32_C(32);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[2] == 0u &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "register LSL count 32 produces zero and old bit zero carry");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    machine.cpu.r0_7[1] = UINT32_C(33);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
+                                            TEST_CPSR_C, &result);
+    test_case(ran && machine.cpu.r0_7[2] == 0u &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) == 0u,
+              "register LSL count 33 produces zero and clear carry");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    machine.cpu.r0_7[1] = UINT32_C(255);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
+                                            TEST_CPSR_C, &result);
+    test_case(ran && machine.cpu.r0_7[2] == 0u &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) == 0u,
+              "register LSL count 255 is not reduced modulo word width");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B03020),
+                                            TEST_CPSR_V, &result);
+    test_case(ran && machine.cpu.r0_7[3] == 0u &&
+                  (machine.cpu.cpsr & (TEST_CPSR_C | TEST_CPSR_V)) ==
+                      (TEST_CPSR_C | TEST_CPSR_V),
+              "encoded LSR immediate zero means shift by 32");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B03040),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[3] == UINT32_MAX &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "encoded ASR immediate zero sign-fills by 32");
+
+    machine.cpu.r0_7[0] = UINT32_C(3);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B04060),
+                                            TEST_CPSR_C, &result);
+    test_case(ran && machine.cpu.r0_7[4] == UINT32_C(0x80000001) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "ROR immediate zero performs RRX using old carry");
+
+    machine.cpu.r0_7[0] = UINT32_C(3);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B04060),
+                                            0u, &result);
+    test_case(ran && machine.cpu.r0_7[4] == UINT32_C(1) &&
+                  (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
+              "RRX with clear old carry inserts zero and returns bit zero");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x12345678);
+    machine.cpu.r0_7[4] = UINT32_C(0xA5A5A5A5);
+    ran = loaded && run_single_instruction(&machine, UINT32_C(0x11A04000),
+                                            TEST_CPSR_Z, &result);
+    test_case(ran && result.termination == GBL_RUN_PROGRESS &&
+                  result.instructions == 1u &&
+                  machine.cpu.r0_7[4] == UINT32_C(0xA5A5A5A5) &&
+                  machine.cpu.execution_address == UINT32_C(0x08000004),
+              "failed ARM condition retires without data effects");
+
+    gbl_machine_dispose(&machine);
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -603,6 +753,9 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "budget") == 0) {
         printf("1..9\n");
         test_budget();
+    } else if (strcmp(argv[1], "arithmetic") == 0) {
+        printf("1..13\n");
+        test_arithmetic();
     } else {
         return 2;
     }
