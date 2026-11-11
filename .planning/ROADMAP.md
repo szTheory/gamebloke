@@ -42,7 +42,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: CI and Verification Foundation** - One canonical verify command, the required `CI required` check, sanitizer lanes, test inventory, hygiene and signature scans, each with negative controls (completed 2026-11-09)
 - [x] **Phase 2: Profile, Fixture Manifest, and Result Contract** - Versioned `agb` profile, claim tuple, manifest and linter, pinned fetch, result taxonomy, and dispute registry (completed 2026-11-10)
-- [ ] **Phase 3: Bus API, Memory Map, and ROM Loading** - Final cost-returning bus API on a u64 master clock, full memory map, deterministic power-on state, and a loader that refuses bad input safely
+- [x] **Phase 3: Bus API, Memory Map, and ROM Loading** - Final cost-returning bus API on a u64 master clock, full memory map, deterministic power-on state, and a loader that refuses bad input safely (completed 2026-11-10)
 - [ ] **Phase 4: CPU Execution Core and Headless Runner** - Explicit-pipeline ARM7TDMI with modes and exceptions, and a runner that emits one bounded JSON result with mailbox, peek, and trace
 - [ ] **Phase 5: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion** - Reproducible pinned toolchain, project-authored diagnostics with negative variants, and full ARMv4T ARM and Thumb coverage
 - [ ] **Phase 6: Determinism Gates and Third-Party CPU Fixtures** - Repeat, optimization-level, two-compiler, and interleave equality, the bus-only time gate, and jsmolka CPU suites through a verified result channel
@@ -147,7 +147,7 @@ Plans:
   3. Two fresh instances have byte-identical memory and register contents at power-on, and those contents match the fill policy recorded in the profile.
   4. Zero-length, below-header-size, above-32-MiB, and odd-length images each give a distinct REFUSED reason. A full-state digest and a caller-buffer comparison prove that a refused load leaves both byte-identical. After a successful load, changing the caller's buffer does not change the instance.
   5. Under `direct-start`, a ROM with a missing or mismatched logo, a bad header checksum, or an unusual game code still loads, and each finding is reported as a loader diagnostic, not a refusal.
-**Plans**: 7/7 plans executed in six dependency-ordered waves
+**Plans**: 7/7 plans complete in six dependency-ordered waves
 
 Plans:
 - [x] 03-07-PLAN.md
@@ -288,7 +288,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
-| 3. Bus API, Memory Map, and ROM Loading | 7/7 | In Progress | - |
+| 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |

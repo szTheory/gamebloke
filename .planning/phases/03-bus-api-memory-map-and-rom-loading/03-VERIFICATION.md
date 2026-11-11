@@ -1,7 +1,7 @@
 ---
 phase: 03-bus-api-memory-map-and-rom-loading
 verified: 2026-11-11T00:55:48Z
-status: human_needed
+status: passed
 score: "28/28 must-haves verified"
 covered_files:
   - .planning/phases/03-bus-api-memory-map-and-rom-loading/03-01-PLAN.md
@@ -63,12 +63,13 @@ re_verification:
   regressions: []
 prohibition_flags:
   - statement: "MUST NOT present project timing, power-on fill, latch, or ROM-tail policies as measured hardware accuracy or broad compatibility."
-    status: "unverified-prohibition — human review recommended"
+    status: "resolved-owner-review"
     judgment: "Current profile and developer docs retain project-policy/unverified labels; this automated assessment is non-authoritative."
   - statement: "MUST NOT represent synthetic logo comparison as canonical validation or infer redistribution rights from matching bytes or hashes."
-    status: "unverified-prohibition — human review recommended"
-    judgment: "Current docs distinguish configured local evidence from rights and provenance; human review remains pending."
-human_verification:
+    status: "resolved-owner-review"
+    judgment: "Current docs distinguish configured local evidence from rights and provenance; the owner accepted this stated claim boundary."
+human_verification: []
+human_verification_completed:
   - test: "Review the timing, initialization, latch, and ROM-tail descriptions in the profile and bus documentation."
     expected: "They remain labelled as project policy or unverified behavior and make no hardware-accuracy or broad-compatibility claim."
     why_human: "This judgment-tier prohibition requires human review; an automated review cannot accept the claim boundary."
@@ -82,7 +83,7 @@ human_verification:
 **Phase Goal:** As a core developer, I want to build the canonical core with its final timing-bearing bus API, full GBA memory map, deterministic power-on state, and a ROM loader that validates untrusted input before allocation or state mutation, so that subsequent CPU work has a deterministic, testable and safe machine boundary. The original technical boundary remains verbatim in ROADMAP.md.
 
 **Verified:** 2026-11-11T00:55:48Z
-**Status:** human_needed
+**Status:** passed after owner acceptance
 **Re-verification:** Yes — after owner-authorized production authority activation.
 
 ## MVP User Flow Coverage
@@ -99,7 +100,7 @@ This is a core-developer and consumer-code flow. It makes no GUI, installed-pack
 
 ## Goal Achievement
 
-The previous 28 truths were rechecked against current source and evidence. The owner-authorized activation resolves the prior production-data gate for this configured comparison. The two remaining human items are judgment reviews of claim boundaries, not implementation gaps.
+The previous 28 truths were rechecked against current source and evidence. The owner-authorized activation resolves the prior production-data gate for this configured comparison. Both judgment reviews of claim boundaries were subsequently accepted by the owner; no implementation gap remains.
 
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
@@ -132,7 +133,7 @@ The previous 28 truths were rechecked against current source and evidence. The o
 | 27 | The synthetic test core exercises match/mismatch via gbl_load_rom using the canonical core sources/options. | VERIFIED | Separate synthetic target, loader logo-digest test, mutation controls and clean companions. |
 | 28 | Malformed authority metadata refuses configure with one stable reason and without echoing row content. | VERIFIED | Strict parser and 13 authority cases plus disabled-parser control in saved lane evidence. |
 
-**Score:** 28/28 must-have truths verified. The overall status remains human_needed because two judgment-tier review items are pending.
+**Score:** 28/28 must-have truths verified. The owner subsequently accepted both stated claim limits; the canonical UAT predicate passes and the overall status is passed.
 
 ## Phase Success Criteria
 
@@ -221,20 +222,31 @@ All six Phase 03 requirement IDs are accounted for; there is no orphaned require
 
 The current activation review covers the eight-file policy/profile/test delta and is clean. The prior 14-file implementation review remains clean. Security records 22 verified threat rows and zero open high/critical threats. No owner-accepted risk is inferred.
 
-## Human Verification Required
+## Human Verification Completed
 
 1. **Review project-policy descriptions** — Check the profile and bus documentation against the current policy. It should keep timing, initialization, latch and ROM-tail behavior explicitly project-defined or unverified, without claiming hardware accuracy or broad compatibility. Human judgment is required by UAT item 2.
 2. **Review synthetic-evidence limits** — Check the verification docs distinguish synthetic test vectors and owner-authorized local comparisons from provenance, redistribution rights and broad compatibility. Human judgment is required by UAT item 3.
 
-Both items remain pending in the current UAT record. No additional owner-data task is needed. Actual ROM-tail hardware evidence is a future claim condition, not a current-phase acceptance item.
+Both items pass in the UAT record after the owner replied "yes" to the explicit phase-acceptance question. No additional owner-data task is needed. Actual ROM-tail hardware evidence is a future claim condition, not a current-phase acceptance item.
 
 ## Gaps Summary
 
 All 28 technical truths are verified, including the actual configured production comparison and current ASan inventory. The owner-authorized local checks establish that the configured diagnostic behaves as expected for the supplied headers and controlled mutations. Their provenance and redistribution license remain unverified, so no rights, compatibility, BIOS, game execution, or hardware claim follows from them.
 
-The two remaining items are judgment-tier reviews in UAT. They keep verification at human_needed; no human approval is inferred from the clean code review or the automated checks. The parent handles the already-authorized PR and hosted CI after this report. Phase acceptance and Phase 4 remain gated on the review disposition.
+The owner explicitly accepted both judgment-tier claim limits after they were presented in plain language. This resolves the UAT acceptance boundary independently of automated checks. The source fingerprint remains current, and the shared UAT-plus-verification completion predicate must pass before transition. Merge still requires green checks for the final PR head.
 
 ---
 
 _Verified: 2026-11-11T00:55:48Z_
 _Verifier: gsd-verifier_
+
+## Owner acceptance record
+
+The owner replied "yes" after being asked to accept Phase 3 with timing and
+initialization defaults described as project policy rather than verified
+hardware behavior, and with header checks making no game-compatibility, original
+provenance or redistribution-rights claim. This is acceptance of the stated
+phase scope, not permission to distribute private bytes, qualification of
+physical hardware, a release approval or an override of a failed technical test.
+
+_Acceptance recorded: 2026-11-11T01:20:20Z_

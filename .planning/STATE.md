@@ -2,39 +2,40 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 03
-current_phase_name: HUMAN VERIFICATION
-status: Waiting for judgment-tier phase acceptance; published PR 6 is green
-stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-11-11T01:05:42.139Z"
+current_phase: 4
+current_phase_name: CPU Execution Core and Headless Runner
+status: planning
+stopped_at: Phase 3 complete, ready to plan Phase 4
+last_updated: "2026-11-11T01:20:53.971Z"
 last_activity: 2026-11-10
-last_activity_desc: Logo authority activation published and all hosted required checks pass; private inputs stay ignored; only two claim-limit reviews remain
-state_head: bd2443ffe71326aa5abdf6a20ea67fb9d1e060dc
+last_activity_desc: Phase 3 complete, transitioned to Phase 4
+state_head: 03cc5c00c7d4ddecbac18e9338de893703a04ebe
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 25
   completed_plans: 25
+  percent: 50
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-09)
+See: .planning/PROJECT.md (updated 2026-11-10)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 03 — Bus API, Memory Map, and ROM Loading
+**Current focus:** Phase 04 — CPU Execution Core and Headless Runner (after Phase 3 publication)
 
 ## Current Position
 
-Phase: 03 (Bus API, Memory Map, and ROM Loading) — HUMAN VERIFICATION
-Plan: 7 of 7 implementation plans complete; acceptance pending
-Status: Waiting for judgment-tier phase acceptance; published PR 6 is green
-Last activity: 2026-11-10 — Logo authority activation published and all hosted required checks pass; private inputs stay ignored; only two claim-limit reviews remain
+Phase: 4 — CPU Execution Core and Headless Runner
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-10 — Phase 3 complete, transitioned to Phase 4
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -160,6 +161,8 @@ Recent decisions affecting current work:
 
 - [Phase 03]: Published activation head passes hosted Linux GCC, macOS AppleClang, Clang sanitizers, hygiene and CI required on PR #6. Measured longest lane was macOS: about 94 seconds job-log span and 81.42 seconds tests, with one configure/build sequence. No low-risk duplicate-build remedy was established. A metadata-triggered old-head run was superseded/cancelled; its fail-closed aggregator does not represent a failure of the tested activation head. Retained results: build/phase03-logo-activation/hosted-result.json. Final local acceptance bookkeeping is held for the next phase-boundary commit to avoid triggering an unchanged full CI run.
 
+- [Phase 03]: The owner explicitly accepted both documented phase claim limits. UAT and canonical verification pass; all seven implementation plans are complete. Existing PR #6 is the publication path; push final acceptance bookkeeping once and wait for green required checks before squash merge. No further acceptance prompt is needed for these same limits. The phase contains no frontend; visual review is not applicable. Graduation scan has only two completed prior phases, below its threshold.
+
 ### Pending Todos
 
 None yet.
@@ -173,16 +176,22 @@ None yet.
 - Phase 1: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
-- Phase 3: all technical truths, including configured production logo diagnostics, are verified. Two judgment-tier claim reviews in 03-UAT.md keep acceptance human-needed. Keep PR #6 draft and Phase 4 stopped until that actual phase boundary is resolved. No additional file, digest or local command is needed from the owner.
+- Phase 3: owner acceptance is recorded and canonical verification passes. Complete the existing green-PR publication path before starting Phase 4. No further owner input is needed for this accepted scope.
 
 - Phase 3: the initial hosted GCC failure has an owner-authorized explicit-conversion fix, verified locally with GNU and fresh sanitizers. PR #6 remains draft for owner acceptance. The corrected head must pass live hosted checks; any new red result renews the standing stop. No merge or Phase 4 start while the independent owner-data/manual gate remains unresolved.
 
 ## Deferred Items
 
-None.
+- Before milestone close, reconcile Phase 3 Nyquist document status/taxonomy with
+  its actual passing behavior evidence. The artifact remains draft; phase
+  completion emits this nonblocking metadata warning. Do not fabricate probe
+  results or turn it into a missing production-code claim. The summary path
+  warning for the portable `~/.codex` runtime reference is a prose-path scanner
+  limitation, not a missing shipped artifact.
+
 
 ## Session Continuity
 
 Last session: 2026-11-10T23:59:45.464Z
-Stopped at: Completed 03-07-PLAN.md
+Stopped at: Phase 3 complete, ready to plan Phase 4
 Resume file: None
