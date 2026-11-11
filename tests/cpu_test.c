@@ -3262,69 +3262,100 @@ static void test_trace_unit_limit(void)
     gbl_machine_dispose(&plain);
 }
 
+typedef void (*cpu_test_function)(void);
+
+typedef struct cpu_test_group {
+    const char *selector;
+    unsigned int assertion_count;
+    size_t function_count;
+    const cpu_test_function *functions;
+} cpu_test_group;
+
+#define CPU_TEST_ARRAY_COUNT(functions) \
+    (sizeof(functions) / sizeof((functions)[0]))
+#define CPU_TEST_GROUP(selector_name, assertions, function_list) \
+    { selector_name, assertions, CPU_TEST_ARRAY_COUNT(function_list), function_list }
+
+static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
+static const cpu_test_function tracer_functions[] = { test_tracer };
+static const cpu_test_function exception_functions[] = {
+    test_exceptions,
+    test_masked_requests,
+    test_exception_matrix,
+    test_exception_refusals,
+    test_exception_restore_and_overwrite
+};
+static const cpu_test_function modes_functions[] = { test_modes };
+static const cpu_test_function no_bios_functions[] = { test_no_bios };
+static const cpu_test_function peek_functions[] = { test_guest_mailbox_and_peek };
+static const cpu_test_function mailbox_functions[] = { test_mailbox_statuses };
+static const cpu_test_function trace_functions[] = {
+    test_trace_store_capacity,
+    test_trace_refill_capacity,
+    test_trace_category_masks,
+    test_trace_control_flow,
+    test_trace_exception_order,
+    test_trace_after_mailbox_pass,
+    test_trace_invalid_options,
+    test_trace_sequence_and_untraced_parity,
+    test_trace_unit_limit
+};
+static const cpu_test_function trace_capacity_functions[] = {
+    test_trace_store_capacity,
+    test_trace_refill_capacity
+};
+static const cpu_test_function budget_functions[] = { test_budget };
+static const cpu_test_function arithmetic_functions[] = { test_arithmetic };
+static const cpu_test_function thumb_functions[] = { test_thumb };
+static const cpu_test_function decode_functions[] = { test_decode };
+static const cpu_test_function alignment_functions[] = { test_alignment };
+
+static const cpu_test_group cpu_test_groups[] = {
+    CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
+    CPU_TEST_GROUP("tracer", 4u, tracer_functions),
+    CPU_TEST_GROUP("exceptions", 13u, exception_functions),
+    CPU_TEST_GROUP("modes", 5u, modes_functions),
+    CPU_TEST_GROUP("no_bios", 2u, no_bios_functions),
+    CPU_TEST_GROUP("peek", 5u, peek_functions),
+    CPU_TEST_GROUP("mailbox", 4u, mailbox_functions),
+    CPU_TEST_GROUP("trace", 29u, trace_functions),
+    CPU_TEST_GROUP("trace_capacity", 4u, trace_capacity_functions),
+    CPU_TEST_GROUP("budget", 9u, budget_functions),
+    CPU_TEST_GROUP("arithmetic", 28u, arithmetic_functions),
+    CPU_TEST_GROUP("thumb", 8u, thumb_functions),
+    CPU_TEST_GROUP("decode", 8u, decode_functions),
+    CPU_TEST_GROUP("alignment", 11u, alignment_functions)
+};
+
+#undef CPU_TEST_GROUP
+#undef CPU_TEST_ARRAY_COUNT
+
 int main(int argc, char **argv)
 {
+    const cpu_test_group *selected = NULL;
+    size_t group_index;
+    size_t function_index;
+
     if (argc != 2) {
         return 2;
     }
     printf("TAP version 13\n");
-    if (strcmp(argv[1], "lifecycle") == 0) {
-        printf("1..9\n");
-        test_lifecycle();
-    } else if (strcmp(argv[1], "tracer") == 0) {
-        printf("1..4\n");
-        test_tracer();
-    } else if (strcmp(argv[1], "exceptions") == 0) {
-        printf("1..13\n");
-        test_exceptions();
-        test_masked_requests();
-        test_exception_matrix();
-        test_exception_refusals();
-        test_exception_restore_and_overwrite();
-    } else if (strcmp(argv[1], "modes") == 0) {
-        printf("1..5\n");
-        test_modes();
-    } else if (strcmp(argv[1], "no_bios") == 0) {
-        printf("1..2\n");
-        test_no_bios();
-    } else if (strcmp(argv[1], "peek") == 0) {
-        printf("1..5\n");
-        test_guest_mailbox_and_peek();
-    } else if (strcmp(argv[1], "mailbox") == 0) {
-        printf("1..4\n");
-        test_mailbox_statuses();
-    } else if (strcmp(argv[1], "trace") == 0) {
-        printf("1..29\n");
-        test_trace_store_capacity();
-        test_trace_refill_capacity();
-        test_trace_category_masks();
-        test_trace_control_flow();
-        test_trace_exception_order();
-        test_trace_after_mailbox_pass();
-        test_trace_invalid_options();
-        test_trace_sequence_and_untraced_parity();
-        test_trace_unit_limit();
-    } else if (strcmp(argv[1], "trace_capacity") == 0) {
-        printf("1..4\n");
-        test_trace_store_capacity();
-        test_trace_refill_capacity();
-    } else if (strcmp(argv[1], "budget") == 0) {
-        printf("1..9\n");
-        test_budget();
-    } else if (strcmp(argv[1], "arithmetic") == 0) {
-        printf("1..28\n");
-        test_arithmetic();
-    } else if (strcmp(argv[1], "thumb") == 0) {
-        printf("1..8\n");
-        test_thumb();
-    } else if (strcmp(argv[1], "decode") == 0) {
-        printf("1..8\n");
-        test_decode();
-    } else if (strcmp(argv[1], "alignment") == 0) {
-        printf("1..11\n");
-        test_alignment();
-    } else {
+    for (group_index = 0u;
+         group_index < sizeof(cpu_test_groups) / sizeof(cpu_test_groups[0]);
+         ++group_index) {
+        if (strcmp(argv[1], cpu_test_groups[group_index].selector) == 0) {
+            selected = &cpu_test_groups[group_index];
+            break;
+        }
+    }
+    if (selected == NULL) {
         return 2;
+    }
+
+    printf("1..%u\n", selected->assertion_count);
+    for (function_index = 0u; function_index < selected->function_count;
+         ++function_index) {
+        selected->functions[function_index]();
     }
     return test_failures == 0u ? 0 : 1;
 }

@@ -39,7 +39,7 @@ if(NOT EXISTS "${parent_cache}" OR IS_DIRECTORY "${parent_cache}")
   message(FATAL_ERROR "runner-metadata: parent-cache-missing")
 endif()
 foreach(key IN ITEMS CMAKE_C_COMPILER CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS
-    CMAKE_BUILD_TYPE)
+    CMAKE_BUILD_TYPE CMAKE_GENERATOR CMAKE_MAKE_PROGRAM)
   gbl_read_cache_entry("${parent_cache}" "${key}"
     "parent_${key}_type" "parent_${key}")
 endforeach()
@@ -258,6 +258,8 @@ file(WRITE "${legacy_runner_source}/CMakeLists.txt"
   "target_link_libraries(legacy-runner PRIVATE \"${BIN}/libgamebloke_core.a\")\n")
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -S "${legacy_runner_source}" -B "${legacy_runner_build}"
+    -G "${parent_CMAKE_GENERATOR}"
+    "-DCMAKE_MAKE_PROGRAM:${parent_CMAKE_MAKE_PROGRAM_type}=${parent_CMAKE_MAKE_PROGRAM}"
     "-DCMAKE_C_COMPILER:${parent_CMAKE_C_COMPILER_type}=${parent_CMAKE_C_COMPILER}"
     "-DCMAKE_C_FLAGS:${parent_CMAKE_C_FLAGS_type}=${parent_CMAKE_C_FLAGS}"
     "-DCMAKE_C_FLAGS_${parent_build_type_upper}:${parent_CMAKE_C_FLAGS_${parent_build_type_upper}_type}=${parent_CMAKE_C_FLAGS_${parent_build_type_upper}}"
@@ -274,7 +276,8 @@ endif()
 set(legacy_cache "${legacy_runner_build}/CMakeCache.txt")
 foreach(key IN ITEMS CMAKE_C_COMPILER CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS
     CMAKE_BUILD_TYPE "CMAKE_C_FLAGS_${parent_build_type_upper}"
-    "CMAKE_EXE_LINKER_FLAGS_${parent_build_type_upper}")
+    "CMAKE_EXE_LINKER_FLAGS_${parent_build_type_upper}"
+    CMAKE_GENERATOR CMAKE_MAKE_PROGRAM)
   gbl_read_cache_entry("${legacy_cache}" "${key}"
     "legacy_${key}_type" "legacy_${key}")
   if(NOT "${legacy_${key}}" STREQUAL "${parent_${key}}")
