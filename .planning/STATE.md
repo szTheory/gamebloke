@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-11-11T18:22:16.173Z"
+status: "Phase 05 Plan 03 complete; corrected hosted diagnostics gate passed"
+stopped_at: Completed 05-03-PLAN.md; corrected hosted diagnostics gate passed
+last_updated: "2026-11-11T20:01:42.722Z"
 last_activity: 2026-11-11
-last_activity_desc: Phase 05 execution started
-state_head: c6ce7680ef0e9affc5582c061388b724e728f978
+last_activity_desc: Phase 05 Plan 03 closed after local and corrected hosted diagnostics passed
+state_head: 2a18d8e1b2f7d24b11b40627e697cfd42b60c48b
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 40
+  completed_plans: 41
 ---
 
 # Project State
@@ -30,16 +30,16 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 3 of 25
-Status: Ready to execute
-Last activity: 2026-11-11 — Phase 05 execution started
+Plan: 4 of 25
+Status: Plan 03 complete; next plan not started
+Last activity: 2026-11-11 — Corrected hosted diagnostics run 43089440697 passed
 
 Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 38
+- Total plans completed: 41
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -51,6 +51,7 @@ Progress: [███████░░░] 67%
 | 2 | 7 | - | - |
 | 3 | 7 | - | - |
 | 4 | 13 | - | - |
+| 5 | 3 | not measured | not measured |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -98,6 +99,7 @@ Progress: [███████░░░] 67%
 | Phase 04 P13 | 29min35s | 2 tasks | 7 files |
 | Phase 05 P01 | 50min | 2 tasks | 3 files |
 | Phase 05 P02 | 68min | 2 tasks | 8 files |
+| Phase 05 P03 | not measured (multi-resume execution) | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -105,6 +107,8 @@ Progress: [███████░░░] 67%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [Phase 05]: Owner replied "yes" to the proposed offline-helper host-detection correction and bounded local/hosted verification on draft PR #8. Corrected run 43089440697 passed at source head `2a18d8e1b2f7d24b11b40627e697cfd42b60c48b`; the initial red run remains historical, and any future red hosted run renews the stop.
 
 - [Roadmap]: Milestone v1.0 is spine first (G10 default). SUMMARY phases 1-3 are split into six phases. CI lands first; diagnostics come before determinism gates.
 - [Roadmap]: Fixture policy runs on reversible defaults: pinned SHA-256 fetch, no third-party binaries in tree, no logo bytes in owned fixtures (G2, G3).
@@ -197,6 +201,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Bound each host lock row to its exact official release asset URL and allowed only one HTTPS redirect to release-assets.githubusercontent.com.
 - [Phase 05]: Keep the production runner GUEST_STOP/unregistered-content exit 1 as the raw result and assert mailbox state and case identity separately.
 - [Phase 05]: Limit parity to local macOS arm64 and native Linux arm64; hosted Linux x64 remains separate and no ROM digest is admitted here.
+- [Phase 05]: Corrected hosted diagnostics run 43089440697 passed at source head 2a18d8e1b2f7d24b11b40627e697cfd42b60c48b; the authorized Plan 03 stop is resolved, with hosted SHA identity kept separate from local literal cmp evidence and no ROM digest admitted.
 
 ### Pending Todos
 
@@ -204,11 +209,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 4 is accepted and squash-merged through PR #7. Final required CI and main CI passed. Phase 5 research is complete; its first gating spike must establish tool architecture/parity before any ROM digest admission. No rights/qualification limit is waived.
+- Phase 4 is accepted and squash-merged through PR #7. Final required CI and main CI passed. Phase 5 Plan 03's bounded hosted witness is green; remaining phase-wide diagnostics and admission criteria still apply before any ROM digest admission. No rights/qualification limit is waived.
 
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
-- Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
+- Phase 5: xPack 15.2.1-1.1 reports ARMv4T on local macOS arm64, local Linux arm64, hosted Linux x64, and hosted macOS arm64. Literal `cmp` passed only for the two local arm64 builds; hosted Linux x64 has separate hash-identity evidence. No ROM digest is admitted.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
 - Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
 - Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
@@ -231,6 +236,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-11T18:22:15.998Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-11-11T20:01:42.463Z
+Stopped at: Completed 05-03-PLAN.md; corrected hosted diagnostics gate passed
 Resume file: None
