@@ -81,10 +81,8 @@ while IFS= read -r line || [ -n "$line" ]; do
       case "$row_bytes" in ''|*[!0-9]*) die lock-byte-count ;; esac
       case "$row_sha" in *[!0123456789abcdef]*|'') die lock-sha256 ;; esac
       [ "${#row_sha}" -eq 64 ] || die lock-sha256
-      case "$row_url" in
-        https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v15.2.1-1.1/xpack-arm-none-eabi-gcc-15.2.1-1.1-*.tar.gz) ;;
-        *) die lock-url ;;
-      esac
+      expected_url="https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v15.2.1-1.1/xpack-arm-none-eabi-gcc-15.2.1-1.1-${row_host}.tar.gz"
+      [ "$row_url" = "$expected_url" ] || die lock-url
       [ "$row_redirect_host" = release-assets.githubusercontent.com ] || die lock-redirect-host
       [ "$row_root" = xpack-arm-none-eabi-gcc-15.2.1-1.1 ] || die lock-archive-root
       ;;
