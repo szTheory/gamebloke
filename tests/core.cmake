@@ -18,6 +18,23 @@ gbl_add_test(
     -DARGS=--version "-DREGEX=^gamebloke-run 0\\.0\\.0"
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
+gbl_add_test(
+  NAME runner.tracer
+  LABELS runner integration
+  COMMAND $<TARGET_FILE:gamebloke-run-control>
+    --rom "${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
+    --fixture synthetic-control-pass --cycles 1000)
+gbl_add_test(
+  NAME runner.unit
+  LABELS runner unit
+  COMMAND $<TARGET_FILE:runner_test>)
+gbl_add_test(
+  NAME runner.cases
+  LABELS runner integration gate
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
+
 add_executable(version_test tests/version_test.c)
 target_link_libraries(version_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(
