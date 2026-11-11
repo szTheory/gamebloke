@@ -244,7 +244,8 @@ execute_process(
   RESULT_VARIABLE all_rc OUTPUT_VARIABLE all_out ERROR_VARIABLE all_error)
 set(all_combined "${all_out}${all_error}")
 if("${all_rc}" STREQUAL "0" OR
-   NOT all_combined MATCHES "arm-diagnostics: all-cases-incomplete: pending")
+   NOT all_combined MATCHES "arm-diagnostics: all-cases-incomplete: pending=356" OR
+   NOT all_combined MATCHES "source-verified=1")
   message(FATAL_ERROR "coverage-case: all-builder-refusal-failed: ${all_combined}")
 endif()
 message(STATUS "coverage-case: aggregate build refused while cases remain pending")
