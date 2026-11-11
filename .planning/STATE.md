@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 03
 current_phase_name: HUMAN VERIFICATION
-status: Waiting for judgment-tier phase acceptance; hosted checks on draft PR 6
+status: Waiting for judgment-tier phase acceptance; published PR 6 is green
 stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-11-11T01:00:20.745Z"
+last_updated: "2026-11-11T01:05:42.139Z"
 last_activity: 2026-11-10
-last_activity_desc: Authorized logo activation verifies all technical criteria; only two claim-description reviews remain before phase acceptance
-state_head: 5e1d62dd7aca098404e3a882839353cb7853edda
+last_activity_desc: Logo authority activation published and all hosted required checks pass; private inputs stay ignored; only two claim-limit reviews remain
+state_head: bd2443ffe71326aa5abdf6a20ea67fb9d1e060dc
 progress:
   total_phases: 6
   completed_phases: 2
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 Phase: 03 (Bus API, Memory Map, and ROM Loading) — HUMAN VERIFICATION
 Plan: 7 of 7 implementation plans complete; acceptance pending
-Status: Waiting for judgment-tier phase acceptance; hosted checks on draft PR 6
-Last activity: 2026-11-10 — Authorized logo activation verifies all technical criteria; only two claim-description reviews remain before phase acceptance
+Status: Waiting for judgment-tier phase acceptance; published PR 6 is green
+Last activity: 2026-11-10 — Logo authority activation published and all hosted required checks pass; private inputs stay ignored; only two claim-limit reviews remain
 
 Progress: [███░░░░░░░] 33%
 
@@ -157,6 +157,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Owner supplied two local files and explicitly authorized ignored copies plus agent-run logo hashing/verification. Both windows agree; profile version 3 activates the configured digest. Current CI, fresh sanitizers and instrumented local production-header witnesses pass. Refreshing phase acceptance; no private bytes are published and no hardware/game-compatibility or rights claim follows.
 
 - [Phase 03]: Activation verification confirms every technical must-have. Only two judgment-tier claim reviews remain; no further owner data/helper action is needed. The owner explicitly delegated local file handling, which supersedes the earlier owner-must-run procedure for those inputs. Preserve that authority across runtimes instead of asking the owner to repeat commands the agent can perform.
+
+- [Phase 03]: Published activation head passes hosted Linux GCC, macOS AppleClang, Clang sanitizers, hygiene and CI required on PR #6. Measured longest lane was macOS: about 94 seconds job-log span and 81.42 seconds tests, with one configure/build sequence. No low-risk duplicate-build remedy was established. A metadata-triggered old-head run was superseded/cancelled; its fail-closed aggregator does not represent a failure of the tested activation head. Retained results: build/phase03-logo-activation/hosted-result.json. Final local acceptance bookkeeping is held for the next phase-boundary commit to avoid triggering an unchanged full CI run.
 
 ### Pending Todos
 

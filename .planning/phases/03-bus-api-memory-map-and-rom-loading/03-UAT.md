@@ -3,7 +3,7 @@ status: testing
 phase: 03-bus-api-memory-map-and-rom-loading
 source: [03-VERIFICATION.md]
 started: 2026-11-11T00:18:48Z
-updated: 2026-11-11T00:18:48Z
+updated: 2026-11-11T01:05:41Z
 ---
 
 ## Current Test
@@ -11,11 +11,10 @@ updated: 2026-11-11T00:18:48Z
 number: 2
 name: Review project-policy descriptions
 expected: |
-  The owner supplies the approved logo-window digest using a file already held,
-  through the established reviewed workflow. A rebuilt production core reports
-  checked match or advisory mismatch against that authority. No raw bytes are
-  requested or acquired. This verifies a configured comparison, not rights or
-  broad hardware compatibility.
+  Timing, initialization, latch and ROM-tail behavior are labelled project
+  policy or unverified behavior. The phase does not claim measured hardware
+  accuracy or broad game compatibility. The synthetic/local evidence review
+  also preserves provenance and redistribution limits.
 awaiting: remaining judgment-tier claim review; data prerequisite has been supplied and tested
 
 ## Tests
