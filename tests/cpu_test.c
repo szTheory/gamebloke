@@ -484,6 +484,43 @@ static void test_tracer(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_exceptions(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result;
+    bool loaded;
+    bool exact;
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xEF000000)); /* SWI #0 */
+    write_word(image, 0x04u, UINT32_C(0xE3A0002A));
+    write_word(image, 0x08u, UINT32_C(0xE3A00063)); /* absent BIOS vector */
+    loaded = machine_load(&machine, image);
+    test_case(loaded, "SWI test image loads through the canonical ROM bus");
+    if (!loaded) {
+        return;
+    }
+
+    machine.cpu.cpsr = UINT32_C(0xA000001F); /* N/C, System, F clear */
+    exact = run_units(&machine, UINT64_C(3), 0u, &result);
+    test_case(exact && result.termination == GBL_RUN_STOPPED &&
+                  result.reason != GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                  result.cycles == UINT64_C(3) &&
+                  result.instructions == UINT64_C(1),
+              "ARM SWI consumes its internal entry cycle and stops as guest");
+    test_case(machine.cpu.cpsr == UINT32_C(0xA0000093) &&
+                  machine.cpu.svc_r13_14[1] == UINT32_C(0x08000004) &&
+                  machine.cpu.spsr[2] == UINT32_C(0xA000001F),
+              "ARM SWI saves old CPSR and current-plus-four in the SVC bank");
+    test_case(machine.cpu.execution_address == UINT32_C(0x00000008) &&
+                  !machine.cpu.pipeline[0].valid &&
+                  !machine.cpu.pipeline[1].valid &&
+                  machine.open_bus == UINT32_C(0xE3A0002A),
+              "ARM SWI selects vector PC without fetching absent handler bytes");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_budget(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -1330,6 +1367,9 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "tracer") == 0) {
         printf("1..4\n");
         test_tracer();
+    } else if (strcmp(argv[1], "exceptions") == 0) {
+        printf("1..4\n");
+        test_exceptions();
     } else if (strcmp(argv[1], "budget") == 0) {
         printf("1..9\n");
         test_budget();
