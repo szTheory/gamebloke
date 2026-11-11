@@ -236,11 +236,13 @@ a rights determination. The phase's unresolved spec-less probe classifications a
 standing restrictions on repurposing rights-bearing inputs or inflating compatibility
 claims remain for phase verification; no human judgment is inferred from these controls.
 
-The probe audit surfaced 11 rows: five defensibly classified as explicit (CPU-04 bank
-adjacency, empty User/System SPSR, and exception-entry ordering; RUN-01 unit-budget
-boundaries and uint64 precision), plus six unresolved rows that remain flagged: CPU-03,
-CPU-05, PROF-03, RUN-02, RUN-03, and RUN-04. Concrete implementation tests do not silently
-resolve those taxonomy rows. Two descriptor-less project-policy items also remain flagged:
+The probe audit surfaced 11 rows, and all 11 remain unresolved. Five have category
+labels: CPU-04 bank adjacency, empty User/System SPSR, and exception-entry ordering;
+RUN-01 unit-budget boundaries and uint64 precision. The other six are unclassified:
+CPU-03, CPU-05, PROF-03, RUN-02, RUN-03, and RUN-04. A category label does not resolve a
+row. The exact audit snapshot is retained in
+[04-PROBE-STATUS.json](../.planning/phases/04-cpu-execution-core-and-headless-runner/04-PROBE-STATUS.json).
+Concrete implementation tests do not silently resolve those taxonomy rows. Two descriptor-less project-policy items also remain flagged:
 rights-bearing/private inputs must not be repurposed and synthetic metadata grants no rights;
 result documents must not inflate hardware, BIOS, or compatibility claims. No checker or
 human-pass status is fabricated for them. Full ISA/toolchain diagnostics are Phase 5 work;
