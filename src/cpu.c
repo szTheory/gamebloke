@@ -11,6 +11,8 @@
 #define GBL_CPU_CPSR_C UINT32_C(0x20000000)
 #define GBL_CPU_CPSR_V UINT32_C(0x10000000)
 #define GBL_CPU_CPSR_T UINT32_C(0x00000020)
+#define GBL_CPU_CPSR_F UINT32_C(0x00000040)
+#define GBL_CPU_CPSR_I UINT32_C(0x00000080)
 #define GBL_CPU_CPSR_MODE_MASK UINT32_C(0x0000001F)
 #define GBL_CPU_MODE_FIQ UINT32_C(0x00000011)
 #define GBL_CPU_MODE_IRQ UINT32_C(0x00000012)
@@ -301,6 +303,12 @@ gbl_cpu_status gbl_cpu_enter_exception(
     if (!gbl_cpu_prepare_exception(machine, kind, context, &plan)) {
         return GBL_CPU_STATUS_INVALID_CONTEXT;
     }
+    if ((kind == GBL_EXCEPTION_IRQ &&
+         (machine->cpu.cpsr & GBL_CPU_CPSR_I) != 0u) ||
+        (kind == GBL_EXCEPTION_FIQ &&
+         (machine->cpu.cpsr & GBL_CPU_CPSR_F) != 0u)) {
+        return GBL_CPU_STATUS_MASKED;
+    }
     if (machine->master_cycles == UINT64_MAX) {
         return GBL_CPU_STATUS_COUNTER_OVERFLOW;
     }
@@ -318,9 +326,9 @@ gbl_cpu_status gbl_cpu_enter_exception(
     saved_cpsr = cpu->cpsr;
     cpu->spsr[plan.spsr_index] = plan.reset_policy ? 0u : saved_cpsr;
     next_cpsr = saved_cpsr & ~(GBL_CPU_CPSR_T | GBL_CPU_CPSR_MODE_MASK);
-    next_cpsr |= plan.mode | UINT32_C(0x00000080);
+    next_cpsr |= plan.mode | GBL_CPU_CPSR_I;
     if (kind == GBL_EXCEPTION_RESET || kind == GBL_EXCEPTION_FIQ) {
-        next_cpsr |= UINT32_C(0x00000040);
+        next_cpsr |= GBL_CPU_CPSR_F;
     }
     cpu->cpsr = next_cpsr;
     gbl_cpu_write_register(cpu, (uint8_t)14u, plan.link_register);
