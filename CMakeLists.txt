@@ -160,6 +160,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   target_include_directories(gamebloke-run PRIVATE "${GBL_PRODUCTION_INDEX_DIR}")
   target_link_libraries(gamebloke-run PRIVATE gamebloke_core gbl_warnings)
   add_dependencies(gamebloke-run gbl_fixture_indexes)
+  install(TARGETS gamebloke-run RUNTIME DESTINATION bin)
 
   add_executable(gamebloke-run-control ${GBL_RUNNER_SOURCES})
   target_include_directories(gamebloke-run-control PRIVATE "${GBL_CONTROL_INDEX_DIR}")

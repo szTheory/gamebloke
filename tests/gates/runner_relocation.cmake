@@ -45,6 +45,16 @@ function(gbl_check_relocation prefix tag out_ok out_reason out_detail)
     set(${out_detail} "${installed_runner}" PARENT_SCOPE)
     return()
   endif()
+  file(SHA256 "${build_runner}" build_runner_digest)
+  file(SHA256 "${installed_runner}" installed_runner_digest)
+  if(NOT build_runner_digest STREQUAL installed_runner_digest)
+    set(${out_ok} FALSE PARENT_SCOPE)
+    set(${out_reason} "executable-identity-mismatch" PARENT_SCOPE)
+    set(${out_detail}
+      "build=${build_runner_digest}; installed=${installed_runner_digest}"
+      PARENT_SCOPE)
+    return()
+  endif()
 
   set(build_trace "${sandbox}/${tag}-build.jsonl")
   set(installed_trace "${sandbox}/${tag}-installed.jsonl")
@@ -137,23 +147,26 @@ function(gbl_check_relocation prefix tag out_ok out_reason out_detail)
   string(JSON fixture_type TYPE "${build_json}" fixture id)
   string(JSON semantic_state GET "${build_json}" semantic state)
   string(JSON case_id GET "${build_json}" semantic case_id)
+  string(JSON observed_digest GET "${build_json}" fixture rom_sha256)
   string(JSON cycles GET "${build_json}" time cycles)
   string(JSON instructions GET "${build_json}" time instructions)
   string(JSON budget GET "${build_json}" time budget_cycles)
   string(JSON termination GET "${build_json}" termination)
   string(JSON trace_count GET "${build_trace_json}" trace count)
   string(JSON trace_complete GET "${build_trace_json}" trace complete)
+  file(SHA256 "${fixture}" expected_digest)
   if(NOT status STREQUAL "GUEST_STOP" OR
       NOT reason STREQUAL "unregistered-content" OR
       NOT fixture_type STREQUAL "NULL" OR
       NOT semantic_state STREQUAL "pass" OR
       NOT case_id STREQUAL "36865" OR
+      NOT observed_digest STREQUAL expected_digest OR
       NOT cycles MATCHES "^[1-9][0-9]*$" OR
       NOT instructions MATCHES "^[1-9][0-9]*$" OR
       NOT budget STREQUAL "1000" OR
-      NOT termination STREQUAL "guest-stop" OR
+      NOT termination STREQUAL "unregistered-content" OR
       NOT trace_count MATCHES "^[1-9][0-9]*$" OR
-      NOT trace_complete STREQUAL "true")
+      NOT trace_complete STREQUAL "ON")
     set(${out_ok} FALSE PARENT_SCOPE)
     set(${out_reason} "raw-observation-mismatch" PARENT_SCOPE)
     set(${out_detail}
