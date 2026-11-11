@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 2
 waived_count: 0
-fixed_count: 8
-total_count: 10
-last_updated: 2026-11-11T10:46:06.510Z
+fixed_count: 9
+total_count: 11
+last_updated: 2026-11-11T17:07:05.294Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,7 @@ last_updated: 2026-11-11T10:46:06.510Z
 | 8 | 04 | deviation | tests/gates/runner_metadata.cmake |  | Updated the existing metadata wiring control to follow the new shared real producer source list; source-equivalence controls and canonical CI pass. | fixed |  | 2026-11-11T09:07:11.895Z | 2026-11-11T09:07:11.963Z |
 | 9 | 04 | deviation | tests/gates/runner_case.cmake |  | Five external no-BIOS stop kinds are not CLI-reachable under direct-start. All five were verified through the existing CPU exception API and shared production runner classification/JSON path; no CLI triggers, interrupt source or abort model was added. | fixed |  | 2026-11-11T10:04:01.038Z | 2026-11-11T10:04:01.118Z |
 | 10 | 04 | deviation | cmake/CheckResult.cmake |  | Moved trace-output-full and incomplete-trace consistency checks out of status-branch chaining so all applicable statuses reach the checks. Regression controls, actual producer checks, canonical CI and focused sanitizers pass. | fixed |  | 2026-11-11T10:46:06.440Z | 2026-11-11T10:46:06.510Z |
+| 11 | 05 | deviation | scripts/fetch-toolchain.sh |  | Host-row URL validation now refuses a cross-host archive URL before curl; the regression control and offline matrix pass. | fixed |  | 2026-11-11T17:07:01.463Z | 2026-11-11T17:07:05.294Z |
 
 ````json
 [
@@ -156,6 +157,19 @@ last_updated: 2026-11-11T10:46:06.510Z
     "reason": "",
     "recorded_at": "2026-11-11T10:46:06.440Z",
     "resolved_at": "2026-11-11T10:46:06.510Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 11,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "scripts/fetch-toolchain.sh",
+    "line": null,
+    "description": "Host-row URL validation now refuses a cross-host archive URL before curl; the regression control and offline matrix pass.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-11T17:07:01.463Z",
+    "resolved_at": "2026-11-11T17:07:05.294Z",
     "milestone": "v1.0"
   }
 ]
