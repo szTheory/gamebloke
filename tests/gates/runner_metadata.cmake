@@ -211,6 +211,7 @@ set(legacy_runner_build "${legacy_dir}/build")
 set(legacy_runner "${legacy_runner_build}/legacy-runner")
 set(legacy_prod_index "${legacy_index_dir}/fixture_index.h")
 set(legacy_control_index "${legacy_control_index_dir}/fixture_index.h")
+file(REMOVE_RECURSE "${legacy_runner_build}")
 file(MAKE_DIRECTORY "${legacy_index_dir}" "${legacy_control_index_dir}"
   "${legacy_runner_source}")
 file(COPY_FILE "${SRC}/contracts/examples/manifest.json" "${legacy_manifest}")
@@ -243,14 +244,26 @@ if(NOT "${legacy_index_text}" MATCHES
 endif()
 file(WRITE "${legacy_runner_source}/CMakeLists.txt"
   "cmake_minimum_required(VERSION 3.25)\n"
+  "set(CMAKE_C_STANDARD ${PARENT_C_STANDARD})\n"
+  "set(CMAKE_C_STANDARD_REQUIRED ${PARENT_C_STANDARD_REQUIRED})\n"
+  "set(CMAKE_C_EXTENSIONS ${PARENT_C_EXTENSIONS})\n"
+  "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n"
   "project(gbl_legacy_runner LANGUAGES C)\n"
   "add_executable(legacy-runner \"${SRC}/runner/main.c\" \"${SRC}/runner/run.c\" \"${SRC}/runner/result.c\" \"${SRC}/runner/sha256.c\")\n"
-  "set_property(TARGET legacy-runner PROPERTY C_STANDARD 17)\n"
-  "set_property(TARGET legacy-runner PROPERTY C_STANDARD_REQUIRED ON)\n"
   "target_include_directories(legacy-runner PRIVATE \"${legacy_index_dir}\" \"${SRC}/runner\" \"${SRC}/include\")\n"
+  "get_target_property(legacy_standard legacy-runner C_STANDARD)\n"
+  "get_target_property(legacy_standard_required legacy-runner C_STANDARD_REQUIRED)\n"
+  "get_target_property(legacy_extensions legacy-runner C_EXTENSIONS)\n"
+  "file(WRITE \"${legacy_runner_build}/language-settings.txt\" \"standard=\${legacy_standard}\\nstandard-required=\${legacy_standard_required}\\nextensions=\${legacy_extensions}\\n\")\n"
   "target_link_libraries(legacy-runner PRIVATE \"${BIN}/libgamebloke_core.a\")\n")
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -S "${legacy_runner_source}" -B "${legacy_runner_build}"
+    "-DCMAKE_C_COMPILER:${parent_CMAKE_C_COMPILER_type}=${parent_CMAKE_C_COMPILER}"
+    "-DCMAKE_C_FLAGS:${parent_CMAKE_C_FLAGS_type}=${parent_CMAKE_C_FLAGS}"
+    "-DCMAKE_C_FLAGS_${parent_build_type_upper}:${parent_CMAKE_C_FLAGS_${parent_build_type_upper}_type}=${parent_CMAKE_C_FLAGS_${parent_build_type_upper}}"
+    "-DCMAKE_EXE_LINKER_FLAGS:${parent_CMAKE_EXE_LINKER_FLAGS_type}=${parent_CMAKE_EXE_LINKER_FLAGS}"
+    "-DCMAKE_EXE_LINKER_FLAGS_${parent_build_type_upper}:${parent_CMAKE_EXE_LINKER_FLAGS_${parent_build_type_upper}_type}=${parent_CMAKE_EXE_LINKER_FLAGS_${parent_build_type_upper}}"
+    "-DCMAKE_BUILD_TYPE:${parent_CMAKE_BUILD_TYPE_type}=${parent_CMAKE_BUILD_TYPE}"
   RESULT_VARIABLE legacy_configure_result
   OUTPUT_VARIABLE legacy_configure_stdout
   ERROR_VARIABLE legacy_configure_stderr)
@@ -268,21 +281,87 @@ foreach(key IN ITEMS CMAKE_C_COMPILER CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS
     message(FATAL_ERROR
       "runner-metadata: legacy-runner-parent-setting-not-inherited: ${key}")
   endif()
+  if(NOT key STREQUAL "CMAKE_C_COMPILER" AND
+      NOT "${legacy_${key}_type}" STREQUAL "${parent_${key}_type}")
+    message(FATAL_ERROR
+      "runner-metadata: legacy-runner-cache-type-not-inherited: ${key}")
+  endif()
 endforeach()
-if(NOT "${legacy_CMAKE_C_COMPILER_type}" STREQUAL
-    "${parent_CMAKE_C_COMPILER_type}")
-  message(FATAL_ERROR
-    "runner-metadata: legacy-runner-compiler-cache-type-not-inherited")
+set(legacy_language_file "${legacy_runner_build}/language-settings.txt")
+if(NOT EXISTS "${legacy_language_file}")
+  message(FATAL_ERROR "runner-metadata: legacy-runner-language-settings-missing")
 endif()
+file(STRINGS "${legacy_language_file}" legacy_language_settings)
+foreach(setting IN ITEMS
+    "standard=${PARENT_C_STANDARD}"
+    "standard-required=${PARENT_C_STANDARD_REQUIRED}"
+    "extensions=${PARENT_C_EXTENSIONS}")
+  if(NOT setting IN_LIST legacy_language_settings)
+    message(FATAL_ERROR
+      "runner-metadata: legacy-runner-language-setting-not-inherited: ${setting}")
+  endif()
+endforeach()
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" --build "${legacy_runner_build}" --target legacy-runner --parallel 2
+  COMMAND "${CMAKE_COMMAND}" --build "${legacy_runner_build}"
+    --target legacy-runner --parallel 2 --verbose
   RESULT_VARIABLE legacy_build_result
   OUTPUT_VARIABLE legacy_build_stdout
   ERROR_VARIABLE legacy_build_stderr)
+set(legacy_build_stdout_path "${control_dir}/legacy-runner-build.stdout.log")
+set(legacy_build_stderr_path "${control_dir}/legacy-runner-build.stderr.log")
+file(WRITE "${legacy_build_stdout_path}" "${legacy_build_stdout}")
+file(WRITE "${legacy_build_stderr_path}" "${legacy_build_stderr}")
 if(NOT "${legacy_build_result}" STREQUAL "0" OR
     NOT EXISTS "${legacy_runner}")
+  file(STRINGS "${legacy_build_stderr_path}" legacy_build_preview LIMIT_COUNT 12)
+  if(NOT legacy_build_preview)
+    file(STRINGS "${legacy_build_stdout_path}" legacy_build_preview LIMIT_COUNT 12)
+  endif()
+  string(JOIN "\n" legacy_build_preview_text ${legacy_build_preview})
   message(FATAL_ERROR
-    "runner-metadata: legacy-runner-build-failed: ${legacy_build_stdout}${legacy_build_stderr}")
+    "runner-metadata: legacy-runner-build-failed: exit=${legacy_build_result}; full stdout=${legacy_build_stdout_path}; full stderr=${legacy_build_stderr_path}; context=${legacy_build_preview_text}")
+endif()
+set(legacy_compile_commands_path "${legacy_runner_build}/compile_commands.json")
+if(NOT EXISTS "${legacy_compile_commands_path}")
+  message(FATAL_ERROR "runner-metadata: legacy-runner-compile-commands-missing")
+endif()
+file(READ "${legacy_compile_commands_path}" legacy_compile_commands)
+string(JSON legacy_compile_count LENGTH "${legacy_compile_commands}")
+set(legacy_runner_main_command "")
+if(legacy_compile_count GREATER 0)
+  math(EXPR legacy_compile_last "${legacy_compile_count} - 1")
+  foreach(index RANGE 0 ${legacy_compile_last})
+    string(JSON compile_file GET "${legacy_compile_commands}" ${index} file)
+    if(compile_file STREQUAL "${SRC}/runner/main.c")
+      string(JSON legacy_runner_main_command GET "${legacy_compile_commands}"
+        ${index} command)
+      break()
+    endif()
+  endforeach()
+endif()
+if("${legacy_runner_main_command}" STREQUAL "")
+  message(FATAL_ERROR "runner-metadata: legacy-runner-compile-command-missing")
+endif()
+if(PARENT_C_EXTENSIONS)
+  set(expected_c_standard_flag "-std=gnu${PARENT_C_STANDARD}")
+else()
+  set(expected_c_standard_flag "-std=c${PARENT_C_STANDARD}")
+endif()
+string(FIND "${legacy_runner_main_command}" "${expected_c_standard_flag}"
+  legacy_standard_flag_index)
+if(legacy_standard_flag_index LESS 0)
+  message(FATAL_ERROR
+    "runner-metadata: legacy-runner-compiler-standard-not-inherited")
+endif()
+if(parent_CMAKE_C_FLAGS MATCHES "(^| )-fsanitize=address")
+  string(FIND "${legacy_runner_main_command}" "-fsanitize=address"
+    legacy_asan_compile_flag_index)
+  string(FIND "${legacy_build_stdout}${legacy_build_stderr}"
+    "-fsanitize=address" legacy_asan_link_flag_index)
+  if(legacy_asan_compile_flag_index LESS 0 OR legacy_asan_link_flag_index LESS 0)
+    message(FATAL_ERROR
+      "runner-metadata: legacy-runner-sanitizer-compile-or-link-flag-missing")
+  endif()
 endif()
 execute_process(
   COMMAND "${legacy_runner}" --rom "${pass_image}" --fixture example-row --cycles 1000
