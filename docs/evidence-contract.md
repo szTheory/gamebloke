@@ -83,9 +83,9 @@ the locked rows independently, so weakening the data fails the contract gate.
 | `REFUSED` | false | optional | optional | required |
 
 A fixture that did not run is never PASS: `PASS` needs `ran` true and a digest, so a
-missing, skipped, or refused fixture cannot be reported as passing. `GUEST_STOP`
-carries no required reason until Phase 4 defines what a stop looks like. A refusal is
-an object with a non-empty `code` and `postcondition`.
+missing, skipped, or refused fixture cannot be reported as passing. A no-BIOS
+`GUEST_STOP` names the same exception in `reason` and `termination`. A refusal is an
+object with a non-empty `code` and `postcondition`.
 
 ## Result documents
 
@@ -98,6 +98,18 @@ these fields:
 - `claim`: the six claim fields above.
 - `disputes`: registry ids. `labels`: result labels. `limits`: what the result does not
   prove, a non-empty list of non-empty strings.
+- `semantic`: `{state, case_id}` from the neutral mailbox observation. `state` is
+  `absent`, `pending`, `pass`, `fail`, or `malformed`. `case_id` is a canonical decimal
+  string in uint32 range, or null when no case id is available. An absent observation may
+  serialize its zero case id as `"0"`. Completed pass/fail mailboxes need a nonzero case id.
+- `time`: `{cycles, instructions, budget_cycles}`. All three are canonical decimal strings
+  in uint64 range (`"0"` or a nonzero digit followed by digits). They are strings so JSON
+  consumers do not round values above their exact integer range. The observed cycles must
+  be less than or equal to the requested cycle budget. A bounded run may stop short when its
+  next whole instruction or refill unit cannot fit; equality with the budget is not required
+  for TIMEOUT, and exact-boundary mailbox completion is valid.
+- `termination`: a named lowercase token describing why bounded execution stopped.
+- `trace`: null when no trace is selected, or a trace object with a boolean `complete` field.
 
 `cmake/CheckResult.cmake` cross-checks the result against the manifest and the registry:
 `fixture.id` and every evidence fixture must be a manifest row id; the evidence class
@@ -113,8 +125,128 @@ carries a dispute id, the result's `disputes` list must contain it, and a non-em
 is rejected. Every id in `disputes` must exist in the registry. `disputed` is the only
 label; a new label would arrive with its own rule and a `gamebloke.result/2` bump.
 
-Extra top-level keys (such as `note`) are ignored until Phase 4, when the runner starts
-emitting results and the semantic and time rules arrive.
+The result validator also requires semantic, time, termination, and trace fields. A PASS
+requires `semantic.state` to be `pass`, a nonzero decimal-string `semantic.case_id`, positive
+guest progress, `termination: "mailbox-complete"`, and cycles within budget. A GUEST_FAIL
+requires `semantic.state: "fail"` and the same complete-mailbox termination. These checks
+bind status to the producer's observed semantic result; a raw diagnostic cannot become PASS
+by changing only its `status`. For `GUEST_STOP` no-BIOS exceptions, `reason` and `termination`
+must name the same stop. `HARNESS_FAIL` with `reason: "trace-output-full"` must use the same
+termination and report `trace.complete: false`. An incomplete trace cannot be PASS. Other
+optional top-level notes remain informational.
+
+The semantic/time/termination findings are:
+
+- `missing-field`: required `semantic`, `semantic.state`, `semantic.case_id`, `time`, one of
+  its three counters, `termination`, or `trace` is absent (null is allowed only for `trace`
+  and the documented no-case-id forms).
+- `bad-semantic`: semantic object/state/case id has the wrong type, unknown value, or an
+  invalid uint32 decimal representation.
+- `status-semantic-mismatch`: PASS lacks a completed PASS mailbox and positive guest
+  progress, or GUEST_FAIL does not carry a completed FAIL mailbox.
+- `bad-time`: a counter is not a canonical decimal string or `time` is not an object.
+- `time-overflow`: a canonical decimal time counter is greater than
+  `18446744073709551615`.
+- `cycles-exceed-budget`: `time.cycles` is greater than `time.budget_cycles`.
+- `bad-termination`: the token is non-string/invalid or conflicts with status; a missing
+  top-level token is `missing-field`. A no-BIOS GUEST_STOP needs a reason equal to its
+  termination.
+- `bad-trace`: `trace` is neither null nor an object with a boolean `complete` field.
+- `incomplete-trace`: PASS claims an incomplete trace, or trace-output-full does not report
+  an incomplete trace.
+
+## Runner and mailbox boundary
+
+The installed `gamebloke-run` interface is:
+
+```text
+gamebloke-run --rom PATH (--cycles DECIMAL | --frames DECIMAL) \
+  [--fixture ID] [--trace-mask INTEGER] [--trace-capacity INTEGER] \
+  [--trace-output PATH]
+```
+
+`--rom` supplies one bounded input file. Exactly one of `--cycles` or `--frames` is
+required; decimal arguments are checked uint64 values, and frame budgets convert using the
+profile frame-cycle constant. `--fixture` selects validated metadata embedded at build time.
+The trace flags select implemented instruction, bus, or exception records, cap storage at
+65,536 records, and optionally write JSON Lines to the explicit output path. Usage errors
+exit 2, PASS exits 0, and valid non-PASS results exit 1. The executable does not accept a
+runtime CMake, manifest, or fixture-index path and does not need the source tree after it is
+built.
+
+The production fixture index is generated only from `tests/fixtures/manifest.json`, which
+is currently empty. The separate `gamebloke-run-control` binary and its generated manifest
+exist only for local validation mechanics. Their rows and generated instruction images are
+artificial, `local-only`, and non-redistributable with unknown rights; they are not actual
+fixture approvals and must never be copied into the production index or described as grants.
+The same control output is rejected by the canonical empty production manifest as an
+unknown fixture. Running a raw path without a registered `--fixture` can report an honest
+diagnostic such as `GUEST_STOP` with `unregistered-content`, semantic observation, and
+machine time, but it has no claim evidence and cannot validate as a manifest-backed result.
+
+The mailbox is a state/time-neutral 20-byte peek at IWRAM address `0x03007FC0`: five
+little-endian 32-bit words at offsets 0, 4, 8, 12, and 16 hold magic `0x47424C4B`, version
+1, state (`absent=0`, `running=1`, `pass=2`, `fail=3`), case id, and completion marker
+`0x434F4D50`. Guest code writes the completion marker last. PASS/FAIL is complete only when
+magic, version, terminal state, and marker all match. A zero-filled mailbox is absent; a
+running state or terminal state without the marker is pending; malformed fields do not
+produce a verdict. The producer checks the mailbox at completed execution-unit boundaries
+and gives a complete mailbox precedence over coincident budget exhaustion. It serializes the
+observed state and case id separately from result status, cycles, instruction count, and
+budget.
+
+Dispute ids and the exact `disputed` label are copied from the validated build-time metadata
+into producer output. The producer-to-validator test feeds actual CLI stdout to
+`CheckResult.cmake`, then mutates copies of that output to prove missing semantic fields,
+pending PASS, malformed case id/time, overflow, budget overrun, removed dispute disclosure,
+and incomplete trace are rejected for their named reasons. This proves the configured
+producer/checker path only; synthetic metadata remains an artificial validator input.
+
+Current evidence is limited to the direct-start profile and the implemented ARM7TDMI
+instruction subset. Unsupported instruction families stop rather than silently acquiring
+semantics; full ARM/Thumb diagnostic coverage remains future work. No BIOS execution or
+HLE, timers, DMA, active I/O devices, WAITCNT/Game Pak prefetch, display/audio presentation,
+physical input, or host presentation is modeled. Bus timing uses project placeholder costs;
+absent-BIOS, unsupported-I/O, and shorter-cartridge current-latch behavior remain unverified.
+The exact opcode and operand boundary is the version 4 table in
+[profile-agb.md](profile-agb.md#cpu-instruction-scope): ARM data processing (MOV, ADD, SUB,
+CMP, AND, ORR), B/BL/BX, and the listed immediate pre-indexed byte/word transfers; Thumb
+MOV/ADD/SUB/CMP immediates, high-register MOV/BX, conditional and unconditional branches,
+and the listed PC-relative and low-register immediate transfers. It excludes ARM
+post-index/writeback, halfword/signed and block transfers, multiply/swap/full PSR and
+coprocessor execution, the table's restricted PC/register forms, Thumb BL pairs and other
+unlisted transfer/data-processing forms, later architecture extensions, and every other
+valid but unimplemented opcode or operand. Valid unsupported operations stop with an
+unsupported reason; reserved undefined encodings remain separately classified.
+
+The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
+undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the
+current guest profile, guest instruction/CLI runs directly trigger only SWI, undefined, and
+coprocessor stops. Reset, IRQ, FIQ, prefetch-abort, and data-abort mappings are verified
+through the CPU API and JSON producer tests, but are not currently guest- or CLI-triggerable.
+This distinction does not imply BIOS exception handling or hardware qualification.
+
+Instruction and read bus trace values record observed bus results. A successful CPU write
+currently receives `value: 0` from `gbl_bus_write`, and the trace copies that result value;
+write records therefore do not preserve the attempted payload. This is an implementation
+limitation, not evidence of a physical write latch value.
+
+The result is not hardware qualification, broad game compatibility, a BIOS-backed boot, or
+a rights determination. The phase's unresolved spec-less probe classifications and the
+standing restrictions on repurposing rights-bearing inputs or inflating compatibility
+claims remain for phase verification; no human judgment is inferred from these controls.
+
+The probe audit surfaced 11 rows, and all 11 remain unresolved. Five have category
+labels: CPU-04 bank adjacency, empty User/System SPSR, and exception-entry ordering;
+RUN-01 unit-budget boundaries and uint64 precision. The other six are unclassified:
+CPU-03, CPU-05, PROF-03, RUN-02, RUN-03, and RUN-04. A category label does not resolve a
+row. The exact audit snapshot is retained in
+[04-PROBE-STATUS.json](../.planning/phases/04-cpu-execution-core-and-headless-runner/04-PROBE-STATUS.json).
+Concrete implementation tests do not silently resolve those taxonomy rows. Two descriptor-less project-policy items also remain flagged:
+rights-bearing/private inputs must not be repurposed and synthetic metadata grants no rights;
+result documents must not inflate hardware, BIOS, or compatibility claims. No checker or
+human-pass status is fabricated for them. Full ISA/toolchain diagnostics are Phase 5 work;
+deeper determinism work is Phase 6 work.
 
 ## Dispute registry
 

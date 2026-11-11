@@ -63,7 +63,8 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
 
   # Both targets compile the same host-independent core sources and options;
   # only their private configure-time expectation differs.
-  set(GBL_CORE_SOURCES src/version.c src/machine.c src/bus.c src/loader.c)
+  set(GBL_CORE_SOURCES src/version.c src/machine.c src/bus.c src/loader.c
+    src/cpu.c src/inspect.c)
   function(gbl__add_core_target target expected_digest)
     add_library(${target} STATIC ${GBL_CORE_SOURCES})
     target_include_directories(${target} PUBLIC include)
@@ -85,8 +86,130 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     set(GBL_PRODUCTION_LOGO_TEST_MODE 1)
   endif()
 
-  add_executable(gamebloke-run runner/main.c)
+  # Both runners compile the same producer and canonical core. Their only
+  # distinction is the private immutable fixture-index include directory.
+  set(GBL_RUNNER_SOURCES runner/main.c runner/run.c runner/result.c
+    runner/sha256.c)
+  set(GBL_GENERATED_ROOT "${CMAKE_BINARY_DIR}/generated")
+  file(MAKE_DIRECTORY "${GBL_GENERATED_ROOT}")
+  set(GBL_FIXTURE_DIR "${GBL_GENERATED_ROOT}/fixtures")
+  set(GBL_PRODUCTION_INDEX_DIR "${GBL_GENERATED_ROOT}/production")
+  set(GBL_CONTROL_INDEX_DIR "${GBL_GENERATED_ROOT}/control")
+  set(GBL_PRODUCTION_INDEX "${GBL_PRODUCTION_INDEX_DIR}/fixture_index.h")
+  set(GBL_CONTROL_INDEX "${GBL_CONTROL_INDEX_DIR}/fixture_index.h")
+  set(GBL_CONTROL_MANIFEST "${GBL_CONTROL_INDEX_DIR}/manifest.json")
+
+  add_executable(gbl_instruction_image tests/fixtures/instruction_image.c)
+  target_link_libraries(gbl_instruction_image PRIVATE gbl_warnings)
+
+  set(GBL_OWNED_FIXTURE_NAMES
+    owned-arm-pass.gba
+    owned-arm-pass-zero-case.gba
+    owned-arm-fail.gba
+    owned-arm-partial.gba
+    owned-arm-loop.gba
+    owned-arm-swi.gba
+    owned-arm-undefined.gba
+    owned-arm-coprocessor.gba
+    owned-arm-thumb-bx-pass.gba
+    owned-arm-pass-mutated.gba)
+  set(GBL_OWNED_FIXTURE_FILES "")
+  foreach(fixture IN LISTS GBL_OWNED_FIXTURE_NAMES)
+    list(APPEND GBL_OWNED_FIXTURE_FILES "${GBL_FIXTURE_DIR}/${fixture}")
+  endforeach()
+  add_custom_command(
+    OUTPUT ${GBL_OWNED_FIXTURE_FILES}
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${GBL_FIXTURE_DIR}"
+    COMMAND "$<TARGET_FILE:gbl_instruction_image>" "${GBL_FIXTURE_DIR}"
+    DEPENDS gbl_instruction_image
+    COMMENT "Generating original owned instruction images under the build tree"
+    VERBATIM)
+  add_custom_target(gbl_owned_instruction_images
+    DEPENDS ${GBL_OWNED_FIXTURE_FILES})
+
+  add_custom_command(
+    OUTPUT "${GBL_PRODUCTION_INDEX}" "${GBL_CONTROL_INDEX}"
+      "${GBL_CONTROL_MANIFEST}"
+    COMMAND "${CMAKE_COMMAND}"
+      "-DGBL_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+      "-DGBL_CONTROL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
+      "-DGBL_CONTROL_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-fail.gba"
+      "-DGBL_CONTROL_SKIP_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
+      "-DGBL_CONTROL_ZERO_CASE_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass-zero-case.gba"
+      "-DGBL_CONTROL_MANIFEST_OUTPUT=${GBL_CONTROL_MANIFEST}"
+      "-DGBL_MANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      "-DGBL_REGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
+      "-DGBL_VOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+      "-DGBL_OUT_PRODUCTION=${GBL_PRODUCTION_INDEX}"
+      "-DGBL_OUT_CONTROL=${GBL_CONTROL_INDEX}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake"
+    DEPENDS ${GBL_OWNED_FIXTURE_FILES}
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      "${CMAKE_SOURCE_DIR}/registry/disputes.json"
+      "${CMAKE_SOURCE_DIR}/contracts/evidence.json"
+      "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/CheckManifest.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/CheckRegistry.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/CheckContract.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/GblJson.cmake"
+    COMMENT "Validating fixture manifests and generating immutable build indexes"
+    VERBATIM)
+  add_custom_target(gbl_fixture_indexes
+    DEPENDS "${GBL_PRODUCTION_INDEX}" "${GBL_CONTROL_INDEX}"
+      "${GBL_CONTROL_MANIFEST}")
+
+  add_executable(gamebloke-run ${GBL_RUNNER_SOURCES})
+  target_include_directories(gamebloke-run PRIVATE "${GBL_PRODUCTION_INDEX_DIR}")
   target_link_libraries(gamebloke-run PRIVATE gamebloke_core gbl_warnings)
+  add_dependencies(gamebloke-run gbl_fixture_indexes)
+  install(TARGETS gamebloke-run RUNTIME DESTINATION bin)
+
+  add_executable(gamebloke-run-control ${GBL_RUNNER_SOURCES})
+  target_include_directories(gamebloke-run-control PRIVATE "${GBL_CONTROL_INDEX_DIR}")
+  target_link_libraries(gamebloke-run-control PRIVATE gamebloke_core gbl_warnings)
+  add_dependencies(gamebloke-run-control gbl_fixture_indexes)
+
+  # Exercise the actual host runner modules against the build-only synthetic
+  # index. The production CLI remains bound to the canonical empty index.
+  add_executable(runner_test tests/runner_test.c runner/run.c runner/result.c
+    runner/sha256.c)
+  target_include_directories(runner_test PRIVATE runner
+    "${GBL_CONTROL_INDEX_DIR}")
+  target_compile_definitions(runner_test PRIVATE
+    "GBL_RUNNER_TEST_FIXTURE_DIR=\"${GBL_FIXTURE_DIR}\""
+    "GBL_RUNNER_TEST_SCRATCH_DIR=\"${CMAKE_BINARY_DIR}/runner-test\""
+    "GBL_RUNNER_TEST_CLI=\"$<TARGET_FILE:gamebloke-run-control>\"")
+  target_link_libraries(runner_test PRIVATE gamebloke_core gbl_warnings)
+  add_dependencies(runner_test gbl_fixture_indexes)
+
+  # Store actual target properties for the hermetic metadata gate. Target
+  # properties also make accidental detached producer wiring visible in tests.
+  function(gbl__runner_property out target property)
+    get_target_property(value "${target}" "${property}")
+    if(NOT value OR "${value}" MATCHES "-NOTFOUND$")
+      set(value "")
+    endif()
+    list(JOIN value ";" joined)
+    set(${out} "${joined}" PARENT_SCOPE)
+  endfunction()
+  file(WRITE "${GBL_GENERATED_ROOT}/runner-target-wiring.txt" "")
+  foreach(target IN ITEMS gamebloke-run gamebloke-run-control)
+    if(target STREQUAL "gamebloke-run")
+      set(prefix production)
+    else()
+      set(prefix control)
+    endif()
+    foreach(property IN ITEMS SOURCES COMPILE_OPTIONS COMPILE_DEFINITIONS
+        LINK_OPTIONS LINK_LIBRARIES INCLUDE_DIRECTORIES)
+      gbl__runner_property(value "${target}" "${property}")
+      file(APPEND "${GBL_GENERATED_ROOT}/runner-target-wiring.txt"
+        "${prefix}.${property}=${value}\n")
+    endforeach()
+  endforeach()
+  file(APPEND "${GBL_GENERATED_ROOT}/runner-target-wiring.txt"
+    "common.c_standard=${CMAKE_C_STANDARD}\n"
+    "common.c_flags=${CMAKE_C_FLAGS}\n"
+    "common.exe_linker_flags=${CMAKE_EXE_LINKER_FLAGS}\n")
 endif()
 
 # ---- Test registration (lane includes) ------------------------------------

@@ -53,10 +53,11 @@ endfunction()
 function(gbl__copy_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c)
+  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
+  file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/bus_test.c" "${sandbox}/tests/bus_test.c")
@@ -86,6 +87,7 @@ function(gbl__compile_bus sandbox mutation output_executable)
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
       "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/cpu.c"
       "${sandbox}/tests/bus_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}
     RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
@@ -155,16 +157,202 @@ endfunction()
 function(gbl__copy_loader_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c)
+  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
+  file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/loader_test.c" "${sandbox}/tests/loader_test.c")
   file(COPY_FILE "${SRC}/tests/check.h" "${sandbox}/tests/check.h")
   file(COPY_FILE "${SRC}/tests/state_check.h"
     "${sandbox}/tests/state_check.h")
+endfunction()
+
+function(gbl__mutate_cpu cpu_source mutation)
+  if(mutation STREQUAL "pc_refill")
+    gbl_text_mutate("${cpu_source}" "unit->branch_target = target;"
+      "unit->branch_target = target + UINT32_C(2);")
+  elseif(mutation STREQUAL "shift_carry")
+    gbl_text_mutate("${cpu_source}"
+      "result.value = ((uint32_t)carry_in << 31u) | (value >> 1u);"
+      "result.value = ((uint32_t)carry_in << 31u) | (value >> 2u);")
+  elseif(mutation STREQUAL "bank_alias")
+    gbl_text_mutate("${cpu_source}" "if (mode == GBL_CPU_MODE_FIQ) {"
+      "if (mode == UINT32_C(0x10)) {")
+  elseif(mutation STREQUAL "exception_lr")
+    # The first next+4 rule is IRQ; leave FIQ's independent rule intact.
+    gbl_text_mutate("${cpu_source}"
+      "context->next_address, UINT32_C(4),"
+      "context->next_address, UINT32_C(8),")
+  elseif(mutation STREQUAL "vector_fetch")
+    gbl_text_mutate("${cpu_source}" "cpu->stopped = true;"
+      "cpu->stopped = false;")
+    gbl_text_mutate("${cpu_source}"
+      [=[            run_result.reason = GBL_RUN_REASON_GUEST_STOP;
+            break;]=]
+      [=[            run_result.reason = GBL_RUN_REASON_GUEST_STOP;
+            continue;]=])
+  elseif(mutation STREQUAL "trace_loss")
+    gbl_text_mutate("${cpu_source}"
+      [=[    if (record_count == 0u) {
+        return;
+    }
+    for (index = 0u; index < record_count; ++index) {]=]
+      [=[    if (record_count == 0u) {
+        return;
+    }
+    record_count--;
+    for (index = 0u; index < record_count; ++index) {]=])
+  elseif(mutation STREQUAL "budget_overshoot")
+    gbl_text_mutate("${cpu_source}"
+      [=[        if (run_options.unit_limit != 0u &&
+            completed_units >= run_options.unit_limit) {]=]
+      [=[        if (completed_units == UINT64_MAX) {]=])
+  else()
+    message(FATAL_ERROR "mutation: unknown CPU case '${mutation}'")
+  endif()
+endfunction()
+
+function(gbl__mutate_peek inspect_source public_header mutation)
+  if(NOT mutation STREQUAL "peek_effect")
+    message(FATAL_ERROR "mutation: unknown peek case '${mutation}'")
+  endif()
+
+  file(READ "${inspect_source}" inspect_text)
+  string(REPLACE "gbl_machine_peek(const gbl_machine *machine,"
+    "gbl_machine_peek(gbl_machine *machine," inspect_text "${inspect_text}")
+  string(REPLACE "gbl_mailbox_read(const gbl_machine *machine)"
+    "gbl_mailbox_read(gbl_machine *machine)" inspect_text "${inspect_text}")
+  string(REPLACE "    gbl_inspect_copy_bytes(out, &machine->iwram[offset], length);" [=[    if (length == 1u && address == UINT32_C(0x03000000)) {
+        machine->master_cycles += UINT64_C(1);
+    }
+    gbl_inspect_copy_bytes(out, &machine->iwram[offset], length);]=] inspect_text
+    "${inspect_text}")
+  file(WRITE "${inspect_source}" "${inspect_text}")
+
+  file(READ "${public_header}" header_text)
+  string(REPLACE "gbl_machine_peek(const gbl_machine *machine,"
+    "gbl_machine_peek(gbl_machine *machine," header_text "${header_text}")
+  string(REPLACE "gbl_mailbox_read(const gbl_machine *machine)"
+    "gbl_mailbox_read(gbl_machine *machine)" header_text "${header_text}")
+  file(WRITE "${public_header}" "${header_text}")
+endfunction()
+
+function(gbl__copy_cpu_inputs sandbox)
+  file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
+    "${sandbox}/tests")
+  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c inspect.c)
+    file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
+  endforeach()
+  file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
+  file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
+  file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
+    "${sandbox}/include/gamebloke/gamebloke.h")
+  foreach(test_header IN ITEMS check.h state_check.h)
+    file(COPY_FILE "${SRC}/tests/${test_header}"
+      "${sandbox}/tests/${test_header}")
+  endforeach()
+  file(COPY_FILE "${SRC}/tests/cpu_test.c" "${sandbox}/tests/cpu_test.c")
+endfunction()
+
+function(gbl__compile_cpu sandbox mutation output_executable)
+  gbl__copy_cpu_inputs("${sandbox}")
+  if(NOT mutation STREQUAL "")
+    if(mutation STREQUAL "shift_carry")
+      gbl__mutate_cpu("${sandbox}/src/cpu_helpers.h" "${mutation}")
+    elseif(mutation STREQUAL "peek_effect")
+      gbl__mutate_peek("${sandbox}/src/inspect.c"
+        "${sandbox}/include/gamebloke/gamebloke.h" "${mutation}")
+    else()
+      gbl__mutate_cpu("${sandbox}/src/cpu.c" "${mutation}")
+    endif()
+  endif()
+
+  separate_arguments(base_flags NATIVE_COMMAND "${C_FLAGS}")
+  separate_arguments(config_flags NATIVE_COMMAND "${C_FLAGS_CONFIG}")
+  separate_arguments(link_flags NATIVE_COMMAND "${LINKER_FLAGS}")
+  separate_arguments(link_config_flags NATIVE_COMMAND "${LINKER_FLAGS_CONFIG}")
+  set(warning_flags
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes
+    -Wmissing-prototypes -Wundef -Wcast-qual -Werror)
+  set(core_flags -fno-stack-protector -U_FORTIFY_SOURCE)
+  set(executable "${sandbox}/cpu_test")
+  execute_process(
+    COMMAND "${COMPILER}" -std=c17 ${base_flags} ${config_flags}
+      ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
+      "-I${sandbox}/include" "-I${sandbox}/tests"
+      "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
+      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/cpu.c" "${sandbox}/src/inspect.c"
+      "${sandbox}/tests/cpu_test.c"
+      -o "${executable}" ${link_flags} ${link_config_flags}
+    RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
+    ERROR_VARIABLE compile_err)
+  if(NOT "${compile_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "mutation: compile failed (${compile_result}); not semantic evidence\n${compile_out}${compile_err}")
+  endif()
+  set(${output_executable} "${executable}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__run_cpu_pair mutation label selector)
+  string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
+  set(root "${BIN}/nc/core_mutation/${CASE}-${label}-${run_id}")
+  gbl__compile_cpu("${root}/mutant" "${mutation}" mutant_executable)
+  if(mutation STREQUAL "pc_refill")
+    set(failure_regex "not ok 1 - ARM BL links the next instruction and refills without stale slots")
+  elseif(mutation STREQUAL "shift_carry")
+    set(failure_regex "not ok 2 - shift helper distinguishes RRX, LSR zero and ASR zero")
+  elseif(mutation STREQUAL "bank_alias")
+    set(failure_regex "not ok 1 - all seven modes select shared and private physical registers")
+  elseif(mutation STREQUAL "exception_lr")
+    set(failure_regex "not ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
+  elseif(mutation STREQUAL "vector_fetch")
+    set(failure_regex "not ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
+  elseif(mutation STREQUAL "peek_effect")
+    set(failure_regex "not ok 3 - peek and mailbox reads leave full state and caller guards unchanged")
+  elseif(mutation STREQUAL "trace_loss")
+    set(failure_regex "not ok 2 - exact trace capacity records instruction, data and refill order")
+  elseif(mutation STREQUAL "budget_overshoot")
+    set(failure_regex "not ok 29 - unit limit stops after one instruction despite spare cycle budget")
+  else()
+    message(FATAL_ERROR "mutation: no semantic failure assertion for '${mutation}'")
+  endif()
+  gbl_expect_fail(COMMAND "${mutant_executable}" "${selector}"
+    REGEX "${failure_regex}")
+
+  gbl__compile_cpu("${root}/clean" "" clean_executable)
+  if(selector STREQUAL "arithmetic")
+    set(clean_regex "ok 28 - helper defines large LSR/ASR/ROR counts without host UB")
+  elseif(selector STREQUAL "modes")
+    set(clean_regex "ok 1 - all seven modes select shared and private physical registers")
+  elseif(selector STREQUAL "exceptions")
+    set(clean_regex "ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
+  elseif(selector STREQUAL "no_bios")
+    set(clean_regex "ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
+  elseif(selector STREQUAL "peek")
+    set(clean_regex "ok 3 - peek and mailbox reads leave full state and caller guards unchanged")
+  elseif(selector STREQUAL "mailbox")
+    set(clean_regex "ok 4 - invalid state and failing verdict without a case ID are malformed")
+  elseif(selector STREQUAL "trace" OR selector STREQUAL "trace_capacity")
+    set(clean_regex "ok 2 - exact trace capacity records instruction, data and refill order")
+  else()
+    set(clean_regex "ok 1 - ARM BL links the next instruction and refills without stale slots")
+  endif()
+  gbl_expect_pass(COMMAND "${clean_executable}" "${selector}"
+    REGEX "${clean_regex}")
+endfunction()
+
+function(gbl__run_cpu_clean)
+  string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
+  set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
+  gbl__compile_cpu("${root}/clean" "" clean_executable)
+  foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
+      no_bios peek mailbox trace_capacity trace)
+    gbl_expect_pass(COMMAND "${clean_executable}" "${selector}")
+  endforeach()
 endfunction()
 
 function(gbl__compile_loader sandbox mutation output_executable expectation_mode)
@@ -195,6 +383,7 @@ function(gbl__compile_loader sandbox mutation output_executable expectation_mode
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
       "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/cpu.c"
       "${sandbox}/tests/loader_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}
     RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
@@ -243,7 +432,14 @@ function(gbl__run_loader_clean)
     REGEX "loader: diagnostics ok")
 endfunction()
 
-if(CASE MATCHES "^loader_")
+if(CASE MATCHES "^cpu_")
+  if(CASE STREQUAL "cpu_clean")
+    gbl__run_cpu_clean()
+  else()
+    string(REPLACE "cpu_" "" cpu_mutation "${CASE}")
+    gbl__run_cpu_pair("${cpu_mutation}" "${cpu_mutation}" "${SELECTOR}")
+  endif()
+elseif(CASE MATCHES "^loader_")
   if(CASE STREQUAL "loader_clean")
     gbl__run_loader_clean()
   else()

@@ -3,12 +3,52 @@
 # --version and --help document exit status 0, so these require BOTH the exit
 # status and the text (EXPECT=pass). PASS_REGULAR_EXPRESSION alone would make
 # CTest ignore the exit status.
+add_executable(hash_test tests/hash_test.c runner/sha256.c)
+target_include_directories(hash_test PRIVATE runner)
+target_link_libraries(hash_test PRIVATE gbl_warnings)
+gbl_add_test(
+  NAME runner.hash
+  LABELS runner unit
+  COMMAND $<TARGET_FILE:hash_test>)
+
 gbl_add_test(
   NAME runner.version
   LABELS runner unit
   COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
     -DARGS=--version "-DREGEX=^gamebloke-run 0\\.0\\.0"
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
+
+gbl_add_test(
+  NAME runner.tracer
+  LABELS runner integration
+  COMMAND $<TARGET_FILE:gamebloke-run-control>
+    --rom "${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
+    --fixture synthetic-control-pass --cycles 1000)
+gbl_add_test(
+  NAME runner.unit
+  LABELS runner unit
+  COMMAND $<TARGET_FILE:runner_test>)
+gbl_add_test(
+  NAME runner.result_contract
+  LABELS runner integration gate
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DVALIDATE_PRODUCER=ON
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
+gbl_add_test(
+  NAME runner.relocation
+  LABELS gate integration runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DMODE=clean
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
+gbl_add_test(
+  NAME runner.relocation_control
+  LABELS control runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DMODE=missing-executable
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
 
 add_executable(version_test tests/version_test.c)
 target_link_libraries(version_test PRIVATE gamebloke_core gbl_warnings)
@@ -31,6 +71,28 @@ gbl_add_test(
   NAME bus.video
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> video)
+
+add_executable(cpu_test tests/cpu_test.c)
+target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)
+gbl_add_test(
+  NAME cpu.tracer
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> tracer)
+gbl_add_test(
+  NAME cpu.lifecycle
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> lifecycle)
+gbl_add_test(
+  NAME cpu.budget
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> budget)
+foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
+    no_bios peek mailbox trace_capacity trace)
+  gbl_add_test(
+    NAME cpu.${selector}
+    LABELS cpu core unit
+    COMMAND $<TARGET_FILE:cpu_test> ${selector})
+endforeach()
 
 # Compile selected disposable bus mutants against the real bus test. Pass the
 # configured compiler, build flags, warning policy, and sanitizer flags so the
@@ -108,6 +170,39 @@ gbl__add_loader_mutation_test(
   loader.nc.logo_digest_forced_match logo_digest_forced_match logo-digest)
 gbl__add_loader_mutation_test(loader.pos.clean clean diagnostics)
 
+function(gbl__add_cpu_mutation_test test_name mutation selector)
+  if(mutation STREQUAL "clean")
+    set(labels core cpu positive)
+  else()
+    set(labels control core cpu)
+  endif()
+  gbl_add_test(
+    NAME "${test_name}"
+    LABELS ${labels}
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=cpu_${mutation}" "-DSELECTOR=${selector}"
+      "-DCOMPILER=${CMAKE_C_COMPILER}"
+      "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
+      "-DC_FLAGS=${CMAKE_C_FLAGS}"
+      "-DC_FLAGS_CONFIG=${GBL_MUTATION_C_FLAGS_CONFIG}"
+      "-DLINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+      "-DLINKER_FLAGS_CONFIG=${GBL_MUTATION_LINK_FLAGS_CONFIG}"
+      "-DVERSION=${PROJECT_VERSION}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/core_mutation.cmake")
+endfunction()
+
+gbl__add_cpu_mutation_test(cpu.nc.pc_refill pc_refill decode)
+gbl__add_cpu_mutation_test(cpu.nc.shift_carry shift_carry arithmetic)
+gbl__add_cpu_mutation_test(cpu.nc.bank_alias bank_alias modes)
+gbl__add_cpu_mutation_test(cpu.nc.exception_lr exception_lr exceptions)
+gbl__add_cpu_mutation_test(cpu.nc.vector_fetch vector_fetch no_bios)
+gbl__add_cpu_mutation_test(cpu.nc.peek_effect peek_effect peek)
+gbl__add_cpu_mutation_test(cpu.nc.trace_loss trace_loss trace)
+gbl__add_cpu_mutation_test(
+  cpu.nc.budget_overshoot budget_overshoot trace)
+gbl__add_cpu_mutation_test(cpu.pos.clean clean all)
+
 gbl_add_test(
   NAME machine.state
   LABELS core machine unit
@@ -155,6 +250,14 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
     -DARGS=--help "-DREGEX=exit codes: 0 success, 2 usage error"
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
+
+gbl_add_test(
+  NAME runner.metadata
+  LABELS runner gate
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    "-DHASH_TEST=$<TARGET_FILE:hash_test>"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_metadata.cmake")
 
 # The documented usage-error exit code is exactly 2 (unlike a sanitizer abort).
 gbl_add_test(

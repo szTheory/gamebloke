@@ -27,6 +27,9 @@ says exactly what it proves and what it does not.
 - ✓ Caller-owned deterministic machine state, timing-bearing checked bus, declared GBA map/mirror/width policies, and transactional copied-ROM loading with bounded advisory diagnostics — Phase 3. Timing/fill/latch policies are not hardware qualification.
 - ✓ Owner-authorized logo-window authority and normal/sanitized production-header comparison witnesses — Phase 3. Only the digest is published; no provenance, redistribution or game-compatibility claim follows.
 
+- ✓ Bus-backed bounded ARM/Thumb subset, explicit pipeline/modes/exceptions, neutral mailbox inspection, category traces, exact machine-time JSON results and installed CLI relocation — Phase 4. Full ISA diagnostics remain Phase 5; timing/latch policies are unverified and trace writes currently retain the bus result zero.
+- ✓ Profile version 4 names the direct-start/no-BIOS CPU policy and implemented/excluded operand scope; actual producer results preserve dispute disclosure — Phase 4.
+
 ### Active
 
 These are hypotheses until shipped and verified. Formal REQ-IDs live in
@@ -102,8 +105,10 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | LibFuturo fit | Prove with a real core/consumer before adoption | — Pending (later phase) |
 | Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
 | Required check `CI required` on `ubuntu-26.04` + `macos-26` (arm64), actions SHA-pinned, `main` protected by a PR-only ruleset with no bypass actors (owner-authorized, 2026-11-10) | One command, same verdict locally and in CI; nothing reaches main except through a green PR | ✓ Good (Phase 1) |
-| Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | — Pending (exercised from Phase 2) |
-| Owner-authorized logo authority (2026-11-10) | Owner supplied two existing local files and delegated ignored copies, hashing and checks; only the shared digest is published | Verified and owner-accepted on Phase 3 branch; main activation awaits PR merge. No rights/provenance inference. |
+| Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | ✓ Exercised through Phase 3; Phase 4 final-head publication in progress |
+| Owner-authorized logo authority (2026-11-10) | Owner supplied two existing local files and delegated ignored copies, hashing and checks; only the shared digest is published | Verified, owner-accepted and activated on main through PR #6. No rights/provenance inference. |
+| Canonical CPU/runner evidence boundary (Phase 4) | One bus-backed interpreter, whole-unit budget/trace preflight, distinct status/semantic/time/claim/limits, build-time fixture authority | Verified in local/hosted checks and independent reviews; full ISA remains Phase 5 |
+| Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
 | Project license | Owner authority. The repo is public with no LICENSE file yet, so default copyright applies until the owner chooses one. | — Pending (owner gate) |
 
 ## Evolution
@@ -124,4 +129,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-10 after Phase 3 acceptance*
+*Last updated: 2026-11-11 after Phase 4 acceptance*

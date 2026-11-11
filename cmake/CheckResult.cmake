@@ -22,8 +22,8 @@
 # spelled here is PASS, because two of the reason codes are named after it. The one label
 # spelled here is `disputed`: its meaning is the disclosure rule below, so it is not a
 # vocabulary entry, and a new label would arrive with its own rule and a gamebloke.result/2
-# bump (I2). Unknown extra top-level keys (note, semantic, time) are ignored: the semantic
-# and time rules arrive with Phase 4, when the runner starts emitting results.
+# bump (I2). Phase 4 adds required semantic, time, termination, and trace observations
+# without changing the schema, status vocabulary, or label vocabulary.
 #
 # Reason codes (printed as `result: <code>: <detail>`, every finding reported):
 #   usage                 script mode with a missing -D input
@@ -63,6 +63,15 @@
 #   bad-label             a label other than `disputed`, or a duplicate label
 #   empty-limits          limits not an array, empty, or holding an item that is not a
 #                         non-empty string
+#   bad-semantic          semantic state/case_id has a noncanonical type or value
+#   status-semantic-mismatch PASS is not a completed PASS mailbox, or GUEST_FAIL is not a
+#                         completed FAIL mailbox
+#   bad-time              time object/field is not a canonical decimal string
+#   time-overflow         a time decimal string exceeds UINT64_MAX
+#   cycles-exceed-budget  reported cycles are greater than budget_cycles
+#   bad-termination       termination is missing, unnamed, or inconsistent with status
+#   bad-trace             trace is not null or lacks a boolean complete field
+#   incomplete-trace      a PASS or trace-output-full result claims an incomplete trace
 # The json:, contract:, registry:, and manifest: codes come from the loader and the readers
 # this file calls. On success the script prints `result: ok (<STATUS>)`.
 
@@ -108,6 +117,46 @@ function(gbl__result_present out doc)
   endif()
 endfunction()
 
+# gbl__result_uint64(<out-valid> <out-value> <doc> <key>...): accepts only a JSON string
+# containing a canonical base-10 uint64. No CMake math is performed on the value.
+function(gbl__result_uint64 valid_out value_out doc)
+  gbl_json_type(ty "${doc}" ${ARGN})
+  set(valid FALSE)
+  set(value "")
+  if("${ty}" STREQUAL "STRING")
+    string(JSON value GET "${doc}" ${ARGN})
+    if("${value}" MATCHES "^(0|[1-9][0-9]*)$")
+      string(LENGTH "${value}" digits)
+      if(digits LESS 20)
+        set(valid TRUE)
+      elseif(digits EQUAL 20 AND
+          NOT "${value}" STRGREATER "18446744073709551615")
+        set(valid TRUE)
+      endif()
+    endif()
+  endif()
+  set(${valid_out} "${valid}" PARENT_SCOPE)
+  set(${value_out} "${value}" PARENT_SCOPE)
+endfunction()
+
+# gbl__result_decimal_le(<out> <left> <right>): compare canonical nonnegative decimal
+# strings by length and then lexicographically, avoiding CMake's signed integer range.
+function(gbl__result_decimal_le out left right)
+  string(LENGTH "${left}" left_digits)
+  string(LENGTH "${right}" right_digits)
+  if(left_digits LESS right_digits)
+    set(${out} TRUE PARENT_SCOPE)
+  elseif(left_digits GREATER right_digits)
+    set(${out} FALSE PARENT_SCOPE)
+  elseif("${left}" STREQUAL "${right}")
+    set(${out} TRUE PARENT_SCOPE)
+  elseif("${left}" STRLESS "${right}")
+    set(${out} TRUE PARENT_SCOPE)
+  else()
+    set(${out} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
 function(gbl_result_check file manifest registry vocab)
   gbl_json_load(doc "${file}")
   set(m_ids "${${manifest}_IDS}")
@@ -117,17 +166,165 @@ function(gbl_result_check file manifest registry vocab)
   set(status "")
 
   # ---- required top-level keys -------------------------------------------------
-  foreach(key IN ITEMS schema fixture status claim disputes labels limits)
+  foreach(key IN ITEMS schema fixture status claim disputes labels limits semantic time
+      termination)
     gbl__result_present(has_${key} "${doc}" ${key})
     if(NOT has_${key})
       gbl_finding(result missing-field "${key}")
     endif()
   endforeach()
+  gbl_json_type(trace_top_type "${doc}" trace)
+  if("${trace_top_type}" STREQUAL "MISSING")
+    set(has_trace FALSE)
+    gbl_finding(result missing-field "trace")
+  else()
+    set(has_trace TRUE)
+  endif()
 
   if(has_schema)
     gbl_json_string(schema "${doc}" schema)
     if(NOT "${schema}" STREQUAL "gamebloke.result/1")
       gbl_finding(result bad-schema "${file}")
+    endif()
+  endif()
+
+  # ---- guest semantic observation ---------------------------------------------
+  set(semantic_state "")
+  set(semantic_case_id "")
+  set(semantic_case_kind "MISSING")
+  if(has_semantic)
+    gbl_json_type(semantic_type "${doc}" semantic)
+    if(NOT "${semantic_type}" STREQUAL "OBJECT")
+      gbl_finding(result bad-semantic "semantic: not an object")
+    else()
+      gbl_json_type(semantic_state_type "${doc}" semantic state)
+      if("${semantic_state_type}" STREQUAL "STRING")
+        string(JSON semantic_state GET "${doc}" semantic state)
+        if(NOT "${semantic_state}" MATCHES "^(absent|pending|pass|fail|malformed)$")
+          gbl_finding(result bad-semantic "semantic.state")
+        endif()
+      elseif("${semantic_state_type}" STREQUAL "MISSING" OR
+          "${semantic_state_type}" STREQUAL "NULL")
+        gbl_finding(result missing-field "semantic.state")
+      else()
+        gbl_finding(result bad-semantic "semantic.state must be a string")
+      endif()
+
+      gbl_json_type(semantic_case_kind "${doc}" semantic case_id)
+      if("${semantic_case_kind}" STREQUAL "STRING")
+        string(JSON semantic_case_id GET "${doc}" semantic case_id)
+        if(NOT "${semantic_case_id}" MATCHES "^(0|[1-9][0-9]*)$")
+          gbl_finding(result bad-semantic "semantic.case_id")
+        else()
+          string(LENGTH "${semantic_case_id}" semantic_case_digits)
+          if(semantic_case_digits GREATER 10 OR
+              (semantic_case_digits EQUAL 10 AND
+               "${semantic_case_id}" STRGREATER "4294967295"))
+            gbl_finding(result bad-semantic "semantic.case_id exceeds uint32")
+          endif()
+        endif()
+      elseif(NOT "${semantic_case_kind}" STREQUAL "NULL" AND
+          NOT "${semantic_case_kind}" STREQUAL "MISSING")
+        gbl_finding(result bad-semantic "semantic.case_id must be a string or null")
+      elseif("${semantic_case_kind}" STREQUAL "MISSING")
+        gbl_finding(result missing-field "semantic.case_id")
+      endif()
+
+      if("${semantic_state}" STREQUAL "absent" AND
+          NOT "${semantic_case_kind}" STREQUAL "NULL" AND
+          NOT ("${semantic_case_kind}" STREQUAL "STRING" AND
+               "${semantic_case_id}" STREQUAL "0"))
+        gbl_finding(result bad-semantic "absent mailbox needs a null or zero case_id")
+      elseif("${semantic_state}" MATCHES "^(pending|pass|fail|malformed)$" AND
+          NOT "${semantic_case_kind}" STREQUAL "STRING")
+        gbl_finding(result bad-semantic "${semantic_state} mailbox needs a string case_id")
+      elseif("${semantic_state}" MATCHES "^(pass|fail)$" AND
+          "${semantic_case_id}" STREQUAL "0")
+        gbl_finding(result bad-semantic "completed mailbox needs a nonzero case_id")
+      endif()
+    endif()
+  endif()
+
+  # ---- exact machine time -------------------------------------------------------
+  set(time_cycles "")
+  set(time_instructions "")
+  set(time_budget "")
+  set(time_valid FALSE)
+  if(has_time)
+    gbl_json_type(time_type "${doc}" time)
+    if(NOT "${time_type}" STREQUAL "OBJECT")
+      gbl_finding(result bad-time "time: not an object")
+    else()
+      set(time_valid TRUE)
+      foreach(field IN ITEMS cycles instructions budget_cycles)
+        gbl__result_present(has_time_${field} "${doc}" time ${field})
+        if(NOT has_time_${field})
+          gbl_finding(result missing-field "time.${field}")
+          set(time_valid FALSE)
+          continue()
+        endif()
+        gbl__result_uint64(time_${field}_valid time_${field} "${doc}" time ${field})
+        if(NOT time_${field}_valid)
+          gbl_json_type(time_${field}_type "${doc}" time ${field})
+          if("${time_${field}_type}" STREQUAL "STRING")
+            string(JSON invalid_decimal GET "${doc}" time ${field})
+            if("${invalid_decimal}" MATCHES "^(0|[1-9][0-9]*)$")
+              string(LENGTH "${invalid_decimal}" invalid_digits)
+              if(invalid_digits GREATER 20 OR
+                  (invalid_digits EQUAL 20 AND
+                   "${invalid_decimal}" STRGREATER "18446744073709551615"))
+                gbl_finding(result time-overflow "time.${field}")
+              else()
+                gbl_finding(result bad-time "time.${field}")
+              endif()
+            else()
+              gbl_finding(result bad-time "time.${field}")
+            endif()
+          else()
+            gbl_finding(result bad-time "time.${field} must be a decimal string")
+          endif()
+          set(time_valid FALSE)
+        endif()
+      endforeach()
+      if(time_valid)
+        set(time_budget "${time_budget_cycles}")
+        gbl__result_decimal_le(cycles_within_budget "${time_cycles}"
+          "${time_budget}")
+        if(NOT cycles_within_budget)
+          gbl_finding(result cycles-exceed-budget
+            "time.cycles exceeds time.budget_cycles")
+        endif()
+      endif()
+    endif()
+  endif()
+
+  # ---- termination and trace observations -------------------------------------
+  set(termination "")
+  if(has_termination)
+    gbl_json_type(termination_type "${doc}" termination)
+    if("${termination_type}" STREQUAL "STRING")
+      string(JSON termination GET "${doc}" termination)
+      if(NOT "${termination}" MATCHES "^[a-z0-9]+(-[a-z0-9]+)*$")
+        gbl_finding(result bad-termination "termination must be a named token")
+      endif()
+    else()
+      gbl_finding(result bad-termination "termination must be a string")
+    endif()
+  endif()
+
+  set(trace_complete_kind "MISSING")
+  set(trace_complete "")
+  if(has_trace)
+    gbl_json_type(trace_type "${doc}" trace)
+    if("${trace_type}" STREQUAL "OBJECT")
+      gbl_json_type(trace_complete_kind "${doc}" trace complete)
+      if("${trace_complete_kind}" STREQUAL "BOOLEAN")
+        string(JSON trace_complete GET "${doc}" trace complete)
+      else()
+        gbl_finding(result bad-trace "trace.complete must be a boolean")
+      endif()
+    elseif(NOT "${trace_type}" STREQUAL "NULL")
+      gbl_finding(result bad-trace "trace must be an object or null")
     endif()
   endif()
 
@@ -222,6 +419,77 @@ function(gbl_result_check file manifest registry vocab)
       if("${rpost}" STREQUAL "<missing>")
         gbl_finding(result missing-refusal "${status} needs refusal.postcondition")
       endif()
+    endif()
+  endif()
+
+  # Bind evidence status to the actual guest mailbox and the bounded run's termination.
+  gbl_json_string(result_reason "${doc}" reason)
+  if("${status}" STREQUAL "PASS")
+    if(NOT "${semantic_state}" STREQUAL "pass")
+      gbl_finding(result status-semantic-mismatch "PASS requires semantic.state pass")
+    endif()
+    if("${semantic_case_kind}" STREQUAL "STRING" AND
+        "${semantic_case_id}" STREQUAL "0")
+      gbl_finding(result status-semantic-mismatch
+        "PASS requires a nonzero semantic.case_id")
+    endif()
+    if(NOT "${termination}" STREQUAL "mailbox-complete")
+      gbl_finding(result bad-termination "PASS requires mailbox-complete")
+    endif()
+    if(time_valid AND ("${time_cycles}" STREQUAL "0" OR
+        "${time_instructions}" STREQUAL "0"))
+      gbl_finding(result status-semantic-mismatch "PASS requires executed guest progress")
+    endif()
+  elseif("${status}" STREQUAL "GUEST_FAIL")
+    if(NOT "${semantic_state}" STREQUAL "fail")
+      gbl_finding(result status-semantic-mismatch
+        "GUEST_FAIL requires semantic.state fail")
+    endif()
+    if(NOT "${termination}" STREQUAL "mailbox-complete")
+      gbl_finding(result bad-termination "GUEST_FAIL requires mailbox-complete")
+    endif()
+  elseif("${status}" STREQUAL "GUEST_STOP")
+    if("${result_reason}" MATCHES "^no-bios-" OR
+        "${termination}" MATCHES "^no-bios-")
+      if(NOT "${result_reason}" MATCHES "^no-bios-" OR
+          NOT "${termination}" STREQUAL "${result_reason}")
+        gbl_finding(result bad-termination
+          "no-BIOS GUEST_STOP termination must match reason")
+      endif()
+    endif()
+  elseif("${status}" STREQUAL "TIMEOUT" AND
+      NOT "${termination}" STREQUAL "timeout")
+    gbl_finding(result bad-termination "TIMEOUT requires timeout termination")
+  elseif("${status}" STREQUAL "CANCELLED" AND
+      NOT "${termination}" STREQUAL "cancelled")
+    gbl_finding(result bad-termination "CANCELLED requires cancelled termination")
+  endif()
+
+  set(trace_output_full FALSE)
+  if("${status}" STREQUAL "HARNESS_FAIL" AND
+      "${result_reason}" STREQUAL "trace-output-full")
+    set(trace_output_full TRUE)
+    if(NOT "${termination}" STREQUAL "trace-output-full")
+      gbl_finding(result bad-termination
+        "trace-output-full HARNESS_FAIL requires matching termination")
+    endif()
+    if(NOT "${trace_complete_kind}" STREQUAL "BOOLEAN" OR
+        NOT "${trace_complete}" STREQUAL "OFF")
+      gbl_finding(result incomplete-trace
+        "trace-output-full HARNESS_FAIL requires trace.complete false")
+    endif()
+  endif()
+  if("${termination}" STREQUAL "trace-output-full" AND NOT trace_output_full)
+    gbl_finding(result bad-termination
+      "trace-output-full requires HARNESS_FAIL with matching reason")
+  endif()
+  if("${trace_complete_kind}" STREQUAL "BOOLEAN" AND
+      "${trace_complete}" STREQUAL "OFF" AND NOT trace_output_full)
+    if("${status}" STREQUAL "PASS")
+      gbl_finding(result incomplete-trace "PASS cannot have an incomplete trace")
+    else()
+      gbl_finding(result incomplete-trace
+        "incomplete trace requires trace-output-full HARNESS_FAIL")
     endif()
   endif()
 

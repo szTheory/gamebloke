@@ -2,45 +2,45 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 4
-current_phase_name: CPU Execution Core and Headless Runner
+current_phase: 5
+current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 status: planning
-stopped_at: Phase 3 complete, ready to plan Phase 4
-last_updated: "2026-11-11T01:20:53.971Z"
-last_activity: 2026-11-10
-last_activity_desc: Phase 3 complete, transitioned to Phase 4
-state_head: 03cc5c00c7d4ddecbac18e9338de893703a04ebe
+stopped_at: Phase 4 complete, ready to plan Phase 5
+last_updated: "2026-11-11T14:02:14.800Z"
+last_activity: 2026-11-11
+last_activity_desc: Phase 4 complete, transitioned to Phase 5
+state_head: 034cd2f7bbaa741417156bf78ddd944c98d52dad
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 25
-  completed_plans: 25
-  percent: 50
+  completed_phases: 4
+  total_plans: 38
+  completed_plans: 38
+  percent: 67
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-10)
+See: .planning/PROJECT.md (updated 2026-11-11)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 04 — CPU Execution Core and Headless Runner (after Phase 3 publication)
+**Current focus:** Phase 5 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 
 ## Current Position
 
-Phase: 4 — CPU Execution Core and Headless Runner
+Phase: 5 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-11-10 — Phase 3 complete, transitioned to Phase 4
+Last activity: 2026-11-11 — Phase 4 complete, transitioned to Phase 5
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
+- Total plans completed: 38
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -51,6 +51,7 @@ Progress: [█████░░░░░] 50%
 | 1 | 11 | - | - |
 | 2 | 7 | - | - |
 | 3 | 7 | - | - |
+| 4 | 13 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -83,6 +84,19 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P04 | 38 min | 3 tasks | 8 files |
 | Phase 03 P05 | 23min | 2 tasks | 10 files |
 | Phase 03 P07 | 44 min | 3 tasks | 17 files |
+| Phase 04 P01 | not_measured | 1 tasks | 5 files |
+| Phase 04 P02 | not_measured | 2 tasks | 9 files |
+| Phase 04 P03 | not_measured | 3 tasks | 8 files |
+| Phase 04 P04 | 33min27s | 3 tasks | 8 files |
+| Phase 04 P05 | not_measured | 2 tasks | 7 files |
+| Phase 04 P06 | 21min | 2 tasks | 8 files |
+| Phase 04 P07 | approx45min | 2 tasks | 7 files |
+| Phase 04 P08 | approx24min | 1 tasks | 3 files |
+| Phase 04 P09 | not_measured | 2 tasks | 8 files |
+| Phase 04 P10 | 31min | 1 tasks | 6 files |
+| Phase 04 P11 | 28min-from-first-commit | 2 tasks | 11 files |
+| Phase 04 P12 | 30min-from-first-commit | 2 tasks | 10 files |
+| Phase 04 P13 | 29min35s | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -163,24 +177,44 @@ Recent decisions affecting current work:
 
 - [Phase 03]: The owner explicitly accepted both documented phase claim limits. UAT and canonical verification pass; all seven implementation plans are complete. Existing PR #6 is the publication path; push final acceptance bookkeeping once and wait for green required checks before squash merge. No further acceptance prompt is needed for these same limits. The phase contains no frontend; visual review is not applicable. Graduation scan has only two completed prior phases, below its threshold.
 
+- [Phase 03]: PR #6 squash-merged through the ruleset; main required CI passes. Final-head and main timing/inventory snapshots are retained in build/phase03-logo-activation/merge-main-result.json. Private inputs and original user edits were preserved. A stash backup of only the generated state cache remains local after a clean restore; no reset or branch deletion was used.
+
+- [Phase 04]: Required ARM7TDMI DDI0029G manual and GBATEK 3.06 CPU source reading are complete; independent CPU/GBA/runner notes and the synthesized context distinguish source observations from project policy. The GBA note was recovered complete after interrupting prolonged finalization, without repeating source reading. Routine reversible choices are recorded as agent decisions under standing autonomy, not fabricated owner votes. The original Phase 4 goal is retained verbatim as its technical boundary alongside the MVP user-story format.
+
+- [Phase 04]: Keep one canonical `04-RESEARCH.md`; supporting lenses use `*-NOTES.md`. The generic research-file resolver selected a partial ARM lens when several files ended in RESEARCH.md, creating a misleading drift warning and hiding the synthesized validation section. Supporting-note renaming and explicit context reconciliation fix the consumer input without repeating hardware research.
+
+- [Phase 04]: Plans 01–02 are committed. Configured production/synthetic and scratch builds share the CPU source; an empty loaded-ROM context now refuses before effects. Canonical CI and focused configured AppleClang ASan/UBSan CPU checks pass. The default sanitizer preset names Linux clang-21; local macOS uses the documented fresh /usr/bin/clang override. CPU/runner requirements remain partial; continue with Plan 03. Local sanitizer log: build/phase04-tracer/plan02-asan-macos.log.
+
+- [Phase 04]: Profile version 4 and CPU policy validation are committed; focused profile, CI and hygiene checks pass. The optional owner-local signature test was then explicitly refreshed against both already-authorized ignored inputs and passed without skipping. Only the bounded header digest helper ran; no guest execution occurred. Ledger entry 3 is fixed, with local evidence in build/phase04-tracer/owner-local-refresh.log. Future public CI skips remain expected and do not create a new owner-data gate.
+
+- [Phase 04]: Preserve the direct-start CLI reachability limit: reset, IRQ, FIQ, prefetch-abort and data-abort stops have no modeled CLI source. Their production reason/JSON mapping is verified through the real CPU exception API and shared runner classifier/writer, alongside the CLI-reachable SWI/undefined/coprocessor cases. This is lower-boundary coverage, not fabricated CLI execution or a wider CPU/device model. Final CI and focused sanitizers pass; independent phase verification still owns requirement completion.
+
+- [Phase 04]: All thirteen implementation plans are committed and locally verified, including moved-prefix production CLI results/traces, final CI, fresh ASan/UBSan and hygiene inventories. Independent validation, security, code review and goal verification remain before phase acceptance. Review the explicit write-trace limitation: successful store records currently copy the bus API result value zero rather than the attempted payload; no waiver or hardware qualification is inferred. Preserve the Plan 12 guide-clarity human-judgment item until the phase-boundary review.
+
+- [Phase 04]: Owner replied "yes i accpet" to the explicit guide-clarity question. The canonical UAT predicate and verification status pass; all eleven probe rows remain unresolved and rights/qualification restrictions remain active. This is acceptance of the documented current scope, not a waiver.
+
 ### Pending Todos
 
 None yet.
 
 ### Blockers/Concerns
 
+- Phase 4 owner accepted the guide-clarity judgment. Technical and UAT completion predicates pass; final publication through PR #7 is in progress before Phase 5 work. No new rights, probe-status or hardware/game qualification is accepted.
+
+
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
 - Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
-- Phase 1 follow-up: the owner-authorized digest is supplied and verified on the Phase 3 branch. No further owner file/helper task remains. EVID-04 activation on main awaits the existing phase PR merge.
-- Phase 1: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
+- Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
+- Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
-- Phase 3: owner acceptance is recorded and canonical verification passes. Complete the existing green-PR publication path before starting Phase 4. No further owner input is needed for this accepted scope.
+- Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
 
-- Phase 3: the initial hosted GCC failure has an owner-authorized explicit-conversion fix, verified locally with GNU and fresh sanitizers. PR #6 remains draft for owner acceptance. The corrected head must pass live hosted checks; any new red result renews the standing stop. No merge or Phase 4 start while the independent owner-data/manual gate remains unresolved.
 
 ## Deferred Items
+
+- Phase 4 completion scanner reports generated/production/fixture_index.h and generated/control/fixture_index.h as absent at repository-relative paths. They are generated build outputs under build/ci and build/asan; the production/control metadata tests and relocated runner passed. This is a path-reference warning, not missing implementation.
 
 - Before milestone close, reconcile Phase 3 Nyquist document status/taxonomy with
   its actual passing behavior evidence. The artifact remains draft; phase
@@ -192,6 +226,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-10T23:59:45.464Z
-Stopped at: Phase 3 complete, ready to plan Phase 4
+Last session: 2026-11-11
+Stopped at: Phase 4 complete, ready to plan Phase 5
 Resume file: None

@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 3,
+  "profile_version": 4,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -89,6 +89,41 @@
     "master_cycles": 0,
     "open_bus": 0
   },
+  "cpu_policy": {
+    "source": "IMPL",
+    "cite": "Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops.",
+    "architecture_source": "REF",
+    "architecture_cite": "ARM7TDMI Technical Reference Manual (DDI 0029G, Issue G), ARM state, Thumb state, and processor modes sections.",
+    "entry_address": 134217728,
+    "cpsr": 223,
+    "register_bank_fill": 0,
+    "spsr_fill": 0,
+    "user_system_spsr": "absent",
+    "register_banks": "User/System share r8-r14, FIQ has private r8-r14, IRQ/SVC/ABT/UND each have private r13-r14, and FIQ/IRQ/SVC/ABT/UND have SPSRs.",
+    "pipeline": "empty",
+    "arm_pc_offset": 8,
+    "thumb_pc_offset": 4,
+    "timing": "unit-preflight-one-cycle-bus",
+    "exception_entry_cycles": 1,
+    "bios_none_stop": "after-entry-before-vector-fetch",
+    "execution": "single-interpreter",
+    "supported_opcode_operands": [
+      "ARM data processing: MOV, ADD, SUB, CMP, AND, ORR, rotated immediate or register operand, immediate or register-specified LSL/LSR/ASR/ROR, S flag supported, destinations r0-r14",
+      "ARM control flow: B, BL, BX",
+      "ARM single transfer: LDR/STR byte or word, immediate 12-bit offset, pre-indexed, no writeback, U plus or minus, r0-r14 base/data, PC base only for positive LDR literal",
+      "Thumb data processing: MOV immediate8, ADD/SUB immediate8, CMP immediate8",
+      "Thumb high-register operations: MOV to r0-r14 and BX",
+      "Thumb control flow: conditional B except SWI/reserved conditions, and unconditional B",
+      "Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers"
+    ],
+    "excluded_opcode_operands": [
+      "ARM register-specified shifts involving r15, r15 destinations other than branch/BX, STR with PC source, and PC reads",
+      "ARM post-indexed or writeback transfers, halfword/signed transfers, block transfers, multiply, swap, full PSR transfers, and coprocessor execution",
+      "Thumb data-processing writes to r15 outside BX/branch, Thumb BL pair, and non-listed transfer forms",
+      "All other valid-but-unimplemented opcodes and operands stop as unsupported, reserved undefined encodings remain distinct",
+      "Later ARM architecture extensions and every instruction family absent from the supported array"
+    ]
+  },
   "read_policy": {
     "source": "IMPL",
     "cite": "Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails.",
@@ -152,7 +187,7 @@
     {
       "id": "bios-protection",
       "status": "unmodeled",
-      "reason": "BIOS read protection and CPU pipeline-dependent behavior are not implemented."
+      "reason": "CPU fetches participate in BIOS protection checks, but region/state-specific open-bus behavior and Game Pak prefetch are not qualified or emulated."
     },
     {
       "id": "io-devices",

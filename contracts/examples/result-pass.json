@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.result/1",
-  "note": "An illustrative result document for tests and documentation. No fixture ran; it describes the example manifest row.",
+  "note": "Illustrative contract fields for tests and documentation; this file does not record an actual fixture execution.",
   "fixture": {
     "id": "example-row",
     "ran": true,
@@ -28,6 +28,17 @@
   "disputes": [],
   "labels": [],
   "limits": [
-    "Illustrative file: no fixture ran. A PASS proves only the fixture's own semantic checks under this claim tuple."
-  ]
+    "Illustrative document only; a real PASS proves only the fixture's own semantic checks under this claim tuple."
+  ],
+  "semantic": {
+    "state": "pass",
+    "case_id": "1"
+  },
+  "time": {
+    "cycles": "24",
+    "instructions": "12",
+    "budget_cycles": "24"
+  },
+  "termination": "mailbox-complete",
+  "trace": null
 }

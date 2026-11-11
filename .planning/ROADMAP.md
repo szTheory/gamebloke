@@ -43,7 +43,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: CI and Verification Foundation** - One canonical verify command, the required `CI required` check, sanitizer lanes, test inventory, hygiene and signature scans, each with negative controls (completed 2026-11-09)
 - [x] **Phase 2: Profile, Fixture Manifest, and Result Contract** - Versioned `agb` profile, claim tuple, manifest and linter, pinned fetch, result taxonomy, and dispute registry (completed 2026-11-10)
 - [x] **Phase 3: Bus API, Memory Map, and ROM Loading** - Final cost-returning bus API on a u64 master clock, full memory map, deterministic power-on state, and a loader that refuses bad input safely (completed 2026-11-10)
-- [ ] **Phase 4: CPU Execution Core and Headless Runner** - Explicit-pipeline ARM7TDMI with modes and exceptions, and a runner that emits one bounded JSON result with mailbox, peek, and trace
+- [x] **Phase 4: CPU Execution Core and Headless Runner** - Explicit-pipeline ARM7TDMI with modes and exceptions, and a runner that emits one bounded JSON result with mailbox, peek, and trace (completed 2026-11-11)
 - [ ] **Phase 5: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion** - Reproducible pinned toolchain, project-authored diagnostics with negative variants, and full ARMv4T ARM and Thumb coverage
 - [ ] **Phase 6: Determinism Gates and Third-Party CPU Fixtures** - Repeat, optimization-level, two-compiler, and interleave equality, the bus-only time gate, and jsmolka CPU suites through a verified result channel
 
@@ -179,7 +179,8 @@ Plans:
 **Owner gates**: None blocking. G1 reuse rule: do not copy code from GPL (NanoBoyAdvance) or MPL (mGBA) sources; read them for behavior only.
 
 ### Phase 4: CPU Execution Core and Headless Runner
-**Goal**: A fresh instance executes ARM7TDMI code only through the bus, with explicit pipeline, open-bus, mode, and exception state. The headless runner turns each bounded run into one JSON result that keeps status, semantic result, machine time, claim, and limits separate.
+**Goal**: As a core developer, I want to execute ARM7TDMI code from a fresh bus-backed instance and obtain bounded headless JSON results with separate status, semantic result, machine time, claim and limits, so that I can inspect deterministic CPU behavior and judge exactly what each diagnostic result establishes.
+**Technical boundary (unchanged):** A fresh instance executes ARM7TDMI code only through the bus, with explicit pipeline, open-bus, mode, and exception state. The headless runner turns each bounded run into one JSON result that keeps status, semantic result, machine time, claim, and limits separate.
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: CPU-03, CPU-04, CPU-05, PROF-03, RUN-01, RUN-02, RUN-03, RUN-04
@@ -189,7 +190,48 @@ Plans:
   3. Running the runner on a ROM image with a cycle or frame bound produces one JSON document with separate `status`, semantic result, machine time in cycles, claim tuple, and `limits` fields. The semantic result is read from the IWRAM mailbox by `peek`, and a test shows that `peek` leaves the state digest and the master clock unchanged. When the fixture's manifest row carries a dispute id, the emitted result lists that id and carries the `disputed` label, and the Phase 2 result validator accepts the document (this completes the producer half of Phase 2 criterion 5).
   4. A trace run with a category mask writes only the selected categories (instruction, bus access, exception) into a bounded buffer. With an undersized buffer, the run ends with an explicit output-full status and drops no records silently.
   5. The runner CLI is installed with `cmake --install` to one prefix, then moved to another directory. From there it runs and produces a JSON result identical to the one from the build tree.
-**Plans**: TBD
+**Plans**: 13/13 plans complete
+
+Plans:
+**Wave 1**
+- [x] 04-01-PLAN.md — First bus-backed bounded ARM execution
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 04-02-PLAN.md — Canonical CPU build integration and lifecycle refusal evidence
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 04-03-PLAN.md — Defined arithmetic and the explicit ARM/Thumb execution slice
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 04-04-PLAN.md — All mode banks and precise no-BIOS exception transitions
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [x] 04-05-PLAN.md — Versioned direct-start CPU policy and honest profile limits
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [x] 04-06-PLAN.md — Neutral IWRAM inspection and a complete versioned mailbox
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [x] 04-07-PLAN.md — Selected bounded traces with atomic capacity preflight
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [x] 04-08-PLAN.md — Bounded whole-span content hashing
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [x] 04-09-PLAN.md — Immutable fixture indexes and metadata identity controls
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [x] 04-10-PLAN.md — First fresh CLI run through the canonical JSON producer
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [x] 04-11-PLAN.md — Bounded CLI failures, cancellation, trace and canonical lanes
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [x] 04-12-PLAN.md — Enforce semantic/time contracts against actual emitted producer JSON
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [x] 04-13-PLAN.md — Relocated installed production runner and final source/inventory evidence
+
 **Research flag**: Needs research. Read the ARM7TDMI TRM (ARM DDI 0029G) and the GBATEK 3.06 CPU chapters in full, with ARMv4T version tags, before planning. Start the CP-3 post-boot state table for `direct-start` with BIOS provider `none`.
 **Owner gates**: None blocking. G1 reuse rule as in Phase 3.
 
@@ -289,7 +331,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
-| 4. CPU Execution Core and Headless Runner | 0/TBD | Not started | - |
+| 4. CPU Execution Core and Headless Runner | 13/13 | Complete    | 2026-11-11 |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
 

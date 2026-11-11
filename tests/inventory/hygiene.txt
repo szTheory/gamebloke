@@ -115,6 +115,8 @@ profile.nc.bus_policy_doc control,profile
 profile.nc.bus_policy_missing control,profile
 profile.nc.bus_policy_source control,profile
 profile.nc.bus_policy_value control,profile
+profile.nc.cpu_policy_doc control,profile
+profile.nc.cpu_policy_value control,profile
 profile.nc.dispute_unknown control,profile
 profile.nc.doc_extra_id control,profile
 profile.nc.doc_missing_id control,profile
@@ -164,6 +166,7 @@ result.nc.missing_refusal control,result
 result.nc.pass_without_digest control,result
 result.nc.pass_without_run control,result
 result.nc.ran_state_mismatch control,result
+result.nc.semantic_time control,result
 result.nc.undisclosed_dispute control,result
 result.nc.unknown_dispute control,result
 result.nc.unknown_fixture control,result

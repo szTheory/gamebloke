@@ -7,6 +7,9 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->master_cycles = 0u;
     machine->open_bus = 0u;
     machine->dispcnt = 0u;
+    machine->cpu = (gbl_cpu_state){ 0 };
+    machine->cpu.cpsr = UINT32_C(0x000000DF);
+    machine->cpu.execution_address = UINT32_C(0x08000000);
     for (index = 0u; index < GBL_EWRAM_SIZE; ++index) {
         machine->ewram[index] = 0u;
     }

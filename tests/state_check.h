@@ -20,6 +20,19 @@ static bool gbl_test_bytes_equal(const uint8_t *left, const uint8_t *right,
     return true;
 }
 
+static bool gbl_test_u32_array_equal(const uint32_t *left,
+                                     const uint32_t *right, size_t length)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        if (left[index] != right[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool gbl_test_diagnostics_equal(const gbl_header_diagnostics *left,
                                        const gbl_header_diagnostics *right)
 {
@@ -29,6 +42,90 @@ static bool gbl_test_diagnostics_equal(const gbl_header_diagnostics *left,
            left->logo_window == right->logo_window &&
            left->checksum == right->checksum &&
            left->game_code == right->game_code;
+}
+
+static bool gbl_test_cpu_equal(const gbl_cpu_state *left,
+                               const gbl_cpu_state *right)
+{
+    size_t index;
+
+    if (!gbl_test_u32_array_equal(left->r0_7, right->r0_7, 8u) ||
+        !gbl_test_u32_array_equal(left->usr_r8_14, right->usr_r8_14, 7u) ||
+        !gbl_test_u32_array_equal(left->fiq_r8_14, right->fiq_r8_14, 7u) ||
+        !gbl_test_u32_array_equal(left->irq_r13_14, right->irq_r13_14, 2u) ||
+        !gbl_test_u32_array_equal(left->svc_r13_14, right->svc_r13_14, 2u) ||
+        !gbl_test_u32_array_equal(left->abt_r13_14, right->abt_r13_14, 2u) ||
+        !gbl_test_u32_array_equal(left->und_r13_14, right->und_r13_14, 2u) ||
+        !gbl_test_u32_array_equal(left->spsr, right->spsr, 5u) ||
+        left->cpsr != right->cpsr ||
+        left->execution_address != right->execution_address ||
+        left->next_fetch_sequential != right->next_fetch_sequential ||
+        left->retired_instructions != right->retired_instructions ||
+        left->stopped != right->stopped ||
+        left->stop_reason != right->stop_reason ||
+        left->last_exception.kind != right->last_exception.kind ||
+        left->last_exception.current_address !=
+            right->last_exception.current_address ||
+        left->last_exception.next_address !=
+            right->last_exception.next_address ||
+        left->last_exception.fault_address !=
+            right->last_exception.fault_address ||
+        left->last_exception.thumb_state !=
+            right->last_exception.thumb_state) {
+        return false;
+    }
+    for (index = 0u; index < 2u; ++index) {
+        if (left->pipeline[index].address != right->pipeline[index].address ||
+            left->pipeline[index].opcode != right->pipeline[index].opcode ||
+            left->pipeline[index].width != right->pipeline[index].width ||
+            left->pipeline[index].valid != right->pipeline[index].valid) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static inline bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
+{
+    size_t index;
+
+    if (cpu->cpsr != UINT32_C(0x000000DF) ||
+        cpu->execution_address != UINT32_C(0x08000000) ||
+        cpu->pipeline[0].address != 0u || cpu->pipeline[0].opcode != 0u ||
+        cpu->pipeline[0].width != 0u || cpu->pipeline[0].valid ||
+        cpu->pipeline[1].address != 0u || cpu->pipeline[1].opcode != 0u ||
+        cpu->pipeline[1].width != 0u || cpu->pipeline[1].valid ||
+        cpu->next_fetch_sequential || cpu->retired_instructions != 0u ||
+        cpu->stopped || cpu->stop_reason != GBL_CPU_STOP_NONE ||
+        cpu->last_exception.kind != GBL_EXCEPTION_NONE ||
+        cpu->last_exception.current_address != 0u ||
+        cpu->last_exception.next_address != 0u ||
+        cpu->last_exception.fault_address != 0u ||
+        cpu->last_exception.thumb_state) {
+        return false;
+    }
+    for (index = 0u; index < 8u; ++index) {
+        if (cpu->r0_7[index] != 0u) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 7u; ++index) {
+        if (cpu->usr_r8_14[index] != 0u || cpu->fiq_r8_14[index] != 0u) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 2u; ++index) {
+        if (cpu->irq_r13_14[index] != 0u || cpu->svc_r13_14[index] != 0u ||
+            cpu->abt_r13_14[index] != 0u || cpu->und_r13_14[index] != 0u) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 5u; ++index) {
+        if (cpu->spsr[index] != 0u) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /* Compare canonical fields and contents, excluding struct padding, allocator
@@ -41,6 +138,7 @@ static bool gbl_test_canonical_equal(const gbl_machine *left,
         left->master_cycles != right->master_cycles ||
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
+        !gbl_test_cpu_equal(&left->cpu, &right->cpu) ||
         !gbl_test_diagnostics_equal(&left->header_diagnostics,
                                     &right->header_diagnostics) ||
         left->rom_length != right->rom_length ||
@@ -104,6 +202,56 @@ static uint64_t gbl_test_digest_bytes(uint64_t digest, const uint8_t *bytes,
     return digest;
 }
 
+static uint64_t gbl_test_digest_u32_array(uint64_t digest,
+                                          const uint32_t *values,
+                                          size_t length)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        digest = gbl_test_digest_u64(digest, values[index]);
+    }
+    return digest;
+}
+
+static uint64_t gbl_test_digest_cpu(uint64_t digest,
+                                    const gbl_cpu_state *cpu)
+{
+    size_t index;
+
+    digest = gbl_test_digest_u32_array(digest, cpu->r0_7, 8u);
+    digest = gbl_test_digest_u32_array(digest, cpu->usr_r8_14, 7u);
+    digest = gbl_test_digest_u32_array(digest, cpu->fiq_r8_14, 7u);
+    digest = gbl_test_digest_u32_array(digest, cpu->irq_r13_14, 2u);
+    digest = gbl_test_digest_u32_array(digest, cpu->svc_r13_14, 2u);
+    digest = gbl_test_digest_u32_array(digest, cpu->abt_r13_14, 2u);
+    digest = gbl_test_digest_u32_array(digest, cpu->und_r13_14, 2u);
+    digest = gbl_test_digest_u32_array(digest, cpu->spsr, 5u);
+    digest = gbl_test_digest_u64(digest, cpu->cpsr);
+    digest = gbl_test_digest_u64(digest, cpu->execution_address);
+    for (index = 0u; index < 2u; ++index) {
+        digest = gbl_test_digest_u64(digest, cpu->pipeline[index].address);
+        digest = gbl_test_digest_u64(digest, cpu->pipeline[index].opcode);
+        digest = gbl_test_digest_byte(digest, cpu->pipeline[index].width);
+        digest = gbl_test_digest_byte(
+            digest, cpu->pipeline[index].valid ? 1u : 0u);
+    }
+    digest = gbl_test_digest_byte(
+        digest, cpu->next_fetch_sequential ? 1u : 0u);
+    digest = gbl_test_digest_u64(digest, cpu->retired_instructions);
+    digest = gbl_test_digest_byte(digest, cpu->stopped ? 1u : 0u);
+    digest = gbl_test_digest_u64(digest, (uint64_t)cpu->stop_reason);
+    digest = gbl_test_digest_u64(digest,
+                                 (uint64_t)cpu->last_exception.kind);
+    digest = gbl_test_digest_u64(
+        digest, cpu->last_exception.current_address);
+    digest = gbl_test_digest_u64(digest, cpu->last_exception.next_address);
+    digest = gbl_test_digest_u64(digest, cpu->last_exception.fault_address);
+    digest = gbl_test_digest_byte(
+        digest, cpu->last_exception.thumb_state ? 1u : 0u);
+    return digest;
+}
+
 /* Test-only streaming FNV-1a over canonical fields in fixed byte order. */
 static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
 {
@@ -116,6 +264,7 @@ static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
     digest = gbl_test_digest_u64(digest, machine->master_cycles);
     digest = gbl_test_digest_u64(digest, machine->open_bus);
     digest = gbl_test_digest_u64(digest, machine->dispcnt);
+    digest = gbl_test_digest_cpu(digest, &machine->cpu);
     digest = gbl_test_digest_byte(digest,
                                   machine->header_diagnostics.loaded ? 1u : 0u);
     digest = gbl_test_digest_u64(
