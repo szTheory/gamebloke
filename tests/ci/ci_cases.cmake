@@ -51,6 +51,7 @@ function(check_diagnostics_route source_root)
       "runner: macos-26" "host: darwin-arm64"
       "timeout-minutes: 3" "fetch-depth: 0"
       "persist-credentials: false"
+      [=[ref: ${{ github.event.pull_request.head.sha || github.sha }}]=]
       "sh scripts/fetch-toolchain.sh"
       "cmake --workflow --preset diagnostics")
     string(FIND "${diagnostics_block}" "${expected}" found)
