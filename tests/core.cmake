@@ -257,6 +257,9 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}"
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     "-DHASH_TEST=$<TARGET_FILE:hash_test>"
+    "-DPARENT_C_STANDARD=${CMAKE_C_STANDARD}"
+    "-DPARENT_C_STANDARD_REQUIRED=${CMAKE_C_STANDARD_REQUIRED}"
+    "-DPARENT_C_EXTENSIONS=${CMAKE_C_EXTENSIONS}"
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_metadata.cmake")
 
 # The documented usage-error exit code is exactly 2 (unlike a sanitizer abort).

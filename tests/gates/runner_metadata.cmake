@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
-foreach(required IN ITEMS SRC BIN)
+foreach(required IN ITEMS SRC BIN PARENT_C_STANDARD
+    PARENT_C_STANDARD_REQUIRED PARENT_C_EXTENSIONS)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "runner-metadata: usage: -D${required}= is required")
   endif()
@@ -18,6 +19,36 @@ set(fail_image "${generated}/fixtures/owned-arm-fail.gba")
 set(mutated_image "${generated}/fixtures/owned-arm-pass-mutated.gba")
 set(wiring_file "${generated}/runner-target-wiring.txt")
 set(generator_script "${SRC}/cmake/GenerateFixtureIndex.cmake")
+
+function(gbl_read_cache_entry cache_path key output_type output_value)
+  file(STRINGS "${cache_path}" entries REGEX "^${key}:[^=]+=")
+  list(LENGTH entries entry_count)
+  if(NOT entry_count EQUAL 1)
+    message(FATAL_ERROR "runner-metadata: parent-cache-entry-missing: ${key}")
+  endif()
+  list(GET entries 0 entry)
+  if(NOT entry MATCHES "^[^:]+:([^=]+)=(.*)$")
+    message(FATAL_ERROR "runner-metadata: parent-cache-entry-invalid: ${key}")
+  endif()
+  set(${output_type} "${CMAKE_MATCH_1}" PARENT_SCOPE)
+  set(${output_value} "${CMAKE_MATCH_2}" PARENT_SCOPE)
+endfunction()
+
+set(parent_cache "${BIN}/CMakeCache.txt")
+if(NOT EXISTS "${parent_cache}" OR IS_DIRECTORY "${parent_cache}")
+  message(FATAL_ERROR "runner-metadata: parent-cache-missing")
+endif()
+foreach(key IN ITEMS CMAKE_C_COMPILER CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS
+    CMAKE_BUILD_TYPE)
+  gbl_read_cache_entry("${parent_cache}" "${key}"
+    "parent_${key}_type" "parent_${key}")
+endforeach()
+string(TOUPPER "${parent_CMAKE_BUILD_TYPE}" parent_build_type_upper)
+foreach(key IN ITEMS CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS)
+  set(config_key "${key}_${parent_build_type_upper}")
+  gbl_read_cache_entry("${parent_cache}" "${config_key}"
+    "parent_${config_key}_type" "parent_${config_key}")
+endforeach()
 
 foreach(path IN ITEMS "${production_index}" "${control_index}"
     "${control_manifest}" "${pass_image}" "${zero_case_image}" "${fail_image}"
@@ -226,6 +257,22 @@ execute_process(
 if(NOT "${legacy_configure_result}" STREQUAL "0")
   message(FATAL_ERROR
     "runner-metadata: legacy-runner-configure-failed: ${legacy_configure_stdout}${legacy_configure_stderr}")
+endif()
+set(legacy_cache "${legacy_runner_build}/CMakeCache.txt")
+foreach(key IN ITEMS CMAKE_C_COMPILER CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS
+    CMAKE_BUILD_TYPE "CMAKE_C_FLAGS_${parent_build_type_upper}"
+    "CMAKE_EXE_LINKER_FLAGS_${parent_build_type_upper}")
+  gbl_read_cache_entry("${legacy_cache}" "${key}"
+    "legacy_${key}_type" "legacy_${key}")
+  if(NOT "${legacy_${key}}" STREQUAL "${parent_${key}}")
+    message(FATAL_ERROR
+      "runner-metadata: legacy-runner-parent-setting-not-inherited: ${key}")
+  endif()
+endforeach()
+if(NOT "${legacy_CMAKE_C_COMPILER_type}" STREQUAL
+    "${parent_CMAKE_C_COMPILER_type}")
+  message(FATAL_ERROR
+    "runner-metadata: legacy-runner-compiler-cache-type-not-inherited")
 endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}" --build "${legacy_runner_build}" --target legacy-runner --parallel 2
