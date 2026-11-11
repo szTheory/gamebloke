@@ -255,9 +255,9 @@ static bool gbl_runner_semantic_terminal(gbl_mailbox_result mailbox)
            mailbox.status == GBL_MAILBOX_FAIL;
 }
 
-static void gbl_runner_set_guest_stop(gbl_runner_result *result,
-                                      const gbl_machine *machine,
-                                      gbl_run_reason reason)
+void gbl_runner_classify_guest_stop(gbl_runner_result *result,
+                                    const gbl_machine *machine,
+                                    gbl_run_reason reason)
 {
     const char *name = "guest-stop";
 
@@ -655,8 +655,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                 gbl_runner_set_reason(result, "cpu-state-failed");
                 gbl_runner_set_termination(result, "harness-failure");
             } else {
-                gbl_runner_set_guest_stop(result, machine,
-                                          run_result.reason);
+                gbl_runner_classify_guest_stop(result, machine,
+                                               run_result.reason);
             }
             break;
         }

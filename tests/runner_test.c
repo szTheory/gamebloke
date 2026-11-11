@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 enum {
-    GBL_RUNNER_TEST_COUNT = 22u,
+    GBL_RUNNER_TEST_COUNT = 23u,
     GBL_RUNNER_TEST_PATH_CAPACITY = 1024u,
     GBL_RUNNER_TEST_WATCHDOG_TICKS = 300u
 };
@@ -91,6 +91,82 @@ static bool gbl_test_write_file(const char *path, size_t length,
         okay = false;
     }
     return okay;
+}
+
+static bool gbl_test_guest_stop_json_matrix(void)
+{
+    static const struct {
+        gbl_exception_kind kind;
+        gbl_cpu_stop_reason stop_reason;
+        const char *json_reason;
+    } cases[] = {
+        { GBL_EXCEPTION_RESET, GBL_CPU_STOP_RESET_NO_BIOS,
+          "no-bios-reset" },
+        { GBL_EXCEPTION_UNDEFINED, GBL_CPU_STOP_UNDEFINED_NO_BIOS,
+          "no-bios-undefined" },
+        { GBL_EXCEPTION_SWI, GBL_CPU_STOP_SWI_NO_BIOS, "no-bios-swi" },
+        { GBL_EXCEPTION_PREFETCH_ABORT,
+          GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS, "no-bios-prefetch-abort" },
+        { GBL_EXCEPTION_DATA_ABORT, GBL_CPU_STOP_DATA_ABORT_NO_BIOS,
+          "no-bios-data-abort" },
+        { GBL_EXCEPTION_IRQ, GBL_CPU_STOP_IRQ_NO_BIOS, "no-bios-irq" },
+        { GBL_EXCEPTION_FIQ, GBL_CPU_STOP_FIQ_NO_BIOS, "no-bios-fiq" },
+        { GBL_EXCEPTION_COPROCESSOR,
+          GBL_CPU_STOP_COPROCESSOR_NO_BIOS, "no-bios-coprocessor" }
+    };
+    const gbl_cpu_exception_context context = {
+        UINT32_C(0x08000100), UINT32_C(0x08000104), UINT32_C(0x08000200),
+        false
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof cases / sizeof cases[0]; ++index) {
+        gbl_machine machine = { 0 };
+        gbl_runner_result result = { 0 };
+        char json[2048];
+        size_t json_length;
+        FILE *output;
+        bool okay = gbl_machine_init(&machine, NULL) == GBL_BUS_STATUS_OK;
+
+        if (okay) {
+            okay = gbl_cpu_set_cpsr(&machine, UINT32_C(0x13)) ==
+                       GBL_CPU_STATUS_OK &&
+                   gbl_cpu_enter_exception(&machine, cases[index].kind,
+                                           &context) == GBL_CPU_STATUS_OK &&
+                   machine.cpu.stopped &&
+                   machine.cpu.stop_reason == cases[index].stop_reason;
+        }
+        output = okay ? tmpfile() : NULL;
+        if (output == NULL) {
+            okay = false;
+        }
+        if (okay) {
+            gbl_runner_classify_guest_stop(&result, &machine,
+                                           GBL_RUN_REASON_GUEST_STOP);
+            okay = result.status == GBL_RUNNER_GUEST_STOP &&
+                   strcmp(result.reason, cases[index].json_reason) == 0 &&
+                   strcmp(result.termination, cases[index].json_reason) == 0 &&
+                   gbl_runner_write_json(output, &result) &&
+                   fflush(output) == 0 && fseek(output, 0L, SEEK_SET) == 0 &&
+                   (json_length = fread(json, 1u, sizeof json - 1u, output)) >
+                       0u;
+        }
+        if (okay) {
+            json[json_length] = '\0';
+            okay = strstr(json, "\"status\":\"GUEST_STOP\"") != NULL &&
+                   strstr(json, cases[index].json_reason) != NULL;
+        }
+        if (output != NULL) {
+            (void)fclose(output);
+        }
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+        if (!okay) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void *gbl_test_allocate(void *context, size_t size)
@@ -186,7 +262,7 @@ static bool gbl_test_cli_cancel_budget(const char *runner_path,
     char error_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char expected_budget_json[128];
     char output[8192];
-    struct timespec startup_wait = { 0, 100000000L };
+    struct timespec startup_wait = { 0, 250000000L };
     struct timespec poll_wait = { 0, 10000000L };
     pid_t child;
     int status = 0;
@@ -456,6 +532,9 @@ static bool gbl_test_execute_all(const char *fixture_directory,
         return false;
     }
 
+    gbl_test_case(
+        gbl_test_guest_stop_json_matrix(),
+        "all CPU exception stops share the production GUEST_STOP JSON mapping");
     gbl_test_case(gbl_test_cli_cancel(runner_path, path, scratch_directory),
                   "CLI converts SIGINT to CANCELLED before watchdog expiry");
 
@@ -792,7 +871,7 @@ int main(int argc, char **argv)
     struct stat info;
 
     if (argc == 1) {
-        puts("1..22");
+        printf("1..%u\n", GBL_RUNNER_TEST_COUNT);
         if (!gbl_test_execute_all(GBL_RUNNER_TEST_FIXTURE_DIR,
                                  GBL_RUNNER_TEST_SCRATCH_DIR,
                                  GBL_RUNNER_TEST_CLI)) {
@@ -821,7 +900,7 @@ int main(int argc, char **argv)
               stderr);
         return 2;
     }
-    puts("1..22");
+    printf("1..%u\n", GBL_RUNNER_TEST_COUNT);
     if (!gbl_test_execute_all(argv[2], argv[3], argv[4])) {
         fputs("runner_test: test setup failed\n", stderr);
         return 2;

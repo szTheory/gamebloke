@@ -90,6 +90,12 @@ typedef struct gbl_runner_result {
 gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                                      gbl_runner_result *result);
 
+/* Internal host-test seam for the production CPU-stop classification path.
+ * This is not a stable embedding ABI. */
+void gbl_runner_classify_guest_stop(gbl_runner_result *result,
+                                    const gbl_machine *machine,
+                                    gbl_run_reason reason);
+
 /* Writes one gamebloke.result/1 JSON object followed by one newline. */
 bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result);
 
