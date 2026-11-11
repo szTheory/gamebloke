@@ -242,11 +242,41 @@ function(build_variant variant broken rom_name)
     "${variant_root}/smoke.elf" "${variant_root}/elf.attributes.txt")
 
   execute_process(
-    COMMAND "${tool_bin}/arm-none-eabi-objdump" -d -j .text
+    COMMAND "${tool_bin}/arm-none-eabi-readelf" -SW
+      "${variant_root}/smoke.elf"
+    RESULT_VARIABLE sections_rc OUTPUT_VARIABLE section_output
+    ERROR_VARIABLE sections_error)
+  if(NOT "${sections_rc}" STREQUAL "0")
+    message(FATAL_ERROR "arm-diagnostics: section-inventory-failed: ${sections_error}")
+  endif()
+  file(WRITE "${variant_root}/elf-sections.txt" "${section_output}")
+  file(STRINGS "${variant_root}/elf-sections.txt" section_lines)
+  set(executable_sections "")
+  foreach(line IN LISTS section_lines)
+    if(line MATCHES "^  \\[[ ]*[0-9]+\\]" AND line MATCHES " [A-Z]*X[ ]")
+      string(REGEX REPLACE "^  \\[[ ]*[0-9]+\\][ ]+" "" section_tail "${line}")
+      string(REGEX MATCH "^[^ ]+" section_name "${section_tail}")
+      list(APPEND executable_sections "${section_name}")
+    endif()
+  endforeach()
+  list(REMOVE_DUPLICATES executable_sections)
+  list(SORT executable_sections)
+  set(expected_executable_sections ".gba_header" ".text")
+  if(NOT "${executable_sections}" STREQUAL "${expected_executable_sections}")
+    message(FATAL_ERROR
+      "arm-diagnostics: executable-section-set-mismatch: ${variant}: ${executable_sections}")
+  endif()
+
+  execute_process(
+    COMMAND "${tool_bin}/arm-none-eabi-objdump" -d
+      -j .gba_header -j .text
       "${variant_root}/smoke.elf"
     RESULT_VARIABLE disasm_rc OUTPUT_VARIABLE disassembly
     ERROR_VARIABLE disasm_error)
   if(NOT "${disasm_rc}" STREQUAL "0" OR "${disassembly}" STREQUAL "" OR
+     NOT "${disassembly}" MATCHES "Disassembly of section [.]gba_header" OR
+     NOT "${disassembly}" MATCHES "Disassembly of section [.]text" OR
+     NOT "${disassembly}" MATCHES "_start" OR
      NOT "${disassembly}" MATCHES "bx")
     message(FATAL_ERROR "arm-diagnostics: executable-disassembly-missing: ${disasm_error}")
   endif()
