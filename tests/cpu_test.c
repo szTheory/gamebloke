@@ -1945,6 +1945,50 @@ static void test_alignment(void)
                   machine.cpu.r0_7[0] == UINT32_C(0xDEADBEEF),
               "Thumb PC-relative LDR aligns PC plus four before its offset");
 
+    machine.iwram[0x10u] = UINT8_C(0x11);
+    machine.iwram[0x11u] = UINT8_C(0x22);
+    machine.iwram[0x12u] = UINT8_C(0x33);
+    machine.iwram[0x13u] = UINT8_C(0x44);
+    {
+        static const uint8_t lanes[] = { 1u, 2u, 3u };
+        static const uint32_t rotated_values[] = {
+            UINT32_C(0x11443322), UINT32_C(0x22114433),
+            UINT32_C(0x33221144)
+        };
+        size_t index;
+        bool every_lane_rotated = loaded;
+
+        for (index = 0u; index < sizeof(lanes) / sizeof(lanes[0]); ++index) {
+            machine.cpu.r0_7[1] = UINT32_C(0x03000010) + lanes[index];
+            every_lane_rotated = every_lane_rotated &&
+                run_thumb_instruction(&machine, UINT16_C(0x6808), 0u, 2u,
+                                      &result) &&
+                machine.cpu.r0_7[0] == rotated_values[index];
+        }
+        test_case(every_lane_rotated,
+                  "Thumb immediate word LDR rotates unaligned reads for lanes one through three");
+    }
+
+    machine.cpu.r0_7[1] = UINT32_C(0x0300000D);
+    ran = loaded && run_thumb_instruction(&machine, UINT16_C(0x6848), 0u,
+                                          2u, &result);
+    test_case(ran && machine.cpu.r0_7[0] == UINT32_C(0x11443322),
+              "Thumb immediate word LDR rotates the base-plus-offset effective address");
+
+    machine.iwram[0x10u] = 0u;
+    machine.iwram[0x11u] = 0u;
+    machine.iwram[0x12u] = 0u;
+    machine.iwram[0x13u] = 0u;
+    machine.cpu.r0_7[0] = UINT32_C(0xAABBCCDD);
+    machine.cpu.r0_7[1] = UINT32_C(0x0300000D);
+    ran = loaded && run_thumb_instruction(&machine, UINT16_C(0x6048), 0u,
+                                          2u, &result);
+    test_case(ran && machine.iwram[0x10u] == UINT8_C(0xDD) &&
+                  machine.iwram[0x11u] == UINT8_C(0xCC) &&
+                  machine.iwram[0x12u] == UINT8_C(0xBB) &&
+                  machine.iwram[0x13u] == UINT8_C(0xAA),
+              "Thumb immediate word STR keeps store byte lanes unchanged");
+
     machine.iwram[0x30u] = UINT8_C(0x12);
     machine.iwram[0x31u] = UINT8_C(0x34);
     machine.iwram[0x32u] = UINT8_C(0x56);

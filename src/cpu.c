@@ -1030,7 +1030,7 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         }
         gbl_cpu_prepare_data_transfer(
             unit, address, width, load, destination,
-            load ? 0u : cpu->r0_7[destination], false);
+            load ? 0u : cpu->r0_7[destination], load && !byte);
         if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
                                                true)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
