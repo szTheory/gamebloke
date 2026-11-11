@@ -99,6 +99,23 @@ function(check_toolchain source_root toolchain_root host)
   message(STATUS "toolchain: pinned host install verified (${host})")
 endfunction()
 
+function(run_installer_offline_suite case_script source_root bin_root
+    result_name report_name)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}" "-DBIN=${bin_root}"
+      -DCASE=offline-all -P "${case_script}"
+    RESULT_VARIABLE suite_rc OUTPUT_VARIABLE suite_out ERROR_VARIABLE suite_error)
+  set(suite_report "${suite_out}\n${suite_error}")
+  set(suite_ok FALSE)
+  if("${suite_rc}" STREQUAL "0" AND
+     suite_report MATCHES
+       "toolchain-case valid-redirect PASSED with safe internal links")
+    set(suite_ok TRUE)
+  endif()
+  set(${result_name} "${suite_ok}" PARENT_SCOPE)
+  set(${report_name} "${suite_report}" PARENT_SCOPE)
+endfunction()
+
 function(report_architecture_attributes output_root host variant name)
   set(attribute_path "${output_root}/proof/${variant}/${name}.attributes.txt")
   if(NOT EXISTS "${attribute_path}" OR IS_DIRECTORY "${attribute_path}" OR
@@ -282,6 +299,31 @@ if(DEFINED CASE)
     if(NOT DEFINED BIN OR "${BIN}" STREQUAL "")
       message(FATAL_ERROR "toolchain: missing-BIN")
     endif()
+    set(installer_case_script "${source_root}/tests/gates/toolchain_case.cmake")
+    run_installer_offline_suite("${installer_case_script}" "${source_root}"
+      "${BIN}" installer_offline_ok installer_offline_report)
+    if(NOT installer_offline_ok)
+      message(FATAL_ERROR
+        "toolchain: installer-offline-suite-failed-or-missing-final-success: ${installer_offline_report}")
+    endif()
+    message("${installer_offline_report}")
+    message(STATUS "toolchain: installer offline refusal suite passed")
+
+    set(installer_failure_dir "${BIN}/controls/installer-propagation")
+    file(MAKE_DIRECTORY "${installer_failure_dir}")
+    set(installer_failure_script "${installer_failure_dir}/controlled-failure.cmake")
+    file(WRITE "${installer_failure_script}"
+      "message(STATUS \"toolchain-case valid-redirect PASSED with safe internal links\")\nmessage(FATAL_ERROR \"toolchain-case controlled installer refusal failure\")\n")
+    run_installer_offline_suite("${installer_failure_script}" "${source_root}"
+      "${BIN}" installer_failure_ok installer_failure_report)
+    if(installer_failure_ok OR
+       NOT installer_failure_report MATCHES
+         "toolchain-case controlled installer refusal failure")
+      message(FATAL_ERROR
+        "toolchain: installer-refusal-failure-control-missed: ${installer_failure_report}")
+    endif()
+    message(STATUS "toolchain: installer refusal harness nonzero is propagated")
+
     execute_process(
       COMMAND "${CMAKE_COMMAND}" -DCASE=offline-controls
         "-DSRC=${source_root}" "-DBIN=${BIN}"
@@ -294,6 +336,7 @@ if(DEFINED CASE)
       message(FATAL_ERROR
         "toolchain: offline-controls-failed: ${offline_error}${offline_out}")
     endif()
+    message("${offline_out}")
     message(STATUS "toolchain: clean and broken offline controls observed")
   else()
     message(FATAL_ERROR "toolchain: unsupported-case: ${CASE}")
