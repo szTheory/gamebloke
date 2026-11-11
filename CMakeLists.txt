@@ -88,7 +88,8 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
 
   # Both runners compile the same producer and canonical core. Their only
   # distinction is the private immutable fixture-index include directory.
-  set(GBL_RUNNER_SOURCES runner/main.c runner/sha256.c)
+  set(GBL_RUNNER_SOURCES runner/main.c runner/run.c runner/result.c
+    runner/sha256.c)
   set(GBL_GENERATED_ROOT "${CMAKE_BINARY_DIR}/generated")
   file(MAKE_DIRECTORY "${GBL_GENERATED_ROOT}")
   set(GBL_FIXTURE_DIR "${GBL_GENERATED_ROOT}/fixtures")

@@ -58,8 +58,10 @@ endif()
 # Production and control targets share their actual source, option, definition,
 # and core/warning wiring. Only their private generated-index include paths vary.
 file(READ "${wiring_file}" wiring)
-if(NOT "${wiring}" MATCHES "production.SOURCES=runner/main.c;runner/sha256.c" OR
-    NOT "${wiring}" MATCHES "control.SOURCES=runner/main.c;runner/sha256.c" OR
+set(expected_runner_sources
+  "runner/main.c;runner/run.c;runner/result.c;runner/sha256.c")
+if(NOT "${wiring}" MATCHES "production.SOURCES=${expected_runner_sources}" OR
+    NOT "${wiring}" MATCHES "control.SOURCES=${expected_runner_sources}" OR
     NOT "${wiring}" MATCHES "production.LINK_LIBRARIES=gamebloke_core;gbl_warnings" OR
     NOT "${wiring}" MATCHES "control.LINK_LIBRARIES=gamebloke_core;gbl_warnings" OR
     NOT "${wiring}" MATCHES "production.INCLUDE_DIRECTORIES=${generated}/production" OR
