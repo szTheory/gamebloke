@@ -3,13 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 03
-current_phase_name: Bus API, Memory Map, and ROM Loading
-status: verifying
+current_phase_name: HUMAN VERIFICATION
+status: Waiting for owner data and human verification
 stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-11-11T00:11:48.719Z"
+last_updated: "2026-11-11T00:22:05.341Z"
 last_activity: 2026-11-10
-last_activity_desc: Gap closure implemented, local lanes and independent reviews passed; refreshing acceptance verification
-state_head: 58e896a72ef9bd8b477ea07d7707f409930c0ee1
+last_activity_desc: Refreshed verification closes code and sanitizer gaps; production logo authority remains owner-pending
+state_head: 32c5ee2079d5a1bfb9ebd15d38bee8b476a03fea
 progress:
   total_phases: 6
   completed_phases: 2
@@ -29,17 +29,17 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 03 (Bus API, Memory Map, and ROM Loading) — VERIFYING
+Phase: 03 (Bus API, Memory Map, and ROM Loading) — HUMAN VERIFICATION
 Plan: 7 of 7 implementation plans complete; acceptance pending
-Status: Verifying
-Last activity: 2026-11-10 — Gap closure implemented, local lanes and independent reviews passed; refreshing acceptance verification
+Status: Waiting for owner data and human verification
+Last activity: 2026-11-10 — Refreshed verification closes code and sanitizer gaps; production logo authority remains owner-pending
 
 Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19
+- Total plans completed: 25
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -49,6 +49,7 @@ Progress: [███░░░░░░░] 33%
 |-------|-------|-------|----------|
 | 1 | 11 | - | - |
 | 2 | 7 | - | - |
+| 3 | 7 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -147,6 +148,8 @@ Recent decisions affecting current work:
 
 - [Phase 03]: Verifier MVP-format repair: restated the existing approved technical goal as an As-a/I-want-to/so-that story; retained the original technical boundary and every success criterion. This is agent-authored formatting, not new owner scope or risk acceptance; no replanning or gate bypass.
 
+- [Phase 03]: Plan 07 wires the bounded digest comparison through the real copied-ROM loader and validates the fixed build authority. Fresh current-inventory sanitizer evidence and clean independent code/security reviews close the implementation gaps. Production authority remains owner-pending; synthetic matches do not complete LOAD-02.
+
 ### Pending Todos
 
 None yet.
@@ -159,6 +162,8 @@ None yet.
 - Phase 1: the real-logo digest (EVID-04) is `owner-pending (human-needed)`. The owner replied `pending` at plan 11; next action: owner runs `scripts/signature-digest.sh logo <file>` on a file they hold and commits the digest through a PR.
 - Phase 1: real-logo rule inactive on origin/main until a digest lands (tests/signatures/logo.sha256 row is owner-pending; synthesized controls still guard the logo-window path)
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
+
+- Phase 3: acceptance is human-needed. Implementation and local verification are complete, but LOAD-02 needs the approved production logo digest and the manual claim review recorded in 03-UAT.md. Phase 4 remains stopped. Keep the single Phase 3 PR draft while this owner gate is unresolved; do not treat CI success as phase acceptance.
 
 ## Deferred Items
 
