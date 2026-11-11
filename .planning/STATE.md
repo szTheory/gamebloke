@@ -6,15 +6,15 @@ current_phase: 4
 current_phase_name: CPU Execution Core and Headless Runner
 status: executing
 stopped_at: Phase 4 plans checked, ready to execute
-last_updated: "2026-11-11T09:07:12.516Z"
+last_updated: "2026-11-11T10:04:01.831Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 4 execution started
-state_head: 4dc1e011d6f53ba5f4e9564948a521712c0e5897
+state_head: 98b8583030fb7d5489799cf25f1a802f10c5730b
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 38
-  completed_plans: 35
+  completed_plans: 36
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 4 (CPU Execution Core and Headless Runner) — EXECUTING
-Plan: 11 of 13
+Plan: 12 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 4 execution started
 
@@ -92,6 +92,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04 P08 | approx24min | 1 tasks | 3 files |
 | Phase 04 P09 | not_measured | 2 tasks | 8 files |
 | Phase 04 P10 | 31min | 1 tasks | 6 files |
+| Phase 04 P11 | 28min-from-first-commit | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -181,6 +182,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Plans 01–02 are committed. Configured production/synthetic and scratch builds share the CPU source; an empty loaded-ROM context now refuses before effects. Canonical CI and focused configured AppleClang ASan/UBSan CPU checks pass. The default sanitizer preset names Linux clang-21; local macOS uses the documented fresh /usr/bin/clang override. CPU/runner requirements remain partial; continue with Plan 03. Local sanitizer log: build/phase04-tracer/plan02-asan-macos.log.
 
 - [Phase 04]: Profile version 4 and CPU policy validation are committed; focused profile, CI and hygiene checks pass. The optional owner-local signature test was then explicitly refreshed against both already-authorized ignored inputs and passed without skipping. Only the bounded header digest helper ran; no guest execution occurred. Ledger entry 3 is fixed, with local evidence in build/phase04-tracer/owner-local-refresh.log. Future public CI skips remain expected and do not create a new owner-data gate.
+
+- [Phase 04]: Preserve the direct-start CLI reachability limit: reset, IRQ, FIQ, prefetch-abort and data-abort stops have no modeled CLI source. Their production reason/JSON mapping is verified through the real CPU exception API and shared runner classifier/writer, alongside the CLI-reachable SWI/undefined/coprocessor cases. This is lower-boundary coverage, not fabricated CLI execution or a wider CPU/device model. Final CI and focused sanitizers pass; independent phase verification still owns requirement completion.
 
 ### Pending Todos
 

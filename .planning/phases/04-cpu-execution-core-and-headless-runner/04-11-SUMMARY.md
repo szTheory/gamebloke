@@ -54,7 +54,8 @@ patterns-established:
   - Cancellation remains signal-safe and is consumed by the existing bounded execution loop.
   - Trace JSONL is written only to an explicit path, with trace failures retaining HARNESS_FAIL precedence.
 
-requirements-completed: [RUN-01, RUN-02, RUN-03, PROF-03]
+requirements-completed: [] # Parent holds cross-plan roll-up for independent phase verification.
+requirements-addressed: [RUN-01, RUN-02, RUN-03, PROF-03]
 coverage:
   - id: D1
     description: Bounded CLI outcomes preserve status, semantic result, machine time, claim, and limits.

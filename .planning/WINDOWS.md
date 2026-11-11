@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 2
 waived_count: 0
-fixed_count: 6
-total_count: 8
-last_updated: 2026-11-11T09:07:11.963Z
+fixed_count: 7
+total_count: 9
+last_updated: 2026-11-11T10:04:01.118Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,7 @@ last_updated: 2026-11-11T09:07:11.963Z
 | 6 | 04 | deviation | .planning/phases/04-cpu-execution-core-and-headless-runner/04-08-SUMMARY.md | 85 | Replaced the machine-specific GSD command path in the hash summary with a portable HOME reference. Repository scans and the canonical CI workflow including JUnit inventory pass on the corrected tree. | fixed |  | 2026-11-11T08:26:24.848Z | 2026-11-11T08:26:24.917Z |
 | 7 | 04 | deviation | runner/main.c |  | Preserved the existing help exit-code text while documenting valid non-PASS run exit status 1. Existing help gates and current CLI, sanitizer and canonical CI checks pass. | fixed |  | 2026-11-11T09:07:11.761Z | 2026-11-11T09:07:11.828Z |
 | 8 | 04 | deviation | tests/gates/runner_metadata.cmake |  | Updated the existing metadata wiring control to follow the new shared real producer source list; source-equivalence controls and canonical CI pass. | fixed |  | 2026-11-11T09:07:11.895Z | 2026-11-11T09:07:11.963Z |
+| 9 | 04 | deviation | tests/gates/runner_case.cmake |  | Five external no-BIOS stop kinds are not CLI-reachable under direct-start. All five were verified through the existing CPU exception API and shared production runner classification/JSON path; no CLI triggers, interrupt source or abort model was added. | fixed |  | 2026-11-11T10:04:01.038Z | 2026-11-11T10:04:01.118Z |
 
 ````json
 [
@@ -128,6 +129,19 @@ last_updated: 2026-11-11T09:07:11.963Z
     "reason": "",
     "recorded_at": "2026-11-11T09:07:11.895Z",
     "resolved_at": "2026-11-11T09:07:11.963Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 9,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "tests/gates/runner_case.cmake",
+    "line": null,
+    "description": "Five external no-BIOS stop kinds are not CLI-reachable under direct-start. All five were verified through the existing CPU exception API and shared production runner classification/JSON path; no CLI triggers, interrupt source or abort model was added.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-11T10:04:01.038Z",
+    "resolved_at": "2026-11-11T10:04:01.118Z",
     "milestone": "v1.0"
   }
 ]

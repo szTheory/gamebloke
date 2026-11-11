@@ -190,7 +190,7 @@ Plans:
   3. Running the runner on a ROM image with a cycle or frame bound produces one JSON document with separate `status`, semantic result, machine time in cycles, claim tuple, and `limits` fields. The semantic result is read from the IWRAM mailbox by `peek`, and a test shows that `peek` leaves the state digest and the master clock unchanged. When the fixture's manifest row carries a dispute id, the emitted result lists that id and carries the `disputed` label, and the Phase 2 result validator accepts the document (this completes the producer half of Phase 2 criterion 5).
   4. A trace run with a category mask writes only the selected categories (instruction, bus access, exception) into a bounded buffer. With an undersized buffer, the run ends with an explicit output-full status and drops no records silently.
   5. The runner CLI is installed with `cmake --install` to one prefix, then moved to another directory. From there it runs and produces a JSON result identical to the one from the build tree.
-**Plans**: 10/13 plans executed
+**Plans**: 11/13 plans executed
 
 Plans:
 **Wave 1**
@@ -224,7 +224,7 @@ Plans:
 - [x] 04-10-PLAN.md — First fresh CLI run through the canonical JSON producer
 
 **Wave 11** *(blocked on Wave 10 completion)*
-- [ ] 04-11-PLAN.md — Bounded CLI failures, cancellation, trace and canonical lanes
+- [x] 04-11-PLAN.md — Bounded CLI failures, cancellation, trace and canonical lanes
 
 **Wave 12** *(blocked on Wave 11 completion)*
 - [ ] 04-12-PLAN.md — Enforce semantic/time contracts against actual emitted producer JSON
@@ -331,7 +331,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. CI and Verification Foundation | 11/11 | Complete    | 2026-11-09 |
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
-| 4. CPU Execution Core and Headless Runner | 10/13 | In Progress | - |
+| 4. CPU Execution Core and Headless Runner | 11/13 | In Progress | - |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 0/TBD | Not started | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
 
