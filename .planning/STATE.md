@@ -195,7 +195,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 4 security review: two high authored mitigations remain open through one root cause. The mailbox parser accepts a completed PASS with case ID zero although the result/1 contract requires a nonzero ID. Fix parser and actual identity-valid producer regressions, then obtain targeted security closure before phase advancement. No risk is accepted; local remediation and code review continue under existing authority.
+- Phase 4 code and targeted security rechecks are clean after mailbox, Thumb alignment and ARM condition fixes. Final regression/sanitizer/GNU checks and independent goal verification are in progress. Preserve the guide-clarity human judgment and policy/probe limits until phase-boundary review; no risk or hardware claim is accepted.
 
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.

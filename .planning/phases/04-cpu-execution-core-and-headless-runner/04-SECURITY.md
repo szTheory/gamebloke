@@ -1,9 +1,9 @@
 ---
 phase: "04"
 slug: "cpu-execution-core-and-headless-runner"
-status: draft
-threats_open: 2
-threats_closed: 19
+status: verified
+threats_open: 0
+threats_closed: 21
 threats_total: 21
 asvs_level: 1
 block_on: high
@@ -12,7 +12,7 @@ created: "2026-11-11"
 
 # Phase 04 — Security
 
-Independent gsd-security-auditor verdict: OPEN_THREATS. Two blocking authored mitigations share one mailbox-validation root cause. No risk was accepted; phase advancement remains blocked until corrected and rechecked.
+Independent gsd-security-auditor final verdict: SECURED. The targeted recheck closed both mailbox-validation findings and checked adjacent changed CPU and synthetic-index authority paths. All 21 authored mitigations are closed; no risk was accepted. This does not establish phase acceptance or hardware qualification.
 
 ## Trust Boundaries
 
@@ -36,12 +36,12 @@ Independent gsd-security-auditor verdict: OPEN_THREATS. Two blocking authored mi
 | T-04-06 | Tampering | exception snapshot and no-BIOS stop | high | mitigate | src/cpu.c:159,333,353; tests/cpu_test.c:918; tests/gates/core_mutation.cmake:311 — explicit exception bases, saved CPSR and no handler fetch. | closed |
 | T-04-07 | Repudiation | profile/claim policy | medium | mitigate | cmake/CheckProfile.cmake:324,1356,1373; tests/gates/profile_case.cmake:107,164 — versioned policy and rendered-document controls. | closed |
 | T-04-08 | Information disclosure | peek span/destination | high | mitigate | src/inspect.c:3,106,119,127; tests/cpu_test.c:2206 — checked peek extents/aliases and unchanged state/output witnesses. | closed |
-| T-04-09 | Spoofing | mailbox verdict | high | mitigate | OPEN: src/inspect.c:173 rejects zero case ID only for FAIL; PASS/0 reaches GBL_MAILBOX_PASS at :176, contrary to docs/evidence-contract.md:104 and cmake/CheckResult.cmake:241. tests/cpu_test.c:2291 lacks PASS/0. | open |
+| T-04-09 | Spoofing | mailbox verdict | high | mitigate | src/inspect.c:166,170,173 restricts terminal states, requires completion marker and rejects zero IDs for both PASS and FAIL; tests/cpu_test.c:2375–2383 and direct mailbox selector pass. Targeted independent recheck closed. | closed |
 | T-04-10 | Tampering | bounded trace completeness | high | mitigate | src/cpu.c:1332,1354,1393; tests/cpu_test.c:2379,2413 — full record capacity/sequence preflight, preserved prior records and exact order. | closed |
 | T-04-11 | Denial of service | trace spans and masks | high | mitigate | src/cpu.c:1282,1173; tests/gates/core_mutation.cmake:319 — trace spans/masks/aliases and bounded execution. | closed |
 | T-04-12 | Spoofing | fixture content authority | high | mitigate | cmake/GenerateFixtureIndex.cmake:109; runner/run.c:387,440,548; tests/gates/runner_metadata.cmake:128,156 — fatal authority validation and actual-byte digest binding. | closed |
 | T-04-13 | Tampering | synthetic producer wiring | high | mitigate | CMakeLists.txt:91,159,165; tests/gates/runner_metadata.cmake:32,69,79 — shared canonical source/options and separate index authority. | closed |
-| T-04-15 | Spoofing | producer PASS/status | high | mitigate | OPEN: runner/run.c:252 and :299 accept the parser terminal PASS/0. A matching authoritative row could produce evidence PASS; an empty present production index does not implement the declared complete-mailbox prerequisite. | open |
+| T-04-15 | Spoofing | producer PASS/status | high | mitigate | Canonical parser rejects PASS/0 before terminal classification. tests/gates/runner_case.cmake:201–210 runs a registered digest-matching zero-ID guest and requires TIMEOUT, ran=true and malformed/0; independent execution confirms matching digests and real progress. Valid registered companion still PASS. | closed |
 | T-04-16 | Information disclosure | JSON and trace output | high | mitigate | runner/result.c:34,93; runner/run.c:322; tests/runner_test.c:835; tests/gates/runner_case.cmake:104,344 — escaping/path exclusion and trace write/close failure precedence. | closed |
 | T-04-14 | Denial of service | CLI file/option bounds | high | mitigate | runner/main.c:98,199; runner/run.c:143,204,242; tests/gates/runner_case.cmake:294,367; tests/runner_test.c:703 — checked bounds, sentinel reads and cleanup. | closed |
 | T-04-17 | Repudiation | actual result evidence | high | mitigate | tests/gates/runner_case.cmake:74,125,178,231,302,309 — real stdout, same validator, semantic controls and changed-byte refusal. | closed |
@@ -51,9 +51,11 @@ Independent gsd-security-auditor verdict: OPEN_THREATS. Two blocking authored mi
 
 The shared supply-chain identifier represents thirteen authored conditional rows; all instances are preserved in the discovery register. Blocking counts include only open threats at or above high. No below-threshold open threats were found.
 
-## Remediation Required
+## Remediation and Targeted Recheck
 
-Reject zero case IDs for both completed terminal states in the canonical parser. Add a real mailbox assertion and producer regression that reaches this boundary with valid identity; a mismatched digest refusing before execution is not sufficient. Then rerun focused CPU/runner/result checks and targeted security verification. The downstream result validator already rejecting PASS/0 does not repair the producer.
+The initial audit found that the parser accepted completed PASS with case ID zero. The fix rejects zero IDs for both completed states. The mailbox unit control and registered, digest-matching generated producer control passed independent execution: the malformed guest ran and returned TIMEOUT with malformed/0 semantics; the valid companion returned PASS.
+
+The recheck also retained T-04-12/13 closure: the added row is fatal-validated, independently hash-matched, confined to the control index, local-only with redistribution unknown and an explicit no-rights-grant notice. Production manifest/index remain empty. Adjacent rotation and condition fixes preserve T-04-03/04/06/17 mitigations. Direct alignment/decode selectors passed; their stale TAP plans were then corrected as routine bookkeeping and all five focused checks passed again. No dependency or package install was added.
 
 ## Accepted Risks Log
 
@@ -67,13 +69,14 @@ This verifies the authored register, not arbitrary native-host safety or hardwar
 
 | Audit Date | Threats Total | Closed | Open | Run By |
 |---|---|---|---|---|
-| 2026-11-11 | 21 | 19 | 2 | gsd-security-auditor; parent recorded returned evidence |
+| 2026-11-11 | 21 | 19 | 2 | Initial gsd-security-auditor; parent recorded returned evidence |
+| 2026-11-11 | 21 | 21 | 0 | Targeted independent gsd-security-auditor recheck; parent recorded returned evidence |
 
 ## Sign-Off
 
 - [x] All threats have authored mitigate dispositions.
 - [x] No accepted risks were fabricated.
-- [ ] Blocking mitigations verified closed.
-- [ ] status: verified.
+- [x] Blocking mitigations verified closed.
+- [x] status: verified.
 
-**Approval:** pending technical remediation.
+**Technical verdict:** SECURED. No owner waiver or subjective acceptance inferred.
