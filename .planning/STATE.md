@@ -3,13 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 03
-current_phase_name: HUMAN VERIFICATION
-status: Waiting for owner data and human verification
+current_phase_name: STOPPED ON RED CI
+status: Stopped on red CI; waiting for owner authorization
 stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-11-11T00:22:05.341Z"
+last_updated: "2026-11-11T00:25:07.946Z"
 last_activity: 2026-11-10
-last_activity_desc: Refreshed verification closes code and sanitizer gaps; production logo authority remains owner-pending
-state_head: 32c5ee2079d5a1bfb9ebd15d38bee8b476a03fea
+last_activity_desc: Draft PR 6 published; GCC test-helper conversion failure diagnosed; no fix or retry after the standing stop
+state_head: f9a82cdc0585bfe7b4f1a07189fbbb8e8b5535d6
 progress:
   total_phases: 6
   completed_phases: 2
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 03 (Bus API, Memory Map, and ROM Loading) — HUMAN VERIFICATION
-Plan: 7 of 7 implementation plans complete; acceptance pending
-Status: Waiting for owner data and human verification
-Last activity: 2026-11-10 — Refreshed verification closes code and sanitizer gaps; production logo authority remains owner-pending
+Phase: 03 (Bus API, Memory Map, and ROM Loading) — STOPPED ON RED CI
+Plan: 7 of 7 implementation plans complete; hosted CI failed and acceptance pending
+Status: Stopped on red CI; waiting for owner authorization
+Last activity: 2026-11-10 — Draft PR 6 published; GCC test-helper conversion failure diagnosed; no fix or retry after the standing stop
 
 Progress: [███░░░░░░░] 33%
 
@@ -150,6 +150,8 @@ Recent decisions affecting current work:
 
 - [Phase 03]: Plan 07 wires the bounded digest comparison through the real copied-ROM loader and validates the fixed build authority. Fresh current-inventory sanitizer evidence and clean independent code/security reviews close the implementation gaps. Production authority remains owner-pending; synthetic matches do not complete LOAD-02.
 
+- [Phase 03]: Draft PR #6 is published. Hosted GNU compilation failed on an implicit unsigned-to-byte conversion in the test-state helper. The standing red-CI stop is active: no fix, retry, push or merge without owner authorization. See 03-CI-HANDOFF.md for the exact failure, successful hosted lanes, proposed bounded remedy and remaining owner-data gate.
+
 ### Pending Todos
 
 None yet.
@@ -164,6 +166,8 @@ None yet.
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
 - Phase 3: acceptance is human-needed. Implementation and local verification are complete, but LOAD-02 needs the approved production logo digest and the manual claim review recorded in 03-UAT.md. Phase 4 remains stopped. Keep the single Phase 3 PR draft while this owner gate is unresolved; do not treat CI success as phase acceptance.
+
+- Phase 3: hosted Linux GCC is red before tests; PR #6 remains draft. Owner acts next on the narrow portability fix/retest authorization. Local handoff bookkeeping after the stop is intentionally unpushed so it cannot trigger another hosted run.
 
 ## Deferred Items
 
