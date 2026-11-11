@@ -247,7 +247,83 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: TBD
+**Plans**: 25 plans in 25 serial waves (independent plan check passed; implementation not started)
+
+Plans:
+**Wave 1**
+- [ ] 05-01-PLAN.md — Verified developer-tool installation
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 05-02-PLAN.md — Original ARM/Thumb image and measured local parity
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 05-03-PLAN.md — Bounded required hosted toolchain witness
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 05-04-PLAN.md — Independent source and generated-artifact identities
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 05-05-PLAN.md — First source-owned production fixture admission
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 05-06-PLAN.md — Ordered CPU transaction slots through real SWP
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 05-07-PLAN.md — Complete ARM ALU, conditions and shifter flags
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 05-08-PLAN.md — Instruction-specific PC, PSR and exception-return semantics
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 05-09-PLAN.md — All six ARM7TDMI multiply forms and cost policy
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 05-10-PLAN.md — Complete ARM byte/word addressing and dynamic PC loads
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 05-11-PLAN.md — ARM halfword/signed forms and alignment
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [ ] 05-12-PLAN.md — ARM block transfers across all four address modes
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 05-13-PLAN.md — ARM empty/base-list/user-bank and exception-return blocks
+
+**Wave 14** *(blocked on Wave 13 completion)*
+- [ ] 05-14-PLAN.md — Thumb shift, arithmetic, ALU and high-register formats
+
+**Wave 15** *(blocked on Wave 14 completion)*
+- [ ] 05-15-PLAN.md — Thumb register/immediate/subword/SP/address forms
+
+**Wave 16** *(blocked on Wave 15 completion)*
+- [ ] 05-16-PLAN.md — Thumb stack and multiple transfer formats
+
+**Wave 17** *(blocked on Wave 16 completion)*
+- [ ] 05-17-PLAN.md — Independently retired Thumb BL and control boundary
+
+**Wave 18** *(blocked on Wave 17 completion)*
+- [ ] 05-18-PLAN.md — Exact-core decode classes and coherent profile 5
+
+**Wave 19** *(blocked on Wave 18 completion)*
+- [ ] 05-19-PLAN.md — Original ARM family/form diagnostic matrix
+
+**Wave 20** *(blocked on Wave 19 completion)*
+- [ ] 05-20-PLAN.md — Original Thumb formats and BL diagnostic matrix
+
+**Wave 21** *(blocked on Wave 20 completion)*
+- [ ] 05-21-PLAN.md — Cross-host final-output proof and digest re-admission
+
+**Wave 22** *(blocked on Wave 21 completion)*
+- [ ] 05-22-PLAN.md — Semantic mutation and maximum-unit negative evidence
+
+**Wave 23** *(blocked on Wave 22 completion)*
+- [ ] 05-23-PLAN.md — Inventoried diagnostics, visible skips and mandatory execution
+
+**Wave 24** *(blocked on Wave 23 completion)*
+- [ ] 05-24-PLAN.md — Required final diagnostic CI and measured critical path
+
+**Wave 25** *(blocked on Wave 24 completion)*
+- [ ] 05-25-PLAN.md — Final verification, installed consumer and claim review
 **Research flag**: Needs research plus a gating spike. The xPack toolchain identity (ARMv4T output, libgcc division resolution, identical bytes across hosts) is [UNK]. The fallback is Ubuntu apt binutils for CI, with digest ownership on Linux. The CPU quirk list (PITFALLS CPU-1 to CPU-9) needs a test pin for each case.
 **Owner gates**: None blocking. G2 default (no logo bytes in owned fixtures) is enforced by the scan; it is reversible. The license of the owned diagnostics follows G1, which is surfaced but not blocking. Do not use devkitARM, libgba, or gbafix for owned fixtures.
 
