@@ -24,6 +24,10 @@
 #define TEST_CPSR_ABT UINT32_C(0x00000017)
 #define TEST_CPSR_UND UINT32_C(0x0000001B)
 #define TEST_CPSR_SYSTEM UINT32_C(0x0000001F)
+#define TEST_MAILBOX_OFFSET 0x7FC0u
+#define TEST_MAILBOX_BASE UINT32_C(0x03007FC0)
+#define TEST_MAILBOX_PASS_CASE UINT32_C(0x0000002A)
+#define TEST_MAILBOX_FAIL_CASE UINT32_C(0x0000BEEF)
 
 static unsigned int test_number;
 static unsigned int test_failures;
@@ -1988,6 +1992,279 @@ static void test_alignment(void)
     gbl_machine_dispose(&machine);
 }
 
+static void make_mailbox_guest(uint8_t image[TEST_IMAGE_SIZE],
+                               gbl_mailbox_state state, uint32_t case_id)
+{
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xE59F1038)); /* LDR r1,[pc,#0x38] */
+    write_word(image, 0x04u, UINT32_C(0xE59F2038)); /* LDR r2,[pc,#0x38] */
+    write_word(image, 0x08u, UINT32_C(0xE5812000)); /* STR r2,[r1,#0] */
+    write_word(image, 0x0Cu, UINT32_C(0xE59F2034));
+    write_word(image, 0x10u, UINT32_C(0xE5812004));
+    write_word(image, 0x14u, UINT32_C(0xE59F2030));
+    write_word(image, 0x18u, UINT32_C(0xE5812008));
+    write_word(image, 0x1Cu, UINT32_C(0xE59F202C));
+    write_word(image, 0x20u, UINT32_C(0xE581200C));
+    write_word(image, 0x24u, UINT32_C(0xE59F2028));
+    write_word(image, 0x28u, UINT32_C(0xE5812010));
+    write_word(image, 0x40u, TEST_MAILBOX_BASE);
+    write_word(image, 0x44u, GBL_MAILBOX_MAGIC);
+    write_word(image, 0x48u, GBL_MAILBOX_VERSION);
+    write_word(image, 0x4Cu, (uint32_t)state);
+    write_word(image, 0x50u, case_id);
+    write_word(image, 0x54u, GBL_MAILBOX_COMPLETION_MARKER);
+}
+
+static void write_mailbox(gbl_machine *machine, uint32_t magic,
+                          uint32_t version, uint32_t state,
+                          uint32_t case_id, uint32_t completion_marker)
+{
+    write_word(machine->iwram, TEST_MAILBOX_OFFSET, magic);
+    write_word(machine->iwram, TEST_MAILBOX_OFFSET + 4u, version);
+    write_word(machine->iwram, TEST_MAILBOX_OFFSET + 8u, state);
+    write_word(machine->iwram, TEST_MAILBOX_OFFSET + 12u, case_id);
+    write_word(machine->iwram, TEST_MAILBOX_OFFSET + 16u,
+               completion_marker);
+}
+
+static void test_guest_mailbox_and_peek(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result partial_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    gbl_run_result final_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    gbl_mailbox_result pending;
+    gbl_mailbox_result passed;
+    bool loaded;
+    bool partial_ran;
+    bool final_ran;
+
+    make_mailbox_guest(image, GBL_MAILBOX_STATE_PASS,
+                       TEST_MAILBOX_PASS_CASE);
+    loaded = machine_load(&machine, image);
+    partial_ran = loaded && run_units(&machine, UINT64_C(22), 0u,
+                                      &partial_result);
+    pending = loaded ? gbl_mailbox_read(&machine)
+                     : (gbl_mailbox_result){ GBL_MAILBOX_MALFORMED, 0u };
+    test_case(partial_ran && partial_result.cycles == UINT64_C(22) &&
+                  machine.master_cycles == UINT64_C(22) &&
+                  machine.iwram[TEST_MAILBOX_OFFSET + 8u] ==
+                      (uint8_t)GBL_MAILBOX_STATE_PASS &&
+                  machine.iwram[TEST_MAILBOX_OFFSET + 16u] == 0u &&
+                  pending.status == GBL_MAILBOX_PENDING,
+              "partial terminal guest stores remain pending before final marker");
+
+    final_ran = loaded && run_units(&machine, UINT64_C(2), 0u,
+                                    &final_result);
+    passed = loaded ? gbl_mailbox_read(&machine)
+                    : (gbl_mailbox_result){ GBL_MAILBOX_MALFORMED, 0u };
+    test_case(final_ran && final_result.cycles == UINT64_C(2) &&
+                  machine.master_cycles == UINT64_C(24) &&
+                  final_result.termination == GBL_RUN_TIMEOUT &&
+                  passed.status == GBL_MAILBOX_PASS &&
+                  passed.case_id == TEST_MAILBOX_PASS_CASE,
+              "real guest stores completion last and passes at exact budget boundary");
+
+    seed_nondefault_cpu_state(&machine.cpu);
+    machine.master_cycles = UINT64_C(0x123456789);
+    machine.open_bus = UINT32_C(0xAABBCCDD);
+    machine.dispcnt = UINT16_C(0x1357);
+    machine.ewram[0] = UINT8_C(0x11);
+    machine.pram[0] = UINT8_C(0x22);
+    machine.vram[0] = UINT8_C(0x33);
+    machine.oam[0] = UINT8_C(0x44);
+    machine.iwram[0] = UINT8_C(0xA5);
+    machine.iwram[1] = UINT8_C(0x3C);
+    machine.iwram[2] = UINT8_C(0x7E);
+    machine.iwram[GBL_IWRAM_SIZE - 1u] = UINT8_C(0x5A);
+    {
+        struct peek_storage {
+            uint8_t leading_guard[2];
+            uint8_t output[4];
+            uint8_t trace_storage[8];
+            uint8_t trailing_guard[2];
+        } storage;
+        gbl_machine before;
+        uint64_t digest_before;
+        const uint32_t trace_count = 23u;
+        static const uint8_t trace_before[8] = {
+            UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC),
+            UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC), UINT8_C(0xCC)
+        };
+        bool first;
+        bool last;
+        bool unaligned;
+        gbl_mailbox_result repeated;
+        bool guards;
+
+        memset(&storage, 0xCC, sizeof(storage));
+        before = machine;
+        digest_before = gbl_test_canonical_digest(&machine);
+        first = gbl_machine_peek(&machine, UINT32_C(0x03000000),
+                                 storage.output, 1u) == GBL_PEEK_STATUS_OK;
+        last = gbl_machine_peek(&machine, UINT32_C(0x03007FFF),
+                                &storage.output[1], 1u) ==
+               GBL_PEEK_STATUS_OK;
+        unaligned = gbl_machine_peek(&machine, UINT32_C(0x03000001),
+                                     &storage.output[2], 2u) ==
+                    GBL_PEEK_STATUS_OK;
+        repeated = gbl_mailbox_read(&machine);
+        guards = storage.output[0] == UINT8_C(0xA5) &&
+            storage.output[1] == UINT8_C(0x5A) &&
+            storage.output[2] == UINT8_C(0x3C) &&
+            storage.output[3] == UINT8_C(0x7E);
+        test_case(first && last && unaligned && guards &&
+                      storage.leading_guard[0] == UINT8_C(0xCC) &&
+                      storage.leading_guard[1] == UINT8_C(0xCC) &&
+                      storage.trailing_guard[0] == UINT8_C(0xCC) &&
+                      storage.trailing_guard[1] == UINT8_C(0xCC) &&
+                      memcmp(storage.trace_storage, trace_before,
+                             sizeof(trace_before)) == 0 &&
+                      trace_count == 23u &&
+                      repeated.status == GBL_MAILBOX_PASS &&
+                      repeated.case_id == TEST_MAILBOX_PASS_CASE &&
+                      gbl_test_canonical_equal(&before, &machine) &&
+                      digest_before == gbl_test_canonical_digest(&machine) &&
+                      gbl_test_same_instance_identity_equal(&before, &machine),
+                  "peek and mailbox reads leave full state and caller guards unchanged");
+
+        memset(storage.output, 0xA7, sizeof(storage.output));
+        {
+            const uint8_t output_before[sizeof(storage.output)] = {
+                UINT8_C(0xA7), UINT8_C(0xA7), UINT8_C(0xA7), UINT8_C(0xA7)
+            };
+            const bool zero_end = gbl_machine_peek(
+                &machine, UINT32_C(0x03008000), NULL, 0u) ==
+                GBL_PEEK_STATUS_OK;
+            const bool zero_start = gbl_machine_peek(
+                &machine, UINT32_C(0x03000000), NULL, 0u) ==
+                GBL_PEEK_STATUS_OK;
+            const bool null_output = gbl_machine_peek(
+                &machine, UINT32_C(0x03000000), NULL, 1u) ==
+                GBL_PEEK_STATUS_INVALID_ARGUMENT;
+            const bool outside = gbl_machine_peek(
+                &machine, UINT32_C(0x03007FFF), storage.output, 2u) ==
+                GBL_PEEK_STATUS_INVALID_SPAN;
+            const bool wrapping = gbl_machine_peek(
+                &machine, UINT32_MAX - UINT32_C(1), storage.output, 4u) ==
+                GBL_PEEK_STATUS_INVALID_SPAN;
+            const bool overlap_machine = gbl_machine_peek(
+                &machine, UINT32_C(0x03000000), &machine, 4u) ==
+                GBL_PEEK_STATUS_OVERLAP;
+            const bool overlap_rom = gbl_machine_peek(
+                &machine, UINT32_C(0x03000000), machine.rom, 4u) ==
+                GBL_PEEK_STATUS_OVERLAP;
+            gbl_machine uninitialized = { 0 };
+            const bool uninitialized_refused = gbl_machine_peek(
+                &uninitialized, UINT32_C(0x03000000), storage.output, 4u) ==
+                GBL_PEEK_STATUS_INVALID_MACHINE;
+            const bool null_machine = gbl_machine_peek(
+                NULL, UINT32_C(0x03000000), storage.output, 4u) ==
+                GBL_PEEK_STATUS_INVALID_ARGUMENT;
+
+            test_case(zero_end && zero_start && null_output && outside &&
+                          wrapping && overlap_machine && overlap_rom &&
+                          uninitialized_refused && null_machine &&
+                          memcmp(storage.output, output_before,
+                                 sizeof(output_before)) == 0 &&
+                          gbl_test_canonical_equal(&before, &machine) &&
+                          digest_before ==
+                              gbl_test_canonical_digest(&machine) &&
+                          gbl_test_same_instance_identity_equal(&before,
+                                                                &machine),
+                      "peek validates zero-length, wrap, overlap, and null boundaries before effects");
+        }
+    }
+
+    {
+        gbl_machine failure = { 0 };
+        gbl_run_result failure_result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool failure_loaded;
+        bool failure_ran;
+        gbl_mailbox_result failed;
+
+        make_mailbox_guest(image, GBL_MAILBOX_STATE_FAIL,
+                           TEST_MAILBOX_FAIL_CASE);
+        failure_loaded = machine_load(&failure, image);
+        failure_ran = failure_loaded && run_units(
+            &failure, UINT64_C(24), 0u, &failure_result);
+        failed = failure_loaded ? gbl_mailbox_read(&failure)
+                                : (gbl_mailbox_result){
+                                      GBL_MAILBOX_MALFORMED, 0u
+                                  };
+        test_case(failure_ran && failure_result.cycles == UINT64_C(24) &&
+                      failed.status == GBL_MAILBOX_FAIL &&
+                      failed.case_id == TEST_MAILBOX_FAIL_CASE &&
+                      gbl_mailbox_read(&failure).status == GBL_MAILBOX_FAIL &&
+                      gbl_mailbox_read(&failure).case_id ==
+                          TEST_MAILBOX_FAIL_CASE,
+                  "guest FAIL verdict preserves its case ID across completed reads");
+        gbl_machine_dispose(&failure);
+    }
+
+    gbl_machine_dispose(&machine);
+}
+
+static void test_mailbox_statuses(void)
+{
+    gbl_machine machine = { 0 };
+    bool initialized = machine_initialize(&machine, NULL);
+
+    test_case(initialized &&
+                  gbl_mailbox_read(&machine).status == GBL_MAILBOX_ABSENT,
+              "zero-filled IWRAM reports mailbox absent");
+    if (initialized) {
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC, GBL_MAILBOX_VERSION,
+                      GBL_MAILBOX_STATE_ABSENT, 0u, 0u);
+        initialized = gbl_mailbox_read(&machine).status == GBL_MAILBOX_ABSENT;
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC ^ UINT32_C(1),
+                      GBL_MAILBOX_VERSION, GBL_MAILBOX_STATE_PASS, 7u,
+                      GBL_MAILBOX_COMPLETION_MARKER);
+        const bool bad_magic =
+            gbl_mailbox_read(&machine).status == GBL_MAILBOX_MALFORMED;
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC,
+                      GBL_MAILBOX_VERSION + UINT32_C(1),
+                      GBL_MAILBOX_STATE_PASS, 7u,
+                      GBL_MAILBOX_COMPLETION_MARKER);
+        test_case(initialized && bad_magic && gbl_mailbox_read(&machine).status ==
+                                   GBL_MAILBOX_MALFORMED,
+                  "valid absent, wrong magic, and wrong version are classified distinctly");
+
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC, GBL_MAILBOX_VERSION,
+                      GBL_MAILBOX_STATE_RUNNING, 7u, 0u);
+        const bool running =
+            gbl_mailbox_read(&machine).status == GBL_MAILBOX_PENDING;
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC, GBL_MAILBOX_VERSION,
+                      GBL_MAILBOX_STATE_PASS, 7u,
+                      UINT32_C(0x434F4D00));
+        test_case(running && gbl_mailbox_read(&machine).status ==
+                                 GBL_MAILBOX_PENDING,
+                  "running and partially written terminal mailboxes stay pending");
+
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC, GBL_MAILBOX_VERSION,
+                      UINT32_C(99), 7u, GBL_MAILBOX_COMPLETION_MARKER);
+        const bool invalid_state =
+            gbl_mailbox_read(&machine).status == GBL_MAILBOX_MALFORMED;
+        write_mailbox(&machine, GBL_MAILBOX_MAGIC, GBL_MAILBOX_VERSION,
+                      GBL_MAILBOX_STATE_FAIL, 0u,
+                      GBL_MAILBOX_COMPLETION_MARKER);
+        test_case(invalid_state && gbl_mailbox_read(&machine).status ==
+                                      GBL_MAILBOX_MALFORMED,
+                  "invalid state and failing verdict without a case ID are malformed");
+    } else {
+        test_case(false, "wrong magic and version never produce a verdict");
+        test_case(false, "running and partially written terminal mailboxes stay pending");
+        test_case(false, "invalid state and failing verdict without a case ID are malformed");
+    }
+    gbl_machine_dispose(&machine);
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -2013,6 +2290,12 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "no_bios") == 0) {
         printf("1..2\n");
         test_no_bios();
+    } else if (strcmp(argv[1], "peek") == 0) {
+        printf("1..5\n");
+        test_guest_mailbox_and_peek();
+    } else if (strcmp(argv[1], "mailbox") == 0) {
+        printf("1..4\n");
+        test_mailbox_statuses();
     } else if (strcmp(argv[1], "budget") == 0) {
         printf("1..9\n");
         test_budget();

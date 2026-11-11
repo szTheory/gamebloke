@@ -264,12 +264,57 @@ typedef struct gbl_machine {
     gbl_cpu_state cpu;
 } gbl_machine;
 
+/* Internal, read-only inspection of the physical IWRAM window. The caller
+ * owns machine/out storage and provides synchronization and lifetime. */
+typedef enum gbl_peek_status {
+    GBL_PEEK_STATUS_OK = 0,
+    GBL_PEEK_STATUS_INVALID_ARGUMENT = 1,
+    GBL_PEEK_STATUS_INVALID_MACHINE = 2,
+    GBL_PEEK_STATUS_INVALID_SPAN = 3,
+    GBL_PEEK_STATUS_OVERLAP = 4
+} gbl_peek_status;
+
+#define GBL_MAILBOX_ADDRESS UINT32_C(0x03007FC0)
+#define GBL_MAILBOX_MAGIC UINT32_C(0x47424C4B)
+#define GBL_MAILBOX_VERSION UINT32_C(1)
+#define GBL_MAILBOX_COMPLETION_MARKER UINT32_C(0x434F4D50)
+
+typedef enum gbl_mailbox_state {
+    GBL_MAILBOX_STATE_ABSENT = 0,
+    GBL_MAILBOX_STATE_RUNNING = 1,
+    GBL_MAILBOX_STATE_PASS = 2,
+    GBL_MAILBOX_STATE_FAIL = 3
+} gbl_mailbox_state;
+
+typedef enum gbl_mailbox_status {
+    GBL_MAILBOX_ABSENT = 0,
+    GBL_MAILBOX_PENDING = 1,
+    GBL_MAILBOX_PASS = 2,
+    GBL_MAILBOX_FAIL = 3,
+    GBL_MAILBOX_MALFORMED = 4
+} gbl_mailbox_status;
+
+typedef struct gbl_mailbox_result {
+    gbl_mailbox_status status;
+    uint32_t case_id;
+} gbl_mailbox_result;
+
 /* Initialize fresh caller-owned storage. A non-NULL allocator must be a
  * distinct descriptor with both callbacks present or both absent. */
 gbl_bus_status gbl_machine_init(gbl_machine *machine,
                                 const gbl_allocator *allocator);
 void gbl_machine_reset(gbl_machine *machine);
 void gbl_machine_dispose(gbl_machine *machine);
+
+/* Copies only a contiguous byte span from physical IWRAM (0x03000000 through
+ * 0x03007FFF). Zero-length requests accept addresses through one-past-end and
+ * do not access out. Invalid requests leave out and machine unchanged. */
+gbl_peek_status gbl_machine_peek(const gbl_machine *machine,
+                                uint32_t address, void *out, size_t length);
+
+/* Observes the five-word little-endian IWRAM mailbox. A verdict is complete
+ * only with the expected magic, version, terminal state, and final marker. */
+gbl_mailbox_result gbl_mailbox_read(const gbl_machine *machine);
 
 /* Execute a bounded ARM subset through the canonical bus. One complete
  * refill or instruction is a unit; unit_limit 1 returns progress after one
