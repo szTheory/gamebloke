@@ -58,6 +58,10 @@ list(FIND input_paths "CMakeLists.txt" cmake_consumer_bound)
 if(NOT cmake_consumer_bound EQUAL -1)
   message(FATAL_ERROR "coverage-case: unrelated-consumer-bound: CMakeLists.txt")
 endif()
+list(FIND input_paths "tests/fixtures/manifest.json" manifest_producer_bound)
+if(NOT manifest_producer_bound EQUAL -1)
+  message(FATAL_ERROR "coverage-case: manifest-consumer-bound: tests/fixtures/manifest.json")
+endif()
 
 set(control_root "${binary_root}/coverage-controls")
 file(REMOVE_RECURSE "${control_root}")
@@ -99,7 +103,8 @@ set(clean_combined "${clean_out}${clean_error}")
 if(NOT "${clean_rc}" STREQUAL "0" OR
    NOT clean_combined MATCHES "coverage: ok" OR
    NOT clean_combined MATCHES "targets=334" OR
-   NOT clean_combined MATCHES "pending=356")
+   NOT clean_combined MATCHES "pending=356" OR
+   NOT clean_combined MATCHES "source-verified=1")
   message(FATAL_ERROR "coverage-case: clean-ledger-control-failed: ${clean_error}${clean_out}")
 endif()
 message(STATUS "coverage-case: clean draft inventory passed (334 ARM/Thumb forms; formats 1..19)")
@@ -116,6 +121,67 @@ if(smoke_index LESS 0 OR target_index LESS 0)
   message(FATAL_ERROR "coverage-case: required-control-case-missing")
 endif()
 string(JSON smoke_id GET "${matrix_json}" cases ${smoke_index} id)
+gbl_json_string(smoke_state "${matrix_json}" cases ${smoke_index} coverage_state)
+if(NOT smoke_state STREQUAL "source-verified")
+  message(FATAL_ERROR "coverage-case: smoke-source-state-not-admission-independent: ${smoke_state}")
+endif()
+
+set(verified_matrix "${control_root}/verified-smoke.json")
+string(JSON changed SET "${matrix_json}" cases ${smoke_index} coverage_state "\"verified\"")
+file(WRITE "${verified_matrix}" "${changed}\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -DMODE=draft "-DMATRIX=${verified_matrix}" -P "${checker}"
+  RESULT_VARIABLE verified_rc OUTPUT_VARIABLE verified_out ERROR_VARIABLE verified_error)
+set(verified_combined "${verified_out}${verified_error}")
+if(NOT "${verified_rc}" STREQUAL "0" OR
+   NOT verified_combined MATCHES "verified=1" OR
+   NOT verified_combined MATCHES "smoke-pairs=1" OR
+   NOT verified_combined MATCHES "pending=356")
+  message(FATAL_ERROR "coverage-case: verified-smoke-count-control-failed: ${verified_combined}")
+endif()
+message(STATUS "coverage-case: verified smoke still counts as exactly one pair in draft mode")
+
+set(variant "${control_root}/malformed-verified-smoke.json")
+string(JSON changed SET "${matrix_json}" cases ${smoke_index} coverage_state "\"verified\"")
+string(JSON changed SET "${changed}" cases ${smoke_index}
+  broken_assertion thumb_broken_operand 6)
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(malformed-verified-smoke draft "${variant}" broken-assertion-invalid)
+
+set(variant "${control_root}/temporal-smoke-expectation.json")
+string(JSON changed SET "${matrix_json}" cases ${smoke_index} expected value
+  "\"Final pins await hosted identity evidence.\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(temporal-smoke-expectation draft "${variant}" smoke-temporal-expectation)
+
+file(SHA256 "${matrix}" matrix_sha_before_admission)
+file(SHA256 "${inputs}" inputs_sha_before_admission)
+set(manifest_variant "${control_root}/manifest-only.json")
+file(WRITE "${manifest_variant}"
+  "{\n  \"schema\": \"gamebloke.manifest/1\",\n  \"fixtures\": [{\"id\": \"smoke\"}, {\"id\": \"smoke-broken\"}]\n}\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -DMODE=smoke-admission "-DMATRIX=${matrix}"
+    "-DMANIFEST=${manifest_variant}" -P "${checker}"
+  RESULT_VARIABLE admission_rc OUTPUT_VARIABLE admission_out ERROR_VARIABLE admission_error)
+set(admission_combined "${admission_out}${admission_error}")
+if(NOT "${admission_rc}" STREQUAL "0" OR
+   NOT admission_combined MATCHES "smoke-admission: ok" OR
+   NOT admission_combined MATCHES "fixture-links=2")
+  message(FATAL_ERROR "coverage-case: manifest-only-admission-control-failed: ${admission_combined}")
+endif()
+file(SHA256 "${matrix}" matrix_sha_after_admission)
+file(SHA256 "${inputs}" inputs_sha_after_admission)
+if(NOT matrix_sha_before_admission STREQUAL matrix_sha_after_admission OR
+   NOT inputs_sha_before_admission STREQUAL inputs_sha_after_admission)
+  message(FATAL_ERROR "coverage-case: manifest-only-admission-mutated-bound-input")
+endif()
+message(STATUS "coverage-case: manifest-only smoke admission passed without changing bound inputs")
+
+file(WRITE "${manifest_variant}"
+  "{\n  \"schema\": \"gamebloke.manifest/1\",\n  \"fixtures\": [{\"id\": \"smoke\"}]\n}\n")
+checker_failure(missing-smoke-manifest-link smoke-admission "${matrix}"
+  smoke-admission-fixture-link-missing)
+
 set(variant "${control_root}/duplicate-id.json")
 string(JSON changed SET "${matrix_json}" cases ${target_index} id "${smoke_id}")
 file(WRITE "${variant}" "${changed}\n")
@@ -182,4 +248,4 @@ if("${all_rc}" STREQUAL "0" OR
   message(FATAL_ERROR "coverage-case: all-builder-refusal-failed: ${all_combined}")
 endif()
 message(STATUS "coverage-case: aggregate build refused while cases remain pending")
-message("coverage-case: ok (clean ledger, source-input boundary, and five mutation controls)")
+message("coverage-case: ok (draft/final/admission states, source-input boundary, and mutation controls)")
