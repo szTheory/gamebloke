@@ -245,6 +245,13 @@ typedef enum gbl_trace_category {
 #define GBL_TRACE_CATEGORY_MASK \
     ((uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS | GBL_TRACE_EXCEPTION))
 
+/* All records are zero-initialized before applicable fields are set.
+ * Instruction records use guest_cycle at unit start plus instruction_address
+ * and opcode. Bus records use completion guest_cycle and the actual bus
+ * result's value, width, access class and outcome; their instruction fields
+ * identify the current unit. Exception records use completion guest_cycle,
+ * instruction identity and exception_kind. Fields not listed for a category
+ * are zero. Sequence is assigned from the caller buffer's next_sequence. */
 typedef struct gbl_trace_record {
     uint64_t sequence;
     uint64_t guest_cycle;
@@ -259,9 +266,10 @@ typedef struct gbl_trace_record {
     gbl_exception_kind exception_kind;
 } gbl_trace_record;
 
-/* The host owns this append-only output. `next_sequence` is the sequence that
- * will be assigned to the next record; it must have room for every selected
- * record in a complete CPU unit. */
+/* The host owns this append-only output. `count` is the number of valid records
+ * in [0, count), and `next_sequence` is assigned to the next appended record.
+ * The host owns the storage lifetime and must provide a writable object span
+ * for records[0, capacity). */
 typedef struct gbl_trace_buffer {
     gbl_trace_record *records;
     size_t capacity;
@@ -365,9 +373,13 @@ gbl_mailbox_result gbl_mailbox_read(const gbl_machine *machine);
  * and exception cycles after entry. Non-applicable record fields are zero.
  * Capacity or sequence exhaustion returns GBL_RUN_TRACE_OUTPUT_FULL and
  * GBL_RUN_REASON_TRACE_OUTPUT_FULL before the next whole unit. The machine,
- * trace count, sequence and prior records are unchanged for that unit. Invalid
- * arguments, masks, spans or aliases return INVALID_ARGUMENT without changing
- * machine, result or trace output. A zero mask ignores trace_buffer entirely. */
+ * trace count, sequence and prior records are unchanged for that unit. An
+ * unknown mask bit, missing buffer for a nonzero mask, count > capacity,
+ * missing storage for nonzero capacity, wrapping record extent, or overlap of
+ * trace storage with machine/ROM/options/result returns INVALID_ARGUMENT
+ * without changing machine, result or trace output. Pointer lifetime and the
+ * actual allocation extent remain the caller's responsibility. A zero mask
+ * ignores trace_buffer entirely. */
 gbl_run_status gbl_cpu_run(gbl_machine *machine,
                            const gbl_run_options *options,
                            gbl_run_result *result);

@@ -2416,7 +2416,7 @@ static void test_trace_store_capacity(void)
                       exact_result.instructions == 1u &&
                       exact_trace.count == 4u &&
                       exact_trace.next_sequence == UINT64_C(20) &&
-                      trace_record_is(&exact_records[0], UINT64_C(17), 3u,
+                      trace_record_is(&exact_records[0], UINT64_C(16), 3u,
                                       GBL_TRACE_BUS, UINT32_C(0x08000040),
                                       UINT32_C(0xE1A00000),
                                       UINT32_C(0x08000044),
@@ -2436,7 +2436,7 @@ static void test_trace_store_capacity(void)
                                       UINT32_C(0x08000000),
                                       UINT32_C(0xE5810000),
                                       UINT32_C(0x02000000),
-                                      UINT32_C(0x12345678), 4u,
+                                      0u, 4u,
                                       GBL_BUS_CLASS_NONSEQUENTIAL,
                                       GBL_BUS_OUTCOME_RAM,
                                       GBL_EXCEPTION_NONE) &&
