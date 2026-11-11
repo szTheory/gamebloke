@@ -236,7 +236,8 @@ Plans:
 **Owner gates**: None blocking. G1 reuse rule as in Phase 3.
 
 ### Phase 5: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-**Goal**: Project-authored ARM and Thumb diagnostics are built from source with a pinned toolchain whose output is proven to be ARMv4T and reproducible. The diagnostics drive the CPU to full ARMv4T ARM and Thumb coverage, and every quirk is pinned by a case ID with a deliberately broken variant as its negative control.
+**Goal**: As a core developer, I want reproducibly built original ARM/Thumb diagnostics to exercise the full ARM7TDMI ARMv4T instruction set and report precise positive and deliberately failing case IDs, so that CPU coverage is inspectable and every result is tied to reviewed source, toolchain and output bytes.
+**Technical boundary (unchanged):** Project-authored ARM and Thumb diagnostics are built from source with a pinned toolchain whose output is proven to be ARMv4T and reproducible. The diagnostics drive the CPU to full ARMv4T ARM and Thumb coverage, and every quirk is pinned by a case ID with a deliberately broken variant as its negative control.
 **Mode:** mvp
 **Depends on**: Phase 4 (the runner and mailbox read diagnostic verdicts) and Phase 2 (manifest rows for owned fixtures). The toolchain-spike plan does not depend on the core and may start first within the phase.
 **Requirements**: DIAG-01, DIAG-02, DIAG-03, VERIF-04, CPU-01, CPU-02

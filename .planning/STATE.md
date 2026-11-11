@@ -199,7 +199,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 4 owner accepted the guide-clarity judgment. Technical and UAT completion predicates pass; final publication through PR #7 is in progress before Phase 5 work. No new rights, probe-status or hardware/game qualification is accepted.
+- Phase 4 is accepted and squash-merged through PR #7. Final required CI and main CI passed. Phase 5 research is complete; its first gating spike must establish tool architecture/parity before any ROM digest admission. No rights/qualification limit is waived.
 
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
