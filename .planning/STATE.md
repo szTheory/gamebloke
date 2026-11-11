@@ -6,15 +6,15 @@ current_phase: 4
 current_phase_name: CPU Execution Core and Headless Runner
 status: executing
 stopped_at: Phase 4 plans checked, ready to execute
-last_updated: "2026-11-11T05:35:07.631Z"
+last_updated: "2026-11-11T06:04:01.098Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 4 execution started
-state_head: 477e590ef9c5c362a6aa94f694bee641e228faf7
+state_head: 4a189e2ccc5d56f346aa83873099712b01387359
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 38
-  completed_plans: 29
+  completed_plans: 30
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 4 (CPU Execution Core and Headless Runner) — EXECUTING
-Plan: 5 of 13
+Plan: 6 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 4 execution started
 
@@ -86,6 +86,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04 P02 | not_measured | 2 tasks | 9 files |
 | Phase 04 P03 | not_measured | 3 tasks | 8 files |
 | Phase 04 P04 | 33min27s | 3 tasks | 8 files |
+| Phase 04 P05 | not_measured | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Keep one canonical `04-RESEARCH.md`; supporting lenses use `*-NOTES.md`. The generic research-file resolver selected a partial ARM lens when several files ended in RESEARCH.md, creating a misleading drift warning and hiding the synthesized validation section. Supporting-note renaming and explicit context reconciliation fix the consumer input without repeating hardware research.
 
 - [Phase 04]: Plans 01–02 are committed. Configured production/synthetic and scratch builds share the CPU source; an empty loaded-ROM context now refuses before effects. Canonical CI and focused configured AppleClang ASan/UBSan CPU checks pass. The default sanitizer preset names Linux clang-21; local macOS uses the documented fresh /usr/bin/clang override. CPU/runner requirements remain partial; continue with Plan 03. Local sanitizer log: build/phase04-tracer/plan02-asan-macos.log.
+
+- [Phase 04]: Profile version 4 and CPU policy validation are committed; focused profile, CI and hygiene checks pass. The optional owner-local signature test was then explicitly refreshed against both already-authorized ignored inputs and passed without skipping. Only the bounded header digest helper ran; no guest execution occurred. Ledger entry 3 is fixed, with local evidence in build/phase04-tracer/owner-local-refresh.log. Future public CI skips remain expected and do not create a new owner-data gate.
 
 ### Pending Todos
 
