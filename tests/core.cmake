@@ -47,7 +47,7 @@ gbl_add_test(
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
 foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
-    no_bios peek mailbox)
+    no_bios peek mailbox trace_capacity trace)
   gbl_add_test(
     NAME cpu.${selector}
     LABELS cpu core unit
@@ -158,6 +158,9 @@ gbl__add_cpu_mutation_test(cpu.nc.bank_alias bank_alias modes)
 gbl__add_cpu_mutation_test(cpu.nc.exception_lr exception_lr exceptions)
 gbl__add_cpu_mutation_test(cpu.nc.vector_fetch vector_fetch no_bios)
 gbl__add_cpu_mutation_test(cpu.nc.peek_effect peek_effect peek)
+gbl__add_cpu_mutation_test(cpu.nc.trace_loss trace_loss trace)
+gbl__add_cpu_mutation_test(
+  cpu.nc.budget_overshoot budget_overshoot trace)
 gbl__add_cpu_mutation_test(cpu.pos.clean clean all)
 
 gbl_add_test(

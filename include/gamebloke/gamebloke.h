@@ -249,7 +249,8 @@ typedef enum gbl_trace_category {
  * Instruction records use guest_cycle at unit start plus instruction_address
  * and opcode. Bus records use completion guest_cycle and the actual bus
  * result's value, width, access class and outcome; their instruction fields
- * identify the current unit. Exception records use completion guest_cycle,
+ * identify the current unit. Initial refill records use the refill address
+ * and opcode zero. Exception records use completion guest_cycle,
  * instruction identity and exception_kind. Fields not listed for a category
  * are zero. Sequence is assigned from the caller buffer's next_sequence. */
 typedef struct gbl_trace_record {

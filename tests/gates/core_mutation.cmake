@@ -194,6 +194,22 @@ function(gbl__mutate_cpu cpu_source mutation)
             break;]=]
       [=[            run_result.reason = GBL_RUN_REASON_GUEST_STOP;
             continue;]=])
+  elseif(mutation STREQUAL "trace_loss")
+    gbl_text_mutate("${cpu_source}"
+      [=[    if (record_count == 0u) {
+        return;
+    }
+    for (index = 0u; index < record_count; ++index) {]=]
+      [=[    if (record_count == 0u) {
+        return;
+    }
+    record_count--;
+    for (index = 0u; index < record_count; ++index) {]=])
+  elseif(mutation STREQUAL "budget_overshoot")
+    gbl_text_mutate("${cpu_source}"
+      [=[        if (run_options.unit_limit != 0u &&
+            completed_units >= run_options.unit_limit) {]=]
+      [=[        if (completed_units == UINT64_MAX) {]=])
   else()
     message(FATAL_ERROR "mutation: unknown CPU case '${mutation}'")
   endif()
@@ -297,6 +313,10 @@ function(gbl__run_cpu_pair mutation label selector)
     set(failure_regex "not ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
   elseif(mutation STREQUAL "peek_effect")
     set(failure_regex "not ok 3 - peek and mailbox reads leave full state and caller guards unchanged")
+  elseif(mutation STREQUAL "trace_loss")
+    set(failure_regex "not ok 2 - exact trace capacity records instruction, data and refill order")
+  elseif(mutation STREQUAL "budget_overshoot")
+    set(failure_regex "not ok 29 - unit limit stops after one instruction despite spare cycle budget")
   else()
     message(FATAL_ERROR "mutation: no semantic failure assertion for '${mutation}'")
   endif()
@@ -316,6 +336,8 @@ function(gbl__run_cpu_pair mutation label selector)
     set(clean_regex "ok 3 - peek and mailbox reads leave full state and caller guards unchanged")
   elseif(selector STREQUAL "mailbox")
     set(clean_regex "ok 4 - invalid state and failing verdict without a case ID are malformed")
+  elseif(selector STREQUAL "trace" OR selector STREQUAL "trace_capacity")
+    set(clean_regex "ok 2 - exact trace capacity records instruction, data and refill order")
   else()
     set(clean_regex "ok 1 - ARM BL links the next instruction and refills without stale slots")
   endif()
@@ -328,7 +350,7 @@ function(gbl__run_cpu_clean)
   set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
   gbl__compile_cpu("${root}/clean" "" clean_executable)
   foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
-      no_bios peek mailbox)
+      no_bios peek mailbox trace_capacity trace)
     gbl_expect_pass(COMMAND "${clean_executable}" "${selector}")
   endforeach()
 endfunction()

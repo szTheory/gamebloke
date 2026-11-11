@@ -1244,7 +1244,9 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
             record.guest_cycle = machine->master_cycles;
             record.category = GBL_TRACE_BUS;
             record.instruction_address = unit->instruction_address;
-            record.opcode = unit->opcode;
+            record.opcode = unit->kind == GBL_CPU_UNIT_REFILL
+                                ? 0u
+                                : unit->opcode;
             record.address = unit->fetch_address[index];
             record.value = result.value;
             record.width = unit->fetch_width;
@@ -1291,8 +1293,7 @@ static bool gbl_cpu_trace_options_valid(const gbl_machine *machine,
     if (mask == 0u) {
         return true;
     }
-    if (trace == NULL || trace->count > trace->capacity ||
-        trace->capacity > SIZE_MAX / sizeof(*trace->records) ||
+    if (trace == NULL ||
         gbl_cpu_ranges_overlap(trace, sizeof(*trace), machine,
                               sizeof(*machine)) ||
         gbl_cpu_ranges_overlap(trace, sizeof(*trace), result,
@@ -1300,14 +1301,14 @@ static bool gbl_cpu_trace_options_valid(const gbl_machine *machine,
         gbl_cpu_ranges_overlap(trace, sizeof(*trace), options,
                               sizeof(*options)) ||
         gbl_cpu_ranges_overlap(trace, sizeof(*trace), machine->rom,
-                              machine->rom_length)) {
+                              machine->rom_length) ||
+        trace->count > trace->capacity ||
+        trace->capacity > SIZE_MAX / sizeof(*trace->records)) {
         return false;
     }
     records_size = trace->capacity * sizeof(*trace->records);
     if (records_size == 0u) {
-        return trace->records == NULL ||
-               !gbl_cpu_ranges_overlap(trace->records, 0u, machine,
-                                       sizeof(*machine));
+        return true;
     }
     if (trace->records == NULL ||
         (uintmax_t)records_size > (uintmax_t)UINTPTR_MAX ||

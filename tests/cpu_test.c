@@ -2462,6 +2462,719 @@ static void test_trace_store_capacity(void)
     gbl_machine_dispose(&exact_machine);
 }
 
+static void prime_trace_arm_instruction(gbl_machine *machine,
+                                        uint32_t opcode)
+{
+    const uint32_t address = UINT32_C(0x08000000);
+
+    machine->cpu.execution_address = address;
+    machine->cpu.cpsr = TEST_CPSR_SYSTEM;
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        address, opcode, 4u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        address + UINT32_C(4), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+}
+
+static gbl_run_result trace_result_sentinel(void)
+{
+    const gbl_run_result sentinel = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, UINT64_C(0xA5), UINT64_C(0x5A)
+    };
+
+    return sentinel;
+}
+
+static bool trace_result_is_sentinel(const gbl_run_result *result)
+{
+    return result->termination == GBL_RUN_TIMEOUT &&
+           result->reason == GBL_RUN_REASON_NONE &&
+           result->cycles == UINT64_C(0xA5) &&
+           result->instructions == UINT64_C(0x5A);
+}
+
+static void test_trace_refill_capacity(void)
+{
+    const gbl_trace_record prior = {
+        UINT64_C(91), UINT64_C(73), GBL_TRACE_INSTRUCTION,
+        UINT32_C(0x08000020), UINT32_C(0xE1A00000), 0u, 0u, 0u,
+        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_NONE,
+        GBL_EXCEPTION_NONE
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_trace_record records[2] = { prior, { 0 } };
+    gbl_trace_buffer trace = { records, 1u, 0u, UINT64_C(91) };
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE1A00000));
+    write_word(image, 4u, UINT32_C(0xE1A01000));
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        const gbl_machine before = machine;
+        const bool short_run = run_traced_units(
+            &machine, 2u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &result);
+
+        test_case(short_run &&
+                      result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                      result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                      result.cycles == 0u && result.instructions == 0u &&
+                      trace.count == 0u &&
+                      trace.next_sequence == UINT64_C(91) &&
+                      trace_record_is(&records[0], prior.sequence,
+                                      prior.guest_cycle, prior.category,
+                                      prior.instruction_address, prior.opcode,
+                                      prior.address, prior.value, prior.width,
+                                      prior.access_class, prior.bus_outcome,
+                                      prior.exception_kind) &&
+                      gbl_test_canonical_equal(&before, &machine) &&
+                      gbl_test_canonical_digest(&before) ==
+                          gbl_test_canonical_digest(&machine),
+                  "initial refill refuses one-short bus capacity without effects");
+    } else {
+        test_case(false,
+                  "initial refill refuses one-short bus capacity without effects");
+    }
+
+    trace.capacity = 2u;
+    if (loaded) {
+        const bool exact_run = run_traced_units(
+            &machine, 2u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &result);
+
+        test_case(exact_run && result.termination == GBL_RUN_PROGRESS &&
+                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      result.cycles == 2u && result.instructions == 0u &&
+                      trace.count == 2u &&
+                      trace.next_sequence == UINT64_C(93) &&
+                      trace_record_is(&records[0], UINT64_C(91), 1u,
+                                      GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000), 0u,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE1A00000), 4u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      GBL_BUS_OUTCOME_ROM,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&records[1], UINT64_C(92), 2u,
+                                      GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000), 0u,
+                                      UINT32_C(0x08000004),
+                                      UINT32_C(0xE1A01000), 4u,
+                                      GBL_BUS_CLASS_SEQUENTIAL,
+                                      GBL_BUS_OUTCOME_ROM,
+                                      GBL_EXCEPTION_NONE),
+                  "initial refill emits both real fetches at exact capacity");
+    } else {
+        test_case(false,
+                  "initial refill emits both real fetches at exact capacity");
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_trace_category_masks(void)
+{
+    static const struct trace_mask_case {
+        uint32_t mask;
+        size_t expected_count;
+        const char *description;
+    } cases[] = {
+        { 0u, 0u, "zero trace mask emits no records" },
+        { (uint32_t)GBL_TRACE_INSTRUCTION, 1u,
+          "instruction-only mask emits only the instruction" },
+        { (uint32_t)GBL_TRACE_BUS, 2u,
+          "bus-only mask emits only data and sequential fetch" },
+        { (uint32_t)GBL_TRACE_EXCEPTION, 0u,
+          "exception-only mask emits no phantom event" },
+        { (uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS), 3u,
+          "instruction and bus mask preserve their order" },
+        { (uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_EXCEPTION), 1u,
+          "instruction and exception mask excludes bus events" },
+        { (uint32_t)(GBL_TRACE_BUS | GBL_TRACE_EXCEPTION), 2u,
+          "bus and exception mask excludes instruction events" },
+        { GBL_TRACE_CATEGORY_MASK, 3u,
+          "all trace categories emit their selected events" }
+    };
+    size_t case_index;
+
+    for (case_index = 0u;
+         case_index < sizeof(cases) / sizeof(cases[0]); ++case_index) {
+        gbl_trace_record records[3] = { { 0 } };
+        gbl_trace_buffer trace = { records, 3u, 0u, 0u };
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+        gbl_trace_buffer *trace_pointer =
+            cases[case_index].mask == 0u ? NULL : &trace;
+        bool loaded;
+        bool ran;
+        bool categories_match = true;
+        size_t record_index;
+        size_t expected_index = 0u;
+
+        seed_trace_store_machine(&machine);
+        loaded = machine.initialized && machine.rom != NULL;
+        ran = loaded && run_traced_units(
+            &machine, 2u, 1u, cases[case_index].mask, trace_pointer, &result);
+        if ((cases[case_index].mask & (uint32_t)GBL_TRACE_INSTRUCTION) != 0u) {
+            categories_match = trace.count > expected_index &&
+                records[expected_index].category == GBL_TRACE_INSTRUCTION;
+            expected_index++;
+        }
+        if ((cases[case_index].mask & (uint32_t)GBL_TRACE_BUS) != 0u) {
+            categories_match = categories_match &&
+                trace.count >= expected_index + 2u &&
+                records[expected_index].category == GBL_TRACE_BUS &&
+                records[expected_index + 1u].category == GBL_TRACE_BUS;
+            expected_index += 2u;
+        }
+        for (record_index = 0u; record_index < trace.count; ++record_index) {
+            if ((cases[case_index].mask &
+                 (uint32_t)records[record_index].category) == 0u ||
+                records[record_index].sequence != (uint64_t)record_index) {
+                categories_match = false;
+            }
+        }
+        test_case(ran && result.termination == GBL_RUN_PROGRESS &&
+                      result.cycles == 2u &&
+                      trace.count == cases[case_index].expected_count &&
+                      trace.next_sequence ==
+                          (uint64_t)cases[case_index].expected_count &&
+                      categories_match &&
+                      (trace_pointer != NULL ||
+                       (trace.count == 0u && trace.next_sequence == 0u)),
+                  cases[case_index].description);
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_trace_control_flow(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_trace_record records[3] = { { 0 } };
+    gbl_trace_buffer trace = { records, 3u, 0u, 0u };
+    gbl_machine branch_machine = { 0 };
+    gbl_run_result branch_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    bool branch_loaded;
+    bool branch_ran;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xEA000002));
+    write_word(image, 0x10u, UINT32_C(0xE1A00000));
+    write_word(image, 0x14u, UINT32_C(0xE1A01000));
+    branch_loaded = machine_load(&branch_machine, image);
+    if (branch_loaded) {
+        prime_trace_arm_instruction(&branch_machine, UINT32_C(0xEA000002));
+    }
+    branch_ran = branch_loaded && run_traced_units(
+        &branch_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK, &trace,
+        &branch_result);
+    test_case(branch_ran && branch_result.termination == GBL_RUN_PROGRESS &&
+                  branch_result.cycles == 2u &&
+                  branch_machine.cpu.execution_address ==
+                      UINT32_C(0x08000010) &&
+                  trace.count == 3u &&
+                  trace_record_is(&records[0], 0u, 0u,
+                                  GBL_TRACE_INSTRUCTION,
+                                  UINT32_C(0x08000000),
+                                  UINT32_C(0xEA000002), 0u, 0u, 0u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  GBL_BUS_OUTCOME_NONE,
+                                  GBL_EXCEPTION_NONE) &&
+                  trace_record_is(&records[1], 1u, 1u, GBL_TRACE_BUS,
+                                  UINT32_C(0x08000000),
+                                  UINT32_C(0xEA000002),
+                                  UINT32_C(0x08000010),
+                                  UINT32_C(0xE1A00000), 4u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  GBL_BUS_OUTCOME_ROM,
+                                  GBL_EXCEPTION_NONE) &&
+                  trace_record_is(&records[2], 2u, 2u, GBL_TRACE_BUS,
+                                  UINT32_C(0x08000000),
+                                  UINT32_C(0xEA000002),
+                                  UINT32_C(0x08000014),
+                                  UINT32_C(0xE1A01000), 4u,
+                                  GBL_BUS_CLASS_SEQUENTIAL,
+                                  GBL_BUS_OUTCOME_ROM,
+                                  GBL_EXCEPTION_NONE),
+              "branch instruction precedes both real refill reads");
+    gbl_machine_dispose(&branch_machine);
+
+    {
+        gbl_trace_record bx_records[3] = { { 0 } };
+        gbl_trace_buffer bx_trace = { bx_records, 3u, 0u, 0u };
+        gbl_machine bx_machine = { 0 };
+        gbl_run_result bx_result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool bx_loaded;
+        bool bx_ran;
+
+        make_empty_image(image);
+        write_halfword(image, 0x10u, UINT16_C(0x2001));
+        write_halfword(image, 0x12u, UINT16_C(0x2102));
+        bx_loaded = machine_load(&bx_machine, image);
+        if (bx_loaded) {
+            prime_trace_arm_instruction(&bx_machine,
+                                        UINT32_C(0xE12FFF10));
+            bx_machine.cpu.r0_7[0] = UINT32_C(0x08000011);
+        }
+        bx_ran = bx_loaded && run_traced_units(
+            &bx_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK, &bx_trace,
+            &bx_result);
+        test_case(bx_ran && bx_result.termination == GBL_RUN_PROGRESS &&
+                      bx_result.cycles == 2u && bx_trace.count == 3u &&
+                      bx_machine.cpu.execution_address ==
+                          UINT32_C(0x08000010) &&
+                      (bx_machine.cpu.cpsr & UINT32_C(0x20)) != 0u &&
+                      trace_record_is(&bx_records[0], 0u, 0u,
+                                      GBL_TRACE_INSTRUCTION,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE12FFF10), 0u, 0u, 0u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      GBL_BUS_OUTCOME_NONE,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&bx_records[1], 1u, 1u, GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE12FFF10),
+                                      UINT32_C(0x08000010),
+                                      UINT32_C(0x2001), 2u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      GBL_BUS_OUTCOME_ROM,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&bx_records[2], 2u, 2u, GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE12FFF10),
+                                      UINT32_C(0x08000012),
+                                      UINT32_C(0x2102), 2u,
+                                      GBL_BUS_CLASS_SEQUENTIAL,
+                                      GBL_BUS_OUTCOME_ROM,
+                                      GBL_EXCEPTION_NONE),
+                  "BX state switch records two halfword refill reads");
+        gbl_machine_dispose(&bx_machine);
+    }
+
+    {
+        gbl_trace_record load_records[3] = { { 0 } };
+        gbl_trace_buffer load_trace = { load_records, 3u, 0u, 0u };
+        gbl_machine load_machine = { 0 };
+        gbl_run_result load_result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool load_loaded;
+        bool load_ran;
+
+        make_empty_image(image);
+        write_word(image, 0u, UINT32_C(0xE5912000));
+        load_loaded = machine_load(&load_machine, image);
+        if (load_loaded) {
+            prime_trace_arm_instruction(&load_machine,
+                                        UINT32_C(0xE5912000));
+            load_machine.cpu.r0_7[1] = UINT32_C(0x02000000);
+            load_machine.ewram[0] = UINT8_C(0x78);
+            load_machine.ewram[1] = UINT8_C(0x56);
+            load_machine.ewram[2] = UINT8_C(0x34);
+            load_machine.ewram[3] = UINT8_C(0x12);
+        }
+        load_ran = load_loaded && run_traced_units(
+            &load_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK, &load_trace,
+            &load_result);
+        test_case(load_ran &&
+                      load_result.termination == GBL_RUN_PROGRESS &&
+                      load_result.cycles == 2u &&
+                      load_result.instructions == 1u &&
+                      load_machine.cpu.r0_7[2] == UINT32_C(0x12345678) &&
+                      load_trace.count == 3u &&
+                      trace_record_is(&load_records[0], 0u, 0u,
+                                      GBL_TRACE_INSTRUCTION,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE5912000), 0u, 0u, 0u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      GBL_BUS_OUTCOME_NONE,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&load_records[1], 1u, 1u,
+                                      GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE5912000),
+                                      UINT32_C(0x02000000),
+                                      UINT32_C(0x12345678), 4u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      GBL_BUS_OUTCOME_RAM,
+                                      GBL_EXCEPTION_NONE) &&
+                      trace_record_is(&load_records[2], 2u, 2u,
+                                      GBL_TRACE_BUS,
+                                      UINT32_C(0x08000000),
+                                      UINT32_C(0xE5912000),
+                                      UINT32_C(0x08000008), 0u, 4u,
+                                      GBL_BUS_CLASS_SEQUENTIAL,
+                                      GBL_BUS_OUTCOME_ROM,
+                                      GBL_EXCEPTION_NONE),
+                  "load trace records the real read value and refill order");
+        gbl_machine_dispose(&load_machine);
+    }
+}
+
+static void test_trace_exception_order(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_trace_record records[2] = { { 0 } };
+    gbl_trace_buffer trace = { records, 2u, 0u, 0u };
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool ran;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xEF000000));
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        prime_trace_arm_instruction(&machine, UINT32_C(0xEF000000));
+    }
+    ran = loaded && run_traced_units(
+        &machine, 1u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
+    test_case(ran && result.termination == GBL_RUN_STOPPED &&
+                  result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                  result.cycles == 1u && result.instructions == 1u &&
+                  machine.cpu.stop_reason == GBL_CPU_STOP_SWI_NO_BIOS &&
+                  trace.count == 2u &&
+                  trace_record_is(&records[0], 0u, 0u,
+                                  GBL_TRACE_INSTRUCTION,
+                                  UINT32_C(0x08000000),
+                                  UINT32_C(0xEF000000), 0u, 0u, 0u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  GBL_BUS_OUTCOME_NONE,
+                                  GBL_EXCEPTION_NONE) &&
+                  trace_record_is(&records[1], 1u, 1u,
+                                  GBL_TRACE_EXCEPTION,
+                                  UINT32_C(0x08000000),
+                                  UINT32_C(0xEF000000), 0u, 0u, 0u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  GBL_BUS_OUTCOME_NONE, GBL_EXCEPTION_SWI),
+              "exception record follows entry cycle without vector fetch");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_trace_after_mailbox_pass(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result completed = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    gbl_trace_buffer trace = { NULL, 0u, 0u, 0u };
+    gbl_run_result exhausted = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    gbl_mailbox_result mailbox;
+    bool loaded;
+    bool completed_run;
+    bool exhausted_run;
+
+    make_mailbox_guest(image, GBL_MAILBOX_STATE_PASS,
+                       TEST_MAILBOX_PASS_CASE);
+    loaded = machine_load(&machine, image);
+    completed_run = loaded && run_units(&machine, 24u, 0u, &completed);
+    mailbox = loaded ? gbl_mailbox_read(&machine)
+                     : (gbl_mailbox_result){ GBL_MAILBOX_MALFORMED, 0u };
+    if (loaded) {
+        const gbl_machine before = machine;
+
+        exhausted_run = run_traced_units(
+            &machine, 4u, 1u, (uint32_t)GBL_TRACE_INSTRUCTION, &trace,
+            &exhausted);
+        test_case(completed_run && mailbox.status == GBL_MAILBOX_PASS &&
+                      mailbox.case_id == TEST_MAILBOX_PASS_CASE &&
+                      exhausted_run &&
+                      exhausted.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                      exhausted.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                      exhausted.cycles == 0u && exhausted.instructions == 0u &&
+                      gbl_mailbox_read(&machine).status == GBL_MAILBOX_PASS &&
+                      gbl_mailbox_read(&machine).case_id ==
+                          TEST_MAILBOX_PASS_CASE &&
+                      gbl_test_canonical_equal(&before, &machine) &&
+                      trace.count == 0u && trace.next_sequence == 0u,
+                  "trace exhaustion stays visible after a complete PASS mailbox");
+    } else {
+        test_case(false,
+                  "trace exhaustion stays visible after a complete PASS mailbox");
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_trace_invalid_options(void)
+{
+    const gbl_trace_record marker = {
+        UINT64_C(33), UINT64_C(29), GBL_TRACE_BUS,
+        UINT32_C(0x08000020), UINT32_C(0xE1A00000),
+        UINT32_C(0x08000024), UINT32_C(0xE1A01000), 4u,
+        GBL_BUS_CLASS_SEQUENTIAL, GBL_BUS_OUTCOME_ROM, GBL_EXCEPTION_NONE
+    };
+    gbl_trace_record records[2] = { marker, marker };
+    gbl_trace_buffer trace = { records, 2u, 1u, UINT64_C(34) };
+    gbl_machine machine = { 0 };
+    gbl_run_options options = {
+        .cycle_budget = 2u,
+        .unit_limit = 1u,
+        .category_mask = (uint32_t)GBL_TRACE_INSTRUCTION,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = trace_result_sentinel();
+    bool loaded;
+
+    seed_trace_store_machine(&machine);
+    loaded = machine.initialized && machine.rom != NULL;
+    if (loaded) {
+        const gbl_machine before = machine;
+        bool valid;
+
+        options.category_mask = UINT32_C(0x80000000);
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                trace.count == 1u && trace.next_sequence == UINT64_C(34) &&
+                trace_record_is(&records[0], marker.sequence,
+                                marker.guest_cycle, marker.category,
+                                marker.instruction_address, marker.opcode,
+                                marker.address, marker.value, marker.width,
+                                marker.access_class, marker.bus_outcome,
+                                marker.exception_kind);
+        test_case(valid, "unknown trace category mask is refused before effects");
+
+        options.category_mask = (uint32_t)GBL_TRACE_INSTRUCTION;
+        options.trace_buffer = NULL;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine);
+        test_case(valid, "selected trace category requires a buffer");
+
+        options.trace_buffer = &trace;
+        trace.capacity = 0u;
+        trace.count = 1u;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                trace.count == 1u;
+        test_case(valid, "trace count above capacity is refused unchanged");
+
+        trace.records = NULL;
+        trace.capacity = 1u;
+        trace.count = 0u;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                trace.count == 0u;
+        test_case(valid, "null trace storage with positive capacity is refused");
+
+        trace.records = (gbl_trace_record *)(uintptr_t)1u;
+        trace.capacity = SIZE_MAX / sizeof(*trace.records) + 1u;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine);
+        test_case(valid, "trace extent multiplication overflow is refused");
+
+        trace.records = (gbl_trace_record *)(uintptr_t)(
+            UINTPTR_MAX - sizeof(*trace.records) + 1u);
+        trace.capacity = 1u;
+        trace.count = 0u;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                trace.count == 0u;
+        test_case(valid, "trace pointer extent wrap is refused before effects");
+
+        trace.records = (gbl_trace_record *)(void *)&machine;
+        trace.capacity = 1u;
+        trace.count = 0u;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine);
+        test_case(valid, "trace records may not alias canonical machine storage");
+
+        options.trace_buffer = (gbl_trace_buffer *)(void *)&machine;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine);
+        test_case(valid, "trace buffer object may not alias machine storage");
+
+        options.trace_buffer = &trace;
+        trace.records = (gbl_trace_record *)(void *)&options;
+        result = trace_result_sentinel();
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine);
+        trace.records = (gbl_trace_record *)(void *)&result;
+        result = trace_result_sentinel();
+        valid = valid &&
+                gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_INVALID_ARGUMENT &&
+                trace_result_is_sentinel(&result) &&
+                gbl_test_canonical_equal(&before, &machine);
+        test_case(valid, "trace record storage may not alias options or result");
+    } else {
+        test_case(false, "unknown trace category mask is refused before effects");
+        test_case(false, "selected trace category requires a buffer");
+        test_case(false, "trace count above capacity is refused unchanged");
+        test_case(false, "null trace storage with positive capacity is refused");
+        test_case(false, "trace extent multiplication overflow is refused");
+        test_case(false, "trace pointer extent wrap is refused before effects");
+        test_case(false, "trace records may not alias canonical machine storage");
+        test_case(false, "trace buffer object may not alias machine storage");
+        test_case(false, "trace record storage may not alias options or result");
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_trace_sequence_and_untraced_parity(void)
+{
+    const gbl_trace_record marker = {
+        UINT64_C(3), UINT64_C(2), GBL_TRACE_INSTRUCTION,
+        UINT32_C(0x08000020), UINT32_C(0xE1A00000), 0u, 0u, 0u,
+        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_NONE,
+        GBL_EXCEPTION_NONE
+    };
+    gbl_trace_record records[2] = { marker, { 0 } };
+    gbl_trace_buffer trace = { records, 2u, 0u, UINT64_MAX };
+    gbl_machine exhausted_machine = { 0 };
+    gbl_run_result exhausted = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    bool loaded;
+
+    seed_trace_store_machine(&exhausted_machine);
+    loaded = exhausted_machine.initialized && exhausted_machine.rom != NULL;
+    if (loaded) {
+        const gbl_machine before = exhausted_machine;
+        const bool ran = run_traced_units(
+            &exhausted_machine, 2u, 1u,
+            (uint32_t)GBL_TRACE_INSTRUCTION, &trace, &exhausted);
+
+        test_case(ran &&
+                      exhausted.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                      exhausted.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                      exhausted.cycles == 0u && exhausted.instructions == 0u &&
+                      trace.count == 0u && trace.next_sequence == UINT64_MAX &&
+                      trace_record_is(&records[0], marker.sequence,
+                                      marker.guest_cycle, marker.category,
+                                      marker.instruction_address, marker.opcode,
+                                      marker.address, marker.value, marker.width,
+                                      marker.access_class, marker.bus_outcome,
+                                      marker.exception_kind) &&
+                      gbl_test_canonical_equal(&before, &exhausted_machine),
+                  "sequence overflow refuses the whole instruction unit");
+    } else {
+        test_case(false,
+                  "sequence overflow refuses the whole instruction unit");
+    }
+    gbl_machine_dispose(&exhausted_machine);
+
+    {
+        gbl_machine traced = { 0 };
+        gbl_machine plain = { 0 };
+        gbl_trace_buffer ignored = { NULL, 0u, 0u, UINT64_MAX };
+        gbl_run_result traced_result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        gbl_run_result plain_result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool traced_loaded;
+        bool plain_loaded;
+        bool traced_ran;
+        bool plain_ran;
+
+        seed_trace_store_machine(&traced);
+        seed_trace_store_machine(&plain);
+        traced_loaded = traced.initialized && traced.rom != NULL;
+        plain_loaded = plain.initialized && plain.rom != NULL;
+        traced_ran = traced_loaded && run_traced_units(
+            &traced, 2u, 1u, 0u, &ignored, &traced_result);
+        plain_ran = plain_loaded && run_units(&plain, 2u, 1u, &plain_result);
+        test_case(traced_ran && plain_ran &&
+                      traced_result.termination == plain_result.termination &&
+                      traced_result.reason == plain_result.reason &&
+                      traced_result.cycles == plain_result.cycles &&
+                      traced_result.instructions == plain_result.instructions &&
+                      gbl_test_canonical_equal(&traced, &plain) &&
+                      gbl_test_canonical_digest(&traced) ==
+                          gbl_test_canonical_digest(&plain) &&
+                      ignored.count == 0u &&
+                      ignored.next_sequence == UINT64_MAX,
+                  "zero mask matches untraced execution without sequence overflow");
+        gbl_machine_dispose(&traced);
+        gbl_machine_dispose(&plain);
+    }
+}
+
+static void test_trace_unit_limit(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_trace_record records[32] = { { 0 } };
+    gbl_trace_buffer trace = { records, 32u, 0u, 0u };
+    gbl_machine traced = { 0 };
+    gbl_machine plain = { 0 };
+    gbl_run_result traced_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    gbl_run_result plain_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    bool traced_loaded;
+    bool plain_loaded;
+    bool traced_ran;
+    bool plain_ran;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE5810000));
+    write_word(image, 4u, UINT32_C(0xE1A02000));
+    write_word(image, 8u, UINT32_C(0xE1A03000));
+    traced_loaded = machine_load(&traced, image);
+    plain_loaded = machine_load(&plain, image);
+    if (traced_loaded) {
+        prime_trace_arm_instruction(&traced, UINT32_C(0xE5810000));
+        traced.cpu.r0_7[0] = UINT32_C(0x12345678);
+        traced.cpu.r0_7[1] = UINT32_C(0x02000000);
+    }
+    if (plain_loaded) {
+        prime_trace_arm_instruction(&plain, UINT32_C(0xE5810000));
+        plain.cpu.r0_7[0] = UINT32_C(0x12345678);
+        plain.cpu.r0_7[1] = UINT32_C(0x02000000);
+    }
+    traced_ran = traced_loaded && run_traced_units(
+        &traced, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &traced_result);
+    plain_ran = plain_loaded && run_units(&plain, 8u, 1u, &plain_result);
+    test_case(traced_ran && plain_ran &&
+                  traced_result.termination == GBL_RUN_PROGRESS &&
+                  traced_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                  traced_result.cycles == 2u &&
+                  traced_result.instructions == 1u && trace.count == 3u &&
+                  gbl_test_canonical_equal(&traced, &plain) &&
+                  gbl_test_canonical_digest(&traced) ==
+                      gbl_test_canonical_digest(&plain),
+              "unit limit stops after one instruction despite spare cycle budget");
+    gbl_machine_dispose(&traced);
+    gbl_machine_dispose(&plain);
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -2494,8 +3207,20 @@ int main(int argc, char **argv)
         printf("1..4\n");
         test_mailbox_statuses();
     } else if (strcmp(argv[1], "trace") == 0) {
-        printf("1..2\n");
+        printf("1..29\n");
         test_trace_store_capacity();
+        test_trace_refill_capacity();
+        test_trace_category_masks();
+        test_trace_control_flow();
+        test_trace_exception_order();
+        test_trace_after_mailbox_pass();
+        test_trace_invalid_options();
+        test_trace_sequence_and_untraced_parity();
+        test_trace_unit_limit();
+    } else if (strcmp(argv[1], "trace_capacity") == 0) {
+        printf("1..4\n");
+        test_trace_store_capacity();
+        test_trace_refill_capacity();
     } else if (strcmp(argv[1], "budget") == 0) {
         printf("1..9\n");
         test_budget();
