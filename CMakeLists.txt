@@ -132,6 +132,8 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     COMMAND "${CMAKE_COMMAND}"
       "-DGBL_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
       "-DGBL_CONTROL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
+      "-DGBL_CONTROL_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-fail.gba"
+      "-DGBL_CONTROL_SKIP_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
       "-DGBL_CONTROL_MANIFEST_OUTPUT=${GBL_CONTROL_MANIFEST}"
       "-DGBL_MANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "-DGBL_REGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
@@ -163,6 +165,15 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   target_include_directories(gamebloke-run-control PRIVATE "${GBL_CONTROL_INDEX_DIR}")
   target_link_libraries(gamebloke-run-control PRIVATE gamebloke_core gbl_warnings)
   add_dependencies(gamebloke-run-control gbl_fixture_indexes)
+
+  # Exercise the actual host runner modules against the build-only synthetic
+  # index. The production CLI remains bound to the canonical empty index.
+  add_executable(runner_test tests/runner_test.c runner/run.c runner/result.c
+    runner/sha256.c)
+  target_include_directories(runner_test PRIVATE runner
+    "${GBL_CONTROL_INDEX_DIR}")
+  target_link_libraries(runner_test PRIVATE gamebloke_core gbl_warnings)
+  add_dependencies(runner_test gbl_fixture_indexes)
 
   # Store actual target properties for the hermetic metadata gate. Target
   # properties also make accidental detached producer wiring visible in tests.

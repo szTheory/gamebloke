@@ -13,12 +13,14 @@ set(production_index "${generated}/production/fixture_index.h")
 set(control_index "${generated}/control/fixture_index.h")
 set(control_manifest "${generated}/control/manifest.json")
 set(pass_image "${generated}/fixtures/owned-arm-pass.gba")
+set(fail_image "${generated}/fixtures/owned-arm-fail.gba")
 set(mutated_image "${generated}/fixtures/owned-arm-pass-mutated.gba")
 set(wiring_file "${generated}/runner-target-wiring.txt")
 set(generator_script "${SRC}/cmake/GenerateFixtureIndex.cmake")
 
 foreach(path IN ITEMS "${production_index}" "${control_index}"
-    "${control_manifest}" "${pass_image}" "${mutated_image}" "${wiring_file}")
+    "${control_manifest}" "${pass_image}" "${fail_image}"
+    "${mutated_image}" "${wiring_file}")
   if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
     message(FATAL_ERROR "runner-metadata: required generated input is missing")
   endif()
@@ -33,6 +35,8 @@ if(NOT "${production_text}" MATCHES
   message(FATAL_ERROR "runner-metadata: production-index-not-empty-authority")
 endif()
 if(NOT "${control_text}" MATCHES "synthetic-control-pass" OR
+    NOT "${control_text}" MATCHES "synthetic-control-fail" OR
+    NOT "${control_text}" MATCHES "synthetic-control-bios-required" OR
     NOT "${control_text}" MATCHES "rom_sha256" OR
     NOT "${control_text}" MATCHES "disp-gbatek-errata" OR
     NOT "${control_text}" MATCHES "five-word-v1-final-marker" OR
@@ -40,7 +44,9 @@ if(NOT "${control_text}" MATCHES "synthetic-control-pass" OR
     NOT "${control_manifest_text}" MATCHES "redistributable\\\": \\\"unknown")
   message(FATAL_ERROR "runner-metadata: synthetic-control-row-incomplete")
 endif()
-if("${control_manifest_text}" MATCHES "public-ci" OR
+if(NOT "${control_manifest_text}" MATCHES "project-stub" OR
+    NOT "${control_manifest_text}" MATCHES "synthetic-control-fail" OR
+    "${control_manifest_text}" MATCHES "public-ci" OR
     NOT "${control_manifest_text}" MATCHES "local-only" OR
     NOT "${control_manifest_text}" MATCHES "no redistribution grant")
   message(FATAL_ERROR "runner-metadata: synthetic-control-authority-overstated")
@@ -106,6 +112,8 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${SRC}"
     "-DGBL_CONTROL_IMAGE=${pass_image}"
+    "-DGBL_CONTROL_FAIL_IMAGE=${fail_image}"
+    "-DGBL_CONTROL_SKIP_IMAGE=${pass_image}"
     "-DGBL_CONTROL_MANIFEST=${control_manifest}"
     "-DGBL_CONTROL_MANIFEST_OUTPUT=${bad_manifest_out}"
     "-DGBL_MANIFEST=${bad_manifest}"
@@ -132,6 +140,8 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${SRC}"
     "-DGBL_CONTROL_IMAGE=${mutated_image}"
+    "-DGBL_CONTROL_FAIL_IMAGE=${fail_image}"
+    "-DGBL_CONTROL_SKIP_IMAGE=${pass_image}"
     "-DGBL_CONTROL_MANIFEST=${control_manifest}"
     "-DGBL_CONTROL_MANIFEST_OUTPUT=${bad_manifest_out}"
     "-DGBL_MANIFEST=${SRC}/tests/fixtures/manifest.json"
