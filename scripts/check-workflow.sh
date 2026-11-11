@@ -24,9 +24,9 @@
 #   workflow: needs-missing: <job>           job absent from the CI required needs
 #   workflow: required-check                 no job named `CI required` with if: always()
 #   workflow: expression-in-run: <line>      ${{ ... }} in a run: value or block
-#   workflow: non-preset-run: <job>          build/asan/hygiene run line that is neither
-#                                            `cmake --workflow --preset <name>` nor the
-#                                            apt-get toolchain setup line (allowlist)
+#   workflow: non-preset-run: <job>          heavy lane run line that is neither
+#                                            `cmake --workflow --preset <name>` nor an
+#                                            allowlisted package/toolchain setup line
 #   workflow: unknown-preset: <name>         preset not in --list-presets
 #   workflow: no-timeout: <job>              job without timeout-minutes
 #   workflow: permissions                    top-level permissions not exactly contents: read
@@ -107,10 +107,11 @@ function strip_comment(s,   i, n, ch, q) {
 }
 
 BEGIN {
-  heavy["build"] = 1; heavy["asan"] = 1; heavy["hygiene"] = 1
+  heavy["build"] = 1; heavy["asan"] = 1; heavy["hygiene"] = 1; heavy["diagnostics"] = 1
   # The only run lines a heavy job may have besides `cmake --workflow --preset
-  # <name>`: the toolchain install guard (package names only).
+  # <name>`: the pinned package or host-tool setup guards.
   setup_re = "^dpkg -s [a-z0-9.+ -]+ >/dev/null 2>&1 \\|\\| \\{ sudo apt-get update && sudo apt-get install -y [a-z0-9.+ -]+; \\}$"
+  toolchain_setup = "sh scripts/fetch-toolchain.sh --host \"$GBL_TOOLCHAIN_HOST\" --root build/toolchains"
 }
 
 {
@@ -248,7 +249,7 @@ END {
         name = s
         sub(/^cmake --workflow --preset /, "", name)
         if (!in_list(name, presets)) report("workflow: unknown-preset: " name)
-      } else if (s !~ setup_re) {
+      } else if (s !~ setup_re && !(rl_job[r] == "diagnostics" && s == toolchain_setup)) {
         report("workflow: non-preset-run: " rl_job[r])
       }
     }

@@ -134,13 +134,44 @@ jobs:
       - run: dpkg -s clang-21 libclang-rt-21-dev >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y clang-21 libclang-rt-21-dev; }
       - run: cmake --workflow --preset asan
 
+  # Source-built diagnostics use full Git history for source-input identity.
+  # Other lanes stay shallow and metadata-only configuration does not require it.
+  diagnostics:
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-26.04
+            host: linux-x64
+            cc: gcc
+            id: GNU
+          - runner: macos-26
+            host: darwin-arm64
+            cc: cc
+            id: AppleClang
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 3
+    env:
+      CC: ${{ matrix.cc }}
+      GBL_EXPECT_C_ID: ${{ matrix.id }}
+      GBL_TOOLCHAIN_HOST: ${{ matrix.host }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: sh scripts/fetch-toolchain.sh --host "$GBL_TOOLCHAIN_HOST" --root build/toolchains
+      - run: cmake --workflow --preset diagnostics
+
   # The single required check. `if: always()` makes it run (and fail) even
   # when a needed job failed or was skipped; CiRequired.cmake judges each
   # result. Every other job is listed in `needs`.
   ci-required:
     name: CI required
     if: always()
-    needs: [changes, hygiene, title, build, asan]
+    needs: [changes, hygiene, title, build, asan, diagnostics]
     runs-on: ubuntu-26.04
     timeout-minutes: 3  # 2 x slowest of runs 42737527955#1,42737527955#2 (6s)
     steps:
