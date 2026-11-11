@@ -119,6 +119,41 @@ function(expect_usage name cli)
   endif()
 endfunction()
 
+function(check_result_json name document manifest expected)
+  set(path "${scratch}/${name}.json")
+  file(WRITE "${path}" "${document}\n")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "-DRESULT=${path}" "-DMANIFEST=${manifest}"
+      "-DREGISTRY=${SRC}/registry/disputes.json"
+      "-DVOCAB=${SRC}/contracts/evidence.json"
+      -P "${SRC}/cmake/CheckResult.cmake"
+    RESULT_VARIABLE result
+    OUTPUT_VARIABLE output
+    ERROR_VARIABLE error)
+  set(report "${output}\n${error}")
+  if(expected STREQUAL "ok")
+    if(NOT "${result}" STREQUAL "0" OR
+        NOT "${report}" MATCHES "result: ok ")
+      message(FATAL_ERROR
+        "runner-case: ${name} should validate; exit=${result}; output=${report}")
+    endif()
+  elseif("${result}" STREQUAL "0" OR
+      NOT "${report}" MATCHES "result: ${expected}(:|[ \n])")
+    message(FATAL_ERROR
+      "runner-case: ${name} should fail with ${expected}; exit=${result}; output=${report}")
+  endif()
+endfunction()
+
+function(expect_result_rejection name document reason)
+  check_result_json("producer-${name}" "${document}"
+    "${BIN}/generated/control/manifest.json" "${reason}")
+endfunction()
+
+function(expect_result_acceptance name document)
+  check_result_json("producer-${name}" "${document}"
+    "${BIN}/generated/control/manifest.json" "ok")
+endfunction()
+
 # Unknown test selectors must fail closed; no accidental pass-through path.
 execute_process(
   COMMAND "${unit_test}" unknown-selector
@@ -146,12 +181,59 @@ string(JSON pass_cycles GET "${pass_json}" time cycles)
 if(pass_cycles GREATER 1000)
   message(FATAL_ERROR "runner-case: PASS exceeded its cycle budget")
 endif()
+string(JSON pass_dispute_count LENGTH "${pass_json}" disputes)
+string(JSON pass_dispute GET "${pass_json}" disputes 0)
+string(JSON pass_label_count LENGTH "${pass_json}" labels)
+string(JSON pass_label GET "${pass_json}" labels 0)
+if(NOT pass_dispute_count EQUAL 1 OR
+    NOT pass_dispute STREQUAL "disp-gbatek-errata" OR
+    NOT pass_label_count EQUAL 1 OR NOT pass_label STREQUAL "disputed")
+  message(FATAL_ERROR
+    "runner-case: actual disputed producer output lost its exact dispute disclosure")
+endif()
+expect_result_acceptance("registered-disputed-pass" "${pass_json}")
+
+# The same actual bytes are intentionally absent from the production manifest. The
+# generated row is only an artificial local validator input, not a fixture or rights grant.
+check_result_json("synthetic-row-rejected-by-production-authority" "${pass_json}"
+  "${SRC}/tests/fixtures/manifest.json" "unknown-fixture")
+
+# These copies come from actual CLI output, not a test-authored result document. Every
+# mutation must be rejected for the contract defect it introduces.
+string(JSON pending_pass SET "${pass_json}" semantic state "\"pending\"")
+expect_result_rejection("pass-with-pending-mailbox" "${pending_pass}"
+  "status-semantic-mismatch")
+string(JSON no_semantic REMOVE "${pass_json}" semantic)
+expect_result_rejection("missing-semantic" "${no_semantic}" "missing-field")
+string(JSON over_budget SET "${pass_json}" time cycles "\"1001\"")
+expect_result_rejection("cycles-over-budget" "${over_budget}"
+  "cycles-exceed-budget")
+string(JSON noncanonical_cycles SET "${pass_json}" time cycles "\"01\"")
+expect_result_rejection("noncanonical-cycle-string" "${noncanonical_cycles}"
+  "bad-time")
+string(JSON overflow_cycles SET "${pass_json}" time cycles
+  "\"18446744073709551616\"")
+expect_result_rejection("uint64-cycle-overflow" "${overflow_cycles}"
+  "time-overflow")
+string(JSON missing_cycles REMOVE "${pass_json}" time cycles)
+expect_result_rejection("missing-cycle-count" "${missing_cycles}" "missing-field")
+
+string(JSON missing_dispute REMOVE "${pass_json}" disputes)
+expect_result_rejection("dispute-id-removed" "${missing_dispute}"
+  "undisclosed-dispute")
+string(JSON wrong_dispute_label SET "${pass_json}" labels "[]")
+expect_result_rejection("disputed-label-removed" "${wrong_dispute_label}"
+  "undisclosed-dispute")
 
 run_json(fail_json registered-failure "${control}" 1 GUEST_FAIL
   guest-mailbox-fail --rom "${fail_rom}" --fixture synthetic-control-fail
   --cycles 1000)
 expect_json_field("${fail_json}" fail semantic state)
 expect_json_field("${fail_json}" 36866 semantic case_id)
+string(JSON wrong_failure_case_id SET "${fail_json}" semantic case_id "36866")
+expect_result_rejection("failure-case-id-number" "${wrong_failure_case_id}"
+  "bad-semantic")
+expect_result_acceptance("registered-disputed-failure" "${fail_json}")
 
 run_json(skip_json bios-required "${control}" 1 SKIPPED
   required-bios-unavailable --rom "${pass_rom}"
@@ -168,6 +250,11 @@ run_json(raw_fail_json unregistered-raw-failure "${production}" 1 GUEST_STOP
   unregistered-content --rom "${fail_rom}" --cycles 1000)
 expect_json_field("${raw_fail_json}" fail semantic state)
 expect_json_field("${raw_fail_json}" 36866 semantic case_id)
+string(JSON raw_claimed_pass SET "${raw_json}" status "\"PASS\"")
+expect_result_rejection("diagnostic-cannot-become-pass" "${raw_claimed_pass}"
+  "bad-evidence")
+check_result_json("raw-diagnostic-rejected" "${raw_json}"
+  "${SRC}/tests/fixtures/manifest.json" "bad-evidence")
 
 run_json(zero_json zero-cycle-budget "${control}" 1 TIMEOUT cycle-budget
   --rom "${pass_rom}" --fixture synthetic-control-pass --cycles 0)
@@ -240,6 +327,10 @@ run_json(trace_full_json trace-output-full "${control}" 1 HARNESS_FAIL
 string(JSON trace_complete GET "${trace_full_json}" trace complete)
 expect_json_boolean("${trace_full_json}" false trace complete)
 expect_json_boolean("${trace_full_json}" false trace emitted)
+expect_result_acceptance("trace-output-full-harness-failure" "${trace_full_json}")
+string(JSON trace_full_as_pass SET "${trace_full_json}" status "\"PASS\"")
+expect_result_rejection("trace-full-cannot-pass" "${trace_full_as_pass}"
+  "incomplete-trace")
 
 set(trace_one "${scratch}/trace-one.jsonl")
 set(trace_two "${scratch}/trace-two.jsonl")
