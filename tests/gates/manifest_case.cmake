@@ -109,10 +109,77 @@ function(set_source file index json)
   gbl_json_mutate_set("${file}" "${json}" fixtures ${index} source)
 endfunction()
 
+# set_artifact(<manifest> <relative-path> <sha256>): add one build output pin.
+function(set_artifact file relative_path digest)
+  string(JSON artifact SET "{}" path "\"${relative_path}\"")
+  string(JSON artifact SET "${artifact}" sha256 "\"${digest}\"")
+  gbl_json_mutate_set("${file}" "${artifact}" fixtures 0 build artifact)
+endfunction()
+
 if(CASE STREQUAL "complete_row")
   manifest_copy(m complete)
   manifest_command(cmd manifest "${m}")
   gbl_expect_pass(COMMAND ${cmd} REGEX "manifest: ok \\(1 rows\\)")
+
+elseif(CASE STREQUAL "artifact_shape")
+  sha(digest "ab" 32)
+  manifest_copy(m valid_artifact)
+  set_artifact("${m}" "diagnostics/original.gba" "${digest}")
+  manifest_command(cmd manifest "${m}")
+  gbl_expect_pass(COMMAND ${cmd} REGEX "manifest: ok \\(1 rows\\)")
+
+  manifest_copy(m artifact_type)
+  gbl_json_mutate_set("${m}" "[]" fixtures 0 build artifact)
+  expect_code(wrong-type "${m}" "example-row: build.artifact")
+
+  manifest_copy(m artifact_unknown_key)
+  string(JSON artifact SET "{}" path "\"diagnostics/original.gba\"")
+  string(JSON artifact SET "${artifact}" sha256 "\"${digest}\"")
+  string(JSON artifact SET "${artifact}" unreviewed "true")
+  gbl_json_mutate_set("${m}" "${artifact}" fixtures 0 build artifact)
+  expect_code(bad-artifact-key "${m}" "example-row: build.artifact.unreviewed")
+
+  manifest_copy(m empty_artifact_path)
+  set_artifact("${m}" "" "${digest}")
+  expect_code(missing-field "${m}" "example-row: build.artifact.path is empty")
+
+  foreach(path IN ITEMS "../escape.gba" "/absolute.gba" "C:/absolute.gba"
+      "diagnostics//original.gba" "diagnostics/./original.gba")
+    manifest_copy(m artifact_path)
+    set_artifact("${m}" "diagnostics/original.gba" "${digest}")
+    string(JSON quoted_path SET "{}" path "\"${path}\"")
+    string(JSON path_value GET "${quoted_path}" path)
+    gbl_json_mutate_set("${m}" "\"${path_value}\"" fixtures 0 build artifact path)
+    expect_code(bad-path "${m}" "example-row: build.artifact.path")
+  endforeach()
+
+  manifest_copy(m artifact_sha_type)
+  set_artifact("${m}" "diagnostics/original.gba" "${digest}")
+  gbl_json_mutate_set("${m}" "true" fixtures 0 build artifact sha256)
+  expect_code(wrong-type "${m}" "example-row: build.artifact.sha256")
+  foreach(value IN ITEMS "${digest}x" "ABCDEF")
+    manifest_copy(m artifact_sha_value)
+    set_artifact("${m}" "diagnostics/original.gba" "${digest}")
+    gbl_json_mutate_set("${m}" "\"${value}\"" fixtures 0 build artifact sha256)
+    expect_code(missing-digest "${m}" "example-row: build.artifact.sha256")
+  endforeach()
+
+  manifest_copy(m artifact_missing_sha)
+  set_artifact("${m}" "diagnostics/original.gba" "${digest}")
+  gbl_json_mutate_remove("${m}" fixtures 0 build artifact sha256)
+  expect_code(missing-field "${m}" "example-row: build.artifact.sha256")
+
+  manifest_copy(m artifact_url_source)
+  set_source("${m}" 0
+    "{\"kind\": \"url\", \"url\": \"https://example.invalid/original.gba\", \"sha256\": \"${digest}\"}")
+  set_artifact("${m}" "diagnostics/original.gba" "${digest}")
+  expect_code(bad-artifact-source "${m}" "example-row: build.artifact requires source.kind git")
+
+  manifest_copy(m artifact_tree_source)
+  set_source("${m}" 0
+    "{\"kind\": \"in-tree\", \"path\": \"tests/fixtures/original.gba\", \"sha256\": \"${digest}\"}")
+  set_artifact("${m}" "diagnostics/original.gba" "${digest}")
+  expect_code(bad-artifact-source "${m}" "example-row: build.artifact requires source.kind git")
 
 elseif(CASE STREQUAL "unpinned_revision")
   # A branch, HEAD, a short name, a 7-hex short SHA, uppercase hex, and a row with only

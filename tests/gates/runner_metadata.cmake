@@ -166,6 +166,99 @@ if("${drift_result}" STREQUAL "0" OR
 endif()
 message("runner-metadata: stale-image-digest-rejected")
 
+# Build a production runner against an isolated index generated from a legacy
+# git row. Its absent artifact pin must keep the historical refusal before the
+# synthetic input can execute. This compiles the actual runner sources with the
+# same core library and uses only the local build-generated control image.
+set(legacy_dir "${control_dir}/legacy-git")
+set(legacy_index_dir "${legacy_dir}/generated/production")
+set(legacy_control_index_dir "${legacy_dir}/generated/control")
+set(legacy_manifest "${legacy_dir}/manifest.json")
+set(legacy_control_manifest "${legacy_dir}/generated/control/manifest.json")
+set(legacy_runner_source "${legacy_dir}/source")
+set(legacy_runner_build "${legacy_dir}/build")
+set(legacy_runner "${legacy_runner_build}/legacy-runner")
+set(legacy_prod_index "${legacy_index_dir}/fixture_index.h")
+set(legacy_control_index "${legacy_control_index_dir}/fixture_index.h")
+file(MAKE_DIRECTORY "${legacy_index_dir}" "${legacy_control_index_dir}"
+  "${legacy_runner_source}")
+file(COPY_FILE "${SRC}/contracts/examples/manifest.json" "${legacy_manifest}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}"
+    "-DGBL_SOURCE_DIR=${SRC}"
+    "-DGBL_CONTROL_IMAGE=${pass_image}"
+    "-DGBL_CONTROL_FAIL_IMAGE=${fail_image}"
+    "-DGBL_CONTROL_SKIP_IMAGE=${pass_image}"
+    "-DGBL_CONTROL_MANIFEST=${control_manifest}"
+    "-DGBL_CONTROL_MANIFEST_OUTPUT=${legacy_control_manifest}"
+    "-DGBL_MANIFEST=${legacy_manifest}"
+    "-DGBL_REGISTRY=${SRC}/registry/disputes.json"
+    "-DGBL_VOCAB=${SRC}/contracts/evidence.json"
+    "-DGBL_OUT_PRODUCTION=${legacy_prod_index}"
+    "-DGBL_OUT_CONTROL=${legacy_control_index}"
+    -P "${generator_script}"
+  RESULT_VARIABLE legacy_index_result
+  OUTPUT_VARIABLE legacy_index_stdout
+  ERROR_VARIABLE legacy_index_stderr)
+if(NOT "${legacy_index_result}" STREQUAL "0" OR
+    NOT EXISTS "${legacy_prod_index}")
+  message(FATAL_ERROR
+    "runner-metadata: legacy-index-generation-failed: ${legacy_index_stdout}${legacy_index_stderr}")
+endif()
+file(READ "${legacy_prod_index}" legacy_index_text)
+if(NOT "${legacy_index_text}" MATCHES
+    "\"example-row\", \"\", \"suite-self-checking\"")
+  message(FATAL_ERROR "runner-metadata: legacy-index-digest-not-empty")
+endif()
+file(WRITE "${legacy_runner_source}/CMakeLists.txt"
+  "cmake_minimum_required(VERSION 3.25)\n"
+  "project(gbl_legacy_runner LANGUAGES C)\n"
+  "add_executable(legacy-runner \"${SRC}/runner/main.c\" \"${SRC}/runner/run.c\" \"${SRC}/runner/result.c\" \"${SRC}/runner/sha256.c\")\n"
+  "set_property(TARGET legacy-runner PROPERTY C_STANDARD 17)\n"
+  "set_property(TARGET legacy-runner PROPERTY C_STANDARD_REQUIRED ON)\n"
+  "target_include_directories(legacy-runner PRIVATE \"${legacy_index_dir}\" \"${SRC}/runner\" \"${SRC}/include\")\n"
+  "target_link_libraries(legacy-runner PRIVATE \"${BIN}/libgamebloke_core.a\")\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -S "${legacy_runner_source}" -B "${legacy_runner_build}"
+  RESULT_VARIABLE legacy_configure_result
+  OUTPUT_VARIABLE legacy_configure_stdout
+  ERROR_VARIABLE legacy_configure_stderr)
+if(NOT "${legacy_configure_result}" STREQUAL "0")
+  message(FATAL_ERROR
+    "runner-metadata: legacy-runner-configure-failed: ${legacy_configure_stdout}${legacy_configure_stderr}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" --build "${legacy_runner_build}" --target legacy-runner --parallel 2
+  RESULT_VARIABLE legacy_build_result
+  OUTPUT_VARIABLE legacy_build_stdout
+  ERROR_VARIABLE legacy_build_stderr)
+if(NOT "${legacy_build_result}" STREQUAL "0" OR
+    NOT EXISTS "${legacy_runner}")
+  message(FATAL_ERROR
+    "runner-metadata: legacy-runner-build-failed: ${legacy_build_stdout}${legacy_build_stderr}")
+endif()
+execute_process(
+  COMMAND "${legacy_runner}" --rom "${pass_image}" --fixture example-row --cycles 1000
+  RESULT_VARIABLE legacy_run_result
+  OUTPUT_VARIABLE legacy_run_json
+  ERROR_VARIABLE legacy_run_stderr)
+string(JSON legacy_status ERROR_VARIABLE legacy_status_error
+  GET "${legacy_run_json}" status)
+string(JSON legacy_reason ERROR_VARIABLE legacy_reason_error
+  GET "${legacy_run_json}" reason)
+string(JSON legacy_ran ERROR_VARIABLE legacy_ran_error
+  GET "${legacy_run_json}" fixture ran)
+if(NOT "${legacy_run_result}" STREQUAL "1" OR
+    NOT "${legacy_status_error}" STREQUAL "NOTFOUND" OR
+    NOT "${legacy_reason_error}" STREQUAL "NOTFOUND" OR
+    NOT "${legacy_ran_error}" STREQUAL "NOTFOUND" OR
+    NOT legacy_status STREQUAL "REFUSED" OR
+    NOT legacy_reason STREQUAL "fixture-digest-unavailable" OR legacy_ran)
+  message(FATAL_ERROR
+    "runner-metadata: legacy-empty-digest-refusal-changed: exit=${legacy_run_result}; json=${legacy_run_json}; stderr=${legacy_run_stderr}")
+endif()
+message("runner-metadata: legacy git empty digest still refuses before execution")
+
 if(DEFINED HASH_TEST AND NOT "${HASH_TEST}" STREQUAL "")
   if(NOT EXISTS "${HASH_TEST}" OR IS_DIRECTORY "${HASH_TEST}")
     message(FATAL_ERROR "runner-metadata: hash-test-executable-missing")

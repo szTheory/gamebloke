@@ -476,6 +476,32 @@ elseif(CASE STREQUAL "manifest_digest")
   expect_detail(claim-mismatch "fixture.rom_sha256 differs from the manifest digest"
     "${dir}/result.json" "${m}")
 
+elseif(CASE STREQUAL "artifact_digest")
+  # The git source commit and toolchain stay provenance fields; the optional
+  # artifact SHA is the single runtime ROM identity projected into result/1.
+  hex(artifact_digest "ab" 32)
+  hex(changed_digest "cd" 32)
+  manifest_copy(m artifact)
+  string(JSON artifact SET "{}" path "\"diagnostics/original.gba\"")
+  string(JSON artifact SET "${artifact}" sha256 "\"${artifact_digest}\"")
+  gbl_json_mutate_set("${m}" "${artifact}" fixtures 0 build artifact)
+
+  result_copy(r artifact_match)
+  gbl_json_mutate_set("${r}" "\"${artifact_digest}\"" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "\"${artifact_digest}\"" claim cart rom_sha256)
+  expect_ok(PASS "${r}" "${m}")
+
+  result_copy(r stale_artifact_result)
+  gbl_json_mutate_set("${r}" "\"${changed_digest}\"" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "\"${changed_digest}\"" claim cart rom_sha256)
+  expect_detail(claim-mismatch
+    "fixture.rom_sha256 differs from the manifest digest for example-row"
+    "${r}" "${m}")
+
+  # Legacy git metadata still has no output digest tie in result/1.
+  result_copy(r legacy_git)
+  expect_ok(PASS "${r}")
+
 elseif(CASE STREQUAL "empty_limits")
   set(i 0)
   foreach(v IN ITEMS "[]" "[\"\"]" "\"not a list\"")
