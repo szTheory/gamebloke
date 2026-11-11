@@ -14,6 +14,15 @@ foreach(required IN ITEMS GBL_SOURCE_DIR GBL_CONTROL_IMAGE
 endforeach()
 
 get_filename_component(GBL_SOURCE_DIR "${GBL_SOURCE_DIR}" ABSOLUTE)
+if(DEFINED GBL_ARTIFACT_ROOT AND NOT "${GBL_ARTIFACT_ROOT}" STREQUAL "")
+  if(NOT IS_ABSOLUTE "${GBL_ARTIFACT_ROOT}")
+    message(FATAL_ERROR "fixture-index: artifact-root-not-absolute")
+  endif()
+  get_filename_component(GBL_ARTIFACT_ROOT "${GBL_ARTIFACT_ROOT}" ABSOLUTE)
+  if(EXISTS "${GBL_ARTIFACT_ROOT}" AND NOT IS_DIRECTORY "${GBL_ARTIFACT_ROOT}")
+    message(FATAL_ERROR "fixture-index: artifact-root-not-directory")
+  endif()
+endif()
 get_filename_component(GBL_CONTROL_IMAGE "${GBL_CONTROL_IMAGE}" ABSOLUTE)
 if(DEFINED GBL_CONTROL_FAIL_IMAGE AND NOT "${GBL_CONTROL_FAIL_IMAGE}" STREQUAL "")
   get_filename_component(GBL_CONTROL_FAIL_IMAGE "${GBL_CONTROL_FAIL_IMAGE}" ABSOLUTE)
@@ -166,8 +175,10 @@ foreach(control_check IN LISTS control_checks)
 endforeach()
 
 # For canonical in-tree rows, verify that the manifest digest still identifies
-# the bytes at its validated relative path. URL rows carry the upstream digest;
-# git rows have no byte digest in this schema and therefore remain non-matchable.
+# bytes at its validated source path. For git artifacts, validate a present file
+# against the committed output pin when this lane supplies its explicit build root.
+# A missing root/output is allowed for metadata-only lanes; the runtime runner
+# still compares every executed ROM against the immutable digest in the index.
 if(M_COUNT GREATER 0)
   gbl_json_load(production_doc "${GBL_MANIFEST}")
   math(EXPR production_last "${M_COUNT}-1")
@@ -186,6 +197,31 @@ if(M_COUNT GREATER 0)
         file(SHA256 "${source_path}" actual_digest)
         if(NOT "${expected_digest}" STREQUAL "${actual_digest}")
           gbl_finding(fixture-index digest-mismatch "${row_id}")
+        endif()
+      endif()
+    elseif("${source_kind}" STREQUAL "git" AND
+        "${M_ROW_${row_id}_ARTIFACT_OK}" STREQUAL "TRUE" AND
+        DEFINED GBL_ARTIFACT_ROOT AND NOT "${GBL_ARTIFACT_ROOT}" STREQUAL "")
+      set(relative_artifact "${M_ROW_${row_id}_ARTIFACT_PATH}")
+      set(expected_artifact_digest "${M_ROW_${row_id}_ARTIFACT_SHA256}")
+      set(artifact_path "${GBL_ARTIFACT_ROOT}/${relative_artifact}")
+      file(REAL_PATH "${GBL_ARTIFACT_ROOT}" artifact_root_real)
+      file(REAL_PATH "${artifact_path}" artifact_real
+        BASE_DIRECTORY "${artifact_root_real}")
+      if("${artifact_root_real}" STREQUAL "/")
+        set(artifact_root_prefix "/")
+      else()
+        set(artifact_root_prefix "${artifact_root_real}/")
+      endif()
+      string(FIND "${artifact_real}" "${artifact_root_prefix}" artifact_root_at)
+      if(NOT artifact_root_at EQUAL 0)
+        gbl_finding(fixture-index artifact-path-escape "${row_id}")
+      elseif(EXISTS "${artifact_path}" AND IS_DIRECTORY "${artifact_path}")
+        gbl_finding(fixture-index artifact-output-not-file "${row_id}")
+      elseif(EXISTS "${artifact_path}")
+        file(SHA256 "${artifact_path}" actual_artifact_digest)
+        if(NOT "${expected_artifact_digest}" STREQUAL "${actual_artifact_digest}")
+          gbl_finding(fixture-index artifact-digest-mismatch "${row_id}")
         endif()
       endif()
     endif()

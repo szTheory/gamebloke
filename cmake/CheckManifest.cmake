@@ -30,6 +30,8 @@
 #   build.recipe               non-empty string
 #   build.toolchain.identity   non-empty string
 #   build.toolchain.sha256     key required; null allowed; otherwise 64 lowercase hex
+#   build.artifact             optional git-only object with exactly `path` and `sha256`
+#                              keys; path is build-root-relative and SHA identifies output
 #   bios_requirement           none | project-stub | hle | replacement | user-official
 #   expected.provenance_class  one of the vocabulary provenance classes
 #   expected.dispute           key required; null, or a registry dispute id
@@ -55,6 +57,8 @@
 #                          a backslash, or userinfo (`user[:password]` before the host)
 #   bad-path               an in-tree path or fetch.pin_dest with a leading slash, an empty,
 #                          `.`, or `..` component, or a character outside [A-Za-z0-9._/-]
+#   bad-artifact-source    build.artifact is present on a non-git source row
+#   bad-artifact-key       build.artifact has an unknown key or does not have exactly two keys
 #   bad-provenance-class   a class outside the vocabulary
 #   bad-bios-requirement   a value outside the five allowed
 #   bad-permitted-use      empty, an unknown value, or a duplicate
@@ -89,7 +93,9 @@
 #
 # The json:, contract:, and registry: codes come from the loader and the readers this
 # file calls. gbl_manifest_read sets <prefix>_IDS, <prefix>_COUNT, and per row
-# <prefix>_ROW_<id>_CLASS|DISPUTE|KIND|COMMIT|SHA256|PIN_DEST|URL. gbl_pins_read sets
+# <prefix>_ROW_<id>_CLASS|DISPUTE|KIND|COMMIT|SHA256|ARTIFACT_PATH|ARTIFACT_SHA256|PIN_DEST|URL.
+# SHA256 is the runtime ROM identity: source.sha256 for url/in-tree, artifact.sha256 for
+# source-built git rows, and empty for legacy git rows. gbl_pins_read sets
 # <prefix>_DESTS, <prefix>_COUNT, and per dest <prefix>_DEST_<dest>_SHA256|URL.
 
 # Script mode starts with every policy OLD (IN_LIST is a plain argument under
@@ -196,6 +202,9 @@ function(gbl__manifest_row doc i registry vocab)
   set(row_kind "")
   set(row_commit "")
   set(row_sha256 "")
+  set(row_artifact_path "")
+  set(row_artifact_sha256 "")
+  set(row_artifact_ok FALSE)
   set(row_pin_dest "")
   set(row_url "")
   set(redist "")
@@ -327,6 +336,74 @@ function(gbl__manifest_row doc i registry vocab)
         gbl_finding(manifest wrong-type "${where}: build.toolchain.sha256")
       endif()
     endif()
+
+    # A source-built git row has two independent identities: source.commit for
+    # reviewed inputs and build.artifact.sha256 for the actual ROM bytes. Older
+    # git rows deliberately retain an empty runtime digest.
+    gbl_json_type(artifact_ty "${doc}" fixtures ${i} build artifact)
+    if(NOT "${artifact_ty}" STREQUAL "MISSING")
+      if(NOT "${artifact_ty}" STREQUAL "OBJECT")
+        gbl_finding(manifest wrong-type "${where}: build.artifact")
+      else()
+        if(NOT "${row_kind}" STREQUAL "git")
+          gbl_finding(manifest bad-artifact-source
+            "${where}: build.artifact requires source.kind git")
+        endif()
+
+        string(JSON artifact_key_count LENGTH "${doc}" fixtures ${i} build artifact)
+        if(NOT artifact_key_count EQUAL 2)
+          gbl_finding(manifest bad-artifact-key
+            "${where}: build.artifact requires exactly path and sha256")
+        endif()
+        if(artifact_key_count GREATER 0)
+          math(EXPR artifact_key_last "${artifact_key_count}-1")
+          foreach(artifact_key_index RANGE ${artifact_key_last})
+            string(JSON artifact_key MEMBER "${doc}" fixtures ${i} build artifact
+              ${artifact_key_index})
+            if(NOT "${artifact_key}" STREQUAL "path" AND
+                NOT "${artifact_key}" STREQUAL "sha256")
+              gbl_finding(manifest bad-artifact-key
+                "${where}: build.artifact.${artifact_key}")
+            endif()
+          endforeach()
+        endif()
+
+        gbl__manifest_req_string(artifact_path "${doc}" "${where}"
+          build.artifact.path fixtures ${i} build artifact path)
+        if(NOT "${artifact_path}" STREQUAL "<missing>")
+          gbl__manifest_path_ok(artifact_path_ok "${artifact_path}")
+          if(NOT artifact_path_ok)
+            gbl_finding(manifest bad-path "${where}: build.artifact.path")
+          else()
+            set(row_artifact_path "${artifact_path}")
+          endif()
+        endif()
+
+        gbl_json_type(artifact_sha_ty "${doc}" fixtures ${i} build artifact sha256)
+        if("${artifact_sha_ty}" STREQUAL "MISSING" OR
+            "${artifact_sha_ty}" STREQUAL "NULL")
+          gbl_finding(manifest missing-field "${where}: build.artifact.sha256")
+        elseif("${artifact_sha_ty}" STREQUAL "STRING")
+          string(JSON artifact_sha GET "${doc}" fixtures ${i} build artifact sha256)
+          gbl__manifest_is_hex(artifact_sha_ok "${artifact_sha}" 64)
+          if(artifact_sha_ok)
+            set(row_artifact_sha256 "${artifact_sha}")
+          else()
+            gbl_finding(manifest missing-digest
+              "${where}: build.artifact.sha256")
+          endif()
+        else()
+          gbl_finding(manifest wrong-type "${where}: build.artifact.sha256")
+        endif()
+
+        if("${row_kind}" STREQUAL "git" AND artifact_key_count EQUAL 2 AND
+            NOT "${row_artifact_path}" STREQUAL "" AND
+            NOT "${row_artifact_sha256}" STREQUAL "")
+          set(row_artifact_ok TRUE)
+          set(row_sha256 "${row_artifact_sha256}")
+        endif()
+      endif()
+    endif()
   endif()
 
   # bios_requirement
@@ -441,6 +518,9 @@ function(gbl__manifest_row doc i registry vocab)
     set(_gbl_row_kind "${row_kind}" PARENT_SCOPE)
     set(_gbl_row_commit "${row_commit}" PARENT_SCOPE)
     set(_gbl_row_sha256 "${row_sha256}" PARENT_SCOPE)
+    set(_gbl_row_artifact_path "${row_artifact_path}" PARENT_SCOPE)
+    set(_gbl_row_artifact_sha256 "${row_artifact_sha256}" PARENT_SCOPE)
+    set(_gbl_row_artifact_ok "${row_artifact_ok}" PARENT_SCOPE)
     set(_gbl_row_pin_dest "${row_pin_dest}" PARENT_SCOPE)
     set(_gbl_row_url "${row_url}" PARENT_SCOPE)
   endif()
@@ -479,6 +559,9 @@ function(gbl_manifest_read prefix manifest registry vocab)
             set(${prefix}_ROW_${id}_KIND "${_gbl_row_kind}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_COMMIT "${_gbl_row_commit}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_SHA256 "${_gbl_row_sha256}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_ARTIFACT_PATH "${_gbl_row_artifact_path}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_ARTIFACT_SHA256 "${_gbl_row_artifact_sha256}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_ARTIFACT_OK "${_gbl_row_artifact_ok}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_PIN_DEST "${_gbl_row_pin_dest}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_URL "${_gbl_row_url}" PARENT_SCOPE)
           endif()

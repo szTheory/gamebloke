@@ -66,4 +66,25 @@ if("${production_text}" MATCHES "0123456789abcdef0123456789abcdef01234567" OR
   message(FATAL_ERROR "artifact-case: source-or-tool-identity-projected-as-rom-digest")
 endif()
 
+set(result "${dir}/result.json")
+file(COPY_FILE "${SRC}/contracts/examples/result-pass.json" "${result}")
+gbl_json_mutate_set("${result}" "\"${artifact_digest}\"" fixture rom_sha256)
+gbl_json_mutate_set("${result}" "\"${artifact_digest}\"" claim cart rom_sha256)
+execute_process(
+  COMMAND "${CMAKE_COMMAND}"
+    "-DRESULT=${result}"
+    "-DMANIFEST=${manifest}"
+    "-DREGISTRY=${SRC}/registry/disputes.json"
+    "-DVOCAB=${SRC}/contracts/evidence.json"
+    -P "${SRC}/cmake/CheckResult.cmake"
+  RESULT_VARIABLE result_check
+  OUTPUT_VARIABLE result_stdout
+  ERROR_VARIABLE result_stderr)
+if(NOT "${result_check}" STREQUAL "0" OR
+    NOT "${result_stdout}${result_stderr}" MATCHES "result: ok \\(PASS\\)")
+  message(FATAL_ERROR
+    "artifact-case: canonical-result-check-failed\n${result_stdout}${result_stderr}")
+endif()
+
 message("artifact-case: roundtrip source commit, toolchain and artifact identities remain separate")
+message("artifact-case: canonical result checker accepted the exact indexed artifact digest")

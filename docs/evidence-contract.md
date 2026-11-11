@@ -116,8 +116,13 @@ these fields:
 must equal the row's class; `claim.cart.rom_sha256` must equal `fixture.rom_sha256`
 (two nulls are equal); some evidence item must name `fixture.id`; and when the manifest
 row is a `url` or `in-tree` row, a non-null `fixture.rom_sha256` must equal the row's
-`source.sha256` (`claim-mismatch`). A `git` row pins a commit, not a digest, so no digest
-tie exists for it yet.
+`source.sha256` (`claim-mismatch`). A source-built `git` row may instead carry an optional
+`build.artifact` object with exactly `path` and `sha256`; that SHA is the generated ROM
+identity checked by the result validator and projected into the runner's existing
+`rom_sha256` slot. The git `source.commit` remains the reviewed source revision, and
+`build.toolchain` remains tool identity. A legacy git row without `build.artifact` still
+has no output digest and the production runner refuses it with
+`fixture-digest-unavailable`.
 
 Dispute disclosure: when the manifest row for the fixture, or for any evidence fixture,
 carries a dispute id, the result's `disputes` list must contain it, and a non-empty
@@ -269,17 +274,24 @@ the EVID-01 item each one satisfies:
 | `id` | identity | `^[a-z0-9][a-z0-9._-]*$`, unique |
 | `source` | source and revision | `kind` is `git`, `url`, or `in-tree`; see below |
 | `license` | license and notices | `spdx`, a non-empty `notices` array, and `redistributable` of `yes`, `no`, or `unknown` |
-| `build` | build recipe and toolchain | `recipe`, and `toolchain.identity` plus `toolchain.sha256` (null allowed) |
+| `build` | build recipe, toolchain and optional output identity | `recipe`, `toolchain.identity` plus `toolchain.sha256` (null allowed), and optional `artifact: {path, sha256}` |
 | `bios_requirement` | BIOS need | `none`, `project-stub`, `hle`, `replacement`, or `user-official` |
 | `expected` | expected-value provenance | `provenance_class` from the vocabulary; `dispute` is null or a registry id |
 | `permitted_use` | where it may run | a non-empty unique array of `public-ci`, `local-only`, `differential-only` |
 | `fetch` | how it is obtained | optional; when present, `pin_dest` is a relative path |
 
 Source kinds and pinning rules (D-13, R-3): a `git` row carries a `url` (https only) and
-a `commit` of exactly 40 lowercase hex; a branch or tag name is not a pin. A `url` row
-carries an https `url` and a 64-hex `sha256`. An `in-tree` row carries a relative `path`
-and a `sha256`, and has no `fetch`. A `disputed` provenance class needs a dispute id, and
-a dispute id under any other class is rejected.
+a `commit` of exactly 40 lowercase hex; a branch or tag name is not a pin. For a built
+git fixture, optional `build.artifact.path` is a normalized, nonempty path relative to the
+explicit current `GBL_ARTIFACT_ROOT`, and `build.artifact.sha256` is the lowercase SHA-256
+of the generated ROM bytes. The artifact object has exactly those two keys and is valid
+only for a git source row. Index generation can use the committed metadata pin when an
+optional local output is absent; when the lane supplies `GBL_ARTIFACT_ROOT` and the output
+exists, generation checks its containment and bytes. The runtime runner always compares
+the ROM it is asked to execute with the immutable indexed digest. A `url` row carries an
+https `url` and a 64-hex `sha256`. An `in-tree` row carries a relative `path` and a
+`sha256`, and has no `fetch`. A `disputed` provenance class needs a dispute id, and a
+dispute id under any other class is rejected.
 
 The provenance classes are `project-authored`, `hardware-observed`,
 `reference-emulator`, `suite-self-checking`, and `disputed`.
