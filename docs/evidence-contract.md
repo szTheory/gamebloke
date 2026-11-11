@@ -208,10 +208,43 @@ semantics; full ARM/Thumb diagnostic coverage remains future work. No BIOS execu
 HLE, timers, DMA, active I/O devices, WAITCNT/Game Pak prefetch, display/audio presentation,
 physical input, or host presentation is modeled. Bus timing uses project placeholder costs;
 absent-BIOS, unsupported-I/O, and shorter-cartridge current-latch behavior remain unverified.
+The exact opcode and operand boundary is the version 4 table in
+[profile-agb.md](profile-agb.md#cpu-instruction-scope): ARM data processing (MOV, ADD, SUB,
+CMP, AND, ORR), B/BL/BX, and the listed immediate pre-indexed byte/word transfers; Thumb
+MOV/ADD/SUB/CMP immediates, high-register MOV/BX, conditional and unconditional branches,
+and the listed PC-relative and low-register immediate transfers. It excludes ARM
+post-index/writeback, halfword/signed and block transfers, multiply/swap/full PSR and
+coprocessor execution, the table's restricted PC/register forms, Thumb BL pairs and other
+unlisted transfer/data-processing forms, later architecture extensions, and every other
+valid but unimplemented opcode or operand. Valid unsupported operations stop with an
+unsupported reason; reserved undefined encodings remain separately classified.
+
+The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
+undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the
+current guest profile, guest instruction/CLI runs directly trigger only SWI, undefined, and
+coprocessor stops. Reset, IRQ, FIQ, prefetch-abort, and data-abort mappings are verified
+through the CPU API and JSON producer tests, but are not currently guest- or CLI-triggerable.
+This distinction does not imply BIOS exception handling or hardware qualification.
+
+Instruction and read bus trace values record observed bus results. A successful CPU write
+currently receives `value: 0` from `gbl_bus_write`, and the trace copies that result value;
+write records therefore do not preserve the attempted payload. This is an implementation
+limitation, not evidence of a physical write latch value.
+
 The result is not hardware qualification, broad game compatibility, a BIOS-backed boot, or
 a rights determination. The phase's unresolved spec-less probe classifications and the
 standing restrictions on repurposing rights-bearing inputs or inflating compatibility
 claims remain for phase verification; no human judgment is inferred from these controls.
+
+The probe audit surfaced 11 rows: five defensibly classified as explicit (CPU-04 bank
+adjacency, empty User/System SPSR, and exception-entry ordering; RUN-01 unit-budget
+boundaries and uint64 precision), plus six unresolved rows that remain flagged: CPU-03,
+CPU-05, PROF-03, RUN-02, RUN-03, and RUN-04. Concrete implementation tests do not silently
+resolve those taxonomy rows. Two descriptor-less project-policy items also remain flagged:
+rights-bearing/private inputs must not be repurposed and synthetic metadata grants no rights;
+result documents must not inflate hardware, BIOS, or compatibility claims. No checker or
+human-pass status is fabricated for them. Full ISA/toolchain diagnostics are Phase 5 work;
+deeper determinism work is Phase 6 work.
 
 ## Dispute registry
 

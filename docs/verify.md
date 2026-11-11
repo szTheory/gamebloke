@@ -69,6 +69,60 @@ policy-specific reason codes are `bus-policy-missing`, `bus-policy-value`,
 negative controls mutate a scratch copy and the positive companions validate
 clean copies.
 
+## Phase 4 runner checks
+
+The runner selectors registered in CI are `runner.hash`, `runner.version`,
+`runner.tracer`, `runner.unit`, `runner.result_contract`, `runner.relocation`,
+`runner.relocation_control`, `runner.help`, `runner.metadata`,
+`runner.usage_error`, and `runner.no_args`. Run the complete producer/metadata and
+installed-consumer slice after configure and build with:
+
+```sh
+cmake --preset ci && cmake --build --preset ci && \
+  ctest --test-dir build/ci \
+    -R '^runner\.(hash|version|tracer|unit|result_contract|relocation(_control)?|help|metadata|usage_error|no_args)$' \
+    --no-tests=error --output-on-failure
+```
+
+The relocation pair installs only `bin/gamebloke-run`, moves the prefix, and invokes
+both build-tree and installed production executables from an unrelated working
+directory with the same generated owned image and cycle budget. It compares exact
+JSON and trace output bytes, checks semantic/mailbox and time observations, executable
+and ROM digests, and rejects source/build/prefix path leakage. Its control detects a
+missing installed executable while the matching clean install succeeds. The image is
+unregistered in the canonical production manifest, so its expected result is a raw
+non-PASS diagnostic; the synthetic control index is not used for this relocation.
+
+The phase-end verification commands are `cmake --workflow --preset ci`, then a fresh
+local ASan/UBSan configure with the host compiler explicitly selected, followed by the
+ASan tests and inventory post-check:
+
+```sh
+cmake --fresh --preset asan -DCMAKE_C_COMPILER=/usr/bin/clang && \
+  cmake --build --preset asan && ctest --preset asan && ctest --preset asan-post
+```
+
+Run `cmake --workflow --preset hygiene` for the current repository hygiene and signature
+gates. The owner-local logo-file signature check is an allowed skip when no local file
+is configured; a skip for any newly required CPU/runner check is not a pass. The ASan
+workflow remains separately available through the Linux `clang-21` lane; the local
+compiler override above does not change that hosted configuration.
+
+### Phase 4 final run evidence (2026-11-11)
+
+| Lane | Result | Measured work |
+| ---- | ------ | ------------- |
+| `ci` | 329 expected; 328 passed and one allowed `signature.owner_local` skip; `ci-post` passed. | Configure 0.1 s; incremental build had no work; CTest 83.00 s; inventory post 0.08 s. |
+| `asan` | Fresh AppleClang 21 ASan/UBSan build; 72/72 tests passed; `asan-post` passed with 72 expected, zero skips. | Fresh configure 0.3 s; 50 build steps; CTest 64.80 s; inventory post 0.02 s. |
+| `hygiene` | 204 expected; 203 passed and one allowed `signature.owner_local` skip; `hygiene-post` passed. | Configure 0.0 s; build had no work; final CTest 37.08 s; inventory post 0.04 s. |
+
+The canonical workflow uses one configure/build/test/post sequence; the local CI and
+hygiene builds were incremental because no compiled source changed in this plan. The
+fresh sanitizer lane compiled the current sources and used the same ASan/UBSan flags for
+its scratch mutation controls. The 83-second local CI test critical path remains below
+the existing 180-second hosted job cap; no timeout, cache, or concurrency setting was
+changed. These are build and test wait times, not emulator throughput measurements.
+
 Bus and loader scratch controls compile disposable source mutations with the
 configured compiler and flags. A mutation is negative evidence only when its
 scratch build succeeds and the intended semantic assertion fails with the
