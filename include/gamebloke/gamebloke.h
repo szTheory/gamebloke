@@ -160,6 +160,40 @@ typedef struct gbl_cpu_state {
     gbl_cpu_stop_reason stop_reason;
 } gbl_cpu_state;
 
+typedef enum gbl_run_status {
+    GBL_RUN_STATUS_OK = 0,
+    GBL_RUN_STATUS_INVALID_ARGUMENT = 1
+} gbl_run_status;
+
+typedef enum gbl_run_termination {
+    GBL_RUN_PROGRESS = 0,
+    GBL_RUN_TIMEOUT = 1,
+    GBL_RUN_STOPPED = 2
+} gbl_run_termination;
+
+typedef enum gbl_run_reason {
+    GBL_RUN_REASON_NONE = 0,
+    GBL_RUN_REASON_UNIT_LIMIT = 1,
+    GBL_RUN_REASON_CYCLE_BUDGET = 2,
+    GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION = 3,
+    GBL_RUN_REASON_BUS_ERROR = 4,
+    GBL_RUN_REASON_COUNTER_OVERFLOW = 5,
+    GBL_RUN_REASON_INVALID_CPU_STATE = 6
+} gbl_run_reason;
+
+typedef struct gbl_run_options {
+    uint64_t cycle_budget;
+    /* Zero allows as many complete units as fit in cycle_budget. */
+    uint64_t unit_limit;
+} gbl_run_options;
+
+typedef struct gbl_run_result {
+    gbl_run_termination termination;
+    gbl_run_reason reason;
+    uint64_t cycles;
+    uint64_t instructions;
+} gbl_run_result;
+
 typedef struct gbl_machine {
     uint64_t master_cycles;
     uint32_t open_bus;
@@ -183,6 +217,14 @@ gbl_bus_status gbl_machine_init(gbl_machine *machine,
                                 const gbl_allocator *allocator);
 void gbl_machine_reset(gbl_machine *machine);
 void gbl_machine_dispose(gbl_machine *machine);
+
+/* Execute a bounded ARM subset through the canonical bus. One complete
+ * refill or instruction is a unit; unit_limit 1 returns progress after one
+ * such unit. A zero cycle budget performs no work. Invalid arguments leave
+ * both machine and result storage unchanged. */
+gbl_run_status gbl_cpu_run(gbl_machine *machine,
+                           const gbl_run_options *options,
+                           gbl_run_result *result);
 
 /* Width is a byte count: 1, 2, or 4. Reads and writes report their requested
  * sequence class and cost exactly one placeholder master cycle. */
