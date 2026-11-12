@@ -2462,6 +2462,221 @@ static void test_psr_immediate_field_masks(void)
     }
 }
 
+static void test_psr_saved_register_and_immediate_effects(void)
+{
+    static const uint32_t modes[] = {
+        TEST_CPSR_FIQ, TEST_CPSR_IRQ, TEST_CPSR_SVC, TEST_CPSR_ABT,
+        TEST_CPSR_UND
+    };
+    static const uint32_t saved_before[] = {
+        UINT32_C(0x80000050), UINT32_C(0x400000BF),
+        UINT32_C(0x100000D2), UINT32_C(0x20000073),
+        UINT32_C(0xA0000097)
+    };
+    static const uint32_t register_values[] = {
+        UINT32_C(0x0000001F), UINT32_C(0x000000B0),
+        UINT32_C(0x00000072), UINT32_C(0x0000009B),
+        UINT32_C(0x00000077)
+    };
+    static const uint32_t saved_after_control[] = {
+        UINT32_C(0x8000001F), UINT32_C(0x400000B0),
+        UINT32_C(0x10000072), UINT32_C(0x2000009B),
+        UINT32_C(0xA0000077)
+    };
+    static const uint32_t saved_after_flags[] = {
+        UINT32_C(0xF000001F), UINT32_C(0xF00000B0),
+        UINT32_C(0xF0000072), UINT32_C(0xF000009B),
+        UINT32_C(0xF0000077)
+    };
+    static const char *const mode_names[] = {
+        "FIQ", "IRQ", "SVC", "ABT", "UND"
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(modes) / sizeof(modes[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        uint32_t other_banks[5];
+        bool primed;
+        bool register_retired;
+        bool immediate_retired;
+        bool register_matched;
+        bool immediate_matched;
+        char description[128];
+
+        make_empty_image(image);
+        write_word(image, 0x00u, encode_arm_msr_register(true, 1u, 0u));
+        write_word(image, 0x04u,
+                   encode_arm_msr_immediate(true, 8u, 4u, 0xF0u));
+        primed = prime_psr_program(&machine, image);
+        machine.cpu.cpsr = modes[index] | UINT32_C(0x00000080) |
+                           TEST_CPSR_C;
+        memcpy(machine.cpu.spsr, saved_before, sizeof(saved_before));
+        machine.cpu.r0_7[0] = register_values[index];
+        memcpy(other_banks, saved_before, sizeof(other_banks));
+        other_banks[index] = saved_after_control[index];
+
+        register_retired = primed && retire_psr_instruction(&machine, &result);
+        register_matched = register_retired &&
+                           machine.cpu.cpsr ==
+                               (modes[index] | UINT32_C(0x00000080) |
+                                TEST_CPSR_C) &&
+                           gbl_test_u32_array_equal(machine.cpu.spsr,
+                                                    other_banks, 5u);
+        (void)snprintf(description, sizeof(description),
+                       "MSR SPSR_c register updates only the %s saved control bank",
+                       mode_names[index]);
+        test_case(register_matched, description);
+
+        other_banks[index] = saved_after_flags[index];
+        immediate_retired = register_matched &&
+                            retire_psr_instruction(&machine, &result);
+        immediate_matched = immediate_retired &&
+                            machine.cpu.cpsr ==
+                                (modes[index] | UINT32_C(0x00000080) |
+                                 TEST_CPSR_C) &&
+                            gbl_test_u32_array_equal(machine.cpu.spsr,
+                                                     other_banks, 5u);
+        (void)snprintf(description, sizeof(description),
+                       "MSR SPSR_f rotated immediate updates only the %s saved flags",
+                       mode_names[index]);
+        test_case(immediate_matched, description);
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_psr_zero_field_masks(void)
+{
+    static const uint32_t opcodes[] = {
+        UINT32_C(0xE120F000), /* MSR CPSR with no selected fields, R0 */
+        UINT32_C(0xE320F013), /* MSR CPSR with no selected fields, #0x13 */
+        UINT32_C(0xE160F000), /* MSR SPSR with no selected fields, R0 */
+        UINT32_C(0xE360F013)  /* MSR SPSR with no selected fields, #0x13 */
+    };
+    static const uint32_t operands[] = {
+        UINT32_C(0x00000013), 0u, UINT32_C(0x00000013), 0u
+    };
+    static const char *const names[] = {
+        "MSR CPSR zero register mask retires with valid R0=0x13 unchanged",
+        "MSR CPSR zero immediate mask retires with legal #0x13 unchanged",
+        "MSR SPSR zero register mask retires with valid R0=0x13 unchanged",
+        "MSR SPSR zero immediate mask retires with legal #0x13 unchanged"
+    };
+    static const uint32_t saved_status[5] = {
+        UINT32_C(0x80000050), UINT32_C(0x400000BF),
+        UINT32_C(0x100000D2), UINT32_C(0x20000073),
+        UINT32_C(0xA0000097)
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(opcodes) / sizeof(opcodes[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        const uint32_t active_cpsr = TEST_CPSR_SVC | TEST_CPSR_N |
+                                     UINT32_C(0x00000080);
+        bool primed;
+        bool retired;
+        bool unchanged;
+
+        make_empty_image(image);
+        write_word(image, 0x00u, opcodes[index]);
+        primed = prime_psr_program(&machine, image);
+        machine.cpu.cpsr = active_cpsr;
+        memcpy(machine.cpu.spsr, saved_status, sizeof(saved_status));
+        machine.cpu.r0_7[0] = operands[index];
+        retired = primed && retire_psr_instruction(&machine, &result);
+        unchanged = retired && machine.cpu.cpsr == active_cpsr &&
+                    gbl_test_u32_array_equal(machine.cpu.spsr,
+                                             saved_status, 5u) &&
+                    machine.cpu.execution_address == UINT32_C(0x08000004);
+        test_case(unchanged, names[index]);
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_psr_composed_field_masks(void)
+{
+    static const uint32_t opcodes[] = {
+        UINT32_C(0xE129F000), /* MSR CPSR_c|f, R0 */
+        UINT32_C(0xE329F14D), /* MSR CPSR_c|f, ROR(0x4D, 2) */
+        UINT32_C(0xE169F000), /* MSR SPSR_c|f, R0 */
+        UINT32_C(0xE369F14D)  /* MSR SPSR_c|f, ROR(0x4D, 2) */
+    };
+    static const uint32_t initial_cpsr[2] = {
+        UINT32_C(0x500055D3), UINT32_C(0x9000AA53)
+    };
+    static const uint32_t initial_spsr[2] = {
+        UINT32_C(0x300056F7), UINT32_C(0x600078D3)
+    };
+    static const uint32_t source_values[] = {
+        UINT32_C(0xA0000093), 0u,
+        UINT32_C(0xA00000B7), 0u
+    };
+    static const uint32_t expected_cpsr[2] = {
+        UINT32_C(0xA0005593), UINT32_C(0x4000AA13)
+    };
+    static const uint32_t expected_spsr[2] = {
+        UINT32_C(0xA00056B7), UINT32_C(0x40007813)
+    };
+    static const uint32_t saved_initial[5] = {
+        UINT32_C(0x80000050), UINT32_C(0x400000BF),
+        UINT32_C(0x100000D2), UINT32_C(0x20000073),
+        UINT32_C(0xA0000097)
+    };
+    static const char *const names[] = {
+        "MSR CPSR_c|f register updates flags and controls while preserving x/s",
+        "MSR CPSR_c|f rotated immediate updates flags and controls while preserving x/s",
+        "MSR SPSR_c|f register updates the selected saved bank and preserves x/s",
+        "MSR SPSR_c|f rotated immediate updates the selected saved bank and preserves x/s"
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(opcodes) / sizeof(opcodes[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        uint32_t expected_saved[5];
+        const bool saved_target = (index & 2u) != 0u;
+        const uint32_t expected_active = saved_target
+                                             ? TEST_CPSR_SVC | TEST_CPSR_V |
+                                                   UINT32_C(0x00000080)
+                                             : expected_cpsr[index];
+        bool primed;
+        bool retired;
+        bool matched;
+
+        make_empty_image(image);
+        write_word(image, 0x00u, opcodes[index]);
+        primed = prime_psr_program(&machine, image);
+        machine.cpu.cpsr = saved_target
+                               ? expected_active
+                               : initial_cpsr[index];
+        memcpy(machine.cpu.spsr, saved_initial, sizeof(saved_initial));
+        if (saved_target) {
+            machine.cpu.spsr[2] = initial_spsr[index - 2u];
+        }
+        machine.cpu.r0_7[0] = source_values[index];
+        memcpy(expected_saved, saved_initial, sizeof(expected_saved));
+        if (saved_target) {
+            expected_saved[2] = expected_spsr[index - 2u];
+        }
+        retired = primed && retire_psr_instruction(&machine, &result);
+        matched = retired && machine.cpu.cpsr == expected_active &&
+                  gbl_test_u32_array_equal(machine.cpu.spsr,
+                                           expected_saved, 5u);
+        test_case(matched, names[index]);
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static void test_psr_mode_reads_and_banks(void)
 {
     static const uint32_t modes[] = {
@@ -2622,6 +2837,19 @@ static void test_psr_privilege_and_saved_state(void)
 
 static void test_psr_unpredictable_refusals(void)
 {
+    static const char *const names[] = {
+        "refusal [MSR CPSR_c, invalid mode, SVC]",
+        "refusal [MSR CPSR_c immediate, T set, SVC]",
+        "refusal [MRS CPSR, PC destination, SVC]",
+        "refusal [MRS SPSR, absent User bank]",
+        "refusal [MRS SPSR, absent System bank]",
+        "refusal [MSR SPSR_c, absent User bank]",
+        "refusal [MSR SPSR_c, absent System bank]",
+        "refusal [MSR SPSR_c, invalid mode, SVC]",
+        "refusal [MSR CPSR_x, reserved operand bit inside selected byte]",
+        "refusal [MSR CPSR zero fields, reserved operand bit outside mask, SVC]",
+        "refusal [MSR CPSR_f, StateMask T with c unselected, SVC]"
+    };
     static const uint32_t opcodes[] = {
         UINT32_C(0xE121F000), /* MSR CPSR_c, R0 */
         UINT32_C(0xE321F020), /* MSR CPSR_c, #T */
@@ -2631,22 +2859,24 @@ static void test_psr_unpredictable_refusals(void)
         UINT32_C(0xE161F000), /* MSR SPSR_c, R0 */
         UINT32_C(0xE161F000), /* MSR SPSR_c, R0 */
         UINT32_C(0xE161F000), /* MSR SPSR_c, R0 */
-        UINT32_C(0xE122F000)  /* MSR CPSR_x, R0 */
+        UINT32_C(0xE122F000), /* MSR CPSR_x, R0 */
+        UINT32_C(0xE120F000), /* MSR CPSR with no selected fields, R0 */
+        UINT32_C(0xE128F000)  /* MSR CPSR_f, R0 */
     };
     static const uint32_t modes[] = {
         TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_USER,
         TEST_CPSR_SYSTEM, TEST_CPSR_USER, TEST_CPSR_SYSTEM,
-        TEST_CPSR_SVC, TEST_CPSR_SVC
+        TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_SVC
     };
     static const uint32_t operands[] = {
         UINT32_C(0x15), UINT32_C(0), UINT32_C(0), UINT32_C(0),
         UINT32_C(0), UINT32_C(0), UINT32_C(0), UINT32_C(0x15),
-        UINT32_C(0x00000100)
+        UINT32_C(0x00000100), UINT32_C(0x00000113),
+        UINT32_C(0x00000033)
     };
     uint8_t index;
-    bool all_refused = true;
 
-    for (index = 0u; index < (uint8_t)9u; ++index) {
+    for (index = 0u; index < (uint8_t)11u; ++index) {
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_machine before;
@@ -2698,11 +2928,9 @@ static void test_psr_unpredictable_refusals(void)
             trace.capacity == trace_before.capacity &&
             trace.next_sequence == trace_before.next_sequence &&
             memcmp(records, records_before, sizeof(records)) == 0;
-        all_refused = all_refused && refused;
+        test_case(refused, names[index]);
         gbl_machine_dispose(&machine);
     }
-    test_case(all_refused,
-              "invalid modes, T/reserved writes, PC destinations and absent SPSRs refuse before effects");
 }
 
 static void test_arithmetic(void)
@@ -5537,6 +5765,9 @@ static const cpu_test_function psr_functions[] = {
     test_psr_mrs_forms,
     test_psr_register_field_masks,
     test_psr_immediate_field_masks,
+    test_psr_saved_register_and_immediate_effects,
+    test_psr_zero_field_masks,
+    test_psr_composed_field_masks,
     test_psr_mode_reads_and_banks,
     test_psr_privilege_and_saved_state,
     test_psr_unpredictable_refusals
@@ -5597,7 +5828,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
-    CPU_TEST_GROUP("psr", 13u, psr_functions),
+    CPU_TEST_GROUP("psr", 41u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
