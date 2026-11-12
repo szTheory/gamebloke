@@ -2121,6 +2121,35 @@ static bool run_arm_program_unit(gbl_machine *machine, uint64_t cycle_budget,
     return run_units(machine, cycle_budget, 1u, result);
 }
 
+static void test_arm_transfer_preindexed_writeback(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000040);
+        machine.cpu.r0_7[1] = UINT32_C(0xA1B2C3D4);
+        ran = run_arm_instruction(&machine, UINT32_C(0xE5A01004),
+                                  TEST_CPSR_SYSTEM, UINT64_C(8), &result);
+    }
+
+    test_case(loaded && ran &&
+                  machine.iwram[0x44u] == UINT8_C(0xD4) &&
+                  machine.iwram[0x45u] == UINT8_C(0xC3) &&
+                  machine.iwram[0x46u] == UINT8_C(0xB2) &&
+                  machine.iwram[0x47u] == UINT8_C(0xA1) &&
+                  machine.cpu.r0_7[0] == UINT32_C(0x03000044),
+              "ARM STR pre-indexed writeback stores at adjusted address and updates base");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static void test_arm_pc_operand_contexts(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -6342,6 +6371,9 @@ static const cpu_test_function arm_shifts_conditions_functions[] = {
     test_arm_condition_1111_is_unpredictable,
     test_arm_register_shift_cycle_preflight
 };
+static const cpu_test_function arm_transfer_functions[] = {
+    test_arm_transfer_preindexed_writeback
+};
 static const cpu_test_function arm_pc_return_functions[] = {
     test_arm_pc_operand_contexts,
     test_thumb_pc_operand_contexts,
@@ -6417,6 +6449,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
+    CPU_TEST_GROUP("arm_transfer", 1u, arm_transfer_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
