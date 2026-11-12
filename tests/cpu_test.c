@@ -1525,6 +1525,33 @@ static void test_arm_alu_without_s_preserves_flags(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_arm_register_shifted_pc_operand_uses_plus_twelve(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool ran = false;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[1] = 0u;
+        machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
+        ran = run_arm_instruction(&machine, UINT32_C(0xE1B0211F),
+                                  TEST_CPSR_C | TEST_CPSR_V, 2u, &result);
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                  result.instructions == 1u && result.cycles == 2u &&
+                  machine.cpu.r0_7[2] == UINT32_C(0x0800000C) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                       TEST_CPSR_C | TEST_CPSR_V)) ==
+                      (TEST_CPSR_C | TEST_CPSR_V),
+              "register-shifted Operand2 reads PC as instruction address plus twelve");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_arithmetic(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -4339,6 +4366,9 @@ static const cpu_test_function arm_alu_functions[] = {
     test_arm_alu_vectors,
     test_arm_alu_without_s_preserves_flags
 };
+static const cpu_test_function arm_shifts_conditions_functions[] = {
+    test_arm_register_shifted_pc_operand_uses_plus_twelve
+};
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
@@ -4392,6 +4422,8 @@ static const cpu_test_function slots_bounds_functions[] = {
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
+    CPU_TEST_GROUP("arm_shifts_conditions", 1u,
+                   arm_shifts_conditions_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
