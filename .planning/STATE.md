@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan 09 locally verified and independently reviewed; awaiting hosted CI; Plan 10 not started
-stopped_at: Plan 09 review and Linux compiler/sanitizer checks green; publishing on existing PR
-last_updated: "2026-11-12T14:42:59.050Z"
+status: Plan09 owner-approved timeout correction locally verified; awaiting one corrected hosted run; Plan10 not started
+stopped_at: Plan09 approved mutation harness correction reviewed and Linux verification green; publishing one corrected hosted run
+last_updated: "2026-11-12T15:35:38.950Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
-state_head: 9baee533d2c1488134eff038741fd68a6274ae44
+state_head: f6c7de5f894a66476cd0f037e290518b0de7f477
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 10 of 25
-Status: Plan 09 locally verified and independently reviewed; awaiting hosted CI; Plan 10 not started
+Status: Plan09 owner-approved timeout correction locally verified; awaiting one corrected hosted run; Plan10 not started
 Last activity: 2026-11-12 — Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
 
 Progress: [███████░░░] 67%
@@ -225,6 +225,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Short MUL and MLA use the chosen deterministic signed termination policy; long forms use their explicit opcode signedness.
 - [Phase 05]: S multiply forms update N/Z while preserving incoming C/V under explicit project policy; non-S forms preserve NZCV.
 - [Phase 05]: DDI0029G m is derived from original Rs and charged through bus-owned internal time without wait-state or prefetch claims.
+- [Phase 05]: Owner approved per-pair duplicate mutation compilation reduction, local timing/full verification and one corrected hosted run. Preserve every check/flag, zero sanitizer skips and180s limits; next new red renews stop.
 
 ### Pending Todos
 
@@ -245,6 +246,7 @@ None yet.
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
+- Phase05: prior GNU timeout has owner-approved harness correction f6c7de5, verified locally and reviewed; corrected hosted confirmation pending. New red renews stop; Plan10 not started. See05-09-CI-HANDOFF.md.
 
 ## Deferred Items
 
@@ -260,6 +262,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T14:42:58.439Z
-Stopped at: Plan 09 review and Linux compiler/sanitizer checks green; publishing on existing PR
+Last session: 2026-11-12T15:35:38.776Z
+Stopped at: Plan09 approved mutation harness correction reviewed and Linux verification green; publishing one corrected hosted run
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

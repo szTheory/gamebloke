@@ -170,3 +170,13 @@ Plan 09 is complete. Phase-wide CPU-01 remains pending as specified; this plan's
 Independent scoped review at9baee53 found no actionable defects; see05-09-REVIEW.md. Full-phase review still remains later. The root-owned pinned Ubuntu26.04 native arm64/Clang21 ASan/UBSan/LeakSanitizer lane passed both focused multiply groups, all80 required tests and post-inventory with zero skips at exact source9baee533d2c1488134eff038741fd68a6274ae44. Pinned Ubuntu26.04 native arm64/GCC full canonical CI also passed336 tests with the one allowed optional owner-local signature skip and post-inventory at that same source. Logs/helpers: build/phase05-plan09/linux-clang-sanitizers.log, linux-clang-sanitizer-verification.sh, linux-gcc-regression.log; compiler setup follows the existing reviewed lane packages, no new dependency or CI job. Local arm64 evidence is separate from hosted x64.
 
 Wave postchecks found no schema drift, no UI change requiring a contract and an advisory no-STRUCTURE.md codebase-drift skip. The original15 producer inputs and two smoke ROM pins are unchanged. All plan source commits remain ancestors of the current branch. Hosted verification is pending on the existing draft PR; no phase-wide CPU/DIAG completion or merge is claimed. Any new hosted red renews the owner stop.
+
+
+## Subsequent hosted integration stop
+
+Run43240119634 at published head967d7ef27ad0a95fa3a12f3cf2eeea21b5d3c85f hit the GNU job's fixed three-minute limit. The GNU test workflow itself passed (336 pass, one allowed skip, inventory postcheck); CTest168.90s plus build/setup/cleanup exhausted the job budget. Linux sanitizer80/80 and both diagnostics hosts passed. This does not invalidate local results or the scoped source review, but required hosted integration is unresolved. See05-09-CI-HANDOFF.md for measured repeated CPU mutation compilation and the proposed bounded remedy. No fix/retry or Plan10 implementation followed the new stop; owner acts next.
+
+
+## Owner-approved timeout correction
+
+Owner "yes follow ur recs" authorized the scoped per-pair unchanged-object compilation reduction. Tests/gates/core_mutation.cmake-only commitf6c7de5 preserves exact semantic mutants/cleancompanions, input/flag identity, header/unknown full rebuilds, independent CPU objects/executables and all CI limits/checks. Controlled affected-matrix observations show20–30% lower local time across macOSnormal/ASan and pinnedLinuxGCC/Clang. NativefullCI, rootfullpinnedGCC and Clangsanitizer/inventory pass; independent scopedCIreview is clean. See05-09-CI-FIX.md and05-09-CI-REVIEW.md for evidence/limits. One corrected hosted run on the existing PR is pending; any new red renews the stop and Plan10 has not started.
