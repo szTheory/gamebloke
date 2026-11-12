@@ -84,9 +84,13 @@ function(find_case_index out family form)
 endfunction()
 
 function(checker_failure label mode matrix_path expected_code)
+  set(manifest_path "${source_root}/tests/fixtures/manifest.json")
+  if(ARGC GREATER 4)
+    set(manifest_path "${ARGV4}")
+  endif()
   execute_process(
     COMMAND "${CMAKE_COMMAND}" "-DMODE=${mode}" "-DMATRIX=${matrix_path}"
-      "-DMANIFEST=${source_root}/tests/fixtures/manifest.json"
+      "-DMANIFEST=${manifest_path}"
       -P "${checker}"
     RESULT_VARIABLE check_rc OUTPUT_VARIABLE check_out ERROR_VARIABLE check_error)
   set(combined "${check_out}${check_error}")
@@ -180,7 +184,7 @@ message(STATUS "coverage-case: manifest-only smoke admission passed without chan
 file(WRITE "${manifest_variant}"
   "{\n  \"schema\": \"gamebloke.manifest/1\",\n  \"fixtures\": [{\"id\": \"smoke\"}]\n}\n")
 checker_failure(missing-smoke-manifest-link smoke-admission "${matrix}"
-  smoke-admission-fixture-link-missing)
+  smoke-admission-fixture-link-missing "${manifest_variant}")
 
 set(variant "${control_root}/duplicate-id.json")
 string(JSON changed SET "${matrix_json}" cases ${target_index} id "${smoke_id}")
