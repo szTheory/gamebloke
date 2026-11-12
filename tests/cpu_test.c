@@ -8330,7 +8330,8 @@ static void test_thumb_transfer_modulo_address(void)
     }
 }
 
-static bool thumb_transfer_preflight_case(unsigned int boundary)
+static bool thumb_transfer_preflight_case(unsigned int boundary,
+                                         bool sp_relative)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
@@ -8347,13 +8348,22 @@ static bool thumb_transfer_preflight_case(unsigned int boundary)
     gbl_run_result result = { 0 };
     bool observed = false;
     bool loaded = prepare_thumb_transfer(
-        &machine, UINT16_C(0x58CA), UINT32_C(0x03000000), image);
+        &machine, sp_relative ? UINT16_C(0x9800) : UINT16_C(0x58CA),
+        UINT32_C(0x03000000), image);
 
     memset(records, 0xA5, sizeof(records));
     if (loaded) {
-        machine.cpu.r0_7[1] = UINT32_C(0x03000100);
-        machine.cpu.r0_7[3] = 4u;
-        write_word(machine.iwram, 0x104u, UINT32_C(0x44332211));
+        const uint32_t address = sp_relative
+            ? UINT32_C(0x03000100) : UINT32_C(0x03000104);
+
+        if (sp_relative) {
+            machine.cpu.usr_r8_14[6] = UINT32_C(0x03000100);
+        } else {
+            machine.cpu.r0_7[1] = UINT32_C(0x03000100);
+            machine.cpu.r0_7[3] = 4u;
+        }
+        write_word(machine.iwram, address - UINT32_C(0x03000000),
+                   UINT32_C(0x44332211));
         if (boundary == 0u) {
             options.cycle_budget = 1u;
         } else if (boundary == 1u) {
@@ -8382,10 +8392,11 @@ static bool thumb_transfer_preflight_case(unsigned int boundary)
                 result.cycles == 2u &&
                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                 result.termination == GBL_RUN_PROGRESS &&
-                machine.cpu.r0_7[2] == UINT32_C(0x44332211) &&
+                machine.cpu.r0_7[sp_relative ? 0u : 2u] ==
+                    UINT32_C(0x44332211) &&
                 trace.records == records && trace.count == 4u &&
                 trace.capacity == 4u && trace.next_sequence == UINT64_C(80) &&
-                records[2].address == UINT32_C(0x03000104) &&
+                records[2].address == address &&
                 records[2].width == 4u &&
                 memcmp(&records[4], &records_before[4],
                        sizeof(records[4])) == 0;
@@ -8399,12 +8410,349 @@ static bool thumb_transfer_preflight_case(unsigned int boundary)
 
 static void test_thumb_transfer_preflight(void)
 {
-    test_case(thumb_transfer_preflight_case(0u),
+    test_case(thumb_transfer_preflight_case(0u, false),
               "Thumb transfer one-short cycle budget preserves state and trace bytes");
-    test_case(thumb_transfer_preflight_case(1u),
+    test_case(thumb_transfer_preflight_case(1u, false),
               "Thumb transfer one-short trace capacity preserves state and caller records");
-    test_case(thumb_transfer_preflight_case(2u),
+    test_case(thumb_transfer_preflight_case(2u, false),
               "Thumb transfer exact cycle and trace capacities commit the real bus read");
+}
+
+static void test_thumb_sp_preflight(void)
+{
+    test_case(thumb_transfer_preflight_case(0u, true),
+              "Thumb SP load one-short cycle budget preserves state and trace bytes");
+    test_case(thumb_transfer_preflight_case(1u, true),
+              "Thumb SP load one-short trace capacity preserves full state and caller records");
+    test_case(thumb_transfer_preflight_case(2u, true),
+              "Thumb SP load exact cycle and trace reservations commit the actual bus result");
+}
+
+static void test_thumb_halfword_immediate_matrix(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint32_t offset;
+        bool load;
+    } cases[] = {
+        { "Thumb STRH immediate zero scale", UINT16_C(0x8008), 0u, false },
+        { "Thumb STRH immediate one scales by two", UINT16_C(0x8048), 2u, false },
+        { "Thumb STRH maximum immediate scales by two", UINT16_C(0x87C8), 62u, false },
+        { "Thumb LDRH immediate zero scale", UINT16_C(0x8808), 0u, true },
+        { "Thumb LDRH immediate one scales by two", UINT16_C(0x8848), 2u, true },
+        { "Thumb LDRH maximum immediate scales by two", UINT16_C(0x8FC8), 62u, true }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const uint32_t base_offset = UINT32_C(0x300);
+        const uint32_t data_offset = base_offset + cases[index].offset;
+        bool valid = prepare_thumb_transfer(
+            &machine, cases[index].opcode, UINT32_C(0x08000000), image);
+
+        if (valid) {
+            machine.cpu.r0_7[0] = UINT32_C(0xA1B2C3D4);
+            machine.cpu.r0_7[1] = UINT32_C(0x03000000) + base_offset;
+            machine.iwram[data_offset - 1u] = UINT8_C(0xA7);
+            write_halfword(machine.iwram, data_offset, UINT16_C(0xBEEF));
+            machine.iwram[data_offset + 2u] = UINT8_C(0x9C);
+            valid = run_units(&machine, 2u, 1u, &result) &&
+                    result.termination == GBL_RUN_PROGRESS &&
+                    result.instructions == 1u && result.cycles == 2u &&
+                    machine.cpu.r0_7[1] ==
+                        UINT32_C(0x03000000) + base_offset;
+            if (cases[index].load) {
+                valid = valid && machine.cpu.r0_7[0] == UINT32_C(0xBEEF) &&
+                        machine.iwram[data_offset] == UINT8_C(0xEF) &&
+                        machine.iwram[data_offset + 1u] == UINT8_C(0xBE);
+            } else {
+                valid = valid &&
+                        machine.iwram[data_offset] == UINT8_C(0xD4) &&
+                        machine.iwram[data_offset + 1u] == UINT8_C(0xC3) &&
+                        machine.iwram[data_offset - 1u] == UINT8_C(0xA7) &&
+                        machine.iwram[data_offset + 2u] == UINT8_C(0x9C);
+            }
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_halfword_alignment(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        bool load;
+    } cases[] = {
+        { "Thumb odd LDRH rotates the aligned halfword by eight", UINT16_C(0x8808), true },
+        { "Thumb odd STRH aligns down and leaves neighbors", UINT16_C(0x8008), false }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        bool valid = prepare_thumb_transfer(
+            &machine, cases[index].opcode, UINT32_C(0x08000000), image);
+
+        if (valid) {
+            machine.cpu.r0_7[0] = UINT32_C(0xA1B2C3D4);
+            machine.cpu.r0_7[1] = UINT32_C(0x03000101);
+            machine.iwram[0x0FFu] = UINT8_C(0x5A);
+            machine.iwram[0x100u] = UINT8_C(0x11);
+            machine.iwram[0x101u] = UINT8_C(0x82);
+            machine.iwram[0x102u] = UINT8_C(0x33);
+            valid = run_units(&machine, 2u, 1u, &result) &&
+                    result.instructions == 1u && result.cycles == 2u &&
+                    machine.cpu.r0_7[1] == UINT32_C(0x03000101);
+            if (cases[index].load) {
+                valid = valid && machine.cpu.r0_7[0] == UINT32_C(0x11000082) &&
+                        machine.iwram[0x0FFu] == UINT8_C(0x5A) &&
+                        machine.iwram[0x102u] == UINT8_C(0x33);
+            } else {
+                valid = valid && machine.iwram[0x100u] == UINT8_C(0xD4) &&
+                        machine.iwram[0x101u] == UINT8_C(0xC3) &&
+                        machine.iwram[0x0FFu] == UINT8_C(0x5A) &&
+                        machine.iwram[0x102u] == UINT8_C(0x33);
+            }
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_sp_relative_matrix(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint32_t offset;
+        bool load;
+    } cases[] = {
+        { "Thumb STR SP-relative offset zero", UINT16_C(0x9000), 0u, false },
+        { "Thumb STR SP-relative offset one scales by four", UINT16_C(0x9001), 4u, false },
+        { "Thumb STR SP-relative maximum offset scales by four", UINT16_C(0x90FF), 1020u, false },
+        { "Thumb LDR SP-relative offset zero", UINT16_C(0x9800), 0u, true },
+        { "Thumb LDR SP-relative offset one scales by four", UINT16_C(0x9801), 4u, true },
+        { "Thumb LDR SP-relative maximum offset scales by four", UINT16_C(0x98FF), 1020u, true }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const uint32_t stack_offset = UINT32_C(0x400);
+        const uint32_t data_offset = stack_offset + cases[index].offset;
+        bool valid = prepare_thumb_transfer(
+            &machine, cases[index].opcode, UINT32_C(0x08000000), image);
+
+        if (valid) {
+            machine.cpu.r0_7[0] = UINT32_C(0xA1B2C3D4);
+            machine.cpu.usr_r8_14[6] = UINT32_C(0x03000000) + stack_offset;
+            machine.iwram[data_offset - 1u] = UINT8_C(0xA7);
+            write_word(machine.iwram, data_offset, UINT32_C(0x89ABCDEF));
+            machine.iwram[data_offset + 4u] = UINT8_C(0x9C);
+            valid = run_units(&machine, 2u, 1u, &result) &&
+                    result.instructions == 1u && result.cycles == 2u &&
+                    machine.cpu.usr_r8_14[6] ==
+                        UINT32_C(0x03000000) + stack_offset;
+            if (cases[index].load) {
+                valid = valid && machine.cpu.r0_7[0] == UINT32_C(0x89ABCDEF);
+            } else {
+                valid = valid &&
+                        read_test_word(machine.iwram, data_offset) ==
+                            UINT32_C(0xA1B2C3D4) &&
+                        machine.iwram[data_offset - 1u] == UINT8_C(0xA7) &&
+                        machine.iwram[data_offset + 4u] == UINT8_C(0x9C);
+            }
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_sp_alignment_and_banks(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool valid = prepare_thumb_transfer(
+        &machine, UINT16_C(0x9800), UINT32_C(0x08000000), image);
+
+    if (valid) {
+        machine.cpu.usr_r8_14[6] = UINT32_C(0x03000201);
+        machine.iwram[0x200u] = UINT8_C(0x11);
+        machine.iwram[0x201u] = UINT8_C(0x22);
+        machine.iwram[0x202u] = UINT8_C(0x33);
+        machine.iwram[0x203u] = UINT8_C(0x44);
+        valid = run_units(&machine, 2u, 1u, &result) &&
+                machine.cpu.r0_7[0] == UINT32_C(0x11443322);
+    }
+    test_case(valid, "Thumb SP-relative odd word LDR uses the shared rotation policy");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+
+    memset(&machine, 0, sizeof(machine));
+    valid = prepare_thumb_transfer(
+        &machine, UINT16_C(0x9000), UINT32_C(0x08000000), image);
+    if (valid) {
+        machine.cpu.usr_r8_14[6] = UINT32_C(0x03000201);
+        machine.cpu.r0_7[0] = UINT32_C(0xAABBCCDD);
+        valid = run_units(&machine, 2u, 1u, &result) &&
+                read_test_word(machine.iwram, 0x200u) ==
+                    UINT32_C(0xAABBCCDD);
+    }
+    test_case(valid, "Thumb SP-relative odd word STR aligns its bus address down");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+
+    memset(&machine, 0, sizeof(machine));
+    valid = prepare_thumb_transfer(
+        &machine, UINT16_C(0x9001), UINT32_C(0x08000000), image);
+    if (valid) {
+        machine.cpu.cpsr = UINT32_C(0xF0000032);
+        machine.cpu.r0_7[0] = UINT32_C(0xCAFEBABE);
+        machine.cpu.irq_r13_14[0] = UINT32_C(0x03000500);
+        machine.cpu.usr_r8_14[6] = UINT32_C(0x03000600);
+        valid = run_units(&machine, 2u, 1u, &result) &&
+                read_test_word(machine.iwram, 0x504u) ==
+                    UINT32_C(0xCAFEBABE) &&
+                machine.cpu.irq_r13_14[0] == UINT32_C(0x03000500) &&
+                machine.cpu.usr_r8_14[6] == UINT32_C(0x03000600) &&
+                machine.cpu.cpsr == UINT32_C(0xF0000032);
+    }
+    test_case(valid, "Thumb SP-relative store uses the active IRQ bank");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_address_generation(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint32_t stack_pointer;
+        uint32_t expected;
+    } cases[] = {
+        { "Thumb ADD Rd,PC uses current plus four, word aligned", UINT16_C(0xA000),
+          UINT32_C(0x03000600), UINT32_C(0x03000004) },
+        { "Thumb ADD Rd,PC immediate one scales by four", UINT16_C(0xA101),
+          UINT32_C(0x03000600), UINT32_C(0x03000008) },
+        { "Thumb ADD Rd,PC maximum immediate scales by four", UINT16_C(0xA2FF),
+          UINT32_C(0x03000600), UINT32_C(0x03000400) },
+        { "Thumb ADD Rd,SP uses the current banked SP", UINT16_C(0xA800),
+          UINT32_C(0x03000600), UINT32_C(0x03000600) },
+        { "Thumb ADD Rd,SP immediate one scales by four", UINT16_C(0xA901),
+          UINT32_C(0x03000600), UINT32_C(0x03000604) },
+        { "Thumb ADD Rd,SP maximum immediate scales by four", UINT16_C(0xA9FF),
+          UINT32_C(0x03000600), UINT32_C(0x030009FC) },
+        { "Thumb ADD Rd,SP address arithmetic wraps modulo 2^32", UINT16_C(0xA801),
+          UINT32_C(0xFFFFFFFC), UINT32_C(0x00000000) }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const uint32_t address = UINT32_C(0x03000002);
+        const uint32_t flags = UINT32_C(0xF000003F);
+        bool valid = prepare_thumb_transfer(&machine, cases[index].opcode,
+                                            address, image);
+
+        if (valid) {
+            machine.cpu.cpsr = flags;
+            machine.cpu.usr_r8_14[6] = cases[index].stack_pointer;
+            valid = run_units(&machine, 1u, 1u, &result) &&
+                    result.instructions == 1u && result.cycles == 1u &&
+                    machine.cpu.r0_7[(cases[index].opcode >> 8u) & 7u] ==
+                        cases[index].expected &&
+                    machine.cpu.usr_r8_14[6] == cases[index].stack_pointer &&
+                    machine.cpu.cpsr == flags &&
+                    machine.cpu.execution_address == address + 2u;
+        }
+        if (!valid && cases[index].opcode == UINT16_C(0xA801) &&
+            machine.initialized) {
+            printf("# observed opcode=%04X reason=%u stopped=%u rd=%08X\n",
+                   (unsigned int)cases[index].opcode,
+                   (unsigned int)result.reason,
+                   machine.cpu.stopped ? 1u : 0u,
+                   (unsigned int)machine.cpu.r0_7[0]);
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_sp_adjust(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint32_t initial;
+        uint32_t expected;
+        bool irq_bank;
+    } cases[] = {
+        { "Thumb ADD SP zero preserves its value", UINT16_C(0xB000), UINT32_C(0x03000700), UINT32_C(0x03000700), false },
+        { "Thumb ADD SP immediate one scales by four", UINT16_C(0xB001), UINT32_C(0x03000700), UINT32_C(0x03000704), false },
+        { "Thumb ADD SP maximum immediate scales by four", UINT16_C(0xB07F), UINT32_C(0x03000700), UINT32_C(0x030008FC), false },
+        { "Thumb SUB SP zero preserves its value", UINT16_C(0xB080), UINT32_C(0x03000700), UINT32_C(0x03000700), false },
+        { "Thumb SUB SP immediate one scales by four", UINT16_C(0xB081), UINT32_C(0x03000700), UINT32_C(0x030006FC), false },
+        { "Thumb SUB SP maximum immediate scales by four", UINT16_C(0xB0FF), UINT32_C(0x03000700), UINT32_C(0x03000504), false },
+        { "Thumb ADD SP wraps modulo 2^32", UINT16_C(0xB001), UINT32_C(0xFFFFFFFC), UINT32_C(0x00000000), false },
+        { "Thumb SUB SP wraps modulo 2^32", UINT16_C(0xB081), UINT32_C(0x00000000), UINT32_C(0xFFFFFFFC), false },
+        { "Thumb ADD SP updates the active IRQ bank only", UINT16_C(0xB001), UINT32_C(0x03000900), UINT32_C(0x03000904), true }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const uint32_t flags = UINT32_C(0xF0000000) |
+            (cases[index].irq_bank ? TEST_CPSR_IRQ : TEST_CPSR_SYSTEM) |
+            TEST_CPSR_T;
+        bool valid = prepare_thumb_transfer(
+            &machine, cases[index].opcode, UINT32_C(0x08000000), image);
+
+        if (valid) {
+            machine.cpu.cpsr = flags;
+            machine.cpu.usr_r8_14[6] = cases[index].irq_bank
+                ? UINT32_C(0x03000A00) : cases[index].initial;
+            machine.cpu.irq_r13_14[0] = cases[index].irq_bank
+                ? cases[index].initial : UINT32_C(0x55000000);
+            valid = run_units(&machine, 1u, 1u, &result) &&
+                    result.instructions == 1u && result.cycles == 1u &&
+                    machine.cpu.cpsr == flags &&
+                    (cases[index].irq_bank
+                        ? machine.cpu.irq_r13_14[0] == cases[index].expected &&
+                          machine.cpu.usr_r8_14[6] == UINT32_C(0x03000A00)
+                        : machine.cpu.usr_r8_14[6] == cases[index].expected &&
+                          machine.cpu.irq_r13_14[0] == UINT32_C(0x55000000));
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
 }
 
 static void test_alignment(void)
@@ -11242,6 +11590,15 @@ static const cpu_test_function thumb_transfer_functions[] = {
     test_thumb_transfer_modulo_address,
     test_thumb_transfer_preflight
 };
+static const cpu_test_function thumb_sp_functions[] = {
+    test_thumb_halfword_immediate_matrix,
+    test_thumb_halfword_alignment,
+    test_thumb_sp_relative_matrix,
+    test_thumb_sp_alignment_and_banks,
+    test_thumb_address_generation,
+    test_thumb_sp_adjust,
+    test_thumb_sp_preflight
+};
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
 static const cpu_test_function slots_functions[] = {
@@ -11294,6 +11651,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("thumb", 8u, thumb_functions),
     CPU_TEST_GROUP("thumb_alu", 36u, thumb_alu_functions),
     CPU_TEST_GROUP("thumb_high", 129u, thumb_high_functions),
+    CPU_TEST_GROUP("thumb_sp", 36u, thumb_sp_functions),
     CPU_TEST_GROUP("thumb_transfer", 31u, thumb_transfer_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
