@@ -55,6 +55,7 @@ typedef enum gbl_cpu_data_operation {
 
 typedef struct gbl_cpu_data_slot {
     gbl_cpu_data_operation operation;
+    gbl_bus_access_class access_class;
     uint32_t address;
     uint32_t write_value;
     uint8_t width;
@@ -97,6 +98,8 @@ typedef struct gbl_cpu_unit {
     uint8_t fetch_count;
     uint8_t fetch_width;
     uint8_t internal_cycles;
+    uint8_t post_data_internal_cycles;
+    uint8_t post_data_pipeline_cycles;
     uint8_t data_slot_count;
     uint8_t result_count;
     uint8_t register_effect_count;
@@ -142,6 +145,14 @@ static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost)
         return false;
     }
     total += (uint64_t)unit->internal_cycles;
+    if ((uint64_t)unit->post_data_internal_cycles > UINT64_MAX - total) {
+        return false;
+    }
+    total += (uint64_t)unit->post_data_internal_cycles;
+    if ((uint64_t)unit->post_data_pipeline_cycles > UINT64_MAX - total) {
+        return false;
+    }
+    total += (uint64_t)unit->post_data_pipeline_cycles;
     if ((uint64_t)unit->data_slot_count > UINT64_MAX - total) {
         return false;
     }
@@ -177,6 +188,7 @@ static bool gbl_cpu_add_data_read_slot(gbl_cpu_unit *unit, uint32_t address,
     slot = &unit->data_slots[unit->data_slot_count];
     *slot = (gbl_cpu_data_slot){
         .operation = GBL_CPU_DATA_READ,
+        .access_class = GBL_BUS_CLASS_NONSEQUENTIAL,
         .address = address,
         .width = width,
         .result_index = result,
@@ -222,6 +234,7 @@ static bool gbl_cpu_add_data_write_slot(gbl_cpu_unit *unit, uint32_t address,
     slot = &unit->data_slots[unit->data_slot_count];
     *slot = (gbl_cpu_data_slot){
         .operation = GBL_CPU_DATA_WRITE,
+        .access_class = GBL_BUS_CLASS_NONSEQUENTIAL,
         .address = address,
         .write_value = value,
         .width = width,
@@ -2224,6 +2237,22 @@ static bool gbl_cpu_decode_arm_block_transfer(
             address += UINT32_C(4);
         }
     }
+    /* DDI0029G section 6.1 says SEQ is pipelined one cycle ahead. In Tables
+     * 6-12/6-13, row 1's N applies to transfer 0 and later S rows to following
+     * data addresses. */
+    {
+        uint8_t slot_index;
+
+        for (slot_index = 0u; slot_index < unit->data_slot_count;
+             ++slot_index) {
+            unit->data_slots[slot_index].access_class =
+                slot_index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                 : GBL_BUS_CLASS_SEQUENTIAL;
+        }
+    }
+    unit->post_data_internal_cycles = load ? (uint8_t)1u : 0u;
+    unit->post_data_pipeline_cycles =
+        load && pc_result_index != UINT8_MAX ? (uint8_t)1u : 0u;
     if (writeback &&
         !gbl_cpu_add_literal_register_effect(
             unit, base_register, cpu->cpsr, updated_base)) {
@@ -2236,6 +2265,9 @@ static bool gbl_cpu_decode_arm_block_transfer(
          !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
                                             false))) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    } else if (!load) {
+        /* ARM7TDMI's STM cycle table signals an N follow-up fetch. */
+        unit->fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
     }
     return true;
 }
@@ -2453,7 +2485,28 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
          ((unit->kind != GBL_CPU_UNIT_SEQUENTIAL &&
            unit->kind != GBL_CPU_UNIT_BRANCH) ||
           unit->internal_cycles != 0u || unit->data_slot_count == 0u ||
+          unit->post_data_internal_cycles !=
+              (unit->data_slots[0].operation == GBL_CPU_DATA_READ
+                   ? 1u
+                   : 0u) ||
+          unit->post_data_pipeline_cycles !=
+              (unit->data_slots[0].operation == GBL_CPU_DATA_READ &&
+                       unit->fetch_address_from_result
+                   ? 1u
+                   : 0u) ||
+          (unit->data_slots[0].operation == GBL_CPU_DATA_WRITE &&
+           unit->fetch_address_from_result) ||
+          (unit->data_slots[0].operation == GBL_CPU_DATA_READ &&
+           !unit->fetch_address_from_result &&
+           (unit->fetch_count != 1u ||
+            unit->fetch_class[0] != GBL_BUS_CLASS_SEQUENTIAL)) ||
+          (unit->data_slots[0].operation == GBL_CPU_DATA_WRITE &&
+           (unit->fetch_count != 1u ||
+            unit->fetch_class[0] != GBL_BUS_CLASS_NONSEQUENTIAL)) ||
           unit->status_effect_count != 0u)) ||
+        (!unit->multiple_transfer &&
+         (unit->post_data_internal_cycles != 0u ||
+          unit->post_data_pipeline_cycles != 0u)) ||
         (unit->fetch_address_from_result &&
          (unit->kind != GBL_CPU_UNIT_BRANCH || unit->changes_state ||
           unit->fetch_count != (uint8_t)GBL_CPU_FETCH_SLOT_MAX ||
@@ -2501,9 +2554,17 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         }
         if (unit->multiple_transfer &&
             (slot->width != (uint8_t)GBL_CPU_WORD_WIDTH ||
+             slot->access_class !=
+                 (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                              : GBL_BUS_CLASS_SEQUENTIAL) ||
              slot->rotate_word_read || slot->rotate_halfword_read ||
              slot->sign_extend_byte_read ||
              slot->sign_extend_halfword_read)) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+        if (slot->access_class != GBL_BUS_CLASS_NONSEQUENTIAL &&
+            slot->access_class != GBL_BUS_CLASS_SEQUENTIAL) {
             *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             return false;
         }
@@ -3086,7 +3147,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
 
                     data_result = gbl_bus_read(
                         machine, slot->address, slot->width,
-                        GBL_BUS_CLASS_NONSEQUENTIAL);
+                        slot->access_class);
                     if (data_result.status != GBL_BUS_STATUS_OK) {
                         run_result.termination = GBL_RUN_STOPPED;
                         run_result.reason = GBL_RUN_REASON_BUS_ERROR;
@@ -3124,7 +3185,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                 } else {
                     data_result = gbl_bus_write(
                         machine, slot->address, slot->width,
-                        GBL_BUS_CLASS_NONSEQUENTIAL, slot->write_value);
+                        slot->access_class, slot->write_value);
                     if (data_result.status != GBL_BUS_STATUS_OK) {
                         run_result.termination = GBL_RUN_STOPPED;
                         run_result.reason = GBL_RUN_REASON_BUS_ERROR;
@@ -3151,6 +3212,26 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                 }
             }
             if (data_index < unit.data_slot_count) {
+                break;
+            }
+        }
+        if (unit.post_data_internal_cycles != 0u ||
+            unit.post_data_pipeline_cycles != 0u) {
+            /* DDI0029G charges LDM's final I cycle and, for LDM PC, an
+             * additional S pipeline cycle. Under the current uniform bus,
+             * the latter has no separate memory transaction/trace slot. */
+            const uint64_t post_data_cycles =
+                (uint64_t)unit.post_data_internal_cycles +
+                (uint64_t)unit.post_data_pipeline_cycles;
+            const gbl_bus_result internal_result = gbl_bus_internal(
+                machine, post_data_cycles);
+
+            if (internal_result.status != GBL_BUS_STATUS_OK ||
+                internal_result.cycles != post_data_cycles) {
+                run_result.termination = GBL_RUN_STOPPED;
+                run_result.reason = GBL_RUN_REASON_BUS_ERROR;
+                machine->cpu.stopped = true;
+                machine->cpu.stop_reason = GBL_CPU_STOP_BUS_ERROR;
                 break;
             }
         }

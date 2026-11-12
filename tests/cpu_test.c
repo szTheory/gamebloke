@@ -2236,7 +2236,7 @@ static void test_arm_block_stmia_then_ldmia_stream(void)
         passed = run_units(&machine, UINT64_C(16), UINT64_C(2), &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.instructions == UINT64_C(2) &&
-                 result.cycles == UINT64_C(8) &&
+                 result.cycles == UINT64_C(9) &&
                  machine.cpu.r0_7[0] == UINT32_C(0x0300010C) &&
                  machine.cpu.r0_7[4] == UINT32_C(0x0300010C) &&
                  machine.cpu.r0_7[5] == UINT32_C(0x11223344) &&
@@ -2394,9 +2394,9 @@ static void test_arm_block_pc_store_source(void)
                  result.instructions == UINT64_C(1) &&
                  result.cycles == UINT64_C(3) && trace.count == 4u &&
                  records[1].category == GBL_TRACE_BUS &&
-                 records[1].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
+                 records[1].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  records[2].category == GBL_TRACE_BUS &&
-                 records[2].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                 records[2].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
                  records[3].category == GBL_TRACE_BUS &&
                  records[3].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  read_test_word(machine.iwram, 0x600u) ==
@@ -2574,21 +2574,24 @@ static void test_arm_block_maximum_pc_trace_fit(void)
 
             passed = record->sequence == UINT64_C(701) + (uint64_t)index &&
                      record->category == GBL_TRACE_BUS &&
+                     record->guest_cycle == (uint64_t)index + UINT64_C(1) &&
                      record->address == UINT32_C(0x03000800) +
                                             (uint32_t)index * 4u &&
                      record->value == expected_values[index] &&
                      record->width == 4u &&
                      record->access_class ==
-                         (index == 15u ? GBL_BUS_CLASS_NONSEQUENTIAL
-                                       : GBL_BUS_CLASS_SEQUENTIAL);
+                         (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                      : GBL_BUS_CLASS_SEQUENTIAL);
         }
         passed = passed && records[18].sequence == UINT64_C(717) &&
                  records[18].category == GBL_TRACE_BUS &&
+                 records[18].guest_cycle == UINT64_C(19) &&
                  records[18].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  records[18].address == UINT32_C(0x08000020) &&
                  records[18].value == UINT32_C(0xE1A08008) &&
                  records[19].sequence == UINT64_C(718) &&
                  records[19].category == GBL_TRACE_BUS &&
+                 records[19].guest_cycle == UINT64_C(20) &&
                  records[19].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
                  records[19].address == UINT32_C(0x08000024) &&
                  records[19].value == UINT32_C(0xE1A09009) &&
@@ -2681,7 +2684,7 @@ static void test_arm_block_exact_preflight_refusals(void)
                   UINT64_C(52), GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "one-short 19-record trace refusal preserves the full LDM state and caller buffer");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(20), 20u, UINT64_MAX - UINT64_C(19),
+                  UINT64_C(20), 20u, UINT64_MAX - UINT64_C(18),
                   UINT64_C(43), UINT64_C(54),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "trace sequence overflow refuses the full LDM before any read or refill");
@@ -2801,14 +2804,20 @@ static bool arm_block_alignment_case(bool load)
             machine.cpu.r0_7[1] = data;
         }
         passed = run_arm_instruction_with_trace(
-                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(2),
+                     &machine, opcode, TEST_CPSR_SYSTEM,
+                     load ? UINT64_C(3) : UINT64_C(2),
                      &trace, &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.cycles == UINT64_C(2) && trace.count == 3u &&
+                 result.cycles == (load ? UINT64_C(3) : UINT64_C(2)) &&
+                 trace.count == 3u &&
                  records[1].category == GBL_TRACE_BUS &&
+                 records[1].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  records[1].address == bus_address &&
-                 records[1].width == 4u;
+                 records[1].width == 4u &&
+                 records[2].access_class ==
+                     (load ? GBL_BUS_CLASS_SEQUENTIAL
+                           : GBL_BUS_CLASS_NONSEQUENTIAL);
         if (load) {
             passed = passed && machine.cpu.r0_7[1] == data &&
                      records[1].value == data;
