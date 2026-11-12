@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Executing Phase05 Plan12; Plan11 review fixes and full Linux verification complete locally
-stopped_at: Plan11 local review and Linux verification complete; continuing Plan12 ARM block transfers
-last_updated: "2026-11-12T18:48:58.231Z"
+status: Plan05-12 complete locally; awaiting root review and pinned Linux verification before Plan13
+stopped_at: Completed 05-12-PLAN.md; root owns independent review and pinned Linux verification
+last_updated: "2026-11-12T19:52:50.381Z"
 last_activity: 2026-11-12
-last_activity_desc: Phase 05 Plan 11 completed locally; root owns review and pinned Linux verification
-state_head: 69f309546c4a61fa429500edbe587532096799d5
+last_activity_desc: Phase 05 Plan 12 completed locally; root owns independent review and pinned Linux verification
+state_head: d534ec0a41f34a4b13021d67c495a6cb126d9668
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 49
+  completed_plans: 50
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 12 of 25
-Status: Executing Phase05 Plan12; Plan11 review fixes and full Linux verification complete locally
-Last activity: 2026-11-12 — Phase 05 Plan 11 completed locally; root owns review and pinned Linux verification
+Plan: 13 of 25
+Status: Plan05-12 complete locally; awaiting root review and pinned Linux verification before Plan13
+Last activity: 2026-11-12 — Phase 05 Plan 12 completed locally; root owns independent review and pinned Linux verification
 
 Progress: [███████░░░] 67%
 
@@ -108,6 +108,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P09 | 43min | 2 tasks | 5 files |
 | Phase 05 P10 | 43 min | 2 tasks | 5 files |
 | Phase 05 P11 | 32m | 2 tasks | 5 files |
+| Phase 05 P12 | 57 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -238,6 +239,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Odd subword read transforms consume bus results and preserve preflighted no-effect refusals.
 - [Phase 05]: For already implemented planned behavior, preserve baseline-green evidence and use isolated fault controls; document sequencing deviations instead of manufacturing RED or rewriting correct implementation/history.
 - [Phase 05]: Plan11 final69f3095 closes U-matrix coverage and GNU transform-count narrowing; unsigned0..4 sum retains validation. Native focused and full pinnedLinux GCC/Clang sanitizer inventories pass; independent review clean.
+- [Phase 05]: Plan12: DDI0029G section 6.1 signals SEQ one cycle ahead, so block transfer request classes derive from the preceding row: first data address N, following addresses S.
+- [Phase 05]: Plan12: Preflight the ARM7TDMI LDM final I cycle and loaded-PC additional pipeline S cost separately; under the current uniform bus the extra S is abstract work, not a hardware timing claim.
+- [Phase 05]: Plan12: Keep valid user-bank, exception-return, and ARM7-specific base-list block forms distinct from undefined and unpredictable cases; later CPU plan owns those remaining quirks.
 
 ### Pending Todos
 
@@ -273,6 +277,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T18:48:57.971Z
-Stopped at: Plan11 local review and Linux verification complete; continuing Plan12 ARM block transfers
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-12T19:52:50.150Z
+Stopped at: Completed 05-12-PLAN.md; root owns independent review and pinned Linux verification
+Resume file: None
