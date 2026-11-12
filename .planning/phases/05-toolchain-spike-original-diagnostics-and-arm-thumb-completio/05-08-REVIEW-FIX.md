@@ -59,3 +59,23 @@ status: all_fixed
 _Fixed: 2026-11-12T05:59:11Z_
 _Fixer: the agent (gsd-code-fixer)_
 _Iteration: 1_
+
+
+## Subsequent hosted finding
+
+This report records completion of the original four coverage-warning fixes. A subsequent hosted Linux LeakSanitizer result found the separate WR-05 fixture-lifetime issue. At report creation it had not been fixed or retried; see 05-08-CI-HANDOFF.md. Its later local correction and current verification are recorded below. The historical hosted failure remains unresolved until the root-owned Linux/Clang 21 verification and corrected hosted run complete.
+
+## WR-05: PSR bank-visibility fixture leaks its owned ROM
+
+**Status:** Source fix committed as `819aac8`; local verification passed.
+**Files modified:** `tests/cpu_test.c`
+**Applied fix:** Added successful-allocation, live-allocation, and live-byte accounting to the existing CPU test allocator seam. The bank-visibility fixture now proves its 192-byte ROM allocation is live before cleanup, confirms a forced failed allocation does not change those counts, then unconditionally calls `gbl_machine_dispose` and proves live allocation count and bytes return to zero. Updated the PSR assertion plan from 41 to 42.
+
+**Negative control:** Before adding disposal, the focused `cpu.psr` test failed at the allocation-balance assertion. Output is saved at ignored `build/phase05-plan08/leak-fix/red.log`.
+
+**Verification:** All local checks ran in the main checkout. The native Apple Clang 21 normal build passed focused `cpu.psr` and all 29 CPU CTest cases; logs are `build/phase05-plan08/leak-fix/normal-psr-final.log` and `normal-cpu-final.log`. The native Apple Clang 21 ASan/UBSan build passed focused `cpu.psr` and all 29 CPU CTest cases; logs are `appleclang-asan-psr-final.log` and `appleclang-asan-cpu-final.log` in the same ignored directory. The Linux/Clang 21 full sanitizer lane and hosted retry are owned by the root agent and were not run here.
+
+
+### Root Linux verification after source review
+
+Pinned Ubuntu 26.04 native arm64 with Clang 21 at exact source `819aac865e472a8d12d55716c2fef864f249db2b` passed focused cpu.psr, all 78 required ASan/UBSan/LeakSanitizer checks and inventory postcheck (zero skips). Deliberate UBSan/ASan failure controls passed; no suppression or detector disable was used. Full CTest time 153.09 seconds. The local architecture is arm64; hosted x64 is still pending. Raw log/helper: `build/phase05-plan08/leak-fix/linux-clang-sanitizers.log` and `linux-clang-sanitizer-verification.sh`.

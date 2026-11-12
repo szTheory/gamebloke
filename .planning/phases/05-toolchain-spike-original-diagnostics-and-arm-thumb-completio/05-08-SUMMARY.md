@@ -160,3 +160,15 @@ Verification added after the review:
 - An isolated Ubuntu 26.04/GCC clone of commit `673a7dc` built `cpu_test` and passed all 29 registered CPU CTest cases.
 - Exact logs are retained under ignored `build/phase05-review08/`. The full project CI and ASan inventories were not rerun for these test-only changes; earlier full-suite evidence above remains historical. No hardware-accuracy claim follows from these software vectors.
 - Phase state was not advanced. Plan 08 remains locally complete pending review closure; Plan 09 remains not started, and phase-wide CPU/DIAG requirements remain pending.
+
+
+## Hosted integration stop after publication
+
+Published head b0fe8812de9151b1e42f4bac1d6193e8f1ee9564 failed run https://github.com/szTheory/gamebloke/actions/runs/43167646132 because Linux LeakSanitizer detected a 192-byte test-fixture ROM leak in cpu.psr. The bank-visibility block in test_psr_mode_reads_and_banks omits gbl_machine_dispose; other substantive lanes passed. The prior local/source-review evidence above remains true for its actual scope, but the hosted gate is unresolved. See 05-08-CI-HANDOFF.md. No fix/retry followed before owner approval. The owner subsequently approved the bounded correction; progress is recorded below. Plan 09 has not started.
+
+
+## Owner-approved fixture lifetime correction
+
+Owner replied "Yes." to cleanup, a portable allocation-balance regression, matching Linux sanitizers and one corrected hosted run. Tests-only commit `819aac865e472a8d12d55716c2fef864f249db2b` unconditionally disposes the PSR bank-visibility machine. Its allocator-seam check demonstrates a live owned ROM, unchanged counts on refused allocation and zero live allocations/bytes after disposal. The saved pre-disposal negative control failed at that assertion, proving it detects the original defect. Native normal and AppleClang ASan/UBSan passed all 29 CPU groups; scoped independent source re-review is clean.
+
+The pinned Ubuntu 26.04 native arm64/Clang 21 full ASan/UBSan/LeakSanitizer run at that exact commit passed focused cpu.psr, all 78 required sanitizer checks and inventory postcheck with zero skips. Both intentional sanitizer failure controls passed. Evidence: `build/phase05-plan08/leak-fix/`. No source/CPU implementation, frozen producer input, ROM pin, required check, skip policy, sanitizer setting or hosted time limit changed. Hosted x64 confirmation remains pending on the one approved corrected run; no phase-wide completion is claimed.
