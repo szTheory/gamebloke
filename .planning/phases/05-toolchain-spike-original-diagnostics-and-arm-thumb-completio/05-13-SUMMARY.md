@@ -110,7 +110,7 @@ References: [ARM7TDMI Technical Reference Manual DDI0029G](https://documentation
 - Focused native CI regressions for `cpu.arm_block`, `cpu.arm_block_banks`, `cpu.arm_block_bounds`, `cpu.arm_block_edges`, `cpu.arm_pc_return`, `cpu.arm_transfer`, and `cpu.loaded_pc` — **7/7 passed**.
 - The same seven focused selectors under native AppleClang 21 ASan/UBSan from `/usr/bin/clang` — **7/7 passed**. JUnit output: `build/phase05-plan13/asan/junit.xml`.
 - The root-owned pinned GNU build-only helper passed at both Task 1 commit `f76f0f1` and final Task 2 source `ac9ebe6`; the final run used Ubuntu 26.04/aarch64 and GCC 15.2 and built `cpu_test` only.
-- No full native or sanitizer inventory and no hosted CI were run for this plan. Root owns independent review and the final pinned Linux integration gates.
+- The executor ran focused checks only; the root integration closeout below records later full inventories. No newer hosted CI was run.
 
 ## TDD Gate Compliance
 
@@ -140,7 +140,7 @@ None.
 
 ## Next Phase Readiness
 
-Plan 13 is complete locally. Root owns independent review and final full ARM integration verification before continuing. Plan 14 has not started; CPU-01 and phase-wide diagnostic requirements remain pending.
+Plan 13 is complete locally. Independent family review and full ARM integration are complete at the source recorded below. Plan 14 is next; CPU-01 and phase-wide diagnostic requirements remain pending.
 
 ## Self-Check: PASSED
 
@@ -155,3 +155,18 @@ Plan 13 is complete locally. Root owns independent review and final full ARM int
 ## Timing correction
 
 The original duration mixed local and UTC clock values. Git commit epochs for `cc112d8` and `8f703db` differ by 2389 seconds (39min49s). The summary and state metric are corrected; this is the measured commit interval, not total setup/review/integration time. Future trial measurements use UTC epochs.
+
+## Root ARM integration closeout
+
+Independent review found one banked-base coverage gap; tests-only `fc83cf4` added distinct FIQ/User R8 bases, literal addresses and contrasting sentinels. An isolated wrong-User-base mutation fails both new cases; clean normal and AppleClang sanitizer selectors pass. [Review](05-13-REVIEW.md) and [fix evidence](05-13-REVIEW-FIX.md).
+
+All full integration lanes ran sequentially against `fc83cf4dc75fc3d5498100c4f81bd0d94e07f59a`, with no source changes between them:
+
+| Lane | Inventory result | CTest seconds |
+| --- | --- | --- |
+| Native canonical CI | 344 ran, one permitted private-owner check skipped; post audit passed | 295.62 |
+| Native AppleClang ASan/UBSan | 88 ran, no skips; post audit passed | 221.12 |
+| Pinned Ubuntu aarch64 GCC 15.2 | 344 ran, one permitted private-owner check skipped; post audit passed | 255.63 |
+| Pinned Ubuntu aarch64 Clang 21 ASan/UBSan | 88 ran, no skips; post audit passed | 231.09 |
+
+Receipts: ignored `build/phase05-plan13/integration.log`, per-lane logs, and `integration-head.txt`. Wall interval 2026-11-12T21:52:39Z–22:11:50Z includes container setup/builds. These are local measurements, not hosted performance or hardware accuracy. Schema/UI gates are nonblocking; codebase drift is explicitly skipped because STRUCTURE.md is absent. Last hosted green remains the earlier published source; newer local code has not been published. Full phase verification and diagnostic admission remain pending.
