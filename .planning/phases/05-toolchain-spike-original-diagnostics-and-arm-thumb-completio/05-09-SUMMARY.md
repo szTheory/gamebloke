@@ -163,3 +163,10 @@ Plan 09 is complete. Phase-wide CPU-01 remains pending as specified; this plan's
 - All seven plan task commits are ancestors of the current branch head.
 - `.planning/state.json` still matches the exact task-start snapshot.
 - `git diff --check` passes.
+
+
+## Root review and Linux verification before publication
+
+Independent scoped review at9baee53 found no actionable defects; see05-09-REVIEW.md. Full-phase review still remains later. The root-owned pinned Ubuntu26.04 native arm64/Clang21 ASan/UBSan/LeakSanitizer lane passed both focused multiply groups, all80 required tests and post-inventory with zero skips at exact source9baee533d2c1488134eff038741fd68a6274ae44. Pinned Ubuntu26.04 native arm64/GCC full canonical CI also passed336 tests with the one allowed optional owner-local signature skip and post-inventory at that same source. Logs/helpers: build/phase05-plan09/linux-clang-sanitizers.log, linux-clang-sanitizer-verification.sh, linux-gcc-regression.log; compiler setup follows the existing reviewed lane packages, no new dependency or CI job. Local arm64 evidence is separate from hosted x64.
+
+Wave postchecks found no schema drift, no UI change requiring a contract and an advisory no-STRUCTURE.md codebase-drift skip. The original15 producer inputs and two smoke ROM pins are unchanged. All plan source commits remain ancestors of the current branch. Hosted verification is pending on the existing draft PR; no phase-wide CPU/DIAG completion or merge is claimed. Any new hosted red renews the owner stop.

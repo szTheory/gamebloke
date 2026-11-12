@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: executing
-stopped_at: Completed 05-09-PLAN.md
-last_updated: "2026-11-12T14:27:29.475Z"
+status: Plan 09 locally verified and independently reviewed; awaiting hosted CI; Plan 10 not started
+stopped_at: Plan 09 review and Linux compiler/sanitizer checks green; publishing on existing PR
+last_updated: "2026-11-12T14:42:59.050Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
-state_head: ced8e0c577fea178d995bf422fae4462689d6d3d
+state_head: 9baee533d2c1488134eff038741fd68a6274ae44
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 10 of 25
-Status: Ready to execute
+Status: Plan 09 locally verified and independently reviewed; awaiting hosted CI; Plan 10 not started
 Last activity: 2026-11-12 — Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
 
 Progress: [███████░░░] 67%
@@ -260,6 +260,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T14:27:29.302Z
-Stopped at: Completed 05-09-PLAN.md
-Resume file: None
+Last session: 2026-11-12T14:42:58.439Z
+Stopped at: Plan 09 review and Linux compiler/sanitizer checks green; publishing on existing PR
+Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
