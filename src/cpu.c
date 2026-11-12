@@ -1928,12 +1928,126 @@ static bool gbl_cpu_decode_arm_subword_transfer(
     return true;
 }
 
+/* Thumb formats 1, 2 and 4. DDI0100I A7 specifies their flag masks;
+ * DDI0029G §6.5/6.6 supplies register-shift and multiply internal work.
+ * All source values are captured before effects enter the canonical unit. */
+static bool gbl_cpu_decode_thumb_alu(const gbl_cpu_state *cpu,
+                                     gbl_cpu_unit *unit,
+                                     uint32_t next_fetch_address)
+{
+    const uint16_t opcode = (uint16_t)unit->opcode;
+    const uint8_t rd = (uint8_t)(opcode & 7u);
+    const uint8_t rs = (uint8_t)((opcode >> 3u) & 7u);
+    uint32_t left = cpu->r0_7[rd];
+    const uint32_t right = cpu->r0_7[rs];
+    uint32_t mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z;
+    uint32_t flags;
+    bool write = true;
+    bool arithmetic_flags = false;
+    gbl_arithmetic_result arithmetic = { 0u, false, false };
+    gbl_shift_result shifted = { 0u, false };
+
+    if ((opcode & UINT16_C(0xF800)) == UINT16_C(0x1800)) {
+        const bool immediate = (opcode & UINT16_C(0x0400)) != 0u;
+        const uint8_t operand = (uint8_t)((opcode >> 6u) & 7u);
+        const uint32_t value = immediate ? (uint32_t)operand
+                                         : cpu->r0_7[operand];
+
+        left = right;
+        arithmetic = (opcode & UINT16_C(0x0200)) != 0u
+                         ? gbl_sub_flags(left, value)
+                         : gbl_add_flags(left, value);
+        arithmetic_flags = true;
+    } else if ((opcode & UINT16_C(0xE000)) == 0u) {
+        shifted = gbl_shift((gbl_shift_kind)((opcode >> 11u) & 3u),
+                            right, (uint8_t)((opcode >> 6u) & 31u),
+                            (cpu->cpsr & GBL_CPU_CPSR_C) != 0u, false);
+        unit->value = shifted.value;
+        mask |= GBL_CPU_CPSR_C;
+    } else {
+        const uint8_t operation = (uint8_t)((opcode >> 6u) & 15u);
+
+        switch (operation) {
+        case 0u: unit->value = left & right; break; /* AND */
+        case 1u: unit->value = left ^ right; break; /* EOR */
+        case 2u: /* LSL */
+        case 3u: /* LSR */
+        case 4u: /* ASR */
+        case 7u: /* ROR */
+            shifted = gbl_shift(
+                operation == 7u ? GBL_SHIFT_ROR
+                                 : (gbl_shift_kind)(operation - 2u),
+                left, (uint8_t)(right & UINT32_C(0xFF)),
+                (cpu->cpsr & GBL_CPU_CPSR_C) != 0u, true);
+            unit->value = shifted.value;
+            mask |= GBL_CPU_CPSR_C;
+            unit->internal_cycles = 1u;
+            break;
+        case 5u: /* ADC */
+            arithmetic = gbl_add_with_carry_flags(
+                left, right, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+            arithmetic_flags = true;
+            break;
+        case 6u: /* SBC */
+            arithmetic = gbl_sub_with_carry_flags(
+                left, right, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+            arithmetic_flags = true;
+            break;
+        case 8u: unit->value = left & right; write = false; break; /* TST */
+        case 9u: /* NEG */
+            arithmetic = gbl_sub_flags(0u, right);
+            arithmetic_flags = true;
+            break;
+        case 10u: /* CMP */
+            arithmetic = gbl_sub_flags(left, right);
+            arithmetic_flags = true;
+            write = false;
+            break;
+        case 11u: /* CMN */
+            arithmetic = gbl_add_flags(left, right);
+            arithmetic_flags = true;
+            write = false;
+            break;
+        case 12u: unit->value = left | right; break; /* ORR */
+        case 13u: /* MUL: signed early termination and preserved C are policy. */
+            unit->value = left * right;
+            unit->internal_cycles =
+                gbl_cpu_arm_multiply_algorithm_cycles(right, true);
+            break;
+        case 14u: unit->value = left & ~right; break; /* BIC */
+        case 15u: unit->value = ~right; break; /* MVN */
+        default: return false;
+        }
+    }
+    if (arithmetic_flags) {
+        unit->value = arithmetic.value;
+        mask |= GBL_CPU_CPSR_C | GBL_CPU_CPSR_V;
+    }
+    flags = gbl_cpu_nz_flags(unit->value);
+    if (arithmetic_flags ? arithmetic.carry : shifted.carry) {
+        flags |= GBL_CPU_CPSR_C;
+    }
+    if (arithmetic_flags && arithmetic.overflow) {
+        flags |= GBL_CPU_CPSR_V;
+    }
+    unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+    return (!write || gbl_cpu_add_literal_register_effect(
+                          unit, rd, cpu->cpsr, unit->value)) &&
+           gbl_cpu_add_status_effect(unit, mask, flags) &&
+           gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, true);
+}
+
 static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
                                  gbl_cpu_unit *unit,
                                  uint32_t next_fetch_address)
 {
     const uint16_t opcode = (uint16_t)unit->opcode;
     const uint32_t instruction_address = unit->instruction_address;
+
+    if ((opcode & UINT16_C(0xE000)) == 0u ||
+        (opcode & UINT16_C(0xFC00)) == UINT16_C(0x4000)) {
+        return gbl_cpu_decode_thumb_alu(cpu, unit, next_fetch_address);
+    }
 
     if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xDF00)) {
         gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
