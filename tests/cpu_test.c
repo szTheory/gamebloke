@@ -4906,6 +4906,7 @@ typedef struct arm_multiply_timing_form {
     const char *name;
     uint32_t opcode;
     uint8_t extra_internal_cycles;
+    bool long_multiply;
     bool signed_termination;
 } arm_multiply_timing_form;
 
@@ -4962,10 +4963,10 @@ static void test_multiply_signed_vectors(void)
                                  TEST_CPSR_V;
     static const arm_multiply_signed_test_vector vectors[] = {
         { "SMULLS negative extreme times minus one yields positive 64-bit bits",
-          UINT32_C(0xE0904391), UINT32_C(0x80000000), UINT32_MAX, 0u, 0u,
+          UINT32_C(0xE0942391), UINT32_C(0x80000000), UINT32_MAX, 0u, 0u,
           UINT32_C(0x80000000), 0u, nzcv, TEST_CPSR_C | TEST_CPSR_V },
         { "SMULLS negative extreme times one sign-extends into the high word",
-          UINT32_C(0xE0904391), UINT32_C(0x80000000), UINT32_C(1), 0u, 0u,
+          UINT32_C(0xE0942391), UINT32_C(0x80000000), UINT32_C(1), 0u, 0u,
           UINT32_C(0x80000000), UINT32_MAX,
           TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
           TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
@@ -5121,12 +5122,12 @@ static void test_multiply_timing_table(void)
      * this profile pins signed termination for those low-word operations;
      * long forms follow their explicit signed/unsigned opcode. */
     static const arm_multiply_timing_form forms[] = {
-        { "MUL", UINT32_C(0xE0040392), 0u, true },
-        { "MLA", UINT32_C(0xE0245392), 1u, true },
-        { "UMULL", UINT32_C(0xE0C54392), 1u, false },
-        { "UMLAL", UINT32_C(0xE0E54392), 2u, false },
-        { "SMULL", UINT32_C(0xE0854392), 1u, true },
-        { "SMLAL", UINT32_C(0xE0A54392), 2u, true }
+        { "MUL", UINT32_C(0xE0040392), 0u, false, true },
+        { "MLA", UINT32_C(0xE0245392), 1u, false, true },
+        { "UMULL", UINT32_C(0xE0C54392), 1u, true, false },
+        { "UMLAL", UINT32_C(0xE0E54392), 2u, true, false },
+        { "SMULL", UINT32_C(0xE0854392), 1u, true, true },
+        { "SMLAL", UINT32_C(0xE0A54392), 2u, true, true }
     };
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
@@ -5181,7 +5182,8 @@ static void test_multiply_timing_table(void)
                               retired_before + UINT64_C(1) &&
                           machine.cpu.r0_7[4] == sample->rs &&
                           machine.cpu.r0_7[5] ==
-                              (form->signed_termination &&
+                              (form->long_multiply &&
+                                       form->signed_termination &&
                                        (sample->rs & TEST_CPSR_N) != 0u
                                    ? UINT32_MAX
                                    : 0u),
@@ -5323,12 +5325,14 @@ static void test_multiply_preflight_boundaries(void)
                   GBL_RUN_STOPPED, GBL_RUN_REASON_COUNTER_OVERFLOW),
               "SMLAL exhausted retired-instruction counter refuses before effects");
     test_case(multiply_refusal_unchanged(
-                  cost, 0u, 0u, 2u, UINT64_C(100), GBL_RUN_STOPPED,
+                  cost, 0u, 0u, 2u, UINT64_C(100),
+                  GBL_RUN_TRACE_OUTPUT_FULL,
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "SMLAL one-short selected trace capacity preserves prefix and machine");
     test_case(multiply_refusal_unchanged(
                   cost, 0u, 0u, 3u, UINT64_MAX - UINT64_C(1),
-                  GBL_RUN_STOPPED, GBL_RUN_REASON_COUNTER_OVERFLOW),
+                  GBL_RUN_TRACE_OUTPUT_FULL,
+                  GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "SMLAL one-short trace sequence refuses before effects");
 }
 
