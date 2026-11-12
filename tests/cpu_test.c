@@ -2308,7 +2308,7 @@ static bool arm_block_transfer_case(bool preindexed, bool add_offset,
                                      UINT64_C(8), &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.instructions == UINT64_C(1) &&
-                 result.cycles == UINT64_C(3) &&
+                 result.cycles == (load ? UINT64_C(4) : UINT64_C(3)) &&
                  machine.cpu.r0_7[base_register] ==
                      (writeback ? final_base : original_base) &&
                  machine.cpu.r0_7[1] == first_value &&
@@ -2373,6 +2373,8 @@ static void test_arm_block_pc_store_source(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine;
+    gbl_trace_record records[4] = { { 0 } };
+    gbl_trace_buffer trace = { records, 4u, 0u, 0u };
     gbl_run_result result;
     const uint32_t base = UINT32_C(0x03000600);
     const uint32_t opcode = encode_arm_block(
@@ -2386,9 +2388,17 @@ static void test_arm_block_pc_store_source(void)
     if (loaded) {
         machine.cpu.r0_7[0] = base;
         machine.cpu.r0_7[2] = UINT32_C(0xDEADBEEF);
-        passed = run_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM,
-                                     UINT64_C(8), &result) &&
+        passed = run_arm_instruction_with_trace(
+                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(3),
+                     &trace, &result) &&
                  result.instructions == UINT64_C(1) &&
+                 result.cycles == UINT64_C(3) && trace.count == 4u &&
+                 records[1].category == GBL_TRACE_BUS &&
+                 records[1].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
+                 records[2].category == GBL_TRACE_BUS &&
+                 records[2].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                 records[3].category == GBL_TRACE_BUS &&
+                 records[3].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  read_test_word(machine.iwram, 0x600u) ==
                      UINT32_C(0xDEADBEEF) &&
                  read_test_word(machine.iwram, 0x604u) ==
@@ -2508,12 +2518,12 @@ static void test_arm_block_maximum_pc_trace_fit(void)
         records[20] = arm_block_trace_marker(UINT64_C(0xBEEF));
         trace = (gbl_trace_buffer){ records, 20u, 1u, UINT64_C(700) };
         passed = run_arm_instruction_with_trace(
-                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(18),
+                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(20),
                      &trace, &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                  result.instructions == UINT64_C(1) &&
-                 result.cycles == UINT64_C(18) &&
+                 result.cycles == UINT64_C(20) &&
                  trace.count == 20u &&
                  trace.next_sequence == UINT64_C(719) &&
                  machine.cpu.execution_address == UINT32_C(0x08000020) &&
@@ -2567,14 +2577,19 @@ static void test_arm_block_maximum_pc_trace_fit(void)
                      record->address == UINT32_C(0x03000800) +
                                             (uint32_t)index * 4u &&
                      record->value == expected_values[index] &&
-                     record->width == 4u;
+                     record->width == 4u &&
+                     record->access_class ==
+                         (index == 15u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                       : GBL_BUS_CLASS_SEQUENTIAL);
         }
         passed = passed && records[18].sequence == UINT64_C(717) &&
                  records[18].category == GBL_TRACE_BUS &&
+                 records[18].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  records[18].address == UINT32_C(0x08000020) &&
                  records[18].value == UINT32_C(0xE1A08008) &&
                  records[19].sequence == UINT64_C(718) &&
                  records[19].category == GBL_TRACE_BUS &&
+                 records[19].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
                  records[19].address == UINT32_C(0x08000024) &&
                  records[19].value == UINT32_C(0xE1A09009) &&
                  machine.cpu.fiq_r8_14[0] == UINT32_C(0x33000000) &&
@@ -2662,25 +2677,25 @@ static bool arm_block_maximum_refusal_case(
 static void test_arm_block_exact_preflight_refusals(void)
 {
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(18), 19u, UINT64_C(700), UINT64_C(41),
+                  UINT64_C(20), 19u, UINT64_C(700), UINT64_C(41),
                   UINT64_C(52), GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "one-short 19-record trace refusal preserves the full LDM state and caller buffer");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(18), 20u, UINT64_MAX - UINT64_C(18),
+                  UINT64_C(20), 20u, UINT64_MAX - UINT64_C(19),
                   UINT64_C(43), UINT64_C(54),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "trace sequence overflow refuses the full LDM before any read or refill");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(17), 20u, UINT64_C(700), UINT64_C(45),
+                  UINT64_C(19), 20u, UINT64_C(700), UINT64_C(45),
                   UINT64_C(56), GBL_RUN_REASON_CYCLE_BUDGET),
               "one-short cycle budget refuses all sixteen data reads and PC refill");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(18), 20u, UINT64_C(700),
-                  UINT64_MAX - UINT64_C(17), UINT64_C(58),
+                  UINT64_C(20), 20u, UINT64_C(700),
+                  UINT64_MAX - UINT64_C(19), UINT64_C(58),
                   GBL_RUN_REASON_COUNTER_OVERFLOW),
               "master-cycle counter overflow refuses the full LDM atomically");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(18), 20u, UINT64_C(700), UINT64_C(47),
+                  UINT64_C(20), 20u, UINT64_C(700), UINT64_C(47),
                   UINT64_MAX, GBL_RUN_REASON_COUNTER_OVERFLOW),
               "retirement counter overflow refuses the full LDM atomically");
 }
