@@ -61,6 +61,9 @@ typedef struct gbl_cpu_data_slot {
     uint8_t result_index;
     uint8_t alignment_lane;
     bool rotate_word_read;
+    bool rotate_halfword_read;
+    bool sign_extend_byte_read;
+    bool sign_extend_halfword_read;
 } gbl_cpu_data_slot;
 
 typedef struct gbl_cpu_register_effect {
@@ -177,11 +180,33 @@ static bool gbl_cpu_add_data_read_slot(gbl_cpu_unit *unit, uint32_t address,
         .width = width,
         .result_index = result,
         .alignment_lane = alignment_lane,
-        .rotate_word_read = rotate_word_read
+        .rotate_word_read = rotate_word_read,
+        .rotate_halfword_read = false,
+        .sign_extend_byte_read = false,
+        .sign_extend_halfword_read = false
     };
     unit->data_slot_count++;
     unit->result_count++;
     *result_index = result;
+    return true;
+}
+
+static bool gbl_cpu_add_subword_read_slot(
+    gbl_cpu_unit *unit, uint32_t address, uint8_t width,
+    uint8_t alignment_lane, bool rotate_halfword_read,
+    bool sign_extend_byte_read, bool sign_extend_halfword_read,
+    uint8_t *result_index)
+{
+    gbl_cpu_data_slot *slot;
+
+    if (!gbl_cpu_add_data_read_slot(unit, address, width, alignment_lane,
+                                    false, result_index)) {
+        return false;
+    }
+    slot = &unit->data_slots[unit->data_slot_count - 1u];
+    slot->rotate_halfword_read = rotate_halfword_read;
+    slot->sign_extend_byte_read = sign_extend_byte_read;
+    slot->sign_extend_halfword_read = sign_extend_halfword_read;
     return true;
 }
 
@@ -1678,6 +1703,146 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
     return true;
 }
 
+static bool gbl_cpu_decode_arm_subword_transfer(
+    const gbl_cpu_state *cpu, gbl_cpu_unit *unit,
+    uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool sign = (opcode & UINT32_C(0x00000040)) != 0u;
+    const bool halfword = (opcode & UINT32_C(0x00000020)) != 0u;
+    const bool register_offset = (opcode & UINT32_C(0x00400000)) == 0u;
+    const bool preindexed = (opcode & UINT32_C(0x01000000)) != 0u;
+    const bool add_offset = (opcode & UINT32_C(0x00800000)) != 0u;
+    const bool writeback_bit = (opcode & UINT32_C(0x00200000)) != 0u;
+    const bool load = (opcode & UINT32_C(0x00100000)) != 0u;
+    const bool writeback = !preindexed || writeback_bit;
+    const uint8_t base_register =
+        (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+    const uint8_t data_register =
+        (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
+    const uint8_t offset_register = (uint8_t)(opcode & UINT32_C(0x0F));
+    uint32_t base;
+    uint32_t offset;
+    uint32_t address;
+    uint32_t updated_base;
+    uint32_t source_value = 0u;
+    uint8_t result_index = UINT8_MAX;
+    uint8_t width;
+    uint32_t bus_address;
+    bool rotate_halfword_read = false;
+    bool sign_extend_byte_read = false;
+    bool sign_extend_halfword_read = false;
+
+    if ((opcode & UINT32_C(0x0E000090)) != UINT32_C(0x00000090) ||
+        (!sign && !halfword)) {
+        return false;
+    }
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    /* DDI0100I A5.3.1 assigns S=1,L=0 to the later LDRD/STRD
+     * extension space; ARM7TDMI DDI0029G does not implement those forms. */
+    if (sign && !load) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    /* Register-offset mode reserves bits[11:8], and Mode 3 requires W=0
+     * for post-index addressing. Treat malformed/unpredictable operands as
+     * deterministic no-effect stops before creating bus or register slots. */
+    if ((register_offset &&
+         (opcode & UINT32_C(0x00000F00)) != 0u) ||
+        (!preindexed && writeback_bit) || data_register == (uint8_t)15u ||
+        (base_register == (uint8_t)15u &&
+         (!preindexed || writeback)) ||
+        (register_offset && offset_register == (uint8_t)15u) ||
+        (writeback && data_register == base_register) ||
+        (register_offset && writeback &&
+         offset_register == base_register)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+
+    base = gbl_cpu_read_register(cpu, base_register,
+                                 unit->instruction_address,
+                                 GBL_CPU_PC_READ_NORMAL);
+    if (register_offset) {
+        offset = gbl_cpu_read_register(cpu, offset_register,
+                                       unit->instruction_address,
+                                       GBL_CPU_PC_READ_NORMAL);
+    } else {
+        offset = (((opcode >> 4u) & UINT32_C(0xF0)) |
+                  (opcode & UINT32_C(0x0F)));
+    }
+    updated_base = add_offset ? base + offset : base - offset;
+    address = preindexed ? updated_base : base;
+
+    if (!load) {
+        source_value = gbl_cpu_read_register(
+            cpu, data_register, unit->instruction_address,
+            GBL_CPU_PC_READ_STORE_SOURCE);
+        width = (uint8_t)GBL_CPU_HALF_WIDTH;
+        bus_address = address & ~UINT32_C(1);
+    } else if (sign && !halfword) {
+        width = 1u;
+        bus_address = address;
+        sign_extend_byte_read = true;
+    } else if (sign && halfword && (address & UINT32_C(1)) != 0u) {
+        /* GBATEK 3.06, ARM CPU Memory Alignments, ARM7/GBA row: odd
+         * LDRSH is the signed-byte operation at the original address. */
+        width = 1u;
+        bus_address = address;
+        sign_extend_byte_read = true;
+    } else {
+        width = (uint8_t)GBL_CPU_HALF_WIDTH;
+        bus_address = address & ~UINT32_C(1);
+        if (!sign && (address & UINT32_C(1)) != 0u) {
+            /* GBATEK 3.06 reports the ARM7/GBA odd LDRH result as the
+             * aligned halfword read rotated right by eight in a word. */
+            rotate_halfword_read = true;
+        } else if (sign) {
+            sign_extend_halfword_read = true;
+        }
+    }
+    if (!gbl_cpu_data_span_valid(bus_address, width)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+
+    unit->kind = GBL_CPU_UNIT_TRANSFER;
+    if (load) {
+        if (!gbl_cpu_add_subword_read_slot(
+                unit, bus_address, width, (uint8_t)(address & UINT32_C(1)),
+                rotate_halfword_read, sign_extend_byte_read,
+                sign_extend_halfword_read, &result_index) ||
+            !gbl_cpu_add_result_register_effect(
+                unit, data_register, cpu->cpsr, result_index)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            return true;
+        }
+    } else if (!gbl_cpu_add_data_write_slot(
+                   unit, bus_address, width,
+                   source_value & UINT32_C(0x0000FFFF))) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if (writeback &&
+        !gbl_cpu_add_literal_register_effect(
+            unit, base_register, cpu->cpsr, updated_base)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    }
+    return true;
+}
+
 static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
                                  gbl_cpu_unit *unit,
                                  uint32_t next_fetch_address)
@@ -2041,6 +2206,10 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
         return gbl_cpu_schedule_branch(
             unit, unit->instruction_address + UINT32_C(8) + offset, false);
     }
+    if (gbl_cpu_decode_arm_subword_transfer(cpu, unit,
+                                           next_fetch_address)) {
+        return gbl_cpu_finalize_decoded(unit, true);
+    }
     if (gbl_cpu_decode_arm_swap(cpu, unit, next_fetch_address)) {
         return gbl_cpu_finalize_decoded(unit, true);
     }
@@ -2147,15 +2316,30 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
             return false;
         }
         if (slot->operation == GBL_CPU_DATA_READ) {
+            const uint8_t transform_count =
+                (uint8_t)(slot->rotate_word_read ? 1u : 0u) +
+                (uint8_t)(slot->rotate_halfword_read ? 1u : 0u) +
+                (uint8_t)(slot->sign_extend_byte_read ? 1u : 0u) +
+                (uint8_t)(slot->sign_extend_halfword_read ? 1u : 0u);
+
             if (slot->result_index >= unit->result_count ||
-                result_seen[slot->result_index]) {
+                result_seen[slot->result_index] || transform_count > 1u ||
+                (slot->rotate_word_read && slot->width !=
+                                                (uint8_t)GBL_CPU_WORD_WIDTH) ||
+                (slot->rotate_halfword_read && slot->width !=
+                                                    (uint8_t)GBL_CPU_HALF_WIDTH) ||
+                (slot->sign_extend_byte_read && slot->width != 1u) ||
+                (slot->sign_extend_halfword_read && slot->width !=
+                                                        (uint8_t)GBL_CPU_HALF_WIDTH)) {
                 *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
                 return false;
             }
             result_seen[slot->result_index] = true;
         } else if (slot->operation == GBL_CPU_DATA_WRITE) {
             if (slot->result_index != UINT8_MAX ||
-                slot->rotate_word_read) {
+                slot->rotate_word_read || slot->rotate_halfword_read ||
+                slot->sign_extend_byte_read ||
+                slot->sign_extend_halfword_read) {
                 *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
                 return false;
             }
@@ -2726,6 +2910,23 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                             GBL_SHIFT_ROR, value, rotate, false, true);
 
                         value = rotated.value;
+                    }
+                    if (slot->rotate_halfword_read &&
+                        slot->alignment_lane != 0u) {
+                        value = gbl_shift(GBL_SHIFT_ROR, value, 8u, false,
+                                          true).value;
+                    }
+                    if (slot->sign_extend_byte_read) {
+                        value &= UINT32_C(0x000000FF);
+                        if ((value & UINT32_C(0x00000080)) != 0u) {
+                            value |= UINT32_C(0xFFFFFF00);
+                        }
+                    }
+                    if (slot->sign_extend_halfword_read) {
+                        value &= UINT32_C(0x0000FFFF);
+                        if ((value & UINT32_C(0x00008000)) != 0u) {
+                            value |= UINT32_C(0xFFFF0000);
+                        }
                     }
                     unit.results[slot->result_index] = value;
                 } else {

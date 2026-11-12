@@ -2277,12 +2277,10 @@ static bool arm_subword_form_case(uint8_t transfer_kind,
     uint32_t opcode;
     size_t index;
     bool saw_data = false;
+    bool ran;
     bool observed;
 
     make_empty_image(image);
-    if (transfer_kind == 1u) {
-        memset(image, 0, sizeof(image));
-    }
     if (!machine_load(&machine, image)) {
         return false;
     }
@@ -2310,17 +2308,18 @@ static bool arm_subword_form_case(uint8_t transfer_kind,
         halfword, 0u, 2u, address_case->register_offset
                              ? UINT16_C(1)
                              : address_case->offset);
-    observed = run_arm_instruction_with_trace(
-        &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(3), &trace, &result) &&
+    ran = run_arm_instruction_with_trace(
+        &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(2), &trace, &result);
+    observed = ran &&
         result.termination == GBL_RUN_PROGRESS &&
-        result.cycles == UINT64_C(3) &&
-        result.instructions == UINT64_C(1) && machine.master_cycles == 3u &&
+        result.cycles == UINT64_C(2) &&
+        result.instructions == UINT64_C(1) && machine.master_cycles == 2u &&
         machine.cpu.r0_7[0] == expected_base &&
         (load ? machine.cpu.r0_7[2] == expected_result
-              : machine.iwram[access_address - UINT32_C(0x03000000)] ==
-                    UINT8_C(0xC3) &&
-                    machine.iwram[access_address - UINT32_C(0x03000000) + 1u]
-                        == UINT8_C(0xD4));
+              : (machine.iwram[access_address - UINT32_C(0x03000000)] ==
+                     UINT8_C(0xD4) &&
+                 machine.iwram[access_address - UINT32_C(0x03000000) + 1u] ==
+                     UINT8_C(0xC3)));
     for (index = 0u; index < trace.count; ++index) {
         if (records[index].category == GBL_TRACE_BUS &&
             records[index].address == access_address &&
@@ -2329,8 +2328,8 @@ static bool arm_subword_form_case(uint8_t transfer_kind,
             saw_data = true;
         }
     }
-    observed = observed && saw_data && trace.count == 4u &&
-               trace.next_sequence == UINT64_C(44);
+    observed = observed && saw_data && trace.count == 3u &&
+               trace.next_sequence == UINT64_C(43);
     gbl_machine_dispose(&machine);
     return observed;
 }
