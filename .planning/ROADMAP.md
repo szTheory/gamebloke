@@ -247,7 +247,7 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: 7/25 plans executed. Plan 05 admitted and verified the measured smoke pair and added the explicit ARM/Thumb family/form ledger; 356 cases remain pending for later Phase 05 plans and phase-wide verification.
+**Plans**: 8/25 plans executed. Plan 05 admitted and verified the measured smoke pair and added the explicit ARM/Thumb family/form ledger; 356 cases remain pending for later Phase 05 plans and phase-wide verification.
 
 Plans:
 **Wave 1**
@@ -272,7 +272,7 @@ Plans:
 - [x] 05-07-PLAN.md — Complete ARM ALU, conditions and shifter flags
 
 **Wave 8** *(blocked on Wave 7 completion)*
-- [ ] 05-08-PLAN.md — Instruction-specific PC, PSR and exception-return semantics
+- [x] 05-08-PLAN.md — Instruction-specific PC, PSR and exception-return semantics
 
 **Wave 9** *(blocked on Wave 8 completion)*
 - [ ] 05-09-PLAN.md — All six ARM7TDMI multiply forms and cost policy
@@ -409,7 +409,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 13/13 | Complete    | 2026-11-11 |
-| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 7/25 | In Progress | - |
+| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 8/25 | In Progress | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
 
 ---

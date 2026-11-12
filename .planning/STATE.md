@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan 07 complete locally; Plan 08 not started
-stopped_at: Completed 05-07-PLAN.md; Plan 06 run 43144072990 is green at f62d2ff; Plan 07 local verification passed
-last_updated: "2026-11-12T04:09:00.394Z"
+status: Plan 08 complete locally; Plan 09 not started
+stopped_at: Completed 05-08-PLAN.md
+last_updated: "2026-11-12T05:16:16.305Z"
 last_activity: 2026-11-12
-last_activity_desc: Phase 05 Plan 05 smoke pair admitted after green hosted witness and canonical local CI
-state_head: 7e0d1bf1f9ae6b05ab84d5501d170fe7db713443
+last_activity_desc: Phase 05 Plan 08 completed locally; Plan 09 not started
+state_head: f862a7007c1f065ddc240024c9c04e3fa800a97b
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 45
+  completed_plans: 46
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 8 of 25
-Status: Plan 07 complete locally; Plan 08 not started
-Last activity: 2026-11-12 — Plan 05 smoke pair admitted after hosted and local verification passed
+Plan: 9 of 25
+Status: Plan 08 complete locally; Plan 09 not started
+Last activity: 2026-11-12 — Phase 05 Plan 08 completed locally
 
 Progress: [███████░░░] 67%
 
@@ -104,6 +104,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P05 | multi-resume; admission continuation about 25 minutes | 2 tasks | 17 files |
 | Phase 05 P06 | 30 min | 2 tasks | 8 files |
 | Phase 05 P07 | 54 min | 2 tasks | 7 files |
+| Phase 05 P08 | 49m | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -216,6 +217,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Plan 06: Keep SWP and SWPB on one bounded ordered path; snapshot operands before data bus effects and commit Rd after the write.
 - [Phase 05]: ARM condition 1111 is UNPREDICTABLE and is refused before machine effects.
 - [Phase 05]: Use the normal-condition E7F000F0 ARMv4T undefined encoding for UND and no-BIOS controls; F1A00000 encodes condition 1111.
+- [Phase 05]: ARMv4T MSR behavior follows ARM ARM DDI0100I A4.1.39, including UnallocMask and the distinct active-CPSR versus saved-SPSR masks.
+- [Phase 05]: Unpredictable classification remains private until Plan18 adds its coherent public reason and result-profile mapping.
 
 ### Pending Todos
 
@@ -252,6 +255,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T04:07:37.406Z
-Stopped at: Completed 05-07-PLAN.md; Plan 06 run 43144072990 is green at f62d2ff; Plan 07 local verification passed
+Last session: 2026-11-12T05:16:16.141Z
+Stopped at: Completed 05-08-PLAN.md
 Resume file: None
