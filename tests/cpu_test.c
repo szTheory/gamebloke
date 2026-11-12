@@ -5013,6 +5013,93 @@ static void test_multiply_signed_vectors(void)
     gbl_machine_dispose(&machine);
 }
 
+static bool multiply_unpredictable_refused(uint32_t opcode)
+{
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[3];
+    gbl_trace_record prior_records[3];
+    gbl_trace_buffer trace = { records, 3u, 1u, UINT64_C(17) };
+    gbl_run_result result = {
+        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u
+    };
+    const gbl_run_options options = {
+        .cycle_budget = UINT64_C(16),
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_CATEGORY_MASK,
+        .trace_buffer = &trace
+    };
+    size_t index;
+    bool valid;
+
+    for (index = 0u; index < 3u; ++index) {
+        records[index] = multiply_trace_sentinel;
+        prior_records[index] = multiply_trace_sentinel;
+    }
+    if (!prepare_arm_multiply_machine(&machine, opcode)) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    {
+        const gbl_machine before = machine;
+        gbl_machine expected = before;
+        const bool ran = gbl_cpu_run(&machine, &options, &result) ==
+                         GBL_RUN_STATUS_OK;
+
+        expected.cpu.stopped = true;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        valid = ran && result.termination == GBL_RUN_STOPPED &&
+                result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                result.cycles == 0u && result.instructions == 0u &&
+                machine.master_cycles == before.master_cycles &&
+                machine.cpu.retired_instructions ==
+                    before.cpu.retired_instructions &&
+                gbl_test_canonical_equal(&expected, &machine) &&
+                gbl_test_canonical_digest(&expected) ==
+                    gbl_test_canonical_digest(&machine) &&
+                gbl_test_same_instance_identity_equal(&before, &machine) &&
+                trace.records == records && trace.capacity == 3u &&
+                trace.count == 1u && trace.next_sequence == UINT64_C(17) &&
+                trace_records_match(records, prior_records, 3u);
+    }
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_multiply_operand_restrictions(void)
+{
+    static const uint32_t nzcv = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C |
+                                 TEST_CPSR_V;
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    bool loaded;
+    bool ran = false;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[1] = UINT32_C(5);
+        machine.cpu.r0_7[3] = UINT32_C(7);
+        prime_arm_instruction(&machine, UINT32_C(0xE0110391), nzcv);
+        ran = run_units(&machine, UINT64_C(4), 1u, &result);
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                  result.cycles == 2u && result.instructions == 1u &&
+                  machine.cpu.r0_7[1] == UINT32_C(35) &&
+                  machine.cpu.r0_7[3] == UINT32_C(7) &&
+                  (machine.cpu.cpsr & nzcv) == (TEST_CPSR_C | TEST_CPSR_V),
+              "ARM7TDMI MUL permits Rd equal to Rm after snapshotting operands");
+    gbl_machine_dispose(&machine);
+
+    test_case(multiply_unpredictable_refused(UINT32_C(0xE01F0391)),
+              "MUL R15 destination is refused before other effects");
+    test_case(multiply_unpredictable_refused(UINT32_C(0xE0C22391)),
+              "UMULL equal high and low destinations are refused before effects");
+}
+
 static void test_multiply_timing_table(void)
 {
     static const arm_multiply_timing_sample samples[] = {
@@ -6239,6 +6326,7 @@ static const cpu_test_function multiply_unsigned_functions[] = {
 };
 static const cpu_test_function multiply_signed_timing_functions[] = {
     test_multiply_signed_vectors,
+    test_multiply_operand_restrictions,
     test_multiply_timing_table,
     test_multiply_preflight_boundaries
 };
@@ -6319,7 +6407,7 @@ static const cpu_test_function slots_bounds_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
-    CPU_TEST_GROUP("multiply_signed_timing", 82u,
+    CPU_TEST_GROUP("multiply_signed_timing", 85u,
                    multiply_signed_timing_functions),
     CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
