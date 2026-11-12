@@ -16,6 +16,7 @@
 #define TEST_CPSR_Z UINT32_C(0x40000000)
 #define TEST_CPSR_C UINT32_C(0x20000000)
 #define TEST_CPSR_V UINT32_C(0x10000000)
+#define TEST_CPSR_T UINT32_C(0x00000020)
 #define TEST_CPSR_MODE_MASK UINT32_C(0x0000001F)
 #define TEST_CPSR_USER UINT32_C(0x00000010)
 #define TEST_CPSR_FIQ UINT32_C(0x00000011)
@@ -310,6 +311,16 @@ static uint32_t encode_arm_block(bool preindexed, bool add_offset,
            (writeback ? UINT32_C(1) << 21u : 0u) |
            (load ? UINT32_C(1) << 20u : 0u) |
            ((uint32_t)base_register << 16u) | (uint32_t)register_list;
+}
+
+static uint32_t encode_arm_block_user(bool preindexed, bool add_offset,
+                                      bool writeback, bool load,
+                                      uint8_t base_register,
+                                      uint16_t register_list)
+{
+    return encode_arm_block(preindexed, add_offset, writeback, load,
+                            base_register, register_list) |
+           (UINT32_C(1) << 22u);
 }
 
 static uint32_t read_test_word(const uint8_t *bytes, size_t offset)
@@ -2904,6 +2915,473 @@ static void test_arm_block_address_wraps_modulo32(void)
     }
     test_case(passed,
               "STMIA transfer addresses advance in unsigned modulo-32-bit order");
+}
+
+static uint32_t arm_block_mode_register(const gbl_cpu_state *cpu,
+                                        uint32_t mode,
+                                        uint8_t register_index)
+{
+    const uint32_t bank = mode & TEST_CPSR_MODE_MASK;
+
+    if (register_index < 8u) {
+        return cpu->r0_7[register_index];
+    }
+    if (bank == TEST_CPSR_FIQ) {
+        return cpu->fiq_r8_14[(size_t)register_index - 8u];
+    }
+    if (register_index <= 12u) {
+        return cpu->usr_r8_14[(size_t)register_index - 8u];
+    }
+    switch (bank) {
+    case TEST_CPSR_IRQ:
+        return cpu->irq_r13_14[(size_t)register_index - 13u];
+    case TEST_CPSR_SVC:
+        return cpu->svc_r13_14[(size_t)register_index - 13u];
+    case TEST_CPSR_ABT:
+        return cpu->abt_r13_14[(size_t)register_index - 13u];
+    case TEST_CPSR_UND:
+        return cpu->und_r13_14[(size_t)register_index - 13u];
+    default:
+        return cpu->usr_r8_14[(size_t)register_index - 8u];
+    }
+}
+
+static bool run_arm_block_in_mode(gbl_machine *machine, uint32_t opcode,
+                                  uint32_t cpsr, uint64_t cycle_budget,
+                                  gbl_trace_buffer *trace,
+                                  gbl_run_result *result)
+{
+    prepare_arm_instruction(machine, opcode, cpsr);
+    machine->cpu.cpsr = cpsr;
+    if (trace == NULL) {
+        return run_units(machine, cycle_budget, UINT64_C(1), result);
+    }
+    return run_traced_units(machine, cycle_budget, UINT64_C(1),
+                            GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, trace,
+                            result);
+}
+
+static void test_arm_block_user_bank_transfers(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_trace_record records[9] = { { 0 } };
+    gbl_trace_buffer trace = { records, 9u, 0u, UINT64_C(100) };
+    gbl_run_result result = { 0 };
+    const uint32_t base = UINT32_C(0x03000100);
+    const uint16_t banked_registers = UINT16_C(0x7F00);
+    const uint32_t store_opcode = encode_arm_block_user(
+        false, true, false, false, 0u, banked_registers);
+    const uint32_t load_opcode = encode_arm_block_user(
+        false, true, false, true, 0u, banked_registers);
+    uint32_t expected_load[7];
+    bool loaded;
+    bool passed;
+    size_t index;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        test_case(false,
+                  "privileged STM^ and LDM^ use the User register bank in FIQ mode");
+        test_case(false,
+                  "FIQ-private registers remain separate from User-bank LDM^ results");
+        return;
+    }
+
+    machine.cpu.r0_7[0] = base;
+    for (index = 0u; index < 7u; ++index) {
+        machine.cpu.usr_r8_14[index] =
+            UINT32_C(0x81000000) + (uint32_t)index * UINT32_C(0x101);
+        machine.cpu.fiq_r8_14[index] =
+            UINT32_C(0xF1000000) + (uint32_t)index * UINT32_C(0x101);
+    }
+    passed = run_arm_block_in_mode(
+                 &machine, store_opcode, TEST_CPSR_FIQ, UINT64_C(8),
+                 &trace, &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.instructions == 1u && result.cycles == 8u &&
+             trace.count == 9u && trace.records == records &&
+             trace.next_sequence == UINT64_C(109) &&
+             records[8].category == GBL_TRACE_BUS &&
+             records[8].address == UINT32_C(0x08000004) &&
+             records[8].access_class == GBL_BUS_CLASS_NONSEQUENTIAL;
+    for (index = 0u; passed && index < 7u; ++index) {
+        const uint32_t value =
+            UINT32_C(0x81000000) + (uint32_t)index * UINT32_C(0x101);
+        const gbl_trace_record *record = &records[index + 1u];
+
+        passed = read_test_word(machine.iwram, 0x100u + index * 4u) == value &&
+                 record->category == GBL_TRACE_BUS &&
+                 record->address == base + (uint32_t)index * 4u &&
+                 record->value == value &&
+                 record->access_class ==
+                     (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                  : GBL_BUS_CLASS_SEQUENTIAL);
+    }
+    test_case(passed,
+              "privileged STM^ captures and stores the User r8-r14 bank in FIQ mode");
+
+    for (index = 0u; index < 7u; ++index) {
+        expected_load[index] =
+            UINT32_C(0xA7000000) + (uint32_t)index * UINT32_C(0x202);
+        write_word(machine.iwram, 0x100u + index * 4u,
+                   expected_load[index]);
+        records[index] = arm_block_trace_marker(UINT64_C(0x4000) + index);
+    }
+    trace = (gbl_trace_buffer){ records, 9u, 0u, UINT64_C(200) };
+    passed = run_arm_block_in_mode(
+                 &machine, load_opcode, TEST_CPSR_FIQ, UINT64_C(9),
+                 &trace, &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.instructions == 1u && result.cycles == 9u &&
+             trace.count == 9u && trace.next_sequence == UINT64_C(209) &&
+             machine.cpu.r0_7[0] == base &&
+             (machine.cpu.cpsr & TEST_CPSR_MODE_MASK) == TEST_CPSR_FIQ &&
+             records[8].category == GBL_TRACE_BUS &&
+             records[8].address == UINT32_C(0x08000004) &&
+             records[8].access_class == GBL_BUS_CLASS_SEQUENTIAL;
+    for (index = 0u; passed && index < 7u; ++index) {
+        passed = machine.cpu.usr_r8_14[index] == expected_load[index] &&
+                 machine.cpu.fiq_r8_14[index] ==
+                     UINT32_C(0xF1000000) +
+                         (uint32_t)index * UINT32_C(0x101) &&
+                 records[index + 1u].address ==
+                     base + (uint32_t)index * 4u &&
+                 records[index + 1u].value == expected_load[index];
+    }
+    test_case(passed,
+              "FIQ-private registers remain separate from User-bank LDM^ results");
+    gbl_machine_dispose(&machine);
+}
+
+static bool arm_block_spsr_return_mode_case(uint32_t exception_mode,
+                                            size_t spsr_index)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_run_result result = { 0 };
+    const uint32_t base = UINT32_C(0x03000200);
+    const uint32_t restored_cpsr =
+        TEST_CPSR_SYSTEM | TEST_CPSR_T | TEST_CPSR_C;
+    const uint16_t list = UINT16_C(0xFF00);
+    const uint32_t opcode = encode_arm_block_user(
+        false, true, false, true, 0u, list);
+    bool loaded;
+    bool passed;
+    uint8_t index;
+
+    make_empty_image(image);
+    write_halfword(image, 0x20u, UINT16_C(0x2007));
+    write_halfword(image, 0x22u, UINT16_C(0x2108));
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    seed_nondefault_cpu_state(&machine.cpu);
+    machine.cpu.r0_7[0] = base;
+    machine.cpu.spsr[spsr_index] = restored_cpsr;
+    for (index = 0u; index < 7u; ++index) {
+        write_word(machine.iwram, 0x200u + (size_t)index * 4u,
+                   UINT32_C(0xA8000000) +
+                       (uint32_t)index * UINT32_C(0x111));
+    }
+    write_word(machine.iwram, 0x21Cu, UINT32_C(0x08000021));
+
+    passed = run_arm_block_in_mode(&machine, opcode, exception_mode,
+                                   UINT64_C(12), NULL, &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.instructions == 1u && result.cycles == UINT64_C(12) &&
+             machine.cpu.cpsr == restored_cpsr &&
+             machine.cpu.execution_address == UINT32_C(0x08000020) &&
+             machine.cpu.pipeline[0].address == UINT32_C(0x08000020) &&
+             machine.cpu.pipeline[0].opcode == UINT16_C(0x2007) &&
+             machine.cpu.pipeline[0].width == 2u &&
+             machine.cpu.pipeline[1].address == UINT32_C(0x08000022) &&
+             machine.cpu.pipeline[1].opcode == UINT16_C(0x2108) &&
+             machine.cpu.pipeline[1].width == 2u;
+    for (index = 8u; passed && index <= 14u; ++index) {
+        passed = arm_block_mode_register(&machine.cpu, exception_mode,
+                                         index) ==
+                 UINT32_C(0xA8000000) +
+                     (uint32_t)(index - 8u) * UINT32_C(0x111);
+    }
+    if (exception_mode == TEST_CPSR_FIQ) {
+        for (index = 0u; passed && index < 7u; ++index) {
+            passed = machine.cpu.usr_r8_14[index] ==
+                     UINT32_C(0x22000000) + (uint32_t)index;
+        }
+    } else {
+        for (index = 0u; passed && index < 7u; ++index) {
+            passed = machine.cpu.fiq_r8_14[index] ==
+                     UINT32_C(0x33000000) + (uint32_t)index;
+        }
+    }
+    passed = passed && run_units(&machine, UINT64_C(1), UINT64_C(1),
+                                 &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.instructions == 1u && result.cycles == UINT64_C(1) &&
+             machine.cpu.r0_7[0] == 7u &&
+             (machine.cpu.cpsr & (TEST_CPSR_T | TEST_CPSR_MODE_MASK)) ==
+                 (TEST_CPSR_T | TEST_CPSR_SYSTEM) &&
+             machine.cpu.execution_address == UINT32_C(0x08000022) &&
+             machine.cpu.pipeline[0].width == 2u;
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_spsr_return_modes(void)
+{
+    static const struct {
+        uint32_t mode;
+        size_t spsr_index;
+        const char *name;
+    } cases[] = {
+        { TEST_CPSR_FIQ, 0u, "FIQ" },
+        { TEST_CPSR_IRQ, 1u, "IRQ" },
+        { TEST_CPSR_SVC, 2u, "SVC" },
+        { TEST_CPSR_ABT, 3u, "Abort" },
+        { TEST_CPSR_UND, 4u, "Undefined" }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        char description[160];
+
+        (void)snprintf(
+            description, sizeof(description),
+            "LDM^ PC returns from %s using captured banked destinations and Thumb SPSR",
+            cases[index].name);
+        test_case(arm_block_spsr_return_mode_case(
+                      cases[index].mode, cases[index].spsr_index),
+                  description);
+    }
+}
+
+static bool arm_block_unpredictable_is_atomic(uint32_t opcode,
+                                              uint32_t cpsr,
+                                              size_t spsr_index,
+                                              uint32_t spsr_value)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_machine before;
+    gbl_machine expected;
+    gbl_trace_record records[5] = { { 0 } };
+    gbl_trace_record records_before[5];
+    gbl_trace_buffer trace = {
+        records, 5u, 1u, UINT64_C(550)
+    };
+    gbl_run_options options = {
+        UINT64_C(32), UINT64_C(1), GBL_TRACE_CATEGORY_MASK, &trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool passed = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    seed_nondefault_cpu_state(&machine.cpu);
+    machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+    machine.cpu.spsr[spsr_index] = spsr_value;
+    write_word(machine.iwram, 0x100u, UINT32_C(0x12345678));
+    write_word(machine.iwram, 0x104u, UINT32_C(0x08000020));
+    records[0] = arm_block_trace_marker(UINT64_C(0xCAFE));
+    memcpy(records_before, records, sizeof(records));
+    prepare_arm_instruction(&machine, opcode, cpsr);
+    machine.cpu.cpsr = cpsr;
+    before = machine;
+    expected = before;
+    expected.cpu.stopped = true;
+    expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+    passed = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK &&
+             result.termination == GBL_RUN_STOPPED &&
+             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+             result.instructions == 0u && result.cycles == 0u &&
+             gbl_test_canonical_equal(&expected, &machine) &&
+             gbl_test_same_instance_identity_equal(&before, &machine) &&
+             trace.records == records && trace.capacity == 5u &&
+             trace.count == 1u && trace.next_sequence == UINT64_C(550) &&
+             gbl_test_bytes_equal((const uint8_t *)records,
+                                  (const uint8_t *)records_before,
+                                  sizeof(records));
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_user_bank_invalid_forms(void)
+{
+    const uint32_t stm_user_writeback = encode_arm_block_user(
+        false, true, true, false, 0u, UINT16_C(0x0002));
+    const uint32_t ldm_user_writeback = encode_arm_block_user(
+        false, true, true, true, 0u, UINT16_C(0x0002));
+    const uint32_t ldm_user_bank_pc = encode_arm_block_user(
+        false, true, false, true, 0u, UINT16_C(0x8001));
+    const uint32_t ldm_user_bank_no_pc = encode_arm_block_user(
+        false, true, false, true, 0u, UINT16_C(0x0002));
+    const uint32_t stm_user_bank = encode_arm_block_user(
+        false, true, false, false, 0u, UINT16_C(0x0002));
+
+    test_case(arm_block_unpredictable_is_atomic(
+                  stm_user_writeback, TEST_CPSR_FIQ, 0u, 0u),
+              "STM^ writeback is rejected before effects in a privileged mode");
+    test_case(arm_block_unpredictable_is_atomic(
+                  ldm_user_writeback, TEST_CPSR_SVC, 2u, 0u),
+              "LDM^ without PC rejects W=1 before effects");
+    test_case(arm_block_unpredictable_is_atomic(
+                  ldm_user_bank_pc, TEST_CPSR_USER, 0u, 0u),
+              "LDM^ PC without an SPSR is rejected in User mode before reads");
+    test_case(arm_block_unpredictable_is_atomic(
+                  ldm_user_bank_pc, TEST_CPSR_SYSTEM, 0u, 0u),
+              "LDM^ PC without an SPSR is rejected in System mode before reads");
+    test_case(arm_block_unpredictable_is_atomic(
+                  ldm_user_bank_no_pc, TEST_CPSR_USER, 0u, 0u),
+              "LDM^ user-bank form is rejected in User mode before reads");
+    test_case(arm_block_unpredictable_is_atomic(
+                  ldm_user_bank_no_pc, TEST_CPSR_SYSTEM, 0u, 0u),
+              "LDM^ user-bank form is rejected in System mode before reads");
+    test_case(arm_block_unpredictable_is_atomic(
+                  stm_user_bank, TEST_CPSR_USER, 0u, 0u),
+              "STM^ user-bank form is rejected in User mode before stores");
+    test_case(arm_block_unpredictable_is_atomic(
+                  stm_user_bank, TEST_CPSR_SYSTEM, 0u, 0u),
+              "STM^ user-bank form is rejected in System mode before stores");
+    test_case(arm_block_unpredictable_is_atomic(
+                  ldm_user_bank_pc, TEST_CPSR_SVC, 2u, 0u),
+              "LDM^ PC rejects an invalid saved CPSR mode before any load");
+}
+
+static bool arm_block_exception_return_trace_case(size_t trace_capacity,
+                                                  bool expect_success)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    uint32_t expected_values[16];
+    gbl_machine machine;
+    gbl_machine before;
+    gbl_trace_record records[21] = { { 0 } };
+    gbl_trace_record records_before[21];
+    gbl_trace_buffer trace;
+    gbl_run_result result = { 0 };
+    const uint32_t opcode = encode_arm_block_user(
+        false, true, false, true, 0u, UINT16_MAX);
+    bool loaded;
+    bool passed;
+    uint8_t index;
+
+    loaded = arm_block_prepare_maximum_load(&machine, image,
+                                             expected_values);
+    if (!loaded) {
+        return false;
+    }
+    machine.cpu.spsr[2] = TEST_CPSR_SYSTEM;
+    for (index = 0u; index < 21u; ++index) {
+        records[index] = arm_block_trace_marker(
+            UINT64_C(0x6000) + (uint64_t)index);
+    }
+    memcpy(records_before, records, sizeof(records));
+    trace = (gbl_trace_buffer){ records, trace_capacity, 0u,
+                                UINT64_C(800) };
+    prepare_arm_instruction(&machine, opcode, TEST_CPSR_SVC);
+    machine.cpu.cpsr = TEST_CPSR_SVC;
+    before = machine;
+    if (expect_success) {
+        passed = run_traced_units(
+                     &machine, UINT64_C(20), UINT64_C(1),
+                     GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace,
+                     &result) &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.instructions == 1u && result.cycles == 20u &&
+                 machine.cpu.cpsr == TEST_CPSR_SYSTEM &&
+                 machine.cpu.execution_address == UINT32_C(0x08000020) &&
+                 machine.cpu.pipeline[0].width == 4u &&
+                 trace.count == 19u && trace.next_sequence == UINT64_C(819);
+        for (index = 0u; passed && index < 16u; ++index) {
+            passed = records[(size_t)index + 1u].category == GBL_TRACE_BUS &&
+                     records[(size_t)index + 1u].address ==
+                         UINT32_C(0x03000800) + (uint32_t)index * 4u &&
+                     records[(size_t)index + 1u].value == expected_values[index];
+        }
+        passed = passed && records[17].address == UINT32_C(0x08000020) &&
+                 records[17].width == 4u &&
+                 records[18].address == UINT32_C(0x08000024) &&
+                 records[18].width == 4u;
+    } else {
+        passed = run_traced_units(
+                     &machine, UINT64_C(20), UINT64_C(1),
+                     GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace,
+                     &result) &&
+                 result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                 result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                 result.instructions == 0u && result.cycles == 0u &&
+                 trace.records == records && trace.capacity == trace_capacity &&
+                 trace.count == 0u && trace.next_sequence == UINT64_C(800) &&
+                 arm_block_trace_records_equal(records, records_before) &&
+                 gbl_test_canonical_equal(&before, &machine) &&
+                 gbl_test_same_instance_identity_equal(&before, &machine);
+    }
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_spsr_return_trace_capacity(void)
+{
+    test_case(arm_block_exception_return_trace_case(19u, true),
+              "full LDM^ PC preflights and commits sixteen loads plus two refills in 20 cycles");
+    test_case(arm_block_exception_return_trace_case(18u, false),
+              "one-short LDM^ PC trace refusal preserves full state and caller records");
+}
+
+static void test_arm_block_thumb_wrap_return(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_trace_record records[5] = { { 0 } };
+    gbl_trace_buffer trace = { records, 5u, 0u, UINT64_C(900) };
+    gbl_run_result result = { 0 };
+    const uint32_t opcode = encode_arm_block_user(
+        false, true, false, true, 1u, UINT16_C(0x8001));
+    bool loaded;
+    bool passed;
+    uint64_t cycles_after_return;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        test_case(false,
+                  "LDM^ PC forms a valid Thumb wrap refill pair and stops its next execution as unpredictable");
+        return;
+    }
+    machine.cpu.r0_7[1] = UINT32_C(0x03000100);
+    machine.cpu.spsr[2] = TEST_CPSR_SYSTEM | TEST_CPSR_T;
+    write_word(machine.iwram, 0x100u, UINT32_C(0x12345678));
+    write_word(machine.iwram, 0x104u, UINT32_MAX);
+    passed = run_arm_block_in_mode(
+                 &machine, opcode, TEST_CPSR_SVC, UINT64_C(6),
+                 &trace, &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.instructions == 1u && result.cycles == 6u &&
+             machine.cpu.cpsr == (TEST_CPSR_SYSTEM | TEST_CPSR_T) &&
+             machine.cpu.execution_address == UINT32_C(0xFFFFFFFE) &&
+             machine.cpu.pipeline[0].address == UINT32_C(0xFFFFFFFE) &&
+             machine.cpu.pipeline[0].width == 2u &&
+             machine.cpu.pipeline[1].address == 0u &&
+             machine.cpu.pipeline[1].width == 2u &&
+             trace.count == 5u && records[3].address == UINT32_C(0xFFFFFFFE) &&
+             records[4].address == 0u;
+    cycles_after_return = machine.master_cycles;
+    passed = passed && run_units(&machine, UINT64_C(1), UINT64_C(1), &result) &&
+             result.termination == GBL_RUN_STOPPED &&
+             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+             result.instructions == 0u && result.cycles == 0u &&
+             machine.master_cycles == cycles_after_return &&
+             machine.cpu.stop_reason ==
+                 GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+    test_case(passed,
+              "LDM^ PC forms a valid Thumb wrap refill pair and stops its next execution as unpredictable");
+    gbl_machine_dispose(&machine);
 }
 
 static void test_arm_transfer_preindexed_writeback(void)
@@ -6363,9 +6841,9 @@ static void test_decode(void)
     }
 
     {
-        const bool unsupported_user_bank_ldm = loaded &&
-            run_arm_instruction_in_mode(&machine, UINT32_C(0xE8D00002),
-                                        TEST_CPSR_SVC, &result) &&
+        const bool valid_unimplemented_thumb_bl_prefix = loaded &&
+            run_thumb_instruction(&machine, UINT16_C(0xF000), 0u,
+                                  UINT64_C(1), &result) &&
             result.termination == GBL_RUN_STOPPED &&
             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
             machine.cpu.stop_reason == GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
@@ -6377,8 +6855,8 @@ static void test_decode(void)
             machine.cpu.spsr[4] == TEST_CPSR_SYSTEM &&
             machine.cpu.execution_address == UINT32_C(4);
 
-        test_case(unsupported_user_bank_ldm && undefined_encoding,
-                  "valid privileged user-bank LDM and architecturally undefined ARM words stop distinctly");
+        test_case(valid_unimplemented_thumb_bl_prefix && undefined_encoding,
+                  "valid unimplemented Thumb BL prefix and architecturally undefined ARM words stop distinctly");
     }
 
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xDE00), 0u,
@@ -9138,6 +9616,13 @@ static const cpu_test_function arm_block_bounds_functions[] = {
     test_arm_block_alignment_policy,
     test_arm_block_address_wraps_modulo32
 };
+static const cpu_test_function arm_block_banks_functions[] = {
+    test_arm_block_user_bank_transfers,
+    test_arm_block_spsr_return_modes,
+    test_arm_block_spsr_return_trace_capacity,
+    test_arm_block_user_bank_invalid_forms,
+    test_arm_block_thumb_wrap_return
+};
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
 static const cpu_test_function arm_alu_functions[] = {
     test_arm_adc_carry_in,
@@ -9248,6 +9733,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_block", 34u, arm_block_functions),
+    CPU_TEST_GROUP("arm_block_banks", 19u, arm_block_banks_functions),
     CPU_TEST_GROUP("arm_block_bounds", 10u, arm_block_bounds_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
