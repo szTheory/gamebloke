@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Phase 05 Plan 04 complete; artifact identity contract and local CI passed
-stopped_at: Completed 05-04-PLAN.md
-last_updated: "2026-11-11T20:52:10.304Z"
+status: Phase 05 Plan 05 complete; Plan 06 not started
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-11-12T00:54:00.701Z"
 last_activity: 2026-11-11
-last_activity_desc: Phase 05 Plan 04 closed after artifact identity controls and canonical local CI passed
-state_head: 8af54e883f53732c25f3f729abc6900765887360
+last_activity_desc: Phase 05 Plan 05 smoke pair admitted after green hosted witness and canonical local CI
+state_head: 03cb2840e009dfbcb21029b5af905b98101cc7f7
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 42
+  completed_plans: 43
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 5 of 25
-Status: Plan 04 complete; Plan 05 not started
+Plan: 6 of 25
+Status: Plan 05 complete; Plan 06 not started
 Last activity: 2026-11-11 — Artifact identity controls and canonical local CI passed
 
 Progress: [███████░░░] 67%
@@ -101,6 +101,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P02 | 68min | 2 tasks | 8 files |
 | Phase 05 P03 | not measured (multi-resume execution) | 2 tasks | 12 files |
 | Phase 05 P04 | 39 min | 2 tasks | 8 files |
+| Phase 05 P05 | multi-resume; admission continuation about 25 minutes | 2 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,8 @@ Progress: [███████░░░] 67%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [Phase 05]: Owner replied "yes" to the proposed isolated legacy-runner test compiler/flags/standard inheritance correction and bounded local/hosted verification on existing PR #8 after run 43115640150. Resume that correction without weakening sanitizers or other checks. A new red hosted result renews the stop; producer source and ROM admission remain independently gated.
 
 - [Phase 05]: Owner replied "yes" to the proposed offline-helper host-detection correction and bounded local/hosted verification on draft PR #8. Corrected run 43089440697 passed at source head `2a18d8e1b2f7d24b11b40627e697cfd42b60c48b`; the initial red run remains historical, and any future red hosted run renews the stop.
 
@@ -206,6 +209,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Keep manifest/1 and result/1 versions unchanged; use optional build.artifact.path and build.artifact.sha256 for the output identity.
 - [Phase 05]: Keep source.commit and build.toolchain as provenance fields; project only the generated ROM digest into the existing rom_sha256 slot.
 - [Phase 05]: Do not admit a production diagnostic ROM digest or mark phase-wide DIAG requirements complete from this contract slice.
+- [Phase 05]: Use host-specific locked archive hashes and keep the single scalar manifest toolchain SHA null when host archive identities differ.
+- [Phase 05]: Admit only the measured smoke pair; leave the remaining 356 ARM/Thumb ledger rows pending until independently implemented and verified.
 
 ### Pending Todos
 
@@ -213,11 +218,13 @@ None yet.
 
 ### Blockers/Concerns
 
+- Phase 05 Plan 05's earlier hosted failure (run 43115640150) was fixed and superseded by fully green hosted run 43126123712 at source commit `4857ddc9c6ecaef61644fa4cf6286e7951e3bff4`. The measured smoke pair is admitted locally; root owns any future publication or hosted monitoring. A future new red hosted run renews the stop.
+
 - Phase 4 is accepted and squash-merged through PR #7. Final required CI and main CI passed. Phase 5 Plan 03's bounded hosted witness is green; remaining phase-wide diagnostics and admission criteria still apply before any ROM digest admission. No rights/qualification limit is waived.
 
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
-- Phase 5: xPack 15.2.1-1.1 reports ARMv4T on local macOS arm64, local Linux arm64, hosted Linux x64, and hosted macOS arm64. Literal `cmp` passed only for the two local arm64 builds; hosted Linux x64 has separate hash-identity evidence. No ROM digest is admitted.
+- Phase 5: xPack 15.2.1-1.1 reports ARMv4T on local macOS arm64, local Linux arm64, hosted Linux x64, and hosted macOS arm64. The two measured smoke ROM digests are admitted. Literal `cmp` passed for the two local arm64 builds; hosted Linux x64 has separate hash-identity evidence.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
 - Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
 - Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
@@ -240,6 +247,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-11T20:49:46.031Z
-Stopped at: Completed 05-04-PLAN.md
+Last session: 2026-11-12T00:54:00.551Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None

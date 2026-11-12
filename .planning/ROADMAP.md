@@ -247,7 +247,7 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: 4/25 plans executed in 25 serial waves (independent plan check passed; implementation not started)
+**Plans**: 5/25 plans executed in 25 serial waves (independent plan check passed; implementation not started)
 
 Plans:
 **Wave 1**
@@ -263,7 +263,7 @@ Plans:
 - [x] 05-04-PLAN.md — Independent source and generated-artifact identities
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 05-05-PLAN.md — First source-owned production fixture admission
+- [x] 05-05-PLAN.md — First source-owned production fixture admission
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 05-06-PLAN.md — Ordered CPU transaction slots through real SWP
@@ -409,7 +409,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 13/13 | Complete    | 2026-11-11 |
-| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 4/25 | In Progress | - |
+| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 5/25 | In Progress | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
 
 ---
