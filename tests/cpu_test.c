@@ -8357,7 +8357,7 @@ static bool thumb_transfer_preflight_case(unsigned int boundary,
             ? UINT32_C(0x03000100) : UINT32_C(0x03000104);
 
         if (sp_relative) {
-            machine.cpu.usr_r8_14[6] = UINT32_C(0x03000100);
+            machine.cpu.usr_r8_14[5] = UINT32_C(0x03000100);
         } else {
             machine.cpu.r0_7[1] = UINT32_C(0x03000100);
             machine.cpu.r0_7[3] = 4u;
@@ -8559,13 +8559,13 @@ static void test_thumb_sp_relative_matrix(void)
 
         if (valid) {
             machine.cpu.r0_7[0] = UINT32_C(0xA1B2C3D4);
-            machine.cpu.usr_r8_14[6] = UINT32_C(0x03000000) + stack_offset;
+            machine.cpu.usr_r8_14[5] = UINT32_C(0x03000000) + stack_offset;
             machine.iwram[data_offset - 1u] = UINT8_C(0xA7);
             write_word(machine.iwram, data_offset, UINT32_C(0x89ABCDEF));
             machine.iwram[data_offset + 4u] = UINT8_C(0x9C);
             valid = run_units(&machine, 2u, 1u, &result) &&
                     result.instructions == 1u && result.cycles == 2u &&
-                    machine.cpu.usr_r8_14[6] ==
+                    machine.cpu.usr_r8_14[5] ==
                         UINT32_C(0x03000000) + stack_offset;
             if (cases[index].load) {
                 valid = valid && machine.cpu.r0_7[0] == UINT32_C(0x89ABCDEF);
@@ -8593,7 +8593,7 @@ static void test_thumb_sp_alignment_and_banks(void)
         &machine, UINT16_C(0x9800), UINT32_C(0x08000000), image);
 
     if (valid) {
-        machine.cpu.usr_r8_14[6] = UINT32_C(0x03000201);
+        machine.cpu.usr_r8_14[5] = UINT32_C(0x03000201);
         machine.iwram[0x200u] = UINT8_C(0x11);
         machine.iwram[0x201u] = UINT8_C(0x22);
         machine.iwram[0x202u] = UINT8_C(0x33);
@@ -8610,7 +8610,7 @@ static void test_thumb_sp_alignment_and_banks(void)
     valid = prepare_thumb_transfer(
         &machine, UINT16_C(0x9000), UINT32_C(0x08000000), image);
     if (valid) {
-        machine.cpu.usr_r8_14[6] = UINT32_C(0x03000201);
+        machine.cpu.usr_r8_14[5] = UINT32_C(0x03000201);
         machine.cpu.r0_7[0] = UINT32_C(0xAABBCCDD);
         valid = run_units(&machine, 2u, 1u, &result) &&
                 read_test_word(machine.iwram, 0x200u) ==
@@ -8628,12 +8628,12 @@ static void test_thumb_sp_alignment_and_banks(void)
         machine.cpu.cpsr = UINT32_C(0xF0000032);
         machine.cpu.r0_7[0] = UINT32_C(0xCAFEBABE);
         machine.cpu.irq_r13_14[0] = UINT32_C(0x03000500);
-        machine.cpu.usr_r8_14[6] = UINT32_C(0x03000600);
+        machine.cpu.usr_r8_14[5] = UINT32_C(0x03000600);
         valid = run_units(&machine, 2u, 1u, &result) &&
                 read_test_word(machine.iwram, 0x504u) ==
                     UINT32_C(0xCAFEBABE) &&
                 machine.cpu.irq_r13_14[0] == UINT32_C(0x03000500) &&
-                machine.cpu.usr_r8_14[6] == UINT32_C(0x03000600) &&
+                machine.cpu.usr_r8_14[5] == UINT32_C(0x03000600) &&
                 machine.cpu.cpsr == UINT32_C(0xF0000032);
     }
     test_case(valid, "Thumb SP-relative store uses the active IRQ bank");
@@ -8678,12 +8678,12 @@ static void test_thumb_address_generation(void)
 
         if (valid) {
             machine.cpu.cpsr = flags;
-            machine.cpu.usr_r8_14[6] = cases[index].stack_pointer;
+            machine.cpu.usr_r8_14[5] = cases[index].stack_pointer;
             valid = run_units(&machine, 1u, 1u, &result) &&
                     result.instructions == 1u && result.cycles == 1u &&
                     machine.cpu.r0_7[(cases[index].opcode >> 8u) & 7u] ==
                         cases[index].expected &&
-                    machine.cpu.usr_r8_14[6] == cases[index].stack_pointer &&
+                    machine.cpu.usr_r8_14[5] == cases[index].stack_pointer &&
                     machine.cpu.cpsr == flags &&
                     machine.cpu.execution_address == address + 2u;
         }
@@ -8735,7 +8735,7 @@ static void test_thumb_sp_adjust(void)
 
         if (valid) {
             machine.cpu.cpsr = flags;
-            machine.cpu.usr_r8_14[6] = cases[index].irq_bank
+            machine.cpu.usr_r8_14[5] = cases[index].irq_bank
                 ? UINT32_C(0x03000A00) : cases[index].initial;
             machine.cpu.irq_r13_14[0] = cases[index].irq_bank
                 ? cases[index].initial : UINT32_C(0x55000000);
@@ -8744,8 +8744,8 @@ static void test_thumb_sp_adjust(void)
                     machine.cpu.cpsr == flags &&
                     (cases[index].irq_bank
                         ? machine.cpu.irq_r13_14[0] == cases[index].expected &&
-                          machine.cpu.usr_r8_14[6] == UINT32_C(0x03000A00)
-                        : machine.cpu.usr_r8_14[6] == cases[index].expected &&
+                          machine.cpu.usr_r8_14[5] == UINT32_C(0x03000A00)
+                        : machine.cpu.usr_r8_14[5] == cases[index].expected &&
                           machine.cpu.irq_r13_14[0] == UINT32_C(0x55000000));
         }
         test_case(valid, cases[index].name);
