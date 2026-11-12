@@ -161,3 +161,81 @@ Plan 06 is complete. Plan 07 remains the next Phase 05 plan; it was not started.
 ---
 *Phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio*
 *Completed: 2026-11-12*
+
+## Code Review Fix Addendum
+
+**Added:** 2026-11-12T02:30:13Z after review `05-06-REVIEW.md`.
+
+- **WR-01 resolved:** Added a private test probe that constructs a synthetic
+  maximum-capacity CPU unit using the production slot helpers, then calls the
+  same cost, machine preflight, selected trace-count, and trace preflight
+  functions used by `gbl_cpu_run`. It executes no bus operations. The tests
+  cover 16 data/results/register effects, two fetches, one status effect, all
+  19 selected trace records, exact and one-short cycle/master-cycle/retirement/
+  trace-capacity/sequence headroom, and one-over rejection for every bounded
+  descriptor count. Each attempt compares the full machine bytes and trace
+  buffer contents to their snapshots. The synthetic descriptor is a reservation
+  probe only; it does not implement or claim LDM/STM execution.
+- **WR-02 resolved:** Parameterized the SWP fixture address. Independently
+  pinned word-SWP results now cover lanes 0 through 3. SWPB now covers `Rd=Rm`,
+  `Rd=Rn`, and `Rn=Rm`, with register and memory outcomes, the exact byte
+  address and width, and ordered read-before-write trace records checked.
+- **Fix commits:** `dc424d1` (WR-01), `cc352e3` (WR-02), `e95e6c6` and
+  `712824d` (keep the private WR-01 seam compatible with copied mutation
+  harnesses and remove its superseded header).
+
+### Review-fix verification
+
+All checks ran in the main checkout; `.planning/config.json` has
+`workflow.use_worktrees=false`. Evidence is retained under the ignored
+`build/phase05-review06/` directory.
+
+- `build/phase05-review06/wr01-targeted.log`: the maximum-descriptor selector
+  passed all 20 assertions.
+- `build/phase05-review06/wr02-targeted.log` and
+  `build/phase05-review06/wr01-seam-compat.log`: the expanded `slots_bounds`
+  selector passed all 27 assertions; the copied-source `cpu.pos.clean`
+  mutation control passed.
+- `build/phase05-review06/cpu-regressions.log`: existing CPU lifecycle,
+  budget, mailbox, trace, trace-capacity, `slots`, and `slots_bounds` CTest
+  regressions passed 7/7.
+- `build/phase05-review06/final-ci-retry.log`: canonical
+  `cmake --workflow --preset ci` passed all 330 executed tests. The inventory
+  post-check passed with 331 expected, 330 run, and the one configured owner-local
+  signature test skipped because `GBL_OWNER_LOGO_FILE` was unset. CTest time
+  was 269.95 seconds; the build test took 0.62 seconds, and the longest work
+  was the distinct mutation controls.
+- `build/phase05-review06/final-asan.log`: native AppleClang `/usr/bin/clang`,
+  Ninja, ASan+UBSan build passed. All 74 non-post tests passed. A first direct
+  CTest invocation included the post-inventory test before JUnit generation;
+  after the report was written, the post check passed with 74 expected, 74 run,
+  and zero skips.
+- The initial CI attempt is retained at
+  `build/phase05-review06/final-ci.log`; it exposed the copied-source harness
+  not copying a newly added test header. The hook declaration was moved into
+  the existing copied private helper header and the final canonical run passed.
+
+CPU-01/02 and DIAG-01/02/03 remain phase-wide Pending. Plan 07 remains the next
+Phase 05 plan; no guest block-transfer implementation, hosted CI, publication,
+or Phase 6 work was performed.
+
+## Code Review Fix Addendum — Iteration 2
+
+**Added:** 2026-11-12T02:43:53Z after the independent re-review in
+`05-06-REVIEW.md`.
+
+- **WR-03 resolved:** Removed padding-sensitive `memcmp` checks for the machine
+  and trace-buffer structs in the maximum-reservation test. Machine snapshots
+  use the canonical equality, digest, and same-instance identity helpers; the
+  trace pointer, capacity, count, and sequence are compared field by field.
+  The initialized trace-record array still uses a raw byte comparison.
+- **Commit:** `2548cb1` (`tests/cpu_test.c` only). No CPU implementation or
+  helper behavior changed.
+- **Fresh verification:** Normal and native AppleClang ASan/UBSan builds of
+  `cpu_test` passed. In each build, `slots_bounds` passed 27/27 assertions,
+  `slots` passed 5/5, and the existing CPU lifecycle/budget/mailbox/trace
+  regressions passed 5/5 with no skips. Evidence: `build/phase05-review06/`
+  `iteration2-normal.log` and `iteration2-asan.log`.
+- Full CI and full sanitizer inventories were not rerun for this test-only
+  correction. The broader isolated Linux GCC canonical CI receipt is owned by
+  the parent reviewer; no later plan or state advancement occurred here.

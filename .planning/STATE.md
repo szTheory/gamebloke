@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: executing
-stopped_at: Completed 05-06-PLAN.md
-last_updated: "2026-11-12T01:50:24.962Z"
+status: Plan 06 review complete; awaiting hosted validation before Plan 07
+stopped_at: Plan 06 and review corrections verified locally; root publishes and monitors existing PR before Plan 07
+last_updated: "2026-11-12T02:48:17.023Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 05 smoke pair admitted after green hosted witness and canonical local CI
-state_head: 8d0a25701b6986f5462158f928b40f86ed95ea0d
+state_head: 2548cb12e89be6c567ba83c00100f247f503beca
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 7 of 25
-Status: Ready to execute
+Status: Plan 06 review complete; awaiting hosted validation before Plan 07
 Last activity: 2026-11-12 — Plan 05 smoke pair admitted after hosted and local verification passed
 
 Progress: [███████░░░] 67%
@@ -249,6 +249,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T01:50:24.775Z
-Stopped at: Completed 05-06-PLAN.md
-Resume file: None
+Last session: 2026-11-12T02:48:16.443Z
+Stopped at: Plan 06 and review corrections verified locally; root publishes and monitors existing PR before Plan 07
+Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
