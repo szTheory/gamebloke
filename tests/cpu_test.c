@@ -408,6 +408,45 @@ static bool prepare_thumb_transfer(gbl_machine *machine, uint16_t opcode,
     return true;
 }
 
+static bool prepare_thumb_stream(
+    gbl_machine *machine, uint8_t image[TEST_IMAGE_SIZE], uint32_t address,
+    uint32_t cpsr, const uint16_t *opcodes, size_t opcode_count)
+{
+    size_t index;
+
+    if (machine == NULL || image == NULL || opcodes == NULL ||
+        opcode_count == 0u || opcode_count > TEST_IMAGE_SIZE / 2u ||
+        address != UINT32_C(0x08000000)) {
+        return false;
+    }
+    make_empty_image(image);
+    for (index = 0u; index < opcode_count; ++index) {
+        write_halfword(image, index * 2u, opcodes[index]);
+    }
+    if (opcode_count < 2u) {
+        write_halfword(image, 2u, UINT16_C(0x46C0));
+    }
+    if (!machine_load(machine, image)) {
+        return false;
+    }
+    seed_nondefault_cpu_state(&machine->cpu);
+    machine->cpu.cpsr = cpsr;
+    machine->cpu.execution_address = address;
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        address, opcodes[0], 2u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        address + UINT32_C(2),
+        opcode_count > 1u ? opcodes[1] : UINT32_C(0x46C0), 2u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    machine->cpu.stopped = false;
+    machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
+    machine->master_cycles = UINT64_C(19);
+    machine->open_bus = UINT32_C(0xA5C39E71);
+    return true;
+}
+
 static void test_lifecycle(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -8755,6 +8794,228 @@ static void test_thumb_sp_adjust(void)
     }
 }
 
+static void test_thumb_stack_maximum_roundtrip(void)
+{
+    static const uint16_t opcodes[] = {
+        UINT16_C(0xB5FF), UINT16_C(0xBDFF), UINT16_C(0x46C0)
+    };
+    const uint32_t flags = UINT32_C(0xF000003F);
+    const uint32_t initial_sp = UINT32_C(0x03000240);
+    const uint32_t stack_start = initial_sp - UINT32_C(36);
+    const uint32_t target = UINT32_C(0x03000008);
+    uint32_t saved[8];
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record push_records[12];
+    gbl_trace_record pop_records[13];
+    gbl_trace_buffer push_trace = {
+        push_records, 11u, 0u, UINT64_C(100)
+    };
+    gbl_trace_buffer pop_trace = {
+        pop_records, 12u, 0u, UINT64_C(200)
+    };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(10),
+        .unit_limit = UINT64_C(1),
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &push_trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000), flags, opcodes,
+        sizeof(opcodes) / sizeof(opcodes[0]));
+    bool pushed = false;
+    bool popped = false;
+    bool target_executed = false;
+    size_t index;
+
+    memset(push_records, 0xA5, sizeof(push_records));
+    memset(pop_records, 0x5A, sizeof(pop_records));
+    if (loaded) {
+        machine.cpu.usr_r8_14[5] = initial_sp;
+        for (index = 0u; index < 8u; ++index) {
+            saved[index] = UINT32_C(0xA1000000) +
+                           (uint32_t)index * UINT32_C(0x01010101);
+            machine.cpu.r0_7[index] = saved[index];
+        }
+        machine.cpu.usr_r8_14[6] = target | UINT32_C(1);
+        write_word(machine.iwram, stack_start - UINT32_C(0x03000000) - 4u,
+                   UINT32_C(0xD00DF00D));
+        write_word(machine.iwram, initial_sp - UINT32_C(0x03000000),
+                   UINT32_C(0xFACEB00C));
+        write_halfword(machine.iwram, target - UINT32_C(0x03000000),
+                       UINT16_C(0x2735));
+        write_halfword(machine.iwram, target - UINT32_C(0x03000000) + 2u,
+                       UINT16_C(0x46C0));
+        pushed = gbl_cpu_run(&machine, &options, &result) ==
+                     GBL_RUN_STATUS_OK &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                 result.instructions == 1u && result.cycles == 10u &&
+                 machine.cpu.usr_r8_14[5] == stack_start &&
+                 push_trace.count == 11u &&
+                 push_trace.next_sequence == UINT64_C(111);
+        for (index = 0u; pushed && index < 8u; ++index) {
+            const size_t address_offset =
+                (size_t)(stack_start - UINT32_C(0x03000000)) + index * 4u;
+            const gbl_trace_record *record = &push_records[index + 1u];
+
+            pushed = read_test_word(machine.iwram, address_offset) ==
+                         saved[index] &&
+                     record->category == GBL_TRACE_BUS &&
+                     record->address == stack_start +
+                                            (uint32_t)index * UINT32_C(4) &&
+                     record->value == saved[index] && record->width == 4u &&
+                     record->access_class ==
+                         (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                      : GBL_BUS_CLASS_SEQUENTIAL);
+        }
+        if (pushed) {
+            const size_t lr_offset =
+                (size_t)(stack_start - UINT32_C(0x03000000)) + 32u;
+
+            pushed = read_test_word(machine.iwram, lr_offset) ==
+                         (target | UINT32_C(1)) &&
+                     push_records[9].address == stack_start + UINT32_C(32) &&
+                     push_records[9].value == (target | UINT32_C(1)) &&
+                     machine.cpu.usr_r8_14[6] == (target | UINT32_C(1)) &&
+                     read_test_word(machine.iwram,
+                                    stack_start - UINT32_C(0x03000000) - 4u) ==
+                         UINT32_C(0xD00DF00D) &&
+                     read_test_word(machine.iwram,
+                                    initial_sp - UINT32_C(0x03000000)) ==
+                         UINT32_C(0xFACEB00C);
+        }
+        if (!pushed) {
+            printf("# PUSH opcode=%04X reason=%u stopped=%u sp=%08X records=%zu cycles=%llu\n",
+                   (unsigned int)opcodes[0], (unsigned int)result.reason,
+                   machine.cpu.stopped ? 1u : 0u,
+                   (unsigned int)machine.cpu.usr_r8_14[5], push_trace.count,
+                   (unsigned long long)result.cycles);
+        }
+    }
+    if (loaded) {
+        test_case(pushed,
+                  "Thumb PUSH stores the maximum list in ascending addresses and writes back SP");
+    } else {
+        test_case(false,
+                  "Thumb PUSH stores the maximum list in ascending addresses and writes back SP");
+    }
+
+    if (loaded && pushed) {
+        for (index = 0u; index < 8u; ++index) {
+            machine.cpu.r0_7[index] = UINT32_C(0xDEAD0000) +
+                                      (uint32_t)index;
+        }
+        options.cycle_budget = UINT64_C(13);
+        options.trace_buffer = &pop_trace;
+        result = (gbl_run_result){ 0 };
+        popped = gbl_cpu_run(&machine, &options, &result) ==
+                     GBL_RUN_STATUS_OK &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                 result.instructions == 1u && result.cycles == 13u &&
+                 machine.cpu.usr_r8_14[5] == initial_sp &&
+                 pop_trace.count == 12u &&
+                 pop_trace.next_sequence == UINT64_C(212);
+        for (index = 0u; popped && index < 8u; ++index) {
+            const gbl_trace_record *record = &pop_records[index + 1u];
+
+            popped = machine.cpu.r0_7[index] == saved[index] &&
+                     record->category == GBL_TRACE_BUS &&
+                     record->address == stack_start +
+                                            (uint32_t)index * UINT32_C(4) &&
+                     record->value == saved[index] && record->width == 4u &&
+                     record->access_class ==
+                         (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                      : GBL_BUS_CLASS_SEQUENTIAL);
+        }
+        if (popped) {
+            popped = machine.cpu.usr_r8_14[6] == (target | UINT32_C(1)) &&
+                     machine.cpu.cpsr == flags &&
+                     machine.cpu.execution_address == target &&
+                     machine.cpu.pipeline[0].address == target &&
+                     machine.cpu.pipeline[0].opcode == UINT32_C(0x2735) &&
+                     machine.cpu.pipeline[1].address == target + 2u &&
+                     machine.cpu.pipeline[1].opcode == UINT32_C(0x46C0) &&
+                     pop_records[9].address == stack_start + UINT32_C(32) &&
+                     pop_records[9].value == (target | UINT32_C(1)) &&
+                     pop_records[10].address == target &&
+                     pop_records[10].value == UINT32_C(0x2735) &&
+                     pop_records[10].access_class ==
+                         GBL_BUS_CLASS_NONSEQUENTIAL &&
+                     pop_records[11].address == target + 2u &&
+                     pop_records[11].value == UINT32_C(0x46C0) &&
+                     pop_records[11].access_class ==
+                         GBL_BUS_CLASS_SEQUENTIAL;
+        }
+    }
+    test_case(popped,
+              "Thumb POP restores all low registers and SP, clears PC bit zero, and keeps Thumb state");
+
+    if (loaded && popped) {
+        result = (gbl_run_result){ 0 };
+        target_executed = run_units(&machine, 1u, 1u, &result) &&
+                          result.instructions == 1u && result.cycles == 1u &&
+                          machine.cpu.r0_7[7] == UINT32_C(0x35) &&
+                          machine.cpu.cpsr == flags &&
+                          machine.cpu.execution_address == target + 2u;
+    }
+    test_case(target_executed,
+              "Thumb POP PC target executes its actual next instruction on the next call");
+
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_stack_banked_lr(void)
+{
+    static const uint16_t opcodes[] = { UINT16_C(0xB500), UINT16_C(0xBD00) };
+    const uint32_t flags = UINT32_C(0xF00000B2);
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000), flags, opcodes,
+        sizeof(opcodes) / sizeof(opcodes[0]));
+    bool pushed = false;
+    bool popped = false;
+
+    if (loaded) {
+        machine.cpu.irq_r13_14[0] = UINT32_C(0x03000500);
+        machine.cpu.irq_r13_14[1] = UINT32_C(0x03000019);
+        machine.cpu.usr_r8_14[5] = UINT32_C(0x03000600);
+        machine.cpu.usr_r8_14[6] = UINT32_C(0x11223344);
+        pushed = run_units(&machine, 2u, 1u, &result) &&
+                 result.instructions == 1u && result.cycles == 2u &&
+                 machine.cpu.irq_r13_14[0] == UINT32_C(0x030004FC) &&
+                 machine.cpu.irq_r13_14[1] == UINT32_C(0x03000019) &&
+                 machine.cpu.usr_r8_14[5] == UINT32_C(0x03000600) &&
+                 machine.cpu.usr_r8_14[6] == UINT32_C(0x11223344) &&
+                 read_test_word(machine.iwram, 0x4FCu) ==
+                     UINT32_C(0x03000019);
+    }
+    test_case(pushed,
+              "Thumb PUSH LR reads the active IRQ LR and banked SP");
+
+    if (loaded && pushed) {
+        popped = run_units(&machine, 5u, 1u, &result) &&
+                 result.instructions == 1u && result.cycles == 5u &&
+                 machine.cpu.irq_r13_14[0] == UINT32_C(0x03000500) &&
+                 machine.cpu.irq_r13_14[1] == UINT32_C(0x03000019) &&
+                 machine.cpu.usr_r8_14[5] == UINT32_C(0x03000600) &&
+                 machine.cpu.usr_r8_14[6] == UINT32_C(0x11223344) &&
+                 machine.cpu.cpsr == flags &&
+                 machine.cpu.execution_address == UINT32_C(0x03000018);
+    }
+    test_case(popped,
+              "Thumb POP PC updates IRQ SP, ignores address bit zero and leaves User bank intact");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static void test_alignment(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -11599,6 +11860,10 @@ static const cpu_test_function thumb_sp_functions[] = {
     test_thumb_sp_adjust,
     test_thumb_sp_preflight
 };
+static const cpu_test_function thumb_stack_functions[] = {
+    test_thumb_stack_maximum_roundtrip,
+    test_thumb_stack_banked_lr
+};
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
 static const cpu_test_function slots_functions[] = {
@@ -11652,6 +11917,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("thumb_alu", 36u, thumb_alu_functions),
     CPU_TEST_GROUP("thumb_high", 129u, thumb_high_functions),
     CPU_TEST_GROUP("thumb_sp", 36u, thumb_sp_functions),
+    CPU_TEST_GROUP("thumb_stack", 5u, thumb_stack_functions),
     CPU_TEST_GROUP("thumb_transfer", 31u, thumb_transfer_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
