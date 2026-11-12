@@ -381,6 +381,33 @@ static bool run_thumb_instruction(gbl_machine *machine, uint16_t opcode,
     return run_units(machine, cycle_budget, 1u, result);
 }
 
+static bool prepare_thumb_transfer(gbl_machine *machine, uint16_t opcode,
+                                   uint32_t address,
+                                   uint8_t image[TEST_IMAGE_SIZE])
+{
+    make_empty_image(image);
+    write_halfword(image, 0u, opcode);
+    write_halfword(image, 2u, UINT16_C(0x46C0));
+    if (!machine_load(machine, image)) {
+        return false;
+    }
+    seed_nondefault_cpu_state(&machine->cpu);
+    machine->cpu.cpsr = TEST_CPSR_SYSTEM | TEST_CPSR_T;
+    machine->cpu.execution_address = address;
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        address, opcode, 2u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        address + UINT32_C(2), UINT32_C(0x46C0), 2u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    machine->cpu.stopped = false;
+    machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
+    machine->master_cycles = UINT64_C(19);
+    machine->open_bus = UINT32_C(0xA5C39E71);
+    return true;
+}
+
 static void test_lifecycle(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -8012,6 +8039,374 @@ static void test_decode(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_thumb_pc_literal_matrix(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint8_t immediate;
+        uint32_t value;
+    } cases[] = {
+        { "Thumb PC literal offset zero", UINT16_C(0x4800), 0u,
+          UINT32_C(0x11223344) },
+        { "Thumb PC literal offset one scales by four", UINT16_C(0x4901), 1u,
+          UINT32_C(0xAABBCCDD) },
+        { "Thumb PC literal maximum offset scales by four", UINT16_C(0x4AFF), 255u,
+          UINT32_C(0x5A6BC7D9) }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const uint32_t address = UINT32_C(0x03000002);
+        const uint32_t target = UINT32_C(4) +
+                                ((uint32_t)cases[index].immediate << 2u);
+        bool valid = prepare_thumb_transfer(&machine, cases[index].opcode,
+                                            address, image);
+
+        if (valid) {
+            write_word(machine.iwram, target - 4u, UINT32_C(0xDEADBEEF));
+            write_word(machine.iwram, target, cases[index].value);
+            write_word(machine.iwram, target + 4u, UINT32_C(0x31415926));
+            valid = run_units(&machine, 2u, 1u, &result) &&
+                    result.termination == GBL_RUN_PROGRESS &&
+                    result.instructions == 1u && result.cycles == 2u &&
+                    machine.cpu.r0_7[(cases[index].opcode >> 8u) & 7u] ==
+                        cases[index].value &&
+                    machine.cpu.execution_address == address + 2u;
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_register_offset_matrix(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint32_t offset;
+        uint8_t width;
+        bool load;
+        uint32_t expected;
+    } cases[] = {
+        { "Thumb register STR aligns word store down", UINT16_C(0x50CA), 5u, 4u, false,
+          UINT32_C(0xAABBCCDD) },
+        { "Thumb register STRH aligns halfword store down", UINT16_C(0x52CA), 5u, 2u, false,
+          UINT32_C(0x0000CCDD) },
+        { "Thumb register STRB preserves neighboring bytes", UINT16_C(0x54CA), 5u, 1u, false,
+          UINT32_C(0x000000DD) },
+        { "Thumb register LDRSB sign-extends a negative byte", UINT16_C(0x56CA), 7u, 1u, true,
+          UINT32_C(0xFFFFFFE4) },
+        { "Thumb register LDR rotates the odd word lane", UINT16_C(0x58CA), 5u, 4u, true,
+          UINT32_C(0x11E43382) },
+        { "Thumb register LDRH rotates the odd halfword lane", UINT16_C(0x5ACA), 5u, 2u, true,
+          UINT32_C(0x11000082) },
+        { "Thumb register LDRH reads an even halfword", UINT16_C(0x5ACA), 4u, 2u, true,
+          UINT32_C(0x00008211) },
+        { "Thumb register LDRB zero-extends the selected byte", UINT16_C(0x5CCA), 5u, 1u, true,
+          UINT32_C(0x00000082) },
+        { "Thumb register LDRSH odd address sign-extends its byte", UINT16_C(0x5ECA), 7u, 2u, true,
+          UINT32_C(0xFFFFFFE4) },
+        { "Thumb register LDRSH even address sign-extends its halfword", UINT16_C(0x5ECA), 4u, 2u, true,
+          UINT32_C(0xFFFF8211) }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        bool valid = prepare_thumb_transfer(
+            &machine, cases[index].opcode, UINT32_C(0x03000000), image);
+        const uint32_t original_cpsr = TEST_CPSR_SYSTEM | TEST_CPSR_T;
+
+        if (valid) {
+            machine.cpu.r0_7[1] = UINT32_C(0x03000100);
+            machine.cpu.r0_7[2] = UINT32_C(0xAABBCCDD);
+            machine.cpu.r0_7[3] = cases[index].offset;
+            machine.iwram[0x103u] = UINT8_C(0x5A);
+            machine.iwram[0x104u] = UINT8_C(0x11);
+            machine.iwram[0x105u] = UINT8_C(0x82);
+            machine.iwram[0x106u] = UINT8_C(0x33);
+            machine.iwram[0x107u] = UINT8_C(0xE4);
+            machine.iwram[0x108u] = UINT8_C(0x6B);
+            valid = run_units(&machine, 2u, 1u, &result) &&
+                    result.termination == GBL_RUN_PROGRESS &&
+                    result.instructions == 1u && result.cycles == 2u &&
+                    machine.cpu.r0_7[1] == UINT32_C(0x03000100) &&
+                    machine.cpu.cpsr == original_cpsr &&
+                    machine.cpu.execution_address == UINT32_C(0x03000002);
+            if (cases[index].load) {
+                valid = valid && machine.cpu.r0_7[2] == cases[index].expected &&
+                        machine.iwram[0x103u] == UINT8_C(0x5A) &&
+                        machine.iwram[0x108u] == UINT8_C(0x6B);
+            } else if (cases[index].width == 4u) {
+                valid = valid &&
+                        read_test_word(machine.iwram, 0x104u) ==
+                            cases[index].expected &&
+                        machine.iwram[0x103u] == UINT8_C(0x5A) &&
+                        machine.iwram[0x108u] == UINT8_C(0x6B);
+            } else if (cases[index].width == 2u) {
+                valid = valid &&
+                        machine.iwram[0x104u] == UINT8_C(0xDD) &&
+                        machine.iwram[0x105u] == UINT8_C(0xCC) &&
+                        machine.iwram[0x106u] == UINT8_C(0x33) &&
+                        machine.iwram[0x107u] == UINT8_C(0xE4) &&
+                        machine.iwram[0x103u] == UINT8_C(0x5A) &&
+                        machine.iwram[0x108u] == UINT8_C(0x6B);
+            } else {
+                valid = valid &&
+                        machine.iwram[0x104u] == UINT8_C(0x11) &&
+                        machine.iwram[0x105u] == UINT8_C(0xDD) &&
+                        machine.iwram[0x106u] == UINT8_C(0x33) &&
+                        machine.iwram[0x107u] == UINT8_C(0xE4) &&
+                        machine.iwram[0x103u] == UINT8_C(0x5A) &&
+                        machine.iwram[0x108u] == UINT8_C(0x6B);
+            }
+        }
+        if (!valid && machine.initialized && cases[index].load) {
+            printf("# observed opcode=%04X reason=%u stopped=%u rd=%08X\n",
+                   (unsigned int)cases[index].opcode,
+                   (unsigned int)result.reason,
+                   machine.cpu.stopped ? 1u : 0u,
+                   (unsigned int)machine.cpu.r0_7[2]);
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_transfer_operand_capture(void)
+{
+    static const struct {
+        uint16_t opcode;
+        bool load;
+        uint32_t expected;
+    } cases[] = {
+        { UINT16_C(0x5089), false, UINT32_C(0x03000100) },
+        { UINT16_C(0x5889), true, UINT32_C(0xC0FFEE73) }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        bool valid = prepare_thumb_transfer(
+            &machine, cases[index].opcode, UINT32_C(0x03000000), image);
+
+        if (valid) {
+            machine.cpu.r0_7[1] = UINT32_C(0x03000100);
+            machine.cpu.r0_7[2] = 4u;
+            write_word(machine.iwram, 0x104u, UINT32_C(0xC0FFEE73));
+            valid = run_units(&machine, 2u, 1u, &result) &&
+                    result.instructions == 1u && result.cycles == 2u;
+            if (cases[index].load) {
+                valid = valid && machine.cpu.r0_7[1] == cases[index].expected &&
+                        read_test_word(machine.iwram, 0x104u) ==
+                            UINT32_C(0xC0FFEE73);
+            } else {
+                valid = valid && machine.cpu.r0_7[1] == cases[index].expected &&
+                        read_test_word(machine.iwram, 0x104u) ==
+                            UINT32_C(0x03000100);
+            }
+        }
+        test_case(valid, cases[index].load
+                             ? "Thumb LDR captures the old base before writing aliased Rd"
+                             : "Thumb STR captures the old aliased base store source");
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_immediate_transfer_matrix(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint32_t offset;
+        uint8_t width;
+        bool load;
+    } cases[] = {
+        { "Thumb STR word immediate zero scale", UINT16_C(0x6008), 0u, 4u, false },
+        { "Thumb STR word immediate one scales by four", UINT16_C(0x6048), 4u, 4u, false },
+        { "Thumb STR word maximum immediate scales by four", UINT16_C(0x67C8), 124u, 4u, false },
+        { "Thumb LDR word immediate zero scale", UINT16_C(0x6808), 0u, 4u, true },
+        { "Thumb LDR word immediate one scales by four", UINT16_C(0x6848), 4u, 4u, true },
+        { "Thumb LDR word maximum immediate scales by four", UINT16_C(0x6FC8), 124u, 4u, true },
+        { "Thumb STRB immediate zero scale", UINT16_C(0x7008), 0u, 1u, false },
+        { "Thumb STRB immediate one uses byte scale", UINT16_C(0x7048), 1u, 1u, false },
+        { "Thumb STRB maximum immediate uses byte scale", UINT16_C(0x77C8), 31u, 1u, false },
+        { "Thumb LDRB immediate zero scale", UINT16_C(0x7808), 0u, 1u, true },
+        { "Thumb LDRB immediate one uses byte scale", UINT16_C(0x7848), 1u, 1u, true },
+        { "Thumb LDRB maximum immediate uses byte scale", UINT16_C(0x7FC8), 31u, 1u, true }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const uint32_t base_offset = UINT32_C(0x200);
+        const uint32_t address_offset = base_offset + cases[index].offset;
+        bool valid = prepare_thumb_transfer(
+            &machine, cases[index].opcode, UINT32_C(0x08000000), image);
+
+        if (valid) {
+            machine.cpu.r0_7[0] = UINT32_C(0xA1B2C3D4);
+            machine.cpu.r0_7[1] = UINT32_C(0x03000000) + base_offset;
+            write_word(machine.iwram, address_offset,
+                       UINT32_C(0x12345678));
+            machine.iwram[address_offset - 1u] = UINT8_C(0xA7);
+            machine.iwram[address_offset + 4u] = UINT8_C(0x9C);
+            if (cases[index].width == 1u) {
+                machine.iwram[address_offset] = UINT8_C(0xD2);
+                machine.iwram[address_offset + 1u] = UINT8_C(0x6E);
+            }
+            valid = run_units(&machine, 2u, 1u, &result) &&
+                    result.termination == GBL_RUN_PROGRESS &&
+                    result.instructions == 1u && result.cycles == 2u &&
+                    machine.cpu.r0_7[1] ==
+                        UINT32_C(0x03000000) + base_offset;
+            if (cases[index].load) {
+                const uint32_t expected = cases[index].width == 4u
+                    ? UINT32_C(0x12345678) : UINT32_C(0x000000D2);
+                valid = valid && machine.cpu.r0_7[0] == expected;
+            } else if (cases[index].width == 4u) {
+                valid = valid &&
+                        read_test_word(machine.iwram, address_offset) ==
+                            UINT32_C(0xA1B2C3D4) &&
+                        machine.iwram[address_offset - 1u] == UINT8_C(0xA7) &&
+                        machine.iwram[address_offset + 4u] == UINT8_C(0x9C);
+            } else {
+                valid = valid &&
+                        machine.iwram[address_offset] == UINT8_C(0xD4) &&
+                        machine.iwram[address_offset - 1u] == UINT8_C(0xA7) &&
+                        machine.iwram[address_offset + 1u] == UINT8_C(0x6E);
+            }
+        }
+        if (!valid && machine.initialized) {
+            printf("# immediate opcode=%04X reason=%u result=%08X target=%08X\n",
+                   (unsigned int)cases[index].opcode,
+                   (unsigned int)result.reason,
+                   (unsigned int)machine.cpu.r0_7[0],
+                   (unsigned int)(UINT32_C(0x03000000) + address_offset));
+        }
+        test_case(valid, cases[index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_transfer_modulo_address(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    const uint16_t opcode = UINT16_C(0x5C8B);
+    bool valid = prepare_thumb_transfer(&machine, opcode,
+                                        UINT32_C(0x03000000), image);
+
+    if (valid) {
+        machine.cpu.r0_7[1] = UINT32_C(0xFFFFFFFC);
+        machine.cpu.r0_7[2] = UINT32_C(0x08000004);
+        valid = run_units(&machine, 2u, 1u, &result) &&
+                result.instructions == 1u && result.cycles == 2u &&
+                machine.cpu.r0_7[3] == (uint32_t)(opcode & UINT16_C(0x00FF));
+    }
+    test_case(valid,
+              "Thumb register-offset byte address wraps modulo 2^32 to ROM");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static bool thumb_transfer_preflight_case(unsigned int boundary)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_trace_record records[5];
+    gbl_trace_record records_before[5];
+    gbl_trace_buffer trace = { records, 4u, 1u, UINT64_C(77) };
+    gbl_run_options options = {
+        .cycle_budget = 2u,
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    bool observed = false;
+    bool loaded = prepare_thumb_transfer(
+        &machine, UINT16_C(0x58CA), UINT32_C(0x03000000), image);
+
+    memset(records, 0xA5, sizeof(records));
+    if (loaded) {
+        machine.cpu.r0_7[1] = UINT32_C(0x03000100);
+        machine.cpu.r0_7[3] = 4u;
+        write_word(machine.iwram, 0x104u, UINT32_C(0x44332211));
+        if (boundary == 0u) {
+            options.cycle_budget = 1u;
+        } else if (boundary == 1u) {
+            trace.capacity = 3u;
+        }
+        before = machine;
+        memcpy(records_before, records, sizeof(records));
+        observed = gbl_cpu_run(&machine, &options, &result) ==
+                   GBL_RUN_STATUS_OK;
+        if (boundary < 2u) {
+            const gbl_run_reason expected_reason = boundary == 0u
+                ? GBL_RUN_REASON_CYCLE_BUDGET
+                : GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+            observed = observed && result.instructions == 0u &&
+                result.cycles == 0u && result.reason == expected_reason &&
+                result.termination == (boundary == 0u
+                    ? GBL_RUN_TIMEOUT : GBL_RUN_TRACE_OUTPUT_FULL) &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                gbl_test_same_instance_identity_equal(&before, &machine) &&
+                trace.records == records && trace.count == 1u &&
+                trace.capacity == (boundary == 0u ? 4u : 3u) &&
+                trace.next_sequence == UINT64_C(77) &&
+                memcmp(records, records_before, sizeof(records)) == 0;
+        } else {
+            observed = observed && result.instructions == 1u &&
+                result.cycles == 2u &&
+                result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                result.termination == GBL_RUN_PROGRESS &&
+                machine.cpu.r0_7[2] == UINT32_C(0x44332211) &&
+                trace.records == records && trace.count == 4u &&
+                trace.capacity == 4u && trace.next_sequence == UINT64_C(80) &&
+                records[2].address == UINT32_C(0x03000104) &&
+                records[2].width == 4u &&
+                memcmp(&records[4], &records_before[4],
+                       sizeof(records[4])) == 0;
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && observed;
+}
+
+static void test_thumb_transfer_preflight(void)
+{
+    test_case(thumb_transfer_preflight_case(0u),
+              "Thumb transfer one-short cycle budget preserves state and trace bytes");
+    test_case(thumb_transfer_preflight_case(1u),
+              "Thumb transfer one-short trace capacity preserves state and caller records");
+    test_case(thumb_transfer_preflight_case(2u),
+              "Thumb transfer exact cycle and trace capacities commit the real bus read");
+}
+
 static void test_alignment(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -10839,6 +11234,14 @@ static const cpu_test_function thumb_high_functions[] = {
     test_thumb_bx_sources, test_thumb_flag_consumers,
     test_thumb_pc_destination_sources
 };
+static const cpu_test_function thumb_transfer_functions[] = {
+    test_thumb_pc_literal_matrix,
+    test_thumb_register_offset_matrix,
+    test_thumb_transfer_operand_capture,
+    test_thumb_immediate_transfer_matrix,
+    test_thumb_transfer_modulo_address,
+    test_thumb_transfer_preflight
+};
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
 static const cpu_test_function slots_functions[] = {
@@ -10891,6 +11294,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("thumb", 8u, thumb_functions),
     CPU_TEST_GROUP("thumb_alu", 36u, thumb_alu_functions),
     CPU_TEST_GROUP("thumb_high", 129u, thumb_high_functions),
+    CPU_TEST_GROUP("thumb_transfer", 31u, thumb_transfer_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
