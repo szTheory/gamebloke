@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Executing Phase05 Plan10; Plan09 corrected hosted CI green
+status: Correcting Plan10 local review findings; Plan11 not started
 stopped_at: Completed 05-10-PLAN.md
-last_updated: "2026-11-12T16:34:23.853Z"
+last_updated: "2026-11-12T16:54:54.550Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
-state_head: 71c28274780609e6df7f472d6a801987f80e335b
+state_head: dbeff1bc3d7ab32bc5747c8aec9685fb7f8d0840
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 11 of 25
-Status: Executing Phase05 Plan10; Plan09 corrected hosted CI green
+Status: Correcting Plan10 local review findings; Plan11 not started
 Last activity: 2026-11-12 — Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
 
 Progress: [███████░░░] 67%
@@ -230,6 +230,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Plan09 approved mutation-build correction passed all required hosted checks inrun43249533205 ata16dad4; original timeout stop resolved, resumePlan10. GNUCPUcontrols52.8->35.19s, overall175s/180s narrowmargin; future newred renewsstop.
 - [Phase 05]: ARMv4T LDR PC masks loaded bits [1:0], keeps ARM state, and wraps the second aligned refill modulo 2^32.
 - [Phase 05]: Unaligned LDR PC source addresses and LDRT to R15 are unpredictable and refused before effects.
+- [Phase 05]: Batch routine implementation-plan publication until explicit hosted-witness or final phase gates under the existing one-PR-per-phase policy. Keep per-plan local compiler/sanitizer checks and independent review; preserve mandatory hosted CI before acceptance/merge and new-red stop. Latest published green remains a16dad4/run43249533205; local source receipts are distinct.
 
 ### Pending Todos
 
