@@ -1511,8 +1511,12 @@ static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
         return true;
     }
 
-    /* Snapshot every source and long accumulator word before creating any
-     * destination effects. ARM7TDMI permits source/destination overlap. */
+    /* Snapshot sources and accumulator words before destination effects.
+     * DDI0100I A4.1.40 records historical UNPREDICTABLE classification for
+     * MUL Rd == Rm and says relevant ARMv4/v5 implementations are believed
+     * not to require the restriction. DDI0029G does not establish this exact
+     * core's alias result; retaining deterministic MUL Rd == Rm behavior is
+     * project policy, not an exact-core or silicon claim. */
     rm_value = gbl_cpu_read_register(cpu, rm, unit->instruction_address,
                                      GBL_CPU_PC_READ_NORMAL);
     rs_value = gbl_cpu_read_register(cpu, rs, unit->instruction_address,

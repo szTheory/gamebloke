@@ -9483,7 +9483,7 @@ static void test_multiply_operand_restrictions(void)
                   machine.cpu.r0_7[1] == UINT32_C(35) &&
                   machine.cpu.r0_7[3] == UINT32_C(7) &&
                   (machine.cpu.cpsr & nzcv) == (TEST_CPSR_C | TEST_CPSR_V),
-              "ARM7TDMI MUL permits Rd equal to Rm after snapshotting operands");
+              "MUL Rd=Rm uses snapshotted operands under project policy");
     gbl_machine_dispose(&machine);
 
     test_case(multiply_unpredictable_refused(UINT32_C(0xE01F0391)),
