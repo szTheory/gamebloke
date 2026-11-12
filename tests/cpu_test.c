@@ -2632,6 +2632,560 @@ static void test_arm_subword_architectural_refusals(void)
     }
 }
 
+typedef enum arm_subword_read_kind {
+    ARM_SUBWORD_READ_UNSIGNED_HALF,
+    ARM_SUBWORD_READ_SIGNED_BYTE,
+    ARM_SUBWORD_READ_SIGNED_HALF
+} arm_subword_read_kind;
+
+static uint32_t arm_subword_expected_from_bus(
+    uint32_t bus_value, arm_subword_read_kind kind, bool odd_address)
+{
+    uint32_t value;
+
+    if (kind == ARM_SUBWORD_READ_UNSIGNED_HALF) {
+        if (odd_address) {
+            return ((bus_value >> 8u) & UINT32_C(0xFF)) |
+                   ((bus_value & UINT32_C(0xFF)) << 24u);
+        }
+        return bus_value & UINT32_C(0x0000FFFF);
+    }
+    if (kind == ARM_SUBWORD_READ_SIGNED_BYTE || odd_address) {
+        value = bus_value & UINT32_C(0x000000FF);
+        return (value & UINT32_C(0x00000080)) != 0u
+                   ? value | UINT32_C(0xFFFFFF00)
+                   : value;
+    }
+    value = bus_value & UINT32_C(0x0000FFFF);
+    return (value & UINT32_C(0x00008000)) != 0u
+               ? value | UINT32_C(0xFFFF0000)
+               : value;
+}
+
+static bool arm_subword_bus_read_case(uint32_t address,
+                                      arm_subword_read_kind kind)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[3] = { 0 };
+    gbl_trace_buffer trace = { records, 3u, 0u, UINT64_C(40) };
+    gbl_run_result result = { 0 };
+    gbl_bus_result expected_bus = { 0 };
+    gbl_machine bus_oracle;
+    const bool odd_address = (address & UINT32_C(1)) != 0u;
+    const bool halfword = kind != ARM_SUBWORD_READ_SIGNED_BYTE;
+    const bool sign = kind != ARM_SUBWORD_READ_UNSIGNED_HALF;
+    const uint8_t width =
+        (uint8_t)(kind == ARM_SUBWORD_READ_SIGNED_BYTE ||
+                          (kind == ARM_SUBWORD_READ_SIGNED_HALF && odd_address)
+                      ? 1u
+                      : 2u);
+    const uint32_t bus_address = width == 1u
+                                     ? address
+                                     : address & ~UINT32_C(1);
+    const uint32_t opcode = encode_arm_subword(
+        false, true, true, false, true, sign, halfword, 0u, 1u, 0u);
+    size_t index;
+    bool saw_bus = false;
+    size_t matching_bus_records = 0u;
+    bool loaded;
+    bool ran = false;
+    bool observed = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.open_bus = UINT32_C(0x89ABCDEF);
+        if (address >= UINT32_C(0x03000000) &&
+            address < UINT32_C(0x03008000)) {
+            const uint32_t aligned_address = address & ~UINT32_C(3);
+            const size_t offset =
+                (size_t)(aligned_address - UINT32_C(0x03000000));
+
+            machine.iwram[offset] = UINT8_C(0x81);
+            machine.iwram[offset + 1u] = UINT8_C(0x7F);
+            machine.iwram[offset + 2u] = UINT8_C(0x80);
+            machine.iwram[offset + 3u] = UINT8_C(0xFF);
+        }
+        machine.cpu.r0_7[0] = address;
+        bus_oracle = machine;
+        expected_bus = gbl_bus_read(&bus_oracle, bus_address, width,
+                                    GBL_BUS_CLASS_NONSEQUENTIAL);
+        ran = expected_bus.status == GBL_BUS_STATUS_OK &&
+              run_arm_instruction_with_trace(
+                  &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(2), &trace,
+                  &result);
+        if (ran) {
+            const uint32_t expected_value = arm_subword_expected_from_bus(
+                expected_bus.value, kind, odd_address);
+
+            observed = result.termination == GBL_RUN_PROGRESS &&
+                result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                result.cycles == UINT64_C(2) &&
+                result.instructions == UINT64_C(1) &&
+                machine.master_cycles == UINT64_C(2) &&
+                machine.cpu.r0_7[0] == address &&
+                machine.cpu.r0_7[1] == expected_value &&
+                trace.count == 3u && trace.next_sequence == UINT64_C(43);
+            for (index = 0u; index < trace.count; ++index) {
+                if (records[index].category == GBL_TRACE_BUS &&
+                    records[index].address == bus_address &&
+                    records[index].width == width &&
+                    records[index].value == expected_bus.value &&
+                    records[index].bus_outcome == expected_bus.outcome) {
+                    saw_bus = true;
+                    matching_bus_records++;
+                }
+            }
+            observed = observed && saw_bus && matching_bus_records == 1u;
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && ran && observed;
+}
+
+static void test_arm_subword_actual_bus_outcomes(void)
+{
+    static const struct {
+        const char *description;
+        uint32_t address;
+        arm_subword_read_kind kind;
+    } cases[] = {
+        { "odd LDRH uses a RAM halfword bus result",
+          UINT32_C(0x03000101), ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "odd LDRH uses a ROM-tail halfword bus result",
+          UINT32_C(0x080000C1), ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "odd LDRH uses a BIOS-absent halfword bus result",
+          UINT32_C(0x00000001), ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "odd LDRH uses an unimplemented-I/O halfword bus result",
+          UINT32_C(0x04000001), ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "odd LDRH uses an unmapped halfword bus result",
+          UINT32_MAX, ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "aligned LDRH zero-extends the actual RAM halfword",
+          UINT32_C(0x03000100), ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "aligned LDRH reads the upper RAM halfword lane",
+          UINT32_C(0x03000102), ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "aligned LDRH zero-extends the actual ROM-tail result",
+          UINT32_C(0x080000C0), ARM_SUBWORD_READ_UNSIGNED_HALF },
+        { "odd LDRSH signs the addressed RAM byte",
+          UINT32_C(0x03000101), ARM_SUBWORD_READ_SIGNED_HALF },
+        { "odd LDRSH signs the ROM-tail byte result",
+          UINT32_C(0x080000C1), ARM_SUBWORD_READ_SIGNED_HALF },
+        { "odd LDRSH signs the BIOS-absent byte result",
+          UINT32_C(0x00000001), ARM_SUBWORD_READ_SIGNED_HALF },
+        { "odd LDRSH signs the unimplemented-I/O byte result",
+          UINT32_C(0x04000001), ARM_SUBWORD_READ_SIGNED_HALF },
+        { "odd LDRSH signs the unmapped byte result",
+          UINT32_MAX, ARM_SUBWORD_READ_SIGNED_HALF },
+        { "aligned LDRSH sign-extends the actual RAM halfword",
+          UINT32_C(0x03000100), ARM_SUBWORD_READ_SIGNED_HALF },
+        { "aligned LDRSH sign-extends the actual ROM-tail result",
+          UINT32_C(0x080000C0), ARM_SUBWORD_READ_SIGNED_HALF },
+        { "LDRSB sign-extends the ROM-tail byte result",
+          UINT32_C(0x080000C1), ARM_SUBWORD_READ_SIGNED_BYTE },
+        { "LDRSB sign-extends the BIOS-absent byte result",
+          UINT32_C(0x00000001), ARM_SUBWORD_READ_SIGNED_BYTE },
+        { "LDRSB sign-extends the unimplemented-I/O byte result",
+          UINT32_C(0x04000001), ARM_SUBWORD_READ_SIGNED_BYTE },
+        { "LDRSB sign-extends the unmapped byte result",
+          UINT32_MAX, ARM_SUBWORD_READ_SIGNED_BYTE }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        test_case(arm_subword_bus_read_case(cases[index].address,
+                                            cases[index].kind),
+                  cases[index].description);
+    }
+}
+
+static void test_arm_subword_byte_lanes(void)
+{
+    static const uint32_t expected[] = {
+        UINT32_C(0xFFFFFF81), UINT32_C(0x0000007F),
+        UINT32_C(0xFFFFFF80), UINT32_C(0xFFFFFFFF)
+    };
+    uint8_t lane;
+
+    for (lane = 0u; lane < 4u; ++lane) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const uint32_t address = UINT32_C(0x03000100) + lane;
+        const uint32_t opcode = encode_arm_subword(
+            false, true, true, false, true, true, false, 0u, 1u, 0u);
+        bool loaded;
+        bool ran = false;
+
+        make_empty_image(image);
+        loaded = machine_load(&machine, image);
+        if (loaded) {
+            machine.iwram[0x100u] = UINT8_C(0x81);
+            machine.iwram[0x101u] = UINT8_C(0x7F);
+            machine.iwram[0x102u] = UINT8_C(0x80);
+            machine.iwram[0x103u] = UINT8_C(0xFF);
+            machine.cpu.r0_7[0] = address;
+            ran = run_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM,
+                                      UINT64_C(2), &result);
+        }
+        test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                      machine.cpu.r0_7[1] == expected[lane],
+                  "ARM LDRSB reads and signs the selected byte lane");
+        if (loaded) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+
+    test_case(arm_subword_bus_read_case(
+                  UINT32_C(0x03000103), ARM_SUBWORD_READ_UNSIGNED_HALF),
+              "odd LDRH rotates the upper aligned RAM halfword by eight");
+    test_case(arm_subword_bus_read_case(
+                  UINT32_C(0x03000103), ARM_SUBWORD_READ_SIGNED_HALF),
+              "odd LDRSH signs the exact upper RAM byte lane");
+}
+
+static bool arm_subword_odd_store_case(uint32_t address)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine oracle = { 0 };
+    gbl_trace_record records[3] = { 0 };
+    gbl_trace_buffer trace = { records, 3u, 0u, UINT64_C(40) };
+    gbl_run_result result = { 0 };
+    gbl_bus_result expected_bus = { 0 };
+    const uint32_t bus_address = address & ~UINT32_C(1);
+    const uint32_t source = UINT32_C(0xA1B2C3D4);
+    const uint32_t opcode = encode_arm_subword(
+        false, true, true, false, false, false, true, 0u, 2u, 0u);
+    bool loaded;
+    bool ran = false;
+    bool saw_bus = false;
+    bool ram_matches = false;
+    bool oracle_loaded;
+    size_t index;
+    size_t matching_bus_records = 0u;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    oracle_loaded = machine_load(&oracle, image);
+    if (loaded) {
+        machine.open_bus = UINT32_C(0x89ABCDEF);
+        machine.cpu.r0_7[0] = address;
+        machine.cpu.r0_7[2] = source;
+        if (address >= UINT32_C(0x03000000) &&
+            address < UINT32_C(0x03008000)) {
+            const size_t offset = (size_t)(bus_address -
+                                           UINT32_C(0x03000000));
+
+            machine.iwram[offset] = UINT8_C(0x55);
+            machine.iwram[offset + 1u] = UINT8_C(0x66);
+            oracle.iwram[offset] = UINT8_C(0x55);
+            oracle.iwram[offset + 1u] = UINT8_C(0x66);
+        }
+        oracle.open_bus = machine.open_bus;
+        expected_bus = gbl_bus_write(&oracle, bus_address, 2u,
+                                     GBL_BUS_CLASS_NONSEQUENTIAL,
+                                     source & UINT32_C(0x0000FFFF));
+        ran = oracle_loaded && expected_bus.status == GBL_BUS_STATUS_OK &&
+              run_arm_instruction_with_trace(
+                  &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(2), &trace,
+                  &result);
+        for (index = 0u; index < trace.count; ++index) {
+            if (records[index].category == GBL_TRACE_BUS &&
+                records[index].address == bus_address &&
+                records[index].width == 2u &&
+                records[index].value == expected_bus.value &&
+                records[index].bus_outcome == expected_bus.outcome) {
+                saw_bus = true;
+                matching_bus_records++;
+            }
+        }
+        if (address >= UINT32_C(0x03000000) &&
+            address < UINT32_C(0x03008000)) {
+            const size_t offset = (size_t)(bus_address -
+                                           UINT32_C(0x03000000));
+
+            ram_matches = machine.iwram[offset] == UINT8_C(0xD4) &&
+                          machine.iwram[offset + 1u] == UINT8_C(0xC3);
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    if (oracle_loaded) {
+        gbl_machine_dispose(&oracle);
+    }
+    if (!loaded || !oracle_loaded || !ran || !saw_bus ||
+        matching_bus_records != 1u ||
+        result.cycles != UINT64_C(2) ||
+        result.instructions != UINT64_C(1) || trace.count != 3u ||
+        trace.next_sequence != UINT64_C(43)) {
+        return false;
+    }
+    if (address >= UINT32_C(0x03000000) &&
+        address < UINT32_C(0x03008000)) {
+        return ram_matches;
+    }
+    return true;
+}
+
+static void test_arm_subword_odd_stores(void)
+{
+    test_case(arm_subword_odd_store_case(UINT32_C(0x03000101)),
+              "odd STRH aligns down to the lower RAM halfword");
+    test_case(arm_subword_odd_store_case(UINT32_C(0x03000103)),
+              "odd STRH aligns down to the upper RAM halfword");
+    test_case(arm_subword_odd_store_case(UINT32_C(0x080000C1)),
+              "odd STRH reports the ROM-tail aligned bus write");
+    test_case(arm_subword_odd_store_case(UINT32_C(0x00000001)),
+              "odd STRH reports the BIOS-absent aligned bus write");
+}
+
+static void test_arm_subword_address_wrap(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine store_machine = { 0 };
+    gbl_machine store_oracle = { 0 };
+    gbl_trace_record records[3] = { 0 };
+    gbl_trace_buffer trace = { records, 3u, 0u, UINT64_C(50) };
+    gbl_trace_record store_records[3] = { 0 };
+    gbl_trace_buffer store_trace = { store_records, 3u, 0u, UINT64_C(70) };
+    gbl_run_result result = { 0 };
+    gbl_bus_result expected_load = { 0 };
+    gbl_bus_result expected_store = { 0 };
+    gbl_machine load_oracle;
+    const uint32_t load_opcode = encode_arm_subword(
+        false, true, true, true, true, true, true, 0u, 1u, 4u);
+    const uint32_t store_opcode = encode_arm_subword(
+        false, false, true, false, false, false, true, 0u, 2u, 8u);
+    bool loaded;
+    bool ran = false;
+    bool store_loaded;
+    bool store_oracle_loaded;
+    bool store_ran = false;
+    bool load_bus_seen = false;
+    bool store_bus_seen = false;
+    size_t index;
+    size_t load_bus_records = 0u;
+    size_t store_bus_records = 0u;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.open_bus = UINT32_C(0x89ABCDEF);
+        machine.cpu.r0_7[0] = UINT32_C(0xFFFFFFFD);
+        load_oracle = machine;
+        expected_load = gbl_bus_read(&load_oracle, UINT32_C(1), 1u,
+                                     GBL_BUS_CLASS_NONSEQUENTIAL);
+        ran = expected_load.status == GBL_BUS_STATUS_OK &&
+              run_arm_instruction_with_trace(
+            &machine, load_opcode, TEST_CPSR_SYSTEM, UINT64_C(2), &trace,
+            &result);
+        for (index = 0u; index < trace.count; ++index) {
+            if (records[index].category == GBL_TRACE_BUS &&
+                records[index].address == UINT32_C(1) &&
+                records[index].width == 1u &&
+                records[index].value == expected_load.value &&
+                records[index].bus_outcome == expected_load.outcome) {
+                load_bus_seen = true;
+                load_bus_records++;
+            }
+        }
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[0] == UINT32_C(1) &&
+                  machine.cpu.r0_7[1] == arm_subword_expected_from_bus(
+                      expected_load.value, ARM_SUBWORD_READ_SIGNED_HALF,
+                      true) && load_bus_seen && trace.count == 3u &&
+                  trace.next_sequence == UINT64_C(53) &&
+                  load_bus_records == 1u,
+              "pre-indexed odd LDRSH wraps its effective address modulo 2^32");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+
+    store_loaded = machine_load(&store_machine, image);
+    store_oracle_loaded = machine_load(&store_oracle, image);
+    if (store_loaded && store_oracle_loaded) {
+        store_machine.cpu.r0_7[0] = UINT32_C(0xFFFFFFFE);
+        store_machine.cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
+        store_oracle.cpu.r0_7[0] = UINT32_C(0xFFFFFFFE);
+        store_oracle.cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
+        expected_store = gbl_bus_write(
+            &store_oracle, UINT32_C(0xFFFFFFFE), 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0000C3D4));
+        store_ran = expected_store.status == GBL_BUS_STATUS_OK &&
+                    run_arm_instruction_with_trace(
+            &store_machine, store_opcode, TEST_CPSR_SYSTEM, UINT64_C(2),
+            &store_trace, &result);
+        for (index = 0u; index < store_trace.count; ++index) {
+            if (store_records[index].category == GBL_TRACE_BUS &&
+                store_records[index].address == UINT32_C(0xFFFFFFFE) &&
+                store_records[index].width == 2u &&
+                store_records[index].value == expected_store.value &&
+                store_records[index].bus_outcome == expected_store.outcome) {
+                store_bus_seen = true;
+                store_bus_records++;
+            }
+        }
+    }
+    test_case(store_loaded && store_ran &&
+                  result.termination == GBL_RUN_PROGRESS &&
+                  store_machine.cpu.r0_7[0] == UINT32_C(6) &&
+                  store_bus_seen && store_bus_records == 1u &&
+                  store_trace.count == 3u &&
+                  store_trace.next_sequence == UINT64_C(73),
+              "post-indexed STRH wraps base writeback modulo 2^32");
+    if (store_loaded) {
+        gbl_machine_dispose(&store_machine);
+    }
+    if (store_oracle_loaded) {
+        gbl_machine_dispose(&store_oracle);
+    }
+}
+
+static bool arm_subword_preflight_case(uint8_t mode)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_record records_before[4];
+    gbl_trace_buffer trace = { records, 4u, 1u, UINT64_C(90) };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(2),
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    const uint32_t opcode = encode_arm_subword(
+        false, true, true, false, true, false, true, 0u, 1u, 0u);
+    bool loaded;
+    bool ran = false;
+    bool observed = false;
+    size_t index;
+    size_t initial_trace_count;
+    size_t initial_trace_capacity;
+    uint64_t initial_trace_sequence;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    for (index = 0u; index < 4u; ++index) {
+        records[index] = (gbl_trace_record){
+            .sequence = UINT64_C(89) + index,
+            .guest_cycle = UINT64_C(13) + index,
+            .category = GBL_TRACE_INSTRUCTION,
+            .instruction_address = UINT32_C(0x08000080),
+            .opcode = UINT32_C(0xE1A00000),
+            .address = UINT32_C(0x03000180),
+            .value = UINT32_C(0xAABBCCDD),
+            .width = 4u,
+            .access_class = GBL_BUS_CLASS_SEQUENTIAL,
+            .bus_outcome = GBL_BUS_OUTCOME_RAM
+        };
+    }
+    if (loaded) {
+        gbl_machine_reset(&machine);
+        machine.cpu.r0_7[0] = UINT32_C(0x03000101);
+        machine.iwram[0x100u] = UINT8_C(0x81);
+        machine.iwram[0x101u] = UINT8_C(0x7F);
+        prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
+        if (mode == 0u) {
+            options.cycle_budget = UINT64_C(1);
+        } else if (mode == 1u) {
+            trace.capacity = 3u;
+        } else if (mode == 2u) {
+            machine.master_cycles = UINT64_MAX - UINT64_C(1);
+        } else if (mode == 3u) {
+            machine.cpu.retired_instructions = UINT64_MAX;
+        } else if (mode == 4u) {
+            trace.count = 0u;
+            trace.next_sequence = UINT64_MAX - UINT64_C(2);
+        } else {
+            machine.master_cycles = UINT64_MAX - UINT64_C(2);
+            machine.cpu.retired_instructions = UINT64_MAX - UINT64_C(1);
+            trace.capacity = 3u;
+            trace.count = 0u;
+            trace.next_sequence = UINT64_MAX - UINT64_C(3);
+        }
+        initial_trace_count = trace.count;
+        initial_trace_capacity = trace.capacity;
+        initial_trace_sequence = trace.next_sequence;
+        before = machine;
+        memcpy(records_before, records, sizeof(records_before));
+        ran = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK;
+        if (mode < 5u) {
+            const gbl_run_reason reason = mode == 0u
+                ? GBL_RUN_REASON_CYCLE_BUDGET
+                : (mode == 1u || mode == 4u)
+                      ? GBL_RUN_REASON_TRACE_OUTPUT_FULL
+                      : GBL_RUN_REASON_COUNTER_OVERFLOW;
+            const gbl_run_termination termination = mode == 0u
+                ? GBL_RUN_TIMEOUT
+                : (mode == 1u || mode == 4u)
+                      ? GBL_RUN_TRACE_OUTPUT_FULL
+                      : GBL_RUN_STOPPED;
+
+            observed = ran && result.termination == termination &&
+                result.reason == reason && result.cycles == 0u &&
+                result.instructions == 0u &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                gbl_test_same_instance_identity_equal(&before, &machine) &&
+                trace.records == records &&
+                trace.capacity == initial_trace_capacity &&
+                trace.count == initial_trace_count &&
+                trace.next_sequence == initial_trace_sequence;
+        } else {
+            observed = ran && result.termination == GBL_RUN_PROGRESS &&
+                result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                result.cycles == UINT64_C(2) && result.instructions == 1u &&
+                machine.master_cycles == UINT64_MAX &&
+                machine.cpu.retired_instructions == UINT64_MAX &&
+                machine.cpu.r0_7[1] == UINT32_C(0x8100007F) &&
+                gbl_test_same_instance_identity_equal(&before, &machine) &&
+                trace.records == records && trace.count == 3u &&
+                trace.capacity == initial_trace_capacity &&
+                trace.next_sequence == UINT64_MAX &&
+                memcmp(&records[3], &records_before[3],
+                       sizeof(records[3])) == 0;
+        }
+        if (mode < 5u) {
+            observed = observed && trace.records == records &&
+                       memcmp(records, records_before,
+                              sizeof(records)) == 0;
+        }
+        if (mode < 5u) {
+            observed = observed && trace.count == initial_trace_count &&
+                       trace.capacity == initial_trace_capacity &&
+                       trace.next_sequence == initial_trace_sequence;
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && observed;
+}
+
+static void test_arm_subword_preflight_boundaries(void)
+{
+    test_case(arm_subword_preflight_case(0u),
+              "one-short odd LDRH cycle budget preserves machine and trace");
+    test_case(arm_subword_preflight_case(1u),
+              "one-short odd LDRH trace capacity preserves machine and trace");
+    test_case(arm_subword_preflight_case(2u),
+              "one-short odd LDRH clock headroom refuses before bus effects");
+    test_case(arm_subword_preflight_case(3u),
+              "exhausted odd LDRH retirement counter refuses atomically");
+    test_case(arm_subword_preflight_case(4u),
+              "odd LDRH trace sequence overflow refuses atomically");
+    test_case(arm_subword_preflight_case(5u),
+              "odd LDRH fits exact clock, retirement, and trace limits");
+}
+
 static void test_arm_transfer_immediate_matrix(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -7845,6 +8399,13 @@ static const cpu_test_function arm_subword_functions[] = {
     test_arm_subword_pc_and_alias_rules,
     test_arm_subword_architectural_refusals
 };
+static const cpu_test_function arm_subword_alignment_functions[] = {
+    test_arm_subword_actual_bus_outcomes,
+    test_arm_subword_byte_lanes,
+    test_arm_subword_odd_stores,
+    test_arm_subword_address_wrap,
+    test_arm_subword_preflight_boundaries
+};
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
 static const cpu_test_function arm_alu_functions[] = {
     test_arm_adc_carry_in,
@@ -7958,6 +8519,8 @@ static const cpu_test_group cpu_test_groups[] = {
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),
     CPU_TEST_GROUP("arm_subword", 46u, arm_subword_functions),
+    CPU_TEST_GROUP("arm_subword_alignment", 37u,
+                   arm_subword_alignment_functions),
     CPU_TEST_GROUP("loaded_pc", 17u, loaded_pc_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),

@@ -86,7 +86,7 @@ gbl_add_test(
   NAME cpu.budget
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
-foreach(selector IN ITEMS arithmetic arm_alu arm_pc_return arm_shifts_conditions arm_transfer arm_subword loaded_pc thumb decode alignment modes exceptions multiply_signed_timing multiply_unsigned
+foreach(selector IN ITEMS arithmetic arm_alu arm_pc_return arm_shifts_conditions arm_transfer arm_subword arm_subword_alignment loaded_pc thumb decode alignment modes exceptions multiply_signed_timing multiply_unsigned
     no_bios peek mailbox psr trace_capacity trace slots slots_bounds)
   gbl_add_test(
     NAME cpu.${selector}
