@@ -1380,6 +1380,151 @@ static void test_arm_adc_carry_in(void)
     gbl_machine_dispose(&machine);
 }
 
+typedef struct arm_alu_test_vector {
+    const char *description;
+    uint32_t opcode;
+    uint32_t left;
+    uint32_t right;
+    uint32_t initial_flags;
+    uint32_t expected_result;
+    uint32_t expected_flags;
+    uint32_t flag_mask;
+    bool writes_r2;
+} arm_alu_test_vector;
+
+static void test_arm_alu_vectors(void)
+{
+    static const uint32_t nzcv = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C |
+                                 TEST_CPSR_V;
+    static const uint32_t nzc = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C;
+    static const arm_alu_test_vector vectors[] = {
+        { "ANDS result and logical flag mask", UINT32_C(0xE0112003),
+          UINT32_C(0xF0F00FF0), UINT32_C(0x0FF0F00F), nzcv,
+          UINT32_C(0x00F00000), TEST_CPSR_C, nzc, true },
+        { "EORS result and logical flag mask", UINT32_C(0xE0312003),
+          UINT32_C(0xF0F00FF0), UINT32_C(0x0FF0F00F), nzcv,
+          UINT32_C(0xFF00FFFF), TEST_CPSR_N | TEST_CPSR_C, nzc, true },
+        { "SUBS result, no-borrow carry, and overflow", UINT32_C(0xE0512003),
+          UINT32_C(0x80000000), UINT32_C(1), nzcv,
+          UINT32_C(0x7FFFFFFF), TEST_CPSR_C | TEST_CPSR_V, nzcv, true },
+        { "RSBS operand order, borrow, and overflow", UINT32_C(0xE0712003),
+          UINT32_C(0x80000000), UINT32_C(0), nzcv,
+          UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_V, nzcv, true },
+        { "ADDS result and signed overflow", UINT32_C(0xE0912003),
+          UINT32_C(0x7FFFFFFF), UINT32_C(1), nzcv,
+          UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_V, nzcv, true },
+        { "ADCS includes carry-in", UINT32_C(0xE0B12003),
+          UINT32_C(0x7FFFFFFF), UINT32_C(0), nzcv,
+          UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_V, nzcv, true },
+        { "SBCS subtracts borrow when carry is clear", UINT32_C(0xE0D12003),
+          UINT32_C(0x80000000), UINT32_C(0x7FFFFFFF),
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_V, UINT32_C(0),
+          TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V, nzcv, true },
+        { "RSCS reverses operands and includes borrow", UINT32_C(0xE0F12003),
+          UINT32_C(0x80000000), UINT32_C(0x7FFFFFFF),
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_V, UINT32_C(0xFFFFFFFE),
+          TEST_CPSR_N | TEST_CPSR_V, nzcv, true },
+        { "TST updates flags without a destination", UINT32_C(0xE1110003),
+          UINT32_C(0x80000000), UINT32_C(0x80000000), nzcv,
+          UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_C, nzc, false },
+        { "TEQ updates flags without a destination", UINT32_C(0xE1310003),
+          UINT32_C(0x80000000), UINT32_C(0x80000000), nzcv,
+          UINT32_C(0), TEST_CPSR_Z | TEST_CPSR_C, nzc, false },
+        { "CMP updates arithmetic flags without a destination",
+          UINT32_C(0xE1510003), UINT32_C(0x80000000),
+          UINT32_C(0x80000000), nzcv, UINT32_C(0),
+          TEST_CPSR_Z | TEST_CPSR_C, nzcv, false },
+        { "CMN updates arithmetic flags without a destination",
+          UINT32_C(0xE1710003), UINT32_C(0x7FFFFFFF), UINT32_C(1), nzcv,
+          UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_V, nzcv, false },
+        { "ORRS result and logical flag mask", UINT32_C(0xE1912003),
+          UINT32_C(0x0000F0F0), UINT32_C(0xF000000F), nzcv,
+          UINT32_C(0xF000F0FF), TEST_CPSR_N | TEST_CPSR_C, nzc, true },
+        { "MOVS result and logical flag mask", UINT32_C(0xE1B02003),
+          UINT32_C(0), UINT32_C(0), nzcv, UINT32_C(0),
+          TEST_CPSR_Z | TEST_CPSR_C, nzc, true },
+        { "BICS result and logical flag mask", UINT32_C(0xE1D12003),
+          UINT32_C(0xFFFF0000), UINT32_C(0xFF00FF00), nzcv,
+          UINT32_C(0x00FF0000), TEST_CPSR_C, nzc, true },
+        { "MVNS result and logical flag mask", UINT32_C(0xE1F02003),
+          UINT32_C(0), UINT32_MAX, nzcv, UINT32_C(0),
+          TEST_CPSR_Z | TEST_CPSR_C, nzc, true }
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    size_t index;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        const arm_alu_test_vector *vector = &vectors[index];
+        const uint32_t sentinel = UINT32_C(0x13579BDF);
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool ran = false;
+        bool registers_match;
+        bool flags_match;
+
+        machine.cpu.r0_7[0] = sentinel;
+        machine.cpu.r0_7[1] = vector->left;
+        machine.cpu.r0_7[2] = sentinel;
+        machine.cpu.r0_7[3] = vector->right;
+        if (loaded) {
+            ran = run_arm_instruction(&machine, vector->opcode,
+                                      vector->initial_flags, 1u, &result);
+        }
+        registers_match = machine.cpu.r0_7[0] == sentinel &&
+                          machine.cpu.r0_7[1] == vector->left &&
+                          machine.cpu.r0_7[3] == vector->right &&
+                          (vector->writes_r2
+                               ? machine.cpu.r0_7[2] ==
+                                     vector->expected_result
+                               : machine.cpu.r0_7[2] == sentinel);
+        flags_match =
+            (machine.cpu.cpsr & vector->flag_mask) ==
+                vector->expected_flags &&
+            (machine.cpu.cpsr & nzcv & ~vector->flag_mask) ==
+                (vector->initial_flags & nzcv & ~vector->flag_mask);
+        test_case(loaded && ran &&
+                      result.termination == GBL_RUN_PROGRESS &&
+                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      result.instructions == 1u && result.cycles == 1u &&
+                      registers_match && flags_match,
+                  vector->description);
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_arm_alu_without_s_preserves_flags(void)
+{
+    const uint32_t initial_flags = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C |
+                                   TEST_CPSR_V;
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool ran = false;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[1] = UINT32_C(1);
+        machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
+        machine.cpu.r0_7[3] = UINT32_C(2);
+        ran = run_arm_instruction(&machine, UINT32_C(0xE0812003),
+                                  initial_flags, 1u, &result);
+    }
+    test_case(loaded && ran && result.instructions == 1u &&
+                  machine.cpu.r0_7[2] == UINT32_C(3) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                       TEST_CPSR_C | TEST_CPSR_V)) ==
+                      initial_flags,
+              "ADD without S preserves all four status flags");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_arithmetic(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -4189,7 +4334,11 @@ typedef struct cpu_test_group {
     { selector_name, assertions, CPU_TEST_ARRAY_COUNT(function_list), function_list }
 
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
-static const cpu_test_function arm_alu_functions[] = { test_arm_adc_carry_in };
+static const cpu_test_function arm_alu_functions[] = {
+    test_arm_adc_carry_in,
+    test_arm_alu_vectors,
+    test_arm_alu_without_s_preserves_flags
+};
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
@@ -4242,7 +4391,7 @@ static const cpu_test_function slots_bounds_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
-    CPU_TEST_GROUP("arm_alu", 1u, arm_alu_functions),
+    CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
