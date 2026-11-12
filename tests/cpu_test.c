@@ -2822,7 +2822,7 @@ static bool arm_transfer_increment_wraps_to_bios(void)
     if (loaded) {
         machine.cpu.r0_7[0] = UINT32_MAX;
         ran = run_arm_instruction_with_trace(
-            &machine, UINT32_C(0xE7F02001), TEST_CPSR_SYSTEM,
+            &machine, UINT32_C(0xE5F02001), TEST_CPSR_SYSTEM,
             UINT64_C(8), &trace, &result);
         for (index = 0u; index < trace.count; ++index) {
             const gbl_trace_record *record = &records[index];

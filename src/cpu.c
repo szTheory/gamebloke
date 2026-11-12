@@ -1521,26 +1521,24 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
     const bool preindexed = (opcode & UINT32_C(0x01000000)) != 0u;
     const bool add_offset = (opcode & UINT32_C(0x00800000)) != 0u;
     const bool byte = (opcode & UINT32_C(0x00400000)) != 0u;
-    const bool writeback = (opcode & UINT32_C(0x00200000)) != 0u;
+    const bool writeback_bit = (opcode & UINT32_C(0x00200000)) != 0u;
     const bool load = (opcode & UINT32_C(0x00100000)) != 0u;
     const uint8_t base_register =
         (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
     const uint8_t data_register =
         (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
     const uint8_t width = byte ? 1u : (uint8_t)GBL_CPU_WORD_WIDTH;
+    /* Post-indexed forms always update Rn. W distinguishes the T encoding,
+     * whose forced-User bus access has no extra effect under this flat bus. */
+    const bool writeback = !preindexed || writeback_bit;
     uint32_t base;
     uint32_t offset;
     uint32_t address;
+    uint32_t updated_base;
+    uint32_t store_value = 0u;
 
     if ((opcode & UINT32_C(0x0C000000)) != UINT32_C(0x04000000)) {
         return false;
-    }
-    if (register_offset || !preindexed || writeback ||
-        (load && data_register == (uint8_t)15u) ||
-        (base_register == (uint8_t)15u &&
-         (!load || byte || !add_offset))) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-        return true;
     }
     if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
         unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
@@ -1551,21 +1549,67 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
         return true;
     }
 
+    if ((register_offset && (opcode & UINT32_C(0x00000010)) != 0u) ||
+        (base_register == (uint8_t)15u &&
+         (!preindexed || writeback)) ||
+        (register_offset &&
+         ((opcode & UINT32_C(0x0000000F)) == UINT32_C(15) ||
+          ((uint8_t)(opcode & UINT32_C(0x0000000F)) == base_register &&
+           writeback))) ||
+        (load && writeback && data_register == base_register) ||
+        (load && byte && data_register == (uint8_t)15u)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+    /* Word LDR-to-PC is completed by the symbolic refill path in the next
+     * transfer slice. Byte loads to PC were classified above as UNPREDICTABLE. */
+    if (load && !byte && data_register == (uint8_t)15u) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+
     base = gbl_cpu_read_register(cpu, base_register,
                                  unit->instruction_address,
                                  GBL_CPU_PC_READ_NORMAL);
-    offset = opcode & UINT32_C(0x00000FFF);
-    address = add_offset ? base + offset : base - offset;
-    if (!gbl_cpu_data_span_valid(address, width)) {
+    if (register_offset) {
+        const uint8_t source_register =
+            (uint8_t)(opcode & UINT32_C(0x0000000F));
+        const uint8_t shift_amount =
+            (uint8_t)((opcode >> 7u) & UINT32_C(0x1F));
+        const gbl_shift_kind shift_kind =
+            (gbl_shift_kind)((opcode >> 5u) & UINT32_C(0x03));
+        const uint32_t source_value = gbl_cpu_read_register(
+            cpu, source_register, unit->instruction_address,
+            GBL_CPU_PC_READ_NORMAL);
+        const gbl_shift_result shifted = gbl_shift(
+            shift_kind, source_value, shift_amount,
+            (cpu->cpsr & GBL_CPU_CPSR_C) != 0u, false);
+
+        offset = shifted.value;
+    } else {
+        offset = opcode & UINT32_C(0x00000FFF);
+    }
+    updated_base = add_offset ? base + offset : base - offset;
+    address = preindexed ? updated_base : base;
+    if (!load) {
+        store_value = gbl_cpu_read_register(
+            cpu, data_register, unit->instruction_address,
+            GBL_CPU_PC_READ_STORE_SOURCE);
+    }
+    if (!gbl_cpu_data_span_valid(
+            width == (uint8_t)GBL_CPU_WORD_WIDTH
+                ? address & ~UINT32_C(3)
+                : address,
+            width)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
     if (!gbl_cpu_prepare_data_transfer(
-            unit, address, width, load, data_register,
-            load ? 0u : gbl_cpu_read_register(
-                            cpu, data_register, unit->instruction_address,
-                            GBL_CPU_PC_READ_STORE_SOURCE),
+            unit, address, width, load, data_register, store_value,
             load && !byte, cpu->cpsr) ||
+        (writeback &&
+         !gbl_cpu_add_literal_register_effect(
+             unit, base_register, cpu->cpsr, updated_base)) ||
         !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
     }
