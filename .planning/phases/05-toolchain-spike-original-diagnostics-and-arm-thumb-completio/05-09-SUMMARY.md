@@ -180,3 +180,8 @@ Run43240119634 at published head967d7ef27ad0a95fa3a12f3cf2eeea21b5d3c85f hit the
 ## Owner-approved timeout correction
 
 Owner "yes follow ur recs" authorized the scoped per-pair unchanged-object compilation reduction. Tests/gates/core_mutation.cmake-only commitf6c7de5 preserves exact semantic mutants/cleancompanions, input/flag identity, header/unknown full rebuilds, independent CPU objects/executables and all CI limits/checks. Controlled affected-matrix observations show20–30% lower local time across macOSnormal/ASan and pinnedLinuxGCC/Clang. NativefullCI, rootfullpinnedGCC and Clangsanitizer/inventory pass; independent scopedCIreview is clean. See05-09-CI-FIX.md and05-09-CI-REVIEW.md for evidence/limits. One corrected hosted run on the existing PR is pending; any new red renews the stop and Plan10 has not started.
+
+
+## Corrected hosted confirmation
+
+Owner-approved corrected run43249533205 passed every required check atpublishedheada16dad4dd10f0585507a6a6227a4558deec629bc. GNU175s, macOS154s, sanitizer146s, both diagnostics and hygiene passed; all limits180s retained. Inventories:336pass+oneexistingallowedownerlocalskip per normalhost,80/80zero sanitizer skips/post. GNUCPU mutation matrix35.19s versuspreviousabout52.8s, with named mutant/clean assertions retained. GNU overall5s margin remains narrow; separate observed control savings from runner/build noise. Evidence/criticalpathanalysis in05-09-CI-HANDOFF.md and build/phase05-plan09/mutation-build-fix/hosted-*. The timeout stop is resolved and Plan10mayresume. No full-phase completion or merge is claimed; new red renewsstop.

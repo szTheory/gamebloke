@@ -38,3 +38,8 @@ No findings.
 _Reviewed: 2026-11-12T15:32:24Z_  
 _Reviewer: the agent (gsd-code-reviewer)_  
 _Depth: standard_
+
+
+## Corrected hosted confirmation
+
+Owner-approved corrected run43249533205 passed every required check atpublishedheada16dad4dd10f0585507a6a6227a4558deec629bc. GNU175s, macOS154s, sanitizer146s, both diagnostics and hygiene passed; all limits180s retained. Inventories:336pass+oneexistingallowedownerlocalskip per normalhost,80/80zero sanitizer skips/post. GNUCPU mutation matrix35.19s versuspreviousabout52.8s, with named mutant/clean assertions retained. GNU overall5s margin remains narrow; separate observed control savings from runner/build noise. Evidence/criticalpathanalysis in05-09-CI-HANDOFF.md and build/phase05-plan09/mutation-build-fix/hosted-*. The timeout stop is resolved and Plan10mayresume. No full-phase completion or merge is claimed; new red renewsstop.

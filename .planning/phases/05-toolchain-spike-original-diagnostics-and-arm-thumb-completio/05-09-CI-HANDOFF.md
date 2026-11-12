@@ -1,6 +1,6 @@
 # Plan09 hosted timeout stop
 
-Status: OWNER-AUTHORIZED CORRECTION VERIFIED LOCALLY; corrected hosted run pending. The owner replied "yes follow ur recs" to the concrete duplicate-compilation reduction, measurements, full verification and one corrected hosted run. The original stop below records the historical failure and diagnosis; it was preserved until approval. Plan10 has not started.
+Status: RESOLVED. The one owner-approved corrected hosted run passed every required check. The owner replied "yes follow ur recs" to the concrete duplicate-compilation reduction, measurements, full verification and one corrected hosted run. The original stop below records the historical failure and diagnosis; it was preserved until approval. Plan10 has not started.
 
 ## Actual evidence
 
@@ -46,3 +46,12 @@ Controlled observed before/after eight-check timings: macOS Release30.24->21.15s
 Native full canonical CI passed336 checks with the existing allowed owner-local skip and post inventory. Root final full pinnedUbuntu26.04arm64GCC also passed336+1allowedskip/post, and pinnedClang21ASan/UBSan/LeakSanitizer passed80/80zero skips/post, all at exactf6c7de5. Independent scoped05-09-CI-REVIEW.md found no actionable issue. Guard-hash mismatch and forced compiler/link failure paths were statically reviewed, not force-injected; semantic negative/clean matrix ran on all four configurations. Full-phase review remains later.
 
 The agent acts next: publish one corrected run on existing draft PR8 and inspect all required results and timings. Any new red renews the stop. No owner action is needed while that authorized run is pending; do not start Plan10 before this correction is green.
+
+
+## Corrected hosted gate — resolved
+
+Run https://github.com/szTheory/gamebloke/actions/runs/43249533205 attempt1 completed success at exactpublishedheada16dad4dd10f0585507a6a6227a4558deec629bc. Every required dependency and CI required passed. GNU/macOS regression inventories each ran336 with the existingoneallowedownerlocalskip/post; sanitizer80/80zero skip/post; both diagnostics and hygiene passed. No retry, suppression, timeout increase or check removal occurred.
+
+Measured jobs: GNU175s, macOS154s, sanitizer146s, diagnostics22sLinux/23smacOS, hygiene56s, required5s. Every job remained under180s. GNUCTest147.88s (prior168.90s), macOS130.27s, sanitizer124.96s. The eight GNUCPU mutation checks total35.19s (prior about52.8s); source-only cases about3.76–3.82s while header-affecting full rebuilds6.23/6.28s. Thus reduced duplicate work is directly visible in hosted control timings, separate from host/build/load noise. GNU overall margin remains only5s; keep measured critical-path costs visible during subsequent plans, without claiming broad performance headroom or raising limits. Raw run/jobs and all three heavyjoblogs: build/phase05-plan09/mutation-build-fix/hosted-*.
+
+The original Plan09 timeout stop is resolved. Resume authorized Plan10. Fullphasevalidation/review/acceptance remain later, and another new red renews stop. No owner action is required to continue.

@@ -52,3 +52,8 @@ The report is intentionally uncommitted for the parent agent to review. The fina
 ## Root final verification and scoped review
 
 Independent05-09-CI-REVIEW.md is clean at exact sourcef6c7de5. Root sequentially ran the full pinnedUbuntu26.04 nativearm64GCC canonical CI and Clang21ASan/UBSan/LeakSanitizer suites atf6c7de5f894a66476cd0f037e290518b0de7f477: GCC336pass+oneexistingallowedownerlocalskip/post; Clang80/80zero skip/post. Logs/receipts are final-linux-gcc.log, final-linux-clang21-asan.log and matching-receipt.json under build/phase05-plan09/mutation-build-fix/. Hosted correction remains pending; no phase-wide completion is claimed.
+
+
+## Corrected hosted confirmation
+
+Owner-approved corrected run43249533205 passed every required check atpublishedheada16dad4dd10f0585507a6a6227a4558deec629bc. GNU175s, macOS154s, sanitizer146s, both diagnostics and hygiene passed; all limits180s retained. Inventories:336pass+oneexistingallowedownerlocalskip per normalhost,80/80zero sanitizer skips/post. GNUCPU mutation matrix35.19s versuspreviousabout52.8s, with named mutant/clean assertions retained. GNU overall5s margin remains narrow; separate observed control savings from runner/build noise. Evidence/criticalpathanalysis in05-09-CI-HANDOFF.md and build/phase05-plan09/mutation-build-fix/hosted-*. The timeout stop is resolved and Plan10mayresume. No full-phase completion or merge is claimed; new red renewsstop.
