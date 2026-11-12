@@ -87,7 +87,7 @@ gbl_add_test(
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
 foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
-    no_bios peek mailbox trace_capacity trace)
+    no_bios peek mailbox trace_capacity trace slots slots_bounds)
   gbl_add_test(
     NAME cpu.${selector}
     LABELS cpu core unit
