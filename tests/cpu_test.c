@@ -3564,7 +3564,11 @@ static bool arm_block_base_in_list_case(
                                        : UINT32_C(0xA0000000) |
                                              (uint32_t)register_index;
 
-            machine.cpu.r0_7[register_index] = value;
+            if (register_index <= 7u) {
+                machine.cpu.r0_7[register_index] = value;
+            } else {
+                machine.cpu.usr_r8_14[(size_t)register_index - 8u] = value;
+            }
             write_word(machine.iwram, memory_offset, UINT32_C(0xDEADBEEF));
         }
     }
@@ -3610,7 +3614,9 @@ static bool arm_block_base_in_list_case(
                                   : GBL_BUS_CLASS_SEQUENTIAL);
         if (load) {
             passed = passed &&
-                     machine.cpu.r0_7[register_index] == load_values[index] &&
+                     arm_block_mode_register(&machine.cpu, TEST_CPSR_SYSTEM,
+                                             register_index) ==
+                         load_values[index] &&
                      record->value == load_values[index];
         } else {
             passed = passed &&
