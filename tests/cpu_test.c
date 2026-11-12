@@ -3765,8 +3765,8 @@ static bool arm_block_edge_trace_refusal_case(bool empty_list)
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine;
     gbl_machine *before;
-    gbl_trace_record records[7] = { { 0 } };
-    gbl_trace_record records_before[7] = { { 0 } };
+    gbl_trace_record records[21] = { { 0 } };
+    gbl_trace_record records_before[21] = { { 0 } };
     gbl_trace_buffer trace;
     gbl_run_options options;
     gbl_run_result result = { 0 };
@@ -3800,7 +3800,7 @@ static bool arm_block_edge_trace_refusal_case(bool empty_list)
         write_word(machine.iwram, 0x2004u, UINT32_C(0xC0020002));
         write_word(machine.iwram, 0x2008u, UINT32_C(0xC0030003));
     }
-    for (index = 0u; index < 7u; ++index) {
+    for (index = 0u; index < 21u; ++index) {
         records[index] = arm_block_trace_marker(
             UINT64_C(0x5000) + (uint64_t)index);
         records_before[index] = records[index];

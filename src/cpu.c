@@ -2158,9 +2158,17 @@ static bool gbl_cpu_decode_arm_block_transfer(
     const uint8_t base_register =
         (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
     const uint16_t register_list = (uint16_t)opcode;
-    const bool pc_in_list = (register_list & UINT16_C(0x8000)) != 0u;
+    const bool empty_list = register_list == 0u;
+    const uint16_t effective_register_list =
+        empty_list ? UINT16_C(0x8000) : register_list;
+    const bool pc_in_list =
+        (effective_register_list & UINT16_C(0x8000)) != 0u;
+    const bool base_in_list =
+        (effective_register_list &
+         (uint16_t)(UINT16_C(1) << base_register)) != 0u;
     uint32_t transfer_count = 0u;
     uint32_t span;
+    uint32_t writeback_span;
     uint32_t base;
     uint32_t address;
     uint32_t updated_base;
@@ -2170,6 +2178,7 @@ static bool gbl_cpu_decode_arm_block_transfer(
     bool store_user_bank;
     bool load_user_bank;
     uint8_t pc_result_index = UINT8_MAX;
+    uint8_t first_register = UINT8_MAX;
     uint8_t register_index;
 
     if ((opcode & UINT32_C(0x0E000000)) != UINT32_C(0x08000000)) {
@@ -2183,10 +2192,15 @@ static bool gbl_cpu_decode_arm_block_transfer(
         }
         return true;
     }
-    if (base_register == 15u || register_list == 0u) {
+    if (base_register == 15u) {
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
+    /* DDI0100I A5.4 calls an empty list UNPREDICTABLE. The selected GBA ARMv4
+     * policy is GBATEK 3.06 §ARM block transfers: `effective_register_list`
+     * treats it as one PC transfer and the base adjusts by +/-0x40. The data
+     * address follows the normal first-word P/U formula for that one PC slot;
+     * this is an explicit model policy, not a claim of physical measurement. */
     user_bank_cpsr =
         (cpu->cpsr & ~GBL_CPU_CPSR_MODE_MASK) | UINT32_C(0x10);
     store_user_bank = user_bank && !load;
@@ -2226,29 +2240,22 @@ static bool gbl_cpu_decode_arm_block_transfer(
                                  unit->instruction_address,
                                  GBL_CPU_PC_READ_NORMAL);
     for (register_index = 0u; register_index < 16u; ++register_index) {
-        if ((register_list & (uint16_t)(UINT16_C(1) << register_index)) != 0u) {
+        if ((effective_register_list &
+             (uint16_t)(UINT16_C(1) << register_index)) != 0u) {
+            if (first_register == UINT8_MAX) {
+                first_register = register_index;
+            }
             transfer_count++;
         }
     }
     span = transfer_count * UINT32_C(4);
+    writeback_span = empty_list ? UINT32_C(0x40) : span;
     address = add_offset
                   ? base + (preindexed ? UINT32_C(4) : UINT32_C(0))
                   : base - span +
                         (preindexed ? UINT32_C(0) : UINT32_C(4));
-    updated_base = add_offset ? base + span : base - span;
-
-    if (writeback &&
-        (register_list &
-         (uint16_t)(UINT16_C(1) << base_register)) != 0u) {
-        if (load) {
-            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
-        } else {
-            /* STM base-in-list writeback has an ARM7-specific value rule;
-             * defer that list quirk rather than inventing an alias result. */
-            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-        }
-        return true;
-    }
+    updated_base = add_offset ? base + writeback_span
+                              : base - writeback_span;
 
     unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
     unit->multiple_transfer = true;
@@ -2257,7 +2264,7 @@ static bool gbl_cpu_decode_arm_block_transfer(
         const uint16_t register_bit =
             (uint16_t)(UINT16_C(1) << register_index);
 
-        if ((register_list & register_bit) != 0u) {
+        if ((effective_register_list & register_bit) != 0u) {
             const uint32_t bus_address = address & ~UINT32_C(3);
 
             if (!gbl_cpu_data_span_valid(
@@ -2288,11 +2295,18 @@ static bool gbl_cpu_decode_arm_block_transfer(
                     register_index == 15u
                         ? GBL_CPU_PC_READ_STORE_SOURCE
                         : GBL_CPU_PC_READ_NORMAL;
-                const uint32_t store_value =
-                    gbl_cpu_read_register_in_bank(
-                        cpu, register_index,
-                        store_user_bank ? user_bank_cpsr : cpu->cpsr,
-                        unit->instruction_address, pc_context);
+                uint32_t store_value = gbl_cpu_read_register_in_bank(
+                    cpu, register_index,
+                    store_user_bank ? user_bank_cpsr : cpu->cpsr,
+                    unit->instruction_address, pc_context);
+
+                if (writeback && base_in_list &&
+                    register_index == base_register &&
+                    register_index != first_register) {
+                    /* GBATEK's ARMv4 policy stores the final base value when
+                     * Rn is present after the first transfer slot. */
+                    store_value = updated_base;
+                }
 
                 if (!gbl_cpu_add_data_write_slot(
                         unit, bus_address,
@@ -2325,7 +2339,9 @@ static bool gbl_cpu_decode_arm_block_transfer(
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
-    if (writeback &&
+    /* The ARMv4/GBA rule suppresses the writeback effect for LDM when Rn is
+     * loaded from the list. The register-list load itself still commits. */
+    if (writeback && !(load && base_in_list) &&
         !gbl_cpu_add_literal_register_effect(
             unit, base_register, cpu->cpsr, updated_base)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
