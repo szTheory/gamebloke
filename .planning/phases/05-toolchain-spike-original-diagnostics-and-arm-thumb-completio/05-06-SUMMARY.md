@@ -20,6 +20,7 @@ key-files:
   created: []
   modified:
     - src/cpu.c
+    - src/cpu_helpers.h
     - tests/cpu_test.c
     - tests/core.cmake
     - tests/inventory/ci.txt
