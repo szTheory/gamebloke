@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 status: Executing Phase05 Plan13; Plan12 reviewed and compiler/sanitizer verified locally
-stopped_at: Plan12 local review and Linux verification complete; continuing Plan13 user-bank and exception-return blocks
-last_updated: "2026-11-12T20:18:55.189Z"
+stopped_at: Completed 05-13-PLAN.md
+last_updated: "2026-11-12T21:17:31.803Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 12 completed locally; root owns independent review and pinned Linux verification
-state_head: 673db5f2205345f9da218b4706f409f0e4e69e6f
+state_head: ac9ebe6877fa1587b2bfc986d6b7e4adcc537b70
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 50
+  completed_plans: 51
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 13 of 25
+Plan: 14 of 25
 Status: Executing Phase05 Plan13; Plan12 reviewed and compiler/sanitizer verified locally
 Last activity: 2026-11-12 — Phase 05 Plan 12 completed locally; root owns independent review and pinned Linux verification
 
@@ -109,6 +109,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P10 | 43 min | 2 tasks | 5 files |
 | Phase 05 P11 | 32m | 2 tasks | 5 files |
 | Phase 05 P12 | 57 min | 2 tasks | 5 files |
+| Phase 05 P13 | 5h 33m minimum | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -244,6 +245,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Plan12: Keep valid user-bank, exception-return, and ARM7-specific base-list block forms distinct from undefined and unpredictable cases; later CPU plan owns those remaining quirks.
 - [Phase 05]: DDI0029G6.1 timing signals describe the next cycle; map request classes from the prior row, not same-row data. Plan12 reserves final LDM I plus abstract PC pipeline S cost: max20 modeledcycles/19trace, no literal hardware-trace claim.
 - [Phase 05]: Store tests must start with contrasting destination data and independent literal mode addresses/writeback, then prove replacement and neighbors. Plan12 review fix673db5f closes false positives; production55cf4c2 fullLinux verified, final test-only focus passes.
+- [Phase 05]: Use ARM ARM DDI0100I for S-bit legality and exact-core DDI0029G for ARM7TDMI bank topology; keep their source scopes distinct.
+- [Phase 05]: Select GBATEK 3.06 empty-list and base-in-list behavior as the GBA ARMv4 reference policy, with explicit distinction from hardware measurement.
+- [Phase 05]: Resolve banked sources and destinations before transfer effects, then restore CPSR before result-driven width-correct PC refill.
 
 ### Pending Todos
 
@@ -279,6 +283,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T20:18:54.866Z
-Stopped at: Plan12 local review and Linux verification complete; continuing Plan13 user-bank and exception-return blocks
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-12T21:17:30.390Z
+Stopped at: Completed 05-13-PLAN.md
+Resume file: None
