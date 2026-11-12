@@ -1,6 +1,7 @@
 #include "gamebloke/gamebloke.h"
 
 #include "cpu_helpers.h"
+#include "cpu_test_hooks.h"
 
 #include <limits.h>
 
@@ -1722,6 +1723,107 @@ static bool gbl_cpu_trace_preflight(const gbl_run_options *options,
         (uint64_t)required_records >
             UINT64_MAX - trace->next_sequence) {
         *reason = GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_cpu_test_build_maximum_unit(gbl_cpu_unit *unit)
+{
+    uint8_t index;
+
+    if (unit == NULL) {
+        return false;
+    }
+    *unit = (gbl_cpu_unit){
+        .kind = GBL_CPU_UNIT_BRANCH,
+        .instruction_address = UINT32_C(0x08000000),
+        .opcode = UINT32_C(0xEA000000),
+        .fetch_count = (uint8_t)GBL_CPU_FETCH_SLOT_MAX,
+        .fetch_width = (uint8_t)GBL_CPU_WORD_WIDTH,
+        .fetch_address = { UINT32_C(0x08000000), UINT32_C(0x08000004) },
+        .fetch_class = { GBL_BUS_CLASS_NONSEQUENTIAL,
+                         GBL_BUS_CLASS_SEQUENTIAL }
+    };
+
+    for (index = 0u; index < GBL_CPU_DATA_SLOT_MAX; ++index) {
+        uint8_t result_index;
+
+        if (!gbl_cpu_add_data_read_slot(
+                unit, UINT32_C(0x02000000) + (uint32_t)index * UINT32_C(4),
+                (uint8_t)GBL_CPU_WORD_WIDTH, 0u, false, &result_index) ||
+            !gbl_cpu_add_result_register_effect(
+                unit, (uint8_t)(index % 15u), UINT32_C(0x0000001F),
+                result_index)) {
+            return false;
+        }
+    }
+    if (!gbl_cpu_add_status_effect(unit, UINT32_C(0xF0000000),
+                                   UINT32_C(0xA0000000))) {
+        return false;
+    }
+    return gbl_cpu_refresh_cycle_cost(unit);
+}
+
+bool gbl_cpu_test_maximum_preflight(
+    const gbl_machine *machine, const gbl_run_options *options,
+    gbl_cpu_test_count_overflow count_overflow, uint64_t *cycle_cost,
+    size_t *required_records, gbl_run_reason *reason)
+{
+    gbl_cpu_unit unit;
+    gbl_run_reason preflight_reason = GBL_RUN_REASON_NONE;
+    size_t selected_records;
+
+    if (cycle_cost != NULL) {
+        *cycle_cost = 0u;
+    }
+    if (required_records != NULL) {
+        *required_records = 0u;
+    }
+    if (reason != NULL) {
+        *reason = GBL_RUN_REASON_NONE;
+    }
+    if (machine == NULL || options == NULL || cycle_cost == NULL ||
+        required_records == NULL || reason == NULL ||
+        !gbl_cpu_test_build_maximum_unit(&unit)) {
+        return false;
+    }
+    *cycle_cost = unit.cycle_cost;
+
+    switch (count_overflow) {
+    case GBL_CPU_TEST_COUNT_VALID:
+        break;
+    case GBL_CPU_TEST_FETCH_COUNT_OVERFLOW:
+        unit.fetch_count++;
+        break;
+    case GBL_CPU_TEST_DATA_COUNT_OVERFLOW:
+        unit.data_slot_count++;
+        break;
+    case GBL_CPU_TEST_RESULT_COUNT_OVERFLOW:
+        unit.result_count++;
+        break;
+    case GBL_CPU_TEST_REGISTER_EFFECT_COUNT_OVERFLOW:
+        unit.register_effect_count++;
+        break;
+    case GBL_CPU_TEST_STATUS_EFFECT_COUNT_OVERFLOW:
+        unit.status_effect_count++;
+        break;
+    default:
+        *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
+
+    if (!gbl_cpu_preflight(machine, &unit, options->cycle_budget,
+                           &preflight_reason)) {
+        *reason = preflight_reason;
+        return false;
+    }
+    selected_records = gbl_cpu_trace_required_records(
+        &unit, options->category_mask);
+    *required_records = selected_records;
+    if (!gbl_cpu_trace_preflight(options, selected_records,
+                                 &preflight_reason)) {
+        *reason = preflight_reason;
         return false;
     }
     return true;

@@ -1,6 +1,7 @@
 #include "gamebloke/gamebloke.h"
 
 #include "../src/cpu_helpers.h"
+#include "../src/cpu_test_hooks.h"
 #include "state_check.h"
 
 #include <stdio.h>
@@ -3032,6 +3033,136 @@ static void test_swp_counter_headroom(void)
               "SWP exhausted retirement counter refuses before bus effects");
 }
 
+typedef struct cpu_maximum_reservation_case {
+    const char *description;
+    gbl_cpu_test_count_overflow count_overflow;
+    uint64_t cycle_budget;
+    uint64_t master_cycles;
+    uint64_t retired_instructions;
+    size_t trace_capacity;
+    uint64_t next_sequence;
+    bool expected_reserved;
+    gbl_run_reason expected_reason;
+    size_t expected_records;
+} cpu_maximum_reservation_case;
+
+static bool maximum_reservation_case_passes(
+    const cpu_maximum_reservation_case *test)
+{
+    gbl_machine machine = { 0 };
+    gbl_machine machine_before;
+    gbl_trace_record records[20];
+    gbl_trace_record records_before[20];
+    gbl_trace_buffer trace;
+    gbl_trace_buffer trace_before;
+    gbl_run_options options;
+    uint64_t cycle_cost = 0u;
+    size_t required_records = 0u;
+    gbl_run_reason reason = GBL_RUN_REASON_NONE;
+    bool reserved;
+
+    machine.initialized = true;
+    machine.master_cycles = test->master_cycles;
+    machine.open_bus = UINT32_C(0x13579BDF);
+    machine.dispcnt = UINT16_C(0x1234);
+    machine.cpu.cpsr = TEST_CPSR_SYSTEM;
+    machine.cpu.retired_instructions = test->retired_instructions;
+    memset(machine.ewram, 0xA5, sizeof(machine.ewram));
+    memset(machine.iwram, 0x5A, sizeof(machine.iwram));
+    machine_before = machine;
+
+    memset(records, 0xA5, sizeof(records));
+    memcpy(records_before, records, sizeof(records));
+    memset(&trace, 0, sizeof(trace));
+    trace.records = records;
+    trace.capacity = test->trace_capacity;
+    trace.count = 1u;
+    trace.next_sequence = test->next_sequence;
+    trace_before = trace;
+
+    memset(&options, 0, sizeof(options));
+    options.cycle_budget = test->cycle_budget;
+    options.unit_limit = 1u;
+    options.category_mask = GBL_TRACE_CATEGORY_MASK;
+    options.trace_buffer = &trace;
+
+    reserved = gbl_cpu_test_maximum_preflight(
+        &machine, &options, test->count_overflow, &cycle_cost,
+        &required_records, &reason);
+
+    return reserved == test->expected_reserved &&
+           reason == test->expected_reason && cycle_cost == UINT64_C(18) &&
+           required_records == test->expected_records &&
+           memcmp(&machine, &machine_before, sizeof(machine)) == 0 &&
+           memcmp(&trace, &trace_before, sizeof(trace)) == 0 &&
+           memcmp(records, records_before, sizeof(records)) == 0;
+}
+
+static void test_maximum_unit_reservations(void)
+{
+    static const cpu_maximum_reservation_case cases[] = {
+        { "maximum descriptor reserves exact cycle/counter/trace headroom",
+          GBL_CPU_TEST_COUNT_VALID, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), true, GBL_RUN_REASON_NONE, 19u },
+        { "maximum descriptor refuses one-short cycle budget unchanged",
+          GBL_CPU_TEST_COUNT_VALID, 17u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), false, GBL_RUN_REASON_CYCLE_BUDGET, 0u },
+        { "maximum descriptor refuses one-short master-cycle headroom",
+          GBL_CPU_TEST_COUNT_VALID, 18u,
+          UINT64_MAX - UINT64_C(17), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_COUNTER_OVERFLOW, 0u },
+        { "maximum descriptor refuses one-short retirement headroom",
+          GBL_CPU_TEST_COUNT_VALID, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX, 20u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_COUNTER_OVERFLOW, 0u },
+        { "maximum descriptor refuses one-short trace capacity unchanged",
+          GBL_CPU_TEST_COUNT_VALID, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 19u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_TRACE_OUTPUT_FULL, 19u },
+        { "maximum descriptor refuses one-short trace sequence unchanged",
+          GBL_CPU_TEST_COUNT_VALID, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(18), false,
+          GBL_RUN_REASON_TRACE_OUTPUT_FULL, 19u },
+        { "maximum descriptor rejects one-over fetch count unchanged",
+          GBL_CPU_TEST_FETCH_COUNT_OVERFLOW, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
+        { "maximum descriptor rejects one-over data count unchanged",
+          GBL_CPU_TEST_DATA_COUNT_OVERFLOW, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
+        { "maximum descriptor rejects one-over result count unchanged",
+          GBL_CPU_TEST_RESULT_COUNT_OVERFLOW, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
+        { "maximum descriptor rejects one-over register-effect count unchanged",
+          GBL_CPU_TEST_REGISTER_EFFECT_COUNT_OVERFLOW, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
+        { "maximum descriptor rejects one-over status-effect count unchanged",
+          GBL_CPU_TEST_STATUS_EFFECT_COUNT_OVERFLOW, 18u,
+          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(19), false,
+          GBL_RUN_REASON_INVALID_CPU_STATE, 0u }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        test_case(maximum_reservation_case_passes(&cases[index]),
+                  cases[index].description);
+    }
+}
+
 static void test_trace_store_capacity(void)
 {
     const gbl_trace_record prior = {
@@ -3924,7 +4055,8 @@ static const cpu_test_function slots_bounds_functions[] = {
     test_swpb_read_write_trace,
     test_swp_pc_restrictions,
     test_swp_selected_trace_boundaries,
-    test_swp_counter_headroom
+    test_swp_counter_headroom,
+    test_maximum_unit_reservations
 };
 
 static const cpu_test_group cpu_test_groups[] = {
@@ -3943,7 +4075,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
-    CPU_TEST_GROUP("slots_bounds", 9u, slots_bounds_functions)
+    CPU_TEST_GROUP("slots_bounds", 20u, slots_bounds_functions)
 };
 
 #undef CPU_TEST_GROUP
