@@ -16,10 +16,10 @@ affects: ["Phase05 remaining CPU plans", "Plan18 unpredictable-result projection
 actuals:
   tokens: 13629
   tasks: 2
-  commits: 4
-commits: 4
+  commits: 5
+commits: 5
 plan_head_before: 77bc4ae1a2f8f48a327110c3e78c8f77c5fa8117
-plan_head_after: f862a7007c1f065ddc240024c9c04e3fa800a97b
+plan_head_after: 673a7dc84cee4e98327e4678081eb6bafd0ff2fc
 
 tech-stack:
   added: []
@@ -96,6 +96,7 @@ status: complete
 2. **Task 2 RED: PSR behavior tests** — `3a9c15b` (`test`)
 3. **Task 2 test correction: ARMv4T reserved-mask semantics** — `dc2c417` (`test`)
 4. **Task 2 GREEN: PSR transfers** — `f862a70` (`feat`)
+5. **Post-review PSR edge coverage** — `673a7dc` (`test`; implementation unchanged)
 
 ## Files Created/Modified
 
@@ -146,5 +147,16 @@ Plan 08 is complete locally. Plan 09 remains not started. Phase-wide CPU-01 and 
 ## Self-Check: PASSED
 
 - Summary file exists at the required phase path.
-- All four task commits are ancestors of the recorded plan head.
+- All four initial task commits and the post-review test commit are ancestors of the recorded plan head.
 - No task-created stubs or generated untracked files were found in the owned source/test files.
+
+## Review-fix Addendum — 2026-11-12
+
+The four PSR acceptance-test gaps from `05-08-REVIEW.md` are covered by test-only commit `673a7dc` (`tests/cpu_test.c`). The vectors now distinguish reserved-bit rejection before field masking, privileged CPSR StateMask rejection with c unselected, SPSR c/f status effects in all five exception banks, and zero/composed masks across CPSR/SPSR register and rotated-immediate forms. The refusal vectors check canonical state and ownership, trace metadata, and the complete initialized trace-record buffer. `src/cpu.c` was inspected and left unchanged because it already implements the reviewed ARM ARM DDI0100I A4.1.39/Table A4-1 ordering and separate saved-status effect path.
+
+Verification added after the review:
+
+- Main checkout normal build and native AppleClang ASan/UBSan each passed all 29 registered CPU CTest cases. After a small test-only fixture cleanup, fresh focused `cpu.psr` (41 assertions) and `cpu.arm_pc_return` (10 assertions) runs passed in both configurations.
+- An isolated Ubuntu 26.04/GCC clone of commit `673a7dc` built `cpu_test` and passed all 29 registered CPU CTest cases.
+- Exact logs are retained under ignored `build/phase05-review08/`. The full project CI and ASan inventories were not rerun for these test-only changes; earlier full-suite evidence above remains historical. No hardware-accuracy claim follows from these software vectors.
+- Phase state was not advanced. Plan 08 remains locally complete pending review closure; Plan 09 remains not started, and phase-wide CPU/DIAG requirements remain pending.

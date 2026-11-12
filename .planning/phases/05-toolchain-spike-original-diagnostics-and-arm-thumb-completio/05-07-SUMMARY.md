@@ -152,3 +152,8 @@ Plan 07 completes only this ARM ALU/condition/shifter slice. It does not establi
 - Summary file exists at the planned path.
 - All eight listed task commits are ancestors of the current plan head.
 - The measured pre-summary plan head is `7e0d1bf1f9ae6b05ab84d5501d170fe7db713443` and the plan contains eight commits since `f62d2ffbefc4ab61ce34284c99aca1bc75abb123`.
+
+
+## Root hosted follow-through
+
+Following publication, run https://github.com/szTheory/gamebloke/actions/runs/43154048753 completed successfully on exact head `77bc4ae1a2f8f48a327110c3e78c8f77c5fa8117`, attempt 1. All nine jobs and CI required passed. Mac regression was the longest active job at149 seconds (133.06 seconds tests); sanitizers118 seconds and GNU111 seconds. The diagnostic jobs took31 seconds Mac and29 seconds Linux, with all four checks run and zero skips. Setup receipts were11 and18 seconds respectively. No low-risk duplicate setup/build removal was established within this slice, and no verification policy or180-second limit changed. These are CI timings, not emulator throughput. Raw metadata and selected job logs remain under ignored `build/phase05-plan07/hosted-*`.
