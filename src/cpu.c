@@ -1592,7 +1592,7 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
            writeback))) ||
         (writeback && data_register == base_register) ||
         (load_pc && !preindexed && writeback_bit) ||
-        (load && byte && data_register == (uint8_t)15u)) {
+        (byte && data_register == (uint8_t)15u)) {
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }

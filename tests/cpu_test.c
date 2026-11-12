@@ -2671,6 +2671,8 @@ static void test_arm_transfer_unpredictable_refusals(void)
         false, true, true, false, true, false, 15u, 2u, 4u);
     const uint32_t byte_pc_destination = encode_arm_transfer(
         false, true, true, true, false, true, 0u, 15u, 0u);
+    const uint32_t byte_store_pc_source = encode_arm_transfer(
+        false, true, true, true, false, false, 0u, 15u, 0u);
     const uint32_t load_base_alias = encode_arm_transfer(
         false, true, true, false, true, true, 0u, 0u, 4u);
 
@@ -2692,6 +2694,8 @@ static void test_arm_transfer_unpredictable_refusals(void)
               "ARM single transfer refuses PC base writeback atomically");
     test_case(arm_transfer_unpredictable_is_atomic(byte_pc_destination),
               "ARM LDRB to PC refuses architecturally unpredictable destination atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(byte_store_pc_source),
+              "ARM STRB from PC refuses architecturally unpredictable source atomically");
     test_case(arm_transfer_unpredictable_is_atomic(load_base_alias),
               "ARMv4T LDR refuses writeback when Rd equals Rn atomically");
 }
@@ -7471,7 +7475,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
-    CPU_TEST_GROUP("arm_transfer", 360u, arm_transfer_functions),
+    CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),
     CPU_TEST_GROUP("loaded_pc", 17u, loaded_pc_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
