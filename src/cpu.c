@@ -2316,11 +2316,11 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
             return false;
         }
         if (slot->operation == GBL_CPU_DATA_READ) {
-            const uint8_t transform_count =
-                (uint8_t)(slot->rotate_word_read ? 1u : 0u) +
-                (uint8_t)(slot->rotate_halfword_read ? 1u : 0u) +
-                (uint8_t)(slot->sign_extend_byte_read ? 1u : 0u) +
-                (uint8_t)(slot->sign_extend_halfword_read ? 1u : 0u);
+            const unsigned int transform_count =
+                (slot->rotate_word_read ? 1u : 0u) +
+                (slot->rotate_halfword_read ? 1u : 0u) +
+                (slot->sign_extend_byte_read ? 1u : 0u) +
+                (slot->sign_extend_halfword_read ? 1u : 0u);
 
             if (slot->result_index >= unit->result_count ||
                 result_seen[slot->result_index] || transform_count > 1u ||
