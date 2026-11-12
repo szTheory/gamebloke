@@ -1156,7 +1156,7 @@ static void test_no_bios(void)
                                  GBL_EXCEPTION_SWI,
                                  GBL_CPU_STOP_SWI_NO_BIOS, 8u,
                                  UINT32_C(0x08000002)) &&
-        run_guest_exception_case(false, UINT32_C(0xF1A00000),
+        run_guest_exception_case(false, UINT32_C(0xE7F000F0),
                                  GBL_EXCEPTION_UNDEFINED,
                                  GBL_CPU_STOP_UNDEFINED_NO_BIOS, 4u,
                                  UINT32_C(0x08000004)) &&
@@ -2539,16 +2539,16 @@ static void test_decode(void)
             result.termination == GBL_RUN_STOPPED &&
             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
             machine.cpu.stop_reason == GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
-        const bool later_condition = loaded && run_arm_instruction(
-            &machine, UINT32_C(0xF1A00000), 0u, 1u, &result) &&
+        const bool undefined_encoding = loaded && run_arm_instruction(
+            &machine, UINT32_C(0xE7F000F0), 0u, 1u, &result) &&
             result.termination == GBL_RUN_STOPPED &&
             result.reason == GBL_RUN_REASON_GUEST_STOP &&
             machine.cpu.stop_reason == GBL_CPU_STOP_UNDEFINED_NO_BIOS &&
             machine.cpu.spsr[4] == TEST_CPSR_SYSTEM &&
             machine.cpu.execution_address == UINT32_C(4);
 
-        test_case(multiply && later_condition,
-                  "valid unsupported and reserved ARM words stop distinctly");
+        test_case(multiply && undefined_encoding,
+                  "valid unsupported and architecturally undefined ARM words stop distinctly");
     }
 
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xDE00), 0u,
