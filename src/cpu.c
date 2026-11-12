@@ -95,6 +95,13 @@ typedef struct gbl_cpu_unit {
 
 _Static_assert(GBL_CPU_TRACE_UNIT_RECORD_MAX == 19u,
                "trace capacity covers one instruction, sixteen transfers, and two refills");
+_Static_assert(GBL_CPU_DATA_SLOT_MAX == 16u &&
+                   GBL_CPU_RESULT_SLOT_MAX == GBL_CPU_DATA_SLOT_MAX &&
+                   GBL_CPU_REGISTER_EFFECT_MAX == GBL_CPU_DATA_SLOT_MAX,
+               "maximum block work keeps data, result, and register effects bounded together");
+_Static_assert(GBL_CPU_FETCH_SLOT_MAX == 2u &&
+                   GBL_CPU_STATUS_EFFECT_MAX == 1u,
+               "maximum block work retains two refill slots and one status effect");
 
 static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost)
 {
@@ -1007,27 +1014,29 @@ static bool gbl_cpu_decode_arm_swap(const gbl_cpu_state *cpu,
         }
         return true;
     }
-    if (byte) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-        return true;
-    }
     if (base_register == (uint8_t)15u ||
         destination == (uint8_t)15u || source == (uint8_t)15u) {
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
 
-    width = (uint8_t)GBL_CPU_WORD_WIDTH;
+    width = byte ? 1u : (uint8_t)GBL_CPU_WORD_WIDTH;
     address = gbl_cpu_read_register(cpu, base_register,
                                     unit->instruction_address);
     source_value = gbl_cpu_read_register(cpu, source,
                                          unit->instruction_address);
+    if (!gbl_cpu_data_span_valid(address, width)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
     unit->kind = GBL_CPU_UNIT_TRANSFER;
     if (!gbl_cpu_add_data_read_slot(
-            unit, address & ~UINT32_C(3), width,
-            (uint8_t)(address & UINT32_C(3)), true, &result_index) ||
-        !gbl_cpu_add_data_write_slot(unit, address & ~UINT32_C(3), width,
-                                     source_value) ||
+            unit, byte ? address : address & ~UINT32_C(3), width,
+            byte ? 0u : (uint8_t)(address & UINT32_C(3)), !byte,
+            &result_index) ||
+        !gbl_cpu_add_data_write_slot(
+            unit, byte ? address : address & ~UINT32_C(3), width,
+            source_value) ||
         !gbl_cpu_add_result_register_effect(unit, destination, cpu->cpsr,
                                             result_index) ||
         !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false)) {
