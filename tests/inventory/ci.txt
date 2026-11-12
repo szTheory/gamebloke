@@ -107,6 +107,7 @@ cpu.psr core,cpu,unit
 cpu.slots core,cpu,unit
 cpu.slots_bounds core,cpu,unit
 cpu.thumb core,cpu,unit
+cpu.thumb_alu core,cpu,unit
 cpu.trace core,cpu,unit
 cpu.trace_capacity core,cpu,unit
 cpu.tracer core,cpu,unit

@@ -7299,6 +7299,105 @@ static void test_arithmetic(void)
     gbl_machine_dispose(&machine);
 }
 
+/* Literal Thumb opcodes and expected bit patterns: no production arithmetic
+ * helper participates in the oracle. The next instruction consumes live state. */
+static bool prepare_thumb_alu(gbl_machine *machine, uint16_t opcode,
+                              uint32_t flags)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+
+    make_empty_image(image);
+    write_halfword(image, 0u, opcode);
+    write_halfword(image, 2u, UINT16_C(0x46C0)); /* MOV r8,r8 */
+    write_halfword(image, 4u, UINT16_C(0x46C0));
+    if (!machine_load(machine, image)) {
+        return false;
+    }
+    seed_nondefault_cpu_state(&machine->cpu);
+    machine->cpu.cpsr = flags | TEST_CPSR_SYSTEM | TEST_CPSR_T;
+    machine->cpu.execution_address = UINT32_C(0x08000000);
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), opcode, 2u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000002), UINT32_C(0x46C0), 2u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    machine->cpu.stopped = false;
+    machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
+    machine->master_cycles = 19u;
+    machine->open_bus = UINT32_C(0xA5C39E71);
+    return true;
+}
+
+static void test_thumb_alu_vectors(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint32_t left, right, incoming, expected, flags;
+        uint64_t cycles;
+    } vectors[] = {
+        { "LSL immediate zero preserves C/V", 0x0008u, 0u, 0x80000001u, 0x30000000u, 0x80000001u, 0xB0000000u, 1u },
+        { "LSL immediate one", 0x0048u, 0u, 0x80000001u, 0x10000000u, 2u, 0x30000000u, 1u },
+        { "LSR immediate zero means 32", 0x0808u, 0u, 0x80000001u, 0x10000000u, 0u, 0x70000000u, 1u },
+        { "ASR immediate zero means 32", 0x1008u, 0u, 0x80000001u, 0x10000000u, 0xFFFFFFFFu, 0xB0000000u, 1u },
+        { "ADD register overflow", 0x1840u, 0x7FFFFFFFu, 1u, 0u, 0x80000000u, 0x90000000u, 1u },
+        { "SUB register borrow", 0x1A40u, 0u, 1u, 0u, 0xFFFFFFFFu, 0x80000000u, 1u },
+        { "ADD immediate3 carry", 0x1DC0u, 0xFFFFFFFFu, 0u, 0u, 6u, 0x20000000u, 1u },
+        { "SUB immediate3 zero", 0x1FC0u, 7u, 0u, 0u, 0u, 0x60000000u, 1u },
+        { "MOV immediate preserves C/V", 0x2000u, 0xFFFFFFFFu, 0u, 0x30000000u, 0u, 0x70000000u, 1u },
+        { "CMP immediate no write", 0x2801u, 1u, 0u, 0u, 1u, 0x60000000u, 1u },
+        { "ADD immediate8 overflow", 0x3001u, 0x7FFFFFFFu, 0u, 0u, 0x80000000u, 0x90000000u, 1u },
+        { "SUB immediate8 overflow", 0x3801u, 0x80000000u, 0u, 0u, 0x7FFFFFFFu, 0x30000000u, 1u },
+        { "AND preserves C/V", 0x4008u, 0x80000001u, 0x80000002u, 0x30000000u, 0x80000000u, 0xB0000000u, 1u },
+        { "EOR zero", 0x4048u, 3u, 3u, 0x30000000u, 0u, 0x70000000u, 1u },
+        { "LSL register", 0x4088u, 0x80000001u, 1u, 0x10000000u, 2u, 0x30000000u, 2u },
+        { "LSR register", 0x40C8u, 0x80000001u, 1u, 0x10000000u, 0x40000000u, 0x30000000u, 2u },
+        { "ASR register", 0x4108u, 0x80000001u, 1u, 0x10000000u, 0xC0000000u, 0xB0000000u, 2u },
+        { "ADC consumes carry", 0x4148u, 0xFFFFFFFFu, 0u, 0x20000000u, 0u, 0x60000000u, 1u },
+        { "ADC signed overflow", 0x4148u, 0x7FFFFFFFu, 0u, 0x20000000u, 0x80000000u, 0x90000000u, 1u },
+        { "SBC consumes borrow", 0x4188u, 0u, 0u, 0u, 0xFFFFFFFFu, 0x80000000u, 1u },
+        { "SBC no borrow", 0x4188u, 3u, 2u, 0x20000000u, 1u, 0x20000000u, 1u },
+        { "ROR register", 0x41C8u, 0x80000001u, 1u, 0x10000000u, 0xC0000000u, 0xB0000000u, 2u },
+        { "TST preserves destination", 0x4208u, 0x80000001u, 2u, 0x30000000u, 0x80000001u, 0x70000000u, 1u },
+        { "NEG minimum overflow", 0x4248u, 7u, 0x80000000u, 0u, 0x80000000u, 0x90000000u, 1u },
+        { "CMP register preserves destination", 0x4288u, 1u, 1u, 0u, 1u, 0x60000000u, 1u },
+        { "CMN preserves destination", 0x42C8u, 0xFFFFFFFFu, 1u, 0u, 0xFFFFFFFFu, 0x60000000u, 1u },
+        { "ORR preserves C/V", 0x4308u, 0x80000000u, 3u, 0x30000000u, 0x80000003u, 0xB0000000u, 1u },
+        { "MUL preserves C/V", 0x4348u, 0x80000000u, 2u, 0x30000000u, 0u, 0x70000000u, 2u },
+        { "MUL four internal cycles", 0x4348u, 3u, 0x12345678u, 0x30000000u, 0x369D0368u, 0x30000000u, 5u },
+        { "BIC", 0x4388u, 0x80000003u, 3u, 0x30000000u, 0x80000000u, 0xB0000000u, 1u },
+        { "MVN", 0x43C8u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 1u }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        bool valid = prepare_thumb_alu(&machine, vectors[index].opcode,
+                                        vectors[index].incoming);
+        const uint64_t retired = machine.cpu.retired_instructions;
+
+        machine.cpu.r0_7[0] = vectors[index].left;
+        machine.cpu.r0_7[1] = vectors[index].right;
+        valid = valid && run_units(&machine, vectors[index].cycles, 1u, &result) &&
+            result.instructions == 1u && result.cycles == vectors[index].cycles &&
+            machine.master_cycles == 19u + vectors[index].cycles &&
+            machine.cpu.r0_7[0] == vectors[index].expected &&
+            machine.cpu.r0_7[1] == vectors[index].right &&
+            machine.cpu.cpsr == (vectors[index].flags | TEST_CPSR_SYSTEM | TEST_CPSR_T) &&
+            machine.cpu.execution_address == UINT32_C(0x08000002) &&
+            machine.cpu.retired_instructions == retired + 1u;
+        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+            result.instructions == 1u &&
+            machine.cpu.execution_address == UINT32_C(0x08000004) &&
+            machine.cpu.r0_7[0] == vectors[index].expected;
+        test_case(valid, vectors[index].name);
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static void test_thumb(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -10380,6 +10479,7 @@ static const cpu_test_function trace_capacity_functions[] = {
 static const cpu_test_function budget_functions[] = { test_budget };
 static const cpu_test_function arithmetic_functions[] = { test_arithmetic };
 static const cpu_test_function thumb_functions[] = { test_thumb };
+static const cpu_test_function thumb_alu_functions[] = { test_thumb_alu_vectors };
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
 static const cpu_test_function slots_functions[] = {
@@ -10430,6 +10530,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("budget", 9u, budget_functions),
     CPU_TEST_GROUP("arithmetic", 28u, arithmetic_functions),
     CPU_TEST_GROUP("thumb", 8u, thumb_functions),
+    CPU_TEST_GROUP("thumb_alu", 31u, thumb_alu_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
