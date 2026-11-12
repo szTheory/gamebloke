@@ -1,0 +1,20 @@
+{
+  "scope": [
+    "05-14"
+  ],
+  "batch": "Thumb ALU and high-register/PC operations",
+  "runtime": "codex",
+  "status": "approved_waiting_for_ARM_integration",
+  "approved": "Owner selected Try one stronger-model batch",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "previous_model": "gpt-6-luna",
+  "previous_effort": "xhigh",
+  "unchanged_roles": [
+    "gsd-code-reviewer",
+    "gsd-code-fixer"
+  ],
+  "restore_after": "05-14 reviewed and focused verification complete; do not extend without authority",
+  "restore_rule": "If config bytes still match build/phase05-model-trial/config-applied.json, restore exact config-before.json bytes; otherwise restore only untouched trial fields, preserving newer owner edits. Never restore Git HEAD config.",
+  "measurement": "Record UTC epoch at dispatch and completion; compare observed elapsed/review rework with caveat that scope, cadence and context differ. No controlled speedup claim."
+}

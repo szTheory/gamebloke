@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Phase05 Plan13 complete locally; root owns independent review and full ARM integration verification
+status: Plan13 focused implementation complete; ARM family review/full integration pending; approved model trial reserved for Plan14
 stopped_at: Completed 05-13-PLAN.md
-last_updated: "2026-11-12T21:17:31.803Z"
+last_updated: "2026-11-12T21:28:17.442Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 13 completed locally; root owns independent review and final pinned Linux verification
-state_head: ac9ebe6877fa1587b2bfc986d6b7e4adcc537b70
+state_head: 4b54823eb8ffd513861504d8b8244e70051cc4d3
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 14 of 25
-Status: Phase05 Plan13 complete locally; root owns independent review and full ARM integration verification
+Status: Plan13 focused implementation complete; ARM family review/full integration pending; approved model trial reserved for Plan14
 Last activity: 2026-11-12 — Phase 05 Plan 13 completed locally; root owns independent review and final pinned Linux verification
 
 Progress: [███████░░░] 67%
@@ -109,7 +109,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P10 | 43 min | 2 tasks | 5 files |
 | Phase 05 P11 | 32m | 2 tasks | 5 files |
 | Phase 05 P12 | 57 min | 2 tasks | 5 files |
-| Phase 05 P13 | 5h 33m minimum | 2 tasks | 5 files |
+| Phase 05 P13 | 39min49s | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -248,6 +248,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Use ARM ARM DDI0100I for S-bit legality and exact-core DDI0029G for ARM7TDMI bank topology; keep their source scopes distinct.
 - [Phase 05]: Select GBATEK 3.06 empty-list and base-in-list behavior as the GBA ARMv4 reference policy, with explicit distinction from hardware measurement.
 - [Phase 05]: Resolve banked sources and destinations before transfer effects, then restore CPSR before result-driven width-correct PC refill.
+- [Phase 05]: Owner sanity check prompted focused-per-change/earlyGNU checks and family review before full integration, matching05-VALIDATION SamplingRate. Full gates remain at ARM13, Thumb completion, explicit diagnostic/hosted and final source. See05-PROCESS-LESSONS.md.
+- [Phase 05]: Owner approved one stronger-executor trial for next Thumb ALU batch (Plan14): configured codex opus mapping gpt-6.1-sol with heavy-tier high effort; reviewer/fixer remain Luna/xhigh. Temporary pins live in config; restore previous routing after the one batch, preserving owner edits. See model-routing-trial.json.
+- [Phase 05]: Use Git Unix timestamps/UTC epochs for elapsed measurements. Plan13 mixed timezone duration corrected to2389seconds39min49s first committedRED→initialsummary; precommit initialization/review/integration are outside that interval.
 
 ### Pending Todos
 

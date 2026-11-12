@@ -61,7 +61,7 @@ coverage:
         ref: "ctest cpu.arm_block_edges under native AppleClang ASan/UBSan"
         status: pass
     human_judgment: false
-duration: "5h 33m minimum from first committed RED; pre-commit start time was not recorded"
+duration: "39min49s from first committed RED to initial summary commit; setup before RED not included"
 completed: 2026-11-12
 status: complete
 ---
@@ -72,7 +72,7 @@ status: complete
 
 ## Performance
 
-- **Duration:** At least 5h 33m, measured from the first committed RED; work before that commit was not timed.
+- **Duration:** 39min49s from the first committed RED to the initial summary commit, measured using Git Unix timestamps. Setup before the first RED is not included.
 - **Started:** 2026-11-12 15:38:25 -05:00 (first recorded task commit).
 - **Completed:** 2026-11-12.
 - **Tasks:** 2.
@@ -151,3 +151,7 @@ Plan 13 is complete locally. Root owns independent review and final full ARM int
 ---
 *Phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio*
 *Completed: 2026-11-12*
+
+## Timing correction
+
+The original duration mixed local and UTC clock values. Git commit epochs for `cc112d8` and `8f703db` differ by 2389 seconds (39min49s). The summary and state metric are corrected; this is the measured commit interval, not total setup/review/integration time. Future trial measurements use UTC epochs.
