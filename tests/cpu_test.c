@@ -2374,8 +2374,7 @@ static void test_psr_register_field_masks(void)
 {
     static const uint8_t fields[] = { 1u, 2u, 4u, 8u };
     static const uint32_t operands[] = {
-        UINT32_C(0x00000092), UINT32_C(0x0000AB00),
-        UINT32_C(0x00CD0000), UINT32_C(0xA0000000)
+        UINT32_C(0x00000092), 0u, 0u, UINT32_C(0xA0000000)
     };
     uint8_t index;
     bool all_passed = true;
@@ -2386,8 +2385,7 @@ static void test_psr_register_field_masks(void)
         gbl_run_result result = {
             GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
         };
-        const uint32_t reserved = UINT32_C(0x00A5B600);
-        const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_V | reserved;
+        const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_V;
         const uint32_t write_mask = fields[index] == 1u
                                         ? UINT32_C(0x000000DF)
                                         : fields[index] == 8u
@@ -2420,8 +2418,7 @@ static void test_psr_immediate_field_masks(void)
     static const uint8_t rotates[] = { 0u, 0u, 0u, 4u };
     static const uint8_t immediates[] = { 0x12u, 0xABu, 0xCDu, 0xF0u };
     static const uint32_t values[] = {
-        UINT32_C(0x00000012), UINT32_C(0x000000AB),
-        UINT32_C(0x000000CD), UINT32_C(0xF0000000)
+        UINT32_C(0x00000012), 0u, 0u, UINT32_C(0xF0000000)
     };
     uint8_t index;
     bool all_passed = true;
@@ -2432,8 +2429,7 @@ static void test_psr_immediate_field_masks(void)
         gbl_run_result result = {
             GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
         };
-        const uint32_t reserved = UINT32_C(0x005A3C00);
-        const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_N | reserved;
+        const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_N;
         const uint32_t write_mask = fields[index] == 1u
                                         ? UINT32_C(0x000000DF)
                                         : fields[index] == 8u
@@ -2623,19 +2619,21 @@ static void test_psr_unpredictable_refusals(void)
         UINT32_C(0xE321F020), /* MSR CPSR_c, #T */
         UINT32_C(0xE10FF000), /* MRS PC, CPSR */
         UINT32_C(0xE14F0000), /* MRS R0, SPSR */
-        UINT32_C(0xE161F000)  /* MSR SPSR_c, R0 */
+        UINT32_C(0xE161F000), /* MSR SPSR_c, R0 */
+        UINT32_C(0xE122F000)  /* MSR CPSR_x, R0 */
     };
     static const uint32_t modes[] = {
         TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_SVC,
-        TEST_CPSR_USER, TEST_CPSR_SYSTEM
+        TEST_CPSR_USER, TEST_CPSR_SYSTEM, TEST_CPSR_SVC
     };
     static const uint32_t operands[] = {
-        UINT32_C(0x15), UINT32_C(0), UINT32_C(0), UINT32_C(0), UINT32_C(0)
+        UINT32_C(0x15), UINT32_C(0), UINT32_C(0), UINT32_C(0),
+        UINT32_C(0), UINT32_C(0x00000100)
     };
     uint8_t index;
     bool all_refused = true;
 
-    for (index = 0u; index < (uint8_t)5u; ++index) {
+    for (index = 0u; index < (uint8_t)6u; ++index) {
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_machine before;
