@@ -70,3 +70,10 @@ No findings were skipped in either iteration.
 _Fixed: 2026-11-12T02:43:53Z_
 _Fixer: the agent (gsd-code-fixer)_
 _Iteration: 2_
+
+
+## Hosted follow-through
+
+After publication, Plan 06 run https://github.com/szTheory/gamebloke/actions/runs/43144072990 completed successfully on exact head `f62d2ffbefc4ab61ce34284c99aca1bc75abb123`, attempt 1. All nine jobs, including CI required, passed. GNU regression took 98 seconds, sanitizers 134 seconds, Linux diagnostics 27 seconds, and hygiene 52 seconds. Both macOS jobs spent about twelve minutes queued; their active execution was 171 seconds for regression and 27 seconds for diagnostics. The macOS regression test step took 147.81 seconds; its largest single checks were the repository hygiene scan (12.34 seconds), signature scan (6.78 seconds), and separate mutation controls. No low-risk duplicate setup/build removal was established within this CPU slice. No limit or verification policy changed.
+
+Root continued the already-authorized next local plan during the runner queue, with the executor monitoring the exact pending run and instructed to stop on a new red result. The run finished green while that local work proceeded. This scheduling choice does not establish hosted evidence for subsequent source revisions. Raw metadata and logs are under ignored `build/phase05-review06/hosted-*`.
