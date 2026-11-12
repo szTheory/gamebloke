@@ -3383,6 +3383,561 @@ static void test_arm_block_thumb_wrap_return(void)
     gbl_machine_dispose(&machine);
 }
 
+typedef struct arm_block_edge_mode_case {
+    const char *name;
+    bool preindexed;
+    bool add_offset;
+    uint32_t transfer_addresses[3];
+    uint32_t updated_base;
+    uint32_t empty_transfer_address;
+    uint32_t empty_updated_base;
+} arm_block_edge_mode_case;
+
+static const arm_block_edge_mode_case arm_block_edge_modes[] = {
+    { "IA", false, true,
+      { UINT32_C(0x03002000), UINT32_C(0x03002004), UINT32_C(0x03002008) },
+      UINT32_C(0x0300200C), UINT32_C(0x03003000), UINT32_C(0x03003040) },
+    { "IB", true, true,
+      { UINT32_C(0x03002004), UINT32_C(0x03002008), UINT32_C(0x0300200C) },
+      UINT32_C(0x0300200C), UINT32_C(0x03003004), UINT32_C(0x03003040) },
+    { "DA", false, false,
+      { UINT32_C(0x03001FF8), UINT32_C(0x03001FFC), UINT32_C(0x03002000) },
+      UINT32_C(0x03001FF4), UINT32_C(0x03003000), UINT32_C(0x03002FC0) },
+    { "DB", true, false,
+      { UINT32_C(0x03001FF4), UINT32_C(0x03001FF8), UINT32_C(0x03001FFC) },
+      UINT32_C(0x03001FF4), UINT32_C(0x03002FFC), UINT32_C(0x03002FC0) }
+};
+
+static bool arm_block_empty_list_mode_case(
+    const arm_block_edge_mode_case *mode, bool load, bool writeback)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_trace_record records[4] = { { 0 } };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(600) };
+    gbl_run_result result = { 0 };
+    const uint32_t base = UINT32_C(0x03003000);
+    const uint32_t pc_value = UINT32_C(0x0800000C);
+    const uint32_t loaded_pc = UINT32_C(0x08000203);
+    const uint32_t aligned_loaded_pc = UINT32_C(0x08000200);
+    const uint32_t opcode = encode_arm_block(
+        mode->preindexed, mode->add_offset, writeback, load, 4u, 0u);
+    const uint32_t expected_base =
+        writeback ? mode->empty_updated_base : base;
+    const uint32_t expected_trace_count = load ? 4u : 3u;
+    const uint32_t expected_cycles = load ? 5u : 2u;
+    const size_t memory_offset =
+        (size_t)(mode->empty_transfer_address - UINT32_C(0x03000000));
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    machine.cpu.r0_7[4] = base;
+    write_word(machine.iwram, memory_offset - 4u, UINT32_C(0xA55AA55A));
+    write_word(machine.iwram, memory_offset + 4u, UINT32_C(0x5AA55AA5));
+    if (load) {
+        write_word(machine.iwram, memory_offset, loaded_pc);
+    } else {
+        write_word(machine.iwram, memory_offset, UINT32_C(0xDEADBEEF));
+    }
+    passed = run_arm_instruction_with_trace(
+                 &machine, opcode, TEST_CPSR_SYSTEM, expected_cycles,
+                 &trace, &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+             result.instructions == 1u && result.cycles == expected_cycles &&
+             machine.cpu.r0_7[4] == expected_base &&
+             trace.count == expected_trace_count &&
+             trace.next_sequence == UINT64_C(600) + expected_trace_count &&
+             records[1].category == GBL_TRACE_BUS &&
+             records[1].address == mode->empty_transfer_address &&
+             records[1].width == 4u &&
+             records[1].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+             records[1].value == (load ? loaded_pc : 0u);
+    if (load) {
+        passed = passed &&
+                 machine.cpu.execution_address == aligned_loaded_pc &&
+                 records[2].address == aligned_loaded_pc &&
+                 records[2].width == 4u &&
+                 records[2].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                 records[3].address == aligned_loaded_pc + UINT32_C(4) &&
+                 records[3].width == 4u &&
+                 records[3].access_class == GBL_BUS_CLASS_SEQUENTIAL;
+    } else {
+        passed = passed &&
+                 read_test_word(machine.iwram, memory_offset) == pc_value &&
+                 records[2].address == UINT32_C(0x08000008) &&
+                 records[2].access_class == GBL_BUS_CLASS_NONSEQUENTIAL;
+    }
+    passed = passed &&
+             read_test_word(machine.iwram, memory_offset - 4u) ==
+                 UINT32_C(0xA55AA55A) &&
+             read_test_word(machine.iwram, memory_offset + 4u) ==
+                 UINT32_C(0x5AA55AA5);
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_empty_list_mode_matrix(void)
+{
+    size_t mode_index;
+    unsigned int operation_index;
+    unsigned int writeback_index;
+
+    for (mode_index = 0u;
+         mode_index < sizeof(arm_block_edge_modes) /
+                          sizeof(arm_block_edge_modes[0]);
+         ++mode_index) {
+        for (operation_index = 0u; operation_index < 2u;
+             ++operation_index) {
+            for (writeback_index = 0u; writeback_index < 2u;
+                 ++writeback_index) {
+                char description[176];
+                const bool load = operation_index != 0u;
+                const bool writeback = writeback_index != 0u;
+
+                (void)snprintf(
+                    description, sizeof(description),
+                    "empty-list %s%s %s transfers PC at its literal %s address",
+                    load ? "LDM" : "STM", writeback ? "!" : "",
+                    arm_block_edge_modes[mode_index].name,
+                    arm_block_edge_modes[mode_index].name);
+                test_case(arm_block_empty_list_mode_case(
+                              &arm_block_edge_modes[mode_index], load,
+                              writeback),
+                          description);
+            }
+        }
+    }
+}
+
+static bool arm_block_base_in_list_case(
+    const arm_block_edge_mode_case *mode, size_t base_position,
+    bool load, bool writeback)
+{
+    static const uint8_t registers[3][3] = {
+        { 4u, 6u, 8u }, { 2u, 4u, 8u }, { 2u, 3u, 4u }
+    };
+    static const uint16_t register_lists[3] = {
+        UINT16_C(0x0150), UINT16_C(0x0114), UINT16_C(0x001C)
+    };
+    static const uint32_t load_values[3] = {
+        UINT32_C(0xC0010001), UINT32_C(0xC0020002), UINT32_C(0xC0030003)
+    };
+    const uint8_t base_register = 4u;
+    const uint32_t base = UINT32_C(0x03002000);
+    const uint32_t before_sentinel = UINT32_C(0xA55AA55A);
+    const uint32_t after_sentinel = UINT32_C(0x5AA55AA5);
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_trace_record records[5] = { { 0 } };
+    gbl_trace_buffer trace = { records, 5u, 0u, UINT64_C(700) };
+    gbl_run_result result = { 0 };
+    const uint32_t opcode = encode_arm_block(
+        mode->preindexed, mode->add_offset, writeback, load, base_register,
+        register_lists[base_position]);
+    const uint32_t expected_cycles = load ? 5u : 4u;
+    size_t index;
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    machine.cpu.r0_7[base_register] = base;
+    for (index = 0u; index < 3u; ++index) {
+        const uint8_t register_index = registers[base_position][index];
+        const size_t memory_offset = (size_t)(
+            mode->transfer_addresses[index] - UINT32_C(0x03000000));
+
+        if (load) {
+            write_word(machine.iwram, memory_offset, load_values[index]);
+        } else {
+            const uint32_t value = register_index == base_register
+                                       ? base
+                                       : UINT32_C(0xA0000000) |
+                                             (uint32_t)register_index;
+
+            machine.cpu.r0_7[register_index] = value;
+            write_word(machine.iwram, memory_offset, UINT32_C(0xDEADBEEF));
+        }
+    }
+    write_word(
+        machine.iwram,
+        (size_t)(mode->transfer_addresses[0] - UINT32_C(0x03000000) -
+                 UINT32_C(4)),
+        before_sentinel);
+    write_word(
+        machine.iwram,
+        (size_t)(mode->transfer_addresses[2] + UINT32_C(4) -
+                 UINT32_C(0x03000000)),
+        after_sentinel);
+    passed = run_arm_instruction_with_trace(
+                 &machine, opcode, TEST_CPSR_SYSTEM, expected_cycles,
+                 &trace, &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+             result.instructions == 1u && result.cycles == expected_cycles &&
+             trace.count == 5u && trace.next_sequence == UINT64_C(705) &&
+             records[4].category == GBL_TRACE_BUS &&
+             records[4].address == UINT32_C(0x08000008) &&
+             records[4].access_class ==
+                 (load ? GBL_BUS_CLASS_SEQUENTIAL
+                       : GBL_BUS_CLASS_NONSEQUENTIAL);
+    for (index = 0u; passed && index < 3u; ++index) {
+        const uint8_t register_index = registers[base_position][index];
+        const uint32_t source_value =
+            register_index == base_register
+                ? (writeback && base_position != 0u
+                       ? mode->updated_base
+                       : base)
+                : (UINT32_C(0xA0000000) | (uint32_t)register_index);
+        const size_t memory_offset = (size_t)(
+            mode->transfer_addresses[index] - UINT32_C(0x03000000));
+        const gbl_trace_record *record = &records[index + 1u];
+
+        passed = record->category == GBL_TRACE_BUS &&
+                 record->address == mode->transfer_addresses[index] &&
+                 record->width == 4u &&
+                 record->access_class ==
+                     (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                  : GBL_BUS_CLASS_SEQUENTIAL);
+        if (load) {
+            passed = passed &&
+                     machine.cpu.r0_7[register_index] == load_values[index] &&
+                     record->value == load_values[index];
+        } else {
+            passed = passed &&
+                     read_test_word(machine.iwram, memory_offset) ==
+                         source_value;
+        }
+    }
+    if (load) {
+        passed = passed &&
+                 machine.cpu.r0_7[base_register] ==
+                     load_values[base_position];
+    } else {
+        passed = passed &&
+                 machine.cpu.r0_7[base_register] ==
+                     (writeback ? mode->updated_base : base);
+    }
+    passed = passed &&
+             read_test_word(
+                 machine.iwram,
+                 (size_t)(mode->transfer_addresses[0] -
+                          UINT32_C(0x03000000) - UINT32_C(4))) ==
+                 before_sentinel &&
+             read_test_word(
+                 machine.iwram,
+                 (size_t)(mode->transfer_addresses[2] + UINT32_C(4) -
+                          UINT32_C(0x03000000))) == after_sentinel;
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_base_alias_matrix(void)
+{
+    size_t mode_index;
+    size_t base_position;
+    unsigned int operation_index;
+    unsigned int writeback_index;
+
+    for (mode_index = 0u;
+         mode_index < sizeof(arm_block_edge_modes) /
+                          sizeof(arm_block_edge_modes[0]);
+         ++mode_index) {
+        for (base_position = 0u; base_position < 3u; ++base_position) {
+            for (operation_index = 0u; operation_index < 2u;
+                 ++operation_index) {
+                for (writeback_index = 0u; writeback_index < 2u;
+                     ++writeback_index) {
+                    char description[192];
+                    const bool load = operation_index != 0u;
+                    const bool writeback = writeback_index != 0u;
+                    const char *position = base_position == 0u
+                                               ? "first"
+                                               : (base_position == 1u
+                                                      ? "middle"
+                                                      : "last");
+
+                    (void)snprintf(
+                        description, sizeof(description),
+                        "%s%s %s with R4 %s keeps literal transfer slots and ARMv4 base policy",
+                        load ? "LDM" : "STM", writeback ? "!" : "",
+                        arm_block_edge_modes[mode_index].name, position);
+                    test_case(arm_block_base_in_list_case(
+                                  &arm_block_edge_modes[mode_index],
+                                  base_position, load, writeback),
+                              description);
+                }
+            }
+        }
+    }
+}
+
+static bool arm_block_empty_s_store_case(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_trace_record records[3] = { { 0 } };
+    gbl_trace_buffer trace = { records, 3u, 0u, UINT64_C(800) };
+    gbl_run_result result = { 0 };
+    const uint32_t base = UINT32_C(0x03003400);
+    const uint32_t opcode = encode_arm_block_user(
+        false, true, false, false, 4u, 0u);
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    machine.cpu.r0_7[4] = base;
+    passed = run_arm_block_in_mode(
+                 &machine, opcode, TEST_CPSR_FIQ, UINT64_C(2), &trace,
+                 &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.instructions == 1u && result.cycles == 2u &&
+             machine.cpu.r0_7[4] == base && trace.count == 3u &&
+             records[1].address == base &&
+             read_test_word(machine.iwram, 0x3400u) ==
+                 UINT32_C(0x0800000C);
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static bool arm_block_empty_s_return_case(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_trace_record records[4] = { { 0 } };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(850) };
+    gbl_run_result result = { 0 };
+    const uint32_t base = UINT32_C(0x03003500);
+    const uint32_t loaded_pc = UINT32_C(0x08000303);
+    const uint32_t opcode = encode_arm_block_user(
+        false, true, true, true, 4u, 0u);
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    machine.cpu.r0_7[4] = base;
+    machine.cpu.spsr[2] = TEST_CPSR_SYSTEM | TEST_CPSR_T;
+    write_word(machine.iwram, 0x3500u, loaded_pc);
+    passed = run_arm_block_in_mode(
+                 &machine, opcode, TEST_CPSR_SVC, UINT64_C(5), &trace,
+                 &result) &&
+             result.termination == GBL_RUN_PROGRESS &&
+             result.instructions == 1u && result.cycles == 5u &&
+             machine.cpu.cpsr == (TEST_CPSR_SYSTEM | TEST_CPSR_T) &&
+             machine.cpu.execution_address == UINT32_C(0x08000302) &&
+             machine.cpu.r0_7[4] == base + UINT32_C(0x40) &&
+             trace.count == 4u && records[1].address == base &&
+             records[2].address == UINT32_C(0x08000302) &&
+             records[2].width == 2u &&
+             records[3].address == UINT32_C(0x08000304) &&
+             records[3].width == 2u;
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_empty_list_s_mode_forms(void)
+{
+    test_case(arm_block_empty_s_store_case(),
+              "empty STM^ transfers the User-bank PC source from privileged FIQ mode");
+    test_case(arm_block_empty_s_return_case(),
+              "empty LDM^ treats implicit PC as exception return and restores Thumb SPSR");
+}
+
+static bool arm_block_edge_trace_refusal_case(bool empty_list)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_machine *before;
+    gbl_trace_record records[7] = { { 0 } };
+    gbl_trace_record records_before[7] = { { 0 } };
+    gbl_trace_buffer trace;
+    gbl_run_options options;
+    gbl_run_result result = { 0 };
+    const uint32_t base = empty_list ? UINT32_C(0x03003100)
+                                     : UINT32_C(0x03002000);
+    const uint32_t opcode = empty_list
+                                ? encode_arm_block(false, true, true, true,
+                                                   4u, 0u)
+                                : encode_arm_block(false, true, true, true,
+                                                   4u, UINT16_C(0x0150));
+    const size_t trace_capacity = empty_list ? 4u : 5u;
+    const uint64_t next_sequence = UINT64_C(950);
+    size_t index;
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    seed_nondefault_cpu_state(&machine.cpu);
+    machine.cpu.r0_7[4] = base;
+    machine.open_bus = UINT32_C(0xD00DF00D);
+    machine.master_cycles = UINT64_C(951);
+    machine.cpu.retired_instructions = UINT64_C(952);
+    if (empty_list) {
+        write_word(machine.iwram, 0x100u, UINT32_C(0x08000400));
+    } else {
+        write_word(machine.iwram, 0x2000u, UINT32_C(0xC0010001));
+        write_word(machine.iwram, 0x2004u, UINT32_C(0xC0020002));
+        write_word(machine.iwram, 0x2008u, UINT32_C(0xC0030003));
+    }
+    for (index = 0u; index < 7u; ++index) {
+        records[index] = arm_block_trace_marker(
+            UINT64_C(0x5000) + (uint64_t)index);
+        records_before[index] = records[index];
+    }
+    trace = (gbl_trace_buffer){ records, trace_capacity, 1u, next_sequence };
+    prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    *before = machine;
+    options = (gbl_run_options){
+        .cycle_budget = empty_list ? UINT64_C(5) : UINT64_C(5),
+        .unit_limit = UINT64_C(1),
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    passed = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK &&
+             result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+             result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+             result.instructions == 0u && result.cycles == 0u &&
+             trace.records == records && trace.capacity == trace_capacity &&
+             trace.count == 1u && trace.next_sequence == next_sequence &&
+             arm_block_trace_records_equal(records, records_before) &&
+             gbl_test_canonical_equal(before, &machine) &&
+             gbl_test_same_instance_identity_equal(before, &machine);
+    free(before);
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_edge_atomic_refusals(void)
+{
+    test_case(arm_block_edge_trace_refusal_case(true),
+              "one-short empty LDM PC trace refusal preserves machine and caller buffers");
+    test_case(arm_block_edge_trace_refusal_case(false),
+              "one-short LDM base-in-list trace refusal preserves machine and caller buffers");
+}
+
+static bool arm_block_full_wrap_trace_case(bool one_short)
+{
+    static const uint32_t addresses[16] = {
+        UINT32_C(0xFFFFFFC4), UINT32_C(0xFFFFFFC8), UINT32_C(0xFFFFFFCC),
+        UINT32_C(0xFFFFFFD0), UINT32_C(0xFFFFFFD4), UINT32_C(0xFFFFFFD8),
+        UINT32_C(0xFFFFFFDC), UINT32_C(0xFFFFFFE0), UINT32_C(0xFFFFFFE4),
+        UINT32_C(0xFFFFFFE8), UINT32_C(0xFFFFFFEC), UINT32_C(0xFFFFFFF0),
+        UINT32_C(0xFFFFFFF4), UINT32_C(0xFFFFFFF8), UINT32_C(0xFFFFFFFC),
+        UINT32_C(0x00000000)
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_machine *before = NULL;
+    gbl_trace_record records[21] = { { 0 } };
+    gbl_trace_record records_before[21] = { { 0 } };
+    gbl_trace_buffer trace;
+    gbl_run_options options;
+    gbl_run_result result = { 0 };
+    const uint64_t initial_sequence = UINT64_C(1000);
+    size_t index;
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        return false;
+    }
+    seed_nondefault_cpu_state(&machine.cpu);
+    machine.cpu.r0_7[0] = UINT32_C(0xFFFFFFC4);
+    machine.open_bus = UINT32_C(0xFACEB00C);
+    for (index = 0u; index < 21u; ++index) {
+        records[index] = arm_block_trace_marker(
+            UINT64_C(0x6000) + (uint64_t)index);
+        records_before[index] = records[index];
+    }
+    trace = (gbl_trace_buffer){ records, 18u,
+                                one_short ? 1u : 0u, initial_sequence };
+    prepare_arm_instruction(&machine,
+                            encode_arm_block(false, true, false, false, 0u,
+                                             UINT16_MAX),
+                            TEST_CPSR_SYSTEM);
+    if (one_short) {
+        before = malloc(sizeof(*before));
+        if (before == NULL) {
+            gbl_machine_dispose(&machine);
+            return false;
+        }
+        *before = machine;
+    }
+    options = (gbl_run_options){
+        .cycle_budget = UINT64_C(17),
+        .unit_limit = UINT64_C(1),
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    passed = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK;
+    if (one_short) {
+        passed = passed && result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                 result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                 result.cycles == 0u && result.instructions == 0u &&
+                 trace.records == records && trace.capacity == 18u &&
+                 trace.count == 1u &&
+                 trace.next_sequence == initial_sequence &&
+                 arm_block_trace_records_equal(records, records_before) &&
+                 gbl_test_canonical_equal(before, &machine) &&
+                 gbl_test_same_instance_identity_equal(before, &machine);
+    } else {
+        passed = passed && result.termination == GBL_RUN_PROGRESS &&
+                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                 result.cycles == 17u && result.instructions == 1u &&
+                 machine.master_cycles == 17u && trace.count == 18u &&
+                 trace.next_sequence == initial_sequence + UINT64_C(18);
+        for (index = 0u; passed && index < 16u; ++index) {
+            passed = records[index + 1u].category == GBL_TRACE_BUS &&
+                     records[index + 1u].address == addresses[index] &&
+                     records[index + 1u].width == 4u &&
+                     records[index + 1u].access_class ==
+                         (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                      : GBL_BUS_CLASS_SEQUENTIAL);
+        }
+        passed = passed && records[17].address == UINT32_C(0x08000008) &&
+                 records[17].access_class == GBL_BUS_CLASS_NONSEQUENTIAL;
+    }
+    free(before);
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static void test_arm_block_full_wrap_capacity(void)
+{
+    test_case(arm_block_full_wrap_trace_case(false),
+              "full STM list transfers literal modulo-32 addresses through an exact 18-record trace");
+    test_case(arm_block_full_wrap_trace_case(true),
+              "one-short full STM wrap trace refusal preserves full state and caller records");
+}
+
 static void test_arm_transfer_preindexed_writeback(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -9622,6 +10177,13 @@ static const cpu_test_function arm_block_banks_functions[] = {
     test_arm_block_user_bank_invalid_forms,
     test_arm_block_thumb_wrap_return
 };
+static const cpu_test_function arm_block_edges_functions[] = {
+    test_arm_block_empty_list_mode_matrix,
+    test_arm_block_base_alias_matrix,
+    test_arm_block_empty_list_s_mode_forms,
+    test_arm_block_edge_atomic_refusals,
+    test_arm_block_full_wrap_capacity
+};
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
 static const cpu_test_function arm_alu_functions[] = {
     test_arm_adc_carry_in,
@@ -9734,6 +10296,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_block", 34u, arm_block_functions),
     CPU_TEST_GROUP("arm_block_banks", 19u, arm_block_banks_functions),
     CPU_TEST_GROUP("arm_block_bounds", 10u, arm_block_bounds_functions),
+    CPU_TEST_GROUP("arm_block_edges", 70u, arm_block_edges_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),
