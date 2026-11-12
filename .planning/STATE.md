@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan 06 review complete; awaiting hosted validation before Plan 07
-stopped_at: Plan 06 and review corrections verified locally; root publishes and monitors existing PR before Plan 07
-last_updated: "2026-11-12T02:48:17.023Z"
+status: Plan 07 complete locally; Plan 08 not started
+stopped_at: Completed 05-07-PLAN.md; Plan 06 run 43144072990 is green at f62d2ff; Plan 07 local verification passed
+last_updated: "2026-11-12T04:09:00.394Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 05 smoke pair admitted after green hosted witness and canonical local CI
-state_head: 2548cb12e89be6c567ba83c00100f247f503beca
+state_head: 7e0d1bf1f9ae6b05ab84d5501d170fe7db713443
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 44
+  completed_plans: 45
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 7 of 25
-Status: Plan 06 review complete; awaiting hosted validation before Plan 07
+Plan: 8 of 25
+Status: Plan 07 complete locally; Plan 08 not started
 Last activity: 2026-11-12 — Plan 05 smoke pair admitted after hosted and local verification passed
 
 Progress: [███████░░░] 67%
@@ -103,6 +103,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P04 | 39 min | 2 tasks | 8 files |
 | Phase 05 P05 | multi-resume; admission continuation about 25 minutes | 2 tasks | 17 files |
 | Phase 05 P06 | 30 min | 2 tasks | 8 files |
+| Phase 05 P07 | 54 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -213,6 +214,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Use host-specific locked archive hashes and keep the single scalar manifest toolchain SHA null when host archive identities differ.
 - [Phase 05]: Admit only the measured smoke pair; leave the remaining 356 ARM/Thumb ledger rows pending until independently implemented and verified.
 - [Phase 05]: Plan 06: Keep SWP and SWPB on one bounded ordered path; snapshot operands before data bus effects and commit Rd after the write.
+- [Phase 05]: ARM condition 1111 is UNPREDICTABLE and is refused before machine effects.
+- [Phase 05]: Use the normal-condition E7F000F0 ARMv4T undefined encoding for UND and no-BIOS controls; F1A00000 encodes condition 1111.
 
 ### Pending Todos
 
@@ -249,6 +252,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T02:48:16.443Z
-Stopped at: Plan 06 and review corrections verified locally; root publishes and monitors existing PR before Plan 07
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-12T04:07:37.406Z
+Stopped at: Completed 05-07-PLAN.md; Plan 06 run 43144072990 is green at f62d2ff; Plan 07 local verification passed
+Resume file: None
