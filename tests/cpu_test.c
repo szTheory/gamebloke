@@ -299,6 +299,19 @@ static uint32_t encode_arm_subword(bool register_offset, bool preindexed,
     return opcode;
 }
 
+static uint32_t encode_arm_block(bool preindexed, bool add_offset,
+                                 bool writeback, bool load,
+                                 uint8_t base_register,
+                                 uint16_t register_list)
+{
+    return UINT32_C(0xE8000000) |
+           (preindexed ? UINT32_C(1) << 24u : 0u) |
+           (add_offset ? UINT32_C(1) << 23u : 0u) |
+           (writeback ? UINT32_C(1) << 21u : 0u) |
+           (load ? UINT32_C(1) << 20u : 0u) |
+           ((uint32_t)base_register << 16u) | (uint32_t)register_list;
+}
+
 static uint32_t read_test_word(const uint8_t *bytes, size_t offset)
 {
     return (uint32_t)bytes[offset] |
@@ -2191,6 +2204,59 @@ static bool run_arm_program_unit(gbl_machine *machine, uint64_t cycle_budget,
                                  gbl_run_result *result)
 {
     return run_units(machine, cycle_budget, 1u, result);
+}
+
+static void test_arm_block_stmia_then_ldmia_stream(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_run_result result;
+    const uint32_t stm = encode_arm_block(false, true, true, false, 0u,
+                                          UINT16_C(0x000E));
+    const uint32_t ldm = encode_arm_block(false, true, true, true, 4u,
+                                          UINT16_C(0x00E0));
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    write_word(image, 0u, stm);
+    write_word(image, 4u, ldm);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        machine.cpu.r0_7[1] = UINT32_C(0x11223344);
+        machine.cpu.r0_7[2] = UINT32_C(0x55667788);
+        machine.cpu.r0_7[3] = UINT32_C(0x99AABBCC);
+        machine.cpu.r0_7[4] = UINT32_C(0x03000100);
+        machine.cpu.r0_7[5] = 0u;
+        machine.cpu.r0_7[6] = 0u;
+        machine.cpu.r0_7[7] = 0u;
+        prepare_arm_instruction(&machine, stm, TEST_CPSR_SYSTEM);
+        machine.cpu.pipeline[1].opcode = ldm;
+        passed = run_units(&machine, UINT64_C(16), UINT64_C(2), &result) &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.instructions == UINT64_C(2) &&
+                 result.cycles == UINT64_C(8) &&
+                 machine.cpu.r0_7[0] == UINT32_C(0x0300010C) &&
+                 machine.cpu.r0_7[4] == UINT32_C(0x0300010C) &&
+                 machine.cpu.r0_7[5] == UINT32_C(0x11223344) &&
+                 machine.cpu.r0_7[6] == UINT32_C(0x55667788) &&
+                 machine.cpu.r0_7[7] == UINT32_C(0x99AABBCC) &&
+                 read_test_word(machine.iwram, 0x100u) ==
+                     UINT32_C(0x11223344) &&
+                 read_test_word(machine.iwram, 0x104u) ==
+                     UINT32_C(0x55667788) &&
+                 read_test_word(machine.iwram, 0x108u) ==
+                     UINT32_C(0x99AABBCC) &&
+                 machine.cpu.execution_address == UINT32_C(0x08000008);
+    } else {
+        passed = false;
+    }
+    test_case(passed,
+              "STMIA then LDMIA transfer registers in address order and write back both original bases");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
 }
 
 static void test_arm_transfer_preindexed_writeback(void)
@@ -8412,6 +8478,9 @@ static const cpu_test_function arm_subword_alignment_functions[] = {
     test_arm_subword_address_wrap,
     test_arm_subword_preflight_boundaries
 };
+static const cpu_test_function arm_block_functions[] = {
+    test_arm_block_stmia_then_ldmia_stream
+};
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
 static const cpu_test_function arm_alu_functions[] = {
     test_arm_adc_carry_in,
@@ -8521,6 +8590,7 @@ static const cpu_test_group cpu_test_groups[] = {
                    multiply_signed_timing_functions),
     CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
+    CPU_TEST_GROUP("arm_block", 1u, arm_block_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),

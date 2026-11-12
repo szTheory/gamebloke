@@ -74,6 +74,7 @@ core.version core,unit
 cpu.alignment core,cpu,unit
 cpu.arithmetic core,cpu,unit
 cpu.arm_alu core,cpu,unit
+cpu.arm_block core,cpu,unit
 cpu.arm_pc_return core,cpu,unit
 cpu.arm_shifts_conditions core,cpu,unit
 cpu.arm_subword core,cpu,unit
