@@ -2372,12 +2372,17 @@ static void test_psr_mrs_forms(void)
 
 static void test_psr_register_field_masks(void)
 {
+    static const char *const names[] = {
+        "MSR register c mask writes privileged controls and preserves flags",
+        "MSR register x mask leaves unallocated extension byte unchanged",
+        "MSR register s mask leaves unallocated status byte unchanged",
+        "MSR register f mask updates flags and preserves controls"
+    };
     static const uint8_t fields[] = { 1u, 2u, 4u, 8u };
     static const uint32_t operands[] = {
         UINT32_C(0x00000092), 0u, 0u, UINT32_C(0xA0000000)
     };
     uint8_t index;
-    bool all_passed = true;
 
     for (index = 0u; index < (uint8_t)4u; ++index) {
         uint8_t image[TEST_IMAGE_SIZE];
@@ -2405,23 +2410,26 @@ static void test_psr_register_field_masks(void)
         matched = retired && machine.cpu.cpsr ==
                                   ((initial_cpsr & ~write_mask) |
                                    (operands[index] & write_mask));
-        all_passed = all_passed && matched;
+        test_case(matched, names[index]);
         gbl_machine_dispose(&machine);
     }
-    test_case(all_passed,
-              "MSR register form applies c/x/s/f masks and preserves other fields");
 }
 
 static void test_psr_immediate_field_masks(void)
 {
+    static const char *const names[] = {
+        "MSR immediate c mask writes valid mode and control bits",
+        "MSR immediate x mask leaves unallocated extension byte unchanged",
+        "MSR immediate s mask leaves unallocated status byte unchanged",
+        "MSR rotated immediate f mask updates the flags byte"
+    };
     static const uint8_t fields[] = { 1u, 2u, 4u, 8u };
     static const uint8_t rotates[] = { 0u, 0u, 0u, 4u };
-    static const uint8_t immediates[] = { 0x12u, 0xABu, 0xCDu, 0xF0u };
+    static const uint8_t immediates[] = { 0x12u, 0x0Bu, 0xCDu, 0xF0u };
     static const uint32_t values[] = {
         UINT32_C(0x00000012), 0u, 0u, UINT32_C(0xF0000000)
     };
     uint8_t index;
-    bool all_passed = true;
 
     for (index = 0u; index < (uint8_t)4u; ++index) {
         uint8_t image[TEST_IMAGE_SIZE];
@@ -2449,11 +2457,9 @@ static void test_psr_immediate_field_masks(void)
         matched = retired && machine.cpu.cpsr ==
                                   ((initial_cpsr & ~write_mask) |
                                    (values[index] & write_mask));
-        all_passed = all_passed && matched;
+        test_case(matched, names[index]);
         gbl_machine_dispose(&machine);
     }
-    test_case(all_passed,
-              "MSR rotated-immediate form applies c/x/s/f field masks");
 }
 
 static void test_psr_mode_reads_and_banks(void)
@@ -2494,8 +2500,10 @@ static void test_psr_mode_reads_and_banks(void)
         gbl_run_result result = {
             GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
         };
-        const uint32_t saved = modes[index] | TEST_CPSR_N |
-                               ((uint32_t)index << 24u);
+        const uint32_t saved = modes[index] |
+                               ((index & 1u) != 0u ? TEST_CPSR_N : 0u) |
+                               ((index & 2u) != 0u ? TEST_CPSR_C : 0u) |
+                               ((index & 4u) != 0u ? TEST_CPSR_V : 0u);
         bool loaded;
         bool primed;
         bool read;
@@ -2563,7 +2571,7 @@ static void test_psr_privilege_and_saved_state(void)
     write_word(image, 0x08u, encode_arm_mrs(true, 1u));
     if (machine_load(&machine, image)) {
         machine.cpu.cpsr = TEST_CPSR_USER | UINT32_C(0x00000080);
-        machine.cpu.r0_7[0] = UINT32_C(0xA00000D3);
+        machine.cpu.r0_7[0] = UINT32_C(0xA00000F3);
         user_flags = run_arm_program_unit(&machine, 2u, &result) &&
                      retire_psr_instruction(&machine, &result) &&
                      machine.cpu.cpsr == (TEST_CPSR_USER | UINT32_C(0x00000080) |
@@ -2619,21 +2627,26 @@ static void test_psr_unpredictable_refusals(void)
         UINT32_C(0xE321F020), /* MSR CPSR_c, #T */
         UINT32_C(0xE10FF000), /* MRS PC, CPSR */
         UINT32_C(0xE14F0000), /* MRS R0, SPSR */
+        UINT32_C(0xE14F0000), /* MRS R0, SPSR */
+        UINT32_C(0xE161F000), /* MSR SPSR_c, R0 */
+        UINT32_C(0xE161F000), /* MSR SPSR_c, R0 */
         UINT32_C(0xE161F000), /* MSR SPSR_c, R0 */
         UINT32_C(0xE122F000)  /* MSR CPSR_x, R0 */
     };
     static const uint32_t modes[] = {
-        TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_SVC,
-        TEST_CPSR_USER, TEST_CPSR_SYSTEM, TEST_CPSR_SVC
+        TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_USER,
+        TEST_CPSR_SYSTEM, TEST_CPSR_USER, TEST_CPSR_SYSTEM,
+        TEST_CPSR_SVC, TEST_CPSR_SVC
     };
     static const uint32_t operands[] = {
         UINT32_C(0x15), UINT32_C(0), UINT32_C(0), UINT32_C(0),
-        UINT32_C(0), UINT32_C(0x00000100)
+        UINT32_C(0), UINT32_C(0), UINT32_C(0), UINT32_C(0x15),
+        UINT32_C(0x00000100)
     };
     uint8_t index;
     bool all_refused = true;
 
-    for (index = 0u; index < (uint8_t)6u; ++index) {
+    for (index = 0u; index < (uint8_t)9u; ++index) {
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_machine before;
@@ -2689,7 +2702,7 @@ static void test_psr_unpredictable_refusals(void)
         gbl_machine_dispose(&machine);
     }
     test_case(all_refused,
-              "invalid PSR modes, T writes, PC destinations and absent SPSRs refuse before effects");
+              "invalid modes, T/reserved writes, PC destinations and absent SPSRs refuse before effects");
 }
 
 static void test_arithmetic(void)
@@ -5584,7 +5597,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
-    CPU_TEST_GROUP("psr", 7u, psr_functions),
+    CPU_TEST_GROUP("psr", 13u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),

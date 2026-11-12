@@ -14,6 +14,10 @@
 #define GBL_CPU_CPSR_F UINT32_C(0x00000040)
 #define GBL_CPU_CPSR_I UINT32_C(0x00000080)
 #define GBL_CPU_CPSR_MODE_MASK UINT32_C(0x0000001F)
+#define GBL_CPU_CPSR_USER_MASK UINT32_C(0xF0000000)
+#define GBL_CPU_CPSR_PRIV_MASK UINT32_C(0x000000DF)
+#define GBL_CPU_CPSR_STATE_MASK UINT32_C(0x00000020)
+#define GBL_CPU_PSR_UNALLOC_MASK UINT32_C(0x0FFFFF00)
 #define GBL_CPU_MODE_FIQ UINT32_C(0x00000011)
 #define GBL_CPU_MODE_IRQ UINT32_C(0x00000012)
 #define GBL_CPU_MODE_SVC UINT32_C(0x00000013)
@@ -70,6 +74,7 @@ typedef struct gbl_cpu_register_effect {
 typedef struct gbl_cpu_status_effect {
     uint32_t mask;
     uint32_t value;
+    uint8_t spsr_index;
 } gbl_cpu_status_effect;
 
 typedef enum gbl_cpu_pc_read_context {
@@ -250,8 +255,21 @@ static bool gbl_cpu_add_status_effect(gbl_cpu_unit *unit, uint32_t mask,
         return false;
     }
     unit->status_effects[unit->status_effect_count] =
-        (gbl_cpu_status_effect){ mask, value };
+        (gbl_cpu_status_effect){ mask, value, UINT8_MAX };
     unit->status_effect_count++;
+    return true;
+}
+
+static bool gbl_cpu_add_spsr_status_effect(gbl_cpu_unit *unit,
+                                           uint8_t spsr_index,
+                                           uint32_t mask, uint32_t value)
+{
+    if (spsr_index >= 5u ||
+        !gbl_cpu_add_status_effect(unit, mask, value)) {
+        return false;
+    }
+    unit->status_effects[(size_t)unit->status_effect_count - 1u].spsr_index =
+        spsr_index;
     return true;
 }
 
@@ -723,8 +741,12 @@ static void gbl_cpu_commit_effects(gbl_cpu_state *cpu,
     for (index = 0u; index < unit->status_effect_count; ++index) {
         const gbl_cpu_status_effect *effect = &unit->status_effects[index];
 
-        cpu->cpsr = (cpu->cpsr & ~effect->mask) |
-                    (effect->value & effect->mask);
+        uint32_t *status = effect->spsr_index == UINT8_MAX
+                               ? &cpu->cpsr
+                               : &cpu->spsr[effect->spsr_index];
+
+        *status = (*status & ~effect->mask) |
+                  (effect->value & effect->mask);
     }
 }
 
@@ -1096,6 +1118,150 @@ static bool gbl_cpu_schedule_pc_write(gbl_cpu_unit *unit, uint32_t value,
     unit->thumb_state = thumb;
     if (!gbl_cpu_schedule_refill(unit, target, thumb)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    }
+    return true;
+}
+
+static bool gbl_cpu_is_arm_psr_transfer(uint32_t opcode)
+{
+    return (opcode & UINT32_C(0x0FBF0FFF)) == UINT32_C(0x010F0000) ||
+           (opcode & UINT32_C(0x0FB0FFF0)) == UINT32_C(0x0120F000) ||
+           (opcode & UINT32_C(0x0FB0F000)) == UINT32_C(0x0320F000);
+}
+
+/* ARM ARM DDI0100I A4.1.39 defines the complete MSR operation, including the
+ * UnallocMask and StateMask checks before applying the selected byte fields. */
+static bool gbl_cpu_decode_arm_psr_transfer(const gbl_cpu_state *cpu,
+                                           gbl_cpu_unit *unit,
+                                           uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool saved = (opcode & UINT32_C(0x00400000)) != 0u;
+    const bool immediate = (opcode & UINT32_C(0x02000000)) != 0u;
+
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        return gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                 false);
+    }
+
+    if ((opcode & UINT32_C(0x0FBF0FFF)) == UINT32_C(0x010F0000)) {
+        const uint8_t destination =
+            (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
+        size_t spsr_index;
+        uint32_t status;
+
+        if (destination == (uint8_t)15u) {
+            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+            return true;
+        }
+        if (saved) {
+            if (!gbl_cpu_spsr_index(cpu->cpsr, &spsr_index)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            status = cpu->spsr[spsr_index];
+        } else {
+            status = cpu->cpsr;
+        }
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (!gbl_cpu_add_literal_register_effect(
+                unit, destination, cpu->cpsr,
+                status & ~GBL_CPU_PSR_UNALLOC_MASK) ||
+            !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    {
+        const uint8_t fields = (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+        uint32_t operand;
+        uint32_t byte_mask = 0u;
+        uint32_t write_mask;
+        uint32_t target_status;
+        size_t spsr_index = 0u;
+        uint8_t lane;
+
+        if (immediate) {
+            const uint32_t immediate_value = opcode & UINT32_C(0xFF);
+            const uint8_t rotation =
+                (uint8_t)(((opcode >> 8u) & UINT32_C(0x0F)) * 2u);
+
+            operand = rotation == 0u
+                          ? immediate_value
+                          : gbl_shift(GBL_SHIFT_ROR, immediate_value,
+                                      rotation, false, false)
+                                .value;
+        } else {
+            const uint8_t source = (uint8_t)(opcode & UINT32_C(0x0F));
+
+            operand = gbl_cpu_read_register(
+                cpu, source, unit->instruction_address,
+                GBL_CPU_PC_READ_NORMAL);
+        }
+
+        if ((operand & GBL_CPU_PSR_UNALLOC_MASK) != 0u) {
+            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+            return true;
+        }
+        for (lane = 0u; lane < 4u; ++lane) {
+            if ((fields & (uint8_t)(1u << lane)) != 0u) {
+                byte_mask |= UINT32_C(0xFF) << ((uint32_t)lane * 8u);
+            }
+        }
+
+        if (saved) {
+            if (!gbl_cpu_spsr_index(cpu->cpsr, &spsr_index)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            write_mask = byte_mask &
+                         (GBL_CPU_CPSR_USER_MASK | GBL_CPU_CPSR_PRIV_MASK |
+                          GBL_CPU_CPSR_STATE_MASK);
+            target_status = cpu->spsr[spsr_index];
+        } else if ((cpu->cpsr & GBL_CPU_CPSR_MODE_MASK) ==
+                   UINT32_C(0x00000010)) {
+            write_mask = byte_mask & GBL_CPU_CPSR_USER_MASK;
+            target_status = cpu->cpsr;
+        } else {
+            if ((operand & GBL_CPU_CPSR_STATE_MASK) != 0u) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            write_mask = byte_mask &
+                         (GBL_CPU_CPSR_USER_MASK | GBL_CPU_CPSR_PRIV_MASK);
+            target_status = cpu->cpsr;
+        }
+
+        target_status = (target_status & ~write_mask) |
+                        (operand & write_mask);
+        if ((write_mask & GBL_CPU_CPSR_MODE_MASK) != 0u &&
+            !gbl_cpu_mode_valid(target_status)) {
+            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+            return true;
+        }
+
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (write_mask != 0u) {
+            const bool added = saved
+                                   ? gbl_cpu_add_spsr_status_effect(
+                                         unit, (uint8_t)spsr_index,
+                                         write_mask, operand)
+                                   : gbl_cpu_add_status_effect(
+                                         unit, write_mask, operand);
+
+            if (!added) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+                return true;
+            }
+        }
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
     }
     return true;
 }
@@ -1511,6 +1677,11 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
         return gbl_cpu_finalize_decoded(
             unit, gbl_cpu_decode_thumb(cpu, unit, next_fetch_address));
     }
+    if (gbl_cpu_is_arm_psr_transfer(opcode)) {
+        return gbl_cpu_finalize_decoded(
+            unit, gbl_cpu_decode_arm_psr_transfer(cpu, unit,
+                                                  next_fetch_address));
+    }
     if ((opcode & UINT32_C(0x0F000000)) == UINT32_C(0x0F000000)) {
         if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
             unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
@@ -1710,7 +1881,9 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         }
     }
     for (index = 0u; index < unit->status_effect_count; ++index) {
-        if (unit->status_effects[index].mask == 0u) {
+        if (unit->status_effects[index].mask == 0u ||
+            (unit->status_effects[index].spsr_index != UINT8_MAX &&
+             unit->status_effects[index].spsr_index >= 5u)) {
             *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             return false;
         }
