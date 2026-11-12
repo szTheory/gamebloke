@@ -2850,6 +2850,283 @@ static void test_arm_transfer_modulo_address_wrap(void)
               "ARM single-transfer pre-index address and writeback wrap modulo 2^32");
 }
 
+static uint32_t rotate_left_word(uint32_t value, uint8_t amount)
+{
+    const uint8_t rotation = (uint8_t)(amount & 31u);
+
+    if (rotation == 0u) {
+        return value;
+    }
+    return (value << rotation) | (value >> (32u - rotation));
+}
+
+static uint32_t rotate_right_word(uint32_t value, uint8_t amount)
+{
+    const uint8_t rotation = (uint8_t)(amount & 31u);
+
+    if (rotation == 0u) {
+        return value;
+    }
+    return (value >> rotation) | (value << (32u - rotation));
+}
+
+static bool arm_loaded_pc_lane_uses_rotated_result(uint8_t lane)
+{
+    const uint32_t target = UINT32_C(0x08000040);
+    const uint32_t data_address = UINT32_C(0x03000100) + (uint32_t)lane;
+    const uint32_t raw_word = rotate_left_word(
+        target, (uint8_t)(lane * 8u));
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(7) };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    bool matched;
+
+    make_empty_image(image);
+    write_word(image, 0x40u, UINT32_C(0xE1A0A00A));
+    write_word(image, 0x44u, UINT32_C(0xE1A0B00B));
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = data_address;
+        write_word(machine.iwram, 0x100u, raw_word);
+        ran = run_arm_instruction_with_trace(
+            &machine, UINT32_C(0xE590F000), TEST_CPSR_SYSTEM,
+            UINT64_C(3), &trace, &result);
+    }
+    matched = loaded && ran &&
+              result.termination == GBL_RUN_PROGRESS &&
+              result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+              result.instructions == 1u && result.cycles == UINT64_C(3) &&
+              trace.count == 4u &&
+              trace.next_sequence == UINT64_C(11) &&
+              records[1].address == (data_address & ~UINT32_C(3)) &&
+              records[1].value == raw_word &&
+              records[1].bus_outcome == GBL_BUS_OUTCOME_RAM &&
+              records[2].address == target &&
+              records[2].value == UINT32_C(0xE1A0A00A) &&
+              records[2].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+              records[3].address == target + UINT32_C(4) &&
+              records[3].value == UINT32_C(0xE1A0B00B) &&
+              records[3].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
+              machine.cpu.execution_address == target &&
+              machine.cpu.cpsr == TEST_CPSR_SYSTEM &&
+              machine.cpu.pipeline[0].address == target &&
+              machine.cpu.pipeline[0].opcode == UINT32_C(0xE1A0A00A) &&
+              machine.cpu.pipeline[0].width == 4u &&
+              machine.cpu.pipeline[1].address == target + UINT32_C(4) &&
+              machine.cpu.pipeline[1].opcode == UINT32_C(0xE1A0B00B) &&
+              machine.cpu.pipeline[1].width == 4u;
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return matched;
+}
+
+static bool arm_loaded_pc_uses_actual_bus_result(
+    uint32_t address, gbl_bus_outcome expected_outcome)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(0) };
+    gbl_run_result result = { 0 };
+    uint32_t loaded_value = 0u;
+    uint32_t target = 0u;
+    bool loaded;
+    bool ran = false;
+    bool found_data = false;
+    bool matched;
+    size_t index;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = address;
+        machine.open_bus = UINT32_C(0xA1B2C3D4);
+        ran = run_arm_instruction_with_trace(
+            &machine, UINT32_C(0xE590F000), TEST_CPSR_SYSTEM,
+            UINT64_C(3), &trace, &result);
+        for (index = 0u; index < trace.count; ++index) {
+            if (records[index].category == GBL_TRACE_BUS &&
+                records[index].address == (address & ~UINT32_C(3))) {
+                loaded_value = rotate_right_word(
+                    records[index].value,
+                    (uint8_t)((address & UINT32_C(3)) * 8u));
+                target = loaded_value & ~UINT32_C(3);
+                found_data = records[index].bus_outcome == expected_outcome;
+                break;
+            }
+        }
+    }
+    matched = loaded && ran && found_data &&
+              result.termination == GBL_RUN_PROGRESS &&
+              result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+              result.instructions == 1u && result.cycles == UINT64_C(3) &&
+              trace.count == 4u && records[2].address == target &&
+              records[3].address == target + UINT32_C(4) &&
+              machine.cpu.execution_address == target &&
+              machine.cpu.cpsr == TEST_CPSR_SYSTEM &&
+              machine.cpu.pipeline[0].address == target &&
+              machine.cpu.pipeline[1].address == target + UINT32_C(4);
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return matched;
+}
+
+static void test_loaded_pc_actual_bus_outcomes(void)
+{
+    test_case(arm_loaded_pc_uses_actual_bus_result(
+                  UINT32_C(0x00000000), GBL_BUS_OUTCOME_BIOS_ABSENT),
+              "LDR PC refills from the actual BIOS-absent word result");
+    test_case(arm_loaded_pc_uses_actual_bus_result(
+                  UINT32_C(0x04000004), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
+              "LDR PC refills from the actual unimplemented-I/O word result");
+    test_case(arm_loaded_pc_uses_actual_bus_result(
+                  UINT32_MAX, GBL_BUS_OUTCOME_UNMAPPED),
+              "LDR PC refills from the rotated actual unmapped maximum-address result");
+}
+
+static bool arm_loaded_pc_wraps_second_refill(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(0) };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    bool matched;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        write_word(machine.iwram, 0x100u, UINT32_C(0xFFFFFFFE));
+        ran = run_arm_instruction_with_trace(
+            &machine, UINT32_C(0xE590F000), TEST_CPSR_SYSTEM,
+            UINT64_C(3), &trace, &result);
+    }
+    matched = loaded && ran &&
+              result.termination == GBL_RUN_PROGRESS &&
+              result.instructions == 1u && result.cycles == UINT64_C(3) &&
+              trace.count == 4u && records[1].value == UINT32_C(0xFFFFFFFE) &&
+              records[2].address == UINT32_C(0xFFFFFFFC) &&
+              records[2].bus_outcome == GBL_BUS_OUTCOME_UNMAPPED &&
+              records[3].address == 0u &&
+              records[3].bus_outcome == GBL_BUS_OUTCOME_BIOS_ABSENT &&
+              machine.cpu.execution_address == UINT32_C(0xFFFFFFFC) &&
+              machine.cpu.pipeline[0].address == UINT32_C(0xFFFFFFFC) &&
+              machine.cpu.pipeline[1].address == 0u &&
+              machine.cpu.pipeline[0].width == 4u &&
+              machine.cpu.pipeline[1].width == 4u;
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return matched;
+}
+
+static bool arm_loaded_pc_preflight_boundary(
+    uint64_t cycle_budget, size_t trace_capacity, size_t trace_count,
+    uint64_t next_sequence, gbl_run_reason expected_reason)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_trace_record records[4];
+    gbl_trace_record records_before[4];
+    gbl_trace_buffer trace;
+    const gbl_trace_buffer trace_before = {
+        records, trace_capacity, trace_count, next_sequence
+    };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    bool matched;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    memset(records, 0xA5, sizeof(records));
+    memcpy(records_before, records, sizeof(records_before));
+    trace = trace_before;
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        write_word(machine.iwram, 0x100u, UINT32_C(0x08000040));
+        prepare_arm_instruction(&machine, UINT32_C(0xE590F000),
+                                TEST_CPSR_SYSTEM);
+        before = machine;
+        ran = run_traced_units(
+            &machine, cycle_budget, 1u,
+            GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace, &result);
+        if (expected_reason == GBL_RUN_REASON_CYCLE_BUDGET ||
+            expected_reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL) {
+            matched = ran && result.reason == expected_reason &&
+                      result.cycles == 0u && result.instructions == 0u &&
+                      gbl_test_canonical_equal(&before, &machine) &&
+                      gbl_test_same_instance_identity_equal(&before,
+                                                            &machine) &&
+                      trace.records == trace_before.records &&
+                      trace.count == trace_before.count &&
+                      trace.capacity == trace_before.capacity &&
+                      trace.next_sequence == trace_before.next_sequence &&
+                      memcmp(records, records_before,
+                             sizeof(records_before)) == 0;
+        } else {
+            matched = ran && result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      result.instructions == 1u &&
+                      result.cycles == UINT64_C(3) && trace.count == 4u &&
+                      trace.next_sequence == UINT64_MAX &&
+                      records[0].sequence == UINT64_MAX - UINT64_C(4) &&
+                      records[3].sequence == UINT64_MAX - UINT64_C(1) &&
+                      machine.cpu.execution_address == UINT32_C(0x08000040) &&
+                      machine.cpu.pipeline[1].address == UINT32_C(0x08000044);
+        }
+    } else {
+        matched = false;
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return matched;
+}
+
+static void test_loaded_pc_target_and_preflight(void)
+{
+    uint8_t lane;
+
+    for (lane = 0u; lane < 4u; ++lane) {
+        test_case(arm_loaded_pc_lane_uses_rotated_result(lane),
+                  "LDR PC applies the real word-lane rotation and keeps ARM refill state");
+    }
+    test_case(arm_loaded_pc_wraps_second_refill(),
+              "LDR PC aligns the loaded target and wraps the second ARM refill modulo 2^32");
+    test_case(arm_loaded_pc_preflight_boundary(
+                  UINT64_C(2), 4u, 0u, UINT64_C(0),
+                  GBL_RUN_REASON_CYCLE_BUDGET),
+              "LDR PC one-short cycle budget preserves canonical state and caller trace");
+    test_case(arm_loaded_pc_preflight_boundary(
+                  UINT64_C(3), 4u, 1u, UINT64_C(90),
+                  GBL_RUN_REASON_TRACE_OUTPUT_FULL),
+              "LDR PC one-short trace capacity preserves canonical state and caller trace");
+    test_case(arm_loaded_pc_preflight_boundary(
+                  UINT64_C(3), 4u, 0u, UINT64_MAX - UINT64_C(3),
+                  GBL_RUN_REASON_TRACE_OUTPUT_FULL),
+              "LDR PC trace sequence overflow is refused before the data read");
+    test_case(arm_loaded_pc_preflight_boundary(
+                  UINT64_C(3), 4u, 0u, UINT64_MAX - UINT64_C(4),
+                  GBL_RUN_REASON_NONE),
+              "LDR PC exact cycle and trace reservations commit the complete refill");
+}
+
+static void test_loaded_pc(void)
+{
+    test_loaded_pc_actual_bus_outcomes();
+    test_loaded_pc_target_and_preflight();
+}
+
 static void test_arm_pc_operand_contexts(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -7083,6 +7360,7 @@ static const cpu_test_function arm_transfer_functions[] = {
     test_arm_transfer_unmodeled_bus_results,
     test_arm_transfer_modulo_address_wrap
 };
+static const cpu_test_function loaded_pc_functions[] = { test_loaded_pc };
 static const cpu_test_function arm_pc_return_functions[] = {
     test_arm_pc_operand_contexts,
     test_thumb_pc_operand_contexts,
@@ -7159,6 +7437,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 355u, arm_transfer_functions),
+    CPU_TEST_GROUP("loaded_pc", 12u, loaded_pc_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),

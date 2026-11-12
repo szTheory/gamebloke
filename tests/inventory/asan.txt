@@ -29,6 +29,7 @@ cpu.budget core,cpu,unit
 cpu.decode core,cpu,unit
 cpu.exceptions core,cpu,unit
 cpu.lifecycle core,cpu,unit
+cpu.loaded_pc core,cpu,unit
 cpu.mailbox core,cpu,unit
 cpu.modes core,cpu,unit
 cpu.multiply_signed_timing core,cpu,unit
