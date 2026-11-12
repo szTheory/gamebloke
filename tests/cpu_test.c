@@ -7310,6 +7310,10 @@ static bool prepare_thumb_alu(gbl_machine *machine, uint16_t opcode,
     write_halfword(image, 0u, opcode);
     write_halfword(image, 2u, UINT16_C(0x46C0)); /* MOV r8,r8 */
     write_halfword(image, 4u, UINT16_C(0x46C0));
+    write_halfword(image, 0x10u, UINT16_C(0x275A));
+    write_halfword(image, 0x12u, UINT16_C(0x46C0));
+    write_word(image, 0x20u, UINT32_C(0xE3A070A5));
+    write_word(image, 0x24u, UINT32_C(0xE1A08008));
     if (!machine_load(machine, image)) {
         return false;
     }
@@ -7394,6 +7398,303 @@ static void test_thumb_alu_vectors(void)
             machine.cpu.execution_address == UINT32_C(0x08000004) &&
             machine.cpu.r0_7[0] == vectors[index].expected;
         test_case(valid, vectors[index].name);
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static uint16_t encode_thumb_high(unsigned int operation,
+                                  unsigned int rd, unsigned int rs)
+{
+    return (uint16_t)(0x4400u | (operation << 8u) |
+                      ((rd & 8u) << 4u) | (rs << 3u) | (rd & 7u));
+}
+
+static void test_thumb_high_matrix(void)
+{
+    static const uint32_t modes[] = { TEST_CPSR_SYSTEM, TEST_CPSR_FIQ,
+        TEST_CPSR_IRQ, TEST_CPSR_SVC, TEST_CPSR_ABT, TEST_CPSR_UND,
+        TEST_CPSR_USER };
+    size_t mode_index;
+    unsigned int operation;
+
+    for (mode_index = 0u; mode_index < 7u; ++mode_index) {
+        for (operation = 0u; operation < 3u; ++operation) {
+            bool valid = true;
+            unsigned int rd, rs;
+            char name[96];
+
+            for (rd = 0u; rd < 15u; ++rd) {
+                for (rs = 0u; rs < 16u; ++rs) {
+                    gbl_machine machine = { 0 };
+                    gbl_run_result result = { 0 };
+                    gbl_cpu_state before;
+                    uint32_t left, right, expected, flags;
+                    unsigned int reg;
+
+                    if (rd < 8u && rs < 8u) {
+                        continue;
+                    }
+                    valid = prepare_thumb_alu(&machine,
+                        encode_thumb_high(operation, rd, rs), 0xF0000000u) && valid;
+                    machine.cpu.cpsr = 0xF0000020u | modes[mode_index];
+                    before = machine.cpu;
+                    left = arm_block_mode_register(&before, before.cpsr, (uint8_t)rd);
+                    right = rs == 15u ? UINT32_C(0x08000004)
+                        : arm_block_mode_register(&before, before.cpsr, (uint8_t)rs);
+                    expected = operation == 0u ? left + right
+                               : operation == 2u ? right : left;
+                    /* All fixture operands are positive and their differences
+                     * fit int32: relational order independently determines NZC. */
+                    flags = operation != 1u ? 0xF0000000u
+                        : left == right ? 0x60000000u
+                        : left > right ? 0x20000000u : 0x80000000u;
+                    valid = run_units(&machine, 1u, 1u, &result) && valid &&
+                        result.instructions == 1u && result.cycles == 1u &&
+                        machine.cpu.cpsr == (flags | 0x20u | modes[mode_index]) &&
+                        machine.cpu.execution_address == UINT32_C(0x08000002);
+                    for (reg = 0u; reg < 15u; ++reg) {
+                        valid = valid && arm_block_mode_register(
+                            &machine.cpu, before.cpsr, (uint8_t)reg) ==
+                            (reg == rd ? expected : arm_block_mode_register(
+                                &before, before.cpsr, (uint8_t)reg));
+                    }
+                    /* Check invisible banks as well as the current view. */
+                    if (operation != 1u && rd >= 8u) {
+                        if (modes[mode_index] == TEST_CPSR_FIQ) {
+                            before.fiq_r8_14[rd - 8u] = expected;
+                        } else if (rd < 13u || modes[mode_index] == TEST_CPSR_SYSTEM ||
+                                   modes[mode_index] == TEST_CPSR_USER) {
+                            before.usr_r8_14[rd - 8u] = expected;
+                        } else {
+                            uint32_t *bank = modes[mode_index] == TEST_CPSR_IRQ ? before.irq_r13_14
+                                : modes[mode_index] == TEST_CPSR_SVC ? before.svc_r13_14
+                                : modes[mode_index] == TEST_CPSR_ABT ? before.abt_r13_14
+                                : before.und_r13_14;
+                            bank[rd - 13u] = expected;
+                        }
+                    }
+                    valid = valid && gbl_test_u32_array_equal(before.usr_r8_14, machine.cpu.usr_r8_14, 7u) &&
+                        gbl_test_u32_array_equal(before.fiq_r8_14, machine.cpu.fiq_r8_14, 7u) &&
+                        gbl_test_u32_array_equal(before.irq_r13_14, machine.cpu.irq_r13_14, 2u) &&
+                        gbl_test_u32_array_equal(before.svc_r13_14, machine.cpu.svc_r13_14, 2u) &&
+                        gbl_test_u32_array_equal(before.abt_r13_14, machine.cpu.abt_r13_14, 2u) &&
+                        gbl_test_u32_array_equal(before.und_r13_14, machine.cpu.und_r13_14, 2u);
+                    gbl_machine_dispose(&machine);
+                }
+            }
+            (void)snprintf(name, sizeof(name), "high operation %u all legal non-PC destinations in mode %02X",
+                           operation, (unsigned int)modes[mode_index]);
+            test_case(valid, name);
+        }
+    }
+}
+
+static void test_thumb_high_pc(void)
+{
+    static const struct { uint16_t opcode; uint32_t input; bool arm; } cases[] = {
+        { 0x4687u, 0x08000011u, false }, /* MOV PC,r0 */
+        { 0x4487u, 0x0000000Du, false }, /* ADD PC,r0 */
+        { 0x46C7u, 0x08000011u, false }, /* MOV PC,r8 */
+        { 0x44C7u, 0x0000000Du, false }, /* ADD PC,r8 */
+        { 0x4700u, 0x08000011u, false }, /* BX r0 */
+        { 0x4740u, 0x08000020u, true }   /* BX r8 */
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        bool valid = prepare_thumb_alu(&machine, cases[index].opcode, 0xF0000000u);
+
+        machine.cpu.r0_7[0] = cases[index].input;
+        machine.cpu.usr_r8_14[0] = cases[index].input;
+        valid = valid && run_units(&machine, 2u, 1u, &result) &&
+            result.instructions == 1u && result.cycles == 2u &&
+            machine.cpu.execution_address == (cases[index].arm ? 0x08000020u : 0x08000010u) &&
+            machine.cpu.cpsr == (0xF000001Fu | (cases[index].arm ? 0u : 0x20u)) &&
+            machine.cpu.pipeline[0].width == (cases[index].arm ? 4u : 2u) &&
+            machine.cpu.pipeline[0].opcode == (cases[index].arm ? 0xE3A070A5u : 0x275Au);
+        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+            result.instructions == 1u && machine.cpu.r0_7[7] == (cases[index].arm ? 0xA5u : 0x5Au);
+        test_case(valid, "high PC write or BX refills aligned target and next call consumes it");
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_bx_sources(void)
+{
+    unsigned int source;
+
+    for (source = 0u; source < 16u; ++source) {
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const bool arm = source % 2u != 0u;
+        bool valid = prepare_thumb_alu(&machine,
+            encode_thumb_high(3u, 0u, source), 0xF0000000u);
+        char name[80];
+
+        if (source < 8u) {
+            machine.cpu.r0_7[source] = arm ? 0x08000020u : 0x08000011u;
+        } else if (source < 15u) {
+            machine.cpu.usr_r8_14[source - 8u] = arm ? 0x08000020u : 0x08000011u;
+        } else {
+            write_word(machine.rom, 4u, UINT32_C(0xE3A070A5));
+        }
+        valid = valid && run_units(&machine, 2u, 1u, &result) &&
+            result.instructions == 1u && result.cycles == 2u &&
+            machine.cpu.execution_address == (source == 15u ? 0x08000004u : arm ? 0x08000020u : 0x08000010u) &&
+            machine.cpu.cpsr == (0xF000001Fu | (arm ? 0u : 0x20u));
+        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+            result.instructions == 1u && machine.cpu.r0_7[7] == (arm ? 0xA5u : 0x5Au);
+        (void)snprintf(name, sizeof(name), "BX source r%u switches state and consumes real target", source);
+        test_case(valid, name);
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_flag_consumers(void)
+{
+    unsigned int equal;
+
+    for (equal = 0u; equal < 2u; ++equal) {
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        bool valid = prepare_thumb_alu(&machine, UINT16_C(0x4540), 0xF0000000u); /* CMP r0,r8 */
+
+        machine.cpu.r0_7[0] = 0x80000000u;
+        machine.cpu.usr_r8_14[0] = equal != 0u ? 0x80000000u : 1u;
+        machine.cpu.pipeline[1].opcode = 0xD005u; /* BEQ 08000010 */
+        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+            result.instructions == 1u &&
+            machine.cpu.cpsr == (equal != 0u ? 0x6000003Fu : 0x3000003Fu) &&
+            machine.cpu.r0_7[0] == 0x80000000u;
+        valid = valid && run_units(&machine, equal != 0u ? 2u : 1u, 1u, &result) &&
+            result.instructions == 1u && machine.cpu.execution_address ==
+                (equal != 0u ? 0x08000010u : 0x08000004u);
+        test_case(valid, "high CMP signed overflow/equality flags drive the following conditional branch");
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_shift_boundaries(void)
+{
+    static const uint16_t opcodes[] = { 0x4088u, 0x40C8u, 0x4108u, 0x41C8u };
+    static const uint32_t counts[] = { 0u, 31u, 32u, 33u, 255u, 256u };
+    static const uint32_t values[4][6] = {
+        { 0x80000001u, 0x80000000u, 0u, 0u, 0u, 0x80000001u },
+        { 0x80000001u, 1u, 0u, 0u, 0u, 0x80000001u },
+        { 0x80000001u, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0x80000001u },
+        { 0x80000001u, 3u, 0x80000001u, 0xC0000000u, 3u, 0x80000001u }
+    };
+    static const uint32_t flags[4][6] = {
+        { 0xB0000000u, 0x90000000u, 0x70000000u, 0x50000000u, 0x50000000u, 0xB0000000u },
+        { 0xB0000000u, 0x10000000u, 0x70000000u, 0x50000000u, 0x50000000u, 0xB0000000u },
+        { 0xB0000000u, 0x90000000u, 0xB0000000u, 0xB0000000u, 0xB0000000u, 0xB0000000u },
+        { 0xB0000000u, 0x10000000u, 0xB0000000u, 0xB0000000u, 0x10000000u, 0xB0000000u }
+    };
+    size_t op, count;
+
+    for (op = 0u; op < 4u; ++op) {
+        for (count = 0u; count < 6u; ++count) {
+            gbl_machine machine = { 0 };
+            gbl_run_result result = { 0 };
+            bool valid = prepare_thumb_alu(&machine, opcodes[op], 0x30000000u);
+            char name[80];
+
+            machine.cpu.r0_7[0] = 0x80000001u;
+            machine.cpu.r0_7[1] = counts[count];
+            valid = valid && run_units(&machine, 2u, 1u, &result) &&
+                result.instructions == 1u && result.cycles == 2u &&
+                machine.cpu.r0_7[0] == values[op][count] &&
+                machine.cpu.cpsr == (flags[op][count] | 0x3Fu);
+            (void)snprintf(name, sizeof(name), "Thumb register shift %zu count %u", op, (unsigned int)counts[count]);
+            test_case(valid, name);
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_unit_bounds(void)
+{
+    static const struct { uint16_t opcode; uint64_t cost; size_t records; } forms[] = {
+        { 0x4088u, 2u, 2u }, { 0x4348u, 5u, 2u }, { 0x4687u, 2u, 3u }
+    };
+    size_t form;
+    unsigned int boundary;
+
+    for (form = 0u; form < 3u; ++form) {
+        for (boundary = 0u; boundary < 7u; ++boundary) {
+            gbl_machine machine = { 0 }, before;
+            gbl_run_result result = { 0 };
+            gbl_trace_record records[5], prior[5];
+            gbl_trace_buffer trace = { records, forms[form].records + 1u, 1u, 71u };
+            gbl_run_options options = { forms[form].cost, 1u,
+                GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace };
+            bool valid = prepare_thumb_alu(&machine, forms[form].opcode, 0x30000000u);
+            char name[96];
+
+            machine.cpu.r0_7[0] = 0x08000011u;
+            machine.cpu.r0_7[1] = 0x12345678u;
+            memset(records, 0xA5, sizeof(records));
+            memcpy(prior, records, sizeof(prior));
+            if (boundary == 1u) { options.cycle_budget--; }
+            if (boundary == 2u) { trace.capacity--; }
+            if (boundary == 3u) { trace.next_sequence = UINT64_MAX - (uint64_t)forms[form].records + 1u; }
+            if (boundary == 4u) { machine.master_cycles = UINT64_MAX - forms[form].cost + 1u; }
+            if (boundary == 5u) { machine.cpu.retired_instructions = UINT64_MAX; }
+            if (boundary == 6u) {
+                machine.master_cycles = UINT64_MAX - forms[form].cost;
+                machine.cpu.retired_instructions = UINT64_MAX - 1u;
+                trace.next_sequence = UINT64_MAX - (uint64_t)forms[form].records;
+            }
+            before = machine;
+            valid = valid && gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK;
+            if (boundary == 0u || boundary == 6u) {
+                valid = valid && result.instructions == 1u && result.cycles == forms[form].cost &&
+                    trace.count == forms[form].records + 1u &&
+                    machine.master_cycles == before.master_cycles + forms[form].cost &&
+                    machine.cpu.retired_instructions == before.cpu.retired_instructions + 1u &&
+                    memcmp(&records[0], &prior[0], sizeof(records[0])) == 0 &&
+                    records[1].sequence == (boundary == 6u ? UINT64_MAX - (uint64_t)forms[form].records : 71u) &&
+                    records[1].guest_cycle == before.master_cycles &&
+                    records[2].guest_cycle == before.master_cycles + (form == 2u ? 1u : forms[form].cost);
+            } else {
+                const gbl_run_reason reason = boundary == 1u ? GBL_RUN_REASON_CYCLE_BUDGET
+                    : boundary == 2u || boundary == 3u ? GBL_RUN_REASON_TRACE_OUTPUT_FULL
+                    : GBL_RUN_REASON_COUNTER_OVERFLOW;
+                valid = valid && result.instructions == 0u && result.cycles == 0u &&
+                    result.reason == reason && gbl_test_canonical_equal(&machine, &before) &&
+                    gbl_test_same_instance_identity_equal(&before, &machine) &&
+                    trace.count == 1u && trace.next_sequence == (boundary == 3u ? UINT64_MAX - (uint64_t)forms[form].records + 1u : 71u) &&
+                    memcmp(records, prior, sizeof(records)) == 0;
+            }
+            (void)snprintf(name, sizeof(name), "Thumb unit %04X exact/one-short bound %u", (unsigned int)forms[form].opcode, boundary);
+            test_case(valid, name);
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_high_restrictions(void)
+{
+    static const uint16_t opcodes[] = { 0x4408u, 0x4508u, 0x4608u, 0x45C7u, 0x4700u, 0x4740u };
+    size_t index;
+
+    for (index = 0u; index < 6u; ++index) {
+        gbl_machine machine = { 0 }, before;
+        gbl_run_result result = { 0 };
+        bool valid = prepare_thumb_alu(&machine, opcodes[index], 0xF0000000u);
+
+        machine.cpu.r0_7[0] = 0x08000002u; /* preserve checked BX ARM alignment */
+        machine.cpu.usr_r8_14[0] = 0xFFFFFFFFu; /* preserve checked refill extent */
+        before = machine;
+        valid = valid && run_units(&machine, 3u, 1u, &result) &&
+            result.termination == GBL_RUN_STOPPED && result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.instructions == 0u && result.cycles == 0u;
+        before.cpu.stopped = true;
+        before.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        test_case(valid && gbl_test_canonical_equal(&machine, &before),
+                  "Thumb unpredictable high encoding or static BX refusal has only documented stop effects");
         gbl_machine_dispose(&machine);
     }
 }
@@ -10480,6 +10781,11 @@ static const cpu_test_function budget_functions[] = { test_budget };
 static const cpu_test_function arithmetic_functions[] = { test_arithmetic };
 static const cpu_test_function thumb_functions[] = { test_thumb };
 static const cpu_test_function thumb_alu_functions[] = { test_thumb_alu_vectors };
+static const cpu_test_function thumb_high_functions[] = {
+    test_thumb_high_matrix, test_thumb_high_pc, test_thumb_shift_boundaries,
+    test_thumb_unit_bounds, test_thumb_high_restrictions,
+    test_thumb_bx_sources, test_thumb_flag_consumers
+};
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
 static const cpu_test_function slots_functions[] = {
@@ -10531,6 +10837,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arithmetic", 28u, arithmetic_functions),
     CPU_TEST_GROUP("thumb", 8u, thumb_functions),
     CPU_TEST_GROUP("thumb_alu", 31u, thumb_alu_functions),
+    CPU_TEST_GROUP("thumb_high", 96u, thumb_high_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
