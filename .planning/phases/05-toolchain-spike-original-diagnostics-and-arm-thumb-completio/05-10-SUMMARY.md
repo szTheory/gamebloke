@@ -21,7 +21,7 @@ actuals:
   commits: 7
 commits: 7
 plan_head_before: 32bdd5be3b4c3124bdc4c7329a807f697c4c7b2c
-plan_head_after: 71c28274780609e6df7f472d6a801987f80e335b
+plan_head_after: 99d036abdb0d10fd520eb55bd76311c69a18ef69
 
 tech-stack:
   added: []
@@ -171,3 +171,12 @@ Plan 10 is complete. Phase-wide requirement CPU-01 remains pending; this plan co
 *Phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio*
 *Completed: 2026-11-12*
 
+
+
+## Independent review corrections and final Linux verification
+
+The first scoped review found two architectural store-refusal defects and one wrapped-pipeline consumer inconsistency. Those findings were corrected in separate source/test commits:8213adb (STR/STRB writeback alias refusal and legal non-writeback companions),4c5ed7c (STRB-PC refusal),99d036a (exact generated ARMFFFFFFFC/0 pair validation and explicit next-run unpredictable stop). Meaningful pre-fix controls failed their named assertions; the reviewer inspected the logs and re-reviewed code/tests.05-10-REVIEW.md is now clean with resolved history;05-10-REVIEW-FIX.md retains all evidence and source rules. The seven original task commits/ledger remain the original implementation scope; these three fixes are additional review commits. Final source is99d036abdb0d10fd520eb55bd76311c69a18ef69.
+
+At that exact source, nativefullCI passed338 required checks with one existingallowed owner-local logo skip and inventorypost; nativeAppleClangASan/UBSan passed82/82zero skips/post. Root sequentially ran full pinnedUbuntu26.04nativearm64GCC and Clang21ASan/UBSan/LeakSanitizer: GCC338pass+oneallowedskip/post, Clang82/82zero skips/post. Logs/receipts are under build/phase05-plan10/review-fix/final-linux-*. Ordinary static B/BX guards and word STR-PC+12 behavior remain; new private unpredictable stops use the existing unsupported public projection until Plan18. No hardware or general compatibility result is inferred.
+
+Wave hooks found no schema drift or UI change requiring a contract; codebase drift has the existing advisory no-STRUCTURE.md skip. Phase-wide CPU/DIAG requirements remain pending. Root batches routine implementation-plan publication until explicit hosted-witness/final phase gates under the existing one-PR-per-phase policy; this plan remains local and does not claim hosted coverage of its source. Latest published green source is a16dad4/run43249533205. This reduces repeated full hosted setup/build/test work while preserving per-plan local checks/review, mandatory phase CI/acceptance/merge gates and stop-on-new-red policy. Plan11 is next, no owner input needed.

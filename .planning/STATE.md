@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Correcting Plan10 local review findings; Plan11 not started
-stopped_at: Completed 05-10-PLAN.md
-last_updated: "2026-11-12T16:54:54.550Z"
+status: Executing Phase05 Plan11; Plan10 review corrections and Linux verification complete locally
+stopped_at: Plan10 local review and Linux verification complete; continuing Plan11 halfword/signed transfers without routine hosted republish
+last_updated: "2026-11-12T17:19:44.567Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
-state_head: dbeff1bc3d7ab32bc5747c8aec9685fb7f8d0840
+state_head: 99d036abdb0d10fd520eb55bd76311c69a18ef69
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 11 of 25
-Status: Correcting Plan10 local review findings; Plan11 not started
+Status: Executing Phase05 Plan11; Plan10 review corrections and Linux verification complete locally
 Last activity: 2026-11-12 — Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
 
 Progress: [███████░░░] 67%
@@ -231,6 +231,7 @@ Recent decisions affecting current work:
 - [Phase 05]: ARMv4T LDR PC masks loaded bits [1:0], keeps ARM state, and wraps the second aligned refill modulo 2^32.
 - [Phase 05]: Unaligned LDR PC source addresses and LDRT to R15 are unpredictable and refused before effects.
 - [Phase 05]: Batch routine implementation-plan publication until explicit hosted-witness or final phase gates under the existing one-PR-per-phase policy. Keep per-plan local compiler/sanitizer checks and independent review; preserve mandatory hosted CI before acceptance/merge and new-red stop. Latest published green remains a16dad4/run43249533205; local source receipts are distinct.
+- [Phase 05]: Plan10 review fixes refuse store writeback Rd=Rn and STRB-PC per DDI0100I without documented ARM7TDMI exception; exact generated ARM wrap pair has explicit next-run unpredictable stop. Final99d036a passes independent review and native/pinnedLinux compiler-sanitizer inventories.
 
 ### Pending Todos
 
@@ -266,6 +267,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T16:34:23.316Z
-Stopped at: Completed 05-10-PLAN.md
-Resume file: None
+Last session: 2026-11-12T17:19:44.220Z
+Stopped at: Plan10 local review and Linux verification complete; continuing Plan11 halfword/signed transfers without routine hosted republish
+Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
