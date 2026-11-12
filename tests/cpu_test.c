@@ -3569,8 +3569,8 @@ static void test_decode(void)
     }
 
     {
-        const bool multiply = loaded && run_arm_instruction(
-            &machine, UINT32_C(0xE0000090), 0u, 1u, &result) &&
+        const bool unsupported_block_transfer = loaded && run_arm_instruction(
+            &machine, UINT32_C(0xE8800002), 0u, 1u, &result) &&
             result.termination == GBL_RUN_STOPPED &&
             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
             machine.cpu.stop_reason == GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
@@ -3582,8 +3582,8 @@ static void test_decode(void)
             machine.cpu.spsr[4] == TEST_CPSR_SYSTEM &&
             machine.cpu.execution_address == UINT32_C(4);
 
-        test_case(multiply && undefined_encoding,
-                  "valid unsupported and architecturally undefined ARM words stop distinctly");
+        test_case(unsupported_block_transfer && undefined_encoding,
+                  "valid unsupported block transfer and architecturally undefined ARM words stop distinctly");
     }
 
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xDE00), 0u,
