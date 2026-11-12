@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Executing Phase05 Plan11; Plan10 review corrections and Linux verification complete locally
-stopped_at: Plan10 local review and Linux verification complete; continuing Plan11 halfword/signed transfers without routine hosted republish
-last_updated: "2026-11-12T17:19:44.567Z"
+status: Plan11 complete locally; root review and pinned Linux verification pending; Plan12 not started
+stopped_at: Completed 05-11-PLAN.md
+last_updated: "2026-11-12T18:12:11.198Z"
 last_activity: 2026-11-12
-last_activity_desc: Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
-state_head: 99d036abdb0d10fd520eb55bd76311c69a18ef69
+last_activity_desc: Phase 05 Plan 11 completed locally; root owns review and pinned Linux verification
+state_head: af438af8698f79e4cf1c8a8ae868d01ad2e5f0da
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 48
+  completed_plans: 49
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 11 of 25
-Status: Executing Phase05 Plan11; Plan10 review corrections and Linux verification complete locally
-Last activity: 2026-11-12 — Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
+Plan: 12 of 25
+Status: Plan 11 complete locally; root review and pinned Linux verification pending; Plan 12 not started
+Last activity: 2026-11-12 — Phase 05 Plan 11 completed locally; root owns review and pinned Linux verification
 
 Progress: [███████░░░] 67%
 
@@ -107,6 +107,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P08 | 49m | 2 tasks | 5 files |
 | Phase 05 P09 | 43min | 2 tasks | 5 files |
 | Phase 05 P10 | 43 min | 2 tasks | 5 files |
+| Phase 05 P11 | 32m | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -232,6 +233,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Unaligned LDR PC source addresses and LDRT to R15 are unpredictable and refused before effects.
 - [Phase 05]: Batch routine implementation-plan publication until explicit hosted-witness or final phase gates under the existing one-PR-per-phase policy. Keep per-plan local compiler/sanitizer checks and independent review; preserve mandatory hosted CI before acceptance/merge and new-red stop. Latest published green remains a16dad4/run43249533205; local source receipts are distinct.
 - [Phase 05]: Plan10 review fixes refuse store writeback Rd=Rn and STRB-PC per DDI0100I without documented ARM7TDMI exception; exact generated ARM wrap pair has explicit next-run unpredictable stop. Final99d036a passes independent review and native/pinnedLinux compiler-sanitizer inventories.
+- [Phase 05]: Mode 3 legal forms use the shared CPU-unit slot path with captured operands and preflighted effects.
+- [Phase 05]: GBA odd-address alignment follows GBATEK 3.06 reference policy; it is not a physical hardware measurement.
+- [Phase 05]: Odd subword read transforms consume bus results and preserve preflighted no-effect refusals.
 
 ### Pending Todos
 
@@ -267,6 +271,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T17:19:44.220Z
-Stopped at: Plan10 local review and Linux verification complete; continuing Plan11 halfword/signed transfers without routine hosted republish
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-12T18:12:10.994Z
+Stopped at: Completed 05-11-PLAN.md
+Resume file: None
