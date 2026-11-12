@@ -1539,6 +1539,84 @@ static void test_arm_alu_without_s_preserves_flags(void)
     gbl_machine_dispose(&machine);
 }
 
+typedef struct arm_multiply_unsigned_test_vector {
+    const char *description;
+    uint32_t opcode;
+    uint32_t r1;
+    uint32_t r2;
+    uint32_t r3;
+    uint32_t r4;
+    uint32_t initial_flags;
+    uint32_t expected_r2;
+    uint32_t expected_r4;
+    uint32_t expected_flags;
+} arm_multiply_unsigned_test_vector;
+
+static void test_multiply_unsigned(void)
+{
+    static const uint32_t nzcv = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C |
+                                 TEST_CPSR_V;
+    static const arm_multiply_unsigned_test_vector vectors[] = {
+        { "MULS high-bit product sets N and preserves chosen C/V",
+          UINT32_C(0xE0120391), UINT32_C(0x80000000), UINT32_C(0xA5A5A5A5),
+          UINT32_C(1), 0u, TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          UINT32_C(0x80000000), 0u, TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
+        { "MUL without S preserves NZCV on the all-ones low product",
+          UINT32_C(0xE0020391), UINT32_MAX, 0u, UINT32_MAX, 0u, nzcv,
+          UINT32_C(1), 0u, nzcv },
+        { "MLAS reads the original aliased accumulator before its destination",
+          UINT32_C(0xE0322391), UINT32_C(2), UINT32_MAX, UINT32_C(3), 0u,
+          TEST_CPSR_N | TEST_CPSR_V, UINT32_C(5), 0u, TEST_CPSR_V },
+        { "UMULLS returns both words of the all-ones unsigned product",
+          UINT32_C(0xE0D42391), UINT32_MAX, UINT32_C(0xA5A5A5A5),
+          UINT32_MAX, UINT32_C(0x5A5A5A5A), TEST_CPSR_Z | TEST_CPSR_C |
+              TEST_CPSR_V,
+          UINT32_C(1), UINT32_C(0xFFFFFFFE),
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
+        { "UMLALS carries low accumulator overflow into the high word",
+          UINT32_C(0xE0F42391), UINT32_C(1), UINT32_MAX, UINT32_C(1),
+          UINT32_C(7), nzcv, 0u, UINT32_C(8), TEST_CPSR_C | TEST_CPSR_V },
+        { "UMULLS zero product sets Z and preserves chosen C/V",
+          UINT32_C(0xE0D42391), 0u, UINT32_C(0xA5A5A5A5), UINT32_MAX,
+          UINT32_C(0x5A5A5A5A), TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          0u, 0u, TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V }
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    size_t index;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        const arm_multiply_unsigned_test_vector *vector = &vectors[index];
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool ran = false;
+
+        machine.cpu.r0_7[1] = vector->r1;
+        machine.cpu.r0_7[2] = vector->r2;
+        machine.cpu.r0_7[3] = vector->r3;
+        machine.cpu.r0_7[4] = vector->r4;
+        if (loaded) {
+            ran = run_arm_instruction(&machine, vector->opcode,
+                                      vector->initial_flags, 16u, &result);
+        }
+        test_case(loaded && ran &&
+                      result.termination == GBL_RUN_PROGRESS &&
+                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      result.instructions == 1u && result.cycles >= 1u &&
+                      machine.cpu.r0_7[1] == vector->r1 &&
+                      machine.cpu.r0_7[3] == vector->r3 &&
+                      machine.cpu.r0_7[2] == vector->expected_r2 &&
+                      machine.cpu.r0_7[4] == vector->expected_r4 &&
+                      (machine.cpu.cpsr & nzcv) == vector->expected_flags,
+                  vector->description);
+    }
+    gbl_machine_dispose(&machine);
+}
+
 static void test_arm_register_shifted_pc_operand_uses_plus_twelve(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -5794,6 +5872,9 @@ static const cpu_test_function arm_alu_functions[] = {
     test_arm_alu_vectors,
     test_arm_alu_without_s_preserves_flags
 };
+static const cpu_test_function multiply_unsigned_functions[] = {
+    test_multiply_unsigned
+};
 static const cpu_test_function arm_shifts_conditions_functions[] = {
     test_arm_register_shifted_pc_operand_uses_plus_twelve,
     test_arm_operand2_shift_vectors,
@@ -5871,6 +5952,7 @@ static const cpu_test_function slots_bounds_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
+    CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
