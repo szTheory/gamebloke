@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan11 complete locally; root review and pinned Linux verification pending; Plan12 not started
-stopped_at: Completed 05-11-PLAN.md
-last_updated: "2026-11-12T18:12:11.198Z"
+status: Executing Phase05 Plan12; Plan11 review fixes and full Linux verification complete locally
+stopped_at: Plan11 local review and Linux verification complete; continuing Plan12 ARM block transfers
+last_updated: "2026-11-12T18:48:58.231Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 11 completed locally; root owns review and pinned Linux verification
-state_head: af438af8698f79e4cf1c8a8ae868d01ad2e5f0da
+state_head: 69f309546c4a61fa429500edbe587532096799d5
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 12 of 25
-Status: Plan 11 complete locally; root review and pinned Linux verification pending; Plan 12 not started
+Status: Executing Phase05 Plan12; Plan11 review fixes and full Linux verification complete locally
 Last activity: 2026-11-12 — Phase 05 Plan 11 completed locally; root owns review and pinned Linux verification
 
 Progress: [███████░░░] 67%
@@ -236,6 +236,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Mode 3 legal forms use the shared CPU-unit slot path with captured operands and preflighted effects.
 - [Phase 05]: GBA odd-address alignment follows GBATEK 3.06 reference policy; it is not a physical hardware measurement.
 - [Phase 05]: Odd subword read transforms consume bus results and preserve preflighted no-effect refusals.
+- [Phase 05]: For already implemented planned behavior, preserve baseline-green evidence and use isolated fault controls; document sequencing deviations instead of manufacturing RED or rewriting correct implementation/history.
+- [Phase 05]: Plan11 final69f3095 closes U-matrix coverage and GNU transform-count narrowing; unsigned0..4 sum retains validation. Native focused and full pinnedLinux GCC/Clang sanitizer inventories pass; independent review clean.
 
 ### Pending Todos
 
@@ -271,6 +273,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T18:12:10.994Z
-Stopped at: Completed 05-11-PLAN.md
-Resume file: None
+Last session: 2026-11-12T18:48:57.971Z
+Stopped at: Plan11 local review and Linux verification complete; continuing Plan12 ARM block transfers
+Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

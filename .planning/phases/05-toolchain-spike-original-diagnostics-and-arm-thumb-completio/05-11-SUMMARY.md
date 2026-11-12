@@ -21,7 +21,7 @@ actuals:
   commits: 3
 commits: 3
 plan_head_before: 8f861f79d961c0416d48204d4982cbb1aca68de2
-plan_head_after: af438af8698f79e4cf1c8a8ae868d01ad2e5f0da
+plan_head_after: 69f309546c4a61fa429500edbe587532096799d5
 
 tech-stack:
   added: []
@@ -168,3 +168,16 @@ Plan 11 is complete locally. Root owns independent review and pinned Linux verif
 ---
 *Phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio*
 *Completed: 2026-11-12*
+
+
+## Independent review corrections and final Linux verification
+
+Review identified a U-polarity cross-product coverage gap. Root's first pinned GCC build additionally failed on implicit narrowing after integer promotion in the transform-count sum; no Linux tests or sequential Clang lane ran on that initial attempt. The original failure is retained in `build/phase05-plan11/linux-gcc.log`. These were local findings under existing fix authority, with no hosted run.
+
+Two finding-scoped commits close the issues: `4c3ed1b` uses unsigned arithmetic for the bounded 0–4 transform count while retaining all validation, and `69f3095` covers both U values independently for every immediate/register offset, pre-index, and post-index form across all four operations. The subword selector now has 70 assertions. An isolated wrong-U variant fails the newly covered subtract case while its add companion and the clean selector pass. `05-11-REVIEW.md` is clean after independent re-review; `05-11-REVIEW-FIX.md` preserves evidence. The three original task commits/ledger remain their original scope; the two review commits are additional fixes.
+
+Final source `69f309546c4a61fa429500edbe587532096799d5` passed focused normal and AppleClang ASan selectors (70 subword and 37 alignment assertions), then root's sequential full pinned Ubuntu 26.04 native arm64 GCC and Clang 21 sanitizer lanes. GCC ran 340 tests with the single existing allowed owner-local skip and passing post-inventory; Clang ASan/UBSan/LeakSanitizer ran 84/84 with zero skips and passing post-inventory. Final logs/receipts are `build/phase05-plan11/review-fix/final-linux-*`. Earlier full native results above remain evidence for their recorded pre-review source, with final native focused and Linux full checks establishing the corrections.
+
+Wave hooks found no schema drift or UI change needing a contract; codebase drift has the existing advisory no-STRUCTURE.md skip. Routine plan publication remains batched until explicit hosted-witness or final phase gates; the latest published green `a16dad4` / run43249533205 is separate from this local source. No required gate is waived. CPU/DIAG remain phase-wide pending; Plan 12 is next.
+
+Evidence lesson: when a planned behavior is already implemented, record the baseline green and prove new assertions with isolated fault controls. Preserve the real implementation/history and document the sequencing deviation; never manufacture RED by regressing correct production code.
