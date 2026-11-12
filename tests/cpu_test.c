@@ -35,6 +35,9 @@ static unsigned int test_failures;
 
 typedef struct cpu_test_allocator_state {
     bool fail_next_allocation;
+    size_t successful_allocation_count;
+    size_t live_allocation_count;
+    size_t live_bytes;
 } cpu_test_allocator_state;
 
 static void test_case(bool passed, const char *description)
@@ -50,18 +53,29 @@ static void test_case(bool passed, const char *description)
 static void *cpu_test_allocate(void *context, size_t size)
 {
     cpu_test_allocator_state *state = context;
+    void *allocation;
 
     if (state != NULL && state->fail_next_allocation) {
         state->fail_next_allocation = false;
         return NULL;
     }
-    return malloc(size);
+    allocation = malloc(size);
+    if (state != NULL && allocation != NULL) {
+        state->successful_allocation_count++;
+        state->live_allocation_count++;
+        state->live_bytes += size;
+    }
+    return allocation;
 }
 
 static void cpu_test_release(void *context, void *pointer, size_t size)
 {
-    (void)context;
-    (void)size;
+    cpu_test_allocator_state *state = context;
+
+    if (state != NULL && pointer != NULL) {
+        state->live_allocation_count--;
+        state->live_bytes -= size;
+    }
     free(pointer);
 }
 
@@ -278,7 +292,7 @@ static void test_lifecycle(void)
     uint8_t replacement[TEST_IMAGE_SIZE];
     uint8_t replacement_before[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    cpu_test_allocator_state allocator_state = { false };
+    cpu_test_allocator_state allocator_state = { 0 };
     bool loaded;
 
     make_program(image);
@@ -436,7 +450,7 @@ static void test_lifecycle(void)
 
     {
         gbl_machine no_rom = { 0 };
-        cpu_test_allocator_state no_rom_allocator_state = { false };
+        cpu_test_allocator_state no_rom_allocator_state = { 0 };
         const gbl_run_options options = {
             .cycle_budget = 2u,
             .unit_limit = 0u,
@@ -2742,7 +2756,11 @@ static void test_psr_mode_reads_and_banks(void)
     {
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
+        cpu_test_allocator_state allocator_state = { 0 };
         gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+        bool allocation_was_live;
+        bool failed_allocation_was_untracked = false;
+        bool allocation_was_released;
         bool loaded;
         bool ran;
 
@@ -2751,7 +2769,7 @@ static void test_psr_mode_reads_and_banks(void)
         write_word(image, 0x04u, UINT32_C(0xE1A01008)); /* MOV R1, R8 */
         write_word(image, 0x08u, encode_arm_msr_register(false, 1u, 2u));
         write_word(image, 0x0Cu, UINT32_C(0xE1A03008)); /* MOV R3, R8 */
-        loaded = machine_load(&machine, image);
+        loaded = machine_load_with_allocator(&machine, image, &allocator_state);
         machine.cpu.cpsr = TEST_CPSR_SVC;
         machine.cpu.r0_7[0] = TEST_CPSR_FIQ;
         machine.cpu.r0_7[2] = TEST_CPSR_SYSTEM;
@@ -2766,6 +2784,35 @@ static void test_psr_mode_reads_and_banks(void)
               machine.cpu.r0_7[3] == UINT32_C(0x51515151) &&
               (machine.cpu.cpsr & TEST_CPSR_MODE_MASK) == TEST_CPSR_SYSTEM;
         bank_visibility = ran;
+
+        allocation_was_live = loaded &&
+                              allocator_state.successful_allocation_count == 1u &&
+                              allocator_state.live_allocation_count == 1u &&
+                              allocator_state.live_bytes == sizeof(image);
+        if (loaded) {
+            const size_t successful_before_failure =
+                allocator_state.successful_allocation_count;
+            const size_t live_before_failure =
+                allocator_state.live_allocation_count;
+            const size_t bytes_before_failure = allocator_state.live_bytes;
+            gbl_load_result failed_load;
+
+            allocator_state.fail_next_allocation = true;
+            failed_load = gbl_load_rom(&machine, image, sizeof(image));
+            failed_allocation_was_untracked =
+                failed_load.status == GBL_LOAD_STATUS_RESOURCE_FAILURE &&
+                failed_load.reason == GBL_LOAD_REASON_ALLOCATION &&
+                allocator_state.successful_allocation_count ==
+                    successful_before_failure &&
+                allocator_state.live_allocation_count == live_before_failure &&
+                allocator_state.live_bytes == bytes_before_failure;
+        }
+        gbl_machine_dispose(&machine);
+        allocation_was_released = allocator_state.live_allocation_count == 0u &&
+                                  allocator_state.live_bytes == 0u;
+        test_case(allocation_was_live && failed_allocation_was_untracked &&
+                      allocation_was_released,
+                  "PSR bank-visibility fixture balances owned ROM allocation");
     }
     test_case(bank_visibility,
               "CPSR mode writes expose distinct FIQ and User/System R8 banks");
@@ -5828,7 +5875,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
-    CPU_TEST_GROUP("psr", 41u, psr_functions),
+    CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
