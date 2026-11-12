@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Phase 05 Plan 05 complete; Plan 06 not started
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-11-12T00:54:00.701Z"
+status: executing
+stopped_at: Completed 05-06-PLAN.md
+last_updated: "2026-11-12T01:50:24.962Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 05 smoke pair admitted after green hosted witness and canonical local CI
-state_head: 03cb2840e009dfbcb21029b5af905b98101cc7f7
+state_head: 8d0a25701b6986f5462158f928b40f86ed95ea0d
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 43
+  completed_plans: 44
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 6 of 25
-Status: Plan 05 complete; Plan 06 not started
+Plan: 7 of 25
+Status: Ready to execute
 Last activity: 2026-11-12 — Plan 05 smoke pair admitted after hosted and local verification passed
 
 Progress: [███████░░░] 67%
@@ -102,6 +102,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P03 | not measured (multi-resume execution) | 2 tasks | 12 files |
 | Phase 05 P04 | 39 min | 2 tasks | 8 files |
 | Phase 05 P05 | multi-resume; admission continuation about 25 minutes | 2 tasks | 17 files |
+| Phase 05 P06 | 30 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -211,6 +212,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Do not admit a production diagnostic ROM digest or mark phase-wide DIAG requirements complete from this contract slice.
 - [Phase 05]: Use host-specific locked archive hashes and keep the single scalar manifest toolchain SHA null when host archive identities differ.
 - [Phase 05]: Admit only the measured smoke pair; leave the remaining 356 ARM/Thumb ledger rows pending until independently implemented and verified.
+- [Phase 05]: Plan 06: Keep SWP and SWPB on one bounded ordered path; snapshot operands before data bus effects and commit Rd after the write.
 
 ### Pending Todos
 
@@ -247,6 +249,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T00:54:00.551Z
-Stopped at: Completed 05-05-PLAN.md
+Last session: 2026-11-12T01:50:24.775Z
+Stopped at: Completed 05-06-PLAN.md
 Resume file: None
