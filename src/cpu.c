@@ -100,8 +100,12 @@ typedef struct gbl_cpu_unit {
     uint8_t status_effect_count;
     bool changes_state;
     bool thumb_state;
+    bool fetch_address_from_result;
+    uint8_t fetch_result_index;
+    uint32_t fetch_result_mask;
     gbl_exception_kind exception_kind;
     uint32_t fetch_address[GBL_CPU_FETCH_SLOT_MAX];
+    uint32_t fetch_result_addend[GBL_CPU_FETCH_SLOT_MAX];
     gbl_bus_access_class fetch_class[GBL_CPU_FETCH_SLOT_MAX];
     gbl_cpu_data_slot data_slots[GBL_CPU_DATA_SLOT_MAX];
     uint32_t results[GBL_CPU_RESULT_SLOT_MAX];
@@ -592,6 +596,32 @@ static bool gbl_cpu_schedule_refill(gbl_cpu_unit *unit, uint32_t address,
     unit->fetch_width = width;
     unit->fetch_address[0] = address;
     unit->fetch_address[1] = second_address;
+    unit->fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
+    unit->fetch_class[1] = GBL_BUS_CLASS_SEQUENTIAL;
+    return gbl_cpu_refresh_cycle_cost(unit);
+}
+
+/* ARMv4T LDR-to-PC continues in ARM state. Its loaded word result is the
+ * source for both refill addresses; the low bits are ignored, and the second
+ * address wraps in the 32-bit address space. Preflight validates this bounded
+ * symbolic form before the data read, then execution resolves it once from
+ * that read's rotated CPU result. */
+static bool gbl_cpu_schedule_result_refill(gbl_cpu_unit *unit,
+                                           uint8_t result_index)
+{
+    if (unit == NULL || result_index >= unit->result_count) {
+        return false;
+    }
+    unit->kind = GBL_CPU_UNIT_BRANCH;
+    unit->changes_state = false;
+    unit->thumb_state = false;
+    unit->fetch_address_from_result = true;
+    unit->fetch_result_index = result_index;
+    unit->fetch_result_mask = ~UINT32_C(3);
+    unit->fetch_count = (uint8_t)GBL_CPU_FETCH_SLOT_MAX;
+    unit->fetch_width = (uint8_t)GBL_CPU_WORD_WIDTH;
+    unit->fetch_result_addend[0] = 0u;
+    unit->fetch_result_addend[1] = (uint32_t)GBL_CPU_WORD_WIDTH;
     unit->fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
     unit->fetch_class[1] = GBL_BUS_CLASS_SEQUENTIAL;
     return gbl_cpu_refresh_cycle_cost(unit);
@@ -1528,6 +1558,7 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
     const uint8_t data_register =
         (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
     const uint8_t width = byte ? 1u : (uint8_t)GBL_CPU_WORD_WIDTH;
+    const bool load_pc = load && !byte && data_register == (uint8_t)15u;
     /* Post-indexed forms always update Rn. W distinguishes the T encoding,
      * whose forced-User bus access has no extra effect under this flat bus. */
     const bool writeback = !preindexed || writeback_bit;
@@ -1536,6 +1567,7 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
     uint32_t address;
     uint32_t updated_base;
     uint32_t store_value = 0u;
+    uint8_t pc_result_index = UINT8_MAX;
 
     if ((opcode & UINT32_C(0x0C000000)) != UINT32_C(0x04000000)) {
         return false;
@@ -1557,17 +1589,11 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
           ((uint8_t)(opcode & UINT32_C(0x0000000F)) == base_register &&
            writeback))) ||
         (load && writeback && data_register == base_register) ||
+        (load_pc && !preindexed && writeback_bit) ||
         (load && byte && data_register == (uint8_t)15u)) {
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
-    /* Word LDR-to-PC is completed by the symbolic refill path in the next
-     * transfer slice. Byte loads to PC were classified above as UNPREDICTABLE. */
-    if (load && !byte && data_register == (uint8_t)15u) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-        return true;
-    }
-
     base = gbl_cpu_read_register(cpu, base_register,
                                  unit->instruction_address,
                                  GBL_CPU_PC_READ_NORMAL);
@@ -1591,6 +1617,10 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
     }
     updated_base = add_offset ? base + offset : base - offset;
     address = preindexed ? updated_base : base;
+    if (load_pc && (address & UINT32_C(3)) != 0u) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
     if (!load) {
         store_value = gbl_cpu_read_register(
             cpu, data_register, unit->instruction_address,
@@ -1604,13 +1634,31 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
-    if (!gbl_cpu_prepare_data_transfer(
-            unit, address, width, load, data_register, store_value,
-            load && !byte, cpu->cpsr) ||
-        (writeback &&
-         !gbl_cpu_add_literal_register_effect(
-             unit, base_register, cpu->cpsr, updated_base)) ||
-        !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false)) {
+    if (load_pc) {
+        if (!gbl_cpu_add_data_read_slot(
+                unit, address & ~UINT32_C(3), width,
+                (uint8_t)(address & UINT32_C(3)), true,
+                &pc_result_index)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            return true;
+        }
+    } else if (!gbl_cpu_prepare_data_transfer(
+                   unit, address, width, load, data_register, store_value,
+                   load && !byte, cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if (writeback &&
+        !gbl_cpu_add_literal_register_effect(
+            unit, base_register, cpu->cpsr, updated_base)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if ((load_pc &&
+         !gbl_cpu_schedule_result_refill(unit, pc_result_index)) ||
+        (!load_pc &&
+         !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                            false))) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
     }
     return true;
@@ -2026,14 +2074,33 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         return false;
     }
     if (unit->cycle_cost != expected_cost ||
+        (unit->fetch_address_from_result &&
+         (unit->kind != GBL_CPU_UNIT_BRANCH || unit->changes_state ||
+          unit->fetch_count != (uint8_t)GBL_CPU_FETCH_SLOT_MAX ||
+          unit->fetch_width != (uint8_t)GBL_CPU_WORD_WIDTH ||
+          unit->internal_cycles != 0u ||
+          unit->fetch_result_mask != ~UINT32_C(3) ||
+          unit->fetch_result_index >= unit->result_count ||
+          unit->data_slot_count != 1u || unit->result_count != 1u ||
+          unit->data_slots[0].operation != GBL_CPU_DATA_READ ||
+          unit->data_slots[0].width != (uint8_t)GBL_CPU_WORD_WIDTH ||
+          unit->data_slots[0].result_index != unit->fetch_result_index ||
+          !unit->data_slots[0].rotate_word_read ||
+          unit->fetch_result_addend[0] != 0u ||
+          unit->fetch_result_addend[1] !=
+              (uint32_t)GBL_CPU_WORD_WIDTH ||
+          unit->fetch_class[0] != GBL_BUS_CLASS_NONSEQUENTIAL ||
+          unit->fetch_class[1] != GBL_BUS_CLASS_SEQUENTIAL)) ||
         (exception &&
          (unit->fetch_count != 0u || unit->internal_cycles != 1u ||
           has_data_access || unit->exception_kind <= GBL_EXCEPTION_NONE ||
           unit->exception_kind > GBL_EXCEPTION_COPROCESSOR)) ||
         (!exception &&
          (unit->fetch_count == 0u ||
-          !gbl_cpu_fetch_address_valid(unit->fetch_address[0],
-                                       unit->fetch_width))) ||
+          (!unit->fetch_address_from_result &&
+           !gbl_cpu_fetch_address_valid(unit->fetch_address[0],
+                                        unit->fetch_width)))) ||
+        (exception && unit->fetch_address_from_result) ||
         (exception && (unit->result_count != 0u ||
                        unit->register_effect_count != 0u ||
                        unit->status_effect_count != 0u))) {
@@ -2041,8 +2108,9 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         return false;
     }
     for (index = 0u; index < unit->fetch_count; ++index) {
-        if (!gbl_cpu_fetch_address_valid(unit->fetch_address[index],
-                                         unit->fetch_width) ||
+        if ((!unit->fetch_address_from_result &&
+             !gbl_cpu_fetch_address_valid(unit->fetch_address[index],
+                                          unit->fetch_width)) ||
             (unit->fetch_class[index] != GBL_BUS_CLASS_NONSEQUENTIAL &&
              unit->fetch_class[index] != GBL_BUS_CLASS_SEQUENTIAL)) {
             *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
@@ -2080,6 +2148,11 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
             return false;
         }
     }
+    if (unit->fetch_address_from_result &&
+        !result_seen[unit->fetch_result_index]) {
+        *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
     for (index = 0u; index < unit->register_effect_count; ++index) {
         const gbl_cpu_register_effect *effect =
             &unit->register_effects[index];
@@ -2105,7 +2178,7 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
 }
 
 static bool gbl_cpu_fetch_unit(gbl_machine *machine,
-                               const gbl_cpu_unit *unit,
+                               gbl_cpu_unit *unit,
                                gbl_cpu_pipeline_entry fetched[2],
                                const gbl_run_options *options,
                                gbl_trace_record trace_records[
@@ -2117,8 +2190,22 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
     uint8_t index;
 
     for (index = 0u; index < unit->fetch_count; ++index) {
+        uint32_t fetch_address = unit->fetch_address[index];
+
+        if (unit->fetch_address_from_result) {
+            /* Preflight has proved this mask/addend form always produces a
+             * valid aligned word address. Unsigned addition intentionally
+             * wraps the second refill at 2^32. */
+            fetch_address =
+                (unit->results[unit->fetch_result_index] &
+                 unit->fetch_result_mask) + unit->fetch_result_addend[index];
+            unit->fetch_address[index] = fetch_address;
+            if (index == 0u && unit->kind == GBL_CPU_UNIT_BRANCH) {
+                unit->branch_target = fetch_address;
+            }
+        }
         const gbl_bus_result result = gbl_bus_read(
-            machine, unit->fetch_address[index], unit->fetch_width,
+            machine, fetch_address, unit->fetch_width,
             unit->fetch_class[index]);
 
         if (result.status != GBL_BUS_STATUS_OK) {
@@ -2128,7 +2215,7 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
             machine->open_bus = saved_open_bus;
             return false;
         }
-        fetched[index].address = unit->fetch_address[index];
+        fetched[index].address = fetch_address;
         fetched[index].opcode = result.value;
         fetched[index].width = unit->fetch_width;
         fetched[index].valid = true;
@@ -2141,7 +2228,7 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
             record.opcode = unit->kind == GBL_CPU_UNIT_REFILL
                                 ? 0u
                                 : unit->opcode;
-            record.address = unit->fetch_address[index];
+            record.address = fetch_address;
             record.value = result.value;
             record.width = unit->fetch_width;
             record.access_class = result.access_class;
