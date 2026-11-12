@@ -2259,6 +2259,148 @@ static void test_arm_block_stmia_then_ldmia_stream(void)
     }
 }
 
+static uint32_t arm_block_start(uint32_t base, bool preindexed,
+                                bool add_offset, uint32_t transfer_count)
+{
+    const uint32_t span = transfer_count * UINT32_C(4);
+
+    if (add_offset) {
+        return base + (preindexed ? UINT32_C(4) : UINT32_C(0));
+    }
+    return base - span + (preindexed ? UINT32_C(0) : UINT32_C(4));
+}
+
+static bool arm_block_transfer_case(bool preindexed, bool add_offset,
+                                    bool writeback, bool load)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_run_result result;
+    const uint8_t base_register = 4u;
+    const uint32_t original_base = UINT32_C(0x03000400);
+    const uint32_t span = UINT32_C(8);
+    const uint32_t start = arm_block_start(original_base, preindexed,
+                                           add_offset, 2u);
+    const uint32_t final_base = add_offset ? original_base + span
+                                           : original_base - span;
+    const uint32_t first_value = load ? UINT32_C(0xA1B2C3D4)
+                                      : UINT32_C(0x11223344);
+    const uint32_t second_value = load ? UINT32_C(0x55667788)
+                                       : UINT32_C(0x99AABBCC);
+    const uint32_t opcode = encode_arm_block(
+        preindexed, add_offset, writeback, load, base_register,
+        UINT16_C(0x000A));
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[base_register] = original_base;
+        machine.cpu.r0_7[1] = load ? 0u : first_value;
+        machine.cpu.r0_7[3] = load ? 0u : second_value;
+        write_word(machine.iwram, (size_t)(start - UINT32_C(0x03000000)),
+                   first_value);
+        write_word(machine.iwram,
+                   (size_t)(start + UINT32_C(4) - UINT32_C(0x03000000)),
+                   second_value);
+        passed = run_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM,
+                                     UINT64_C(8), &result) &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.instructions == UINT64_C(1) &&
+                 result.cycles == UINT64_C(3) &&
+                 machine.cpu.r0_7[base_register] ==
+                     (writeback ? final_base : original_base) &&
+                 machine.cpu.r0_7[1] == first_value &&
+                 machine.cpu.r0_7[3] == second_value &&
+                 read_test_word(machine.iwram,
+                                (size_t)(start - UINT32_C(0x03000000))) ==
+                     first_value &&
+                 read_test_word(
+                     machine.iwram,
+                     (size_t)(start + UINT32_C(4) - UINT32_C(0x03000000))) ==
+                     second_value &&
+                 machine.cpu.execution_address == UINT32_C(0x08000004);
+    } else {
+        passed = false;
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return passed;
+}
+
+static void test_arm_block_all_modes(void)
+{
+    static const struct {
+        const char *name;
+        bool preindexed;
+        bool add_offset;
+    } modes[] = {
+        { "IA", false, true },
+        { "IB", true, true },
+        { "DA", false, false },
+        { "DB", true, false }
+    };
+    size_t mode_index;
+    unsigned int load_index;
+    unsigned int writeback_index;
+
+    for (mode_index = 0u;
+         mode_index < sizeof(modes) / sizeof(modes[0]); ++mode_index) {
+        for (load_index = 0u; load_index < 2u; ++load_index) {
+            for (writeback_index = 0u; writeback_index < 2u;
+                 ++writeback_index) {
+                char description[128];
+                const bool load = load_index != 0u;
+                const bool writeback = writeback_index != 0u;
+
+                (void)snprintf(
+                    description, sizeof(description),
+                    "%s %s %s transfers R1/R3 in ascending address order",
+                    load ? "LDM" : "STM", modes[mode_index].name,
+                    writeback ? "with writeback" : "without writeback");
+                test_case(arm_block_transfer_case(
+                              modes[mode_index].preindexed,
+                              modes[mode_index].add_offset, writeback, load),
+                          description);
+            }
+        }
+    }
+}
+
+static void test_arm_block_pc_store_source(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_run_result result;
+    const uint32_t base = UINT32_C(0x03000600);
+    const uint32_t opcode = encode_arm_block(
+        false, true, false, false, 0u,
+        (uint16_t)((UINT16_C(1) << 2u) | (UINT16_C(1) << 15u)));
+    bool loaded;
+    bool passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = base;
+        machine.cpu.r0_7[2] = UINT32_C(0xDEADBEEF);
+        passed = run_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM,
+                                     UINT64_C(8), &result) &&
+                 result.instructions == UINT64_C(1) &&
+                 read_test_word(machine.iwram, 0x600u) ==
+                     UINT32_C(0xDEADBEEF) &&
+                 read_test_word(machine.iwram, 0x604u) ==
+                     UINT32_C(0x0800000C);
+        gbl_machine_dispose(&machine);
+    } else {
+        passed = false;
+    }
+    test_case(passed,
+              "STM stores the ARM PC source value at its ascending register slot");
+}
+
 static void test_arm_transfer_preindexed_writeback(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -5716,8 +5858,9 @@ static void test_decode(void)
     }
 
     {
-        const bool unsupported_block_transfer = loaded && run_arm_instruction(
-            &machine, UINT32_C(0xE8800002), 0u, 1u, &result) &&
+        const bool unsupported_user_bank_ldm = loaded &&
+            run_arm_instruction_in_mode(&machine, UINT32_C(0xE8D00002),
+                                        TEST_CPSR_SVC, &result) &&
             result.termination == GBL_RUN_STOPPED &&
             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
             machine.cpu.stop_reason == GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
@@ -5729,8 +5872,8 @@ static void test_decode(void)
             machine.cpu.spsr[4] == TEST_CPSR_SYSTEM &&
             machine.cpu.execution_address == UINT32_C(4);
 
-        test_case(unsupported_block_transfer && undefined_encoding,
-                  "valid unsupported block transfer and architecturally undefined ARM words stop distinctly");
+        test_case(unsupported_user_bank_ldm && undefined_encoding,
+                  "valid privileged user-bank LDM and architecturally undefined ARM words stop distinctly");
     }
 
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xDE00), 0u,
@@ -8479,7 +8622,9 @@ static const cpu_test_function arm_subword_alignment_functions[] = {
     test_arm_subword_preflight_boundaries
 };
 static const cpu_test_function arm_block_functions[] = {
-    test_arm_block_stmia_then_ldmia_stream
+    test_arm_block_stmia_then_ldmia_stream,
+    test_arm_block_all_modes,
+    test_arm_block_pc_store_source
 };
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
 static const cpu_test_function arm_alu_functions[] = {
@@ -8590,7 +8735,7 @@ static const cpu_test_group cpu_test_groups[] = {
                    multiply_signed_timing_functions),
     CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
-    CPU_TEST_GROUP("arm_block", 1u, arm_block_functions),
+    CPU_TEST_GROUP("arm_block", 18u, arm_block_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),
