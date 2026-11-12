@@ -216,6 +216,10 @@ case "$1" in
    parent-member) printf '%s\n' '@@ROOT@@/../../outside';;
    top-level-member) printf 'different-root/file\n';;
    escaping-symlink) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/escape';;
+   unsafe-symlink-target|malformed-symlink) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/escape';;
+   duplicate-member) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/arm-none-eabi-as' '@@ROOT@@/bin/arm-none-eabi-as';;
+   unsafe-hardlink-target|hardlink-target-missing|hardlink-target-directory)
+    printf '%s\n' '@@ROOT@@/' '@@ROOT@@/notices/' '@@ROOT@@/NOTICE-copy';;
    special-node) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/dev/null';;
    malformed-listing) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/arm-none-eabi-as';;
    *) printf '%s\n' '@@ROOT@@/' '@@ROOT@@/bin/' '@@ROOT@@/bin/arm-none-eabi-as' \
@@ -229,6 +233,22 @@ case "$1" in
    top-level-member) printf '%s\n' '-rw-r--r-- 0/0 1 Jan 1 00:00 different-root/file';;
    escaping-symlink) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
      'lrwxrwxrwx 0/0 0 Jan 1 00:00 @@ROOT@@/bin/escape -> ../../../../outside';;
+   unsafe-symlink-target) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'lrwxrwxrwx 0/0 0 Jan 1 00:00 @@ROOT@@/bin/escape -> unsafe target';;
+   malformed-symlink) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'lrwxrwxrwx 0/0 0 Jan 1 00:00 @@ROOT@@/bin/escape';;
+   duplicate-member) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     '-rwxr-xr-x 0/0 1 Jan 1 00:00 @@ROOT@@/bin/arm-none-eabi-as' \
+     '-rwxr-xr-x 0/0 1 Jan 1 00:00 @@ROOT@@/bin/arm-none-eabi-as';;
+   unsafe-hardlink-target) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/notices/' \
+     'hrw-r--r-- 0/0 1 Jan 1 00:00 @@ROOT@@/NOTICE-copy link to ../../outside';;
+   hardlink-target-missing) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/notices/' \
+     'hrw-r--r-- 0/0 1 Jan 1 00:00 @@ROOT@@/NOTICE-copy link to @@ROOT@@/notices/missing';;
+   hardlink-target-directory) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
+     'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/notices/' \
+     'hrw-r--r-- 0/0 1 Jan 1 00:00 @@ROOT@@/NOTICE-copy link to @@ROOT@@/notices';;
    special-node) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/' \
      'crw------- 0/0 0 Jan 1 00:00 @@ROOT@@/dev/null';;
    malformed-listing) printf '%s\n' 'drwxr-xr-x 0/0 0 Jan 1 00:00 @@ROOT@@/';;
@@ -274,7 +294,9 @@ esac
   set(cases wrong-release wrong-host wrong-host-row wrong-redirect-host redirect-downgrade
     redirect-count unexpected-status redirected-status empty-payload short-payload long-payload
     digest-mismatch corrupt-archive absolute-member parent-member top-level-member escaping-symlink
-    special-node malformed-listing prior-install valid-redirect)
+    unsafe-symlink-target malformed-symlink duplicate-member unsafe-hardlink-target
+    hardlink-target-missing hardlink-target-directory special-node malformed-listing
+    prior-install valid-redirect)
   if("${CASE}" STREQUAL "offline-all")
     foreach(s IN LISTS cases)
       run_offline_case("${s}")
@@ -411,6 +433,16 @@ function(run_offline_case s)
     set(reason unsafe-member-path)
   elseif("${s}" STREQUAL "escaping-symlink")
     set(reason escaping-symlink)
+  elseif("${s}" STREQUAL "unsafe-symlink-target")
+    set(reason unsafe-symlink-target)
+  elseif("${s}" STREQUAL "malformed-symlink")
+    set(reason malformed-symlink)
+  elseif("${s}" STREQUAL "duplicate-member")
+    set(reason duplicate-member)
+  elseif("${s}" STREQUAL "unsafe-hardlink-target")
+    set(reason unsafe-hardlink-target)
+  elseif("${s}" MATCHES "^hardlink-target-(missing|directory)$")
+    set(reason hardlink-target-missing-or-not-file)
   elseif("${s}" STREQUAL "special-node")
     set(reason unsafe-member-type)
   elseif("${s}" STREQUAL "malformed-listing")
@@ -513,7 +545,7 @@ elseif(CASE STREQUAL "lock-host-mismatch")
     message(FATAL_ERROR "toolchain-case mismatched-host-url-reached-curl")
   endif()
   message(STATUS "toolchain-case lock-host-mismatch PASSED native=${native_host} refused=${other_host}-asset-before-curl")
-elseif(CASE MATCHES "^(offline-all|wrong-release|wrong-host|wrong-host-row|wrong-redirect-host|redirect-downgrade|redirect-count|unexpected-status|redirected-status|empty-payload|short-payload|long-payload|digest-mismatch|corrupt-archive|absolute-member|parent-member|top-level-member|escaping-symlink|special-node|malformed-listing|prior-install|valid-redirect)$")
+elseif(CASE MATCHES "^(offline-all|wrong-release|wrong-host|wrong-host-row|wrong-redirect-host|redirect-downgrade|redirect-count|unexpected-status|redirected-status|empty-payload|short-payload|long-payload|digest-mismatch|corrupt-archive|absolute-member|parent-member|top-level-member|escaping-symlink|unsafe-symlink-target|malformed-symlink|duplicate-member|unsafe-hardlink-target|hardlink-target-missing|hardlink-target-directory|special-node|malformed-listing|prior-install|valid-redirect)$")
   run_offline_suite()
 elseif(CASE STREQUAL "installed")
   if(NOT DEFINED BIN OR "${BIN}" STREQUAL "")
