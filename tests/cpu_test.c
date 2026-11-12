@@ -215,9 +215,8 @@ static bool run_traced_units(gbl_machine *machine, uint64_t cycles,
     return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
 }
 
-static bool run_arm_instruction(gbl_machine *machine, uint32_t opcode,
-                                uint32_t cpsr, uint64_t cycle_budget,
-                                gbl_run_result *result)
+static void prepare_arm_instruction(gbl_machine *machine, uint32_t opcode,
+                                    uint32_t cpsr)
 {
     const uint32_t address = UINT32_C(0x08000000);
 
@@ -232,7 +231,54 @@ static bool run_arm_instruction(gbl_machine *machine, uint32_t opcode,
     machine->cpu.next_fetch_sequential = true;
     machine->cpu.stopped = false;
     machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
+}
+
+static bool run_arm_instruction(gbl_machine *machine, uint32_t opcode,
+                                uint32_t cpsr, uint64_t cycle_budget,
+                                gbl_run_result *result)
+{
+    prepare_arm_instruction(machine, opcode, cpsr);
     return run_units(machine, cycle_budget, 1u, result);
+}
+
+static bool run_arm_instruction_with_trace(
+    gbl_machine *machine, uint32_t opcode, uint32_t cpsr,
+    uint64_t cycle_budget, gbl_trace_buffer *trace, gbl_run_result *result)
+{
+    const gbl_run_options options = {
+        .cycle_budget = cycle_budget,
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = trace
+    };
+
+    prepare_arm_instruction(machine, opcode, cpsr);
+    return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
+}
+
+static uint32_t encode_arm_transfer(bool register_offset, bool preindexed,
+                                    bool add_offset, bool byte,
+                                    bool writeback, bool load,
+                                    uint8_t base_register,
+                                    uint8_t data_register, uint16_t offset)
+{
+    return UINT32_C(0xE4000000) |
+           (register_offset ? UINT32_C(1) << 25u : 0u) |
+           (preindexed ? UINT32_C(1) << 24u : 0u) |
+           (add_offset ? UINT32_C(1) << 23u : 0u) |
+           (byte ? UINT32_C(1) << 22u : 0u) |
+           (writeback ? UINT32_C(1) << 21u : 0u) |
+           (load ? UINT32_C(1) << 20u : 0u) |
+           ((uint32_t)base_register << 16u) |
+           ((uint32_t)data_register << 12u) | (uint32_t)offset;
+}
+
+static uint32_t read_test_word(const uint8_t *bytes, size_t offset)
+{
+    return (uint32_t)bytes[offset] |
+           ((uint32_t)bytes[offset + 1u] << 8u) |
+           ((uint32_t)bytes[offset + 2u] << 16u) |
+           ((uint32_t)bytes[offset + 3u] << 24u);
 }
 
 static bool run_arm_instruction_in_mode(gbl_machine *machine,
@@ -2148,6 +2194,574 @@ static void test_arm_transfer_preindexed_writeback(void)
     if (loaded) {
         gbl_machine_dispose(&machine);
     }
+}
+
+static void test_arm_transfer_immediate_matrix(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    uint8_t preindexed;
+    uint8_t add_offset;
+    uint8_t byte;
+    uint8_t writeback;
+    uint8_t load;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    for (preindexed = 0u; preindexed < 2u; ++preindexed) {
+        for (add_offset = 0u; add_offset < 2u; ++add_offset) {
+            for (byte = 0u; byte < 2u; ++byte) {
+                for (writeback = 0u; writeback < 2u; ++writeback) {
+                    for (load = 0u; load < 2u; ++load) {
+                        const uint32_t initial_base = UINT32_C(0x03000100);
+                        const uint32_t offset = UINT32_C(4);
+                        const uint32_t adjusted = add_offset != 0u
+                            ? initial_base + offset
+                            : initial_base - offset;
+                        const uint32_t address = preindexed != 0u
+                            ? adjusted
+                            : initial_base;
+                        const uint32_t request_address = byte != 0u
+                            ? address
+                            : address & ~UINT32_C(3);
+                        const size_t data_offset =
+                            (size_t)(request_address - UINT32_C(0x03000000));
+                        const bool update_base = preindexed == 0u ||
+                                                 writeback != 0u;
+                        const uint32_t expected_base = update_base
+                            ? adjusted
+                            : initial_base;
+                        const uint32_t opcode = encode_arm_transfer(
+                            false, preindexed != 0u, add_offset != 0u,
+                            byte != 0u, writeback != 0u, load != 0u, 0u, 2u,
+                            (uint16_t)offset);
+                        gbl_run_result result = { 0 };
+                        bool ran = false;
+                        bool observed;
+                        char description[160];
+
+                        if (loaded) {
+                            gbl_machine_reset(&machine);
+                            memset(machine.iwram + 0x100u, 0xA7, 0x20u);
+                            machine.cpu.r0_7[0] = initial_base;
+                            machine.cpu.r0_7[1] = UINT32_C(0x76543210);
+                            machine.cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
+                            if (load != 0u) {
+                                if (byte != 0u) {
+                                    machine.iwram[data_offset] = UINT8_C(0x5A);
+                                } else {
+                                    write_word(machine.iwram, data_offset,
+                                               UINT32_C(0x11223344));
+                                }
+                            }
+                            ran = run_arm_instruction(
+                                &machine, opcode, TEST_CPSR_SYSTEM,
+                                UINT64_C(8), &result);
+                        }
+                        observed = loaded && ran &&
+                            result.termination == GBL_RUN_PROGRESS &&
+                            result.instructions == 1u &&
+                            machine.cpu.r0_7[0] == expected_base;
+                        if (load != 0u) {
+                            observed = observed &&
+                                machine.cpu.r0_7[2] ==
+                                    (byte != 0u ? UINT32_C(0x5A)
+                                                : UINT32_C(0x11223344));
+                        } else if (byte != 0u) {
+                            observed = observed &&
+                                machine.iwram[data_offset] == UINT8_C(0xD4);
+                        } else {
+                            observed = observed &&
+                                read_test_word(machine.iwram, data_offset) ==
+                                    UINT32_C(0xA1B2C3D4);
+                        }
+                        (void)snprintf(
+                            description, sizeof(description),
+                            "ARM %s%s immediate P%u U%u W%u executes with %s",
+                            load != 0u ? "LDR" : "STR",
+                            byte != 0u ? "B" : "", preindexed,
+                            add_offset, writeback,
+                            !preindexed && writeback ? "force-user post-index"
+                                                     : "architectural writeback");
+                        test_case(observed, description);
+                    }
+                }
+            }
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_arm_transfer_scaled_register_matrix(void)
+{
+    static const struct {
+        const char *name;
+        uint8_t shift;
+        uint8_t amount;
+        uint32_t source;
+        uint32_t offset;
+        bool carry;
+    } vectors[] = {
+        { "LSL #0", 0u, 0u, UINT32_C(3), UINT32_C(3), false },
+        { "LSL #31", 0u, 31u, UINT32_C(1), UINT32_C(0x80000000), false },
+        { "LSR #1", 1u, 1u, UINT32_C(0x60000000), UINT32_C(0x30000000), false },
+        { "LSR #32", 1u, 0u, UINT32_MAX, 0u, false },
+        { "ASR #1", 2u, 1u, UINT32_C(0xFFFFFFFE), UINT32_MAX, false },
+        { "ASR #32", 2u, 0u, UINT32_C(0x80000000), UINT32_MAX, false },
+        { "ROR #1", 3u, 1u, UINT32_C(0x80000001), UINT32_C(0xC0000000), false },
+        { "ROR #31", 3u, 31u, UINT32_C(0x80000000), UINT32_C(1), false },
+        { "RRX", 3u, 0u, UINT32_C(2), UINT32_C(0x80000001), true }
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    size_t vector_index;
+    uint8_t preindexed;
+    uint8_t add_offset;
+    uint8_t byte;
+    uint8_t writeback;
+    uint8_t load;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    for (vector_index = 0u;
+         vector_index < sizeof(vectors) / sizeof(vectors[0]);
+         ++vector_index) {
+        const uint32_t target = UINT32_C(0x03001000);
+        const uint16_t shift_spec =
+            (uint16_t)(((uint32_t)vectors[vector_index].amount << 7u) |
+                       ((uint32_t)vectors[vector_index].shift << 5u) |
+                       UINT32_C(1));
+
+        for (preindexed = 0u; preindexed < 2u; ++preindexed) {
+            for (add_offset = 0u; add_offset < 2u; ++add_offset) {
+                for (byte = 0u; byte < 2u; ++byte) {
+                    for (writeback = 0u; writeback < 2u; ++writeback) {
+                        for (load = 0u; load < 2u; ++load) {
+                            const uint32_t initial_base =
+                                preindexed != 0u
+                                    ? (add_offset != 0u
+                                           ? target - vectors[vector_index].offset
+                                           : target + vectors[vector_index].offset)
+                                    : target;
+                            const uint32_t adjusted = add_offset != 0u
+                                ? initial_base + vectors[vector_index].offset
+                                : initial_base - vectors[vector_index].offset;
+                            const uint32_t address = preindexed != 0u
+                                ? target
+                                : initial_base;
+                            const size_t data_offset =
+                                (size_t)(address - UINT32_C(0x03000000));
+                            const bool update_base = preindexed == 0u ||
+                                                     writeback != 0u;
+                            const uint32_t expected_base = update_base
+                                ? adjusted
+                                : initial_base;
+                            const uint32_t opcode = encode_arm_transfer(
+                                true, preindexed != 0u, add_offset != 0u,
+                                byte != 0u, writeback != 0u, load != 0u,
+                                0u, 2u, shift_spec);
+                            const uint32_t cpsr = TEST_CPSR_SYSTEM |
+                                (vectors[vector_index].carry
+                                     ? TEST_CPSR_C
+                                     : 0u);
+                            gbl_run_result result = { 0 };
+                            bool ran = false;
+                            bool observed;
+                            char description[176];
+
+                            if (loaded) {
+                                gbl_machine_reset(&machine);
+                                memset(machine.iwram + 0x1000u, 0xA7, 0x20u);
+                                machine.cpu.r0_7[0] = initial_base;
+                                machine.cpu.r0_7[1] =
+                                    vectors[vector_index].source;
+                                machine.cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
+                                if (load != 0u) {
+                                    if (byte != 0u) {
+                                        machine.iwram[data_offset] =
+                                            UINT8_C(0x5A);
+                                    } else {
+                                        write_word(machine.iwram, data_offset,
+                                                   UINT32_C(0x11223344));
+                                    }
+                                }
+                                ran = run_arm_instruction(
+                                    &machine, opcode, cpsr, UINT64_C(8),
+                                    &result);
+                            }
+                            observed = loaded && ran &&
+                                result.termination == GBL_RUN_PROGRESS &&
+                                result.instructions == 1u &&
+                                machine.cpu.r0_7[0] == expected_base;
+                            if (load != 0u) {
+                                observed = observed &&
+                                    machine.cpu.r0_7[2] ==
+                                        (byte != 0u ? UINT32_C(0x5A)
+                                                    : UINT32_C(0x11223344));
+                            } else if (byte != 0u) {
+                                observed = observed &&
+                                    machine.iwram[data_offset] == UINT8_C(0xD4);
+                            } else {
+                                observed = observed &&
+                                    read_test_word(machine.iwram, data_offset) ==
+                                        UINT32_C(0xA1B2C3D4);
+                            }
+                            (void)snprintf(
+                                description, sizeof(description),
+                                "ARM %s%s scaled-register %s P%u U%u W%u",
+                                load != 0u ? "LDR" : "STR",
+                                byte != 0u ? "B" : "",
+                                vectors[vector_index].name, preindexed,
+                                add_offset, writeback);
+                            test_case(observed, description);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_arm_transfer_word_and_byte_lanes(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    uint8_t lane;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    for (lane = 0u; lane < 4u; ++lane) {
+        uint8_t operation;
+
+        for (operation = 0u; operation < 4u; ++operation) {
+            const bool byte = (operation & 1u) != 0u;
+            const bool load = operation < 2u;
+            const uint32_t address = UINT32_C(0x03000200) + lane;
+            const size_t aligned_offset = 0x200u;
+            const uint32_t raw_word = UINT32_C(0x11223344);
+            const uint32_t rotated_word = lane == 0u
+                ? raw_word
+                : (raw_word >> ((uint32_t)lane * 8u)) |
+                      (raw_word << (32u - (uint32_t)lane * 8u));
+            const uint32_t opcode = encode_arm_transfer(
+                false, true, true, byte, false, load, 0u, 2u, 0u);
+            gbl_run_result result = { 0 };
+            bool ran = false;
+            bool observed;
+            char description[144];
+
+            if (loaded) {
+                gbl_machine_reset(&machine);
+                write_word(machine.iwram, aligned_offset, raw_word);
+                machine.cpu.r0_7[0] = address;
+                machine.cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
+                ran = run_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM,
+                                          UINT64_C(8), &result);
+            }
+            observed = loaded && ran &&
+                result.termination == GBL_RUN_PROGRESS &&
+                result.instructions == 1u;
+            if (load) {
+                observed = observed &&
+                    machine.cpu.r0_7[2] ==
+                        (byte ? (uint32_t)machine.iwram[aligned_offset + lane]
+                               : rotated_word);
+            } else if (byte) {
+                observed = observed &&
+                    machine.iwram[aligned_offset + lane] == UINT8_C(0xD4) &&
+                    (lane == 0u ||
+                     machine.iwram[aligned_offset + lane - 1u] ==
+                         (uint8_t)(raw_word >> (((uint32_t)lane - 1u) * 8u))) &&
+                    (lane == 3u ||
+                     machine.iwram[aligned_offset + lane + 1u] ==
+                         (uint8_t)(raw_word >> (((uint32_t)lane + 1u) * 8u)));
+            } else {
+                observed = observed &&
+                    read_test_word(machine.iwram, aligned_offset) ==
+                        UINT32_C(0xA1B2C3D4);
+            }
+            (void)snprintf(description, sizeof(description),
+                           "ARM %s%s transfer handles effective-address lane %u",
+                           load ? "LDR" : "STR", byte ? "B" : "", lane);
+            test_case(observed, description);
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_arm_transfer_pc_contexts(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran;
+
+    make_empty_image(image);
+    image[7] = UINT8_C(0xA7);
+    write_word(image, 0x0Cu, UINT32_C(0x55667788));
+    write_word(image, 0x48u, UINT32_C(0xCAFEBABE));
+    loaded = machine_load(&machine, image);
+
+    ran = loaded && run_arm_instruction(
+        &machine, UINT32_C(0xE59F2040), TEST_CPSR_SYSTEM, UINT64_C(8),
+        &result);
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[2] == UINT32_C(0xCAFEBABE),
+              "ARM word transfer uses PC+8 as the immediate base register");
+
+    ran = loaded && run_arm_instruction(
+        &machine, UINT32_C(0xE55F2001), TEST_CPSR_SYSTEM, UINT64_C(8),
+        &result);
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[2] == UINT32_C(0xA7),
+              "ARM byte transfer uses PC+8 with a subtracting immediate offset");
+
+    machine.cpu.r0_7[1] = UINT32_C(4);
+    ran = loaded && run_arm_instruction(
+        &machine,
+        encode_arm_transfer(true, true, true, false, false, true, 15u, 2u,
+                            1u),
+        TEST_CPSR_SYSTEM, UINT64_C(8), &result);
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[2] == UINT32_C(0x55667788),
+              "ARM register-offset transfer permits PC base and reads its exact PC context");
+
+    machine.cpu.r0_7[0] = UINT32_C(0x03000240);
+    ran = loaded && run_arm_instruction(
+        &machine, UINT32_C(0xE580F004), TEST_CPSR_SYSTEM, UINT64_C(8),
+        &result);
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  read_test_word(machine.iwram, 0x244u) ==
+                      UINT32_C(0x0800000C),
+              "ARM STR PC stores the instruction-address-plus-twelve value");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static bool arm_transfer_unpredictable_is_atomic(uint32_t opcode)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before = { 0 };
+    gbl_machine expected = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_record records_before[4];
+    gbl_trace_buffer trace = { records, 4u, 1u, UINT64_C(71) };
+    const gbl_run_options options = {
+        .cycle_budget = UINT64_C(8),
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    bool atomic = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    records[0] = (gbl_trace_record){
+        .sequence = UINT64_C(70),
+        .guest_cycle = UINT64_C(19),
+        .category = GBL_TRACE_BUS,
+        .instruction_address = UINT32_C(0x08000080),
+        .opcode = UINT32_C(0xE1A00000),
+        .address = UINT32_C(0x03000180),
+        .value = UINT32_C(0xAABBCCDD),
+        .width = 4u,
+        .access_class = GBL_BUS_CLASS_SEQUENTIAL,
+        .bus_outcome = GBL_BUS_OUTCOME_RAM
+    };
+    if (loaded) {
+        gbl_machine_reset(&machine);
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        machine.cpu.r0_7[1] = UINT32_C(4);
+        machine.cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
+        write_word(machine.iwram, 0x100u, UINT32_C(0x11223344));
+        prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
+        before = machine;
+        expected = before;
+        memcpy(records_before, records, sizeof(records_before));
+        ran = gbl_cpu_run(&machine, &options, &result) ==
+              GBL_RUN_STATUS_OK;
+        expected.cpu.stopped = true;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        atomic = ran && result.termination == GBL_RUN_STOPPED &&
+            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            gbl_test_canonical_equal(&expected, &machine) &&
+            gbl_test_same_instance_identity_equal(&before, &machine) &&
+            trace.count == 1u && trace.next_sequence == UINT64_C(71) &&
+            memcmp(records, records_before, sizeof(records)) == 0;
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && atomic;
+}
+
+static void test_arm_transfer_unpredictable_refusals(void)
+{
+    const uint32_t register_pc = encode_arm_transfer(
+        true, true, true, false, false, true, 0u, 2u, UINT16_C(15));
+    const uint32_t preindexed_alias = encode_arm_transfer(
+        true, true, true, false, true, true, 0u, 2u, 0u);
+    const uint32_t postindexed_alias = encode_arm_transfer(
+        true, false, true, false, false, false, 0u, 2u, 0u);
+    const uint32_t pc_writeback = encode_arm_transfer(
+        false, true, true, false, true, false, 15u, 2u, 4u);
+
+    test_case(arm_transfer_unpredictable_is_atomic(register_pc),
+              "ARM single transfer refuses R15 as scaled-register offset atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(preindexed_alias),
+              "ARMv4T pre-indexed writeback refuses Rn=Rm atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(postindexed_alias),
+              "ARMv4T post-indexed register transfer refuses Rn=Rm atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(pc_writeback),
+              "ARM single transfer refuses PC base writeback atomically");
+}
+
+static bool arm_transfer_preflight_boundary(uint64_t cycle_budget,
+                                            size_t trace_capacity,
+                                            gbl_run_reason expected_reason)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_record records_before[4];
+    gbl_trace_buffer trace = { records, trace_capacity, 1u, UINT64_C(90) };
+    const uint32_t opcode = UINT32_C(0xE5A01004);
+    const gbl_run_options options = {
+        .cycle_budget = cycle_budget,
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    bool matched = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    records[0] = (gbl_trace_record){
+        .sequence = UINT64_C(89),
+        .guest_cycle = UINT64_C(13),
+        .category = GBL_TRACE_INSTRUCTION,
+        .instruction_address = UINT32_C(0x08000080),
+        .opcode = UINT32_C(0xE1A00000)
+    };
+    if (loaded) {
+        gbl_machine_reset(&machine);
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        machine.cpu.r0_7[1] = UINT32_C(0xA1B2C3D4);
+        write_word(machine.iwram, 0x104u, 0u);
+        prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
+        before = machine;
+        memcpy(records_before, records, sizeof(records_before));
+        ran = gbl_cpu_run(&machine, &options, &result) ==
+              GBL_RUN_STATUS_OK;
+        if (expected_reason == GBL_RUN_REASON_CYCLE_BUDGET ||
+            expected_reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL) {
+            matched = ran && result.reason == expected_reason &&
+                result.termination ==
+                    (expected_reason == GBL_RUN_REASON_CYCLE_BUDGET
+                         ? GBL_RUN_TIMEOUT
+                         : GBL_RUN_TRACE_OUTPUT_FULL) &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                gbl_test_same_instance_identity_equal(&before, &machine) &&
+                trace.count == 1u && trace.next_sequence == UINT64_C(90) &&
+                memcmp(records, records_before, sizeof(records)) == 0;
+        } else {
+            matched = ran && result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                result.termination == GBL_RUN_PROGRESS &&
+                result.instructions == 1u && trace.count == 4u &&
+                trace.next_sequence == UINT64_C(93) &&
+                machine.cpu.r0_7[0] == UINT32_C(0x03000104) &&
+                read_test_word(machine.iwram, 0x104u) ==
+                    UINT32_C(0xA1B2C3D4);
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && matched;
+}
+
+static void test_arm_transfer_preflight_boundaries(void)
+{
+    test_case(arm_transfer_preflight_boundary(
+                  UINT64_C(1), 4u, GBL_RUN_REASON_CYCLE_BUDGET),
+              "ARM transfer one-short cycle budget preserves full state and trace buffer");
+    test_case(arm_transfer_preflight_boundary(
+                  UINT64_C(8), 3u, GBL_RUN_REASON_TRACE_OUTPUT_FULL),
+              "ARM transfer one-short trace capacity preserves full state and trace buffer");
+    test_case(arm_transfer_preflight_boundary(
+                  UINT64_C(2), 4u, GBL_RUN_REASON_UNIT_LIMIT),
+              "ARM transfer exact cycle and trace reservations commit the whole unit");
+}
+
+static bool arm_transfer_observes_bus_outcome(uint32_t address,
+                                             gbl_bus_outcome expected_outcome)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(0) };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    size_t index;
+    size_t matching_reads = 0u;
+    bool matched = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = address;
+        machine.cpu.r0_7[2] = UINT32_C(0xDEADBEEF);
+        machine.open_bus = UINT32_C(0xA1B2C3D4);
+        ran = run_arm_instruction_with_trace(
+            &machine, UINT32_C(0xE5D02000), TEST_CPSR_SYSTEM,
+            UINT64_C(8), &trace, &result);
+        for (index = 0u; index < trace.count; ++index) {
+            const gbl_trace_record *record = &records[index];
+
+            if (record->category == GBL_TRACE_BUS &&
+                record->address == address) {
+                matching_reads++;
+                matched = record->bus_outcome == expected_outcome &&
+                          record->value == machine.cpu.r0_7[2];
+            }
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+           matching_reads == 1u && matched;
+}
+
+static void test_arm_transfer_unmodeled_bus_results(void)
+{
+    test_case(arm_transfer_observes_bus_outcome(
+                  UINT32_C(0x00000000), GBL_BUS_OUTCOME_BIOS_ABSENT),
+              "ARM byte load consumes the actual BIOS-absent bus result once");
+    test_case(arm_transfer_observes_bus_outcome(
+                  UINT32_C(0x04000004), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
+              "ARM byte load consumes the actual unimplemented-I/O bus result once");
 }
 
 static void test_arm_pc_operand_contexts(void)
@@ -6372,7 +6986,14 @@ static const cpu_test_function arm_shifts_conditions_functions[] = {
     test_arm_register_shift_cycle_preflight
 };
 static const cpu_test_function arm_transfer_functions[] = {
-    test_arm_transfer_preindexed_writeback
+    test_arm_transfer_preindexed_writeback,
+    test_arm_transfer_immediate_matrix,
+    test_arm_transfer_scaled_register_matrix,
+    test_arm_transfer_word_and_byte_lanes,
+    test_arm_transfer_pc_contexts,
+    test_arm_transfer_unpredictable_refusals,
+    test_arm_transfer_preflight_boundaries,
+    test_arm_transfer_unmodeled_bus_results
 };
 static const cpu_test_function arm_pc_return_functions[] = {
     test_arm_pc_operand_contexts,
@@ -6449,7 +7070,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
-    CPU_TEST_GROUP("arm_transfer", 1u, arm_transfer_functions),
+    CPU_TEST_GROUP("arm_transfer", 350u, arm_transfer_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
