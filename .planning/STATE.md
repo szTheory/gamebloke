@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan13 reviewed and full ARM integration passed; Plan14 approved stronger-model trial next
-stopped_at: Plan13 full ARM integration passed; Plan14 approved model trial next
-last_updated: "2026-11-12T22:12:49.253Z"
+status: Plan14 reviewed and focused checks passed; stronger-model trial complete/routing restored; Plan15 next
+stopped_at: Plan14 reviewed; Plan15 ready; approved one-batch model trial complete
+last_updated: "2026-11-12T22:44:01.902Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 13 completed locally; root owns independent review and final pinned Linux verification
-state_head: fc83cf4dc75fc3d5498100c4f81bd0d94e07f59a
+state_head: 957be02157d49c13c36340969d093860bffbdf4f
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 51
+  completed_plans: 52
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 14 of 25
-Status: Plan13 reviewed and full ARM integration passed; Plan14 approved stronger-model trial next
+Plan: 15 of 25
+Status: Plan14 reviewed and focused checks passed; stronger-model trial complete/routing restored; Plan15 next
 Last activity: 2026-11-12 — Phase 05 Plan 13 completed locally; root owns independent review and final pinned Linux verification
 
 Progress: [███████░░░] 67%
@@ -110,6 +110,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P11 | 32m | 2 tasks | 5 files |
 | Phase 05 P12 | 57 min | 2 tasks | 5 files |
 | Phase 05 P13 | 39min49s | 2 tasks | 5 files |
+| Phase 05 P14 | 15min47s dispatch-to-terminal; review excluded | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -286,6 +287,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T22:12:48.967Z
-Stopped at: Plan13 full ARM integration passed; Plan14 approved model trial next
+Last session: 2026-11-12T22:44:01.710Z
+Stopped at: Plan14 reviewed; Plan15 ready; approved one-batch model trial complete
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

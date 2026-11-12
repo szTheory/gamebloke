@@ -103,3 +103,9 @@ Parent owns independent family review, shared STATE/ROADMAP/requirements bookkee
 ## Self-Check: PASSED
 
 Required summary and all five modified task files exist. All four task commits are ancestors of recorded `plan_head_after`; task paths are clean after their commits. Final committed selectors, focused native/sanitized regressions, isolated controls and early/final GNU compilation passed. No tracked files were deleted. Existing owner changes remain outside these commits.
+
+## Root reviewed closeout and bounded model trial
+
+Independent review is clean after `957be02` corrected one adjacent pre-existing ARM multiply evidence claim. Runtime behavior and test conditions are unchanged; the tested short-MUL alias is explicit project policy and carried forward to Plan18. See [review](05-14-REVIEW.md) and [fix](05-14-REVIEW-FIX.md). Current wave schema/UI gates do not block; codebase-drift is explicitly skipped without STRUCTURE.md. Full Thumb integration remains at its planned boundary, with hosted evidence still covering earlier source only.
+
+The approved gpt-6.1-sol/high trial was limited to this plan. Root UTC epoch measurements: 947 seconds dispatch-to-terminal implementation handoff; 1813 seconds through independent review/fix closure. It had one evidence-label correction, no demonstrated Thumb implementation defect in review. Scope and verification cadence differ from prior batches, so this is not a controlled model comparison or billing measurement. Exact pretrial dirty config bytes were restored and the resolver again returns gpt-6-luna/xhigh; both runtime mappings and owner edits are preserved. Detailed trial receipt: `.planning/model-routing-trial.json`.

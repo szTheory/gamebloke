@@ -14,3 +14,7 @@ Apply this cadence now:
 - Preserve honest history: an already-implemented behavior has a GREEN baseline plus isolated fault controls, never an artificial production regression to manufacture RED.
 
 Current Plan 13 implementation remains active. Root owns family review and the following full ARM integration checks. Routine publication remains batched under the existing one-PR-per-phase policy. Model mappings, project scope, rights restrictions, human acceptance gates and stop-on-new-hosted-red policy are unchanged.
+
+## First bounded stronger-executor observation
+
+Owner authorized Plan14 alone at configured gpt-6.1-sol/high. Dispatch to terminal implementation/verification handoff took about16min; review and one adjacent evidence-label correction added about14min. No concrete Thumb defect was found in that review. Different plan scope, starting code and corrected verification cadence prevent a model-only speedup claim; billing usage was not available. Routing restored to exact pretrial dirty bytes afterward, default executor Luna/xhigh. Keep implementation, review/rework and integration wait measured separately. Source audit before claiming hardware behavior remains essential: this batch corrected its own Thumb multiply timing oracle and exposed an older overconfident ARM alias label.
