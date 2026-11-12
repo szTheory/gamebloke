@@ -3240,8 +3240,14 @@ static bool maximum_reservation_case_passes(
     return reserved == test->expected_reserved &&
            reason == test->expected_reason && cycle_cost == UINT64_C(18) &&
            required_records == test->expected_records &&
-           memcmp(&machine, &machine_before, sizeof(machine)) == 0 &&
-           memcmp(&trace, &trace_before, sizeof(trace)) == 0 &&
+           gbl_test_canonical_equal(&machine_before, &machine) &&
+           gbl_test_canonical_digest(&machine_before) ==
+               gbl_test_canonical_digest(&machine) &&
+           gbl_test_same_instance_identity_equal(&machine_before, &machine) &&
+           trace.records == trace_before.records &&
+           trace.capacity == trace_before.capacity &&
+           trace.count == trace_before.count &&
+           trace.next_sequence == trace_before.next_sequence &&
            memcmp(records, records_before, sizeof(records)) == 0;
 }
 
