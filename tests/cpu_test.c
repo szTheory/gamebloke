@@ -4883,6 +4883,368 @@ static void test_swp_counter_headroom(void)
               "SWP exhausted retirement counter refuses before bus effects");
 }
 
+typedef struct arm_multiply_signed_test_vector {
+    const char *description;
+    uint32_t opcode;
+    uint32_t rm;
+    uint32_t rs;
+    uint32_t accumulator_low;
+    uint32_t accumulator_high;
+    uint32_t expected_low;
+    uint32_t expected_high;
+    uint32_t initial_flags;
+    uint32_t expected_flags;
+} arm_multiply_signed_test_vector;
+
+typedef struct arm_multiply_timing_sample {
+    uint32_t rs;
+    uint8_t signed_m;
+    uint8_t unsigned_m;
+} arm_multiply_timing_sample;
+
+typedef struct arm_multiply_timing_form {
+    const char *name;
+    uint32_t opcode;
+    uint8_t extra_internal_cycles;
+    bool signed_termination;
+} arm_multiply_timing_form;
+
+static const gbl_trace_record multiply_trace_sentinel = {
+    .sequence = UINT64_C(91),
+    .guest_cycle = UINT64_C(73),
+    .category = GBL_TRACE_BUS,
+    .instruction_address = UINT32_C(0x08000070),
+    .opcode = UINT32_C(0xE1A00000),
+    .address = UINT32_C(0x08000074),
+    .value = UINT32_C(0x12345678),
+    .width = 4u,
+    .access_class = GBL_BUS_CLASS_SEQUENTIAL,
+    .bus_outcome = GBL_BUS_OUTCOME_ROM,
+    .exception_kind = GBL_EXCEPTION_NONE
+};
+
+static void prime_arm_instruction(gbl_machine *machine, uint32_t opcode,
+                                  uint32_t cpsr)
+{
+    const uint32_t address = UINT32_C(0x08000000);
+
+    machine->cpu.execution_address = address;
+    machine->cpu.cpsr = (cpsr & ~UINT32_C(0x1F)) | TEST_CPSR_SYSTEM;
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        address, opcode, 4u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        address + UINT32_C(4), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    machine->cpu.stopped = false;
+    machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
+}
+
+static bool prepare_arm_multiply_machine(gbl_machine *machine,
+                                         uint32_t opcode)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+
+    make_program(image);
+    if (!machine_load(machine, image)) {
+        return false;
+    }
+    machine->cpu.r0_7[2] = UINT32_C(1);
+    machine->cpu.r0_7[3] = UINT32_C(0x12345678);
+    prime_arm_instruction(machine, opcode, 0u);
+    return true;
+}
+
+static void test_multiply_signed_vectors(void)
+{
+    static const uint32_t nzcv = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C |
+                                 TEST_CPSR_V;
+    static const arm_multiply_signed_test_vector vectors[] = {
+        { "SMULLS negative extreme times minus one yields positive 64-bit bits",
+          UINT32_C(0xE0904391), UINT32_C(0x80000000), UINT32_MAX, 0u, 0u,
+          UINT32_C(0x80000000), 0u, nzcv, TEST_CPSR_C | TEST_CPSR_V },
+        { "SMULLS negative extreme times one sign-extends into the high word",
+          UINT32_C(0xE0904391), UINT32_C(0x80000000), UINT32_C(1), 0u, 0u,
+          UINT32_C(0x80000000), UINT32_MAX,
+          TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
+        { "SMLALS accumulates a mixed-sign negative product as 64-bit bits",
+          UINT32_C(0xE0B42391), UINT32_C(0xFFFFFFFE), UINT32_C(3), 0u, 0u,
+          UINT32_C(0xFFFFFFFA), UINT32_MAX,
+          TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
+        { "SMLALS wraps the full-width accumulator and sets Z on zero",
+          UINT32_C(0xE0B42391), UINT32_C(1), UINT32_C(1), UINT32_MAX,
+          UINT32_MAX, 0u, 0u, TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V }
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    size_t index;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        const arm_multiply_signed_test_vector *vector = &vectors[index];
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool ran = false;
+
+        machine.cpu.r0_7[1] = vector->rm;
+        machine.cpu.r0_7[2] = vector->accumulator_low;
+        machine.cpu.r0_7[3] = vector->rs;
+        machine.cpu.r0_7[4] = vector->accumulator_high;
+        if (loaded) {
+            ran = run_arm_instruction(&machine, vector->opcode,
+                                      vector->initial_flags, 16u, &result);
+        }
+        test_case(loaded && ran &&
+                      result.termination == GBL_RUN_PROGRESS &&
+                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      result.instructions == 1u &&
+                      machine.cpu.r0_7[2] == vector->expected_low &&
+                      machine.cpu.r0_7[4] == vector->expected_high &&
+                      (machine.cpu.cpsr & nzcv) == vector->expected_flags,
+                  vector->description);
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_multiply_timing_table(void)
+{
+    static const arm_multiply_timing_sample samples[] = {
+        { 0u, 1u, 1u },
+        { UINT32_C(0x000000FF), 1u, 1u },
+        { UINT32_C(0x00000100), 2u, 2u },
+        { UINT32_C(0x0000FFFF), 2u, 2u },
+        { UINT32_C(0x00010000), 3u, 3u },
+        { UINT32_C(0x00FFFFFF), 3u, 3u },
+        { UINT32_C(0x01000000), 4u, 4u },
+        { UINT32_C(0x80000000), 4u, 4u },
+        { UINT32_C(0xFFFFFF00), 1u, 4u },
+        { UINT32_MAX, 1u, 4u },
+        { UINT32_C(0xFFFF0000), 2u, 4u },
+        { UINT32_C(0xFF000000), 3u, 4u }
+    };
+    /* DDI0029G supplies the m thresholds. DDI0100I leaves short MUL/MLA's
+     * signed-versus-unsigned termination type implementation-defined, so
+     * this profile pins signed termination for those low-word operations;
+     * long forms follow their explicit signed/unsigned opcode. */
+    static const arm_multiply_timing_form forms[] = {
+        { "MUL", UINT32_C(0xE0040392), 0u, true },
+        { "MLA", UINT32_C(0xE0245392), 1u, true },
+        { "UMULL", UINT32_C(0xE0C54392), 1u, false },
+        { "UMLAL", UINT32_C(0xE0E54392), 2u, false },
+        { "SMULL", UINT32_C(0xE0854392), 1u, true },
+        { "SMLAL", UINT32_C(0xE0A54392), 2u, true }
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    size_t form_index;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    for (form_index = 0u;
+         form_index < sizeof(forms) / sizeof(forms[0]); ++form_index) {
+        size_t sample_index;
+
+        for (sample_index = 0u;
+             sample_index < sizeof(samples) / sizeof(samples[0]);
+             ++sample_index) {
+            const arm_multiply_timing_form *form = &forms[form_index];
+            const arm_multiply_timing_sample *sample = &samples[sample_index];
+            const uint8_t algorithm_cycles = form->signed_termination
+                ? sample->signed_m
+                : sample->unsigned_m;
+            const uint64_t expected_cycles = UINT64_C(1) +
+                (uint64_t)algorithm_cycles +
+                (uint64_t)form->extra_internal_cycles;
+            const uint64_t cycles_before = machine.master_cycles;
+            const uint64_t retired_before =
+                machine.cpu.retired_instructions;
+            gbl_run_result result = {
+                GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            };
+            char description[112];
+            bool ran = false;
+
+            machine.cpu.r0_7[2] = 1u;
+            machine.cpu.r0_7[3] = sample->rs;
+            machine.cpu.r0_7[4] = 0u;
+            machine.cpu.r0_7[5] = 0u;
+            if (loaded) {
+                ran = run_arm_instruction(&machine, form->opcode, 0u,
+                                          expected_cycles, &result);
+            }
+            (void)snprintf(description, sizeof(description),
+                           "%s timing boundary sample %u uses source m",
+                           form->name, (unsigned int)sample_index);
+            test_case(loaded && ran &&
+                          result.termination == GBL_RUN_PROGRESS &&
+                          result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                          result.cycles == expected_cycles &&
+                          result.instructions == 1u &&
+                          machine.master_cycles ==
+                              cycles_before + expected_cycles &&
+                          machine.cpu.retired_instructions ==
+                              retired_before + UINT64_C(1) &&
+                          machine.cpu.r0_7[4] == sample->rs &&
+                          machine.cpu.r0_7[5] ==
+                              (form->signed_termination &&
+                                       (sample->rs & TEST_CPSR_N) != 0u
+                                   ? UINT32_MAX
+                                   : 0u),
+                      description);
+        }
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static bool multiply_refusal_unchanged(uint64_t cycle_budget,
+                                       uint64_t master_cycles,
+                                       uint64_t retired_instructions,
+                                       size_t trace_capacity,
+                                       uint64_t next_sequence,
+                                       gbl_run_termination termination,
+                                       gbl_run_reason reason)
+{
+    const uint32_t opcode = UINT32_C(0xE0A54392); /* SMLAL r4,r5,r2,r3 */
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[3];
+    gbl_trace_record prior_records[3];
+    gbl_trace_buffer trace = { records, trace_capacity, 1u, next_sequence };
+    gbl_run_result result = {
+        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u
+    };
+    const gbl_run_options options = {
+        .cycle_budget = cycle_budget,
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_CATEGORY_MASK,
+        .trace_buffer = &trace
+    };
+    size_t index;
+    bool valid;
+
+    for (index = 0u; index < 3u; ++index) {
+        records[index] = multiply_trace_sentinel;
+        prior_records[index] = multiply_trace_sentinel;
+    }
+    if (!prepare_arm_multiply_machine(&machine, opcode)) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    machine.master_cycles = master_cycles;
+    machine.cpu.retired_instructions = retired_instructions;
+    {
+        const gbl_machine before = machine;
+        const gbl_trace_buffer before_trace = trace;
+        const bool ran = gbl_cpu_run(&machine, &options, &result) ==
+                         GBL_RUN_STATUS_OK;
+
+        valid = ran && result.termination == termination &&
+                result.reason == reason && result.cycles == 0u &&
+                result.instructions == 0u &&
+                trace.records == before_trace.records &&
+                trace.capacity == before_trace.capacity &&
+                trace.count == before_trace.count &&
+                trace.next_sequence == before_trace.next_sequence &&
+                trace_records_match(records, prior_records, 3u) &&
+                gbl_test_canonical_equal(&before, &machine) &&
+                gbl_test_canonical_digest(&before) ==
+                    gbl_test_canonical_digest(&machine) &&
+                gbl_test_same_instance_identity_equal(&before, &machine);
+    }
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static bool multiply_exact_headroom(void)
+{
+    const uint32_t opcode = UINT32_C(0xE0A54392); /* SMLAL r4,r5,r2,r3 */
+    const uint64_t cost = UINT64_C(7);
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[3];
+    gbl_trace_buffer trace = {
+        records, 3u, 1u, UINT64_MAX - UINT64_C(2)
+    };
+    gbl_run_result result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    const gbl_run_options options = {
+        .cycle_budget = cost,
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_CATEGORY_MASK,
+        .trace_buffer = &trace
+    };
+    size_t index;
+    bool valid;
+
+    for (index = 0u; index < 3u; ++index) {
+        records[index] = multiply_trace_sentinel;
+    }
+    if (!prepare_arm_multiply_machine(&machine, opcode)) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    machine.master_cycles = UINT64_MAX - cost;
+    machine.cpu.retired_instructions = UINT64_MAX - UINT64_C(1);
+    {
+        const bool ran = gbl_cpu_run(&machine, &options, &result) ==
+                         GBL_RUN_STATUS_OK;
+
+        valid = ran && result.termination == GBL_RUN_PROGRESS &&
+                result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                result.cycles == cost && result.instructions == 1u &&
+                machine.master_cycles == UINT64_MAX &&
+                machine.cpu.retired_instructions == UINT64_MAX &&
+                trace.records == records && trace.capacity == 3u &&
+                trace.count == 3u && trace.next_sequence == UINT64_MAX &&
+                records[0].sequence == multiply_trace_sentinel.sequence &&
+                records[0].opcode == multiply_trace_sentinel.opcode &&
+                records[1].sequence == UINT64_MAX - UINT64_C(2) &&
+                records[1].category == GBL_TRACE_INSTRUCTION &&
+                records[1].opcode == opcode &&
+                records[2].sequence == UINT64_MAX - UINT64_C(1) &&
+                records[2].category == GBL_TRACE_BUS &&
+                records[2].opcode == opcode;
+    }
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_multiply_preflight_boundaries(void)
+{
+    const uint64_t cost = UINT64_C(7);
+
+    test_case(multiply_exact_headroom(),
+              "SMLAL exact-fit cycles, trace, sequence, and counters reach UINT64_MAX");
+    test_case(multiply_refusal_unchanged(
+                  cost - UINT64_C(1), 0u, 0u, 3u, UINT64_C(100),
+                  GBL_RUN_TIMEOUT, GBL_RUN_REASON_CYCLE_BUDGET),
+              "SMLAL one-short cycle budget preserves canonical state and trace buffer");
+    test_case(multiply_refusal_unchanged(
+                  cost, UINT64_MAX - cost + UINT64_C(1), 0u, 3u,
+                  UINT64_C(100), GBL_RUN_STOPPED,
+                  GBL_RUN_REASON_COUNTER_OVERFLOW),
+              "SMLAL one-short master-cycle headroom refuses before effects");
+    test_case(multiply_refusal_unchanged(
+                  cost, 0u, UINT64_MAX, 3u, UINT64_C(100),
+                  GBL_RUN_STOPPED, GBL_RUN_REASON_COUNTER_OVERFLOW),
+              "SMLAL exhausted retired-instruction counter refuses before effects");
+    test_case(multiply_refusal_unchanged(
+                  cost, 0u, 0u, 2u, UINT64_C(100), GBL_RUN_STOPPED,
+                  GBL_RUN_REASON_TRACE_OUTPUT_FULL),
+              "SMLAL one-short selected trace capacity preserves prefix and machine");
+    test_case(multiply_refusal_unchanged(
+                  cost, 0u, 0u, 3u, UINT64_MAX - UINT64_C(1),
+                  GBL_RUN_STOPPED, GBL_RUN_REASON_COUNTER_OVERFLOW),
+              "SMLAL one-short trace sequence refuses before effects");
+}
+
 typedef struct cpu_maximum_reservation_case {
     const char *description;
     gbl_cpu_test_count_overflow count_overflow;
@@ -5875,6 +6237,11 @@ static const cpu_test_function arm_alu_functions[] = {
 static const cpu_test_function multiply_unsigned_functions[] = {
     test_multiply_unsigned
 };
+static const cpu_test_function multiply_signed_timing_functions[] = {
+    test_multiply_signed_vectors,
+    test_multiply_timing_table,
+    test_multiply_preflight_boundaries
+};
 static const cpu_test_function arm_shifts_conditions_functions[] = {
     test_arm_register_shifted_pc_operand_uses_plus_twelve,
     test_arm_operand2_shift_vectors,
@@ -5952,6 +6319,8 @@ static const cpu_test_function slots_bounds_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
+    CPU_TEST_GROUP("multiply_signed_timing", 82u,
+                   multiply_signed_timing_functions),
     CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
