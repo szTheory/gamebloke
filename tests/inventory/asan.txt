@@ -21,6 +21,7 @@ core.pos.in_tree core,positive
 core.version core,unit
 cpu.alignment core,cpu,unit
 cpu.arithmetic core,cpu,unit
+cpu.arm_alu core,cpu,unit
 cpu.budget core,cpu,unit
 cpu.decode core,cpu,unit
 cpu.exceptions core,cpu,unit

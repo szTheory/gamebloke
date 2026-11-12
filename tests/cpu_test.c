@@ -1355,6 +1355,31 @@ static void test_budget(void)
     }
 }
 
+static void test_arm_adc_carry_in(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool ran = false;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = 0u;
+        ran = run_arm_instruction(&machine, UINT32_C(0xE2B00001),
+                                  TEST_CPSR_C | TEST_CPSR_V, 2u, &result);
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                  result.instructions == 1u &&
+                  machine.cpu.r0_7[0] == UINT32_C(2) &&
+                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                       TEST_CPSR_C | TEST_CPSR_V)) == 0u,
+              "ADC incorporates CPSR carry-in in the actual register and NZCV result");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_arithmetic(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -4164,6 +4189,7 @@ typedef struct cpu_test_group {
     { selector_name, assertions, CPU_TEST_ARRAY_COUNT(function_list), function_list }
 
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
+static const cpu_test_function arm_alu_functions[] = { test_arm_adc_carry_in };
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
@@ -4216,6 +4242,7 @@ static const cpu_test_function slots_bounds_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
+    CPU_TEST_GROUP("arm_alu", 1u, arm_alu_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
