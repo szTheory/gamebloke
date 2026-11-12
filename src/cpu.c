@@ -1286,6 +1286,130 @@ static bool gbl_cpu_finalize_decoded(gbl_cpu_unit *unit, bool decoded)
     return true;
 }
 
+static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
+                                        gbl_cpu_unit *unit,
+                                        uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool long_multiply =
+        (opcode & UINT32_C(0x0F8000F0)) == UINT32_C(0x00800090);
+    const bool short_multiply =
+        (opcode & UINT32_C(0x0FC000F0)) == UINT32_C(0x00000090);
+    const bool accumulate = (opcode & UINT32_C(0x00200000)) != 0u;
+    const bool set_flags = (opcode & UINT32_C(0x00100000)) != 0u;
+    const uint8_t rd_hi_or_short =
+        (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+    const uint8_t rd_lo_or_accumulator =
+        (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
+    const uint8_t rs = (uint8_t)((opcode >> 8u) & UINT32_C(0x0F));
+    const uint8_t rm = (uint8_t)(opcode & UINT32_C(0x0F));
+    uint32_t rm_value;
+    uint32_t rs_value;
+    uint32_t short_result;
+    uint32_t long_result_low;
+    uint32_t long_result_high;
+    uint32_t flags;
+    uint32_t flag_mask;
+    uint64_t product;
+
+    if (!short_multiply && !long_multiply) {
+        return false;
+    }
+    /* Plan 05-09-01 owns unsigned forms; the signed long forms are added in
+     * the following tracer expansion after this path is verified. */
+    if (long_multiply &&
+        (opcode & UINT32_C(0x00400000)) == 0u) {
+        return false;
+    }
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        return gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                 false);
+    }
+
+    if (rm == (uint8_t)15u || rs == (uint8_t)15u ||
+        rd_hi_or_short == (uint8_t)15u ||
+        (long_multiply &&
+         (rd_lo_or_accumulator == (uint8_t)15u ||
+          rd_hi_or_short == rd_lo_or_accumulator)) ||
+        (!long_multiply && accumulate &&
+         rd_lo_or_accumulator == (uint8_t)15u) ||
+        (!long_multiply && !accumulate &&
+         rd_lo_or_accumulator != 0u)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+
+    /* Snapshot every source and long accumulator word before creating any
+     * destination effects. ARM7TDMI permits source/destination overlap. */
+    rm_value = gbl_cpu_read_register(cpu, rm, unit->instruction_address,
+                                     GBL_CPU_PC_READ_NORMAL);
+    rs_value = gbl_cpu_read_register(cpu, rs, unit->instruction_address,
+                                     GBL_CPU_PC_READ_NORMAL);
+    if (long_multiply) {
+        uint64_t result;
+
+        product = (uint64_t)rm_value * (uint64_t)rs_value;
+        if (accumulate) {
+            const uint32_t accumulator_low = gbl_cpu_read_register(
+                cpu, rd_lo_or_accumulator, unit->instruction_address,
+                GBL_CPU_PC_READ_NORMAL);
+            const uint32_t accumulator_high = gbl_cpu_read_register(
+                cpu, rd_hi_or_short, unit->instruction_address,
+                GBL_CPU_PC_READ_NORMAL);
+            const uint64_t accumulator =
+                ((uint64_t)accumulator_high << 32u) |
+                (uint64_t)accumulator_low;
+
+            result = accumulator + product;
+        } else {
+            result = product;
+        }
+        long_result_low = (uint32_t)result;
+        long_result_high = (uint32_t)(result >> 32u);
+        short_result = 0u;
+        flags = (long_result_high & GBL_CPU_CPSR_N) != 0u
+                    ? GBL_CPU_CPSR_N
+                    : 0u;
+        if (long_result_high == 0u && long_result_low == 0u) {
+            flags |= GBL_CPU_CPSR_Z;
+        }
+        flag_mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z;
+    } else {
+        const uint32_t accumulator = accumulate
+            ? gbl_cpu_read_register(cpu, rd_lo_or_accumulator,
+                                    unit->instruction_address,
+                                    GBL_CPU_PC_READ_NORMAL)
+            : 0u;
+
+        product = (uint64_t)rm_value * (uint64_t)rs_value;
+        short_result = (uint32_t)product + accumulator;
+        long_result_low = 0u;
+        long_result_high = 0u;
+        flags = gbl_cpu_nz_flags(short_result);
+        /* N/Z are defined, V is defined to be preserved, and C is
+         * architecturally unpredictable on ARMv4T. The profile chooses to
+         * preserve incoming C; updating only N/Z states that policy directly. */
+        flag_mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z;
+    }
+
+    unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+    if ((long_multiply &&
+         (!gbl_cpu_add_literal_register_effect(
+              unit, rd_lo_or_accumulator, cpu->cpsr, long_result_low) ||
+          !gbl_cpu_add_literal_register_effect(
+              unit, rd_hi_or_short, cpu->cpsr, long_result_high))) ||
+        (!long_multiply &&
+         !gbl_cpu_add_literal_register_effect(
+             unit, rd_hi_or_short, cpu->cpsr, short_result)) ||
+        (set_flags &&
+         !gbl_cpu_add_status_effect(unit, flag_mask, flags))) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    return gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false);
+}
+
 static bool gbl_cpu_decode_arm_swap(const gbl_cpu_state *cpu,
                                     gbl_cpu_unit *unit,
                                     uint32_t next_fetch_address)
@@ -1762,6 +1886,9 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
             unit, unit->instruction_address + UINT32_C(8) + offset, false);
     }
     if (gbl_cpu_decode_arm_swap(cpu, unit, next_fetch_address)) {
+        return gbl_cpu_finalize_decoded(unit, true);
+    }
+    if (gbl_cpu_decode_arm_multiply(cpu, unit, next_fetch_address)) {
         return gbl_cpu_finalize_decoded(unit, true);
     }
     if ((opcode & UINT32_C(0x0C000000)) == 0u) {
