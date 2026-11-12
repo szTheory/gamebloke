@@ -802,6 +802,13 @@ static bool gbl_cpu_is_arm_extension(uint32_t opcode)
     return (opcode & UINT32_C(0x0E000090)) == UINT32_C(0x00000090);
 }
 
+/* ARM ARM DDI0100I A3.16.5 reserves this encoding space as architecturally
+ * undefined; ARM7TDMI implements the ARMv4T architecture. */
+static bool gbl_cpu_is_arm_undefined_space(uint32_t opcode)
+{
+    return (opcode & UINT32_C(0x0FF000F0)) == UINT32_C(0x07F000F0);
+}
+
 static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
                                            gbl_cpu_unit *unit,
                                            uint32_t next_fetch_address)
@@ -1421,6 +1428,19 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
     if ((opcode >> 28u) == UINT32_C(0x0F)) {
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
+    }
+    if (!thumb && gbl_cpu_is_arm_undefined_space(opcode)) {
+        if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u),
+                                      cpu->cpsr)) {
+            unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+            if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                   false)) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            }
+            return true;
+        }
+        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        return gbl_cpu_finalize_decoded(unit, true);
     }
     if (thumb) {
         return gbl_cpu_finalize_decoded(
