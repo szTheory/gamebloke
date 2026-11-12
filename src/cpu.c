@@ -649,6 +649,17 @@ static uint32_t gbl_cpu_read_register(const gbl_cpu_state *cpu,
     }
 }
 
+static uint32_t gbl_cpu_read_arm_operand2_register(
+    const gbl_cpu_state *cpu, uint8_t index, uint32_t instruction_address,
+    bool register_shift)
+{
+    if (index == (uint8_t)15u && register_shift &&
+        (cpu->cpsr & GBL_CPU_CPSR_T) == 0u) {
+        return instruction_address + UINT32_C(12);
+    }
+    return gbl_cpu_read_register(cpu, index, instruction_address);
+}
+
 static void gbl_cpu_write_register_in_bank(gbl_cpu_state *cpu,
                                            uint8_t index,
                                            uint32_t bank_cpsr,
@@ -817,10 +828,6 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     if ((opcode & UINT32_C(0x0C000000)) != 0u) {
         return false;
     }
-    if ((opcode >> 28u) == UINT32_C(0x0F)) {
-        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
-        return true;
-    }
     if (gbl_cpu_is_arm_extension(opcode)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
@@ -872,7 +879,7 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     }
     if (rd == (uint8_t)15u || (!immediate &&
         (opcode & UINT32_C(0x00000010)) != 0u &&
-        (rm == (uint8_t)15u || ((opcode >> 8u) & UINT32_C(0x0F)) == 15u))) {
+        ((opcode >> 8u) & UINT32_C(0x0F)) == 15u)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
@@ -909,8 +916,8 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
         const gbl_shift_kind shift_kind =
             (gbl_shift_kind)((opcode >> 5u) & UINT32_C(3));
 
-        operand = gbl_cpu_read_register(cpu, rm,
-                                        unit->instruction_address);
+        operand = gbl_cpu_read_arm_operand2_register(
+            cpu, rm, unit->instruction_address, register_shift);
         if (register_shift) {
             const uint8_t rs = (uint8_t)((opcode >> 8u) & UINT32_C(0x0F));
 
@@ -1412,7 +1419,7 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
     }
 
     if ((opcode >> 28u) == UINT32_C(0x0F)) {
-        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_UNDEFINED);
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
     if (thumb) {
