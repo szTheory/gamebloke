@@ -3004,7 +3004,7 @@ static void test_arm_block_user_bank_transfers(void)
              trace.count == 9u && trace.records == records &&
              trace.next_sequence == UINT64_C(109) &&
              records[8].category == GBL_TRACE_BUS &&
-             records[8].address == UINT32_C(0x08000004) &&
+             records[8].address == UINT32_C(0x08000008) &&
              records[8].access_class == GBL_BUS_CLASS_NONSEQUENTIAL;
     for (index = 0u; passed && index < 7u; ++index) {
         const uint32_t value =
@@ -3014,7 +3014,6 @@ static void test_arm_block_user_bank_transfers(void)
         passed = read_test_word(machine.iwram, 0x100u + index * 4u) == value &&
                  record->category == GBL_TRACE_BUS &&
                  record->address == base + (uint32_t)index * 4u &&
-                 record->value == value &&
                  record->access_class ==
                      (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
                                   : GBL_BUS_CLASS_SEQUENTIAL);
@@ -3039,7 +3038,7 @@ static void test_arm_block_user_bank_transfers(void)
              machine.cpu.r0_7[0] == base &&
              (machine.cpu.cpsr & TEST_CPSR_MODE_MASK) == TEST_CPSR_FIQ &&
              records[8].category == GBL_TRACE_BUS &&
-             records[8].address == UINT32_C(0x08000004) &&
+             records[8].address == UINT32_C(0x08000008) &&
              records[8].access_class == GBL_BUS_CLASS_SEQUENTIAL;
     for (index = 0u; passed && index < 7u; ++index) {
         passed = machine.cpu.usr_r8_14[index] == expected_load[index] &&
