@@ -1581,6 +1581,8 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
         return true;
     }
 
+    /* DDI0100I A4.1.99/A4.1.100: STR/STRB writeback with Rd == Rn is
+     * unpredictable, just as the load writeback alias is. */
     if ((register_offset && (opcode & UINT32_C(0x00000010)) != 0u) ||
         (base_register == (uint8_t)15u &&
          (!preindexed || writeback)) ||
@@ -1588,7 +1590,7 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
          ((opcode & UINT32_C(0x0000000F)) == UINT32_C(15) ||
           ((uint8_t)(opcode & UINT32_C(0x0000000F)) == base_register &&
            writeback))) ||
-        (load && writeback && data_register == base_register) ||
+        (writeback && data_register == base_register) ||
         (load_pc && !preindexed && writeback_bit) ||
         (load && byte && data_register == (uint8_t)15u)) {
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;

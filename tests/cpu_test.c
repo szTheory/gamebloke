@@ -2564,15 +2564,27 @@ static void test_arm_transfer_store_source_snapshot(void)
         machine.cpu.r0_7[0] = UINT32_C(0x03000300);
         ran = run_arm_instruction(
             &machine,
-            encode_arm_transfer(false, false, true, false, false, false,
-                                0u, 0u, 4u),
+            encode_arm_transfer(false, true, true, false, false, false,
+                                0u, 0u, 0u),
             TEST_CPSR_SYSTEM, UINT64_C(8), &result);
     }
     test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
                   read_test_word(machine.iwram, 0x300u) ==
                       UINT32_C(0x03000300) &&
-                  machine.cpu.r0_7[0] == UINT32_C(0x03000304),
-              "ARM STR snapshots the old base as store data before post-index writeback");
+                  machine.cpu.r0_7[0] == UINT32_C(0x03000300),
+              "ARM STR permits Rd=Rn alias without base writeback");
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000305);
+        ran = run_arm_instruction(
+            &machine,
+            encode_arm_transfer(false, true, true, true, false, false,
+                                0u, 0u, 0u),
+            TEST_CPSR_SYSTEM, UINT64_C(8), &result);
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.iwram[0x305u] == UINT8_C(0x05) &&
+                  machine.cpu.r0_7[0] == UINT32_C(0x03000305),
+              "ARM STRB permits Rd=Rn alias without base writeback");
     if (loaded) {
         gbl_machine_dispose(&machine);
     }
@@ -2643,6 +2655,14 @@ static void test_arm_transfer_unpredictable_refusals(void)
 {
     const uint32_t register_pc = encode_arm_transfer(
         true, true, true, false, false, true, 0u, 2u, UINT16_C(15));
+    const uint32_t preindexed_word_store_alias = encode_arm_transfer(
+        false, true, true, false, true, false, 0u, 0u, 4u);
+    const uint32_t postindexed_word_store_alias = encode_arm_transfer(
+        false, false, true, false, false, false, 0u, 0u, 4u);
+    const uint32_t preindexed_byte_store_alias = encode_arm_transfer(
+        false, true, true, true, true, false, 0u, 0u, 4u);
+    const uint32_t postindexed_byte_store_alias = encode_arm_transfer(
+        false, false, true, true, false, false, 0u, 0u, 4u);
     const uint32_t preindexed_alias = encode_arm_transfer(
         true, true, true, false, true, true, 0u, 2u, 0u);
     const uint32_t postindexed_alias = encode_arm_transfer(
@@ -2656,6 +2676,14 @@ static void test_arm_transfer_unpredictable_refusals(void)
 
     test_case(arm_transfer_unpredictable_is_atomic(register_pc),
               "ARM single transfer refuses R15 as scaled-register offset atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(preindexed_word_store_alias),
+              "ARM STR pre-indexed writeback refuses Rd=Rn atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(postindexed_word_store_alias),
+              "ARM STR post-indexed writeback refuses Rd=Rn atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(preindexed_byte_store_alias),
+              "ARM STRB pre-indexed writeback refuses Rd=Rn atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(postindexed_byte_store_alias),
+              "ARM STRB post-indexed writeback refuses Rd=Rn atomically");
     test_case(arm_transfer_unpredictable_is_atomic(preindexed_alias),
               "ARMv4T pre-indexed writeback refuses Rn=Rm atomically");
     test_case(arm_transfer_unpredictable_is_atomic(postindexed_alias),
@@ -7443,7 +7471,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
-    CPU_TEST_GROUP("arm_transfer", 355u, arm_transfer_functions),
+    CPU_TEST_GROUP("arm_transfer", 360u, arm_transfer_functions),
     CPU_TEST_GROUP("loaded_pc", 17u, loaded_pc_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
