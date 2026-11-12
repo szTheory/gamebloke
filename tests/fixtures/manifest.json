@@ -9,7 +9,7 @@
         "commit": "4857ddc9c6ecaef61644fa4cf6286e7951e3bff4"
       },
       "license": {
-        "spdx": "LicenseRef-Gamebloke-Diagnostic-Public-CI",
+        "spdx": "LicenseRef-Gamebloke-ARMv4T-Diagnostic-Public-CI",
         "notices": [
           "diagnostics/armv4t/NOTICE"
         ],
@@ -44,7 +44,7 @@
         "commit": "4857ddc9c6ecaef61644fa4cf6286e7951e3bff4"
       },
       "license": {
-        "spdx": "LicenseRef-Gamebloke-Diagnostic-Public-CI",
+        "spdx": "LicenseRef-Gamebloke-ARMv4T-Diagnostic-Public-CI",
         "notices": [
           "diagnostics/armv4t/NOTICE"
         ],

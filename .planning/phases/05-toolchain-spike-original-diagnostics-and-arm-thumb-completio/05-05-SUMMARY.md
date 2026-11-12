@@ -49,10 +49,10 @@ key-decisions:
   - "Keep build.toolchain.sha256 null because the manifest has one field but the locked archive SHA differs by host; name and record each locked host archive in the toolchain identity and lock file."
   - "Admit only the measured smoke pair; leave the remaining 356 ledger rows pending and make final/full-coverage mode refuse honestly."
 
-requirements-completed: [DIAG-01, DIAG-02, DIAG-03]
+requirements-completed: []
 coverage:
   - id: D1
-    description: The original smoke positive and assertion-broken ROMs are pinned to the reviewed producer revision, exact artifact hashes, host-specific toolchain archives, BIOS none, and the fixture-specific NOTICE.
+    description: The original smoke positive and assertion-broken ROMs are pinned to the reviewed producer revision, exact artifact hashes, host-specific toolchain archives, BIOS none, and the fixture-specific NOTICE; this contributes evidence toward DIAG-01.
     requirement: DIAG-01
     verification:
       - kind: integration
@@ -63,7 +63,7 @@ coverage:
         status: pass
     human_judgment: false
   - id: D2
-    description: The production runner and canonical result checker accept PASS/pass/20481 for smoke and GUEST_FAIL/fail/20481 for the real operand-broken variant, with exact loaded ROM SHA and mailbox-complete state.
+    description: The production runner and canonical result checker accept PASS/pass/20481 for smoke and GUEST_FAIL/fail/20481 for the real operand-broken variant, with exact loaded ROM SHA and mailbox-complete state; this contributes evidence toward DIAG-03.
     requirement: DIAG-03
     verification:
       - kind: integration
@@ -75,6 +75,17 @@ coverage:
     verification:
       - kind: integration
         ref: "build/phase05-spike/admission/coverage-controls-final.log"
+        status: pass
+    human_judgment: false
+  - id: D4
+    description: The pinned producer emitted ARMv4T output and the measured smoke pair matched byte-for-byte between local macOS ARM64 and Linux ARM64; hosted Linux x64 and macOS ARM64 hashes also match. This is partial evidence for DIAG-02, not phase-wide completion.
+    requirement: DIAG-02
+    verification:
+      - kind: other
+        ref: "build/phase05-spike/linux-arm64-4857ddc-refresh/proof/build-receipt.json and literal cmp against build/phase05-spike/native/roms/"
+        status: pass
+      - kind: other
+        ref: "build/phase05-spike/installer-optimization/hosted-final-run.json and host logs"
         status: pass
     human_judgment: false
 
@@ -96,7 +107,7 @@ status: complete
 
 ## Accomplishments
 
-- Added production manifest rows for `smoke` and `smoke-broken`, both pinned to producer source commit `4857ddc9c6ecaef61644fa4cf6286e7951e3bff4` and their measured ROM SHA-256 values. The rows identify distinct clean and assertion-broken recipes and retain the fixture-specific `LicenseRef-Gamebloke-Diagnostic-Public-CI` notice with BIOS requirement `none`.
+- Added production manifest rows for `smoke` and `smoke-broken`, both pinned to producer source commit `4857ddc9c6ecaef61644fa4cf6286e7951e3bff4` and their measured ROM SHA-256 values. The rows identify distinct clean and assertion-broken recipes and use the exact fixture-specific SPDX identifier `LicenseRef-Gamebloke-ARMv4T-Diagnostic-Public-CI` from `diagnostics/armv4t/NOTICE`, with BIOS requirement `none` and the existing narrow public-CI scope.
 - Recorded all three locked host archive identities (Darwin ARM64, Linux x64, and Linux ARM64) without mislabeling an archive digest as the ROM or as a single cross-host toolchain digest. `build.toolchain.sha256` is null because the manifest schema has only one field for three host-specific archive hashes.
 - Refreshed the pinned native Linux ARM64 build at the bound source commit. Both Linux ARM64 outputs matched the native macOS ARM64 files by literal `cmp`; hosted Linux x64/macOS ARM64 evidence separately establishes hash equality on the green source-only run, not a hosted literal comparison.
 - Ran the actual built `gamebloke-run --fixture` path with the production immutable index and canonical `CheckResult.cmake`: smoke produced `PASS`, semantic `pass`, case 20481; the same-case real operand-broken ROM produced `GUEST_FAIL`, semantic `fail`, case 20481. Both results checked mailbox completion, loaded bytes, and the exact expected ROM SHA.
@@ -171,6 +182,10 @@ None. The changes add no new network endpoint, authorization path, external file
 ## Next Phase Readiness
 
 Plan 05 is complete. The production smoke pair and diagnostic ledger are ready for later Phase 05 ARM/Thumb case implementation and full-matrix measurement. Phase 05 remains in progress; do not start Phase 6 or treat this smoke pair as full ISA coverage. Root remains the actor for future publication and hosted monitoring.
+
+## Phase-Wide Requirement Status
+
+This plan contributes measured smoke, source, toolchain, cross-host identity, and result-checking evidence toward DIAG-01, DIAG-02, and DIAG-03. These Phase 05 requirements remain pending: the ledger still has 356 unverified cases, and the phase verifier must assess the complete acceptance criteria after later case plans. Plan 05 itself is complete; this summary does not mark any phase-wide requirement complete.
 
 ---
 *Phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio*

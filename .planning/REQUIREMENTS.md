@@ -65,9 +65,9 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 ### Diagnostics and fixtures
 
-- [x] **DIAG-01**: Original ARM and Thumb diagnostics build from source in CI with a pinned `arm-none-eabi` toolchain, a project crt0, linker script, and header fixer. The output has no logo bytes and no linked runtime library.
-- [x] **DIAG-02**: A toolchain spike confirms ARMv4T output (`Tag_CPU_arch: v4T`) and identical ROM bytes on macOS arm64 and Linux before any ROM digest is committed. If it fails, digest ownership moves to Linux.
-- [x] **DIAG-03**: Each original diagnostic reports a machine-readable verdict and failing case ID through the mailbox, and a deliberately broken variant serves as its negative control.
+- [ ] **DIAG-01**: Original ARM and Thumb diagnostics build from source in CI with a pinned `arm-none-eabi` toolchain, a project crt0, linker script, and header fixer. The output has no logo bytes and no linked runtime library.
+- [ ] **DIAG-02**: A toolchain spike confirms ARMv4T output (`Tag_CPU_arch: v4T`) and identical ROM bytes on macOS arm64 and Linux before any ROM digest is committed. If it fails, digest ownership moves to Linux.
+- [ ] **DIAG-03**: Each original diagnostic reports a machine-readable verdict and failing case ID through the mailbox, and a deliberately broken variant serves as its negative control.
 - [ ] **DIAG-04**: jsmolka gba-tests `arm`, `thumb`, and `memory` run from a pinned fetch. Their result channel (r12 at the idle loop) is verified by reading `m_test_eval` at the pinned revision before results count as PASS (R6). `bios.gba` reports SKIPPED.
 
 ### Determinism
@@ -185,9 +185,9 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | RUN-02 | Phase 4 | Complete |
 | RUN-03 | Phase 4 | Complete |
 | RUN-04 | Phase 4 | Complete |
-| DIAG-01 | Phase 5 | Complete |
-| DIAG-02 | Phase 5 | Complete |
-| DIAG-03 | Phase 5 | Complete |
+| DIAG-01 | Phase 5 | Pending |
+| DIAG-02 | Phase 5 | Pending |
+| DIAG-03 | Phase 5 | Pending |
 | DIAG-04 | Phase 6 | Pending |
 | DET-01 | Phase 6 | Pending |
 | DET-02 | Phase 6 | Pending |

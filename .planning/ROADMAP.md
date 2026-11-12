@@ -247,7 +247,7 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: 5/25 plans executed in 25 serial waves (independent plan check passed; implementation not started)
+**Plans**: 5/25 plans complete. Plan 05 admitted and verified the measured smoke pair and added the explicit ARM/Thumb family/form ledger; 356 cases remain pending for later Phase 05 plans and phase-wide verification.
 
 Plans:
 **Wave 1**
