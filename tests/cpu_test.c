@@ -2550,6 +2550,34 @@ static void test_arm_transfer_pc_contexts(void)
     }
 }
 
+static void test_arm_transfer_store_source_snapshot(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000300);
+        ran = run_arm_instruction(
+            &machine,
+            encode_arm_transfer(false, false, true, false, false, false,
+                                0u, 0u, 4u),
+            TEST_CPSR_SYSTEM, UINT64_C(8), &result);
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  read_test_word(machine.iwram, 0x300u) ==
+                      UINT32_C(0x03000300) &&
+                  machine.cpu.r0_7[0] == UINT32_C(0x03000304),
+              "ARM STR snapshots the old base as store data before post-index writeback");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static bool arm_transfer_unpredictable_is_atomic(uint32_t opcode)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -2621,6 +2649,10 @@ static void test_arm_transfer_unpredictable_refusals(void)
         true, false, true, false, false, false, 0u, 2u, 0u);
     const uint32_t pc_writeback = encode_arm_transfer(
         false, true, true, false, true, false, 15u, 2u, 4u);
+    const uint32_t byte_pc_destination = encode_arm_transfer(
+        false, true, true, true, false, true, 0u, 15u, 0u);
+    const uint32_t load_base_alias = encode_arm_transfer(
+        false, true, true, false, true, true, 0u, 0u, 4u);
 
     test_case(arm_transfer_unpredictable_is_atomic(register_pc),
               "ARM single transfer refuses R15 as scaled-register offset atomically");
@@ -2630,6 +2662,10 @@ static void test_arm_transfer_unpredictable_refusals(void)
               "ARMv4T post-indexed register transfer refuses Rn=Rm atomically");
     test_case(arm_transfer_unpredictable_is_atomic(pc_writeback),
               "ARM single transfer refuses PC base writeback atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(byte_pc_destination),
+              "ARM LDRB to PC refuses architecturally unpredictable destination atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(load_base_alias),
+              "ARMv4T LDR refuses writeback when Rd equals Rn atomically");
 }
 
 static bool arm_transfer_preflight_boundary(uint64_t cycle_budget,
@@ -2762,6 +2798,56 @@ static void test_arm_transfer_unmodeled_bus_results(void)
     test_case(arm_transfer_observes_bus_outcome(
                   UINT32_C(0x04000004), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
               "ARM byte load consumes the actual unimplemented-I/O bus result once");
+    test_case(arm_transfer_observes_bus_outcome(
+                  UINT32_C(0xFFFFFFFF), GBL_BUS_OUTCOME_UNMAPPED),
+              "ARM byte load consumes the actual unmapped maximum-address result once");
+}
+
+static bool arm_transfer_increment_wraps_to_bios(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(0) };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    size_t index;
+    size_t matching_reads = 0u;
+    bool observed_read = false;
+    bool wrapped = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_MAX;
+        ran = run_arm_instruction_with_trace(
+            &machine, UINT32_C(0xE7F02001), TEST_CPSR_SYSTEM,
+            UINT64_C(8), &trace, &result);
+        for (index = 0u; index < trace.count; ++index) {
+            const gbl_trace_record *record = &records[index];
+
+            if (record->category == GBL_TRACE_BUS && record->address == 0u) {
+                matching_reads++;
+                observed_read = record->bus_outcome ==
+                                    GBL_BUS_OUTCOME_BIOS_ABSENT &&
+                                record->value == machine.cpu.r0_7[2];
+            }
+        }
+        wrapped = result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[0] == 0u && matching_reads == 1u &&
+                  observed_read;
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && ran && wrapped;
+}
+
+static void test_arm_transfer_modulo_address_wrap(void)
+{
+    test_case(arm_transfer_increment_wraps_to_bios(),
+              "ARM single-transfer pre-index address and writeback wrap modulo 2^32");
 }
 
 static void test_arm_pc_operand_contexts(void)
@@ -6991,9 +7077,11 @@ static const cpu_test_function arm_transfer_functions[] = {
     test_arm_transfer_scaled_register_matrix,
     test_arm_transfer_word_and_byte_lanes,
     test_arm_transfer_pc_contexts,
+    test_arm_transfer_store_source_snapshot,
     test_arm_transfer_unpredictable_refusals,
     test_arm_transfer_preflight_boundaries,
-    test_arm_transfer_unmodeled_bus_results
+    test_arm_transfer_unmodeled_bus_results,
+    test_arm_transfer_modulo_address_wrap
 };
 static const cpu_test_function arm_pc_return_functions[] = {
     test_arm_pc_operand_contexts,
@@ -7070,7 +7158,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
-    CPU_TEST_GROUP("arm_transfer", 350u, arm_transfer_functions),
+    CPU_TEST_GROUP("arm_transfer", 355u, arm_transfer_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
