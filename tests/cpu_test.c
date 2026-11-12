@@ -3054,6 +3054,112 @@ static void test_arm_block_user_bank_transfers(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_arm_block_user_bank_banked_base(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine;
+    gbl_trace_record records[4] = { { 0 } };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(300) };
+    gbl_run_result result = { 0 };
+    const uint32_t fiq_base = UINT32_C(0x03000300);
+    const uint32_t user_base = UINT32_C(0x03000380);
+    const uint32_t user_r9_source = UINT32_C(0xB1B2B3B4);
+    const uint32_t load_user_r8 = UINT32_C(0xA1A2A3A4);
+    const uint32_t load_user_r9 = UINT32_C(0xC1C2C3C4);
+    const uint32_t fiq_r9 = UINT32_C(0xF1F2F3F4);
+    const uint32_t fiq_first_sentinel = UINT32_C(0xDEADBEEF);
+    const uint32_t fiq_second_sentinel = UINT32_C(0xC001D00D);
+    const uint32_t user_first_sentinel = UINT32_C(0xA55AA55A);
+    const uint32_t user_second_sentinel = UINT32_C(0x5AA55AA5);
+    const uint16_t register_list = UINT16_C(0x0300);
+    const uint32_t store_opcode = encode_arm_block_user(
+        false, true, false, false, 8u, register_list);
+    const uint32_t load_opcode = encode_arm_block_user(
+        false, true, false, true, 8u, register_list);
+    bool loaded;
+    bool store_passed;
+    bool load_passed;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (!loaded) {
+        test_case(false,
+                  "FIQ STM^ with Rn=R8 uses FIQ base and User r8/r9 data");
+        test_case(false,
+                  "FIQ LDM^ with Rn=R8 uses FIQ base and updates User r8/r9");
+        return;
+    }
+
+    machine.cpu.fiq_r8_14[0] = fiq_base;
+    machine.cpu.fiq_r8_14[1] = fiq_r9;
+    machine.cpu.usr_r8_14[0] = user_base;
+    machine.cpu.usr_r8_14[1] = user_r9_source;
+    write_word(machine.iwram, 0x300u, fiq_first_sentinel);
+    write_word(machine.iwram, 0x304u, fiq_second_sentinel);
+    write_word(machine.iwram, 0x380u, user_first_sentinel);
+    write_word(machine.iwram, 0x384u, user_second_sentinel);
+
+    store_passed = run_arm_block_in_mode(
+                       &machine, store_opcode, TEST_CPSR_FIQ, UINT64_C(3),
+                       &trace, &result) &&
+                   result.termination == GBL_RUN_PROGRESS &&
+                   result.instructions == UINT64_C(1) &&
+                   result.cycles == UINT64_C(3) && trace.count == 4u &&
+                   trace.next_sequence == UINT64_C(304) &&
+                   records[1].category == GBL_TRACE_BUS &&
+                   records[1].address == UINT32_C(0x03000300) &&
+                   records[2].category == GBL_TRACE_BUS &&
+                   records[2].address == UINT32_C(0x03000304) &&
+                   records[3].category == GBL_TRACE_BUS &&
+                   records[3].address == UINT32_C(0x08000008) &&
+                   machine.cpu.fiq_r8_14[0] == fiq_base &&
+                   machine.cpu.fiq_r8_14[1] == fiq_r9 &&
+                   machine.cpu.usr_r8_14[0] == user_base &&
+                   machine.cpu.usr_r8_14[1] == user_r9_source &&
+                   read_test_word(machine.iwram, 0x300u) == user_base &&
+                   read_test_word(machine.iwram, 0x304u) == user_r9_source &&
+                   read_test_word(machine.iwram, 0x380u) ==
+                       user_first_sentinel &&
+                   read_test_word(machine.iwram, 0x384u) ==
+                       user_second_sentinel;
+    test_case(store_passed,
+              "FIQ STM^ with Rn=R8 uses FIQ base and User r8/r9 data");
+
+    write_word(machine.iwram, 0x300u, load_user_r8);
+    write_word(machine.iwram, 0x304u, load_user_r9);
+    write_word(machine.iwram, 0x380u, user_first_sentinel);
+    write_word(machine.iwram, 0x384u, user_second_sentinel);
+    trace = (gbl_trace_buffer){ records, 4u, 0u, UINT64_C(400) };
+    load_passed = run_arm_block_in_mode(
+                      &machine, load_opcode, TEST_CPSR_FIQ, UINT64_C(4),
+                      &trace, &result) &&
+                  result.termination == GBL_RUN_PROGRESS &&
+                  result.instructions == UINT64_C(1) &&
+                  result.cycles == UINT64_C(4) && trace.count == 4u &&
+                  trace.next_sequence == UINT64_C(404) &&
+                  records[1].category == GBL_TRACE_BUS &&
+                  records[1].address == UINT32_C(0x03000300) &&
+                  records[1].value == load_user_r8 &&
+                  records[2].category == GBL_TRACE_BUS &&
+                  records[2].address == UINT32_C(0x03000304) &&
+                  records[2].value == load_user_r9 &&
+                  records[3].category == GBL_TRACE_BUS &&
+                  records[3].address == UINT32_C(0x08000008) &&
+                  machine.cpu.fiq_r8_14[0] == fiq_base &&
+                  machine.cpu.fiq_r8_14[1] == fiq_r9 &&
+                  machine.cpu.usr_r8_14[0] == load_user_r8 &&
+                  machine.cpu.usr_r8_14[1] == load_user_r9 &&
+                  read_test_word(machine.iwram, 0x300u) == load_user_r8 &&
+                  read_test_word(machine.iwram, 0x304u) == load_user_r9 &&
+                  read_test_word(machine.iwram, 0x380u) ==
+                      user_first_sentinel &&
+                  read_test_word(machine.iwram, 0x384u) ==
+                      user_second_sentinel;
+    test_case(load_passed,
+              "FIQ LDM^ with Rn=R8 uses FIQ base and updates User r8/r9");
+    gbl_machine_dispose(&machine);
+}
+
 static bool arm_block_spsr_return_mode_case(uint32_t exception_mode,
                                             size_t spsr_index)
 {
@@ -10178,6 +10284,7 @@ static const cpu_test_function arm_block_bounds_functions[] = {
 };
 static const cpu_test_function arm_block_banks_functions[] = {
     test_arm_block_user_bank_transfers,
+    test_arm_block_user_bank_banked_base,
     test_arm_block_spsr_return_modes,
     test_arm_block_spsr_return_trace_capacity,
     test_arm_block_user_bank_invalid_forms,
@@ -10300,7 +10407,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_block", 34u, arm_block_functions),
-    CPU_TEST_GROUP("arm_block_banks", 19u, arm_block_banks_functions),
+    CPU_TEST_GROUP("arm_block_banks", 21u, arm_block_banks_functions),
     CPU_TEST_GROUP("arm_block_bounds", 10u, arm_block_bounds_functions),
     CPU_TEST_GROUP("arm_block_edges", 70u, arm_block_edges_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
