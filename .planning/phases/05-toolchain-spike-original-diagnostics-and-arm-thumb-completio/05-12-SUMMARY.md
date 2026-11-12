@@ -18,7 +18,7 @@ actuals:
   tasks: 2
   commits: 6
 plan_head_before: 95ec9aa648660bc2d6e030e2aa9dbacfe23ee9d9
-plan_head_after: d534ec0a41f34a4b13021d67c495a6cb126d9668
+plan_head_after: 673db5f2205345f9da218b4706f409f0e4e69e6f
 
 tech-stack:
   added: []
@@ -160,3 +160,12 @@ Plan 12 is complete locally. Plan 13 has not started. Root owns the independent 
 ---
 *Phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio*
 *Completed: 2026-11-12*
+
+
+## Independent review and verified store-oracle correction
+
+The independent review found a test-reliability gap: the STM mode matrix preloaded expected post-store values and repeated the production start-address formula. Tests-only commit `673db5f` replaces that helper with literal absolute start/writeback expectations for the fixed two-register fixture, uses distinct destination sentinels, and checks stored words and unchanged neighboring words separately. The group now has 34 assertions. An isolated DB-STM wrong-address mutant fails the new memory assertions while its clean LDM companion and clean group pass. `05-12-REVIEW.md` is clean after re-review; `05-12-REVIEW-FIX.md` retains the exact evidence. The six original task commits remain their original ledger scope; the additional review fix is tests-only.
+
+Full pinned Ubuntu 26.04 native arm64 GCC and Clang 21 ASan/UBSan/LeakSanitizer passed at source `55cf4c272a918dc92287385b7bcda53b53cf7b4b`: 342 normal checks plus one existing allowed owner-local skip and post-inventory, and 86/86 sanitizer checks with zero skips/post. Production `src/cpu.c` is byte-identical in final tests-only source `673db5f2205345f9da218b4706f409f0e4e69e6f`. Native normal/AppleClang ASan and root pinned Linux GCC/Clang focused `arm_block` and `arm_block_bounds` runs pass at that final source. No repeat full inventory is claimed for the tests-only change. Logs: `build/phase05-plan12/linux-*.log` and `build/phase05-plan12/review-fix/*`.
+
+Wave checks found no schema drift or UI contract need; codebase drift retains the advisory no-STRUCTURE.md skip. Timing remains the explicit source-backed uniform-bus model above: source §6.1's one-cycle signal lead maps requests, while the extra PC pipeline S cost is abstract internal work with no extra memory trace. This is not physical bus/timing qualification. CPU/DIAG remain phase-wide pending. Routine publication stays batched until explicit hosted-witness/final gates; latest published green `a16dad4` / run43249533205 does not cover this local Plan 12 source. Plan 13 is next.

@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan05-12 complete locally; awaiting root review and pinned Linux verification before Plan13
-stopped_at: Completed 05-12-PLAN.md; root owns independent review and pinned Linux verification
-last_updated: "2026-11-12T19:52:50.381Z"
+status: Executing Phase05 Plan13; Plan12 reviewed and compiler/sanitizer verified locally
+stopped_at: Plan12 local review and Linux verification complete; continuing Plan13 user-bank and exception-return blocks
+last_updated: "2026-11-12T20:18:55.189Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 12 completed locally; root owns independent review and pinned Linux verification
-state_head: d534ec0a41f34a4b13021d67c495a6cb126d9668
+state_head: 673db5f2205345f9da218b4706f409f0e4e69e6f
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 13 of 25
-Status: Plan05-12 complete locally; awaiting root review and pinned Linux verification before Plan13
+Status: Executing Phase05 Plan13; Plan12 reviewed and compiler/sanitizer verified locally
 Last activity: 2026-11-12 — Phase 05 Plan 12 completed locally; root owns independent review and pinned Linux verification
 
 Progress: [███████░░░] 67%
@@ -242,6 +242,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Plan12: DDI0029G section 6.1 signals SEQ one cycle ahead, so block transfer request classes derive from the preceding row: first data address N, following addresses S.
 - [Phase 05]: Plan12: Preflight the ARM7TDMI LDM final I cycle and loaded-PC additional pipeline S cost separately; under the current uniform bus the extra S is abstract work, not a hardware timing claim.
 - [Phase 05]: Plan12: Keep valid user-bank, exception-return, and ARM7-specific base-list block forms distinct from undefined and unpredictable cases; later CPU plan owns those remaining quirks.
+- [Phase 05]: DDI0029G6.1 timing signals describe the next cycle; map request classes from the prior row, not same-row data. Plan12 reserves final LDM I plus abstract PC pipeline S cost: max20 modeledcycles/19trace, no literal hardware-trace claim.
+- [Phase 05]: Store tests must start with contrasting destination data and independent literal mode addresses/writeback, then prove replacement and neighbors. Plan12 review fix673db5f closes false positives; production55cf4c2 fullLinux verified, final test-only focus passes.
 
 ### Pending Todos
 
@@ -277,6 +279,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T19:52:50.150Z
-Stopped at: Completed 05-12-PLAN.md; root owns independent review and pinned Linux verification
-Resume file: None
+Last session: 2026-11-12T20:18:54.866Z
+Stopped at: Plan12 local review and Linux verification complete; continuing Plan13 user-bank and exception-return blocks
+Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
