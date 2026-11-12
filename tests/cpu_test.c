@@ -3003,12 +3003,24 @@ static bool arm_loaded_pc_wraps_second_refill(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
+    gbl_machine before_boundary = { 0 };
+    gbl_machine expected_boundary = { 0 };
     gbl_trace_record records[4] = { 0 };
+    gbl_trace_record records_before_boundary[4];
     gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(0) };
+    gbl_trace_buffer trace_before_boundary;
+    const gbl_run_options boundary_options = {
+        .cycle_budget = UINT64_C(1),
+        .unit_limit = 1u,
+        .category_mask = 0u,
+        .trace_buffer = NULL
+    };
     gbl_run_result result = { 0 };
+    gbl_run_result boundary_result = { 0 };
     bool loaded;
     bool ran = false;
-    bool matched;
+    bool first_refill_matched;
+    bool boundary_matched = false;
 
     make_empty_image(image);
     loaded = machine_load(&machine, image);
@@ -3019,23 +3031,51 @@ static bool arm_loaded_pc_wraps_second_refill(void)
             &machine, UINT32_C(0xE590F000), TEST_CPSR_SYSTEM,
             UINT64_C(3), &trace, &result);
     }
-    matched = loaded && ran &&
-              result.termination == GBL_RUN_PROGRESS &&
-              result.instructions == 1u && result.cycles == UINT64_C(3) &&
-              trace.count == 4u && records[1].value == UINT32_C(0xFFFFFFFE) &&
-              records[2].address == UINT32_C(0xFFFFFFFC) &&
-              records[2].bus_outcome == GBL_BUS_OUTCOME_UNMAPPED &&
-              records[3].address == 0u &&
-              records[3].bus_outcome == GBL_BUS_OUTCOME_BIOS_ABSENT &&
-              machine.cpu.execution_address == UINT32_C(0xFFFFFFFC) &&
-              machine.cpu.pipeline[0].address == UINT32_C(0xFFFFFFFC) &&
-              machine.cpu.pipeline[1].address == 0u &&
-              machine.cpu.pipeline[0].width == 4u &&
-              machine.cpu.pipeline[1].width == 4u;
+    first_refill_matched = loaded && ran &&
+                           result.termination == GBL_RUN_PROGRESS &&
+                           result.instructions == 1u &&
+                           result.cycles == UINT64_C(3) &&
+                           trace.count == 4u &&
+                           records[1].value == UINT32_C(0xFFFFFFFE) &&
+                           records[2].address == UINT32_C(0xFFFFFFFC) &&
+                           records[2].bus_outcome == GBL_BUS_OUTCOME_UNMAPPED &&
+                           records[3].address == 0u &&
+                           records[3].bus_outcome ==
+                               GBL_BUS_OUTCOME_BIOS_ABSENT &&
+                           machine.cpu.execution_address ==
+                               UINT32_C(0xFFFFFFFC) &&
+                           machine.cpu.pipeline[0].address ==
+                               UINT32_C(0xFFFFFFFC) &&
+                           machine.cpu.pipeline[1].address == 0u &&
+                           machine.cpu.pipeline[0].width == 4u &&
+                           machine.cpu.pipeline[1].width == 4u;
+    if (first_refill_matched) {
+        gbl_run_status boundary_status;
+
+        before_boundary = machine;
+        expected_boundary = before_boundary;
+        expected_boundary.cpu.stopped = true;
+        expected_boundary.cpu.stop_reason =
+            GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        trace_before_boundary = trace;
+        memcpy(records_before_boundary, records, sizeof(records));
+        boundary_status = gbl_cpu_run(&machine, &boundary_options,
+                                      &boundary_result);
+        boundary_matched =
+            boundary_status == GBL_RUN_STATUS_OK &&
+            boundary_result.termination == GBL_RUN_STOPPED &&
+            boundary_result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            boundary_result.cycles == 0u && boundary_result.instructions == 0u &&
+            gbl_test_canonical_equal(&expected_boundary, &machine) &&
+            gbl_test_same_instance_identity_equal(&before_boundary, &machine) &&
+            trace.count == trace_before_boundary.count &&
+            trace.next_sequence == trace_before_boundary.next_sequence &&
+            memcmp(records, records_before_boundary, sizeof(records)) == 0;
+    }
     if (loaded) {
         gbl_machine_dispose(&machine);
     }
-    return matched;
+    return first_refill_matched && boundary_matched;
 }
 
 static bool arm_loaded_pc_preflight_boundary(
@@ -3124,7 +3164,7 @@ static void test_loaded_pc_target_and_preflight(void)
                   false, false, true, false, true, true, 0u, 15u, 4u)),
               "ARMv4T LDRT to PC is architecturally unpredictable and atomic");
     test_case(arm_loaded_pc_wraps_second_refill(),
-              "LDR PC aligns the loaded target and wraps the second ARM refill modulo 2^32");
+              "LDR PC wraps its refill then stops at the ARM sequential-wrap boundary");
     test_case(arm_loaded_pc_preflight_boundary(
                   UINT64_C(2), 4u, 0u, UINT64_C(0), UINT64_C(0),
                   UINT64_C(0),

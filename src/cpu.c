@@ -648,6 +648,14 @@ static bool gbl_cpu_pipeline_is_empty(const gbl_cpu_state *cpu)
     return !cpu->pipeline[0].valid && !cpu->pipeline[1].valid;
 }
 
+static bool gbl_cpu_pipeline_is_arm_sequential_wrap(
+    const gbl_cpu_state *cpu)
+{
+    return (cpu->cpsr & GBL_CPU_CPSR_T) == 0u &&
+           cpu->pipeline[0].address == UINT32_C(0xFFFFFFFC) &&
+           cpu->pipeline[1].address == 0u;
+}
+
 static bool gbl_cpu_pipeline_is_ready(const gbl_cpu_state *cpu)
 {
     const bool thumb = (cpu->cpsr & GBL_CPU_CPSR_T) != 0u;
@@ -661,10 +669,14 @@ static bool gbl_cpu_pipeline_is_ready(const gbl_cpu_state *cpu)
         !gbl_cpu_fetch_address_valid(cpu->pipeline[0].address, width) ||
         !gbl_cpu_fetch_address_valid(cpu->pipeline[1].address, width) ||
         cpu->execution_address != cpu->pipeline[0].address ||
-        !cpu->next_fetch_sequential ||
-        !gbl_cpu_address_add(cpu->pipeline[0].address, (uint32_t)width,
-                             &expected_second_address)) {
+        !cpu->next_fetch_sequential) {
         return false;
+    }
+    if (!gbl_cpu_address_add(cpu->pipeline[0].address, (uint32_t)width,
+                             &expected_second_address)) {
+        /* LDR PC intentionally builds this modulo refill pair. The decoder
+         * turns it into the ARM sequential-wrap stop before executing it. */
+        return gbl_cpu_pipeline_is_arm_sequential_wrap(cpu);
     }
     return cpu->pipeline[1].address == expected_second_address;
 }
@@ -1910,6 +1922,14 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
     }
     if (!gbl_cpu_pipeline_is_ready(cpu)) {
         return false;
+    }
+    if (gbl_cpu_pipeline_is_arm_sequential_wrap(cpu)) {
+        /* DDI0100I A2.7.1: executing at FFFFFFFC and then at 0 is
+         * unpredictable. Keep the internally generated refill pair valid,
+         * then use the existing unpredictable-instruction stop before any
+         * instruction, cycle, or trace effect at that boundary. */
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
     }
     if (!gbl_cpu_next_sequential_address(cpu, thumb, &next_fetch_address)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
