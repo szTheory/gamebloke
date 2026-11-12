@@ -1,7 +1,6 @@
 #include "gamebloke/gamebloke.h"
 
 #include "../src/cpu_helpers.h"
-#include "../src/cpu_test_hooks.h"
 #include "state_check.h"
 
 #include <stdio.h>
