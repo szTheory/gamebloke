@@ -594,7 +594,10 @@ elseif(CASE STREQUAL "installed")
   string(JSON receipt_hash ERROR_VARIABLE json_error GET "${receipt}" archive_sha256)
   string(JSON receipt_bytes ERROR_VARIABLE json_error GET "${receipt}" archive_bytes)
   string(JSON download_seconds ERROR_VARIABLE json_error GET "${receipt}" download_seconds)
+  string(JSON archive_validation_seconds ERROR_VARIABLE validation_error
+    GET "${receipt}" archive_validation_seconds)
   string(JSON extract_seconds ERROR_VARIABLE json_error GET "${receipt}" extract_seconds)
+  string(JSON setup_seconds ERROR_VARIABLE setup_error GET "${receipt}" setup_seconds)
   string(JSON notice_count ERROR_VARIABLE json_error LENGTH "${receipt}" notices)
   string(LENGTH "${receipt_hash}" receipt_hash_length)
   if(native_host STREQUAL "darwin-arm64")
@@ -612,7 +615,11 @@ elseif(CASE STREQUAL "installed")
      NOT receipt_bytes STREQUAL expected_archive_bytes OR
      NOT receipt_hash STREQUAL expected_archive_hash OR
      NOT download_seconds MATCHES "^[0-9]+$" OR
-     NOT extract_seconds MATCHES "^[0-9]+$" OR notice_count LESS 1)
+     NOT validation_error STREQUAL "NOTFOUND" OR
+     NOT archive_validation_seconds MATCHES "^[0-9]+$" OR
+     NOT extract_seconds MATCHES "^[0-9]+$" OR
+     NOT setup_error STREQUAL "NOTFOUND" OR
+     NOT setup_seconds MATCHES "^[0-9]+$" OR notice_count LESS 1)
     message(FATAL_ERROR "toolchain-case receipt-identity-or-notices-invalid hash-length=${receipt_hash_length} notices=${notice_count} error=${json_error}")
   endif()
   string(FIND "${receipt}" "?" signed_query)
@@ -629,10 +636,12 @@ elseif(CASE STREQUAL "installed")
     endif()
   endforeach()
   if(NOT install_stdout MATCHES "host=${native_host}" OR
-     NOT install_stdout MATCHES "release=15.2.1-1.1")
+     NOT install_stdout MATCHES "release=15.2.1-1.1" OR
+     NOT install_stdout MATCHES "archive_validation_seconds=[0-9]+" OR
+     NOT install_stdout MATCHES "setup_seconds=[0-9]+")
     message(FATAL_ERROR "toolchain-case install-receipt-output-missing: ${install_stdout}")
   endif()
-  message(STATUS "toolchain-case installed PASSED host=${native_host} release=15.2.1-1.1 archive_sha256=${receipt_hash} archive_bytes=${receipt_bytes} download_seconds=${download_seconds} extract_seconds=${extract_seconds} notices=${notice_count}")
+  message(STATUS "toolchain-case installed PASSED host=${native_host} release=15.2.1-1.1 archive_sha256=${receipt_hash} archive_bytes=${receipt_bytes} download_seconds=${download_seconds} archive_validation_seconds=${archive_validation_seconds} extract_seconds=${extract_seconds} setup_seconds=${setup_seconds} notices=${notice_count}")
 else()
   message(FATAL_ERROR "toolchain-case unsupported-case: ${CASE}")
 endif()

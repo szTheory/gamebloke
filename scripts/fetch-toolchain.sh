@@ -208,87 +208,107 @@ actual_sha=${digest_output%% *}
 
 members="$WORK/members.txt"
 details="$WORK/details.txt"
-types="$WORK/types.tsv"
-: > "$types"
+archive_validation_start=$(date +%s)
 "$TAR_BIN" -tzf "$archive" > "$members" 2>/dev/null || die corrupt-archive
 "$TAR_BIN" -tvzf "$archive" > "$details" 2>/dev/null || die corrupt-archive
 
-safe_archive_path() {
-  path=$1
-  case "$path" in
-    ''|/*|*'//'*|*'/../'*|../*|*/..|*'/./'*|./*) return 1 ;;
-  esac
-  case "$path" in
-    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@/-]*) return 1 ;;
-  esac
-  case "$path" in
-    "$ARCHIVE_ROOT"|"$ARCHIVE_ROOT/"*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-safe_symlink_target() {
-  member=$1
-  target=$2
-  awk -v root="$ARCHIVE_ROOT" -v member="$member" -v target="$target" '
-    BEGIN {
-      if (target == "" || substr(target, 1, 1) == "/") exit 1
-      separator = 0
-      for (i = length(member); i > 0; i--) {
-        if (substr(member, i, 1) == "/") {
-          separator = i
-          break
-        }
-      }
-      if (separator == 0) exit 1
-      parent = substr(member, 1, separator - 1)
-      path = parent "/" target
-      count = split(path, pieces, "/")
-      depth = 0
-      for (i = 1; i <= count; i++) {
-        if (pieces[i] == "" || pieces[i] == ".") continue
-        if (pieces[i] == "..") {
-          if (depth <= 1) exit 1
-          depth--
-        } else {
-          normalized[++depth] = pieces[i]
-        }
-      }
-      if (depth == 0 || normalized[1] != root) exit 1
-      exit 0
+if validation_reason=$(LC_ALL=C awk -v root="$ARCHIVE_ROOT" -v detail_file="$details" '
+  function fail(reason) {
+    print reason
+    failed = 1
+    exit 1
+  }
+  function safe_path(path) {
+    if (path == "" || substr(path, 1, 1) == "/" ||
+        index(path, "//") > 0 || index(path, "/../") > 0 ||
+        (length(path) >= 3 && substr(path, length(path) - 2) == "/..") ||
+        substr(path, 1, 3) == "../" || index(path, "/./") > 0 ||
+        substr(path, 1, 2) == "./" ||
+        path ~ /[^ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@\/-]/) {
+      return 0
     }
-  ' </dev/null
-}
-
-exec 3< "$details"
-while IFS= read -r member || [ -n "$member" ]; do
-  if ! IFS= read -r detail <&3; then die malformed-archive-listing; fi
-  case "$member" in */) member=${member%/} ;; esac
-  safe_archive_path "$member" || die unsafe-member-path
-  type=${detail%"${detail#?}"}
-  case "$type" in
-    -|d|l|h) ;;
-    *) die unsafe-member-type ;;
-  esac
-  if awk -F '\t' -v p="$member" '$1 == p { found = 1 } END { exit !found }' "$types"; then
-    die duplicate-member
-  fi
-  printf '%s\t%s\n' "$member" "$type" >> "$types"
-  case "$type" in
-    l)
-      case "$detail" in *' -> '*) target=${detail##* -> } ;; *) die malformed-symlink ;; esac
-      case "$target" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@/-]*) die unsafe-symlink-target ;; esac
-      safe_symlink_target "$member" "$target" || die escaping-symlink
-      ;;
-    h)
-      case "$detail" in *' link to '*) target=${detail##* link to } ;; *) die malformed-hardlink ;; esac
-      safe_archive_path "$target" || die unsafe-hardlink-target
-      awk -F '\t' -v p="$target" '$1 == p && $2 == "-" { found = 1 } END { exit !found }' "$types" || die hardlink-target-missing-or-not-file
-      ;;
-  esac
-done < "$members"
-if IFS= read -r extra <&3; then die malformed-archive-listing; fi
-exec 3<&-
+    if (path != root && substr(path, 1, length(root) + 1) != root "/") {
+      return 0
+    }
+    return 1
+  }
+  function safe_symlink(member, target,
+      separator, i, parent, path, count, depth, key, pieces, normalized) {
+    if (target == "" || substr(target, 1, 1) == "/") return 0
+    separator = 0
+    for (i = length(member); i > 0; i--) {
+      if (substr(member, i, 1) == "/") {
+        separator = i
+        break
+      }
+    }
+    if (separator == 0) return 0
+    parent = substr(member, 1, separator - 1)
+    path = parent "/" target
+    count = split(path, pieces, "/")
+    depth = 0
+    for (i = 1; i <= count; i++) {
+      if (pieces[i] == "" || pieces[i] == ".") continue
+      if (pieces[i] == "..") {
+        if (depth <= 1) return 0
+        depth--
+      } else {
+        normalized[++depth] = pieces[i]
+      }
+    }
+    result = depth > 0 && normalized[1] == root
+    for (key in pieces) delete pieces[key]
+    for (key in normalized) delete normalized[key]
+    return result
+  }
+  {
+    member = $0
+    if (substr(member, length(member), 1) == "/") {
+      member = substr(member, 1, length(member) - 1)
+    }
+    if (!safe_path(member)) fail("unsafe-member-path")
+    detail_result = (getline detail < detail_file)
+    if (detail_result != 1) fail("malformed-archive-listing")
+    type = substr(detail, 1, 1)
+    if (type != "-" && type != "d" && type != "l" && type != "h") {
+      fail("unsafe-member-type")
+    }
+    if (member in member_types) fail("duplicate-member")
+    member_types[member] = type
+    if (type == "l") {
+      if (index(detail, " -> ") == 0) fail("malformed-symlink")
+      target = detail
+      sub(/^.* -> /, "", target)
+      if (target ~ /[^ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@\/-]/) {
+        fail("unsafe-symlink-target")
+      }
+      if (!safe_symlink(member, target)) fail("escaping-symlink")
+    } else if (type == "h") {
+      if (index(detail, " link to ") == 0) fail("malformed-hardlink")
+      target = detail
+      sub(/^.* link to /, "", target)
+      if (!safe_path(target)) fail("unsafe-hardlink-target")
+      if (!(target in member_types) || member_types[target] != "-") {
+        fail("hardlink-target-missing-or-not-file")
+      }
+    }
+  }
+  END {
+    if (failed) exit 1
+    extra_result = (getline extra < detail_file)
+    if (extra_result != 0) {
+      print "malformed-archive-listing"
+      exit 1
+    }
+    close(detail_file)
+  }
+' "$members" 2>/dev/null); then
+  :
+else
+  die "${validation_reason:-archive-validation-failed}"
+fi
+archive_validation_end=$(date +%s)
+archive_validation_seconds=$((archive_validation_end - archive_validation_start))
 
 extract_dir="$WORK/extract"
 mkdir "$extract_dir" || die extraction-directory
@@ -316,6 +336,7 @@ notice_file="$WORK/notices.txt"
 [ -s "$notice_file" ] || die notice-inventory-empty
 extract_end=$(date +%s)
 extract_seconds=$((extract_end - extract_start))
+setup_seconds=$((extract_end - download_start))
 
 install_stage="$WORK/install"
 mv "$package_root" "$install_stage" || die promotion-staging
@@ -329,7 +350,9 @@ receipt="$install_stage/install.json"
   printf '  "archive_sha256": "%s",\n' "$actual_sha"
   printf '  "archive_root": "%s",\n' "$ARCHIVE_ROOT"
   printf '  "download_seconds": %s,\n' "$download_seconds"
+  printf '  "archive_validation_seconds": %s,\n' "$archive_validation_seconds"
   printf '  "extract_seconds": %s,\n' "$extract_seconds"
+  printf '  "setup_seconds": %s,\n' "$setup_seconds"
   printf '  "notices": [\n'
   first=true
   while IFS= read -r notice || [ -n "$notice" ]; do
@@ -345,6 +368,7 @@ cleanup
 WORK=
 trap - 0 HUP INT TERM
 verify_tools
-printf 'archive_bytes=%s download_seconds=%s extract_seconds=%s\n' "$actual_bytes" "$download_seconds" "$extract_seconds"
+printf 'archive_bytes=%s download_seconds=%s archive_validation_seconds=%s extract_seconds=%s setup_seconds=%s\n' \
+  "$actual_bytes" "$download_seconds" "$archive_validation_seconds" "$extract_seconds" "$setup_seconds"
 printf 'notice_inventory:\n'
 sed 's/^/  /' "$INSTALL/install.json"
