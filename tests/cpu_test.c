@@ -273,6 +273,32 @@ static uint32_t encode_arm_transfer(bool register_offset, bool preindexed,
            ((uint32_t)data_register << 12u) | (uint32_t)offset;
 }
 
+static uint32_t encode_arm_subword(bool register_offset, bool preindexed,
+                                   bool add_offset, bool writeback,
+                                   bool load, bool sign, bool halfword,
+                                   uint8_t base_register,
+                                   uint8_t data_register, uint16_t offset)
+{
+    uint32_t opcode = UINT32_C(0xE0000090) |
+        (preindexed ? UINT32_C(1) << 24u : 0u) |
+        (add_offset ? UINT32_C(1) << 23u : 0u) |
+        (!register_offset ? UINT32_C(1) << 22u : 0u) |
+        (writeback ? UINT32_C(1) << 21u : 0u) |
+        (load ? UINT32_C(1) << 20u : 0u) |
+        ((uint32_t)base_register << 16u) |
+        ((uint32_t)data_register << 12u) |
+        (sign ? UINT32_C(1) << 6u : 0u) |
+        (halfword ? UINT32_C(1) << 5u : 0u);
+
+    if (register_offset) {
+        opcode |= (uint32_t)(offset & UINT16_C(0x000F));
+    } else {
+        opcode |= ((uint32_t)(offset & UINT16_C(0x00F0)) << 4u) |
+                  (uint32_t)(offset & UINT16_C(0x000F));
+    }
+    return opcode;
+}
+
 static uint32_t read_test_word(const uint8_t *bytes, size_t offset)
 {
     return (uint32_t)bytes[offset] |
@@ -2193,6 +2219,417 @@ static void test_arm_transfer_preindexed_writeback(void)
               "ARM STR pre-indexed writeback stores at adjusted address and updates base");
     if (loaded) {
         gbl_machine_dispose(&machine);
+    }
+}
+
+typedef struct arm_subword_address_case {
+    const char *name;
+    bool register_offset;
+    bool preindexed;
+    bool add_offset;
+    bool writeback;
+    uint16_t offset;
+} arm_subword_address_case;
+
+static const arm_subword_address_case arm_subword_address_cases[] = {
+    { "immediate offset", false, true, true, false, UINT16_C(0xA4) },
+    { "immediate pre-index", false, true, false, true, UINT16_C(0xA4) },
+    { "immediate post-index", false, false, true, false, UINT16_C(0xA4) },
+    { "register offset", true, true, true, false, UINT16_C(0x24) },
+    { "register pre-index", true, true, false, true, UINT16_C(0x24) },
+    { "register post-index", true, false, false, false, UINT16_C(0x24) }
+};
+
+static bool arm_subword_form_case(uint8_t transfer_kind,
+                                  const arm_subword_address_case *address_case)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(40) };
+    gbl_run_result result = { 0 };
+    const uint32_t initial_base = UINT32_C(0x03000400);
+    const uint32_t offset = address_case->offset;
+    const uint32_t updated_base = address_case->add_offset
+        ? initial_base + offset
+        : initial_base - offset;
+    const uint32_t access_address = address_case->preindexed
+        ? updated_base
+        : initial_base;
+    const bool writeback = !address_case->preindexed ||
+                           address_case->writeback;
+    const uint32_t expected_base = writeback ? updated_base : initial_base;
+    const bool load = transfer_kind != 1u;
+    const bool sign = transfer_kind >= 2u;
+    const bool halfword = transfer_kind != 2u;
+    const uint8_t width = halfword ? 2u : 1u;
+    const uint32_t raw_value = transfer_kind == 0u
+        ? UINT32_C(0x00001234)
+        : transfer_kind == 2u ? UINT32_C(0x00000080)
+        : transfer_kind == 3u ? UINT32_C(0x00008001)
+                              : 0u;
+    const uint32_t expected_result = transfer_kind == 0u
+        ? UINT32_C(0x00001234)
+        : transfer_kind == 2u ? UINT32_C(0xFFFFFF80)
+        : transfer_kind == 3u ? UINT32_C(0xFFFF8001)
+                              : 0u;
+    const uint32_t source_value = UINT32_C(0xA1B2C3D4);
+    uint32_t opcode;
+    size_t index;
+    bool saw_data = false;
+    bool observed;
+
+    make_empty_image(image);
+    if (transfer_kind == 1u) {
+        memset(image, 0, sizeof(image));
+    }
+    if (!machine_load(&machine, image)) {
+        return false;
+    }
+    machine.cpu.r0_7[0] = initial_base;
+    machine.cpu.r0_7[1] = offset;
+    machine.cpu.r0_7[2] = source_value;
+    if (transfer_kind == 0u) {
+        machine.iwram[access_address - UINT32_C(0x03000000)] = UINT8_C(0x34);
+        machine.iwram[access_address - UINT32_C(0x03000000) + 1u] =
+            UINT8_C(0x12);
+    } else if (transfer_kind == 1u) {
+        machine.iwram[access_address - UINT32_C(0x03000000)] = UINT8_C(0xEE);
+        machine.iwram[access_address - UINT32_C(0x03000000) + 1u] =
+            UINT8_C(0xEE);
+    } else if (transfer_kind == 2u) {
+        machine.iwram[access_address - UINT32_C(0x03000000)] = UINT8_C(0x80);
+    } else {
+        machine.iwram[access_address - UINT32_C(0x03000000)] = UINT8_C(0x01);
+        machine.iwram[access_address - UINT32_C(0x03000000) + 1u] =
+            UINT8_C(0x80);
+    }
+    opcode = encode_arm_subword(
+        address_case->register_offset, address_case->preindexed,
+        address_case->add_offset, address_case->writeback, load, sign,
+        halfword, 0u, 2u, address_case->register_offset
+                             ? UINT16_C(1)
+                             : address_case->offset);
+    observed = run_arm_instruction_with_trace(
+        &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(3), &trace, &result) &&
+        result.termination == GBL_RUN_PROGRESS &&
+        result.cycles == UINT64_C(3) &&
+        result.instructions == UINT64_C(1) && machine.master_cycles == 3u &&
+        machine.cpu.r0_7[0] == expected_base &&
+        (load ? machine.cpu.r0_7[2] == expected_result
+              : machine.iwram[access_address - UINT32_C(0x03000000)] ==
+                    UINT8_C(0xC3) &&
+                    machine.iwram[access_address - UINT32_C(0x03000000) + 1u]
+                        == UINT8_C(0xD4));
+    for (index = 0u; index < trace.count; ++index) {
+        if (records[index].category == GBL_TRACE_BUS &&
+            records[index].address == access_address &&
+            records[index].width == width &&
+            (!load || records[index].value == raw_value)) {
+            saw_data = true;
+        }
+    }
+    observed = observed && saw_data && trace.count == 4u &&
+               trace.next_sequence == UINT64_C(44);
+    gbl_machine_dispose(&machine);
+    return observed;
+}
+
+static bool arm_subword_refusal_is_atomic(uint32_t opcode)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before = { 0 };
+    gbl_machine expected = { 0 };
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_record records_before[4];
+    gbl_trace_buffer trace = { records, 4u, 1u, UINT64_C(71) };
+    const gbl_run_options options = {
+        .cycle_budget = UINT64_C(8),
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    bool atomic = false;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    records[0] = (gbl_trace_record){
+        .sequence = UINT64_C(70),
+        .guest_cycle = UINT64_C(19),
+        .category = GBL_TRACE_BUS,
+        .instruction_address = UINT32_C(0x08000080),
+        .opcode = UINT32_C(0xE1A00000),
+        .address = UINT32_C(0x03000180),
+        .value = UINT32_C(0xAABBCCDD),
+        .width = 4u,
+        .access_class = GBL_BUS_CLASS_SEQUENTIAL,
+        .bus_outcome = GBL_BUS_OUTCOME_RAM
+    };
+    if (loaded) {
+        gbl_machine_reset(&machine);
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        machine.cpu.r0_7[1] = UINT32_C(4);
+        machine.cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
+        write_word(machine.iwram, 0x100u, UINT32_C(0x11223344));
+        prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
+        before = machine;
+        expected = before;
+        memcpy(records_before, records, sizeof(records_before));
+        ran = gbl_cpu_run(&machine, &options, &result) ==
+              GBL_RUN_STATUS_OK;
+        expected.cpu.stopped = true;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        atomic = ran && result.termination == GBL_RUN_STOPPED &&
+            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            gbl_test_canonical_equal(&expected, &machine) &&
+            gbl_test_same_instance_identity_equal(&before, &machine) &&
+            trace.count == 1u && trace.next_sequence == UINT64_C(71) &&
+            memcmp(records, records_before, sizeof(records)) == 0;
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && atomic;
+}
+
+static void test_arm_subword_address_matrix(void)
+{
+    static const char *const transfer_names[] = {
+        "LDRH", "STRH", "LDRSB", "LDRSH"
+    };
+    uint8_t transfer_kind;
+    size_t address_index;
+
+    for (transfer_kind = 0u; transfer_kind < 4u; ++transfer_kind) {
+        for (address_index = 0u;
+             address_index < sizeof(arm_subword_address_cases) /
+                                 sizeof(arm_subword_address_cases[0]);
+             ++address_index) {
+            char description[128];
+            const bool passed = arm_subword_form_case(
+                transfer_kind, &arm_subword_address_cases[address_index]);
+
+            (void)snprintf(
+                description, sizeof(description),
+                "ARM %s executes %s with correct data, address and writeback",
+                transfer_names[transfer_kind],
+                arm_subword_address_cases[address_index].name);
+            test_case(passed, description);
+        }
+    }
+}
+
+static void test_arm_subword_pc_and_alias_rules(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran;
+
+    make_empty_image(image);
+    write_halfword(image, 0x08u, UINT16_C(0x3456));
+    image[0x18u] = UINT8_C(0x80);
+    loaded = machine_load(&machine, image);
+    ran = loaded && run_arm_instruction(
+        &machine,
+        encode_arm_subword(false, true, true, false, true, false, true,
+                           15u, 1u, 0u),
+        TEST_CPSR_SYSTEM, UINT64_C(3), &result);
+    test_case(ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[1] == UINT32_C(0x00003456),
+              "ARM LDRH permits PC-relative immediate offset using PC+8");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+
+    machine = (gbl_machine){ 0 };
+    loaded = machine_load(&machine, image);
+    machine.cpu.r0_7[2] = UINT32_C(0x10);
+    ran = loaded && run_arm_instruction(
+        &machine,
+        encode_arm_subword(true, true, true, false, true, true, false,
+                           15u, 1u, 2u),
+        TEST_CPSR_SYSTEM, UINT64_C(3), &result);
+    test_case(ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[1] == UINT32_C(0xFFFFFF80),
+              "ARM LDRSB permits PC-relative register offset using PC+8");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+
+    machine = (gbl_machine){ 0 };
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        machine.iwram[0x100u] = UINT8_C(0x34);
+        machine.iwram[0x101u] = UINT8_C(0x12);
+        ran = run_arm_instruction(
+            &machine,
+            encode_arm_subword(false, true, true, false, true, false, true,
+                               0u, 0u, 0u),
+            TEST_CPSR_SYSTEM, UINT64_C(3), &result);
+    } else {
+        ran = false;
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[0] == UINT32_C(0x00001234),
+              "ARM LDRH permits Rd=Rn when writeback is absent");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+
+    machine = (gbl_machine){ 0 };
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.open_bus = UINT32_C(0x00000080);
+        machine.cpu.r0_7[0] = UINT32_C(0x00000040);
+        ran = run_arm_instruction(
+            &machine,
+            encode_arm_subword(true, true, true, false, true, true, false,
+                               0u, 0u, 0u),
+            TEST_CPSR_SYSTEM, UINT64_C(3), &result);
+    } else {
+        ran = false;
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.cpu.r0_7[0] == UINT32_C(0xFFFFFF80),
+              "ARM LDRSB permits Rn=Rm when register offset has no writeback");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+
+    machine = (gbl_machine){ 0 };
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        ran = run_arm_instruction(
+            &machine,
+            encode_arm_subword(false, true, true, false, false, false, true,
+                               0u, 0u, 0u),
+            TEST_CPSR_SYSTEM, UINT64_C(3), &result);
+    } else {
+        ran = false;
+    }
+    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
+                  machine.iwram[0x100u] == UINT8_C(0x00) &&
+                  machine.iwram[0x101u] == UINT8_C(0x01) &&
+                  machine.cpu.r0_7[0] == UINT32_C(0x03000100),
+              "ARM STRH permits Rd=Rn when writeback is absent");
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_arm_subword_architectural_refusals(void)
+{
+    static const struct {
+        uint32_t opcode;
+        const char *description;
+    } cases[] = {
+        { 0u, "ARM LDRH refuses PC destination before any effect" },
+        { 0u, "ARM LDRSB refuses PC destination before any effect" },
+        { 0u, "ARM LDRSH refuses PC destination before any effect" },
+        { 0u, "ARM STRH refuses PC source before any effect" },
+        { 0u, "ARM LDRH refuses writeback when Rd equals Rn" },
+        { 0u, "ARM LDRSB refuses writeback when Rd equals Rn" },
+        { 0u, "ARM LDRSH refuses writeback when Rd equals Rn" },
+        { 0u, "ARM STRH refuses writeback when Rd equals Rn" },
+        { 0u, "ARM Mode 3 register offset refuses Rm=PC" },
+        { 0u, "ARM Mode 3 pre-index refuses PC base with writeback" },
+        { 0u, "ARM Mode 3 post-index refuses PC base" },
+        { 0u, "ARM Mode 3 refuses P=0 with W=1" },
+        { 0u, "ARMv4T Mode 3 pre-index writeback refuses Rn=Rm" },
+        { 0u, "ARMv4T Mode 3 post-index refuses Rn=Rm" },
+        { 0u, "ARM Mode 3 register offset refuses nonzero SBZ field" },
+        { 0u, "ARMv4T does not execute later-version LDRD encoding" },
+        { 0u, "ARMv4T does not execute later-version STRD encoding" }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint32_t opcode = 0u;
+
+        switch (index) {
+        case 0u:
+            opcode = encode_arm_subword(false, true, true, false, true,
+                                         false, true, 0u, 15u, 0u);
+            break;
+        case 1u:
+            opcode = encode_arm_subword(false, true, true, false, true,
+                                         true, false, 0u, 15u, 0u);
+            break;
+        case 2u:
+            opcode = encode_arm_subword(false, true, true, false, true,
+                                         true, true, 0u, 15u, 0u);
+            break;
+        case 3u:
+            opcode = encode_arm_subword(false, true, true, false, false,
+                                         false, true, 0u, 15u, 0u);
+            break;
+        case 4u:
+            opcode = encode_arm_subword(false, true, true, true, true,
+                                         false, true, 0u, 0u, 4u);
+            break;
+        case 5u:
+            opcode = encode_arm_subword(false, true, true, true, true,
+                                         true, false, 0u, 0u, 4u);
+            break;
+        case 6u:
+            opcode = encode_arm_subword(false, true, true, true, true,
+                                         true, true, 0u, 0u, 4u);
+            break;
+        case 7u:
+            opcode = encode_arm_subword(false, true, true, true, false,
+                                         false, true, 0u, 0u, 4u);
+            break;
+        case 8u:
+            opcode = encode_arm_subword(true, true, true, false, true,
+                                         false, true, 0u, 2u, 15u);
+            break;
+        case 9u:
+            opcode = encode_arm_subword(false, true, true, true, true,
+                                         false, true, 15u, 2u, 0u);
+            break;
+        case 10u:
+            opcode = encode_arm_subword(true, false, true, false, true,
+                                         false, true, 15u, 2u, 1u);
+            break;
+        case 11u:
+            opcode = encode_arm_subword(false, false, true, true, true,
+                                         false, true, 0u, 2u, 4u);
+            break;
+        case 12u:
+            opcode = encode_arm_subword(true, true, true, true, true,
+                                         false, true, 0u, 2u, 0u);
+            break;
+        case 13u:
+            opcode = encode_arm_subword(true, false, true, false, true,
+                                         false, true, 0u, 2u, 0u);
+            break;
+        case 14u:
+            opcode = encode_arm_subword(true, true, true, false, true,
+                                         false, true, 0u, 2u, 4u) |
+                     (UINT32_C(1) << 8u);
+            break;
+        case 15u:
+            opcode = encode_arm_subword(false, true, true, false, false,
+                                         true, false, 0u, 2u, 4u);
+            break;
+        default:
+            opcode = encode_arm_subword(false, true, true, false, false,
+                                         true, true, 0u, 2u, 4u);
+            break;
+        }
+        test_case(arm_subword_refusal_is_atomic(opcode),
+                  cases[index].description);
     }
 }
 
@@ -7404,6 +7841,11 @@ typedef struct cpu_test_group {
 #define CPU_TEST_GROUP(selector_name, assertions, function_list) \
     { selector_name, assertions, CPU_TEST_ARRAY_COUNT(function_list), function_list }
 
+static const cpu_test_function arm_subword_functions[] = {
+    test_arm_subword_address_matrix,
+    test_arm_subword_pc_and_alias_rules,
+    test_arm_subword_architectural_refusals
+};
 static const cpu_test_function lifecycle_functions[] = { test_lifecycle };
 static const cpu_test_function arm_alu_functions[] = {
     test_arm_adc_carry_in,
@@ -7516,6 +7958,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),
+    CPU_TEST_GROUP("arm_subword", 46u, arm_subword_functions),
     CPU_TEST_GROUP("loaded_pc", 17u, loaded_pc_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
