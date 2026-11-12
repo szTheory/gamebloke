@@ -2386,6 +2386,84 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         return true;
     }
 
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0x8000)) {
+        const bool load = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t destination = (uint8_t)(opcode & 7u);
+        const uint8_t base_register = (uint8_t)((opcode >> 3u) & 7u);
+        const uint32_t offset =
+            (uint32_t)((opcode >> 6u) & UINT16_C(0x001F)) << 1u;
+        const uint32_t base = cpu->r0_7[base_register];
+        const uint32_t store_value = cpu->r0_7[destination];
+
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, base + offset, (uint8_t)GBL_CPU_HALF_WIDTH, load,
+                destination, store_value, false, false, cpu->cpsr,
+                next_fetch_address)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0x9000)) {
+        const bool load = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t destination = (uint8_t)((opcode >> 8u) & 7u);
+        const uint8_t base_register = (uint8_t)13u;
+        const uint32_t offset =
+            (uint32_t)(opcode & UINT16_C(0x00FF)) << 2u;
+        const uint32_t base = gbl_cpu_read_register(
+            cpu, base_register, instruction_address, GBL_CPU_PC_READ_NORMAL);
+        const uint32_t store_value = cpu->r0_7[destination];
+
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, base + offset, (uint8_t)GBL_CPU_WORD_WIDTH, load,
+                destination, store_value, false, false, cpu->cpsr,
+                next_fetch_address)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0xA000)) {
+        const bool use_sp = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t destination = (uint8_t)((opcode >> 8u) & 7u);
+        const uint8_t base_register = use_sp ? (uint8_t)13u : (uint8_t)15u;
+        const uint32_t offset =
+            (uint32_t)(opcode & UINT16_C(0x00FF)) << 2u;
+        const gbl_cpu_pc_read_context pc_context = use_sp
+            ? GBL_CPU_PC_READ_NORMAL
+            : GBL_CPU_PC_READ_THUMB_ALIGNED_ADDRESS;
+        const uint32_t base = gbl_cpu_read_register(
+            cpu, base_register, instruction_address, pc_context);
+
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (!gbl_cpu_add_literal_register_effect(
+                unit, destination, cpu->cpsr, base + offset) ||
+            !gbl_cpu_schedule_sequential_fetch(
+                unit, next_fetch_address, true)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xB000)) {
+        const bool subtract = (opcode & UINT16_C(0x0080)) != 0u;
+        const uint32_t offset =
+            (uint32_t)(opcode & UINT16_C(0x007F)) << 2u;
+        const uint32_t base = gbl_cpu_read_register(
+            cpu, (uint8_t)13u, instruction_address,
+            GBL_CPU_PC_READ_NORMAL);
+        const uint32_t result = subtract ? base - offset : base + offset;
+
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (!gbl_cpu_add_literal_register_effect(
+                unit, (uint8_t)13u, cpu->cpsr, result) ||
+            !gbl_cpu_schedule_sequential_fetch(
+                unit, next_fetch_address, true)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
     unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
     return true;
 }
