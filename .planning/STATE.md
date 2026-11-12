@@ -5,16 +5,16 @@ milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 status: Executing Phase05 Plan10; Plan09 corrected hosted CI green
-stopped_at: Plan09 corrected hosted CI green; resuming authorized Plan10 ARM transfer/dynamic loaded-PC work
-last_updated: "2026-11-12T15:40:47.390Z"
+stopped_at: Completed 05-10-PLAN.md
+last_updated: "2026-11-12T16:34:23.853Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
-state_head: a16dad4dd10f0585507a6a6227a4558deec629bc
+state_head: 71c28274780609e6df7f472d6a801987f80e335b
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 47
+  completed_plans: 48
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 10 of 25
+Plan: 11 of 25
 Status: Executing Phase05 Plan10; Plan09 corrected hosted CI green
 Last activity: 2026-11-12 — Phase 05 Plan 09 completed locally; Plan 10 is ready to execute
 
@@ -106,6 +106,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P07 | 54 min | 2 tasks | 7 files |
 | Phase 05 P08 | 49m | 2 tasks | 5 files |
 | Phase 05 P09 | 43min | 2 tasks | 5 files |
+| Phase 05 P10 | 43 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -227,6 +228,8 @@ Recent decisions affecting current work:
 - [Phase 05]: DDI0029G m is derived from original Rs and charged through bus-owned internal time without wait-state or prefetch claims.
 - [Phase 05]: Owner approved per-pair duplicate mutation compilation reduction, local timing/full verification and one corrected hosted run. Preserve every check/flag, zero sanitizer skips and180s limits; next new red renews stop.
 - [Phase 05]: Plan09 approved mutation-build correction passed all required hosted checks inrun43249533205 ata16dad4; original timeout stop resolved, resumePlan10. GNUCPUcontrols52.8->35.19s, overall175s/180s narrowmargin; future newred renewsstop.
+- [Phase 05]: ARMv4T LDR PC masks loaded bits [1:0], keeps ARM state, and wraps the second aligned refill modulo 2^32.
+- [Phase 05]: Unaligned LDR PC source addresses and LDRT to R15 are unpredictable and refused before effects.
 
 ### Pending Todos
 
@@ -262,6 +265,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T15:40:47.152Z
-Stopped at: Plan09 corrected hosted CI green; resuming authorized Plan10 ARM transfer/dynamic loaded-PC work
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-12T16:34:23.316Z
+Stopped at: Completed 05-10-PLAN.md
+Resume file: None
