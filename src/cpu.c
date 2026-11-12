@@ -976,6 +976,85 @@ static bool gbl_cpu_prepare_data_transfer(gbl_cpu_unit *unit,
     return gbl_cpu_add_data_write_slot(unit, bus_address, width, store_value);
 }
 
+/* DDI0100I A6.5 defines the Thumb transfer forms. This builder translates
+ * those decoded operands into the existing single-unit bus/result plan. Its
+ * odd halfword handling follows the selected GBA ARM7 policy in GBATEK 3.06;
+ * the bus remains responsible for the raw value returned by each region. */
+static bool gbl_cpu_prepare_thumb_data_transfer(
+    gbl_cpu_unit *unit, uint32_t address, uint8_t width, bool load,
+    uint8_t destination, uint32_t store_value, bool signed_byte,
+    bool signed_halfword, uint32_t bank_cpsr,
+    uint32_t next_fetch_address)
+{
+    uint32_t bus_address = address;
+    uint8_t slot_width = width;
+    uint8_t result_index = UINT8_MAX;
+    uint8_t alignment_lane = (uint8_t)(address & UINT32_C(3));
+    bool rotate_word = false;
+    bool rotate_halfword = false;
+    bool extend_byte = signed_byte;
+    bool extend_halfword = signed_halfword;
+
+    if (width == (uint8_t)GBL_CPU_WORD_WIDTH) {
+        bus_address &= ~UINT32_C(3);
+        rotate_word = load;
+    } else if (width == (uint8_t)GBL_CPU_HALF_WIDTH) {
+        const bool odd = (address & UINT32_C(1)) != 0u;
+
+        if (load && signed_halfword && odd) {
+            /* ARM7/GBA odd LDRSH is the signed byte at the original address. */
+            slot_width = 1u;
+            extend_byte = true;
+            extend_halfword = false;
+        } else {
+            bus_address &= ~UINT32_C(1);
+            alignment_lane = (uint8_t)(address & UINT32_C(1));
+            rotate_halfword = load && !signed_halfword && odd;
+        }
+    }
+
+    if (!gbl_cpu_data_span_valid(bus_address, slot_width)) {
+        return false;
+    }
+    unit->kind = GBL_CPU_UNIT_TRANSFER;
+    if (load) {
+        const bool use_subword_slot = rotate_halfword || extend_byte ||
+                                      extend_halfword;
+        const bool slot_added = use_subword_slot
+            ? gbl_cpu_add_subword_read_slot(
+                  unit, bus_address, slot_width, alignment_lane,
+                  rotate_halfword, extend_byte, extend_halfword,
+                  &result_index)
+            : gbl_cpu_add_data_read_slot(
+                  unit, bus_address, slot_width, alignment_lane,
+                  rotate_word, &result_index);
+
+        if (!slot_added ||
+            !gbl_cpu_add_result_register_effect(
+                unit, destination, bank_cpsr, result_index)) {
+            return false;
+        }
+    } else {
+        uint32_t masked_value = store_value;
+
+        if (slot_width == 1u) {
+            masked_value &= UINT32_C(0x000000FF);
+        } else if (slot_width == (uint8_t)GBL_CPU_HALF_WIDTH) {
+            masked_value &= UINT32_C(0x0000FFFF);
+        } else {
+            bus_address = address & ~UINT32_C(3);
+        }
+        if (!gbl_cpu_add_data_write_slot(unit, bus_address, slot_width,
+                                         masked_value)) {
+            return false;
+        }
+    }
+    if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, true)) {
+        return false;
+    }
+    return true;
+}
+
 static bool gbl_cpu_is_arm_extension(uint32_t opcode)
 {
     return (opcode & UINT32_C(0x0E000090)) == UINT32_C(0x00000090);
@@ -2248,16 +2327,38 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         const uint32_t address =
             base + ((uint32_t)(opcode & UINT16_C(0x00FF)) << 2u);
 
-        if (!gbl_cpu_data_span_valid(address,
-                                     (uint8_t)GBL_CPU_WORD_WIDTH)) {
-            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-            return true;
-        }
-        if (!gbl_cpu_prepare_data_transfer(
+        if (!gbl_cpu_prepare_thumb_data_transfer(
                 unit, address, (uint8_t)GBL_CPU_WORD_WIDTH, true,
-                destination, 0u, false, cpu->cpsr) ||
-            !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
-                                               true)) {
+                destination, 0u, false, false, cpu->cpsr,
+                next_fetch_address)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0x5000)) {
+        const uint8_t operation = (uint8_t)((opcode >> 9u) & 7u);
+        const uint8_t offset_register = (uint8_t)((opcode >> 6u) & 7u);
+        const uint8_t base_register = (uint8_t)((opcode >> 3u) & 7u);
+        const uint8_t data_register = (uint8_t)(opcode & 7u);
+        const bool load = operation >= 3u;
+        const bool signed_byte = operation == 3u;
+        const bool signed_halfword = operation == 7u;
+        const uint8_t width = (operation == 0u || operation == 4u)
+            ? (uint8_t)GBL_CPU_WORD_WIDTH
+            : (operation == 1u || operation == 5u || operation == 7u)
+                ? (uint8_t)GBL_CPU_HALF_WIDTH
+                : 1u;
+        /* Snapshot both address operands and the store source before the
+         * result/effect records can commit any low-register destination. */
+        const uint32_t base = cpu->r0_7[base_register];
+        const uint32_t offset = cpu->r0_7[offset_register];
+        const uint32_t store_value = cpu->r0_7[data_register];
+
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, base + offset, width, load, data_register,
+                store_value, signed_byte, signed_halfword, cpu->cpsr,
+                next_fetch_address)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         }
         return true;
@@ -2276,16 +2377,10 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
             offset <<= 2u;
         }
         address = cpu->r0_7[base_register] + offset;
-        if (!gbl_cpu_data_span_valid(address, width)) {
-            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-            return true;
-        }
-        if (!gbl_cpu_prepare_data_transfer(
+        if (!gbl_cpu_prepare_thumb_data_transfer(
                 unit, address, width, load, destination,
-                load ? 0u : cpu->r0_7[destination], load && !byte,
-                cpu->cpsr) ||
-            !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
-                                               true)) {
+                load ? 0u : cpu->r0_7[destination], false, false,
+                cpu->cpsr, next_fetch_address)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         }
         return true;
