@@ -7,7 +7,7 @@ current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Complet
 status: Phase 05 Plan 05 complete; Plan 06 not started
 stopped_at: Completed 05-05-PLAN.md
 last_updated: "2026-11-12T00:54:00.701Z"
-last_activity: 2026-11-11
+last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 05 smoke pair admitted after green hosted witness and canonical local CI
 state_head: 03cb2840e009dfbcb21029b5af905b98101cc7f7
 progress:
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 6 of 25
 Status: Plan 05 complete; Plan 06 not started
-Last activity: 2026-11-11 — Artifact identity controls and canonical local CI passed
+Last activity: 2026-11-12 — Plan 05 smoke pair admitted after hosted and local verification passed
 
 Progress: [███████░░░] 67%
 
