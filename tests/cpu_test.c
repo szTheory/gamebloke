@@ -2850,32 +2850,11 @@ static void test_arm_transfer_modulo_address_wrap(void)
               "ARM single-transfer pre-index address and writeback wrap modulo 2^32");
 }
 
-static uint32_t rotate_left_word(uint32_t value, uint8_t amount)
-{
-    const uint8_t rotation = (uint8_t)(amount & 31u);
-
-    if (rotation == 0u) {
-        return value;
-    }
-    return (value << rotation) | (value >> (32u - rotation));
-}
-
-static uint32_t rotate_right_word(uint32_t value, uint8_t amount)
-{
-    const uint8_t rotation = (uint8_t)(amount & 31u);
-
-    if (rotation == 0u) {
-        return value;
-    }
-    return (value >> rotation) | (value << (32u - rotation));
-}
-
-static bool arm_loaded_pc_lane_uses_rotated_result(uint8_t lane)
+static bool arm_loaded_pc_ignores_target_lane(uint8_t lane)
 {
     const uint32_t target = UINT32_C(0x08000040);
-    const uint32_t data_address = UINT32_C(0x03000100) + (uint32_t)lane;
-    const uint32_t raw_word = rotate_left_word(
-        target, (uint8_t)(lane * 8u));
+    const uint32_t data_address = UINT32_C(0x03000100);
+    const uint32_t raw_word = target | (uint32_t)lane;
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
     gbl_trace_record records[4] = { 0 };
@@ -2952,9 +2931,7 @@ static bool arm_loaded_pc_uses_actual_bus_result(
         for (index = 0u; index < trace.count; ++index) {
             if (records[index].category == GBL_TRACE_BUS &&
                 records[index].address == (address & ~UINT32_C(3))) {
-                loaded_value = rotate_right_word(
-                    records[index].value,
-                    (uint8_t)((address & UINT32_C(3)) * 8u));
+                loaded_value = records[index].value;
                 target = loaded_value & ~UINT32_C(3);
                 found_data = records[index].bus_outcome == expected_outcome;
                 break;
@@ -2986,8 +2963,8 @@ static void test_loaded_pc_actual_bus_outcomes(void)
                   UINT32_C(0x04000004), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
               "LDR PC refills from the actual unimplemented-I/O word result");
     test_case(arm_loaded_pc_uses_actual_bus_result(
-                  UINT32_MAX, GBL_BUS_OUTCOME_UNMAPPED),
-              "LDR PC refills from the rotated actual unmapped maximum-address result");
+                  UINT32_MAX - UINT32_C(3), GBL_BUS_OUTCOME_UNMAPPED),
+              "LDR PC refills from the actual unmapped maximum word-address result");
 }
 
 static bool arm_loaded_pc_wraps_second_refill(void)
@@ -3031,7 +3008,8 @@ static bool arm_loaded_pc_wraps_second_refill(void)
 
 static bool arm_loaded_pc_preflight_boundary(
     uint64_t cycle_budget, size_t trace_capacity, size_t trace_count,
-    uint64_t next_sequence, gbl_run_reason expected_reason)
+    uint64_t next_sequence, uint64_t master_cycles,
+    uint64_t retired_instructions, gbl_run_reason expected_reason)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
@@ -3053,6 +3031,8 @@ static bool arm_loaded_pc_preflight_boundary(
     memcpy(records_before, records, sizeof(records_before));
     trace = trace_before;
     if (loaded) {
+        machine.master_cycles = master_cycles;
+        machine.cpu.retired_instructions = retired_instructions;
         machine.cpu.r0_7[0] = UINT32_C(0x03000100);
         write_word(machine.iwram, 0x100u, UINT32_C(0x08000040));
         prepare_arm_instruction(&machine, UINT32_C(0xE590F000),
@@ -3062,7 +3042,8 @@ static bool arm_loaded_pc_preflight_boundary(
             &machine, cycle_budget, 1u,
             GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace, &result);
         if (expected_reason == GBL_RUN_REASON_CYCLE_BUDGET ||
-            expected_reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL) {
+            expected_reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL ||
+            expected_reason == GBL_RUN_REASON_COUNTER_OVERFLOW) {
             matched = ran && result.reason == expected_reason &&
                       result.cycles == 0u && result.instructions == 0u &&
                       gbl_test_canonical_equal(&before, &machine) &&
@@ -3078,9 +3059,12 @@ static bool arm_loaded_pc_preflight_boundary(
             matched = ran && result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                       result.instructions == 1u &&
                       result.cycles == UINT64_C(3) && trace.count == 4u &&
-                      trace.next_sequence == UINT64_MAX &&
-                      records[0].sequence == UINT64_MAX - UINT64_C(4) &&
-                      records[3].sequence == UINT64_MAX - UINT64_C(1) &&
+                      trace.next_sequence == next_sequence + UINT64_C(4) &&
+                      records[0].sequence == next_sequence &&
+                      records[3].sequence == next_sequence + UINT64_C(3) &&
+                      machine.master_cycles == master_cycles + UINT64_C(3) &&
+                      machine.cpu.retired_instructions ==
+                          retired_instructions + UINT64_C(1) &&
                       machine.cpu.execution_address == UINT32_C(0x08000040) &&
                       machine.cpu.pipeline[1].address == UINT32_C(0x08000044);
         }
@@ -3098,27 +3082,50 @@ static void test_loaded_pc_target_and_preflight(void)
     uint8_t lane;
 
     for (lane = 0u; lane < 4u; ++lane) {
-        test_case(arm_loaded_pc_lane_uses_rotated_result(lane),
-                  "LDR PC applies the real word-lane rotation and keeps ARM refill state");
+        test_case(arm_loaded_pc_ignores_target_lane(lane),
+                  "ARMv4 LDR PC ignores loaded target lane bits and keeps ARM refill state");
     }
+    test_case(arm_transfer_unpredictable_is_atomic(encode_arm_transfer(
+                  false, true, true, false, false, true, 0u, 15u, 1u)),
+              "ARM LDR PC refuses an unaligned source address atomically");
+    test_case(arm_transfer_unpredictable_is_atomic(encode_arm_transfer(
+                  false, false, true, false, true, true, 0u, 15u, 4u)),
+              "ARMv4T LDRT to PC is architecturally unpredictable and atomic");
     test_case(arm_loaded_pc_wraps_second_refill(),
               "LDR PC aligns the loaded target and wraps the second ARM refill modulo 2^32");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(2), 4u, 0u, UINT64_C(0),
+                  UINT64_C(2), 4u, 0u, UINT64_C(0), UINT64_C(0),
+                  UINT64_C(0),
                   GBL_RUN_REASON_CYCLE_BUDGET),
               "LDR PC one-short cycle budget preserves canonical state and caller trace");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(3), 4u, 1u, UINT64_C(90),
+                  UINT64_C(3), 4u, 1u, UINT64_C(90), UINT64_C(0),
+                  UINT64_C(0),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "LDR PC one-short trace capacity preserves canonical state and caller trace");
     test_case(arm_loaded_pc_preflight_boundary(
                   UINT64_C(3), 4u, 0u, UINT64_MAX - UINT64_C(3),
+                  UINT64_C(0), UINT64_C(0),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "LDR PC trace sequence overflow is refused before the data read");
     test_case(arm_loaded_pc_preflight_boundary(
                   UINT64_C(3), 4u, 0u, UINT64_MAX - UINT64_C(4),
-                  GBL_RUN_REASON_NONE),
+                  UINT64_C(0), UINT64_C(0), GBL_RUN_REASON_NONE),
               "LDR PC exact cycle and trace reservations commit the complete refill");
+    test_case(arm_loaded_pc_preflight_boundary(
+                  UINT64_C(3), 4u, 0u, UINT64_C(0),
+                  UINT64_MAX - UINT64_C(2), UINT64_C(0),
+                  GBL_RUN_REASON_COUNTER_OVERFLOW),
+              "LDR PC master-cycle overflow is refused before the data read");
+    test_case(arm_loaded_pc_preflight_boundary(
+                  UINT64_C(3), 4u, 0u, UINT64_C(0), UINT64_C(0), UINT64_MAX,
+                  GBL_RUN_REASON_COUNTER_OVERFLOW),
+              "LDR PC retired-instruction overflow is refused before the data read");
+    test_case(arm_loaded_pc_preflight_boundary(
+                  UINT64_C(3), 4u, 0u, UINT64_C(0),
+                  UINT64_MAX - UINT64_C(3), UINT64_MAX - UINT64_C(1),
+                  GBL_RUN_REASON_NONE),
+              "LDR PC exact machine-counter, retired-count, cycle, and trace limits commit");
 }
 
 static void test_loaded_pc(void)
@@ -7437,7 +7444,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 355u, arm_transfer_functions),
-    CPU_TEST_GROUP("loaded_pc", 12u, loaded_pc_functions),
+    CPU_TEST_GROUP("loaded_pc", 17u, loaded_pc_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
