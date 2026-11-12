@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Executing Phase 05 Plan 09; Plan 08 corrected hosted CI green
-stopped_at: Plan 08 corrected hosted CI green; resuming authorized Plan 09 multiply work
-last_updated: "2026-11-12T13:40:18.612Z"
+status: executing
+stopped_at: Completed 05-09-PLAN.md
+last_updated: "2026-11-12T14:27:29.475Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 08 completed locally; Plan 09 not started
-state_head: 29966518ff112968569358e83fca5014aaf991bd
+state_head: ced8e0c577fea178d995bf422fae4462689d6d3d
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 46
+  completed_plans: 47
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 9 of 25
-Status: Executing Phase 05 Plan 09; Plan 08 corrected hosted CI green
+Plan: 10 of 25
+Status: Ready to execute
 Last activity: 2026-11-12 — Phase 05 Plan 08 completed locally
 
 Progress: [███████░░░] 67%
@@ -105,6 +105,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P06 | 30 min | 2 tasks | 8 files |
 | Phase 05 P07 | 54 min | 2 tasks | 7 files |
 | Phase 05 P08 | 49m | 2 tasks | 5 files |
+| Phase 05 P09 | 43min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Unpredictable classification remains private until Plan18 adds its coherent public reason and result-profile mapping.
 - [Phase 05]: Owner approved WR-05 fixture cleanup, portable allocation-balance check, matching Linux Clang sanitizer verification and one corrected hosted run; another new red renews stop.
 - [Phase 05]: WR-05 owner-approved correction passed all required hosted checks in run43228795941 at2996651; original leak stop resolved, resume Plan09. New red still renews stop.
+- [Phase 05]: Short MUL and MLA use the chosen deterministic signed termination policy; long forms use their explicit opcode signedness.
+- [Phase 05]: S multiply forms update N/Z while preserving incoming C/V under explicit project policy; non-S forms preserve NZCV.
+- [Phase 05]: DDI0029G m is derived from original Rs and charged through bus-owned internal time without wait-state or prefetch claims.
 
 ### Pending Todos
 
@@ -256,6 +260,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T13:40:18.194Z
-Stopped at: Plan 08 corrected hosted CI green; resuming authorized Plan 09 multiply work
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-12T14:27:29.302Z
+Stopped at: Completed 05-09-PLAN.md
+Resume file: None
