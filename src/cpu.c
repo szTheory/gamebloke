@@ -27,6 +27,11 @@
 #define GBL_CPU_TRACE_UNIT_RECORD_MAX \
     (1u + GBL_CPU_DATA_SLOT_MAX + GBL_CPU_FETCH_SLOT_MAX)
 
+/* DDI0029G §6.5–6.6: register-specified Operand2 shifts add one internal
+ * cycle; immediate Operand2 forms add none. The decode selects this table
+ * before the same unit is costed, preflighted, and executed. */
+static const uint8_t gbl_cpu_arm_operand2_internal_cycles[2] = { 0u, 1u };
+
 typedef enum gbl_cpu_unit_kind {
     GBL_CPU_UNIT_REFILL,
     GBL_CPU_UNIT_DATA_PROCESSING,
@@ -803,13 +808,18 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     uint32_t flag_mask = 0u;
     bool writes_destination = true;
     bool supported_operation = false;
-    bool is_compare = false;
+    bool is_test = false;
+    bool is_arithmetic = false;
     bool condition_passed;
     gbl_shift_result shifted = { 0u, false };
     gbl_arithmetic_result arithmetic = { 0u, false, false };
 
     if ((opcode & UINT32_C(0x0C000000)) != 0u) {
         return false;
+    }
+    if ((opcode >> 28u) == UINT32_C(0x0F)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
     }
     if (gbl_cpu_is_arm_extension(opcode)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
@@ -823,24 +833,36 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
 
     switch (operation) {
     case 0u:  /* AND */
+    case 1u:  /* EOR */
     case 2u:  /* SUB */
+    case 3u:  /* RSB */
     case 4u:  /* ADD */
+    case 5u:  /* ADC */
+    case 6u:  /* SBC */
+    case 7u:  /* RSC */
+    case 8u:  /* TST */
+    case 9u:  /* TEQ */
+    case 10u: /* CMP */
+    case 11u: /* CMN */
     case 12u: /* ORR */
     case 13u: /* MOV */
+    case 14u: /* BIC */
+    case 15u: /* MVN */
         supported_operation = true;
-        break;
-    case 10u: /* CMP */
-        supported_operation = true;
-        is_compare = true;
-        writes_destination = false;
         break;
     default:
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
 
-    if ((is_compare && (!set_flags || rd != 0u)) ||
-        (operation == 13u && rn != 0u)) {
+    is_test = operation >= 8u && operation <= 11u;
+    writes_destination = !is_test;
+    is_arithmetic = operation == 2u || operation == 3u ||
+                    operation == 4u || operation == 5u ||
+                    operation == 6u || operation == 7u ||
+                    operation == 10u || operation == 11u;
+    if ((is_test && (!set_flags || rd != 0u)) ||
+        ((operation == 13u || operation == 15u) && rn != 0u)) {
         unit->kind = GBL_CPU_UNIT_UNDEFINED;
         return true;
     }
@@ -854,11 +876,6 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
-    if (operation == 13u && rd == (uint8_t)15u) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-        return true;
-    }
-
     condition_passed = gbl_cpu_condition_passed(
         (uint8_t)(opcode >> 28u), cpu->cpsr);
     if (!condition_passed) {
@@ -887,6 +904,7 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     } else {
         const bool register_shift =
             (opcode & UINT32_C(0x00000010)) != 0u;
+        const uint8_t form = (uint8_t)(register_shift ? 1u : 0u);
         uint8_t amount;
         const gbl_shift_kind shift_kind =
             (gbl_shift_kind)((opcode >> 5u) & UINT32_C(3));
@@ -898,32 +916,73 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
 
             amount = (uint8_t)(gbl_cpu_read_register(
                 cpu, rs, unit->instruction_address) & UINT32_C(0xFF));
-            unit->internal_cycles = (uint8_t)1u;
         } else {
             amount = (uint8_t)((opcode >> 7u) & UINT32_C(0x1F));
         }
+        unit->internal_cycles = gbl_cpu_arm_operand2_internal_cycles[form];
         shifted = gbl_shift(shift_kind, operand, amount,
                             (cpu->cpsr & GBL_CPU_CPSR_C) != 0u,
                             register_shift);
         operand = shifted.value;
     }
 
-    if (operation == 0u) {
+    switch (operation) {
+    case 0u: /* AND */
+    case 8u: /* TST */
         unit->value = left & operand;
-    } else if (operation == 2u || is_compare) {
+        break;
+    case 1u: /* EOR */
+    case 9u: /* TEQ */
+        unit->value = left ^ operand;
+        break;
+    case 2u: /* SUB */
+    case 10u: /* CMP */
         arithmetic = gbl_sub_flags(left, operand);
         unit->value = arithmetic.value;
-    } else if (operation == 4u) {
+        break;
+    case 3u: /* RSB */
+        arithmetic = gbl_sub_flags(operand, left);
+        unit->value = arithmetic.value;
+        break;
+    case 4u: /* ADD */
+    case 11u: /* CMN */
         arithmetic = gbl_add_flags(left, operand);
         unit->value = arithmetic.value;
-    } else if (operation == 12u) {
+        break;
+    case 5u: /* ADC */
+        arithmetic = gbl_add_with_carry_flags(
+            left, operand, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+        unit->value = arithmetic.value;
+        break;
+    case 6u: /* SBC */
+        arithmetic = gbl_sub_with_carry_flags(
+            left, operand, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+        unit->value = arithmetic.value;
+        break;
+    case 7u: /* RSC */
+        arithmetic = gbl_sub_with_carry_flags(
+            operand, left, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+        unit->value = arithmetic.value;
+        break;
+    case 12u: /* ORR */
         unit->value = left | operand;
-    } else {
+        break;
+    case 13u: /* MOV */
         unit->value = operand;
+        break;
+    case 14u: /* BIC */
+        unit->value = left & ~operand;
+        break;
+    case 15u: /* MVN */
+        unit->value = ~operand;
+        break;
+    default:
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
     }
 
     if (set_flags) {
-        if (operation == 2u || operation == 4u || is_compare) {
+        if (is_arithmetic) {
             flags = gbl_cpu_nz_flags(unit->value);
             if (arithmetic.carry) {
                 flags |= GBL_CPU_CPSR_C;

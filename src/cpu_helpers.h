@@ -129,28 +129,45 @@ static inline gbl_shift_result gbl_shift(gbl_shift_kind kind, uint32_t value,
     return result;
 }
 
-static inline gbl_arithmetic_result gbl_add_flags(uint32_t left,
-                                                   uint32_t right)
+static inline gbl_arithmetic_result gbl_add_with_carry_flags(
+    uint32_t left, uint32_t right, bool carry_in)
 {
     gbl_arithmetic_result result;
+    const uint64_t sum = (uint64_t)left + (uint64_t)right +
+                         (carry_in ? UINT64_C(1) : UINT64_C(0));
 
-    result.value = left + right;
-    result.carry = result.value < left;
+    result.value = (uint32_t)sum;
+    result.carry = (sum >> 32u) != 0u;
     result.overflow = ((~(left ^ right) & (left ^ result.value) &
                         UINT32_C(0x80000000)) != 0u);
     return result;
 }
 
-static inline gbl_arithmetic_result gbl_sub_flags(uint32_t left,
-                                                   uint32_t right)
+static inline gbl_arithmetic_result gbl_sub_with_carry_flags(
+    uint32_t left, uint32_t right, bool carry_in)
 {
     gbl_arithmetic_result result;
+    const uint32_t inverted_right = right ^ UINT32_MAX;
+    const uint64_t difference = (uint64_t)left + (uint64_t)inverted_right +
+                                (carry_in ? UINT64_C(1) : UINT64_C(0));
 
-    result.value = left - right;
-    result.carry = left >= right;
+    result.value = (uint32_t)difference;
+    result.carry = (difference >> 32u) != 0u;
     result.overflow = (((left ^ right) & (left ^ result.value) &
                         UINT32_C(0x80000000)) != 0u);
     return result;
+}
+
+static inline gbl_arithmetic_result gbl_add_flags(uint32_t left,
+                                                   uint32_t right)
+{
+    return gbl_add_with_carry_flags(left, right, false);
+}
+
+static inline gbl_arithmetic_result gbl_sub_flags(uint32_t left,
+                                                   uint32_t right)
+{
+    return gbl_sub_with_carry_flags(left, right, true);
 }
 
 #endif
