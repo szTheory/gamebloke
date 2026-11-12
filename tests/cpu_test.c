@@ -1552,6 +1552,477 @@ static void test_arm_register_shifted_pc_operand_uses_plus_twelve(void)
     gbl_machine_dispose(&machine);
 }
 
+typedef struct arm_operand2_test_vector {
+    const char *description;
+    uint32_t opcode;
+    uint32_t input_value;
+    uint32_t register_count;
+    uint32_t initial_flags;
+    uint32_t expected_value;
+    uint32_t expected_nzc;
+    uint64_t expected_cycles;
+} arm_operand2_test_vector;
+
+static void test_arm_operand2_shift_vectors(void)
+{
+    static const uint32_t cv = TEST_CPSR_C | TEST_CPSR_V;
+    static const uint32_t nzc = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C;
+    static const arm_operand2_test_vector vectors[] = {
+        { "rotated immediate zero preserves carry", UINT32_C(0xE3B02000),
+          0u, 0u, cv, 0u, TEST_CPSR_Z | TEST_CPSR_C, 1u },
+        { "rotated immediate two derives clear carry", UINT32_C(0xE3B02180),
+          0u, 0u, cv, UINT32_C(0x20), 0u, 1u },
+        { "rotated immediate eight derives set carry", UINT32_C(0xE3B02480),
+          0u, 0u, cv, UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_C, 1u },
+        { "immediate LSL zero preserves carry", UINT32_C(0xE1B02000),
+          UINT32_C(0x80000001), 0u, cv, UINT32_C(0x80000001),
+          TEST_CPSR_N | TEST_CPSR_C, 1u },
+        { "immediate LSL one returns shifted bit as carry",
+          UINT32_C(0xE1B02080), UINT32_C(0x80000001), 0u, cv,
+          UINT32_C(2), TEST_CPSR_C, 1u },
+        { "immediate LSR zero means thirty-two", UINT32_C(0xE1B02020),
+          UINT32_C(0x80000001), 0u, cv, 0u, TEST_CPSR_Z | TEST_CPSR_C, 1u },
+        { "immediate LSR one shifts and returns bit zero",
+          UINT32_C(0xE1B020A0), UINT32_C(0x80000001), 0u, cv,
+          UINT32_C(0x40000000), TEST_CPSR_C, 1u },
+        { "immediate ASR zero sign-fills by thirty-two",
+          UINT32_C(0xE1B02040), UINT32_C(0x80000001), 0u, cv,
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 1u },
+        { "immediate ASR one sign-fills and returns bit zero",
+          UINT32_C(0xE1B020C0), UINT32_C(0x80000001), 0u, cv,
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 1u },
+        { "immediate ROR zero performs RRX with old carry",
+          UINT32_C(0xE1B02060), UINT32_C(3), 0u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 1u },
+        { "immediate ROR one rotates the register operand",
+          UINT32_C(0xE1B020E0), UINT32_C(3), 0u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 1u },
+        { "register LSL count zero preserves value and carry",
+          UINT32_C(0xE1B02110), UINT32_C(0x80000001), 0u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register LSL count one shifts and returns bit thirty-one",
+          UINT32_C(0xE1B02110), UINT32_C(0x80000001), 1u, cv,
+          UINT32_C(2), TEST_CPSR_C, 2u },
+        { "register LSL count thirty-one returns bit one as carry",
+          UINT32_C(0xE1B02110), UINT32_C(0x80000001), 31u, cv,
+          UINT32_C(0x80000000), TEST_CPSR_N, 2u },
+        { "register LSL count thirty-two returns bit zero as carry",
+          UINT32_C(0xE1B02110), UINT32_C(0x80000001), 32u, cv,
+          0u, TEST_CPSR_Z | TEST_CPSR_C, 2u },
+        { "register LSL count thirty-three clears carry",
+          UINT32_C(0xE1B02110), UINT32_C(0x80000001), 33u, cv,
+          0u, TEST_CPSR_Z, 2u },
+        { "register LSL count 255 clears carry",
+          UINT32_C(0xE1B02110), UINT32_C(0x80000001), 255u, cv,
+          0u, TEST_CPSR_Z, 2u },
+        { "register LSL count 256 uses low eight zero bits",
+          UINT32_C(0xE1B02110), UINT32_C(0x80000001), 256u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register LSR count zero preserves value and carry",
+          UINT32_C(0xE1B02130), UINT32_C(0x80000001), 0u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register LSR count one shifts and returns bit zero",
+          UINT32_C(0xE1B02130), UINT32_C(0x80000001), 1u, cv,
+          UINT32_C(0x40000000), TEST_CPSR_C, 2u },
+        { "register LSR count thirty-one returns bit thirty",
+          UINT32_C(0xE1B02130), UINT32_C(0x80000001), 31u, cv,
+          UINT32_C(1), 0u, 2u },
+        { "register LSR count thirty-two returns bit thirty-one",
+          UINT32_C(0xE1B02130), UINT32_C(0x80000001), 32u, cv,
+          0u, TEST_CPSR_Z | TEST_CPSR_C, 2u },
+        { "register LSR count thirty-three clears carry",
+          UINT32_C(0xE1B02130), UINT32_C(0x80000001), 33u, cv,
+          0u, TEST_CPSR_Z, 2u },
+        { "register LSR count 255 clears carry",
+          UINT32_C(0xE1B02130), UINT32_C(0x80000001), 255u, cv,
+          0u, TEST_CPSR_Z, 2u },
+        { "register LSR count 256 uses low eight zero bits",
+          UINT32_C(0xE1B02130), UINT32_C(0x80000001), 256u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ASR count zero preserves value and carry",
+          UINT32_C(0xE1B02150), UINT32_C(0x80000001), 0u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ASR count one sign-fills and returns bit zero",
+          UINT32_C(0xE1B02150), UINT32_C(0x80000001), 1u, cv,
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ASR count thirty-one sign-fills",
+          UINT32_C(0xE1B02150), UINT32_C(0x80000001), 31u, cv,
+          UINT32_MAX, TEST_CPSR_N, 2u },
+        { "register ASR count thirty-two sign-fills by word width",
+          UINT32_C(0xE1B02150), UINT32_C(0x80000001), 32u, cv,
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ASR count thirty-three sign-fills",
+          UINT32_C(0xE1B02150), UINT32_C(0x80000001), 33u, cv,
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ASR count 255 sign-fills",
+          UINT32_C(0xE1B02150), UINT32_C(0x80000001), 255u, cv,
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ASR count 256 uses low eight zero bits",
+          UINT32_C(0xE1B02150), UINT32_C(0x80000001), 256u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ROR count zero preserves value and carry",
+          UINT32_C(0xE1B02170), UINT32_C(0x80000001), 0u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ROR count one rotates right",
+          UINT32_C(0xE1B02170), UINT32_C(0x80000001), 1u, cv,
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ROR count thirty-one rotates left one",
+          UINT32_C(0xE1B02170), UINT32_C(0x80000001), 31u, cv,
+          UINT32_C(3), 0u, 2u },
+        { "register ROR count thirty-two preserves value and derives carry",
+          UINT32_C(0xE1B02170), UINT32_C(0x80000001), 32u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ROR count thirty-three repeats count one",
+          UINT32_C(0xE1B02170), UINT32_C(0x80000001), 33u, cv,
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 2u },
+        { "register ROR count 255 repeats count thirty-one",
+          UINT32_C(0xE1B02170), UINT32_C(0x80000001), 255u, cv,
+          UINT32_C(3), 0u, 2u },
+        { "register ROR count 256 uses low eight zero bits",
+          UINT32_C(0xE1B02170), UINT32_C(0x80000001), 256u, cv,
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u }
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    size_t index;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        const arm_operand2_test_vector *vector = &vectors[index];
+        const uint32_t sentinel = UINT32_C(0xA5A5A5A5);
+        const uint64_t cycles_before = machine.master_cycles;
+        const uint64_t retired_before = machine.cpu.retired_instructions;
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        bool ran = false;
+
+        machine.cpu.r0_7[0] = vector->input_value;
+        machine.cpu.r0_7[1] = vector->register_count;
+        machine.cpu.r0_7[2] = sentinel;
+        if (loaded) {
+            ran = run_arm_instruction(&machine, vector->opcode,
+                                      vector->initial_flags,
+                                      vector->expected_cycles, &result);
+        }
+        test_case(loaded && ran &&
+                      result.termination == GBL_RUN_PROGRESS &&
+                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      result.instructions == 1u &&
+                      result.cycles == vector->expected_cycles &&
+                      machine.master_cycles ==
+                          cycles_before + vector->expected_cycles &&
+                      machine.cpu.retired_instructions == retired_before + 1u &&
+                      machine.cpu.r0_7[0] == vector->input_value &&
+                      machine.cpu.r0_7[1] == vector->register_count &&
+                      machine.cpu.r0_7[2] == vector->expected_value &&
+                      (machine.cpu.cpsr & nzc) == vector->expected_nzc &&
+                      (machine.cpu.cpsr & TEST_CPSR_V) ==
+                          (vector->initial_flags & TEST_CPSR_V),
+                  vector->description);
+    }
+    gbl_machine_dispose(&machine);
+}
+
+typedef struct arm_condition_test_vector {
+    uint8_t condition;
+    uint32_t passing_flags;
+    uint32_t failing_flags;
+    const char *passing_description;
+    const char *failing_description;
+} arm_condition_test_vector;
+
+static void arm_condition_case(gbl_machine *machine, bool loaded,
+                               uint8_t condition, uint32_t flags,
+                               bool should_execute,
+                               const char *description)
+{
+    const uint32_t address = UINT32_C(0x08000000);
+    const uint32_t source = UINT32_C(0x2468ACE0);
+    const uint32_t sentinel = UINT32_C(0xA55AA55A);
+    const uint64_t cycles_before = machine->master_cycles;
+    const uint64_t retired_before = machine->cpu.retired_instructions;
+    const uint32_t opcode = ((uint32_t)condition << 28u) |
+                            UINT32_C(0x01A02001);
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool ran = false;
+
+    machine->cpu.r0_7[0] = UINT32_C(0x11223344);
+    machine->cpu.r0_7[1] = source;
+    machine->cpu.r0_7[2] = sentinel;
+    if (loaded) {
+        ran = run_arm_instruction(machine, opcode, flags, 1u, &result);
+    }
+    test_case(loaded && ran &&
+                  result.termination == GBL_RUN_PROGRESS &&
+                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                  result.instructions == 1u && result.cycles == 1u &&
+                  machine->master_cycles == cycles_before + 1u &&
+                  machine->cpu.retired_instructions == retired_before + 1u &&
+                  machine->cpu.execution_address == address + UINT32_C(4) &&
+                  machine->cpu.pipeline[0].address == address + UINT32_C(4) &&
+                  machine->cpu.pipeline[1].address == address + UINT32_C(8) &&
+                  machine->cpu.r0_7[0] == UINT32_C(0x11223344) &&
+                  machine->cpu.r0_7[1] == source &&
+                  machine->cpu.r0_7[2] ==
+                      (should_execute ? source : sentinel) &&
+                  (machine->cpu.cpsr &
+                   (TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V)) ==
+                      flags,
+              description);
+}
+
+static void test_arm_condition_predicates(void)
+{
+    static const arm_condition_test_vector vectors[] = {
+        { 0u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C,
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          "EQ executes when Z is set", "EQ retires without effects when Z is clear" },
+        { 1u, TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C,
+          "NE executes when Z is clear", "NE retires without effects when Z is set" },
+        { 2u, TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_V,
+          "CS executes when C is set", "CS retires without effects when C is clear" },
+        { 3u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_V,
+          TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          "CC executes when C is clear", "CC retires without effects when C is set" },
+        { 4u, TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          "MI executes when N is set", "MI retires without effects when N is clear" },
+        { 5u, TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          "PL executes when N is clear", "PL retires without effects when N is set" },
+        { 6u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C,
+          "VS executes when V is set", "VS retires without effects when V is clear" },
+        { 7u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_V,
+          "VC executes when V is clear", "VC retires without effects when V is set" },
+        { 8u, TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          "HI executes when C is set and Z is clear",
+          "HI retires without effects when Z is set" },
+        { 9u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          "LS executes when C is clear",
+          "LS retires without effects when C is set and Z is clear" },
+        { 10u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C,
+          "GE executes when N equals V", "GE retires without effects when N differs from V" },
+        { 11u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          "LT executes when N differs from V", "LT retires without effects when N equals V" },
+        { 12u, TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          "GT executes when Z is clear and N equals V",
+          "GT retires without effects when Z is set" },
+        { 13u, TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
+          "LE executes when Z is set", "LE retires without effects when Z is clear and N equals V" }
+    };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+    size_t index;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        arm_condition_case(&machine, loaded, vectors[index].condition,
+                           vectors[index].passing_flags, true,
+                           vectors[index].passing_description);
+        arm_condition_case(&machine, loaded, vectors[index].condition,
+                           vectors[index].failing_flags, false,
+                           vectors[index].failing_description);
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_arm_al_ignores_nzcv(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    bool loaded;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    arm_condition_case(&machine, loaded, 14u,
+                       TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+                       true, "AL executes when all NZCV flags are set");
+    arm_condition_case(&machine, loaded, 14u, 0u, true,
+                       "AL executes when all NZCV flags are clear");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_arm_condition_1111_is_unpredictable(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_machine expected;
+    gbl_trace_record records[2];
+    gbl_trace_record records_before[2];
+    gbl_trace_buffer trace;
+    gbl_trace_buffer trace_before;
+    gbl_run_options options;
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    gbl_run_status status = GBL_RUN_STATUS_INVALID_ARGUMENT;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    memset(records, 0, sizeof(records));
+    records[0].guest_cycle = UINT64_C(17);
+    records[0].address = UINT32_C(0x03000040);
+    records[1].guest_cycle = UINT64_C(19);
+    records[1].address = UINT32_C(0x03000044);
+    memcpy(records_before, records, sizeof(records));
+    trace = (gbl_trace_buffer){ records, 2u, 1u, UINT64_C(23) };
+    trace_before = trace;
+
+    if (loaded) {
+        machine.cpu.execution_address = UINT32_C(0x08000000);
+        machine.cpu.cpsr = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C |
+                           TEST_CPSR_V | TEST_CPSR_SYSTEM;
+        machine.cpu.r0_7[1] = UINT32_C(0x7FFFFFFF);
+        machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
+        machine.cpu.r0_7[3] = UINT32_C(1);
+        machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+            UINT32_C(0x08000000), UINT32_C(0xF0912003), 4u, true
+        };
+        machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+            UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+        };
+        machine.cpu.next_fetch_sequential = true;
+        machine.cpu.stopped = false;
+        machine.cpu.stop_reason = GBL_CPU_STOP_NONE;
+        before = machine;
+        expected = before;
+        expected.cpu.stopped = true;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        options = (gbl_run_options){
+            .cycle_budget = 1u,
+            .unit_limit = 1u,
+            .category_mask = GBL_TRACE_CATEGORY_MASK,
+            .trace_buffer = &trace
+        };
+        status = gbl_cpu_run(&machine, &options, &result);
+    } else {
+        before = machine;
+        expected = machine;
+    }
+    test_case(loaded && status == GBL_RUN_STATUS_OK &&
+                  result.termination == GBL_RUN_STOPPED &&
+                  result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                  result.instructions == 0u && result.cycles == 0u &&
+                  gbl_test_canonical_equal(&machine, &expected) &&
+                  gbl_test_same_instance_identity_equal(&before, &machine) &&
+                  trace.records == trace_before.records &&
+                  trace.capacity == trace_before.capacity &&
+                  trace.count == trace_before.count &&
+                  trace.next_sequence == trace_before.next_sequence &&
+                  gbl_test_bytes_equal((const uint8_t *)records,
+                                       (const uint8_t *)records_before,
+                                       sizeof(records)),
+              "ARM condition 1111 is refused as unpredictable before effects");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_arm_register_shift_cycle_preflight(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_trace_record records[3];
+    gbl_trace_record records_before[3];
+    gbl_trace_buffer trace;
+    gbl_trace_buffer trace_before;
+    gbl_run_options options;
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    gbl_run_status status = GBL_RUN_STATUS_INVALID_ARGUMENT;
+
+    make_program(image);
+    loaded = machine_load(&machine, image);
+    memset(records, 0, sizeof(records));
+    records[0].guest_cycle = UINT64_C(31);
+    records[0].address = UINT32_C(0x03000050);
+    memcpy(records_before, records, sizeof(records));
+    trace = (gbl_trace_buffer){ records, 3u, 1u, UINT64_C(41) };
+    trace_before = trace;
+    if (loaded) {
+        machine.cpu.execution_address = UINT32_C(0x08000000);
+        machine.cpu.cpsr = TEST_CPSR_C | TEST_CPSR_V | TEST_CPSR_SYSTEM;
+        machine.cpu.r0_7[0] = UINT32_C(0x80000001);
+        machine.cpu.r0_7[1] = UINT32_C(1);
+        machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
+        machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+            UINT32_C(0x08000000), UINT32_C(0xE1B02110), 4u, true
+        };
+        machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+            UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+        };
+        machine.cpu.next_fetch_sequential = true;
+        machine.cpu.stopped = false;
+        machine.cpu.stop_reason = GBL_CPU_STOP_NONE;
+        before = machine;
+        options = (gbl_run_options){
+            .cycle_budget = 1u,
+            .unit_limit = 1u,
+            .category_mask = GBL_TRACE_CATEGORY_MASK,
+            .trace_buffer = &trace
+        };
+        status = gbl_cpu_run(&machine, &options, &result);
+    } else {
+        before = machine;
+    }
+    test_case(loaded && status == GBL_RUN_STATUS_OK &&
+                  result.termination == GBL_RUN_TIMEOUT &&
+                  result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+                  result.instructions == 0u && result.cycles == 0u &&
+                  gbl_test_canonical_equal(&before, &machine) &&
+                  gbl_test_same_instance_identity_equal(&before, &machine) &&
+                  trace.records == trace_before.records &&
+                  trace.capacity == trace_before.capacity &&
+                  trace.count == trace_before.count &&
+                  trace.next_sequence == trace_before.next_sequence &&
+                  gbl_test_bytes_equal((const uint8_t *)records,
+                                       (const uint8_t *)records_before,
+                                       sizeof(records)),
+              "one-short register-shift budget refuses the whole unit and trace");
+
+    if (loaded) {
+        const uint64_t cycles_before = machine.master_cycles;
+        const uint64_t retired_before = machine.cpu.retired_instructions;
+
+        options.cycle_budget = 2u;
+        result = (gbl_run_result){
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        status = gbl_cpu_run(&machine, &options, &result);
+        test_case(status == GBL_RUN_STATUS_OK &&
+                      result.termination == GBL_RUN_PROGRESS &&
+                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                      result.instructions == 1u && result.cycles == 2u &&
+                      machine.master_cycles == cycles_before + 2u &&
+                      machine.cpu.retired_instructions == retired_before + 1u &&
+                      machine.cpu.r0_7[2] == UINT32_C(2) &&
+                      (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                           TEST_CPSR_C | TEST_CPSR_V)) ==
+                          (TEST_CPSR_C | TEST_CPSR_V) &&
+                      trace.count == 3u &&
+                      trace.next_sequence == trace_before.next_sequence + 2u,
+                  "exact register-shift budget charges one internal bus cycle");
+    } else {
+        test_case(false,
+                  "exact register-shift budget charges one internal bus cycle");
+    }
+    gbl_machine_dispose(&machine);
+}
+
 static void test_arithmetic(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -4367,7 +4838,12 @@ static const cpu_test_function arm_alu_functions[] = {
     test_arm_alu_without_s_preserves_flags
 };
 static const cpu_test_function arm_shifts_conditions_functions[] = {
-    test_arm_register_shifted_pc_operand_uses_plus_twelve
+    test_arm_register_shifted_pc_operand_uses_plus_twelve,
+    test_arm_operand2_shift_vectors,
+    test_arm_condition_predicates,
+    test_arm_al_ignores_nzcv,
+    test_arm_condition_1111_is_unpredictable,
+    test_arm_register_shift_cycle_preflight
 };
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function exception_functions[] = {
@@ -4422,7 +4898,7 @@ static const cpu_test_function slots_bounds_functions[] = {
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
-    CPU_TEST_GROUP("arm_shifts_conditions", 1u,
+    CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
