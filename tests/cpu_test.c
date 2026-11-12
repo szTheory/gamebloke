@@ -7369,10 +7369,15 @@ static void test_thumb_alu_vectors(void)
         { "CMP register preserves destination", 0x4288u, 1u, 1u, 0u, 1u, 0x60000000u, 1u },
         { "CMN preserves destination", 0x42C8u, 0xFFFFFFFFu, 1u, 0u, 0xFFFFFFFFu, 0x60000000u, 1u },
         { "ORR preserves C/V", 0x4308u, 0x80000000u, 3u, 0x30000000u, 0x80000003u, 0xB0000000u, 1u },
-        { "MUL preserves C/V", 0x4348u, 0x80000000u, 2u, 0x30000000u, 0u, 0x70000000u, 2u },
-        { "MUL four internal cycles", 0x4348u, 3u, 0x12345678u, 0x30000000u, 0x369D0368u, 0x30000000u, 5u },
+        { "MUL preserves C/V", 0x4348u, 0x80000000u, 2u, 0x30000000u, 0u, 0x70000000u, 5u },
+        { "MUL four internal cycles", 0x4348u, 0x12345678u, 3u, 0x30000000u, 0x369D0368u, 0x30000000u, 5u },
         { "BIC", 0x4388u, 0x80000003u, 3u, 0x30000000u, 0x80000000u, 0xB0000000u, 1u },
-        { "MVN", 0x43C8u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 1u }
+        { "MVN", 0x43C8u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 1u },
+        { "MUL negative early termination", 0x4348u, 0xFFFFFFFFu, 3u, 0x30000000u, 0xFFFFFFFDu, 0xB0000000u, 2u },
+        { "MUL two internal cycles", 0x4348u, 0x100u, 3u, 0x30000000u, 0x300u, 0x30000000u, 3u },
+        { "MUL three internal cycles", 0x4348u, 0x10000u, 3u, 0x30000000u, 0x30000u, 0x30000000u, 4u },
+        { "LSL register aliases count and destination", 0x4080u, 1u, 7u, 0x30000000u, 2u, 0x10000000u, 2u },
+        { "MUL zero retains C/V", 0x4348u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 2u }
     };
     size_t index;
 
@@ -7521,6 +7526,49 @@ static void test_thumb_high_pc(void)
     }
 }
 
+static void test_thumb_pc_destination_sources(void)
+{
+    unsigned int operation, source;
+
+    for (operation = 0u; operation <= 2u; operation += 2u) {
+        for (source = 0u; source < 16u; ++source) {
+            gbl_machine machine = { 0 };
+            gbl_run_result result = { 0 };
+            bool valid = prepare_thumb_alu(&machine,
+                encode_thumb_high(operation, 15u, source), 0xF0000000u);
+            const uint32_t target = source != 15u ? 0x03000010u
+                : operation == 0u ? 0x06000008u : 0x03000004u;
+            const uint32_t operand = operation == 0u ? 12u : 0x03000010u;
+            char name[80];
+
+            machine.cpu.execution_address = 0x03000000u;
+            machine.cpu.pipeline[0].address = 0x03000000u;
+            machine.cpu.pipeline[1].address = 0x03000002u;
+            write_halfword(machine.iwram, 4u, UINT16_C(0x275A));
+            write_halfword(machine.iwram, 6u, UINT16_C(0x46C0));
+            write_halfword(machine.iwram, 0x10u, UINT16_C(0x275A));
+            write_halfword(machine.iwram, 0x12u, UINT16_C(0x46C0));
+            write_halfword(machine.vram, 8u, UINT16_C(0x275A));
+            write_halfword(machine.vram, 10u, UINT16_C(0x46C0));
+            if (source < 8u) {
+                machine.cpu.r0_7[source] = operand;
+            } else if (source < 15u) {
+                machine.cpu.usr_r8_14[source - 8u] = operand;
+            }
+            valid = valid && run_units(&machine, 2u, 1u, &result) &&
+                result.instructions == 1u && result.cycles == 2u &&
+                machine.cpu.execution_address == target && machine.cpu.cpsr == 0xF000003Fu &&
+                machine.cpu.pipeline[0].address == target && machine.cpu.pipeline[0].width == 2u &&
+                machine.cpu.pipeline[0].opcode == 0x275Au;
+            valid = valid && run_units(&machine, 1u, 1u, &result) &&
+                result.instructions == 1u && machine.cpu.r0_7[7] == 0x5Au;
+            (void)snprintf(name, sizeof(name), "high operation %u PC destination source r%u retains Thumb and consumes target", operation, source);
+            test_case(valid, name);
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
 static void test_thumb_bx_sources(void)
 {
     unsigned int source;
@@ -7635,6 +7683,10 @@ static void test_thumb_unit_bounds(void)
 
             machine.cpu.r0_7[0] = 0x08000011u;
             machine.cpu.r0_7[1] = 0x12345678u;
+            if (form == 1u) {
+                machine.cpu.r0_7[0] = 0x12345678u;
+                machine.cpu.r0_7[1] = 3u;
+            }
             memset(records, 0xA5, sizeof(records));
             memcpy(prior, records, sizeof(prior));
             if (boundary == 1u) { options.cycle_budget--; }
@@ -7677,10 +7729,10 @@ static void test_thumb_unit_bounds(void)
 
 static void test_thumb_high_restrictions(void)
 {
-    static const uint16_t opcodes[] = { 0x4408u, 0x4508u, 0x4608u, 0x45C7u, 0x4700u, 0x4740u };
+    static const uint16_t opcodes[] = { 0x4408u, 0x4508u, 0x4608u, 0x45C7u, 0x4700u, 0x4740u, 0x4340u };
     size_t index;
 
-    for (index = 0u; index < 6u; ++index) {
+    for (index = 0u; index < 7u; ++index) {
         gbl_machine machine = { 0 }, before;
         gbl_run_result result = { 0 };
         bool valid = prepare_thumb_alu(&machine, opcodes[index], 0xF0000000u);
@@ -7694,7 +7746,7 @@ static void test_thumb_high_restrictions(void)
         before.cpu.stopped = true;
         before.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
         test_case(valid && gbl_test_canonical_equal(&machine, &before),
-                  "Thumb unpredictable high encoding or static BX refusal has only documented stop effects");
+                  "Thumb unpredictable encoding or static BX refusal has only documented stop effects");
         gbl_machine_dispose(&machine);
     }
 }
@@ -10784,7 +10836,8 @@ static const cpu_test_function thumb_alu_functions[] = { test_thumb_alu_vectors 
 static const cpu_test_function thumb_high_functions[] = {
     test_thumb_high_matrix, test_thumb_high_pc, test_thumb_shift_boundaries,
     test_thumb_unit_bounds, test_thumb_high_restrictions,
-    test_thumb_bx_sources, test_thumb_flag_consumers
+    test_thumb_bx_sources, test_thumb_flag_consumers,
+    test_thumb_pc_destination_sources
 };
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
@@ -10836,8 +10889,8 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("budget", 9u, budget_functions),
     CPU_TEST_GROUP("arithmetic", 28u, arithmetic_functions),
     CPU_TEST_GROUP("thumb", 8u, thumb_functions),
-    CPU_TEST_GROUP("thumb_alu", 31u, thumb_alu_functions),
-    CPU_TEST_GROUP("thumb_high", 96u, thumb_high_functions),
+    CPU_TEST_GROUP("thumb_alu", 36u, thumb_alu_functions),
+    CPU_TEST_GROUP("thumb_high", 129u, thumb_high_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),

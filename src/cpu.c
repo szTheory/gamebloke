@@ -2009,10 +2009,16 @@ static bool gbl_cpu_decode_thumb_alu(const gbl_cpu_state *cpu,
             write = false;
             break;
         case 12u: unit->value = left | right; break; /* ORR */
-        case 13u: /* MUL: signed early termination and preserved C are policy. */
+        case 13u: /* MUL: DDI0100I A7.1.45 uses original Rd for termination. */
+            if (rd == rs) { /* Identical operands are unpredictable before v6. */
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
             unit->value = left * right;
+            /* Signed termination and preserved unpredictable C follow the
+             * existing short-multiply project policy. */
             unit->internal_cycles =
-                gbl_cpu_arm_multiply_algorithm_cycles(right, true);
+                gbl_cpu_arm_multiply_algorithm_cycles(left, true);
             break;
         case 14u: unit->value = left & ~right; break; /* BIC */
         case 15u: unit->value = ~right; break; /* MVN */
@@ -2123,18 +2129,44 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         const uint8_t destination =
             (uint8_t)((opcode & 7u) | ((opcode >> 4u) & 8u));
 
-        if (operation == 2u) {
-            if (destination == (uint8_t)15u) {
-                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        if (operation != 3u) {
+            const uint32_t right = gbl_cpu_read_register(
+                cpu, source, instruction_address, GBL_CPU_PC_READ_NORMAL);
+            const uint32_t left = gbl_cpu_read_register(
+                cpu, destination, instruction_address, GBL_CPU_PC_READ_NORMAL);
+
+            /* DDI0100I A7.1.6/.23/.44: low/low high forms are
+             * unpredictable on ARMv4T, as is CMP with R15 as Rn.
+             * In particular do not import ARMv6 CPY into this decoder. */
+            if ((source < 8u && destination < 8u) ||
+                (operation == 1u && destination == 15u)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
                 return true;
             }
             unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
-            if (!gbl_cpu_add_literal_register_effect(
-                    unit, destination, cpu->cpsr,
-                    gbl_cpu_read_register(cpu, source, instruction_address,
-                                          GBL_CPU_PC_READ_NORMAL))) {
-                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-                return true;
+            if (operation == 1u) {
+                const gbl_arithmetic_result arithmetic = gbl_sub_flags(left, right);
+                const uint32_t flags = gbl_cpu_nz_flags(arithmetic.value) |
+                    (arithmetic.carry ? GBL_CPU_CPSR_C : 0u) |
+                    (arithmetic.overflow ? GBL_CPU_CPSR_V : 0u);
+
+                if (!gbl_cpu_add_status_effect(unit,
+                        GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z |
+                        GBL_CPU_CPSR_C | GBL_CPU_CPSR_V, flags)) {
+                    return false;
+                }
+            } else {
+                const uint32_t value = operation == 0u ? left + right : right;
+
+                if (destination == 15u) {
+                    /* ADD/MOV retain T even for an even result. Only BX
+                     * interworks; existing static refill guards still apply. */
+                    return gbl_cpu_schedule_pc_write(unit, value, cpu->cpsr, false);
+                }
+                if (!gbl_cpu_add_literal_register_effect(
+                        unit, destination, cpu->cpsr, value)) {
+                    return false;
+                }
             }
             return gbl_cpu_schedule_sequential_fetch(unit,
                                                       next_fetch_address, true);
