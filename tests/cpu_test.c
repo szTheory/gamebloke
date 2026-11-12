@@ -2023,6 +2023,282 @@ static void test_arm_register_shift_cycle_preflight(void)
     gbl_machine_dispose(&machine);
 }
 
+static bool run_arm_program_unit(gbl_machine *machine, uint64_t cycle_budget,
+                                 gbl_run_result *result)
+{
+    return run_units(machine, cycle_budget, 1u, result);
+}
+
+static void test_arm_pc_operand_contexts(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool ran;
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xE1A0000F)); /* MOV R0, PC */
+    loaded = machine_load(&machine, image);
+    ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+          run_arm_program_unit(&machine, 1u, &result) &&
+          result.instructions == 1u && result.cycles == 1u &&
+          machine.cpu.r0_7[0] == UINT32_C(0x08000008) &&
+          machine.cpu.execution_address == UINT32_C(0x08000004);
+    test_case(ran,
+              "normal ARM data-processing PC operand reads current plus eight");
+    gbl_machine_dispose(&machine);
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xE1A0F000)); /* MOV PC, R0 */
+    write_word(image, 0x40u, UINT32_C(0xE1A0A00A));
+    write_word(image, 0x44u, UINT32_C(0xE1A0B00B));
+    loaded = machine_load(&machine, image);
+    machine.cpu.r0_7[0] = UINT32_C(0x08000040);
+    ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+          run_arm_program_unit(&machine, 2u, &result) &&
+          result.termination == GBL_RUN_PROGRESS &&
+          result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+          result.instructions == 1u && result.cycles == 2u &&
+          machine.cpu.cpsr == UINT32_C(0x000000DF) &&
+          machine.cpu.execution_address == UINT32_C(0x08000040) &&
+          machine.cpu.pipeline[0].width == 4u &&
+          machine.cpu.pipeline[0].opcode == UINT32_C(0xE1A0A00A) &&
+          machine.cpu.pipeline[1].opcode == UINT32_C(0xE1A0B00B);
+    test_case(ran,
+              "ARM data-processing PC destination branches without interworking");
+    gbl_machine_dispose(&machine);
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xE580F000)); /* STR PC, [R0] */
+    loaded = machine_load(&machine, image);
+    machine.cpu.r0_7[0] = UINT32_C(0x02000000);
+    ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+          run_arm_program_unit(&machine, 2u, &result) &&
+          result.instructions == 1u && result.cycles == 2u &&
+          machine.ewram[0] == UINT8_C(0x0C) &&
+          machine.ewram[1] == UINT8_C(0x00) &&
+          machine.ewram[2] == UINT8_C(0x00) &&
+          machine.ewram[3] == UINT8_C(0x08);
+    test_case(ran, "ARM STR PC source uses current plus twelve");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_thumb_pc_operand_contexts(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool normal_pc;
+    bool aligned_address;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    normal_pc = loaded && run_thumb_instruction(
+        &machine, UINT16_C(0x4678), 0u, 1u, &result) &&
+        result.instructions == 1u && result.cycles == 1u &&
+        machine.cpu.r0_7[0] == UINT32_C(0x08000004);
+    test_case(normal_pc, "Thumb high-register PC operand reads current plus four");
+    gbl_machine_dispose(&machine);
+
+    make_empty_image(image);
+    write_halfword(image, 0x02u, UINT16_C(0x4800)); /* LDR R0, [PC, #0] */
+    write_word(image, 0x04u, UINT32_C(0x12345678));
+    loaded = machine_load(&machine, image);
+    machine.cpu.cpsr = TEST_CPSR_SYSTEM | UINT32_C(0x00000020);
+    machine.cpu.execution_address = UINT32_C(0x08000002);
+    machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000002), UINT32_C(0x00004800), 2u, true
+    };
+    machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0x00005678), 2u, true
+    };
+    machine.cpu.next_fetch_sequential = true;
+    aligned_address = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+        result.instructions == 1u && result.cycles == 2u &&
+        machine.cpu.r0_7[0] == UINT32_C(0x12345678) &&
+        machine.cpu.execution_address == UINT32_C(0x08000004);
+    test_case(aligned_address,
+              "Thumb literal address uses aligned current plus four");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_pc_return_condition_and_refusal(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_machine expected;
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool condition_failed;
+    bool absent_spsr;
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0x01B0F00E)); /* MOVEQS PC, LR */
+    loaded = machine_load(&machine, image);
+    machine.cpu.cpsr = TEST_CPSR_SVC | UINT32_C(0x000000C0);
+    machine.cpu.spsr[2] = TEST_CPSR_USER | TEST_CPSR_N | TEST_CPSR_C;
+    machine.cpu.svc_r13_14[1] = UINT32_C(0x08000040);
+    condition_failed = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+        result.cycles == 2u &&
+        run_arm_program_unit(&machine, 1u, &result) &&
+        result.termination == GBL_RUN_PROGRESS &&
+        result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+        result.instructions == 1u && result.cycles == 1u &&
+        machine.cpu.cpsr == (TEST_CPSR_SVC | UINT32_C(0x000000C0)) &&
+        machine.cpu.execution_address == UINT32_C(0x08000004) &&
+        machine.cpu.pipeline[0].address == UINT32_C(0x08000004) &&
+        machine.cpu.spsr[2] == (TEST_CPSR_USER | TEST_CPSR_N | TEST_CPSR_C) &&
+        machine.cpu.svc_r13_14[1] == UINT32_C(0x08000040);
+    test_case(condition_failed,
+              "condition-failed S+PC retires sequentially without status restore");
+    gbl_machine_dispose(&machine);
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xE1B0F00E)); /* MOVS PC, LR */
+    loaded = machine_load(&machine, image);
+    machine.cpu.r0_7[0] = UINT32_C(0xA5A5A5A5);
+    machine.cpu.usr_r8_14[6] = UINT32_C(0x08000040);
+    absent_spsr = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+        result.cycles == 2u;
+    before = machine;
+    expected = machine;
+    expected.cpu.stopped = true;
+    expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+    absent_spsr = absent_spsr && run_arm_program_unit(&machine, 2u, &result) &&
+        result.termination == GBL_RUN_STOPPED &&
+        result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+        result.instructions == 0u && result.cycles == 0u &&
+        machine.master_cycles == before.master_cycles &&
+        gbl_test_canonical_equal(&expected, &machine) &&
+        gbl_test_same_instance_identity_equal(&before, &machine);
+    test_case(absent_spsr,
+              "S+PC without an active SPSR refuses before machine effects");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_arm_pc_return(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_trace_record records[4];
+    gbl_trace_record records_before[4];
+    gbl_trace_buffer trace;
+    gbl_trace_buffer trace_before;
+    uint64_t digest_before;
+    bool loaded;
+    bool primed;
+    bool one_short;
+    bool moved;
+    bool subtracted;
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xE1B0F00E)); /* MOVS PC, LR */
+    write_word(image, 0x40u, UINT32_C(0xE1A0A00A));
+    write_word(image, 0x44u, UINT32_C(0xE1A0B00B));
+    loaded = machine_load(&machine, image);
+
+    machine.cpu.cpsr = TEST_CPSR_SVC | UINT32_C(0x000000C0);
+    machine.cpu.spsr[2] = TEST_CPSR_USER | TEST_CPSR_N | TEST_CPSR_C;
+    machine.cpu.svc_r13_14[0] = UINT32_C(0x03000100);
+    machine.cpu.svc_r13_14[1] = UINT32_C(0x08000040);
+    machine.cpu.usr_r8_14[5] = UINT32_C(0x03000200);
+    machine.cpu.usr_r8_14[6] = UINT32_C(0x08000070);
+    primed = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+        result.termination == GBL_RUN_PROGRESS && result.cycles == 2u;
+    memset(records, 0xA5, sizeof(records));
+    records[0].sequence = UINT64_C(23);
+    records[0].guest_cycle = UINT64_C(41);
+    records[0].category = GBL_TRACE_BUS;
+    records[0].instruction_address = UINT32_C(0x08000008);
+    records[0].opcode = UINT32_C(0xE1A00000);
+    records[0].address = UINT32_C(0x02000004);
+    records[0].value = UINT32_C(0xA1B2C3D4);
+    records[0].width = 4u;
+    records[0].access_class = GBL_BUS_CLASS_SEQUENTIAL;
+    records[0].bus_outcome = GBL_BUS_OUTCOME_RAM;
+    records[0].exception_kind = GBL_EXCEPTION_NONE;
+    memcpy(records_before, records, sizeof(records));
+    trace = (gbl_trace_buffer){ records, 4u, 1u, UINT64_C(23) };
+    trace_before = trace;
+    before = machine;
+    digest_before = gbl_test_canonical_digest(&machine);
+    one_short = primed && run_traced_units(
+        &machine, 1u, 1u, GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace,
+        &result) && result.termination == GBL_RUN_TIMEOUT &&
+        result.reason == GBL_RUN_REASON_CYCLE_BUDGET && result.cycles == 0u &&
+        result.instructions == 0u &&
+        gbl_test_canonical_equal(&before, &machine) &&
+        gbl_test_same_instance_identity_equal(&before, &machine) &&
+        digest_before == gbl_test_canonical_digest(&machine) &&
+        trace.records == trace_before.records &&
+        trace.count == trace_before.count &&
+        trace.capacity == trace_before.capacity &&
+        trace.next_sequence == trace_before.next_sequence &&
+        memcmp(records, records_before, sizeof(records)) == 0;
+    test_case(one_short,
+              "one-short S+PC refill preserves full state and trace bytes");
+
+    moved = primed && run_arm_program_unit(&machine, 2u, &result) &&
+        result.termination == GBL_RUN_PROGRESS &&
+        result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+        result.instructions == 1u && result.cycles == 2u &&
+        machine.cpu.cpsr == machine.cpu.spsr[2] &&
+        machine.cpu.execution_address == UINT32_C(0x08000040) &&
+        machine.cpu.pipeline[0].width == 4u &&
+        machine.cpu.pipeline[0].address == UINT32_C(0x08000040) &&
+        machine.cpu.pipeline[0].opcode == UINT32_C(0xE1A0A00A) &&
+        machine.cpu.pipeline[1].address == UINT32_C(0x08000044) &&
+        machine.cpu.pipeline[1].opcode == UINT32_C(0xE1A0B00B) &&
+        machine.cpu.svc_r13_14[0] == UINT32_C(0x03000100) &&
+        machine.cpu.svc_r13_14[1] == UINT32_C(0x08000040) &&
+        machine.cpu.usr_r8_14[5] == UINT32_C(0x03000200) &&
+        machine.cpu.usr_r8_14[6] == UINT32_C(0x08000070);
+    test_case(moved,
+              "MOVS PC,LR restores captured SPSR banks and ARM refill state");
+
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+        make_empty_image(image);
+        write_word(image, 0x00u, UINT32_C(0xE25EF004)); /* SUBS PC,LR,#4 */
+        write_halfword(image, 0x40u, UINT16_C(0x200A));
+        write_halfword(image, 0x42u, UINT16_C(0x210B));
+        loaded = machine_load(&machine, image);
+        machine.cpu.cpsr = TEST_CPSR_SVC | UINT32_C(0x000000C0);
+        machine.cpu.spsr[2] = TEST_CPSR_SYSTEM | UINT32_C(0x00000020) |
+                              TEST_CPSR_Z | TEST_CPSR_C;
+        machine.cpu.svc_r13_14[0] = UINT32_C(0x03000100);
+        machine.cpu.svc_r13_14[1] = UINT32_C(0x08000044);
+        machine.cpu.usr_r8_14[5] = UINT32_C(0x03000200);
+        machine.cpu.usr_r8_14[6] = UINT32_C(0x08000070);
+        subtracted = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+            run_arm_program_unit(&machine, 2u, &result) &&
+            result.termination == GBL_RUN_PROGRESS &&
+            result.instructions == 1u && result.cycles == 2u &&
+            machine.cpu.cpsr == machine.cpu.spsr[2] &&
+            machine.cpu.execution_address == UINT32_C(0x08000040) &&
+            machine.cpu.pipeline[0].width == 2u &&
+            machine.cpu.pipeline[0].address == UINT32_C(0x08000040) &&
+            machine.cpu.pipeline[0].opcode == UINT32_C(0x200A) &&
+            machine.cpu.pipeline[1].address == UINT32_C(0x08000042) &&
+            machine.cpu.pipeline[1].opcode == UINT32_C(0x210B) &&
+            machine.cpu.svc_r13_14[0] == UINT32_C(0x03000100) &&
+            machine.cpu.svc_r13_14[1] == UINT32_C(0x08000044) &&
+            machine.cpu.usr_r8_14[5] == UINT32_C(0x03000200) &&
+            machine.cpu.usr_r8_14[6] == UINT32_C(0x08000070);
+    } else {
+        subtracted = false;
+    }
+    test_case(subtracted,
+              "SUBS PC,LR,#4 restores captured SPSR and Thumb refill state");
+
+    gbl_machine_dispose(&machine);
+}
+
 static void test_arithmetic(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -4845,6 +5121,12 @@ static const cpu_test_function arm_shifts_conditions_functions[] = {
     test_arm_condition_1111_is_unpredictable,
     test_arm_register_shift_cycle_preflight
 };
+static const cpu_test_function arm_pc_return_functions[] = {
+    test_arm_pc_operand_contexts,
+    test_thumb_pc_operand_contexts,
+    test_pc_return_condition_and_refusal,
+    test_arm_pc_return
+};
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
@@ -4900,6 +5182,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
+    CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
