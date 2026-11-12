@@ -79,3 +79,8 @@ This report records completion of the original four coverage-warning fixes. A su
 ### Root Linux verification after source review
 
 Pinned Ubuntu 26.04 native arm64 with Clang 21 at exact source `819aac865e472a8d12d55716c2fef864f249db2b` passed focused cpu.psr, all 78 required ASan/UBSan/LeakSanitizer checks and inventory postcheck (zero skips). Deliberate UBSan/ASan failure controls passed; no suppression or detector disable was used. Full CTest time 153.09 seconds. The local architecture is arm64; hosted x64 is still pending. Raw log/helper: `build/phase05-plan08/leak-fix/linux-clang-sanitizers.log` and `linux-clang-sanitizer-verification.sh`.
+
+
+## Corrected hosted gate — resolved
+
+The one owner-approved corrected run43228795941 passed CI required and every dependency at source29966518ff112968569358e83fca5014aaf991bd. The Linux x64 Clang sanitizer inventory passed all78 with zero skips, both regression hosts passed with only the existing allowed owner-local skip, both diagnostics hosts and hygiene passed. All hosted jobs remained within180s; measured critical-path review and raw logs are in 05-08-CI-HANDOFF.md and build/phase05-plan08/leak-fix/. The original hosted leak is resolved. Resume authorized Plan09; full-phase review and phase-wide CPU/DIAG completion remain later. Any new hosted red renews the stop.

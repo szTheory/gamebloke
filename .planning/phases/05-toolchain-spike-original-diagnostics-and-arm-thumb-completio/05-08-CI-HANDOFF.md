@@ -1,6 +1,6 @@
 # Phase 05 Plan 08: hosted test-fixture leak stop
 
-Status: OWNER-AUTHORIZED CORRECTION VERIFIED LOCALLY; corrected hosted run pending. The owner replied "Yes." to the concrete cleanup, allocation-balance check, matching local Linux sanitizers and one corrected hosted run. The original stop below records the historical failure and diagnosis; that stop was preserved until this approval. Plan 09 has not started.
+Status: RESOLVED. The one owner-approved corrected hosted run passed every required check. The owner replied "Yes." to the concrete cleanup, allocation-balance check, matching local Linux sanitizers and one corrected hosted run. The original stop below records the historical failure and diagnosis; that stop was preserved until this approval. Plan 09 has not started.
 
 ## Actual result
 
@@ -52,3 +52,10 @@ The owner approved the bounded correction. Commit `819aac865e472a8d12d55716c2fef
 Root ran focused cpu.psr and the entire 78-test ASan/UBSan/LeakSanitizer inventory plus post-inventory check in the pinned Ubuntu 26.04 native arm64 container with Clang 21 at that exact commit. All passed, zero skips; leak detection was not disabled and both intentional sanitizer negative controls passed. Full test time was 153.09 seconds. This local arm64 result does not replace hosted x64 evidence. Logs and the tracked-clone helper are under build/phase05-plan08/leak-fix/.
 
 The agent acts next: publish one corrected run on the existing draft PR #8 and inspect every required result and job timing. Any new red renews the stop. No owner action is needed while that authorized run is pending. Do not begin Plan 09 before this correction is green.
+
+
+## Corrected hosted result and resumption
+
+Run https://github.com/szTheory/gamebloke/actions/runs/43228795941 (attempt 1) completed successfully at exact published head `29966518ff112968569358e83fca5014aaf991bd`. CI required and every dependency succeeded. Linux x64 Clang sanitizer inventory ran 78/78 with zero skips; GNU/macOS regression inventories each ran 334 of 335 with exactly the existing allowed optional owner-local skip. Both diagnostics hosts and hygiene passed. The original leak stop is resolved; the agent may resume authorized Plan 09. A future new red still renews the stop.
+
+Measured job times: macOS regression162s, GNU regression160s, sanitizer102s, diagnostics Linux23s/macOS29s, hygiene41s, required11s. Every job stayed within180s. The critical path was actual regression work: GNU CTest148.07s with distinct mutation controls about5.6–6s; macOS CTest141.02s with tree hygiene9.48s/signature7.91s and distinct controls. No evidence-supported duplicate setup/build removal was established; no cache/concurrency/dependency or timeout change was introduced. Keep these near-limit regression times visible as subsequent CPU tests grow. Raw run/jobs and both regression plus sanitizer logs are saved under build/phase05-plan08/leak-fix/hosted-*.

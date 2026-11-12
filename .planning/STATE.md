@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan 08 owner-approved leak correction verified locally; awaiting corrected hosted CI; Plan 09 not started
-stopped_at: Plan 08 correction passes local Linux Clang sanitizer and scoped review; publishing one authorized corrected CI run
-last_updated: "2026-11-12T13:35:19.824Z"
+status: Executing Phase 05 Plan 09; Plan 08 corrected hosted CI green
+stopped_at: Plan 08 corrected hosted CI green; resuming authorized Plan 09 multiply work
+last_updated: "2026-11-12T13:40:18.612Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 08 completed locally; Plan 09 not started
-state_head: 819aac865e472a8d12d55716c2fef864f249db2b
+state_head: 29966518ff112968569358e83fca5014aaf991bd
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 9 of 25
-Status: Plan 08 owner-approved leak correction verified locally; awaiting corrected hosted CI; Plan 09 not started
+Status: Executing Phase 05 Plan 09; Plan 08 corrected hosted CI green
 Last activity: 2026-11-12 — Phase 05 Plan 08 completed locally
 
 Progress: [███████░░░] 67%
@@ -220,6 +220,7 @@ Recent decisions affecting current work:
 - [Phase 05]: ARMv4T MSR behavior follows ARM ARM DDI0100I A4.1.39, including UnallocMask and the distinct active-CPSR versus saved-SPSR masks.
 - [Phase 05]: Unpredictable classification remains private until Plan18 adds its coherent public reason and result-profile mapping.
 - [Phase 05]: Owner approved WR-05 fixture cleanup, portable allocation-balance check, matching Linux Clang sanitizer verification and one corrected hosted run; another new red renews stop.
+- [Phase 05]: WR-05 owner-approved correction passed all required hosted checks in run43228795941 at2996651; original leak stop resolved, resume Plan09. New red still renews stop.
 
 ### Pending Todos
 
@@ -240,7 +241,6 @@ None yet.
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
-- Phase 05: hosted run 43167646132 at b0fe881 failed cpu.psr with a 192-byte owned test-ROM leak. No fix/retry or Plan 09 execution followed. Owner authorization required for scoped cleanup, allocation-balance regression, matching Linux Clang sanitizer verification and one corrected run; see 05-08-CI-HANDOFF.md.
 
 ## Deferred Items
 
@@ -256,6 +256,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-12T13:35:19.482Z
-Stopped at: Plan 08 correction passes local Linux Clang sanitizer and scoped review; publishing one authorized corrected CI run
+Last session: 2026-11-12T13:40:18.194Z
+Stopped at: Plan 08 corrected hosted CI green; resuming authorized Plan 09 multiply work
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
