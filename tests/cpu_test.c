@@ -25,6 +25,8 @@
 #define TEST_CPSR_ABT UINT32_C(0x00000017)
 #define TEST_CPSR_UND UINT32_C(0x0000001B)
 #define TEST_CPSR_SYSTEM UINT32_C(0x0000001F)
+#define TEST_SWP_ADDRESS UINT32_C(0x03000041)
+#define TEST_SWP_BASE_ADDRESS UINT32_C(0x03000040)
 #define TEST_MAILBOX_OFFSET 0x7FC0u
 #define TEST_MAILBOX_PASS_CASE UINT32_C(0x0000002A)
 #define TEST_MAILBOX_FAIL_CASE UINT32_C(0x0000BEEF)
@@ -2451,7 +2453,8 @@ static bool trace_records_match(const gbl_trace_record *actual,
     return true;
 }
 
-static bool prepare_swp_machine(gbl_machine *machine, uint32_t opcode)
+static bool prepare_swp_machine(gbl_machine *machine, uint32_t opcode,
+                                uint32_t address)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_run_result refill_result = {
@@ -2472,7 +2475,7 @@ static bool prepare_swp_machine(gbl_machine *machine, uint32_t opcode)
     machine->iwram[0x42u] = UINT8_C(0x33);
     machine->iwram[0x43u] = UINT8_C(0x44);
     machine->cpu.cpsr = TEST_CPSR_SYSTEM | TEST_CPSR_N | TEST_CPSR_C;
-    machine->cpu.r0_7[0] = UINT32_C(0x03000041);
+    machine->cpu.r0_7[0] = address;
     machine->cpu.r0_7[1] = UINT32_C(0xDEADBEEF);
     machine->cpu.r0_7[2] = UINT32_C(0xA1B2C3D4);
     for (index = 3u; index < 8u; ++index) {
@@ -2512,9 +2515,9 @@ static bool prepare_swp_machine(gbl_machine *machine, uint32_t opcode)
     return true;
 }
 
-static bool prepare_word_swp_machine(gbl_machine *machine)
+static bool prepare_word_swp_machine(gbl_machine *machine, uint32_t address)
 {
-    return prepare_swp_machine(machine, UINT32_C(0xE1001092));
+    return prepare_swp_machine(machine, UINT32_C(0xE1001092), address);
 }
 
 static const gbl_trace_record word_swp_trace_sentinel = {
@@ -2555,7 +2558,7 @@ static bool word_swp_refusal_unchanged(uint64_t cycle_budget,
         records[index] = word_swp_trace_sentinel;
         prior_records[index] = word_swp_trace_sentinel;
     }
-    if (!prepare_word_swp_machine(&machine)) {
+    if (!prepare_word_swp_machine(&machine, TEST_SWP_ADDRESS)) {
         gbl_machine_dispose(&machine);
         return false;
     }
@@ -2585,7 +2588,7 @@ static bool word_swp_refusal_unchanged(uint64_t cycle_budget,
 static void test_word_swp_stream_setup(void)
 {
     gbl_machine machine = { 0 };
-    const bool valid = prepare_word_swp_machine(&machine) &&
+    const bool valid = prepare_word_swp_machine(&machine, TEST_SWP_ADDRESS) &&
                        machine.cpu.pipeline[0].address ==
                            UINT32_C(0x08000000) &&
                        machine.cpu.pipeline[0].opcode ==
@@ -2613,7 +2616,7 @@ static void test_word_swp_read_write_trace(void)
     for (index = 0u; index < 5u; ++index) {
         records[index] = word_swp_trace_sentinel;
     }
-    prepared = prepare_word_swp_machine(&machine);
+    prepared = prepare_word_swp_machine(&machine, TEST_SWP_ADDRESS);
     ran = prepared && run_traced_units(
         &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
     test_case(ran && result.termination == GBL_RUN_PROGRESS &&
@@ -2691,7 +2694,8 @@ static void test_word_swp_sequence_refusal(void)
               "word SWP one-short trace sequence leaves machine and records untouched");
 }
 
-static bool swp_alias_parity_case(uint32_t opcode, uint32_t expected_r0,
+static bool swp_alias_parity_case(uint32_t opcode, uint32_t address,
+                                  uint32_t expected_r0,
                                   uint32_t expected_r1, uint32_t expected_r2,
                                   uint32_t expected_memory)
 {
@@ -2705,8 +2709,8 @@ static bool swp_alias_parity_case(uint32_t opcode, uint32_t expected_r0,
     gbl_run_result plain_result = {
         GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
     };
-    const bool traced_loaded = prepare_swp_machine(&traced, opcode);
-    const bool plain_loaded = prepare_swp_machine(&plain, opcode);
+    const bool traced_loaded = prepare_swp_machine(&traced, opcode, address);
+    const bool plain_loaded = prepare_swp_machine(&plain, opcode, address);
     const bool traced_ran = traced_loaded && run_traced_units(
         &traced, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &traced_result);
     const bool plain_ran = plain_loaded &&
@@ -2742,18 +2746,87 @@ static bool swp_alias_parity_case(uint32_t opcode, uint32_t expected_r0,
 static void test_swp_register_aliases(void)
 {
     const bool valid =
-        swp_alias_parity_case(UINT32_C(0xE1002092),
-                              UINT32_C(0x03000041), UINT32_C(0xDEADBEEF),
+        swp_alias_parity_case(UINT32_C(0xE1002092), TEST_SWP_ADDRESS,
+                              TEST_SWP_ADDRESS, UINT32_C(0xDEADBEEF),
                               UINT32_C(0x11443322), UINT32_C(0xA1B2C3D4)) &&
-        swp_alias_parity_case(UINT32_C(0xE1000092),
+        swp_alias_parity_case(UINT32_C(0xE1000092), TEST_SWP_ADDRESS,
                               UINT32_C(0x11443322), UINT32_C(0xDEADBEEF),
                               UINT32_C(0xA1B2C3D4), UINT32_C(0xA1B2C3D4)) &&
-        swp_alias_parity_case(UINT32_C(0xE1001090),
-                              UINT32_C(0x03000041), UINT32_C(0x11443322),
-                              UINT32_C(0xA1B2C3D4), UINT32_C(0x03000041));
+        swp_alias_parity_case(UINT32_C(0xE1001090), TEST_SWP_ADDRESS,
+                              TEST_SWP_ADDRESS, UINT32_C(0x11443322),
+                              UINT32_C(0xA1B2C3D4), TEST_SWP_ADDRESS);
 
     test_case(valid,
               "SWP captures operands before Rd equals Rm, Rn, or both source roles");
+}
+
+static bool word_swp_lane_case(uint32_t address, uint32_t expected_rd)
+{
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[5] = { { 0 } };
+    gbl_trace_buffer trace = { records, 5u, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    const bool prepared = prepare_word_swp_machine(&machine, address);
+    const bool ran = prepared && run_traced_units(
+        &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
+    const bool valid = ran &&
+        result.termination == GBL_RUN_PROGRESS &&
+        result.reason == GBL_RUN_REASON_UNIT_LIMIT && result.cycles == 3u &&
+        result.instructions == 1u && machine.cpu.r0_7[0] == address &&
+        machine.cpu.r0_7[1] == expected_rd &&
+        machine.cpu.r0_7[2] == UINT32_C(0xA1B2C3D4) &&
+        machine.iwram[0x40u] == UINT8_C(0xD4) &&
+        machine.iwram[0x41u] == UINT8_C(0xC3) &&
+        machine.iwram[0x42u] == UINT8_C(0xB2) &&
+        machine.iwram[0x43u] == UINT8_C(0xA1) &&
+        trace.count == 4u && trace.next_sequence == 4u &&
+        trace_record_is(&records[0], 0u, 2u, GBL_TRACE_INSTRUCTION,
+                        UINT32_C(0x08000000), UINT32_C(0xE1001092), 0u, 0u,
+                        0u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                        GBL_BUS_OUTCOME_NONE, GBL_EXCEPTION_NONE) &&
+        trace_record_is(&records[1], 1u, 3u, GBL_TRACE_BUS,
+                        UINT32_C(0x08000000), UINT32_C(0xE1001092),
+                        TEST_SWP_BASE_ADDRESS, UINT32_C(0x44332211), 4u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
+                        GBL_EXCEPTION_NONE) &&
+        trace_record_is(&records[2], 2u, 4u, GBL_TRACE_BUS,
+                        UINT32_C(0x08000000), UINT32_C(0xE1001092),
+                        TEST_SWP_BASE_ADDRESS, 0u, 4u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
+                        GBL_EXCEPTION_NONE) &&
+        trace_record_is(&records[3], 3u, 5u, GBL_TRACE_BUS,
+                        UINT32_C(0x08000000), UINT32_C(0xE1001092),
+                        UINT32_C(0x08000008), UINT32_C(0xE1A00000), 4u,
+                        GBL_BUS_CLASS_SEQUENTIAL, GBL_BUS_OUTCOME_ROM,
+                        GBL_EXCEPTION_NONE);
+
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_swp_word_lane_results(void)
+{
+    static const struct word_swp_lane_vector {
+        uint32_t address;
+        uint32_t expected_rd;
+        const char *description;
+    } cases[] = {
+        { TEST_SWP_BASE_ADDRESS, UINT32_C(0x44332211),
+          "word SWP lane 0 returns the independently pinned word" },
+        { TEST_SWP_BASE_ADDRESS + 1u, UINT32_C(0x11443322),
+          "word SWP lane 1 returns the independently pinned word" },
+        { TEST_SWP_BASE_ADDRESS + 2u, UINT32_C(0x22114433),
+          "word SWP lane 2 returns the independently pinned word" },
+        { TEST_SWP_BASE_ADDRESS + 3u, UINT32_C(0x33221144),
+          "word SWP lane 3 returns the independently pinned word" }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        test_case(word_swp_lane_case(cases[index].address,
+                                     cases[index].expected_rd),
+                  cases[index].description);
+    }
 }
 
 static void test_swpb_read_write_trace(void)
@@ -2762,8 +2835,8 @@ static void test_swpb_read_write_trace(void)
     gbl_trace_record records[5] = { { 0 } };
     gbl_trace_buffer trace = { records, 5u, 1u, UINT64_C(70) };
     gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
-    const bool prepared = prepare_swp_machine(&machine,
-                                               UINT32_C(0xE1401092));
+    const bool prepared = prepare_swp_machine(
+        &machine, UINT32_C(0xE1401092), TEST_SWP_ADDRESS);
     const bool ran = prepared && run_traced_units(
         &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
 
@@ -2805,6 +2878,78 @@ static void test_swpb_read_write_trace(void)
     gbl_machine_dispose(&machine);
 }
 
+static bool swpb_alias_case(uint32_t opcode, uint32_t expected_r0,
+                            uint32_t expected_r1, uint32_t expected_r2,
+                            uint8_t expected_memory_byte)
+{
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[5] = {
+        word_swp_trace_sentinel, { 0 }, { 0 }, { 0 }, { 0 }
+    };
+    const gbl_trace_record before_prefix = word_swp_trace_sentinel;
+    gbl_trace_buffer trace = { records, 5u, 1u, UINT64_C(70) };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    const bool prepared = prepare_swp_machine(&machine, opcode,
+                                               TEST_SWP_ADDRESS);
+    const bool ran = prepared && run_traced_units(
+        &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
+    const bool valid = ran &&
+        result.termination == GBL_RUN_PROGRESS &&
+        result.reason == GBL_RUN_REASON_UNIT_LIMIT && result.cycles == 3u &&
+        result.instructions == 1u && machine.cpu.r0_7[0] == expected_r0 &&
+        machine.cpu.r0_7[1] == expected_r1 &&
+        machine.cpu.r0_7[2] == expected_r2 &&
+        machine.iwram[0x40u] == UINT8_C(0x11) &&
+        machine.iwram[0x41u] == expected_memory_byte &&
+        machine.iwram[0x42u] == UINT8_C(0x33) &&
+        machine.iwram[0x43u] == UINT8_C(0x44) &&
+        trace.count == 5u && trace.next_sequence == UINT64_C(74) &&
+        trace_record_is(&records[0], before_prefix.sequence,
+                        before_prefix.guest_cycle, before_prefix.category,
+                        before_prefix.instruction_address,
+                        before_prefix.opcode, before_prefix.address,
+                        before_prefix.value, before_prefix.width,
+                        before_prefix.access_class, before_prefix.bus_outcome,
+                        before_prefix.exception_kind) &&
+        trace_record_is(&records[1], UINT64_C(70), 2u,
+                        GBL_TRACE_INSTRUCTION, UINT32_C(0x08000000), opcode,
+                        0u, 0u, 0u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                        GBL_BUS_OUTCOME_NONE, GBL_EXCEPTION_NONE) &&
+        trace_record_is(&records[2], UINT64_C(71), 3u, GBL_TRACE_BUS,
+                        UINT32_C(0x08000000), opcode, TEST_SWP_ADDRESS,
+                        UINT32_C(0x22), 1u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
+                        GBL_EXCEPTION_NONE) &&
+        trace_record_is(&records[3], UINT64_C(72), 4u, GBL_TRACE_BUS,
+                        UINT32_C(0x08000000), opcode, TEST_SWP_ADDRESS, 0u,
+                        1u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                        GBL_BUS_OUTCOME_RAM, GBL_EXCEPTION_NONE) &&
+        trace_record_is(&records[4], UINT64_C(73), 5u, GBL_TRACE_BUS,
+                        UINT32_C(0x08000000), opcode,
+                        UINT32_C(0x08000008), UINT32_C(0xE1A00000), 4u,
+                        GBL_BUS_CLASS_SEQUENTIAL, GBL_BUS_OUTCOME_ROM,
+                        GBL_EXCEPTION_NONE);
+
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_swpb_register_aliases(void)
+{
+    test_case(swpb_alias_case(UINT32_C(0xE1402092), TEST_SWP_ADDRESS,
+                              UINT32_C(0xDEADBEEF), UINT32_C(0x22),
+                              UINT8_C(0xD4)),
+              "SWPB captures byte address and Rm before Rd equals Rm");
+    test_case(swpb_alias_case(UINT32_C(0xE1400092), UINT32_C(0x22),
+                              UINT32_C(0xDEADBEEF), UINT32_C(0xA1B2C3D4),
+                              UINT8_C(0xD4)),
+              "SWPB captures byte address and Rm before Rd equals Rn");
+    test_case(swpb_alias_case(UINT32_C(0xE1401090), TEST_SWP_ADDRESS,
+                              UINT32_C(0x22), UINT32_C(0xA1B2C3D4),
+                              UINT8_C(0x41)),
+              "SWPB captures aliased Rn/Rm before read and byte write");
+}
+
 static void test_swp_pc_restrictions(void)
 {
     const uint32_t opcodes[] = {
@@ -2820,7 +2965,8 @@ static void test_swp_pc_restrictions(void)
         gbl_run_result result = {
             GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
         };
-        bool prepared = prepare_swp_machine(&machine, opcodes[index]);
+        bool prepared = prepare_swp_machine(&machine, opcodes[index],
+                                            TEST_SWP_ADDRESS);
 
         if (prepared) {
             const gbl_machine before = machine;
@@ -2876,7 +3022,7 @@ static bool swp_refusal_unchanged(uint64_t cycle_budget,
         records[index] = word_swp_trace_sentinel;
         prior_records[index] = word_swp_trace_sentinel;
     }
-    if (!prepare_word_swp_machine(&machine)) {
+    if (!prepare_word_swp_machine(&machine, TEST_SWP_ADDRESS)) {
         gbl_machine_dispose(&machine);
         return false;
     }
@@ -2921,8 +3067,10 @@ static void test_swp_selected_trace_boundaries(void)
     gbl_run_result plain_result = {
         GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
     };
-    const bool traced_loaded = prepare_word_swp_machine(&traced);
-    const bool plain_loaded = prepare_word_swp_machine(&plain);
+    const bool traced_loaded =
+        prepare_word_swp_machine(&traced, TEST_SWP_ADDRESS);
+    const bool plain_loaded =
+        prepare_word_swp_machine(&plain, TEST_SWP_ADDRESS);
     const bool traced_ran = traced_loaded && run_traced_units(
         &traced, 3u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &traced_result);
     const bool plain_ran = plain_loaded &&
@@ -2993,7 +3141,7 @@ static void test_swp_counter_headroom(void)
     };
     gbl_trace_buffer trace = { records, 4u, 1u, UINT64_C(30) };
     gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
-    const bool prepared = prepare_word_swp_machine(&machine);
+    const bool prepared = prepare_word_swp_machine(&machine, TEST_SWP_ADDRESS);
     bool exact = false;
 
     if (prepared) {
@@ -4052,7 +4200,9 @@ static const cpu_test_function slots_functions[] = {
 };
 static const cpu_test_function slots_bounds_functions[] = {
     test_swp_register_aliases,
+    test_swp_word_lane_results,
     test_swpb_read_write_trace,
+    test_swpb_register_aliases,
     test_swp_pc_restrictions,
     test_swp_selected_trace_boundaries,
     test_swp_counter_headroom,
@@ -4075,7 +4225,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
-    CPU_TEST_GROUP("slots_bounds", 20u, slots_bounds_functions)
+    CPU_TEST_GROUP("slots_bounds", 27u, slots_bounds_functions)
 };
 
 #undef CPU_TEST_GROUP
