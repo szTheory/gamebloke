@@ -1286,6 +1286,28 @@ static bool gbl_cpu_finalize_decoded(gbl_cpu_unit *unit, bool decoded)
     return true;
 }
 
+static uint8_t gbl_cpu_arm_multiply_algorithm_cycles(
+    uint32_t multiplier, bool signed_termination)
+{
+    const uint32_t top24 = multiplier & UINT32_C(0xFFFFFF00);
+    const uint32_t top16 = multiplier & UINT32_C(0xFFFF0000);
+    const uint32_t top8 = multiplier & UINT32_C(0xFF000000);
+
+    if (top24 == 0u ||
+        (signed_termination && top24 == UINT32_C(0xFFFFFF00))) {
+        return 1u;
+    }
+    if (top16 == 0u ||
+        (signed_termination && top16 == UINT32_C(0xFFFF0000))) {
+        return 2u;
+    }
+    if (top8 == 0u ||
+        (signed_termination && top8 == UINT32_C(0xFF000000))) {
+        return 3u;
+    }
+    return 4u;
+}
+
 static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
                                         gbl_cpu_unit *unit,
                                         uint32_t next_fetch_address)
@@ -1295,6 +1317,8 @@ static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
         (opcode & UINT32_C(0x0F8000F0)) == UINT32_C(0x00800090);
     const bool short_multiply =
         (opcode & UINT32_C(0x0FC000F0)) == UINT32_C(0x00000090);
+    const bool signed_long_multiply = long_multiply &&
+        (opcode & UINT32_C(0x00400000)) == 0u;
     const bool accumulate = (opcode & UINT32_C(0x00200000)) != 0u;
     const bool set_flags = (opcode & UINT32_C(0x00100000)) != 0u;
     const uint8_t rd_hi_or_short =
@@ -1311,14 +1335,9 @@ static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
     uint32_t flags;
     uint32_t flag_mask;
     uint64_t product;
+    uint8_t algorithm_cycles;
 
     if (!short_multiply && !long_multiply) {
-        return false;
-    }
-    /* Plan 05-09-01 owns unsigned forms; the signed long forms are added in
-     * the following tracer expansion after this path is verified. */
-    if (long_multiply &&
-        (opcode & UINT32_C(0x00400000)) == 0u) {
         return false;
     }
     if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
@@ -1346,10 +1365,33 @@ static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
                                      GBL_CPU_PC_READ_NORMAL);
     rs_value = gbl_cpu_read_register(cpu, rs, unit->instruction_address,
                                      GBL_CPU_PC_READ_NORMAL);
+    /* DDI0029G §6.6, Tables 6-5–6-8 and §6.20/Table 6-23 define m from
+     * original Rs. Short MUL/MLA use the profile's signed termination choice
+     * (DDI0100I leaves that choice implementation-defined); long forms use
+     * their explicit signed/unsigned opcode. Only this internal work is
+     * modeled here; bus wait states and prefetch are outside this profile. */
+    algorithm_cycles = gbl_cpu_arm_multiply_algorithm_cycles(
+        rs_value, !long_multiply || signed_long_multiply);
+    unit->internal_cycles = (uint8_t)(algorithm_cycles +
+        (long_multiply ? (accumulate ? 2u : 1u)
+                       : (accumulate ? 1u : 0u)));
     if (long_multiply) {
         uint64_t result;
+        uint64_t rm_bits = (uint64_t)rm_value;
+        uint64_t rs_bits = (uint64_t)rs_value;
 
-        product = (uint64_t)rm_value * (uint64_t)rs_value;
+        if (signed_long_multiply) {
+            /* Sign-extend into unsigned bit vectors, then multiply modulo
+             * 2^64. This avoids implementation-defined uint32_t-to-int32_t
+             * conversions while preserving the signed product's exact bits. */
+            if ((rm_value & UINT32_C(0x80000000)) != 0u) {
+                rm_bits |= UINT64_C(0xFFFFFFFF00000000);
+            }
+            if ((rs_value & UINT32_C(0x80000000)) != 0u) {
+                rs_bits |= UINT64_C(0xFFFFFFFF00000000);
+            }
+        }
+        product = rm_bits * rs_bits;
         if (accumulate) {
             const uint32_t accumulator_low = gbl_cpu_read_register(
                 cpu, rd_lo_or_accumulator, unit->instruction_address,
