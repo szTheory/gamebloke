@@ -2232,12 +2232,18 @@ typedef struct arm_subword_address_case {
 } arm_subword_address_case;
 
 static const arm_subword_address_case arm_subword_address_cases[] = {
-    { "immediate offset", false, true, true, false, UINT16_C(0xA4) },
-    { "immediate pre-index", false, true, false, true, UINT16_C(0xA4) },
-    { "immediate post-index", false, false, true, false, UINT16_C(0xA4) },
-    { "register offset", true, true, true, false, UINT16_C(0x24) },
-    { "register pre-index", true, true, false, true, UINT16_C(0x24) },
-    { "register post-index", true, false, false, false, UINT16_C(0x24) }
+    { "immediate offset U=+", false, true, true, false, UINT16_C(0xA4) },
+    { "immediate offset U=-", false, true, false, false, UINT16_C(0xA4) },
+    { "immediate pre-index U=+", false, true, true, true, UINT16_C(0xA4) },
+    { "immediate pre-index U=-", false, true, false, true, UINT16_C(0xA4) },
+    { "immediate post-index U=+", false, false, true, false, UINT16_C(0xA4) },
+    { "immediate post-index U=-", false, false, false, false, UINT16_C(0xA4) },
+    { "register offset U=+", true, true, true, false, UINT16_C(0x24) },
+    { "register offset U=-", true, true, false, false, UINT16_C(0x24) },
+    { "register pre-index U=+", true, true, true, true, UINT16_C(0x24) },
+    { "register pre-index U=-", true, true, false, true, UINT16_C(0x24) },
+    { "register post-index U=+", true, false, true, false, UINT16_C(0x24) },
+    { "register post-index U=-", true, false, false, false, UINT16_C(0x24) }
 };
 
 static bool arm_subword_form_case(uint8_t transfer_kind,
@@ -8518,7 +8524,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),
-    CPU_TEST_GROUP("arm_subword", 46u, arm_subword_functions),
+    CPU_TEST_GROUP("arm_subword", 70u, arm_subword_functions),
     CPU_TEST_GROUP("arm_subword_alignment", 37u,
                    arm_subword_alignment_functions),
     CPU_TEST_GROUP("loaded_pc", 17u, loaded_pc_functions),
