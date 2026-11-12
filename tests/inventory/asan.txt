@@ -41,6 +41,7 @@ cpu.nc.vector_fetch control,core,cpu
 cpu.no_bios core,cpu,unit
 cpu.peek core,cpu,unit
 cpu.pos.clean core,cpu,positive
+cpu.psr core,cpu,unit
 cpu.slots core,cpu,unit
 cpu.slots_bounds core,cpu,unit
 cpu.thumb core,cpu,unit

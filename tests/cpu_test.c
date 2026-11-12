@@ -2299,6 +2299,401 @@ static void test_arm_pc_return(void)
     gbl_machine_dispose(&machine);
 }
 
+static uint32_t encode_arm_mrs(bool saved, uint8_t destination)
+{
+    return UINT32_C(0xE10F0000) |
+           (saved ? UINT32_C(0x00400000) : 0u) |
+           ((uint32_t)destination << 12u);
+}
+
+static uint32_t encode_arm_msr_register(bool saved, uint8_t fields,
+                                        uint8_t source)
+{
+    return UINT32_C(0xE120F000) |
+           (saved ? UINT32_C(0x00400000) : 0u) |
+           ((uint32_t)fields << 16u) | (uint32_t)source;
+}
+
+static uint32_t encode_arm_msr_immediate(bool saved, uint8_t fields,
+                                         uint8_t rotate, uint8_t immediate)
+{
+    return UINT32_C(0xE320F000) |
+           (saved ? UINT32_C(0x00400000) : 0u) |
+           ((uint32_t)fields << 16u) | ((uint32_t)rotate << 8u) |
+           (uint32_t)immediate;
+}
+
+static bool prime_psr_program(gbl_machine *machine, uint8_t image[])
+{
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded = machine_load(machine, image);
+
+    if (loaded) {
+        machine->cpu.cpsr = TEST_CPSR_SVC;
+    }
+    return loaded && run_arm_program_unit(machine, 2u, &result) &&
+           result.termination == GBL_RUN_PROGRESS && result.cycles == 2u;
+}
+
+static bool retire_psr_instruction(gbl_machine *machine,
+                                   gbl_run_result *result)
+{
+    return run_arm_program_unit(machine, 1u, result) &&
+           result->termination == GBL_RUN_PROGRESS &&
+           result->reason == GBL_RUN_REASON_UNIT_LIMIT &&
+           result->instructions == 1u && result->cycles == 1u;
+}
+
+static void test_psr_mrs_forms(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_N | TEST_CPSR_C;
+    const uint32_t saved_cpsr = TEST_CPSR_USER | UINT32_C(0x20) | TEST_CPSR_Z;
+    bool primed;
+    bool cpsr_read;
+    bool spsr_read;
+
+    make_empty_image(image);
+    write_word(image, 0x00u, encode_arm_mrs(false, 0u));
+    write_word(image, 0x04u, encode_arm_mrs(true, 1u));
+    primed = prime_psr_program(&machine, image);
+    machine.cpu.cpsr = initial_cpsr;
+    machine.cpu.spsr[2] = saved_cpsr;
+    cpsr_read = primed && retire_psr_instruction(&machine, &result) &&
+                machine.cpu.r0_7[0] == initial_cpsr;
+    spsr_read = cpsr_read && retire_psr_instruction(&machine, &result) &&
+                machine.cpu.r0_7[1] == saved_cpsr;
+    test_case(spsr_read,
+              "MRS CPSR and SPSR read the selected status registers");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_psr_register_field_masks(void)
+{
+    static const uint8_t fields[] = { 1u, 2u, 4u, 8u };
+    static const uint32_t operands[] = {
+        UINT32_C(0x00000092), UINT32_C(0x0000AB00),
+        UINT32_C(0x00CD0000), UINT32_C(0xA0000000)
+    };
+    uint8_t index;
+    bool all_passed = true;
+
+    for (index = 0u; index < (uint8_t)4u; ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        const uint32_t reserved = UINT32_C(0x00A5B600);
+        const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_V | reserved;
+        const uint32_t write_mask = fields[index] == 1u
+                                        ? UINT32_C(0x000000DF)
+                                        : fields[index] == 8u
+                                              ? UINT32_C(0xF0000000)
+                                              : 0u;
+        bool primed;
+        bool retired;
+        bool matched;
+
+        make_empty_image(image);
+        write_word(image, 0x00u, encode_arm_msr_register(false, fields[index],
+                                                         0u));
+        primed = prime_psr_program(&machine, image);
+        machine.cpu.cpsr = initial_cpsr;
+        machine.cpu.r0_7[0] = operands[index];
+        retired = primed && retire_psr_instruction(&machine, &result);
+        matched = retired && machine.cpu.cpsr ==
+                                  ((initial_cpsr & ~write_mask) |
+                                   (operands[index] & write_mask));
+        all_passed = all_passed && matched;
+        gbl_machine_dispose(&machine);
+    }
+    test_case(all_passed,
+              "MSR register form applies c/x/s/f masks and preserves other fields");
+}
+
+static void test_psr_immediate_field_masks(void)
+{
+    static const uint8_t fields[] = { 1u, 2u, 4u, 8u };
+    static const uint8_t rotates[] = { 0u, 0u, 0u, 4u };
+    static const uint8_t immediates[] = { 0x12u, 0xABu, 0xCDu, 0xF0u };
+    static const uint32_t values[] = {
+        UINT32_C(0x00000012), UINT32_C(0x000000AB),
+        UINT32_C(0x000000CD), UINT32_C(0xF0000000)
+    };
+    uint8_t index;
+    bool all_passed = true;
+
+    for (index = 0u; index < (uint8_t)4u; ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        const uint32_t reserved = UINT32_C(0x005A3C00);
+        const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_N | reserved;
+        const uint32_t write_mask = fields[index] == 1u
+                                        ? UINT32_C(0x000000DF)
+                                        : fields[index] == 8u
+                                              ? UINT32_C(0xF0000000)
+                                              : 0u;
+        bool primed;
+        bool retired;
+        bool matched;
+
+        make_empty_image(image);
+        write_word(image, 0x00u,
+                   encode_arm_msr_immediate(false, fields[index],
+                                            rotates[index], immediates[index]));
+        primed = prime_psr_program(&machine, image);
+        machine.cpu.cpsr = initial_cpsr;
+        retired = primed && retire_psr_instruction(&machine, &result);
+        matched = retired && machine.cpu.cpsr ==
+                                  ((initial_cpsr & ~write_mask) |
+                                   (values[index] & write_mask));
+        all_passed = all_passed && matched;
+        gbl_machine_dispose(&machine);
+    }
+    test_case(all_passed,
+              "MSR rotated-immediate form applies c/x/s/f field masks");
+}
+
+static void test_psr_mode_reads_and_banks(void)
+{
+    static const uint32_t modes[] = {
+        TEST_CPSR_USER, TEST_CPSR_FIQ, TEST_CPSR_IRQ, TEST_CPSR_SVC,
+        TEST_CPSR_ABT, TEST_CPSR_UND, TEST_CPSR_SYSTEM
+    };
+    uint8_t index;
+    bool all_modes_read = true;
+    bool all_saved_reads = true;
+    bool bank_visibility;
+
+    for (index = 0u; index < (uint8_t)7u; ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        const uint32_t status = modes[index] | TEST_CPSR_Z;
+        bool loaded;
+        bool primed;
+        bool read;
+
+        make_empty_image(image);
+        write_word(image, 0x00u, encode_arm_mrs(false, 0u));
+        loaded = machine_load(&machine, image);
+        machine.cpu.cpsr = status;
+        primed = loaded && run_arm_program_unit(&machine, 2u, &result);
+        read = primed && retire_psr_instruction(&machine, &result) &&
+               machine.cpu.r0_7[0] == status;
+        all_modes_read = all_modes_read && read;
+        gbl_machine_dispose(&machine);
+    }
+    for (index = 1u; index < (uint8_t)6u; ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = {
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        };
+        const uint32_t saved = modes[index] | TEST_CPSR_N |
+                               ((uint32_t)index << 24u);
+        bool loaded;
+        bool primed;
+        bool read;
+
+        make_empty_image(image);
+        write_word(image, 0x00u, encode_arm_mrs(true, 0u));
+        loaded = machine_load(&machine, image);
+        machine.cpu.cpsr = modes[index];
+        if (index <= 5u) {
+            machine.cpu.spsr[index - 1u] = saved;
+        }
+        primed = loaded && run_arm_program_unit(&machine, 2u, &result);
+        read = primed && retire_psr_instruction(&machine, &result) &&
+               machine.cpu.r0_7[0] == saved;
+        all_saved_reads = all_saved_reads && read;
+        gbl_machine_dispose(&machine);
+    }
+    test_case(all_modes_read && all_saved_reads,
+              "MRS exposes CPSR in all seven modes and each exception SPSR bank");
+
+    {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+        bool loaded;
+        bool ran;
+
+        make_empty_image(image);
+        write_word(image, 0x00u, encode_arm_msr_register(false, 1u, 0u));
+        write_word(image, 0x04u, UINT32_C(0xE1A01008)); /* MOV R1, R8 */
+        write_word(image, 0x08u, encode_arm_msr_register(false, 1u, 2u));
+        write_word(image, 0x0Cu, UINT32_C(0xE1A03008)); /* MOV R3, R8 */
+        loaded = machine_load(&machine, image);
+        machine.cpu.cpsr = TEST_CPSR_SVC;
+        machine.cpu.r0_7[0] = TEST_CPSR_FIQ;
+        machine.cpu.r0_7[2] = TEST_CPSR_SYSTEM;
+        machine.cpu.fiq_r8_14[0] = UINT32_C(0xF1F1F1F1);
+        machine.cpu.usr_r8_14[0] = UINT32_C(0x51515151);
+        ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+              retire_psr_instruction(&machine, &result) &&
+              retire_psr_instruction(&machine, &result) &&
+              retire_psr_instruction(&machine, &result) &&
+              retire_psr_instruction(&machine, &result) &&
+              machine.cpu.r0_7[1] == UINT32_C(0xF1F1F1F1) &&
+              machine.cpu.r0_7[3] == UINT32_C(0x51515151) &&
+              (machine.cpu.cpsr & TEST_CPSR_MODE_MASK) == TEST_CPSR_SYSTEM;
+        bank_visibility = ran;
+    }
+    test_case(bank_visibility,
+              "CPSR mode writes expose distinct FIQ and User/System R8 banks");
+}
+
+static void test_psr_privilege_and_saved_state(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool user_flags;
+    bool saved_t;
+    bool condition_failed;
+
+    make_empty_image(image);
+    write_word(image, 0x00u, encode_arm_msr_register(false, 15u, 0u));
+    write_word(image, 0x04u, encode_arm_msr_immediate(true, 1u, 0u, 0x30u));
+    write_word(image, 0x08u, encode_arm_mrs(true, 1u));
+    if (machine_load(&machine, image)) {
+        machine.cpu.cpsr = TEST_CPSR_USER | UINT32_C(0x00000080);
+        machine.cpu.r0_7[0] = UINT32_C(0xA00000D3);
+        user_flags = run_arm_program_unit(&machine, 2u, &result) &&
+                     retire_psr_instruction(&machine, &result) &&
+                     machine.cpu.cpsr == (TEST_CPSR_USER | UINT32_C(0x00000080) |
+                                          UINT32_C(0xA0000000));
+    } else {
+        user_flags = false;
+    }
+    gbl_machine_dispose(&machine);
+
+    machine = (gbl_machine){ 0 };
+    make_empty_image(image);
+    write_word(image, 0x00u, encode_arm_msr_immediate(true, 1u, 0u, 0x30u));
+    write_word(image, 0x04u, encode_arm_mrs(true, 1u));
+    if (machine_load(&machine, image)) {
+        machine.cpu.cpsr = TEST_CPSR_SVC;
+        machine.cpu.spsr[2] = TEST_CPSR_IRQ | UINT32_C(0x00000040) |
+                              TEST_CPSR_N;
+        saved_t = run_arm_program_unit(&machine, 2u, &result) &&
+                  retire_psr_instruction(&machine, &result) &&
+                  machine.cpu.spsr[2] ==
+                      (TEST_CPSR_USER | UINT32_C(0x20) | TEST_CPSR_N) &&
+                  retire_psr_instruction(&machine, &result) &&
+                  machine.cpu.r0_7[1] == machine.cpu.spsr[2];
+    } else {
+        saved_t = false;
+    }
+    gbl_machine_dispose(&machine);
+
+    machine = (gbl_machine){ 0 };
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0x0121F000)); /* MSREQ CPSR_c, R0 */
+    if (machine_load(&machine, image)) {
+        const uint32_t before = TEST_CPSR_SVC | TEST_CPSR_C;
+        machine.cpu.cpsr = before;
+        machine.cpu.r0_7[0] = TEST_CPSR_USER;
+        condition_failed = run_arm_program_unit(&machine, 2u, &result) &&
+                           retire_psr_instruction(&machine, &result) &&
+                           machine.cpu.cpsr == before &&
+                           machine.cpu.execution_address ==
+                               UINT32_C(0x08000004);
+    } else {
+        condition_failed = false;
+    }
+    test_case(user_flags && saved_t && condition_failed,
+              "MSR applies user flags-only writes and saved-state T while failed conditions retire unchanged");
+    gbl_machine_dispose(&machine);
+}
+
+static void test_psr_unpredictable_refusals(void)
+{
+    static const uint32_t opcodes[] = {
+        UINT32_C(0xE121F000), /* MSR CPSR_c, R0 */
+        UINT32_C(0xE321F020), /* MSR CPSR_c, #T */
+        UINT32_C(0xE10FF000), /* MRS PC, CPSR */
+        UINT32_C(0xE14F0000), /* MRS R0, SPSR */
+        UINT32_C(0xE161F000)  /* MSR SPSR_c, R0 */
+    };
+    static const uint32_t modes[] = {
+        TEST_CPSR_SVC, TEST_CPSR_SVC, TEST_CPSR_SVC,
+        TEST_CPSR_USER, TEST_CPSR_SYSTEM
+    };
+    static const uint32_t operands[] = {
+        UINT32_C(0x15), UINT32_C(0), UINT32_C(0), UINT32_C(0), UINT32_C(0)
+    };
+    uint8_t index;
+    bool all_refused = true;
+
+    for (index = 0u; index < (uint8_t)5u; ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_machine before;
+        gbl_machine expected;
+        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+        gbl_trace_record records[2];
+        gbl_trace_record records_before[2];
+        gbl_trace_buffer trace;
+        gbl_trace_buffer trace_before;
+        bool loaded;
+        bool primed;
+        bool refused;
+
+        make_empty_image(image);
+        write_word(image, 0x00u, opcodes[index]);
+        loaded = machine_load(&machine, image);
+        machine.cpu.cpsr = modes[index];
+        machine.cpu.r0_7[0] = operands[index];
+        primed = loaded && run_arm_program_unit(&machine, 2u, &result);
+        memset(records, 0x5Au, sizeof(records));
+        records[0].sequence = UINT64_C(31);
+        records[0].guest_cycle = UINT64_C(47);
+        records[0].category = GBL_TRACE_BUS;
+        records[0].instruction_address = UINT32_C(0x08000004);
+        records[0].opcode = opcodes[index];
+        records[0].address = UINT32_C(0x02000008);
+        records[0].value = UINT32_C(0xA1B2C3D4);
+        records[0].width = 4u;
+        records[0].access_class = GBL_BUS_CLASS_SEQUENTIAL;
+        records[0].bus_outcome = GBL_BUS_OUTCOME_RAM;
+        records[0].exception_kind = GBL_EXCEPTION_NONE;
+        memcpy(records_before, records, sizeof(records));
+        trace = (gbl_trace_buffer){ records, 2u, 1u, UINT64_C(31) };
+        trace_before = trace;
+        before = machine;
+        expected = machine;
+        expected.cpu.stopped = true;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        refused = primed && run_traced_units(
+            &machine, 1u, 1u, GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+            &trace, &result) && result.termination == GBL_RUN_STOPPED &&
+            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.instructions == 0u && result.cycles == 0u &&
+            gbl_test_canonical_equal(&expected, &machine) &&
+            gbl_test_same_instance_identity_equal(&before, &machine) &&
+            machine.master_cycles == before.master_cycles &&
+            trace.records == trace_before.records &&
+            trace.count == trace_before.count &&
+            trace.capacity == trace_before.capacity &&
+            trace.next_sequence == trace_before.next_sequence &&
+            memcmp(records, records_before, sizeof(records)) == 0;
+        all_refused = all_refused && refused;
+        gbl_machine_dispose(&machine);
+    }
+    test_case(all_refused,
+              "invalid PSR modes, T writes, PC destinations and absent SPSRs refuse before effects");
+}
+
 static void test_arithmetic(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -5127,6 +5522,14 @@ static const cpu_test_function arm_pc_return_functions[] = {
     test_pc_return_condition_and_refusal,
     test_arm_pc_return
 };
+static const cpu_test_function psr_functions[] = {
+    test_psr_mrs_forms,
+    test_psr_register_field_masks,
+    test_psr_immediate_field_masks,
+    test_psr_mode_reads_and_banks,
+    test_psr_privilege_and_saved_state,
+    test_psr_unpredictable_refusals
+};
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
@@ -5183,6 +5586,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_shifts_conditions", 73u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
+    CPU_TEST_GROUP("psr", 7u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("exceptions", 13u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
