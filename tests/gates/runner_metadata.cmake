@@ -19,6 +19,7 @@ set(fail_image "${generated}/fixtures/owned-arm-fail.gba")
 set(mutated_image "${generated}/fixtures/owned-arm-pass-mutated.gba")
 set(wiring_file "${generated}/runner-target-wiring.txt")
 set(generator_script "${SRC}/cmake/GenerateFixtureIndex.cmake")
+set(production_manifest "${SRC}/tests/fixtures/manifest.json")
 
 function(gbl_read_cache_entry cache_path key output_type output_value)
   file(STRINGS "${cache_path}" entries REGEX "^${key}:[^=]+=")
@@ -61,11 +62,44 @@ endforeach()
 file(READ "${production_index}" production_text)
 file(READ "${control_index}" control_text)
 file(READ "${control_manifest}" control_manifest_text)
-if(NOT "${production_text}" MATCHES
-    "gbl_fixture_metadata_count = 0u;" OR
-    "${production_text}" MATCHES "synthetic-control-pass")
-  message(FATAL_ERROR "runner-metadata: production-index-not-empty-authority")
+if(NOT EXISTS "${production_manifest}" OR IS_DIRECTORY "${production_manifest}")
+  message(FATAL_ERROR "runner-metadata: canonical-manifest-missing")
 endif()
+file(READ "${production_manifest}" production_manifest_text)
+string(JSON canonical_fixture_count ERROR_VARIABLE canonical_manifest_error
+  LENGTH "${production_manifest_text}" fixtures)
+if(NOT "${canonical_manifest_error}" STREQUAL "NOTFOUND")
+  message(FATAL_ERROR "runner-metadata: canonical-manifest-invalid")
+endif()
+string(FIND "${production_text}"
+  "gbl_fixture_metadata_count = ${canonical_fixture_count}u;"
+  production_count_position)
+if(production_count_position EQUAL -1)
+  message(FATAL_ERROR "runner-metadata: production-index-count-mismatches-manifest")
+endif()
+if(canonical_fixture_count GREATER 0)
+  math(EXPR canonical_fixture_last "${canonical_fixture_count}-1")
+  foreach(index RANGE ${canonical_fixture_last})
+    string(JSON canonical_fixture_id ERROR_VARIABLE canonical_id_error
+      GET "${production_manifest_text}" fixtures ${index} id)
+    if(NOT "${canonical_id_error}" STREQUAL "NOTFOUND")
+      message(FATAL_ERROR "runner-metadata: canonical-fixture-id-invalid")
+    endif()
+    string(FIND "${production_text}"
+      "    \"${canonical_fixture_id}\", \"" canonical_id_position)
+    if(canonical_id_position EQUAL -1)
+      message(FATAL_ERROR
+        "runner-metadata: canonical-fixture-absent-from-production-index: ${canonical_fixture_id}")
+    endif()
+  endforeach()
+endif()
+foreach(synthetic_id IN ITEMS synthetic-control-pass synthetic-control-fail
+    synthetic-control-bios-required synthetic-control-pass-zero-case)
+  string(FIND "${production_text}" "\"${synthetic_id}\"" synthetic_id_position)
+  if(NOT synthetic_id_position EQUAL -1)
+    message(FATAL_ERROR "runner-metadata: synthetic-row-in-production-index")
+  endif()
+endforeach()
 if(NOT "${control_text}" MATCHES "synthetic-control-pass" OR
     NOT "${control_text}" MATCHES "synthetic-control-fail" OR
     NOT "${control_text}" MATCHES "synthetic-control-bios-required" OR
@@ -129,13 +163,13 @@ foreach(property IN ITEMS COMPILE_OPTIONS COMPILE_DEFINITIONS LINK_OPTIONS)
 endforeach()
 
 # Deliberately supply the production index where the control index is expected.
-# The production table must reject that row identity because the canonical
-# manifest is genuinely empty; no runtime index-selection switch exists.
+# The production table must reject the synthetic row identity while retaining
+# every row from the canonical manifest; no runtime index-selection switch exists.
 if("${production_text}" MATCHES "synthetic-control-pass" OR
     NOT "${control_text}" MATCHES "synthetic-control-pass")
   message(FATAL_ERROR "runner-metadata: wrong-index-accepted")
 endif()
-message("runner-metadata: wrong-index-rejected (production index has no synthetic row)")
+message("runner-metadata: canonical production authority verified (${canonical_fixture_count} rows; synthetic rows excluded)")
 
 set(control_dir "${BIN}/runner-metadata-controls")
 file(MAKE_DIRECTORY "${control_dir}")

@@ -2,14 +2,15 @@
 #
 #   cmake -DCASE=<name> -DSRC=<source dir> -DBIN=<build dir> -P tests/gates/manifest_case.cmake
 #
-# Every input is a mutated COPY of contracts/examples/manifest.json (with copies of
-# tests/fixtures/manifest.json, pins.txt, registry/disputes.json, and
-# contracts/evidence.json) under BIN/nc/manifest_<case>; the committed files are never
-# modified and no bad example is committed (D-04). Each negative variant asserts a
-# non-zero exit AND the linter's stable reason code through cmake/ExpectFail.cmake; a
-# stale mutation fails with `mutate: no-match`. A variant changes one field;
-# co-reported findings are accepted because the REGEX asserts that the targeted code
-# line is present.
+# Every mutation starts from a COPY of contracts/examples/manifest.json (with copies
+# of pins.txt, registry/disputes.json, and contracts/evidence.json) under
+# BIN/nc/manifest_<case>; the committed files are never modified and no bad example is
+# committed (D-04). `empty.json` is a separate fixed zero-row fixture so the positive
+# empty-manifest case remains independent of the live canonical manifest. Each negative
+# variant asserts a non-zero exit AND the linter's stable reason code through
+# cmake/ExpectFail.cmake; a stale mutation fails with `mutate: no-match`. A variant
+# changes one field; co-reported findings are accepted because the REGEX asserts that
+# the targeted code line is present.
 
 # Script mode starts with every policy OLD; pin the floor policy set.
 cmake_minimum_required(VERSION 3.25)
@@ -31,7 +32,8 @@ file(REMOVE_RECURSE "${dir}")
 file(MAKE_DIRECTORY "${dir}")
 set(CHECK "${SRC}/cmake/CheckManifest.cmake")
 file(COPY_FILE "${SRC}/contracts/examples/manifest.json" "${dir}/manifest.json")
-file(COPY_FILE "${SRC}/tests/fixtures/manifest.json" "${dir}/empty.json")
+file(WRITE "${dir}/empty.json"
+  "{\n  \"schema\": \"gamebloke.manifest/1\",\n  \"fixtures\": []\n}\n")
 file(COPY_FILE "${SRC}/pins.txt" "${dir}/pins.txt")
 file(COPY_FILE "${SRC}/registry/disputes.json" "${dir}/disputes.json")
 file(COPY_FILE "${SRC}/contracts/evidence.json" "${dir}/evidence.json")

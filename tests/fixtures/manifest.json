@@ -1,4 +1,75 @@
 {
   "schema": "gamebloke.manifest/1",
-  "fixtures": []
+  "fixtures": [
+    {
+      "id": "smoke",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/szTheory/gamebloke",
+        "commit": "4857ddc9c6ecaef61644fa4cf6286e7951e3bff4"
+      },
+      "license": {
+        "spdx": "LicenseRef-Gamebloke-Diagnostic-Public-CI",
+        "notices": [
+          "diagnostics/armv4t/NOTICE"
+        ],
+        "redistributable": "yes"
+      },
+      "build": {
+        "recipe": "case 20481 smoke-positive: assemble shared startup.S once and smoke.S with GBL_BROKEN=0; link through linker.ld and apply FixGbaHeader.cmake",
+        "toolchain": {
+          "identity": "xPack GNU Arm Embedded GCC 15.2.1-1.1; toolchain/arm-none-eabi.lock pins host archives: darwin-arm64 293820200 bytes sha256 574082d35e49a2bcbdc355836b2a3ae5e5bb3b9456c9f5e37177db2ab4aad870; linux-x64 307090703 bytes sha256 da6a49ad4003944b823c6c93702a8787c922ab34bd7e918ec0eaf6933a9b1ff6; linux-arm64 302624714 bytes sha256 67980c7990eba7bb7ffdf39699102effd70889f5ac427be19a8c8a6c5fab2972",
+          "sha256": null
+        },
+        "artifact": {
+          "path": "generated/diagnostics/armv4t/roms/smoke.gba",
+          "sha256": "424a460469dbdbbf98b1eb1991e26a45ae9324a2127936f81572308ba38510d9"
+        }
+      },
+      "bios_requirement": "none",
+      "expected": {
+        "provenance_class": "project-authored",
+        "dispute": null
+      },
+      "permitted_use": [
+        "public-ci",
+        "local-only"
+      ]
+    },
+    {
+      "id": "smoke-broken",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/szTheory/gamebloke",
+        "commit": "4857ddc9c6ecaef61644fa4cf6286e7951e3bff4"
+      },
+      "license": {
+        "spdx": "LicenseRef-Gamebloke-Diagnostic-Public-CI",
+        "notices": [
+          "diagnostics/armv4t/NOTICE"
+        ],
+        "redistributable": "yes"
+      },
+      "build": {
+        "recipe": "case 20481 assertion-broken smoke: reuse shared startup.S and assemble smoke.S with GBL_BROKEN=1, changing the ARM expected operand 5 to 6 and Thumb expected operand 6 to 7; link through linker.ld and apply FixGbaHeader.cmake",
+        "toolchain": {
+          "identity": "xPack GNU Arm Embedded GCC 15.2.1-1.1; toolchain/arm-none-eabi.lock pins host archives: darwin-arm64 293820200 bytes sha256 574082d35e49a2bcbdc355836b2a3ae5e5bb3b9456c9f5e37177db2ab4aad870; linux-x64 307090703 bytes sha256 da6a49ad4003944b823c6c93702a8787c922ab34bd7e918ec0eaf6933a9b1ff6; linux-arm64 302624714 bytes sha256 67980c7990eba7bb7ffdf39699102effd70889f5ac427be19a8c8a6c5fab2972",
+          "sha256": null
+        },
+        "artifact": {
+          "path": "generated/diagnostics/armv4t/roms/smoke-broken.gba",
+          "sha256": "76d20735f76c2bb8c67117c98b6488f0ab324039b8b19d768f14aecb64caa9e6"
+        }
+      },
+      "bios_requirement": "none",
+      "expected": {
+        "provenance_class": "project-authored",
+        "dispute": null
+      },
+      "permitted_use": [
+        "public-ci",
+        "local-only"
+      ]
+    }
+  ]
 }
