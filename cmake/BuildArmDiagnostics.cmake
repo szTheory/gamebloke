@@ -18,6 +18,13 @@ if(NOT IS_DIRECTORY "${source_root}")
   message(FATAL_ERROR "arm-diagnostics: source-root-missing")
 endif()
 
+if(NOT DEFINED ISA)
+  set(ISA arm)
+endif()
+if(NOT ISA MATCHES "^(arm|thumb)$")
+  message(FATAL_ERROR "arm-diagnostics: invalid-isa")
+endif()
+
 set(matrix_file "${source_root}/diagnostics/armv4t/cases.json")
 set(coverage_checker "${source_root}/cmake/CheckArmCoverage.cmake")
 set(inputs_file "${source_root}/diagnostics/armv4t/inputs.txt")
@@ -86,14 +93,14 @@ if(MODE STREQUAL "case")
     endif()
     set(selected_kind smoke)
   else()
-    if(NOT DEFINED ISA OR NOT ISA STREQUAL "arm" OR
+    if(NOT DEFINED ISA OR NOT ISA MATCHES "^(arm|thumb)$" OR
        NOT selected_state STREQUAL "pending" OR
-       (selected_target AND NOT selected_family MATCHES "^(data-processing|condition|pc-control|shifter-boundary|multiply|status-register|single-transfer|halfword-signed-transfer|swap|block-transfer|block-transfer-edge)$"))
+       (ISA STREQUAL "arm" AND selected_target AND NOT selected_family MATCHES "^(data-processing|condition|pc-control|shifter-boundary|multiply|status-register|single-transfer|halfword-signed-transfer|swap|block-transfer|block-transfer-edge)$"))
       message(FATAL_ERROR "arm-diagnostics: arm-case-selection-invalid: ${CASE_ID}")
     endif()
     string(JSON selected_isa GET "${selected_row}" isa)
     string(JSON selected_source_program GET "${selected_row}" source_test program)
-    if(NOT selected_isa STREQUAL "arm" OR
+    if(NOT selected_isa STREQUAL "${ISA}" OR
        NOT selected_kind MATCHES "^(semantic|guest-stop)$" OR
        "${selected_source_program}" STREQUAL "")
       message(FATAL_ERROR "arm-diagnostics: arm-case-source-missing: ${CASE_ID}")
@@ -141,12 +148,12 @@ set(matrix_root "${source_root}/build/phase05-matrix")
 if(MODE STREQUAL "all")
   cmake_path(IS_PREFIX matrix_root "${output_root}" NORMALIZE output_in_matrix_root)
   file(RELATIVE_PATH output_leaf "${matrix_root}" "${output_root}")
-  if(NOT output_in_matrix_root OR NOT output_leaf STREQUAL "arm")
-    message(FATAL_ERROR "arm-diagnostics: all-output-must-be-build/phase05-matrix/arm")
+  if(NOT output_in_matrix_root OR NOT output_leaf STREQUAL "${ISA}")
+    message(FATAL_ERROR "arm-diagnostics: all-output-must-be-build/phase05-matrix/${ISA}")
   endif()
 elseif(MODE STREQUAL "case" AND MATRIX_CHILD STREQUAL "1")
   cmake_path(IS_PREFIX matrix_root "${output_root}" NORMALIZE output_in_matrix_root)
-  file(RELATIVE_PATH output_leaf "${matrix_root}/arm/cases" "${output_root}")
+  file(RELATIVE_PATH output_leaf "${matrix_root}/${ISA}/cases" "${output_root}")
   if(NOT output_in_matrix_root OR NOT output_leaf MATCHES "^[1-9][0-9]*$")
     message(FATAL_ERROR "arm-diagnostics: internal-case-output-invalid")
   endif()
@@ -260,7 +267,7 @@ foreach(input_line IN LISTS source_input_lines)
 endforeach()
 string(SHA256 source_input_digest "${source_input_digest_material}")
 if(is_matrix_child)
-  set(matrix_parent_receipt "${matrix_root}/arm/proof/matrix-parent.json")
+  set(matrix_parent_receipt "${matrix_root}/${ISA}/proof/matrix-parent.json")
   if(NOT EXISTS "${matrix_parent_receipt}" OR
      IS_DIRECTORY "${matrix_parent_receipt}" OR IS_SYMLINK "${matrix_parent_receipt}")
     message(FATAL_ERROR "arm-diagnostics: matrix-parent-verification-missing")
@@ -282,7 +289,7 @@ foreach(required_input IN ITEMS
     cmake/BuildArmDiagnostics.cmake cmake/CheckArmCoverage.cmake
     cmake/FixGbaHeader.cmake cmake/GblJson.cmake
     diagnostics/armv4t/NOTICE diagnostics/armv4t/assertions.inc
-    diagnostics/armv4t/cases-arm.S diagnostics/armv4t/cases.json
+    diagnostics/armv4t/cases-arm.S diagnostics/armv4t/cases-thumb.S diagnostics/armv4t/cases.json
     diagnostics/armv4t/inputs.txt diagnostics/armv4t/linker.ld
     diagnostics/armv4t/smoke.S diagnostics/armv4t/startup.S
     scripts/fetch-toolchain.sh scripts/lib/signature-common.sh
@@ -364,7 +371,7 @@ if(is_matrix_child)
   endif()
   file(WRITE "${output_root}/proof/toolchain-check.txt"
     "Reused parent-verified xPack GNU Arm Embedded 15.2.1-1.1 receipt: ${current_toolchain_sha}\n")
-  file(COPY_FILE "${matrix_root}/arm/proof/tool-versions.txt"
+  file(COPY_FILE "${matrix_root}/${ISA}/proof/tool-versions.txt"
     "${output_root}/proof/tool-versions.txt")
 else()
   execute_process(
@@ -669,7 +676,10 @@ if(MODE STREQUAL "all")
     if(NOT source_kind MATCHES "^(semantic|guest-stop)$")
       continue()
     endif()
-    if(NOT row_isa STREQUAL "arm" OR NOT row_state STREQUAL "pending")
+    if(NOT row_isa STREQUAL "${ISA}")
+      continue()
+    endif()
+    if(NOT row_state STREQUAL "pending")
       message(FATAL_ERROR
         "arm-diagnostics: source-row-not-runnable: id=${row_id} isa=${row_isa} state=${row_state}")
     endif()
@@ -677,7 +687,7 @@ if(MODE STREQUAL "all")
     execute_process(
       COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
         "-DOUT=${child_output}" "-DTOOLCHAIN_ROOT=${toolchain_root}"
-        -DMODE=case -DISA=arm -DMATRIX_CHILD=1
+        -DMODE=case "-DISA=${ISA}" -DMATRIX_CHILD=1
         "-DMATRIX_CASE_INDEX=${index}"
         "-DCASE_ID=${row_id}" "-DSOURCE_COMMIT=${source_commit}"
         -DHOST=${HOST} -P "${source_root}/cmake/BuildArmDiagnostics.cmake"
@@ -753,7 +763,12 @@ if(MODE STREQUAL "all")
   endforeach()
   # The coverage checker already proves the architecture-derived inventory.
   # Count the selected producers above rather than freezing a historical total.
-  if(semantic_count LESS 1 OR NOT stop_count EQUAL 4)
+  if(ISA STREQUAL "arm")
+    set(expected_stop_count 4)
+  else()
+    set(expected_stop_count 2)
+  endif()
+  if(semantic_count LESS 1 OR NOT stop_count EQUAL expected_stop_count)
     message(FATAL_ERROR
       "arm-diagnostics: matrix-count-mismatch: semantic=${semantic_count} stops=${stop_count}")
   endif()
@@ -793,7 +808,7 @@ if(MODE STREQUAL "all")
   set(matrix_receipt "{}")
   string(JSON matrix_receipt SET "${matrix_receipt}" format
     "\"gamebloke.arm-diagnostic-matrix/1\"")
-  string(JSON matrix_receipt SET "${matrix_receipt}" isa "\"arm\"")
+  string(JSON matrix_receipt SET "${matrix_receipt}" isa "\"${ISA}\"")
   string(JSON matrix_receipt SET "${matrix_receipt}" source_commit
     "\"${source_commit}\"")
   string(JSON matrix_receipt SET "${matrix_receipt}" host "\"${HOST}\"")
@@ -821,8 +836,8 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
        NOT "${selected_source_program}" MATCHES "GBL_ASSERT_(EQ|MASKED)")
       message(FATAL_ERROR "arm-diagnostics: arm-case-assertion-invalid: ${CASE_ID}")
     endif()
-    set(variant_labels "arm-${CASE_ID}" "arm-${CASE_ID}-broken")
-    set(rom_names "arm-${CASE_ID}.gba" "arm-${CASE_ID}-broken.gba")
+    set(variant_labels "${ISA}-${CASE_ID}" "${ISA}-${CASE_ID}-broken")
+    set(rom_names "${ISA}-${CASE_ID}.gba" "${ISA}-${CASE_ID}-broken.gba")
     set(broken_values 0 1)
   else()
     string(JSON stop_operation GET "${selected_row}" source_test operation)
@@ -836,8 +851,8 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
        NOT "${selected_source_program}" MATCHES "str r2,\\[r1,#12\\]")
       message(FATAL_ERROR "arm-diagnostics: guest-stop-source-invalid: ${CASE_ID}")
     endif()
-    set(variant_labels "arm-stop-${CASE_ID}")
-    set(rom_names "arm-stop-${CASE_ID}.gba")
+    set(variant_labels "${ISA}-stop-${CASE_ID}")
+    set(rom_names "${ISA}-stop-${CASE_ID}.gba")
     set(broken_values 0)
   endif()
   set(variant_index 0)
@@ -847,7 +862,7 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     set(variant_relative "${output_relative}/proof/${variant}")
     set(variant_root "${output_root}/proof/${variant}")
     file(MAKE_DIRECTORY "${variant_root}")
-    file(WRITE "${variant_root}/arm-case.inc" "${selected_source_program}")
+    file(WRITE "${variant_root}/${ISA}-case.inc" "${selected_source_program}")
 
     file(READ "${source_root}/diagnostics/armv4t/startup.S" startup_source)
     string(REPLACE "0x00005001" "${case_id_hex}" case_startup_source
@@ -857,8 +872,8 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     endif()
     file(WRITE "${variant_root}/startup.S" "${case_startup_source}")
     file(SHA256 "${variant_root}/startup.S" derived_startup_sha)
-    file(SHA256 "${source_root}/diagnostics/armv4t/cases-arm.S" case_source_sha)
-    file(SHA256 "${variant_root}/arm-case.inc" generated_case_sha)
+    file(SHA256 "${source_root}/diagnostics/armv4t/cases-${ISA}.S" case_source_sha)
+    file(SHA256 "${variant_root}/${ISA}-case.inc" generated_case_sha)
 
     execute_process(
       COMMAND "${tool_bin}/arm-none-eabi-as" -mcpu=arm7tdmi
@@ -872,7 +887,7 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     execute_process(
       COMMAND "${tool_bin}/arm-none-eabi-as" -mcpu=arm7tdmi
         -I "${variant_root}" --defsym "GBL_BROKEN=${broken}"
-        -o "${variant_relative}/case.o" diagnostics/armv4t/cases-arm.S
+        -o "${variant_relative}/case.o" diagnostics/armv4t/cases-${ISA}.S
       WORKING_DIRECTORY "${source_root}"
       RESULT_VARIABLE case_asm_rc OUTPUT_VARIABLE case_asm_output
       ERROR_VARIABLE case_asm_error)
@@ -928,6 +943,30 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
       message(FATAL_ERROR "arm-diagnostics: arm-case-disassembly-invalid: ${case_disasm_error}")
     endif()
     file(WRITE "${variant_root}/case.disasm.txt" "${case_disassembly}")
+    if(ISA STREQUAL "thumb")
+      string(JSON probe_count LENGTH "${selected_row}" source_test encoding_checks)
+      if(probe_count LESS 1)
+        message(FATAL_ERROR "arm-diagnostics: thumb-encoding-check-missing:${CASE_ID}")
+      endif()
+      math(EXPR probe_last "${probe_count}-1")
+      foreach(probe RANGE 0 ${probe_last})
+        foreach(field IN ITEMS symbol mask value width)
+          string(JSON probe_${field} GET "${selected_row}" source_test encoding_checks ${probe} ${field})
+        endforeach()
+        string(REGEX MATCH "<${probe_symbol}>:[\r\n]+[ \t]*[0-9a-f]+:[ \t]+([0-9a-f]+)" probe_line "${case_disassembly}")
+        set(probe_opcode "${CMAKE_MATCH_1}")
+        string(LENGTH "${probe_opcode}" probe_digits)
+        math(EXPR expected_digits "${probe_width}*2")
+        if(NOT probe_digits EQUAL expected_digits)
+          message(FATAL_ERROR "arm-diagnostics: thumb-probe-missing:${CASE_ID}:${probe_symbol}")
+        endif()
+        math(EXPR observed_bits "0x${probe_opcode} & ${probe_mask}")
+        math(EXPR expected_bits "${probe_value}")
+        if(NOT observed_bits EQUAL expected_bits)
+          message(FATAL_ERROR "arm-diagnostics: thumb-probe-encoding-mismatch:${CASE_ID}:${probe_symbol}:${probe_opcode}")
+        endif()
+      endforeach()
+    endif()
     # Confirm the real assembler encoding for the reviewed PC and block forms.
     # These are architectural field checks, not a second assembler.
     string(TOLOWER "${case_disassembly}" reviewed_disassembly)
@@ -1001,7 +1040,7 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
       "\"${source_commit}\"")
     string(JSON case_receipt SET "${case_receipt}" case_id "${CASE_ID}")
     string(JSON case_receipt SET "${case_receipt}" broken "${broken}")
-    string(JSON case_receipt SET "${case_receipt}" isa "\"arm\"")
+    string(JSON case_receipt SET "${case_receipt}" isa "\"${ISA}\"")
     string(JSON case_receipt SET "${case_receipt}" source_kind
       "\"${selected_kind}\"")
     string(JSON case_receipt SET "${case_receipt}" startup_source_sha256
@@ -1066,7 +1105,7 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
   string(JSON case_summary SET "${case_summary}" source_commit
     "\"${source_commit}\"")
   string(JSON case_summary SET "${case_summary}" case_id "${CASE_ID}")
-  string(JSON case_summary SET "${case_summary}" isa "\"arm\"")
+  string(JSON case_summary SET "${case_summary}" isa "\"${ISA}\"")
   string(JSON case_summary SET "${case_summary}" semantic_pairs
     "${case_semantic_count}")
   string(JSON case_summary SET "${case_summary}" stop_witnesses

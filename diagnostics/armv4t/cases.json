@@ -9807,7 +9807,28 @@
       "negative_fixture": null,
       "expected_fail_case_id": null,
       "trace_required": true,
-      "coverage_state": "pending"
+      "coverage_state": "pending",
+      "execution_boundary": "guest-semantic",
+      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
+      "companion_case_ids": [],
+      "source_test": {
+        "kind": "semantic",
+        "program": "ldr r1,=0x80000001\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_0:\nlsls r0,r1,#0\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\n",
+        "independent_expectation": {
+          "expected_value": "0x80000001",
+          "broken_expected": "0x80000000",
+          "derivation": "LSL #0 leaves operand and incoming C unchanged: N=1 Z=0 C=1 V=0.",
+          "broken_expectation": "Flip incoming C in the first reached flag assertion; actual tested opcode is unchanged."
+        },
+        "encoding_checks": [
+          {
+            "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0x0008",
+            "width": 2
+          }
+        ]
+      }
     },
     {
       "id": 742650290,

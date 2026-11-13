@@ -317,7 +317,9 @@ foreach(index RANGE 0 ${case_last})
     set(source_kind "<missing>")
   endif()
   if(source_kind STREQUAL "semantic")
-    math(EXPR source_semantic_count "${source_semantic_count}+1")
+    if(row_isa STREQUAL "arm")
+      math(EXPR source_semantic_count "${source_semantic_count}+1")
+    endif()
     string(JSON program GET "${row_json}" source_test program)
     string(JSON expected_value GET "${row_json}" source_test
       independent_expectation expected_value)
@@ -327,7 +329,7 @@ foreach(index RANGE 0 ${case_last})
       independent_expectation derivation)
     string(JSON broken_claim GET "${row_json}" source_test
       independent_expectation broken_expectation)
-    if(NOT row_isa STREQUAL "arm" OR NOT is_target OR
+    if(NOT row_isa MATCHES "^(arm|thumb)$" OR NOT is_target OR
        NOT row_boundary STREQUAL "guest-semantic" OR
        NOT row_expected_status STREQUAL "GUEST_STOP/unregistered-content; semantic PASS/FAIL" OR
        "${expected_value}" STREQUAL "${broken_expected}" OR
