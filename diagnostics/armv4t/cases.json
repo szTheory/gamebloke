@@ -9882,7 +9882,7 @@
       "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
       "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
       "expected": {
-        "derivation": "LSR immediate 32 on 0x80000009: unsigned32 result 0x00000000, C=1; zero LSR/ASR encoded shift field means32.",
+        "derivation": "LSR immediate 32 on 0x80000009: unsigned32 result 0x00000000, C=1; zero LSR/ASR encoded shift field means32. DDI0100I A7 LSR(1)/ASR(1): test C-in=0 then1; C-out=Rm[31]=1 independently of incoming C.",
         "value": "0x60000000"
       },
       "source_reference": "ARM7TDMI TRM DDI0029G Figure 1-6 and Table 1-7; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
@@ -9900,16 +9900,22 @@
       "companion_case_ids": [],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r1,=0x80000009\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_0:\nlsrs r0,r1,#32\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\n",
+        "program": "ldr r1,=0x80000009\nGBL_SEED_FLAGS 0x00000000\ngbl_probe_0:\nlsrs r0,r1,#32\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r1,=0x80000009\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_1:\nlsrs r0,r1,#32\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\n",
         "independent_expectation": {
           "expected_value": "0x60000000",
           "broken_expected": "0x40000000",
-          "derivation": "LSR immediate 32 on 0x80000009: unsigned32 result 0x00000000, C=1; zero LSR/ASR encoded shift field means32.",
+          "derivation": "LSR immediate 32 on 0x80000009: unsigned32 result 0x00000000, C=1; zero LSR/ASR encoded shift field means32. DDI0100I A7 LSR(1)/ASR(1): test C-in=0 then1; C-out=Rm[31]=1 independently of incoming C.",
           "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
         },
         "encoding_checks": [
           {
             "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0x808",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_1",
             "mask": "0xffff",
             "value": "0x808",
             "width": 2
@@ -15613,7 +15619,7 @@
       "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
       "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
       "expected": {
-        "derivation": "ASR immediate 32 on 0x80000009: unsigned32 result 0xFFFFFFFF, C=1; zero LSR/ASR encoded shift field means32.",
+        "derivation": "ASR immediate 32 on 0x80000009: unsigned32 result 0xFFFFFFFF, C=1; zero LSR/ASR encoded shift field means32. DDI0100I A7 LSR(1)/ASR(1): test C-in=0 then1; C-out=Rm[31]=1 independently of incoming C.",
         "value": "0xA0000000"
       },
       "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
@@ -15629,16 +15635,22 @@
       "companion_case_ids": [],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r1,=0x80000009\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_0:\nasrs r0,r1,#32\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\n",
+        "program": "ldr r1,=0x80000009\nGBL_SEED_FLAGS 0x00000000\ngbl_probe_0:\nasrs r0,r1,#32\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r1,=0x80000009\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_1:\nasrs r0,r1,#32\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\n",
         "independent_expectation": {
           "expected_value": "0xA0000000",
           "broken_expected": "0x80000000",
-          "derivation": "ASR immediate 32 on 0x80000009: unsigned32 result 0xFFFFFFFF, C=1; zero LSR/ASR encoded shift field means32.",
+          "derivation": "ASR immediate 32 on 0x80000009: unsigned32 result 0xFFFFFFFF, C=1; zero LSR/ASR encoded shift field means32. DDI0100I A7 LSR(1)/ASR(1): test C-in=0 then1; C-out=Rm[31]=1 independently of incoming C.",
           "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
         },
         "encoding_checks": [
           {
             "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0x1008",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_1",
             "mask": "0xffff",
             "value": "0x1008",
             "width": 2
@@ -15785,8 +15797,8 @@
       "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
       "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
       "expected": {
-        "derivation": "LSR register boundaries0,1,31,32,33,255,256,257 on0x80000001, incoming C1. Low8 count0 preserves C; counts32/excess use bit31/sign fill.",
-        "value": "0xA0000000"
+        "derivation": "DDI0100I A7 LSR(2): low8 count0 preserves operand and C. New C0/sign-bit1 and C1/sign-bit0 vectors distinguish carry from operand bit31; retain all original C1 counts0,1,31,32,33,255,256,257 on0x80000001.",
+        "value": "0x80000000"
       },
       "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
       "cpu_quirk": [],
@@ -15801,11 +15813,11 @@
       "companion_case_ids": [],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_0:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=1\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_1:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nGBL_ASSERT_EQ r0, 0x40000000, 0x40000001\nldr r0,=0x80000001\nldr r1,=31\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_2:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x00000000, 0x20000000\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nldr r0,=0x80000001\nldr r1,=32\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_3:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r0,=0x80000001\nldr r1,=33\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_4:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r0,=0x80000001\nldr r1,=255\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_5:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r0,=0x80000001\nldr r1,=256\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_6:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=257\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_7:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nGBL_ASSERT_EQ r0, 0x40000000, 0x40000001\n",
+        "program": "ldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x00000000\ngbl_probe_0:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x00000001\nldr r1,=0\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_1:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_2:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=1\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_3:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nGBL_ASSERT_EQ r0, 0x40000000, 0x40000001\nldr r0,=0x80000001\nldr r1,=31\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_4:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x00000000, 0x20000000\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nldr r0,=0x80000001\nldr r1,=32\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_5:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r0,=0x80000001\nldr r1,=33\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_6:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r0,=0x80000001\nldr r1,=255\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_7:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r0,=0x80000001\nldr r1,=256\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_8:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=257\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_9:\nlsrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nGBL_ASSERT_EQ r0, 0x40000000, 0x40000001\n",
         "independent_expectation": {
-          "expected_value": "0xA0000000",
-          "broken_expected": "0x80000000",
-          "derivation": "LSR register boundaries0,1,31,32,33,255,256,257 on0x80000001, incoming C1. Low8 count0 preserves C; counts32/excess use bit31/sign fill.",
+          "expected_value": "0x80000000",
+          "broken_expected": "0xA0000000",
+          "derivation": "DDI0100I A7 LSR(2): low8 count0 preserves operand and C. New C0/sign-bit1 and C1/sign-bit0 vectors distinguish carry from operand bit31; retain all original C1 counts0,1,31,32,33,255,256,257 on0x80000001.",
           "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
         },
         "encoding_checks": [
@@ -15853,6 +15865,18 @@
           },
           {
             "symbol": "gbl_probe_7",
+            "mask": "0xffff",
+            "value": "0x40c8",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_8",
+            "mask": "0xffff",
+            "value": "0x40c8",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_9",
             "mask": "0xffff",
             "value": "0x40c8",
             "width": 2
@@ -15870,8 +15894,8 @@
       "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
       "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
       "expected": {
-        "derivation": "ASR register boundaries0,1,31,32,33,255,256,257 on0x80000001, incoming C1. Low8 count0 preserves C; counts32/excess use bit31/sign fill.",
-        "value": "0xA0000000"
+        "derivation": "DDI0100I A7 ASR(2): low8 count0 preserves operand and C. New C0/sign-bit1 and C1/sign-bit0 vectors distinguish carry from operand bit31; retain all original C1 counts0,1,31,32,33,255,256,257 on0x80000001.",
+        "value": "0x80000000"
       },
       "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
       "cpu_quirk": [],
@@ -15886,11 +15910,11 @@
       "companion_case_ids": [],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_0:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=1\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_1:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xC0000000, 0xC0000001\nldr r0,=0x80000001\nldr r1,=31\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_2:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=32\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_3:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=33\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_4:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=255\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_5:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=256\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_6:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=257\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_7:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xC0000000, 0xC0000001\n",
+        "program": "ldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x00000000\ngbl_probe_0:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x00000001\nldr r1,=0\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_1:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_2:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=1\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_3:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xC0000000, 0xC0000001\nldr r0,=0x80000001\nldr r1,=31\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_4:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=32\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_5:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=33\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_6:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=255\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_7:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nldr r0,=0x80000001\nldr r1,=256\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_8:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=257\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_9:\nasrs r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xC0000000, 0xC0000001\n",
         "independent_expectation": {
-          "expected_value": "0xA0000000",
-          "broken_expected": "0x80000000",
-          "derivation": "ASR register boundaries0,1,31,32,33,255,256,257 on0x80000001, incoming C1. Low8 count0 preserves C; counts32/excess use bit31/sign fill.",
+          "expected_value": "0x80000000",
+          "broken_expected": "0xA0000000",
+          "derivation": "DDI0100I A7 ASR(2): low8 count0 preserves operand and C. New C0/sign-bit1 and C1/sign-bit0 vectors distinguish carry from operand bit31; retain all original C1 counts0,1,31,32,33,255,256,257 on0x80000001.",
           "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
         },
         "encoding_checks": [
@@ -15938,6 +15962,18 @@
           },
           {
             "symbol": "gbl_probe_7",
+            "mask": "0xffff",
+            "value": "0x4108",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_8",
+            "mask": "0xffff",
+            "value": "0x4108",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_9",
             "mask": "0xffff",
             "value": "0x4108",
             "width": 2
@@ -16284,6 +16320,70 @@
             "symbol": "gbl_probe_0",
             "mask": "0xffff",
             "value": "0xcfff",
+            "width": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": 1800200037,
+      "isa": "thumb",
+      "family": "alu-register",
+      "form": "ROR:zero-and-over-32-boundaries",
+      "format": 4,
+      "inventory_target": true,
+      "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
+      "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
+      "expected": {
+        "value": "0x80000000",
+        "derivation": "DDI0100I A7.1.54 ROR: low8 count0 leaves operand/C unchanged for both C inputs. Count33 has low5=1: 0x80000001 -> 0xC0000000,C1 from bit0 with C-in0; 0x80000000 -> 0x40000000,C0 from bit0 with C-in1. N=result[31], Z=0, V preserved0. Existing separate count32/64 case retained."
+      },
+      "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
+      "cpu_quirk": [
+        "CPU-2",
+        "CPU-4"
+      ],
+      "native_selector": "thumb.alu-register.ror-zero-and-over-32-boundaries",
+      "positive_fixture": null,
+      "negative_fixture": null,
+      "expected_fail_case_id": null,
+      "trace_required": true,
+      "coverage_state": "pending",
+      "execution_boundary": "guest-semantic",
+      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
+      "companion_case_ids": [],
+      "source_test": {
+        "kind": "semantic",
+        "program": "ldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x00000000\ngbl_probe_0:\nrors r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=0\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_1:\nrors r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nldr r0,=0x80000001\nldr r1,=33\nGBL_SEED_FLAGS 0x00000000\ngbl_probe_2:\nrors r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nGBL_ASSERT_EQ r0, 0xC0000000, 0xC0000001\nldr r0,=0x80000000\nldr r1,=33\nGBL_SEED_FLAGS 0x20000000\ngbl_probe_3:\nrors r0,r1\nGBL_CAPTURE_FLAGS\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x00000000, 0x20000000\nGBL_ASSERT_EQ r0, 0x40000000, 0x40000001\n",
+        "independent_expectation": {
+          "expected_value": "0x80000000",
+          "broken_expected": "0xA0000000",
+          "derivation": "DDI0100I A7.1.54 ROR: low8 count0 leaves operand/C unchanged for both C inputs. Count33 has low5=1: 0x80000001 -> 0xC0000000,C1 from bit0 with C-in0; 0x80000000 -> 0x40000000,C0 from bit0 with C-in1. N=result[31], Z=0, V preserved0. Existing separate count32/64 case retained.",
+          "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
+        },
+        "encoding_checks": [
+          {
+            "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0x41c8",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_1",
+            "mask": "0xffff",
+            "value": "0x41c8",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_2",
+            "mask": "0xffff",
+            "value": "0x41c8",
+            "width": 2
+          },
+          {
+            "symbol": "gbl_probe_3",
+            "mask": "0xffff",
+            "value": "0x41c8",
             "width": 2
           }
         ]
