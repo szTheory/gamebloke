@@ -1737,17 +1737,22 @@ static void test_multiply_unsigned(void)
         { "MLAS reads the original aliased accumulator before its destination",
           UINT32_C(0xE0322391), UINT32_C(2), UINT32_MAX, UINT32_C(3), 0u,
           TEST_CPSR_N | TEST_CPSR_V, UINT32_C(5), 0u, TEST_CPSR_V },
+        { "UMULLS keeps a high-bit operand unsigned in the upper product word",
+          UINT32_C(0xE0942391), UINT32_MAX, 0u, UINT32_C(3), 0u,
+          TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          UINT32_C(0xFFFFFFFD), UINT32_C(2),
+          TEST_CPSR_C | TEST_CPSR_V },
         { "UMULLS returns both words of the all-ones unsigned product",
-          UINT32_C(0xE0D42391), UINT32_MAX, UINT32_C(0xA5A5A5A5),
+          UINT32_C(0xE0942391), UINT32_MAX, UINT32_C(0xA5A5A5A5),
           UINT32_MAX, UINT32_C(0x5A5A5A5A), TEST_CPSR_Z | TEST_CPSR_C |
               TEST_CPSR_V,
           UINT32_C(1), UINT32_C(0xFFFFFFFE),
           TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
         { "UMLALS carries low accumulator overflow into the high word",
-          UINT32_C(0xE0F42391), UINT32_C(1), UINT32_MAX, UINT32_C(1),
+          UINT32_C(0xE0B42391), UINT32_C(1), UINT32_MAX, UINT32_C(1),
           UINT32_C(7), nzcv, 0u, UINT32_C(8), TEST_CPSR_C | TEST_CPSR_V },
         { "UMULLS zero product sets Z and preserves chosen C/V",
-          UINT32_C(0xE0D42391), 0u, UINT32_C(0xA5A5A5A5), UINT32_MAX,
+          UINT32_C(0xE0942391), 0u, UINT32_C(0xA5A5A5A5), UINT32_MAX,
           UINT32_C(0x5A5A5A5A), TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
           0u, 0u, TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V }
     };
@@ -11415,21 +11420,26 @@ static void test_multiply_signed_vectors(void)
     static const uint32_t nzcv = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C |
                                  TEST_CPSR_V;
     static const arm_multiply_signed_test_vector vectors[] = {
+        { "SMULLS sign-extends a high-bit operand into the upper product word",
+          UINT32_C(0xE0D42391), UINT32_MAX, UINT32_C(3), 0u, 0u,
+          UINT32_C(0xFFFFFFFD), UINT32_MAX,
+          TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
+          TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
         { "SMULLS negative extreme times minus one yields positive 64-bit bits",
-          UINT32_C(0xE0942391), UINT32_C(0x80000000), UINT32_MAX, 0u, 0u,
+          UINT32_C(0xE0D42391), UINT32_C(0x80000000), UINT32_MAX, 0u, 0u,
           UINT32_C(0x80000000), 0u, nzcv, TEST_CPSR_C | TEST_CPSR_V },
         { "SMULLS negative extreme times one sign-extends into the high word",
-          UINT32_C(0xE0942391), UINT32_C(0x80000000), UINT32_C(1), 0u, 0u,
+          UINT32_C(0xE0D42391), UINT32_C(0x80000000), UINT32_C(1), 0u, 0u,
           UINT32_C(0x80000000), UINT32_MAX,
           TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
           TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
         { "SMLALS accumulates a mixed-sign negative product as 64-bit bits",
-          UINT32_C(0xE0B42391), UINT32_C(0xFFFFFFFE), UINT32_C(3), 0u, 0u,
+          UINT32_C(0xE0F42391), UINT32_C(0xFFFFFFFE), UINT32_C(3), 0u, 0u,
           UINT32_C(0xFFFFFFFA), UINT32_MAX,
           TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V,
           TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V },
         { "SMLALS wraps the full-width accumulator and sets Z on zero",
-          UINT32_C(0xE0B42391), UINT32_C(1), UINT32_C(1), UINT32_MAX,
+          UINT32_C(0xE0F42391), UINT32_C(1), UINT32_C(1), UINT32_MAX,
           UINT32_MAX, 0u, 0u, TEST_CPSR_N | TEST_CPSR_C | TEST_CPSR_V,
           TEST_CPSR_Z | TEST_CPSR_C | TEST_CPSR_V }
     };
@@ -11550,7 +11560,7 @@ static void test_multiply_operand_restrictions(void)
 
     test_case(multiply_unpredictable_refused(UINT32_C(0xE01F0391)),
               "MUL R15 destination is refused before other effects");
-    test_case(multiply_unpredictable_refused(UINT32_C(0xE0C22391)),
+    test_case(multiply_unpredictable_refused(UINT32_C(0xE0822391)),
               "UMULL equal high and low destinations are refused before effects");
 }
 
@@ -11577,10 +11587,10 @@ static void test_multiply_timing_table(void)
     static const arm_multiply_timing_form forms[] = {
         { "MUL", UINT32_C(0xE0040392), 0u, false, true },
         { "MLA", UINT32_C(0xE0245392), 1u, false, true },
-        { "UMULL", UINT32_C(0xE0C54392), 1u, true, false },
-        { "UMLAL", UINT32_C(0xE0E54392), 2u, true, false },
-        { "SMULL", UINT32_C(0xE0854392), 1u, true, true },
-        { "SMLAL", UINT32_C(0xE0A54392), 2u, true, true }
+        { "UMULL", UINT32_C(0xE0854392), 1u, true, false },
+        { "UMLAL", UINT32_C(0xE0A54392), 2u, true, false },
+        { "SMULL", UINT32_C(0xE0C54392), 1u, true, true },
+        { "SMLAL", UINT32_C(0xE0E54392), 2u, true, true }
     };
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
@@ -11654,7 +11664,7 @@ static bool multiply_refusal_unchanged(uint64_t cycle_budget,
                                        gbl_run_termination termination,
                                        gbl_run_reason reason)
 {
-    const uint32_t opcode = UINT32_C(0xE0A54392); /* SMLAL r4,r5,r2,r3 */
+    const uint32_t opcode = UINT32_C(0xE0E54392); /* SMLAL r4,r5,r2,r3 */
     gbl_machine machine = { 0 };
     gbl_trace_record records[3];
     gbl_trace_record prior_records[3];
@@ -11706,7 +11716,7 @@ static bool multiply_refusal_unchanged(uint64_t cycle_budget,
 
 static bool multiply_exact_headroom(void)
 {
-    const uint32_t opcode = UINT32_C(0xE0A54392); /* SMLAL r4,r5,r2,r3 */
+    const uint32_t opcode = UINT32_C(0xE0E54392); /* SMLAL r4,r5,r2,r3 */
     const uint64_t cost = UINT64_C(7);
     gbl_machine machine = { 0 };
     gbl_trace_record records[3];
@@ -13595,9 +13605,9 @@ static const cpu_test_function slots_bounds_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
-    CPU_TEST_GROUP("multiply_signed_timing", 85u,
+    CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),
-    CPU_TEST_GROUP("multiply_unsigned", 6u, multiply_unsigned_functions),
+    CPU_TEST_GROUP("multiply_unsigned", 7u, multiply_unsigned_functions),
     CPU_TEST_GROUP("arm_alu", 18u, arm_alu_functions),
     CPU_TEST_GROUP("arm_block", 34u, arm_block_functions),
     CPU_TEST_GROUP("arm_block_banks", 21u, arm_block_banks_functions),

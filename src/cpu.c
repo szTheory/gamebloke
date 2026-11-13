@@ -1584,7 +1584,7 @@ static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
     const bool short_multiply =
         (opcode & UINT32_C(0x0FC000F0)) == UINT32_C(0x00000090);
     const bool signed_long_multiply = long_multiply &&
-        (opcode & UINT32_C(0x00400000)) == 0u;
+        (opcode & UINT32_C(0x00400000)) != 0u;
     const bool accumulate = (opcode & UINT32_C(0x00200000)) != 0u;
     const bool set_flags = (opcode & UINT32_C(0x00100000)) != 0u;
     const uint8_t rd_hi_or_short =
