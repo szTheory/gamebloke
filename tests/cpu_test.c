@@ -9306,6 +9306,533 @@ static void test_thumb_stack_preflight(void)
               "maximum Thumb POP fits exact cycle trace sequence and counter limits");
 }
 
+static void test_thumb_multiple_store_base_first(void)
+{
+    static const uint16_t opcodes[] = { UINT16_C(0xC005) };
+    const uint32_t base = UINT32_C(0x03002000);
+    const uint32_t source_r2 = UINT32_C(0xA2B3C4D5);
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4];
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(400) };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(8),
+        .unit_limit = UINT64_C(1),
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000),
+        TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+    bool passed = false;
+
+    memset(records, 0xA5, sizeof(records));
+    if (loaded) {
+        machine.cpu.r0_7[0] = base;
+        machine.cpu.r0_7[2] = source_r2;
+        write_word(machine.iwram, 0x1FFCu, UINT32_C(0xA55A6996));
+        write_word(machine.iwram, 0x2000u, UINT32_C(0x11111111));
+        write_word(machine.iwram, 0x2004u, UINT32_C(0x22222222));
+        write_word(machine.iwram, 0x2008u, UINT32_C(0x5AA59669));
+        passed = gbl_cpu_run(&machine, &options, &result) ==
+                     GBL_RUN_STATUS_OK &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                 result.instructions == 1u && result.cycles == 3u &&
+                 machine.cpu.r0_7[0] == base + UINT32_C(8) &&
+                 read_test_word(machine.iwram, 0x2000u) == base &&
+                 read_test_word(machine.iwram, 0x2004u) == source_r2 &&
+                 read_test_word(machine.iwram, 0x1FFCu) ==
+                     UINT32_C(0xA55A6996) &&
+                 read_test_word(machine.iwram, 0x2008u) ==
+                     UINT32_C(0x5AA59669) &&
+                 trace.count == 4u && trace.next_sequence == UINT64_C(404) &&
+                 records[1].address == base && records[1].width == 4u &&
+                 records[1].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                 records[2].address == base + UINT32_C(4) &&
+                 records[2].width == 4u &&
+                 records[2].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
+                 records[3].category == GBL_TRACE_BUS &&
+                 records[3].address == UINT32_C(0x08000002);
+    }
+    test_case(passed,
+              "Thumb STMIA base-first stores the original base then ascending source registers");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_multiple_store_base_absent(void)
+{
+    static const uint16_t opcodes[] = { UINT16_C(0xC605) };
+    const uint32_t base = UINT32_C(0x03002100);
+    const uint32_t source_r0 = UINT32_C(0xA0A1A2A3);
+    const uint32_t source_r2 = UINT32_C(0xB0B1B2B3);
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000),
+        TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+    bool passed = false;
+
+    if (loaded) {
+        machine.cpu.r0_7[0] = source_r0;
+        machine.cpu.r0_7[2] = source_r2;
+        machine.cpu.r0_7[6] = base;
+        write_word(machine.iwram, 0x20FCu, UINT32_C(0x13579BDF));
+        write_word(machine.iwram, 0x2100u, UINT32_C(0x01010101));
+        write_word(machine.iwram, 0x2104u, UINT32_C(0x02020202));
+        write_word(machine.iwram, 0x2108u, UINT32_C(0x2468ACE0));
+        passed = run_units(&machine, 8u, 1u, &result) &&
+                 result.instructions == 1u && result.cycles == 3u &&
+                 machine.cpu.r0_7[6] == base + UINT32_C(8) &&
+                 read_test_word(machine.iwram, 0x2100u) == source_r0 &&
+                 read_test_word(machine.iwram, 0x2104u) == source_r2 &&
+                 read_test_word(machine.iwram, 0x20FCu) ==
+                     UINT32_C(0x13579BDF) &&
+                 read_test_word(machine.iwram, 0x2108u) ==
+                     UINT32_C(0x2468ACE0);
+    }
+    test_case(passed,
+              "Thumb STMIA base-absent stores listed registers and increments its separate base");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_multiple_load_base_aliases(void)
+{
+    static const struct {
+        const char *name;
+        uint16_t opcode;
+        uint8_t base_register;
+        uint8_t value_count;
+        uint32_t base;
+        uint32_t addresses[3];
+        uint32_t values[3];
+    } cases[] = {
+        {
+            "Thumb LDMIA base-first loads Rn and suppresses writeback",
+            UINT16_C(0xC803), 0u, 2u, UINT32_C(0x03003000),
+            { UINT32_C(0x03003000), UINT32_C(0x03003004), 0u },
+            { UINT32_C(0xD0100000), UINT32_C(0xD0200001), 0u }
+        },
+        {
+            "Thumb LDMIA base-middle loads Rn and suppresses writeback",
+            UINT16_C(0xC907), 1u, 3u, UINT32_C(0x03003100),
+            { UINT32_C(0x03003100), UINT32_C(0x03003104),
+              UINT32_C(0x03003108) },
+            { UINT32_C(0xD1100000), UINT32_C(0xD1200001),
+              UINT32_C(0xD1300002) }
+        },
+        {
+            "Thumb LDMIA base-last loads Rn and suppresses writeback",
+            UINT16_C(0xCA07), 2u, 3u, UINT32_C(0x03003200),
+            { UINT32_C(0x03003200), UINT32_C(0x03003204),
+              UINT32_C(0x03003208) },
+            { UINT32_C(0xD2100000), UINT32_C(0xD2200001),
+              UINT32_C(0xD2300002) }
+        }
+    };
+    size_t case_index;
+
+    for (case_index = 0u;
+         case_index < sizeof(cases) / sizeof(cases[0]); ++case_index) {
+        const uint16_t opcodes[] = { cases[case_index].opcode };
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_trace_record records[6];
+        gbl_trace_buffer trace = { records, 6u, 0u, UINT64_C(500) };
+        gbl_run_options options = {
+            .cycle_budget = UINT64_C(8),
+            .unit_limit = UINT64_C(1),
+            .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+            .trace_buffer = &trace
+        };
+        gbl_run_result result = { 0 };
+        bool loaded = prepare_thumb_stream(
+            &machine, image, UINT32_C(0x08000000),
+            TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+        bool passed = false;
+        uint8_t register_index;
+
+        memset(records, 0xA5, sizeof(records));
+        if (loaded) {
+            for (register_index = 0u; register_index < 8u;
+                 ++register_index) {
+                machine.cpu.r0_7[register_index] =
+                    UINT32_C(0x51000000) + register_index;
+            }
+            machine.cpu.r0_7[cases[case_index].base_register] =
+                cases[case_index].base;
+            write_word(machine.iwram,
+                       (size_t)(cases[case_index].addresses[0] -
+                                UINT32_C(0x03000000)) - 4u,
+                       UINT32_C(0xC0FFEE01));
+            write_word(machine.iwram,
+                       (size_t)(cases[case_index].addresses[0] -
+                                UINT32_C(0x03000000)),
+                       cases[case_index].values[0]);
+            write_word(machine.iwram,
+                       (size_t)(cases[case_index].addresses[1] -
+                                UINT32_C(0x03000000)),
+                       cases[case_index].values[1]);
+            if (cases[case_index].value_count == 3u) {
+                write_word(machine.iwram,
+                           (size_t)(cases[case_index].addresses[2] -
+                                    UINT32_C(0x03000000)),
+                           cases[case_index].values[2]);
+            }
+            write_word(machine.iwram,
+                       (size_t)(cases[case_index].addresses[
+                                    cases[case_index].value_count - 1u] + 4u -
+                                UINT32_C(0x03000000)),
+                       UINT32_C(0xC0FFEE02));
+            passed = gbl_cpu_run(&machine, &options, &result) ==
+                         GBL_RUN_STATUS_OK &&
+                     result.termination == GBL_RUN_PROGRESS &&
+                     result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                     result.instructions == 1u &&
+                     result.cycles ==
+                         (uint64_t)cases[case_index].value_count + 2u &&
+                     trace.count ==
+                         (size_t)cases[case_index].value_count + 2u &&
+                     trace.next_sequence ==
+                         UINT64_C(500) + trace.count &&
+                     records[trace.count - 1u].address ==
+                         UINT32_C(0x08000002) &&
+                     records[trace.count - 1u].access_class ==
+                         GBL_BUS_CLASS_SEQUENTIAL &&
+                     read_test_word(machine.iwram,
+                         (size_t)(cases[case_index].addresses[0] -
+                                  UINT32_C(0x03000000)) - 4u) ==
+                         UINT32_C(0xC0FFEE01) &&
+                     read_test_word(machine.iwram,
+                         (size_t)(cases[case_index].addresses[
+                                      cases[case_index].value_count - 1u] + 4u -
+                                  UINT32_C(0x03000000))) ==
+                         UINT32_C(0xC0FFEE02);
+            for (register_index = 0u;
+                 passed && register_index < cases[case_index].value_count;
+                 ++register_index) {
+                const gbl_trace_record *record = &records[register_index + 1u];
+
+                passed = machine.cpu.r0_7[register_index] ==
+                             cases[case_index].values[register_index] &&
+                         record->address ==
+                             cases[case_index].addresses[register_index] &&
+                         record->value ==
+                             cases[case_index].values[register_index] &&
+                         record->width == 4u &&
+                         record->access_class ==
+                             (register_index == 0u
+                                  ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                  : GBL_BUS_CLASS_SEQUENTIAL);
+            }
+        }
+        test_case(passed, cases[case_index].name);
+        if (machine.initialized) {
+            gbl_machine_dispose(&machine);
+        }
+    }
+}
+
+static void test_thumb_multiple_load_base_absent(void)
+{
+    static const uint16_t opcodes[] = { UINT16_C(0xCB05) };
+    const uint32_t base = UINT32_C(0x03003300);
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000),
+        TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+    bool passed = false;
+
+    if (loaded) {
+        machine.cpu.r0_7[3] = base;
+        write_word(machine.iwram, 0x3300u, UINT32_C(0xE0100000));
+        write_word(machine.iwram, 0x3304u, UINT32_C(0xE0200001));
+        passed = run_units(&machine, 8u, 1u, &result) &&
+                 result.instructions == 1u && result.cycles == 4u &&
+                 machine.cpu.r0_7[0] == UINT32_C(0xE0100000) &&
+                 machine.cpu.r0_7[2] == UINT32_C(0xE0200001) &&
+                 machine.cpu.r0_7[3] == UINT32_C(0x03003308);
+    }
+    test_case(passed,
+              "Thumb LDMIA writes back when its base is absent from the list");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static bool thumb_multiple_refusal_case(uint16_t opcode)
+{
+    const uint16_t opcodes[] = { opcode };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_machine expected;
+    gbl_trace_record records[8];
+    gbl_trace_record records_before[8];
+    gbl_trace_buffer trace = { records, 8u, 1u, UINT64_C(600) };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(32),
+        .unit_limit = UINT64_C(1),
+        .category_mask = GBL_TRACE_CATEGORY_MASK,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000),
+        TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+    bool passed = false;
+
+    memset(records, 0xA5, sizeof(records));
+    memcpy(records_before, records, sizeof(records));
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03004000);
+        machine.cpu.r0_7[1] = UINT32_C(0x03004100);
+        machine.cpu.r0_7[2] = UINT32_C(0x03004200);
+        write_word(machine.iwram, 0x4000u, UINT32_C(0x12345678));
+        write_word(machine.iwram, 0x4100u, UINT32_C(0x23456789));
+        write_word(machine.iwram, 0x4200u, UINT32_C(0x3456789A));
+        before = machine;
+        expected = before;
+        expected.cpu.stopped = true;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        passed = gbl_cpu_run(&machine, &options, &result) ==
+                     GBL_RUN_STATUS_OK &&
+                 result.termination == GBL_RUN_STOPPED &&
+                 result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                 result.instructions == 0u && result.cycles == 0u &&
+                 gbl_test_canonical_equal(&expected, &machine) &&
+                 gbl_test_same_instance_identity_equal(&before, &machine) &&
+                 trace.records == records && trace.capacity == 8u &&
+                 trace.count == 1u &&
+                 trace.next_sequence == UINT64_C(600) &&
+                 memcmp(records, records_before, sizeof(records)) == 0;
+    }
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && passed;
+}
+
+static void test_thumb_multiple_empty_and_unpredictable(void)
+{
+    test_case(thumb_multiple_refusal_case(UINT16_C(0xC000)),
+              "empty Thumb STMIA list follows the DDI0100I UNPREDICTABLE stop policy");
+    test_case(thumb_multiple_refusal_case(UINT16_C(0xC800)),
+              "empty Thumb LDMIA list follows the DDI0100I UNPREDICTABLE stop policy");
+    test_case(thumb_multiple_refusal_case(UINT16_C(0xC107)),
+              "Thumb STMIA base-middle follows the DDI0100I UNPREDICTABLE stop policy");
+    test_case(thumb_multiple_refusal_case(UINT16_C(0xC207)),
+              "Thumb STMIA base-last follows the DDI0100I UNPREDICTABLE stop policy");
+}
+
+static bool thumb_multiple_maximum_refusal_case(
+    uint64_t cycle_budget, size_t trace_capacity, uint64_t next_sequence,
+    uint64_t master_cycles, uint64_t retired_instructions,
+    gbl_run_reason expected_reason)
+{
+    static const uint16_t opcodes[] = { UINT16_C(0xC8FF) };
+    const uint32_t base = UINT32_C(0x03001000);
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine *before;
+    gbl_trace_record records[11];
+    gbl_trace_record records_before[11];
+    gbl_trace_buffer trace;
+    gbl_run_options options;
+    gbl_run_result result = { 0 };
+    const gbl_run_termination expected_termination =
+        expected_reason == GBL_RUN_REASON_CYCLE_BUDGET
+            ? GBL_RUN_TIMEOUT
+            : (expected_reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL
+                   ? GBL_RUN_TRACE_OUTPUT_FULL
+                   : GBL_RUN_STOPPED);
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000),
+        TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+    bool passed = false;
+    uint8_t index;
+
+    memset(records, 0xA5, sizeof(records));
+    memcpy(records_before, records, sizeof(records));
+    if (!loaded) {
+        return false;
+    }
+    machine.cpu.r0_7[0] = base;
+    machine.master_cycles = master_cycles;
+    machine.cpu.retired_instructions = retired_instructions;
+    for (index = 0u; index < 8u; ++index) {
+        write_word(machine.iwram,
+                   (size_t)(base - UINT32_C(0x03000000)) +
+                       (size_t)index * 4u,
+                   UINT32_C(0xB0000000) + index);
+    }
+    machine.open_bus = UINT32_C(0xD00DF00D);
+    trace = (gbl_trace_buffer){ records, trace_capacity, 1u, next_sequence };
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    *before = machine;
+    options = (gbl_run_options){
+        .cycle_budget = cycle_budget,
+        .unit_limit = UINT64_C(1),
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    passed = gbl_cpu_run(&machine, &options, &result) ==
+                 GBL_RUN_STATUS_OK &&
+             result.termination == expected_termination &&
+             result.reason == expected_reason && result.cycles == 0u &&
+             result.instructions == 0u && trace.records == records &&
+             trace.capacity == trace_capacity && trace.count == 1u &&
+             trace.next_sequence == next_sequence &&
+             memcmp(records, records_before, sizeof(records)) == 0 &&
+             gbl_test_canonical_equal(before, &machine) &&
+             gbl_test_same_instance_identity_equal(before, &machine);
+    free(before);
+    gbl_machine_dispose(&machine);
+    return passed;
+}
+
+static bool thumb_multiple_maximum_exact_boundary(void)
+{
+    static const uint16_t opcodes[] = { UINT16_C(0xC8FF) };
+    const uint32_t base = UINT32_C(0x03001000);
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[11];
+    gbl_trace_record marker;
+    gbl_trace_buffer trace;
+    gbl_run_options options;
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000),
+        TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+    bool passed = false;
+    uint8_t index;
+    const uint64_t sequence_start = UINT64_MAX - UINT64_C(10);
+
+    memset(records, 0xA5, sizeof(records));
+    marker = records[0];
+    if (loaded) {
+        machine.cpu.r0_7[0] = base;
+        machine.master_cycles = UINT64_MAX - UINT64_C(10);
+        machine.cpu.retired_instructions = UINT64_MAX - UINT64_C(1);
+        for (index = 0u; index < 8u; ++index) {
+            write_word(machine.iwram,
+                       (size_t)(base - UINT32_C(0x03000000)) +
+                           (size_t)index * 4u,
+                       UINT32_C(0xB0000000) + index);
+        }
+        trace = (gbl_trace_buffer){
+            records, 11u, 1u, sequence_start
+        };
+        options = (gbl_run_options){
+            .cycle_budget = UINT64_C(10),
+            .unit_limit = UINT64_C(1),
+            .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+            .trace_buffer = &trace
+        };
+        passed = gbl_cpu_run(&machine, &options, &result) ==
+                     GBL_RUN_STATUS_OK &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                 result.instructions == 1u && result.cycles == UINT64_C(10) &&
+                 machine.master_cycles == UINT64_MAX &&
+                 machine.cpu.retired_instructions == UINT64_MAX &&
+                 machine.cpu.r0_7[0] == UINT32_C(0xB0000000) &&
+                 machine.cpu.r0_7[7] == UINT32_C(0xB0000007) &&
+                 machine.cpu.execution_address == UINT32_C(0x08000002) &&
+                 trace.count == 11u && trace.capacity == 11u &&
+                 trace.next_sequence == UINT64_MAX &&
+                 records[0].sequence == marker.sequence &&
+                 records[1].sequence == sequence_start &&
+                 records[10].sequence == UINT64_MAX - UINT64_C(1) &&
+                 records[2].address == base &&
+                 records[9].address == base + UINT32_C(28) &&
+                 records[10].address == UINT32_C(0x08000002);
+        gbl_machine_dispose(&machine);
+    }
+    return loaded && passed;
+}
+
+static void test_thumb_multiple_preflight(void)
+{
+    test_case(thumb_multiple_maximum_refusal_case(
+                  9u, 11u, UINT64_C(700), UINT64_C(51), UINT64_C(61),
+                  GBL_RUN_REASON_CYCLE_BUDGET),
+              "one-short Thumb LDMIA cycle budget refuses all eight reads and fetch");
+    test_case(thumb_multiple_maximum_refusal_case(
+                  10u, 10u, UINT64_C(700), UINT64_C(53), UINT64_C(63),
+                  GBL_RUN_REASON_TRACE_OUTPUT_FULL),
+              "one-short Thumb LDMIA trace capacity preserves full state and caller records");
+    test_case(thumb_multiple_maximum_refusal_case(
+                  10u, 11u, UINT64_MAX - UINT64_C(9), UINT64_C(55),
+                  UINT64_C(65), GBL_RUN_REASON_TRACE_OUTPUT_FULL),
+              "Thumb LDMIA trace sequence overflow refuses before the first read");
+    test_case(thumb_multiple_maximum_refusal_case(
+                  10u, 11u, UINT64_C(700), UINT64_MAX - UINT64_C(9),
+                  UINT64_C(67), GBL_RUN_REASON_COUNTER_OVERFLOW),
+              "Thumb LDMIA master-cycle overflow refuses before effects");
+    test_case(thumb_multiple_maximum_refusal_case(
+                  10u, 11u, UINT64_C(700), UINT64_C(59), UINT64_MAX,
+                  GBL_RUN_REASON_COUNTER_OVERFLOW),
+              "Thumb LDMIA retirement overflow refuses before effects");
+    test_case(thumb_multiple_maximum_exact_boundary(),
+              "maximum Thumb LDMIA fits exact cycles trace sequence and counters");
+}
+
+static void test_thumb_multiple_wrapped_writeback(void)
+{
+    static const uint16_t opcodes[] = { UINT16_C(0xCF01) };
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4];
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(800) };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(4),
+        .unit_limit = UINT64_C(1),
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    gbl_run_result result = { 0 };
+    bool loaded = prepare_thumb_stream(
+        &machine, image, UINT32_C(0x08000000),
+        TEST_CPSR_SYSTEM | TEST_CPSR_T, opcodes, 1u);
+    bool passed = false;
+
+    memset(records, 0xA5, sizeof(records));
+    if (loaded) {
+        machine.cpu.r0_7[7] = UINT32_MAX - UINT32_C(3);
+        passed = gbl_cpu_run(&machine, &options, &result) ==
+                     GBL_RUN_STATUS_OK &&
+                 result.termination == GBL_RUN_PROGRESS &&
+                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                 result.instructions == 1u && result.cycles == 3u &&
+                 machine.cpu.r0_7[7] == 0u && trace.count == 4u &&
+                 trace.next_sequence == UINT64_C(804) &&
+                 records[1].category == GBL_TRACE_BUS &&
+                 records[1].address == UINT32_C(0xFFFFFFFC) &&
+                 records[1].width == 4u &&
+                 machine.cpu.r0_7[0] == records[1].value &&
+                 records[2].address == UINT32_C(0x08000002);
+    }
+    test_case(passed,
+              "Thumb LDMIA reads the high open-bus word once and wraps writeback modulo 2^32");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static void test_alignment(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -12157,6 +12684,15 @@ static const cpu_test_function thumb_stack_functions[] = {
     test_thumb_stack_empty_lists,
     test_thumb_stack_preflight
 };
+static const cpu_test_function thumb_multiple_functions[] = {
+    test_thumb_multiple_store_base_first,
+    test_thumb_multiple_store_base_absent,
+    test_thumb_multiple_load_base_aliases,
+    test_thumb_multiple_load_base_absent,
+    test_thumb_multiple_empty_and_unpredictable,
+    test_thumb_multiple_preflight,
+    test_thumb_multiple_wrapped_writeback
+};
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
 static const cpu_test_function slots_functions[] = {
@@ -12211,6 +12747,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("thumb_high", 129u, thumb_high_functions),
     CPU_TEST_GROUP("thumb_sp", 36u, thumb_sp_functions),
     CPU_TEST_GROUP("thumb_stack", 15u, thumb_stack_functions),
+    CPU_TEST_GROUP("thumb_multiple", 17u, thumb_multiple_functions),
     CPU_TEST_GROUP("thumb_transfer", 31u, thumb_transfer_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
