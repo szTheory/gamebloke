@@ -13228,6 +13228,101 @@ static const cpu_test_function thumb_multiple_functions[] = {
     test_thumb_multiple_preflight,
     test_thumb_multiple_wrapped_writeback
 };
+/* Numeric expectations pin the append-only public ABI before the new enum
+ * names exist. These are classification witnesses, not ISA diagnostic ROMs. */
+static void test_isa_classification(void)
+{
+    static const struct {
+        uint32_t opcode;
+        bool thumb;
+        unsigned int reason;
+        unsigned int stop;
+    } cases[] = {
+        { 0xF1A00000u, false, 10u, 12u }, /* NV */
+        { 0xE1A00F10u, false, 10u, 12u }, /* shift count R15 */
+        { 0xE10FF000u, false, 10u, 12u }, /* MRS PC */
+        { 0xE590F001u, false, 10u, 12u }, /* unaligned LDR PC */
+        { 0x00004340u, true, 10u, 12u }, /* MUL same register */
+        { 0x0000B400u, true, 10u, 12u }, /* empty PUSH */
+        { 0x0000C000u, true, 10u, 12u }, /* empty STMIA */
+        { 0xE12FFF30u, false, 11u, 13u }, /* BLX register */
+        { 0xFA000000u, false, 11u, 13u }, /* BLX immediate */
+        { 0xE12FFF20u, false, 11u, 13u }, /* BXJ */
+        { 0xE1200070u, false, 11u, 13u }, /* BKPT */
+        { 0xE16F0F10u, false, 11u, 13u }, /* CLZ */
+        { 0xE1000050u, false, 11u, 13u }, /* QADD */
+        { 0xE1000080u, false, 11u, 13u }, /* SMLABB */
+        { 0xE0400090u, false, 11u, 13u }, /* UMAAL */
+        { 0xE1C000D0u, false, 11u, 13u }, /* LDRD */
+        { 0xE1C000F0u, false, 11u, 13u }, /* STRD */
+        { 0x00004780u, true, 11u, 13u }, /* BLX register */
+        { 0x0000E800u, true, 11u, 13u }, /* BLX suffix */
+        { 0x0000BE42u, true, 11u, 13u }, /* BKPT */
+        { 0xE7F000F0u, false, 8u, 5u },  /* architectural UND */
+        { 0xE6000010u, false, 8u, 5u },  /* reserved media slot */
+        { 0x0000DE42u, true, 8u, 5u },
+        { 0x0000B100u, true, 8u, 5u }   /* reserved ARMv4T Thumb */
+    };
+    size_t index;
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        gbl_trace_record records[3];
+        gbl_trace_buffer trace = { records, 3u, 0u, 11u };
+        bool valid;
+        char description[96];
+        if (cases[index].thumb) {
+            valid = prepare_thumb_transfer(&machine, (uint16_t)cases[index].opcode,
+                                            UINT32_C(0x08000000), image);
+        } else {
+            make_empty_image(image);
+            valid = machine_load(&machine, image);
+            if (valid) prepare_arm_instruction(&machine, cases[index].opcode, 0u);
+        }
+        if (valid) {
+            const uint32_t old_cpsr = machine.cpu.cpsr;
+            machine.cpu.r0_7[0] = UINT32_C(0x03000000);
+            valid = run_traced_units(&machine, 10u, 1u, GBL_TRACE_CATEGORY_MASK,
+                                     &trace, &result) &&
+                result.termination == GBL_RUN_STOPPED &&
+                (unsigned int)result.reason == cases[index].reason &&
+                (unsigned int)machine.cpu.stop_reason == cases[index].stop;
+            if (cases[index].reason == 8u) {
+                valid = valid && result.instructions == 1u && result.cycles == 1u &&
+                    machine.cpu.last_exception.kind == GBL_EXCEPTION_UNDEFINED &&
+                    machine.cpu.spsr[4] == old_cpsr &&
+                    machine.cpu.und_r13_14[1] == (cases[index].thumb
+                        ? UINT32_C(0x08000002) : UINT32_C(0x08000004)) &&
+                    machine.cpu.execution_address == 4u && trace.count == 2u &&
+                    records[0].opcode == cases[index].opcode &&
+                    records[1].opcode == cases[index].opcode &&
+                    !machine.cpu.pipeline[0].valid && !machine.cpu.pipeline[1].valid;
+            } else {
+                valid = valid && result.instructions == 0u && result.cycles == 0u &&
+                    trace.count == 0u && machine.cpu.cpsr == old_cpsr &&
+                    machine.cpu.execution_address == UINT32_C(0x08000000) &&
+                    machine.cpu.pipeline[0].opcode == cases[index].opcode &&
+                    machine.cpu.last_exception.kind == GBL_EXCEPTION_NONE;
+            }
+        }
+        (void)snprintf(description, sizeof(description),
+            "exact ISA classification %08X keeps exception and refusal causes distinct",
+            (unsigned int)cases[index].opcode);
+        test_case(valid, description);
+        gbl_machine_dispose(&machine);
+    }
+    test_case(GBL_RUN_REASON_TRACE_OUTPUT_FULL == 9 &&
+              GBL_CPU_STOP_COPROCESSOR_NO_BIOS == 11,
+              "existing public stop and run reason values retain ABI numbers");
+    test_case(run_guest_exception_case(false, UINT32_C(0xEFABCDEF),
+        GBL_EXCEPTION_SWI, GBL_CPU_STOP_SWI_NO_BIOS, 8u, UINT32_C(0x08000004)),
+        "ARM SWI full 24-bit comment enters SVC and stops before vector fetch");
+}
+
+static const cpu_test_function isa_classification_functions[] = {
+    test_isa_classification, test_no_bios, test_thumb_exception_immediates
+};
 static const cpu_test_function decode_functions[] = { test_decode };
 static const cpu_test_function alignment_functions[] = { test_alignment };
 static const cpu_test_function slots_functions[] = {
@@ -13287,6 +13382,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("thumb_multiple", 17u, thumb_multiple_functions),
     CPU_TEST_GROUP("thumb_transfer", 31u, thumb_transfer_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
+    CPU_TEST_GROUP("isa_classification", 30u, isa_classification_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
     CPU_TEST_GROUP("slots_bounds", 27u, slots_bounds_functions)
