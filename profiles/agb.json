@@ -1,11 +1,13 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 4,
+  "profile_version": 5,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
   "bios_provider": "none",
-  "cart": { "kind": "rom-only" },
+  "cart": {
+    "kind": "rom-only"
+  },
   "timing": {
     "master_clock_hz": {
       "value": 16777216,
@@ -77,8 +79,15 @@
       "rom": 1,
       "unmapped": 1
     },
-    "widths_bytes": [1, 2, 4],
-    "access_classes": ["nonsequential", "sequential"],
+    "widths_bytes": [
+      1,
+      2,
+      4
+    ],
+    "access_classes": [
+      "nonsequential",
+      "sequential"
+    ],
     "internal_cycle_unit": 1
   },
   "initialization_policy": {
@@ -103,26 +112,40 @@
     "pipeline": "empty",
     "arm_pc_offset": 8,
     "thumb_pc_offset": 4,
-    "timing": "unit-preflight-one-cycle-bus",
+    "timing": "unit-preflight-uniform-bus-plus-core-internal-work",
     "exception_entry_cycles": 1,
     "bios_none_stop": "after-entry-before-vector-fetch",
     "execution": "single-interpreter",
     "supported_opcode_operands": [
-      "ARM data processing: MOV, ADD, SUB, CMP, AND, ORR, rotated immediate or register operand, immediate or register-specified LSL/LSR/ASR/ROR, S flag supported, destinations r0-r14",
+      "ARM data processing: AND, EOR, SUB, RSB, ADD, ADC, SBC, RSC, TST, TEQ, CMP, CMN, ORR, MOV, BIC, MVN with rotated immediate and immediate/register LSL/LSR/ASR/ROR, defined flags and legal PC/exception-return forms",
       "ARM control flow: B, BL, BX",
-      "ARM single transfer: LDR/STR byte or word, immediate 12-bit offset, pre-indexed, no writeback, U plus or minus, r0-r14 base/data, PC base only for positive LDR literal",
-      "Thumb data processing: MOV immediate8, ADD/SUB immediate8, CMP immediate8",
-      "Thumb high-register operations: MOV to r0-r14 and BX",
-      "Thumb control flow: conditional B except SWI/reserved conditions, and unconditional B",
-      "Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers"
+      "ARM multiply: MUL, MLA, UMULL, UMLAL, SMULL, SMLAL with S variants and captured operands",
+      "ARM status transfers: MRS CPSR/SPSR and MSR register/rotated-immediate c/x/s/f masks, privilege and bank rules",
+      "ARM single transfer: LDR/STR byte/word, immediate/scaled-register offsets, P/U/B/W/L and post-index T forms, legal PC operands and writeback",
+      "ARM subword transfer: LDRH, STRH, LDRSB, LDRSH with immediate/register offsets, pre/post indexing and writeback",
+      "ARM block transfer: LDM/STM IA/IB/DA/DB, writeback, user-bank S forms and SPSR-restoring LDM with PC",
+      "ARM swap: SWP and SWPB with ordered read/write and captured operands",
+      "ARM exception decode: full SWI imm24, reserved UND and absent CDP/MRC/MCR/LDC/STC coprocessor entry before BIOS-none stop",
+      "Thumb formats 1-5: immediate shifts, add/subtract, immediate operations, all 16 register ALU operations and legal high-register ADD/CMP/MOV/BX",
+      "Thumb formats 6-14: PC-relative, register/immediate byte/word/halfword and signed loads, SP-relative transfers and PC/SP address formation",
+      "Thumb formats 15-19: SP adjustment, PUSH/POP with LR/PC, STMIA/LDMIA, conditional/unconditional branches, SWI imm8 and separately retired BL prefix/suffix",
+      "Executing project policies: short MUL Rd=Rm and SWP/SWPB Rn=Rd or Rn=Rm snapshot aliases, ARM empty/base-in-list reference rules and isolated BL halves/modulo offset arithmetic"
     ],
     "excluded_opcode_operands": [
-      "ARM register-specified shifts involving r15, r15 destinations other than branch/BX, STR with PC source, and PC reads",
-      "ARM post-indexed or writeback transfers, halfword/signed transfers, block transfers, multiply, swap, full PSR transfers, and coprocessor execution",
-      "Thumb data-processing writes to r15 outside BX/branch, Thumb BL pair, and non-listed transfer forms",
-      "All other valid-but-unimplemented opcodes and operands stop as unsupported, reserved undefined encodings remain distinct",
-      "Later ARM architecture extensions and every instruction family absent from the supported array"
-    ]
+      "Unpredictable operands stop before effects except the explicitly listed executing project policies, including named stops for NV, invalid PC/PSR operands, Thumb same-register MUL, empty Thumb lists and STMIA base-middle/last",
+      "Allocated later encodings recognized by the decoder stop as later-architecture-instruction, with no ARMv5+ execution semantics",
+      "Unallocated exact-core encodings enter UND, while malformed allocated decode bits are unpredictable",
+      "No attached coprocessor or BIOS handler executes, exception entry precedes named BIOS-none stop and vector bytes are never fetched",
+      "Static B/BX and ALU-PC target alignment/refill extents retain checked unsupported refusal, not a missing legal instruction family",
+      "Original full diagnostic case execution and admission remain pending, no hardware, game, BIOS or release qualification is claimed"
+    ],
+    "pc_operand_reads": "arm-current+8-register-shift-rm-and-store+12-thumb-current+4",
+    "internal_work": "ddi0029g-6.5-6.6-6.20-cost-table",
+    "multiply_flag_policy": "preserve-short-c-long-cv",
+    "loaded_pc_boundary": "align-mask-wrap-refill",
+    "unpredictable_operands": "named-stop",
+    "extension_encoding": "later-architecture-stop",
+    "address_arithmetic": "data-modulo32-static-fetch-checked"
   },
   "read_policy": {
     "source": "IMPL",

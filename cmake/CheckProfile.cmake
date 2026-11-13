@@ -82,19 +82,26 @@ set(GBL_PROFILE_CPU_CITE
 set(GBL_PROFILE_CPU_ARCH_CITE
   "ARM7TDMI Technical Reference Manual (DDI 0029G, Issue G), ARM state, Thumb state, and processor modes sections.")
 set(GBL_PROFILE_CPU_SUPPORTED
-  "ARM data processing: MOV, ADD, SUB, CMP, AND, ORR, rotated immediate or register operand, immediate or register-specified LSL/LSR/ASR/ROR, S flag supported, destinations r0-r14"
+  "ARM data processing: AND, EOR, SUB, RSB, ADD, ADC, SBC, RSC, TST, TEQ, CMP, CMN, ORR, MOV, BIC, MVN with rotated immediate and immediate/register LSL/LSR/ASR/ROR, defined flags and legal PC/exception-return forms"
   "ARM control flow: B, BL, BX"
-  "ARM single transfer: LDR/STR byte or word, immediate 12-bit offset, pre-indexed, no writeback, U plus or minus, r0-r14 base/data, PC base only for positive LDR literal"
-  "Thumb data processing: MOV immediate8, ADD/SUB immediate8, CMP immediate8"
-  "Thumb high-register operations: MOV to r0-r14 and BX"
-  "Thumb control flow: conditional B except SWI/reserved conditions, and unconditional B"
-  "Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers")
+  "ARM multiply: MUL, MLA, UMULL, UMLAL, SMULL, SMLAL with S variants and captured operands"
+  "ARM status transfers: MRS CPSR/SPSR and MSR register/rotated-immediate c/x/s/f masks, privilege and bank rules"
+  "ARM single transfer: LDR/STR byte/word, immediate/scaled-register offsets, P/U/B/W/L and post-index T forms, legal PC operands and writeback"
+  "ARM subword transfer: LDRH, STRH, LDRSB, LDRSH with immediate/register offsets, pre/post indexing and writeback"
+  "ARM block transfer: LDM/STM IA/IB/DA/DB, writeback, user-bank S forms and SPSR-restoring LDM with PC"
+  "ARM swap: SWP and SWPB with ordered read/write and captured operands"
+  "ARM exception decode: full SWI imm24, reserved UND and absent CDP/MRC/MCR/LDC/STC coprocessor entry before BIOS-none stop"
+  "Thumb formats 1-5: immediate shifts, add/subtract, immediate operations, all 16 register ALU operations and legal high-register ADD/CMP/MOV/BX"
+  "Thumb formats 6-14: PC-relative, register/immediate byte/word/halfword and signed loads, SP-relative transfers and PC/SP address formation"
+  "Thumb formats 15-19: SP adjustment, PUSH/POP with LR/PC, STMIA/LDMIA, conditional/unconditional branches, SWI imm8 and separately retired BL prefix/suffix"
+  "Executing project policies: short MUL Rd=Rm and SWP/SWPB Rn=Rd or Rn=Rm snapshot aliases, ARM empty/base-in-list reference rules and isolated BL halves/modulo offset arithmetic")
 set(GBL_PROFILE_CPU_EXCLUDED
-  "ARM register-specified shifts involving r15, r15 destinations other than branch/BX, STR with PC source, and PC reads"
-  "ARM post-indexed or writeback transfers, halfword/signed transfers, block transfers, multiply, swap, full PSR transfers, and coprocessor execution"
-  "Thumb data-processing writes to r15 outside BX/branch, Thumb BL pair, and non-listed transfer forms"
-  "All other valid-but-unimplemented opcodes and operands stop as unsupported, reserved undefined encodings remain distinct"
-  "Later ARM architecture extensions and every instruction family absent from the supported array")
+  "Unpredictable operands stop before effects except the explicitly listed executing project policies, including named stops for NV, invalid PC/PSR operands, Thumb same-register MUL, empty Thumb lists and STMIA base-middle/last"
+  "Allocated later encodings recognized by the decoder stop as later-architecture-instruction, with no ARMv5+ execution semantics"
+  "Unallocated exact-core encodings enter UND, while malformed allocated decode bits are unpredictable"
+  "No attached coprocessor or BIOS handler executes, exception entry precedes named BIOS-none stop and vector bytes are never fetched"
+  "Static B/BX and ALU-PC target alignment/refill extents retain checked unsupported refusal, not a missing legal instruction family"
+  "Original full diagnostic case execution and admission remain pending, no hardware, game, BIOS or release qualification is claimed")
 
 # Validate a policy's source and citation as project-authored evidence. Hardware
 # claims are not inferred from these placeholders.
@@ -322,13 +329,17 @@ function(gbl__profile_read_policy doc)
 endfunction()
 
 function(gbl__profile_cpu_policy doc)
+  string(JSON cpu_version ERROR_VARIABLE version_error GET "${doc}" profile_version)
+  if(NOT "${cpu_version}" MATCHES "^[1-9][0-9]*$" OR cpu_version LESS 5)
+    gbl_finding(profile cpu-policy-value "profile_version: expected 5 or later for this CPU contract")
+  endif()
   gbl_json_type(pty "${doc}" cpu_policy)
   if(NOT "${pty}" STREQUAL "OBJECT")
     gbl_finding(profile cpu-policy-missing "cpu_policy: missing or not an object")
     return()
   endif()
   string(JSON plen LENGTH "${doc}" cpu_policy)
-  if(NOT plen EQUAL 19)
+  if(NOT plen EQUAL 26)
     gbl_finding(profile cpu-policy-value "cpu_policy: field count")
   endif()
 
@@ -366,9 +377,16 @@ function(gbl__profile_cpu_policy doc)
       "user_system_spsr|absent"
       "register_banks|User/System share r8-r14, FIQ has private r8-r14, IRQ/SVC/ABT/UND each have private r13-r14, and FIQ/IRQ/SVC/ABT/UND have SPSRs."
       "pipeline|empty"
-      "timing|unit-preflight-one-cycle-bus"
+      "timing|unit-preflight-uniform-bus-plus-core-internal-work"
       "bios_none_stop|after-entry-before-vector-fetch"
-      "execution|single-interpreter")
+      "execution|single-interpreter"
+      "pc_operand_reads|arm-current+8-register-shift-rm-and-store+12-thumb-current+4"
+      "internal_work|ddi0029g-6.5-6.6-6.20-cost-table"
+      "multiply_flag_policy|preserve-short-c-long-cv"
+      "loaded_pc_boundary|align-mask-wrap-refill"
+      "unpredictable_operands|named-stop"
+      "extension_encoding|later-architecture-stop"
+      "address_arithmetic|data-modulo32-static-fetch-checked")
     string(REPLACE "|" ";" fields "${pair}")
     list(GET fields 0 key)
     list(GET fields 1 expected)
@@ -1348,12 +1366,19 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     "| cpu_policy.pipeline | empty | IMPL | ${GBL_PROFILE_CPU_CITE} |"
     "| cpu_policy.arm_pc_offset | 8 | REF | ${GBL_PROFILE_CPU_ARCH_CITE} |"
     "| cpu_policy.thumb_pc_offset | 4 | REF | ${GBL_PROFILE_CPU_ARCH_CITE} |"
-    "| cpu_policy.timing | unit-preflight-one-cycle-bus | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.timing | unit-preflight-uniform-bus-plus-core-internal-work | IMPL | ${GBL_PROFILE_CPU_CITE} |"
     "| cpu_policy.exception_entry_cycles | 1 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
     "| cpu_policy.bios_none_stop | after-entry-before-vector-fetch | IMPL | ${GBL_PROFILE_CPU_CITE} |"
-    "| cpu_policy.execution | single-interpreter | IMPL | ${GBL_PROFILE_CPU_CITE} |")
+    "| cpu_policy.execution | single-interpreter | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.pc_operand_reads | arm-current+8-register-shift-rm-and-store+12-thumb-current+4 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.internal_work | ddi0029g-6.5-6.6-6.20-cost-table | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.multiply_flag_policy | preserve-short-c-long-cv | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.loaded_pc_boundary | align-mask-wrap-refill | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.unpredictable_operands | named-stop | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.extension_encoding | later-architecture-stop | IMPL | ${GBL_PROFILE_CPU_CITE} |"
+    "| cpu_policy.address_arithmetic | data-modulo32-static-fetch-checked | IMPL | ${GBL_PROFILE_CPU_CITE} |")
   gbl__profile_doc_policy_table("${normalized_text}" "## CPU direct-start policy"
-    cpu_policy 13 cpu_rows "Setting;Value;Label;Citation" cpu-policy-doc)
+    cpu_policy 20 cpu_rows "Setting;Value;Label;Citation" cpu-policy-doc)
 
   set(cpu_scope_rows)
   set(scope_index 0)
@@ -1371,6 +1396,20 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
   list(LENGTH cpu_scope_rows cpu_scope_count)
   gbl__profile_doc_policy_table("${normalized_text}" "## CPU instruction scope"
     cpu_scope ${cpu_scope_count} cpu_scope_rows "Scope;Opcode / operand forms;Label;Citation" cpu-policy-doc)
+
+  set(cpu_stop_rows)
+  foreach(pair IN ITEMS "unpredictable|unpredictable-instruction"
+      "later-architecture|later-architecture-instruction"
+      "undefined|no-bios-undefined" "absent-coprocessor|no-bios-coprocessor"
+      "swi|no-bios-swi" "static-target-refusal|unsupported-instruction")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 reason)
+    list(APPEND cpu_stop_rows
+      "| cpu_stop.${key} | ${reason} | IMPL | ${GBL_PROFILE_CPU_CITE} |")
+  endforeach()
+  gbl__profile_doc_policy_table("${normalized_text}" "## CPU stop classifications"
+    cpu_stop 6 cpu_stop_rows "Setting;Value;Label;Citation" cpu-policy-doc)
 
   string(FIND "${normalized_text}" "\n## Unmodeled\n" at)
   set(doc_ids "")

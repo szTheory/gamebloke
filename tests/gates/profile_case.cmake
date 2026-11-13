@@ -186,6 +186,11 @@ elseif(CASE STREQUAL "cpu_policy_value")
   gbl_json_mutate_set("${p}" "[]" cpu_policy excluded_opcode_operands)
   expect_code(cpu-policy-value "${p}")
 
+  profile_copy(p false_bios_claim)
+  gbl_json_mutate_set("${p}" "\"Hardware-qualified BIOS and active DMA execution\""
+    cpu_policy supported_opcode_operands 0)
+  expect_code(cpu-policy-value "${p}")
+
 elseif(CASE STREQUAL "cpu_policy_doc")
   profile_copy(p positive_cpu_policy_doc)
   doc_copy(d positive_cpu_policy_doc)
@@ -232,6 +237,12 @@ elseif(CASE STREQUAL "cpu_policy_doc")
       "| cpu_policy.${key} | hardware-qualified |")
     expect_code(cpu-policy-doc "${p}" "${d}")
   endforeach()
+
+  profile_copy(p stop_reason_drift)
+  doc_copy(d stop_reason_drift)
+  gbl_text_mutate("${d}" "| cpu_stop.unpredictable | unpredictable-instruction |"
+    "| cpu_stop.unpredictable | unsupported-instruction |")
+  expect_code(cpu-policy-doc "${p}" "${d}")
 
 elseif(CASE STREQUAL "bus_policy_missing")
   profile_copy(p missing_bus_policy)

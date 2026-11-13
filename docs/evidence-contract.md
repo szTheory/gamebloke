@@ -207,22 +207,16 @@ pending PASS, malformed case id/time, overflow, budget overrun, removed dispute 
 and incomplete trace are rejected for their named reasons. This proves the configured
 producer/checker path only; synthetic metadata remains an artificial validator input.
 
-Current evidence is limited to the direct-start profile and the implemented ARM7TDMI
-instruction subset. Unsupported instruction families stop rather than silently acquiring
-semantics; full ARM/Thumb diagnostic coverage remains future work. No BIOS execution or
-HLE, timers, DMA, active I/O devices, WAITCNT/Game Pak prefetch, display/audio presentation,
-physical input, or host presentation is modeled. Bus timing uses project placeholder costs;
-absent-BIOS, unsupported-I/O, and shorter-cartridge current-latch behavior remain unverified.
-The exact opcode and operand boundary is the version 4 table in
-[profile-agb.md](profile-agb.md#cpu-instruction-scope): ARM data processing (MOV, ADD, SUB,
-CMP, AND, ORR), B/BL/BX, and the listed immediate pre-indexed byte/word transfers; Thumb
-MOV/ADD/SUB/CMP immediates, high-register MOV/BX, conditional and unconditional branches,
-and the listed PC-relative and low-register immediate transfers. It excludes ARM
-post-index/writeback, halfword/signed and block transfers, multiply/swap/full PSR and
-coprocessor execution, the table's restricted PC/register forms, Thumb BL pairs and other
-unlisted transfer/data-processing forms, later architecture extensions, and every other
-valid but unimplemented opcode or operand. Valid unsupported operations stop with an
-unsupported reason; reserved undefined encodings remain separately classified.
+Current evidence is limited to the direct-start profile and the implemented
+ARM7TDMI ARMv4T families in the version 5 scope/policy tables in
+[profile-agb.md](profile-agb.md#cpu-instruction-scope). The full original ARM/Thumb
+diagnostic corpus remains pending execution and admission. Unpredictable operand
+stops, recognized later extensions, reserved UND and absent-coprocessor UND have
+separate causes. Explicit executing project policies and static target refusals
+are listed in the profile. Public unsupported values remain compatible without
+inventing a legal unimplemented instruction. No BIOS execution/HLE, timers, DMA,
+active I/O, WAITCNT/prefetch, display/audio, physical input or host presentation
+is modeled. Bus timing and latch behavior remain unqualified.
 
 The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
 undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the
