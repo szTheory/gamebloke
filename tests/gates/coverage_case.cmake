@@ -5,7 +5,7 @@ foreach(required IN ITEMS CASE SRC BIN)
     message(FATAL_ERROR "coverage-case: missing-${required}")
   endif()
 endforeach()
-if(NOT CASE STREQUAL "ledger-controls")
+if(NOT CASE MATCHES "^(ledger-controls|arm-matrix-build)$")
   message(FATAL_ERROR "coverage-case: unsupported-case")
 endif()
 
@@ -20,6 +20,48 @@ cmake_path(IS_PREFIX build_root "${binary_root}" NORMALIZE binary_under_build)
 if(NOT binary_under_build OR IS_SYMLINK "${source_root}/build" OR
    IS_SYMLINK "${binary_root}")
   message(FATAL_ERROR "coverage-case: unsafe-output-root")
+endif()
+
+if(CASE STREQUAL "arm-matrix-build")
+  foreach(required IN ITEMS ARTIFACT_ROOT TOOLCHAIN_ROOT)
+    if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+      message(FATAL_ERROR "coverage-case: missing-${required}")
+    endif()
+  endforeach()
+  set(artifact_root "${source_root}/${ARTIFACT_ROOT}")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
+      "-DOUT=${artifact_root}" "-DTOOLCHAIN_ROOT=${source_root}/${TOOLCHAIN_ROOT}"
+      -DMODE=all -DISA=arm
+      -P "${builder}"
+    WORKING_DIRECTORY "${source_root}"
+    RESULT_VARIABLE build_rc OUTPUT_VARIABLE build_out ERROR_VARIABLE build_error)
+  if(NOT "${build_rc}" STREQUAL "0")
+    message(FATAL_ERROR
+      "coverage-case: arm-matrix-build-failed: ${build_error}${build_out}")
+  endif()
+  set(receipt "${artifact_root}/proof/build-receipt.json")
+  if(NOT EXISTS "${receipt}" OR IS_DIRECTORY "${receipt}" OR IS_SYMLINK "${receipt}")
+    message(FATAL_ERROR "coverage-case: arm-matrix-receipt-missing")
+  endif()
+  file(READ "${receipt}" receipt_json)
+  string(JSON receipt_format ERROR_VARIABLE format_error GET "${receipt_json}" format)
+  string(JSON receipt_isa ERROR_VARIABLE isa_error GET "${receipt_json}" isa)
+  string(JSON semantic_count ERROR_VARIABLE semantic_error GET "${receipt_json}" semantic_pairs)
+  string(JSON stop_count ERROR_VARIABLE stop_error GET "${receipt_json}" stop_witnesses)
+  string(JSON rom_count ERROR_VARIABLE rom_error LENGTH "${receipt_json}" output_names)
+  foreach(error IN ITEMS format_error isa_error semantic_error stop_error rom_error)
+    if(NOT "${${error}}" STREQUAL "NOTFOUND")
+      message(FATAL_ERROR "coverage-case: arm-matrix-receipt-invalid:${error}")
+    endif()
+  endforeach()
+  if(NOT receipt_format STREQUAL "gamebloke.arm-diagnostic-matrix/1" OR
+     NOT receipt_isa STREQUAL "arm" OR NOT semantic_count EQUAL 244 OR
+     NOT stop_count EQUAL 4 OR NOT rom_count EQUAL 492)
+    message(FATAL_ERROR "coverage-case: arm-matrix-output-count-mismatch")
+  endif()
+  message("coverage-case: ok (244 ARM semantic pairs; 4 named stop witnesses)")
+  return()
 endif()
 
 foreach(required_path IN ITEMS "${matrix}" "${checker}" "${builder}" "${inputs}")
