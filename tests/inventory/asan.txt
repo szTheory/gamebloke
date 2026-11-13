@@ -57,6 +57,7 @@ cpu.slots_bounds core,cpu,unit
 cpu.thumb core,cpu,unit
 cpu.thumb_alu core,cpu,unit
 cpu.thumb_bl core,cpu,unit
+cpu.thumb_control core,cpu,unit
 cpu.thumb_high core,cpu,unit
 cpu.thumb_multiple core,cpu,unit
 cpu.thumb_sp core,cpu,unit

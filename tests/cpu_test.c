@@ -12652,7 +12652,9 @@ static void test_thumb_bl_stream_boundary(void)
     gbl_machine_dispose(&machine);
 }
 
-static bool thumb_bl_resource_case(uint16_t opcode, unsigned int boundary)
+static bool thumb_control_resource_case(uint16_t opcode, uint64_t cost,
+                                       size_t count, bool exception,
+                                       unsigned int boundary)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
@@ -12660,8 +12662,6 @@ static bool thumb_bl_resource_case(uint16_t opcode, unsigned int boundary)
     gbl_run_result result = { 0 };
     gbl_trace_record records[4];
     gbl_trace_record saved_records[4];
-    const uint64_t cost = opcode < UINT16_C(0xF800) ? 1u : 2u;
-    const size_t count = (size_t)cost + 1u;
     gbl_trace_buffer trace = { records, count + 1u, 1u, 100u };
     gbl_run_options options = { cost, 1u, GBL_TRACE_CATEGORY_MASK, &trace };
     gbl_run_reason reason = GBL_RUN_REASON_NONE;
@@ -12694,8 +12694,10 @@ static bool thumb_bl_resource_case(uint16_t opcode, unsigned int boundary)
         *before = machine;
         valid = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK;
         if (boundary == 0u) {
-            valid = valid && result.termination == GBL_RUN_PROGRESS &&
-                result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+            valid = valid && result.termination ==
+                    (exception ? GBL_RUN_STOPPED : GBL_RUN_PROGRESS) &&
+                result.reason == (exception ? GBL_RUN_REASON_GUEST_STOP
+                                             : GBL_RUN_REASON_UNIT_LIMIT) &&
                 result.instructions == 1u && result.cycles == cost &&
                 machine.master_cycles == UINT64_MAX &&
                 machine.cpu.retired_instructions == UINT64_MAX &&
@@ -12731,13 +12733,317 @@ static void test_thumb_bl_preflight(void)
             (void)snprintf(description, sizeof(description),
                            "Thumb BL %s whole-unit resource boundary %u preserves refusal postconditions",
                            half == 0u ? "prefix" : "suffix", boundary);
-            test_case(thumb_bl_resource_case(half == 0u ? UINT16_C(0xF000)
-                                                       : UINT16_C(0xF800), boundary),
+            test_case(thumb_control_resource_case(
+                          half == 0u ? UINT16_C(0xF000) : UINT16_C(0xF800),
+                          half == 0u ? 1u : 2u, half == 0u ? 2u : 3u,
+                          false, boundary),
                       description);
         }
     }
 }
 
+static void test_thumb_bl_irq_boundary(void)
+{
+    static const uint16_t opcodes[] = { 0xF000u, 0xF802u };
+    const gbl_cpu_exception_context context = {
+        UINT32_C(0x08000000), UINT32_C(0x08000002),
+        UINT32_C(0x08000000), true
+    };
+    unsigned int masked;
+
+    for (masked = 0u; masked < 2u; ++masked) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_machine *expected = malloc(sizeof(*expected));
+        gbl_run_result result = { 0 };
+        gbl_trace_record records[5];
+        gbl_trace_record saved_records[5];
+        gbl_trace_buffer trace = { records, 5u, 0u, 31u };
+        const uint32_t cpsr = masked == 0u ? UINT32_C(0xB000007F)
+                                           : UINT32_C(0xB00000FF);
+        uint32_t spsr = 0u;
+        bool valid = prepare_thumb_stream(&machine, image,
+            UINT32_C(0x08000000), UINT32_C(0xB00000FF), opcodes, 2u);
+
+        memset(records, 0xA5, sizeof(records));
+        if (valid && expected != NULL) {
+            /* The public status API explicitly clears I in privileged System
+             * mode before the prefix. Direct-start normally masks IRQ. */
+            valid = gbl_cpu_set_cpsr(&machine, cpsr) == GBL_CPU_STATUS_OK &&
+                run_traced_units(&machine, 1u, 1u, GBL_TRACE_CATEGORY_MASK,
+                                 &trace, &result) &&
+                result.instructions == 1u && result.cycles == 1u &&
+                machine.cpu.usr_r8_14[6] == UINT32_C(0x08000004) &&
+                machine.cpu.execution_address == UINT32_C(0x08000002) &&
+                machine.cpu.pipeline[0].opcode == UINT32_C(0xF802) &&
+                trace.count == 2u;
+            *expected = machine;
+            memcpy(saved_records, records, sizeof(records));
+            if (masked == 0u) {
+                expected->master_cycles++;
+                expected->cpu.spsr[1] = cpsr;
+                expected->cpu.cpsr = UINT32_C(0xB00000D2);
+                expected->cpu.irq_r13_14[1] = UINT32_C(0x08000006);
+                expected->cpu.execution_address = UINT32_C(0x18);
+                expected->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){ 0 };
+                expected->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){ 0 };
+                expected->cpu.next_fetch_sequential = false;
+                expected->cpu.stopped = true;
+                expected->cpu.stop_reason = GBL_CPU_STOP_IRQ_NO_BIOS;
+                expected->cpu.last_exception = (gbl_cpu_last_exception){
+                    GBL_EXCEPTION_IRQ, UINT32_C(0x08000000),
+                    UINT32_C(0x08000002), UINT32_C(0x08000000), true
+                };
+                valid = valid && gbl_cpu_enter_exception(
+                    &machine, GBL_EXCEPTION_IRQ, &context) == GBL_CPU_STATUS_OK &&
+                    gbl_cpu_get_spsr(&machine, &spsr) == GBL_CPU_STATUS_OK &&
+                    spsr == cpsr && gbl_test_canonical_equal(expected, &machine) &&
+                    gbl_test_same_instance_identity_equal(expected, &machine) &&
+                    run_traced_units(&machine, 100u, 1u, GBL_TRACE_CATEGORY_MASK,
+                                     &trace, &result) &&
+                    result.termination == GBL_RUN_STOPPED &&
+                    result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                    result.instructions == 0u && result.cycles == 0u &&
+                    gbl_test_canonical_equal(expected, &machine);
+            } else {
+                valid = valid && gbl_cpu_enter_exception(
+                    &machine, GBL_EXCEPTION_IRQ, &context) == GBL_CPU_STATUS_MASKED &&
+                    gbl_test_canonical_equal(expected, &machine) &&
+                    gbl_test_same_instance_identity_equal(expected, &machine);
+            }
+            valid = valid && trace.count == 2u && trace.next_sequence == 33u &&
+                memcmp(records, saved_records, sizeof(records)) == 0;
+        } else {
+            valid = false;
+        }
+        test_case(valid, masked == 0u
+            ? "unmasked real IRQ API between BL halves saves Thumb state and banks then stops before BIOS fetch"
+            : "masked real IRQ API between BL halves preserves full machine and caller trace");
+        free(expected);
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_conditional_matrix(void)
+{
+    /* Bit i is the literal expected condition result for NZCV=i. */
+    static const uint16_t truth[] = {
+        0xF0F0u, 0x0F0Fu, 0xCCCCu, 0x3333u, 0xFF00u, 0x00FFu, 0xAAAAu,
+        0x5555u, 0x0C0Cu, 0xF3F3u, 0xAA55u, 0x55AAu, 0x0A05u, 0xF5FAu
+    };
+    static const struct { uint16_t immediate; uint32_t target; } offsets[] = {
+        { 0x80u, 0x03000F04u }, { 0xFFu, 0x03001002u },
+        { 0x00u, 0x03001004u }, { 0x7Fu, 0x03001102u }
+    };
+    unsigned int condition;
+    for (condition = 0u; condition < 14u; ++condition) {
+        unsigned int flags;
+        size_t offset;
+        bool valid = true;
+        char description[112];
+        for (flags = 0u; flags < 16u; ++flags) {
+            for (offset = 0u; offset < 4u; ++offset) {
+                uint8_t image[TEST_IMAGE_SIZE];
+                gbl_machine machine = { 0 };
+                gbl_run_result result = { 0 };
+                gbl_trace_record records[3];
+                gbl_trace_buffer trace = { records, 3u, 0u, 11u };
+                const uint16_t opcode = (uint16_t)(UINT32_C(0xD000) |
+                    (condition << 8u) | offsets[offset].immediate);
+                const bool taken = ((uint32_t)truth[condition] &
+                                     (UINT32_C(1) << flags)) != 0u;
+                const uint32_t cpsr = ((uint32_t)flags << 28u) | UINT32_C(0x7F);
+                bool sample = prepare_thumb_transfer(&machine, opcode,
+                                        UINT32_C(0x03001000), image);
+                if (sample) {
+                    machine.cpu.cpsr = cpsr;
+                    write_halfword(machine.iwram,
+                        (size_t)(offsets[offset].target - UINT32_C(0x03000000)),
+                        UINT16_C(0x2759));
+                    sample = run_traced_units(&machine, 2u, 1u,
+                        GBL_TRACE_CATEGORY_MASK, &trace, &result) &&
+                        result.termination == GBL_RUN_PROGRESS &&
+                        result.instructions == 1u &&
+                        result.cycles == (taken ? 2u : 1u) &&
+                        machine.cpu.cpsr == cpsr &&
+                        machine.cpu.execution_address == (taken
+                            ? offsets[offset].target : UINT32_C(0x03001002)) &&
+                        trace.count == (taken ? 3u : 2u) &&
+                        records[0].opcode == opcode &&
+                        records[0].instruction_address == UINT32_C(0x03001000) &&
+                        records[1].address == (taken ? offsets[offset].target
+                                                    : UINT32_C(0x03001004)) &&
+                        records[1].access_class == (taken
+                            ? GBL_BUS_CLASS_NONSEQUENTIAL : GBL_BUS_CLASS_SEQUENTIAL);
+                    if (taken) {
+                        sample = sample && records[2].address ==
+                            offsets[offset].target + 2u &&
+                            run_units(&machine, 1u, 1u, &result) &&
+                            machine.cpu.r0_7[7] == UINT32_C(0x59);
+                    }
+                }
+                valid = sample && valid;
+                gbl_machine_dispose(&machine);
+            }
+        }
+        (void)snprintf(description, sizeof(description),
+            "Thumb condition %u covers all NZCV values and signed imm8 endpoints with next-call target execution",
+            condition);
+        test_case(valid, description);
+    }
+}
+
+static void test_thumb_unconditional_endpoints(void)
+{
+    static const struct { uint16_t opcode; uint32_t target; } cases[] = {
+        { 0xE000u, 0x03001004u }, { 0xE3FFu, 0x03001802u },
+        { 0xE400u, 0x03000804u }, { 0xE7FFu, 0x03001002u }
+    };
+    size_t index;
+    for (index = 0u; index < 4u; ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        gbl_trace_record records[3];
+        gbl_trace_buffer trace = { records, 3u, 0u, 7u };
+        bool valid = prepare_thumb_transfer(&machine, cases[index].opcode,
+                                            UINT32_C(0x03001000), image);
+        if (valid) {
+            machine.cpu.cpsr = UINT32_C(0xF000007F);
+            write_halfword(machine.iwram,
+                (size_t)(cases[index].target - UINT32_C(0x03000000)),
+                UINT16_C(0x2759));
+            valid = run_traced_units(&machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
+                                    &trace, &result) &&
+                result.instructions == 1u && result.cycles == 2u &&
+                machine.cpu.execution_address == cases[index].target &&
+                machine.cpu.cpsr == UINT32_C(0xF000007F) && trace.count == 3u &&
+                records[1].address == cases[index].target &&
+                records[1].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                records[2].address == cases[index].target + 2u &&
+                records[2].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
+                run_units(&machine, 1u, 1u, &result) &&
+                machine.cpu.r0_7[7] == UINT32_C(0x59);
+        }
+        test_case(valid, "Thumb unconditional B signed imm11 endpoint refills and executes actual target");
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_exception_immediates(void)
+{
+    unsigned int reserved;
+    for (reserved = 0u; reserved < 2u; ++reserved) {
+        unsigned int immediate;
+        bool valid = true;
+        for (immediate = 0u; immediate < 256u; ++immediate) {
+            uint8_t image[TEST_IMAGE_SIZE];
+            gbl_machine machine = { 0 };
+            gbl_run_result result = { 0 };
+            gbl_trace_record records[2];
+            gbl_trace_buffer trace = { records, 2u, 0u, 17u };
+            const uint16_t opcode = (uint16_t)((reserved != 0u ? 0xDE00u : 0xDF00u)
+                                               | immediate);
+            bool sample = prepare_thumb_transfer(&machine, opcode,
+                                    UINT32_C(0x08000000), image);
+            if (sample) {
+                machine.cpu.cpsr = UINT32_C(0xA000007F);
+                sample = run_traced_units(&machine, 1u, 1u,
+                    GBL_TRACE_CATEGORY_MASK, &trace, &result) &&
+                    result.termination == GBL_RUN_STOPPED &&
+                    result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                    result.instructions == 1u && result.cycles == 1u &&
+                    machine.cpu.execution_address == (reserved != 0u ? 4u : 8u) &&
+                    machine.cpu.cpsr == (reserved != 0u ? UINT32_C(0xA00000DB)
+                                                       : UINT32_C(0xA00000D3)) &&
+                    machine.cpu.spsr[reserved != 0u ? 4u : 2u] == UINT32_C(0xA000007F) &&
+                    (reserved != 0u ? machine.cpu.und_r13_14[1]
+                                    : machine.cpu.svc_r13_14[1]) == UINT32_C(0x08000002) &&
+                    machine.cpu.usr_r8_14[6] == UINT32_C(0x22000006) &&
+                    !machine.cpu.pipeline[0].valid && !machine.cpu.pipeline[1].valid &&
+                    trace.count == 2u && records[0].opcode == opcode &&
+                    records[1].category == GBL_TRACE_EXCEPTION &&
+                    records[1].exception_kind == (reserved != 0u
+                        ? GBL_EXCEPTION_UNDEFINED : GBL_EXCEPTION_SWI) &&
+                    machine.cpu.stop_reason == (reserved != 0u
+                        ? GBL_CPU_STOP_UNDEFINED_NO_BIOS : GBL_CPU_STOP_SWI_NO_BIOS);
+            }
+            valid = sample && valid;
+            gbl_machine_dispose(&machine);
+        }
+        test_case(valid, reserved != 0u
+            ? "all 256 reserved Thumb condition14 encodings enter UND before BIOS fetch"
+            : "all 256 Thumb SWI imm8 encodings enter SVC with saved Thumb CPSR and link");
+    }
+}
+
+static void test_thumb_control_static_guards(void)
+{
+    static const struct { uint16_t opcode; uint32_t pc; uint32_t operand; } cases[] = {
+        { 0xE001u, 0xFFFFFFF8u, 0u },
+        { 0x4700u, 0x08000000u, 0x03000022u },
+        { 0x4700u, 0x08000000u, 0xFFFFFFFFu },
+        { 0xF800u, 0x08000000u, 0xFFFFFFFFu }
+    };
+    size_t index;
+    for (index = 0u; index < 4u; ++index) {
+        uint8_t image[TEST_IMAGE_SIZE];
+        gbl_machine machine = { 0 };
+        gbl_machine *expected = malloc(sizeof(*expected));
+        gbl_run_result result = { 0 };
+        gbl_trace_record records[3];
+        gbl_trace_record saved_records[3];
+        gbl_trace_buffer trace = { records, 3u, 1u, 23u };
+        bool valid = prepare_thumb_transfer(&machine, cases[index].opcode,
+                                            cases[index].pc, image);
+        memset(records, 0xA5, sizeof(records));
+        memcpy(saved_records, records, sizeof(records));
+        if (valid && expected != NULL) {
+            machine.cpu.r0_7[0] = cases[index].operand;
+            machine.cpu.usr_r8_14[6] = cases[index].operand;
+            *expected = machine;
+            expected->cpu.stopped = true;
+            expected->cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+            valid = run_traced_units(&machine, 10u, 1u, GBL_TRACE_CATEGORY_MASK,
+                                     &trace, &result) &&
+                result.termination == GBL_RUN_STOPPED &&
+                result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                result.cycles == 0u && result.instructions == 0u &&
+                gbl_test_canonical_equal(expected, &machine) &&
+                gbl_test_same_instance_identity_equal(expected, &machine) &&
+                trace.count == 1u && trace.next_sequence == 23u &&
+                memcmp(records, saved_records, sizeof(records)) == 0;
+        } else {
+            valid = false;
+        }
+        test_case(valid, "static Thumb B/BX/BL target guard stops before effects and retains caller buffer");
+        free(expected);
+        gbl_machine_dispose(&machine);
+    }
+}
+
+static void test_thumb_control_preflight(void)
+{
+    static const struct { uint16_t opcode; uint64_t cost; size_t records; bool exception; } cases[] = {
+        { 0xD100u, 2u, 3u, false }, { 0xE000u, 2u, 3u, false },
+        { 0xDF7Fu, 1u, 2u, true }, { 0xD000u, 1u, 2u, false }
+    };
+    size_t index;
+    unsigned int boundary;
+    for (index = 0u; index < 4u; ++index) {
+        for (boundary = 0u; boundary < 6u; ++boundary) {
+            char description[112];
+            (void)snprintf(description, sizeof(description),
+                "Thumb control form %zu resource boundary %u preflights whole unit with unchanged refusal",
+                index, boundary);
+            test_case(thumb_control_resource_case(cases[index].opcode,
+                cases[index].cost, cases[index].records, cases[index].exception,
+                boundary), description);
+        }
+    }
+}
+
+typedef void (*cpu_test_function)(void);
 typedef void (*cpu_test_function)(void);
 
 typedef struct cpu_test_group {
@@ -12877,6 +13183,11 @@ static const cpu_test_function thumb_functions[] = { test_thumb };
 static const cpu_test_function thumb_bl_functions[] = {
     test_thumb_bl_halves, test_thumb_bl_stream_boundary, test_thumb_bl_preflight
 };
+static const cpu_test_function thumb_control_functions[] = {
+    test_thumb_bl_irq_boundary, test_thumb_conditional_matrix,
+    test_thumb_unconditional_endpoints, test_thumb_exception_immediates,
+    test_thumb_control_static_guards, test_thumb_control_preflight
+};
 static const cpu_test_function thumb_alu_functions[] = { test_thumb_alu_vectors };
 static const cpu_test_function thumb_high_functions[] = {
     test_thumb_high_matrix, test_thumb_high_pc, test_thumb_shift_boundaries,
@@ -12968,6 +13279,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arithmetic", 28u, arithmetic_functions),
     CPU_TEST_GROUP("thumb", 8u, thumb_functions),
     CPU_TEST_GROUP("thumb_bl", 23u, thumb_bl_functions),
+    CPU_TEST_GROUP("thumb_control", 50u, thumb_control_functions),
     CPU_TEST_GROUP("thumb_alu", 36u, thumb_alu_functions),
     CPU_TEST_GROUP("thumb_high", 129u, thumb_high_functions),
     CPU_TEST_GROUP("thumb_sp", 36u, thumb_sp_functions),
