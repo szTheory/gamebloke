@@ -13678,5 +13678,10 @@ int main(int argc, char **argv)
          ++function_index) {
         selected->functions[function_index]();
     }
+    if (test_number != selected->assertion_count) {
+        fprintf(stderr, "native selector assertion count mismatch: %s\n",
+                selected->selector);
+        return 1;
+    }
     return test_failures == 0u ? 0 : 1;
 }

@@ -94,8 +94,13 @@ cpu.modes core,cpu,unit
 cpu.multiply_signed_timing core,cpu,unit
 cpu.multiply_unsigned core,cpu,unit
 cpu.nc.bank_alias control,core,cpu
+cpu.nc.bl_halves control,core,cpu
+cpu.nc.block_effect_order control,core,cpu
 cpu.nc.budget_overshoot control,core,cpu
 cpu.nc.exception_lr control,core,cpu
+cpu.nc.loaded_pc control,core,cpu
+cpu.nc.maximum_trace control,core,cpu
+cpu.nc.multiply_flags control,core,cpu
 cpu.nc.pc_refill control,core,cpu
 cpu.nc.peek_effect control,core,cpu
 cpu.nc.shift_carry control,core,cpu

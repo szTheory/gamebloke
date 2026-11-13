@@ -216,6 +216,11 @@ gbl__add_cpu_mutation_test(cpu.nc.trace_loss trace_loss trace)
 gbl__add_cpu_mutation_test(
   cpu.nc.budget_overshoot budget_overshoot trace)
 gbl__add_cpu_mutation_test(cpu.pos.clean clean all)
+gbl__add_cpu_mutation_test(cpu.nc.block_effect_order block_effect_order arm_block_banks)
+gbl__add_cpu_mutation_test(cpu.nc.loaded_pc loaded_pc loaded_pc)
+gbl__add_cpu_mutation_test(cpu.nc.maximum_trace maximum_trace arm_block_bounds)
+gbl__add_cpu_mutation_test(cpu.nc.multiply_flags multiply_flags multiply_unsigned)
+gbl__add_cpu_mutation_test(cpu.nc.bl_halves bl_halves thumb_bl)
 
 gbl_add_test(
   NAME machine.state

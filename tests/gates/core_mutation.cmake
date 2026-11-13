@@ -219,6 +219,27 @@ function(gbl__mutate_cpu cpu_source mutation)
       [=[        if (run_options.unit_limit != 0u &&
             completed_units >= run_options.unit_limit) {]=]
       [=[        if (completed_units == UINT64_MAX) {]=])
+  elseif(mutation STREQUAL "block_effect_order")
+    # Resolve destinations using the restored bank instead of the captured old
+    # bank: a real exception-return ordering error, not an altered expectation.
+    gbl_text_mutate("${cpu_source}" "effect->bank_cpsr, value);"
+      "unit->restore_cpsr_from_spsr ? unit->status_effects[0].value : effect->bank_cpsr, value);")
+  elseif(mutation STREQUAL "loaded_pc")
+    gbl_text_mutate("${cpu_source}"
+      "(unit->results[unit->fetch_result_index] &"
+      "((unit->results[unit->fetch_result_index] ^ UINT32_C(4)) &")
+  elseif(mutation STREQUAL "maximum_trace")
+    gbl_text_mutate("${cpu_source}"
+      "    for (index = 0u; index < record_count; ++index) {"
+      "    if (record_count == 19u) { record_count--; }\n    for (index = 0u; index < record_count; ++index) {")
+  elseif(mutation STREQUAL "multiply_flags")
+    gbl_text_mutate("${cpu_source}" "flags = gbl_cpu_nz_flags(short_result);"
+      "flags = gbl_cpu_nz_flags(short_result) ^ GBL_CPU_CPSR_N;")
+  elseif(mutation STREQUAL "multiply_accumulate")
+    gbl_text_mutate("${cpu_source}" "result = accumulator + product;"
+      "result = accumulator ^ product;")
+  elseif(mutation STREQUAL "bl_halves")
+    gbl_text_mutate("${cpu_source}" "offset << 12u" "offset << 11u")
   else()
     message(FATAL_ERROR "mutation: unknown CPU case '${mutation}'")
   endif()
@@ -334,7 +355,9 @@ endfunction()
 # header byte-identical. New and header-affecting mutations use the full-build
 # path unless they are deliberately added here after dependency review.
 set(GBL_CPU_SOURCE_ONLY_MUTATIONS
-  pc_refill bank_alias exception_lr vector_fetch trace_loss budget_overshoot)
+  pc_refill bank_alias exception_lr vector_fetch trace_loss budget_overshoot
+  block_effect_order loaded_pc maximum_trace multiply_flags multiply_accumulate
+  bl_halves)
 
 function(gbl__assert_cpu_reuse_inputs mutant_sandbox clean_sandbox mutation)
   if("${mutant_sandbox}" STREQUAL "${clean_sandbox}")
@@ -506,6 +529,18 @@ function(gbl__run_cpu_pair mutation label selector)
     set(failure_regex "not ok 2 - exact trace capacity records instruction, data and refill order")
   elseif(mutation STREQUAL "budget_overshoot")
     set(failure_regex "not ok 29 - unit limit stops after one instruction despite spare cycle budget")
+  elseif(mutation STREQUAL "block_effect_order")
+    set(failure_regex "not ok 5 - LDM\\^ PC returns from FIQ using captured banked destinations and Thumb SPSR")
+  elseif(mutation STREQUAL "loaded_pc")
+    set(failure_regex "not ok 1 - LDR PC refills from the actual BIOS-absent word result")
+  elseif(mutation STREQUAL "maximum_trace")
+    set(failure_regex "not ok 1 - sixteen-register LDM uses the final bus result for PC and fits 19 trace records")
+  elseif(mutation STREQUAL "multiply_flags")
+    set(failure_regex "not ok 1 - MULS high-bit product sets N and preserves chosen C/V")
+  elseif(mutation STREQUAL "multiply_accumulate")
+    set(failure_regex "not ok 6 - UMLALS carries low accumulator overflow into the high word")
+  elseif(mutation STREQUAL "bl_halves")
+    set(failure_regex "not ok 2 - Thumb BL isolated prefix literal vector 1 uses banked LR and exact fetches")
   else()
     message(FATAL_ERROR "mutation: no semantic failure assertion for '${mutation}'")
   endif()
@@ -526,6 +561,8 @@ function(gbl__run_cpu_pair mutation label selector)
     set(clean_regex "ok 4 - invalid state and failing verdict without a case ID are malformed")
   elseif(selector STREQUAL "trace" OR selector STREQUAL "trace_capacity")
     set(clean_regex "ok 2 - exact trace capacity records instruction, data and refill order")
+  elseif(mutation MATCHES "^(block_effect_order|loaded_pc|maximum_trace|multiply_flags|multiply_accumulate|bl_halves)$")
+    string(REPLACE "not ok " "ok " clean_regex "${failure_regex}")
   else()
     set(clean_regex "ok 1 - ARM BL links the next instruction and refills without stale slots")
   endif()
@@ -537,10 +574,22 @@ function(gbl__run_cpu_clean)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
   gbl__compile_cpu("${root}/clean" "" clean_executable)
-  foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
-      no_bios peek mailbox trace_capacity trace)
+  # The native registry is the selector authority. Derive the complete list so
+  # future groups cannot be silently omitted from this clean copied core.
+  file(STRINGS "${SRC}/tests/cpu_test.c" groups REGEX "CPU_TEST_GROUP\\(\"")
+  set(selectors "")
+  foreach(group IN LISTS groups)
+    string(REGEX REPLACE ".*CPU_TEST_GROUP\\(\"([^\"]+)\".*" "\\1" selector "${group}")
+    list(APPEND selectors "${selector}")
+  endforeach()
+  list(LENGTH selectors selector_count)
+  if(selector_count LESS 39)
+    message(FATAL_ERROR "mutation: incomplete native selector registry")
+  endif()
+  foreach(selector IN LISTS selectors)
     gbl_expect_pass(COMMAND "${clean_executable}" "${selector}")
   endforeach()
+  message(STATUS "mutation: clean copied core exercised all ${selector_count} native selectors: ${selectors}")
   if(DEFINED PREPARED_ROOT)
     gbl__mutation_reuse_controls()
   endif()
@@ -656,6 +705,9 @@ elseif(CASE MATCHES "^cpu_")
   else()
     string(REPLACE "cpu_" "" cpu_mutation "${CASE}")
     gbl__run_cpu_pair("${cpu_mutation}" "${cpu_mutation}" "${SELECTOR}")
+    if(cpu_mutation STREQUAL "multiply_flags")
+      gbl__run_cpu_pair(multiply_accumulate multiply_accumulate "${SELECTOR}")
+    endif()
   endif()
 elseif(CASE MATCHES "^loader_")
   if(CASE STREQUAL "loader_clean")
