@@ -54,6 +54,12 @@ if(MODE STREQUAL "case")
   endif()
   string(JSON selected_family GET "${selected_row}" family)
   string(JSON selected_target GET "${selected_row}" inventory_target)
+  string(JSON selected_kind ERROR_VARIABLE selected_kind_error GET
+    "${selected_row}" source_test kind)
+  if(NOT "${CASE_ID}" STREQUAL "20481" AND
+     NOT "${selected_kind_error}" STREQUAL "NOTFOUND")
+    message(FATAL_ERROR "arm-diagnostics: case-not-runnable: pending id=${CASE_ID}")
+  endif()
   if("${CASE_ID}" STREQUAL "20481")
     if(NOT selected_state MATCHES "^(source-verified|verified)$" OR
        NOT selected_family STREQUAL "diagnostic-harness" OR selected_target)
@@ -67,7 +73,6 @@ if(MODE STREQUAL "case")
       message(FATAL_ERROR "arm-diagnostics: arm-case-selection-invalid: ${CASE_ID}")
     endif()
     string(JSON selected_isa GET "${selected_row}" isa)
-    string(JSON selected_kind GET "${selected_row}" source_test kind)
     string(JSON selected_source_program GET "${selected_row}" source_test program)
     if(NOT selected_isa STREQUAL "arm" OR
        NOT selected_kind MATCHES "^(semantic|guest-stop)$" OR
