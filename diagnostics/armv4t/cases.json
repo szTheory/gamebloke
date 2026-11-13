@@ -10356,7 +10356,7 @@
       "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
       "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
       "expected": {
-        "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, stores final LR=(S+2)|1. Captured visible PCs are P+8 and T+8. Separate addresses/retirements are checked, never inferred from a fused pair.",
+        "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, sets final LR=(S+2)|1. MOV PC atP+4/T+2 captures P+8/T+6. Stored values are reloaded and asserted, plus checked in actual read traces. Separate addresses/retirements are checked, never inferred from a fused pair.",
         "value": "0x00000000"
       },
       "source_reference": "ARM7TDMI TRM DDI0029G Figure 1-6 and Table 1-7; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
@@ -10374,11 +10374,11 @@
       "companion_case_ids": [],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03006000\ngbl_bl_prefix:\n.hword 0xF000\nmov r0,lr\nstr r0,[r4,#0]\nmov r1,pc\nstr r1,[r4,#4]\nldr r2,=gbl_bl_prefix+4\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\ngbl_bl_suffix:\n.hword 0xF800|((gbl_bl_target-(gbl_bl_prefix+4))/2)\nb .Ldiagnostic_assert_fail\ngbl_bl_target:\nmov r0,lr\nstr r0,[r4,#8]\nmov r1,pc\nstr r1,[r4,#12]\nldr r2,=gbl_bl_suffix+3\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\n",
+        "program": "ldr r4,=0x03006000\ngbl_bl_prefix:\n.hword 0xF000\nmov r0,lr\nmov r1,pc\nstr r0,[r4,#0]\nstr r1,[r4,#4]\nldr r0,[r4,#0]\nldr r1,[r4,#4]\nldr r2,=gbl_bl_prefix+4\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r2,=gbl_bl_prefix+8\nsubs r1,r1,r2\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\ngbl_bl_suffix:\n.hword 0xF800|((gbl_bl_target-(gbl_bl_prefix+4))/2)\nb .Ldiagnostic_assert_fail\ngbl_bl_target:\nmov r0,lr\nmov r1,pc\nstr r0,[r4,#8]\nstr r1,[r4,#12]\nldr r0,[r4,#8]\nldr r1,[r4,#12]\nldr r2,=gbl_bl_suffix+3\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r2,=gbl_bl_target+6\nsubs r1,r1,r2\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
         "independent_expectation": {
           "expected_value": "0x00000000",
           "broken_expected": "0x00000001",
-          "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, stores final LR=(S+2)|1. Captured visible PCs are P+8 and T+8. Separate addresses/retirements are checked, never inferred from a fused pair.",
+          "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, sets final LR=(S+2)|1. MOV PC atP+4/T+2 captures P+8/T+6. Stored values are reloaded and asserted, plus checked in actual read traces. Separate addresses/retirements are checked, never inferred from a fused pair.",
           "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
         },
         "encoding_checks": [
@@ -10403,8 +10403,8 @@
           "prefix_lr": "prefix+4",
           "prefix_pc": "prefix+8",
           "suffix_lr": "(suffix+2)|1",
-          "target_pc": "target+8",
-          "boundary": "Each half has its own actual fetch and retirement; guest stores capture LR/visible PC between prefix and suffix and at target."
+          "target_pc": "target+6",
+          "boundary": "Each half has its own actual fetch and retirement; guest stores then actual data reads expose LR/visible PC between prefix and suffix and at target. Store trace values are not treated as written data."
         }
       }
     },
@@ -13792,7 +13792,7 @@
       "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
       "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
       "expected": {
-        "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, stores final LR=(S+2)|1. Captured visible PCs are P+8 and T+8. Separate addresses/retirements are checked, never inferred from a fused pair.",
+        "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, sets final LR=(S+2)|1. MOV PC atP+4/T+2 captures P+8/T+6. Stored values are reloaded and asserted, plus checked in actual read traces. Separate addresses/retirements are checked, never inferred from a fused pair.",
         "value": "0x00000000"
       },
       "source_reference": "ARM7TDMI TRM DDI0029G Figure 1-6 and Table 1-7; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
@@ -13810,11 +13810,11 @@
       "companion_case_ids": [],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03006000\ngbl_bl_prefix:\n.hword 0xF000\nmov r0,lr\nstr r0,[r4,#0]\nmov r1,pc\nstr r1,[r4,#4]\nldr r2,=gbl_bl_prefix+4\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\ngbl_bl_suffix:\n.hword 0xF800|((gbl_bl_target-(gbl_bl_prefix+4))/2)\nb .Ldiagnostic_assert_fail\ngbl_bl_target:\nmov r0,lr\nstr r0,[r4,#8]\nmov r1,pc\nstr r1,[r4,#12]\nldr r2,=gbl_bl_suffix+3\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\n",
+        "program": "ldr r4,=0x03006000\ngbl_bl_prefix:\n.hword 0xF000\nmov r0,lr\nmov r1,pc\nstr r0,[r4,#0]\nstr r1,[r4,#4]\nldr r0,[r4,#0]\nldr r1,[r4,#4]\nldr r2,=gbl_bl_prefix+4\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r2,=gbl_bl_prefix+8\nsubs r1,r1,r2\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\ngbl_bl_suffix:\n.hword 0xF800|((gbl_bl_target-(gbl_bl_prefix+4))/2)\nb .Ldiagnostic_assert_fail\ngbl_bl_target:\nmov r0,lr\nmov r1,pc\nstr r0,[r4,#8]\nstr r1,[r4,#12]\nldr r0,[r4,#8]\nldr r1,[r4,#12]\nldr r2,=gbl_bl_suffix+3\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r2,=gbl_bl_target+6\nsubs r1,r1,r2\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
         "independent_expectation": {
           "expected_value": "0x00000000",
           "broken_expected": "0x00000001",
-          "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, stores final LR=(S+2)|1. Captured visible PCs are P+8 and T+8. Separate addresses/retirements are checked, never inferred from a fused pair.",
+          "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, sets final LR=(S+2)|1. MOV PC atP+4/T+2 captures P+8/T+6. Stored values are reloaded and asserted, plus checked in actual read traces. Separate addresses/retirements are checked, never inferred from a fused pair.",
           "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
         },
         "encoding_checks": [
@@ -13839,8 +13839,8 @@
           "prefix_lr": "prefix+4",
           "prefix_pc": "prefix+8",
           "suffix_lr": "(suffix+2)|1",
-          "target_pc": "target+8",
-          "boundary": "Each half has its own actual fetch and retirement; guest stores capture LR/visible PC between prefix and suffix and at target."
+          "target_pc": "target+6",
+          "boundary": "Each half has its own actual fetch and retirement; guest stores then actual data reads expose LR/visible PC between prefix and suffix and at target. Store trace values are not treated as written data."
         }
       }
     },
@@ -13854,7 +13854,7 @@
       "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
       "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
       "expected": {
-        "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, stores final LR=(S+2)|1. Captured visible PCs are P+8 and T+8. Separate addresses/retirements are checked, never inferred from a fused pair.",
+        "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, sets final LR=(S+2)|1. MOV PC atP+4/T+2 captures P+8/T+6. Stored values are reloaded and asserted, plus checked in actual read traces. Separate addresses/retirements are checked, never inferred from a fused pair.",
         "value": "0x00000000"
       },
       "source_reference": "ARM7TDMI TRM DDI0029G Figure 1-6 and Table 1-7; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
@@ -13872,11 +13872,11 @@
       "companion_case_ids": [],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03006000\ngbl_bl_prefix:\n.hword 0xF000\nmov r0,lr\nstr r0,[r4,#0]\nmov r1,pc\nstr r1,[r4,#4]\nldr r2,=gbl_bl_prefix+4\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\ngbl_bl_suffix:\n.hword 0xF800|((gbl_bl_target-(gbl_bl_prefix+4))/2)\nb .Ldiagnostic_assert_fail\ngbl_bl_target:\nmov r0,lr\nstr r0,[r4,#8]\nmov r1,pc\nstr r1,[r4,#12]\nldr r2,=gbl_bl_suffix+3\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\n",
+        "program": "ldr r4,=0x03006000\ngbl_bl_prefix:\n.hword 0xF000\nmov r0,lr\nmov r1,pc\nstr r0,[r4,#0]\nstr r1,[r4,#4]\nldr r0,[r4,#0]\nldr r1,[r4,#4]\nldr r2,=gbl_bl_prefix+4\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r2,=gbl_bl_prefix+8\nsubs r1,r1,r2\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\ngbl_bl_suffix:\n.hword 0xF800|((gbl_bl_target-(gbl_bl_prefix+4))/2)\nb .Ldiagnostic_assert_fail\ngbl_bl_target:\nmov r0,lr\nmov r1,pc\nstr r0,[r4,#8]\nstr r1,[r4,#12]\nldr r0,[r4,#8]\nldr r1,[r4,#12]\nldr r2,=gbl_bl_suffix+3\nsubs r0,r0,r2\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nldr r2,=gbl_bl_target+6\nsubs r1,r1,r2\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
         "independent_expectation": {
           "expected_value": "0x00000000",
           "broken_expected": "0x00000001",
-          "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, stores final LR=(S+2)|1. Captured visible PCs are P+8 and T+8. Separate addresses/retirements are checked, never inferred from a fused pair.",
+          "derivation": "Prefix0xF000 independently sets LR=P+4 and retires to P+2. Later suffix at S targets(P+4)+imm11*2=T, sets final LR=(S+2)|1. MOV PC atP+4/T+2 captures P+8/T+6. Stored values are reloaded and asserted, plus checked in actual read traces. Separate addresses/retirements are checked, never inferred from a fused pair.",
           "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
         },
         "encoding_checks": [
@@ -13901,8 +13901,8 @@
           "prefix_lr": "prefix+4",
           "prefix_pc": "prefix+8",
           "suffix_lr": "(suffix+2)|1",
-          "target_pc": "target+8",
-          "boundary": "Each half has its own actual fetch and retirement; guest stores capture LR/visible PC between prefix and suffix and at target."
+          "target_pc": "target+6",
+          "boundary": "Each half has its own actual fetch and retirement; guest stores then actual data reads expose LR/visible PC between prefix and suffix and at target. Store trace values are not treated as written data."
         }
       }
     },
