@@ -1,60 +1,110 @@
 # Final original diagnostic admission
 
-Plan21 is preparing complete final-source proof. No new output digest or
-fixture row has been admitted. Earlier smoke/ARM/Thumb receipts remain
-historical and cannot establish current complete parity.
+The immutable fixture bindings use source-only authority
+`c3af6debd2f162c8eb91dc96906cf6f6a5ed5d16` and producer-input SHA-256
+`d9c844e91e92f36f8d07ca2cda14841954115674d39b7fa8efce8596bc7c0341`.
+Admission changes consumer metadata only. Every path in
+[`inputs.txt`](../../../diagnostics/armv4t/inputs.txt) still has its exact
+source-authority bytes and Git mode. A later admission or documentation commit
+may be HEAD; the pinned source must be its ancestor. Changing any producer input
+requires renewed builds, complete host proof and re-admission.
 
-The source-only authority is the committed HEAD used by
-`cmake -DCASE=final-output-proof -DSRC=. -DBIN=build/phase05-final-parity -DTOOLCHAIN_ROOT=build/toolchains -P tests/gates/toolchain_spike.cmake`.
-The builder validates every sorted path in `diagnostics/armv4t/inputs.txt`
-against that exact Git commit before constructing smoke, ARM and Thumb
-positive/broken/guest-stop outputs. Host archive identity is separate from
-source identity and from generated ROM SHA-256.
+## Source and host evidence
 
-Local proof uses tracked-only `git clone --no-local` checkouts, actual macOS
-arm64 and a native Linux arm64 container pinned to the existing Ubuntu26.04
-image digest. Verified existing host tool installs are reused read-only.
-The complete sorted output-name sets must agree, followed by literal `cmp`
-of every corresponding ROM. Existing canonical output roots are preserved.
-Per-image object/final-ELF v4T, executable sections/disassembly, exact original
-object map, unresolved-symbol and exact-name generated signature checks remain
-mandatory. A mismatch is preserved and stops admission for a parent decision
-about explicit Linux ownership and host-specific binding.
+The final local proof at
+`build/phase05-ci-split/review-fix/preflight/local-proof.json` records actual
+macOS arm64 and native Linux arm64 builds, equal sorted output-name sets, and
+literal comparison of all 722 corresponding ROM files. Each host has 367
+source-built case IDs. This is the final comparison count, not a sum of earlier
+repeated runs. The pinned native Linux container is Ubuntu26.04 image
+`sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c`.
+Existing verified tool installations were reused; no package was substituted.
 
-Local macOS proof runs the canonical diagnostics workflow once, including its
-actual build and registered controls. Selected matrix children label signature
-proof deferred/unverified; only the mandatory parent scan of the exact final
-output directory establishes scanned authority. Standalone selected cases
-retain their own scan. The complete proof consumer requires the successful
-parent witness and exact output set before accepting any deferred child.
-Map and header validation execute the same standalone scripts in fresh function
-scopes to avoid duplicate process startup without removing their checks.
+The separate hosted hash witness is actual successful
+[run 43478622357](https://github.com/szTheory/gamebloke/actions/runs/43478622357).
+All eleven jobs are green, each at most128 seconds under the180-second limit.
+The four diagnostic groups bind Linux x64/macOS ARM/Thumb outputs to that exact
+source, host tool, numeric job ID and raw log. Their complete per-host unions
+equal the local output set and hashes. The validator accepted the real run/jobs
+API receipts and all four complete log-derived receipts; no synthetic parser
+control is hosted evidence. Raw logs and JSON remain ignored under
+`build/phase05-ci-split/hosted-attempt1/`. The
+[hosted report](05-21-HOSTED-GREEN.md) and
+[split review-fix report](05-21-CI-SPLIT-REVIEW-FIX.md) retain exact timing and
+renewal history. Hosted hashes are not hosted literal comparisons.
 
-The diagnostics workflow retains the existing pinned actions, exact PR-head
-checkout with full history, required jobs and180s limits. Proof mode builds
-the entire selected output set and emits each output's name, stable case ID,
-byte count, SHA-256, source revision and host tool identity in logs. These
-pre-admission outputs never claim registered fixture PASS. Normal metadata-only
-lanes continue using the existing admitted manifest without requiring tools.
-No ROM artifact is uploaded.
+Every final build retains object/final-ELF ARMv4T attributes, executable-section
+disassembly, exact original object maps, unresolved-symbol/no-runtime checks,
+header checks and generated signature scans. A selected matrix child's deferred
+scan is accepted only with the successful exact-set parent scan witness.
+All host bytes agree. No Linux fallback or host-specific fixture variant is
+needed, and no runtime metadata override exists. ROM binaries were not uploaded.
 
-Before admission the parent publishes the committed proof head through the
-existing phase PR and supplies actual GitHub run/jobs API documents plus both
-diagnostic jobs' complete log-derived host receipts. `final-hosted-proof`
-requires the current exact source HEAD, complete source/output/case sets,
-both named host jobs, every required job green and every job duration at most
-180s. Hosted SHA-256 identity is a hash witness, distinct from local literal
-comparison. The focused controls use explicitly synthetic parser inputs only;
-their success is never hosted evidence. A new hosted red preserves the standing
-stop before any fix or retry.
+## Fixture bindings and rights
 
-Actual local receipts and the publication checkpoint live under ignored
-`build/phase05-plan21/` and `build/phase05-final-parity/`. Task2 remains blocked
-until the parent provides real green hosted proof. It will pin only these
-final proven bytes, exact source-only revision, recipe/input/tool identity,
-fixture-scoped NOTICE/public-CI permission, BIOS-none mode and independent
-expectation. Semantic pairs and actual named guest stops remain separate;
-CPU API witnesses remain lower-boundary evidence.
+The canonical [manifest](../../../tests/fixtures/manifest.json) contains exactly
+722 distinct production fixture IDs:
 
-No BIOS execution, physical accuracy, broad game compatibility, general binary
-redistribution, project license, release or Phase6 claim follows.
+| Source group | Semantic positives | Assertion-broken companions | Named guest stops | Images |
+| --- | ---: | ---: | ---: | ---: |
+| Smoke |1 |1 |0 |2 |
+| ARM |236 |236 |4 |476 |
+| Thumb |118 |118 |8 |244 |
+| Total |355 |355 |12 |722 |
+
+The nineteen ARM CPU-API witnesses remain lower-boundary evidence and have no
+fabricated guest fixture. Positive/broken IDs are distinct fixture identities;
+both members retain the same source-ledger nonzero case ID. Guest-stop rows
+retain their source-ledger ID, pending mailbox semantics and exact named CPU
+stop, without converting them into mailbox PASS.
+
+Each row separately records the exact source commit, canonical recipe and
+input digest, output path and actual output SHA-256. The recipe selects the
+ledger case through `cmake/BuildArmDiagnostics.cmake`, using
+`arm-none-eabi-as -mcpu=arm7tdmi`, the original linker script, binary objcopy and
+`cmake/FixGbaHeader.cmake`; `GBL_BROKEN` selects only the assertion companion.
+The source-ledger program/independent expectation and per-case build receipts
+remain the derivation authority. All admitted expectations are project-authored;
+this is not an independent hardware oracle or an accuracy claim.
+
+The canonical tool pin is xPack GNU Arm Embedded GCC15.2.1-1.1 Linux x64 archive
+SHA-256 `da6a49ad4003944b823c6c93702a8787c922ab34bd7e918ec0eaf6933a9b1ff6`.
+The distinct macOS arm64 archive is
+`574082d35e49a2bcbdc355836b2a3ae5e5bb3b9456c9f5e37177db2ab4aad870`, and
+native Linux arm64 is
+`67980c7990eba7bb7ffdf39699102effd70889f5ac427be19a8c8a6c5fab2972`.
+Exact URLs/sizes/release and host verification live in
+[`arm-none-eabi.lock`](../../../toolchain/arm-none-eabi.lock) and actual receipts.
+Tool/source/output digests serve different identities.
+
+Every row names BIOS `none`, public-CI/local use and the fixture-specific
+[`NOTICE`](../../../diagnostics/armv4t/NOTICE). Its authorization permits the
+original diagnostics' compilation/execution for Gamebloke verification and
+requires generated bytes to stay in build trees. The manifest's `yes` is scoped
+to that authorization; it does not permit ROM uploads, general redistribution
+or any other project content. No project LICENSE was added.
+
+## Production verification
+
+`diagnostics_case.cmake` derives the exact admitted fixture set from the source
+ledger, validates producer ancestry/freshness, builds stale/missing roots at the
+pinned source, checks every output against its pin, then regenerates and compiles
+the immutable production index. `admitted-pair` is the representative first ARM
+positive/broken pair; `all-admitted` executes every production fixture with
+`gamebloke-run --fixture` and the canonical `CheckResult.cmake` function.
+The authority is parsed once and reused; each result is still independently
+validated. Separate assertions check status, exact nonzero case ID, mailbox
+state, named termination, nonzero bounded guest cycles/instructions, and matching
+loaded/index/claim SHA-256.
+
+`artifact_case.cmake` selector `admission-controls` independently changes a
+source-only input in a tracked-only clone, one output byte, the artifact pin and
+the generated immutable index. Source/output/pin failures remove stale headers
+before guest execution. The wrong-index production runner must return
+`REFUSED/fixture-digest-mismatch`, `ran=false` and zero progress. Clean production
+companions run before/after controls, and the original index is restored and
+rebuilt before the mutated observation is assessed.
+
+The [Plan21 summary](05-21-SUMMARY.md) records the actual current command results
+and limitations. Physical hardware, BIOS execution, broader game/device
+compatibility, release publication and Phase6 remain outside this admission.

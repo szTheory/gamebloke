@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.25)
 # canonical manifest. The separate control index is derived from a generated
 # synthetic manifest and never grants real fixture rights.
 include("${CMAKE_CURRENT_LIST_DIR}/CheckManifest.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckDiagnosticAuthority.cmake")
 
 foreach(required IN ITEMS GBL_SOURCE_DIR GBL_CONTROL_IMAGE
     GBL_CONTROL_MANIFEST_OUTPUT GBL_MANIFEST GBL_REGISTRY GBL_VOCAB
@@ -179,16 +180,48 @@ endforeach()
 # against the committed output pin when this lane supplies its explicit build root.
 # A missing root/output is allowed for metadata-only lanes; the runtime runner
 # still compares every executed ROM against the immutable digest in the index.
+function(gbl_fixture_resolve_path out path)
+  # REAL_PATH warns on absent outputs in newer CMake. Resolve the closest
+  # existing ancestor, retaining symlink containment checks for missing leaves.
+  set(ancestor "${path}")
+  while(NOT EXISTS "${ancestor}" AND NOT IS_SYMLINK "${ancestor}")
+    get_filename_component(parent "${ancestor}" DIRECTORY)
+    if(parent STREQUAL ancestor)
+      message(FATAL_ERROR "fixture-index: artifact-path-unresolvable")
+    endif()
+    set(ancestor "${parent}")
+  endwhile()
+  if(IS_SYMLINK "${ancestor}" AND NOT EXISTS "${ancestor}")
+    message(FATAL_ERROR "fixture-index: artifact-path-escape: dangling symlink")
+  endif()
+  file(REAL_PATH "${ancestor}" resolved_ancestor)
+  file(RELATIVE_PATH suffix "${ancestor}" "${path}")
+  if(suffix STREQUAL "")
+    set(resolved "${resolved_ancestor}")
+  else()
+    set(resolved "${resolved_ancestor}/${suffix}")
+  endif()
+  cmake_path(NORMAL_PATH resolved)
+  set(${out} "${resolved}" PARENT_SCOPE)
+endfunction()
 if(M_COUNT GREATER 0)
-  gbl_json_load(production_doc "${GBL_MANIFEST}")
   math(EXPR production_last "${M_COUNT}-1")
   foreach(index RANGE ${production_last})
-    gbl_json_string(row_id "${production_doc}" fixtures ${index} id)
-    gbl_json_string(source_kind "${production_doc}" fixtures ${index} source kind)
+    list(GET M_IDS ${index} row_id)
+    set(row_doc "${M_ROW_${row_id}_JSON}")
+    if("${M_ROW_${row_id}_URL}" STREQUAL "https://github.com/szTheory/gamebloke" AND
+       "${M_ROW_${row_id}_ARTIFACT_PATH}" MATCHES "^generated/diagnostics/armv4t/")
+      set(revision "${M_ROW_${row_id}_COMMIT}")
+      if(NOT revision IN_LIST checked_diagnostic_revisions)
+        gbl_check_diagnostic_authority("${GBL_SOURCE_DIR}" "${revision}")
+        list(APPEND checked_diagnostic_revisions "${revision}")
+      endif()
+    endif()
+    gbl_json_string(source_kind "${row_doc}" source kind)
     if("${source_kind}" STREQUAL "in-tree")
-      gbl_json_string(relative_path "${production_doc}" fixtures ${index}
+      gbl_json_string(relative_path "${row_doc}"
         source path)
-      gbl_json_string(expected_digest "${production_doc}" fixtures ${index}
+      gbl_json_string(expected_digest "${row_doc}"
         source sha256)
       set(source_path "${GBL_SOURCE_DIR}/${relative_path}")
       if(NOT EXISTS "${source_path}" OR IS_DIRECTORY "${source_path}")
@@ -205,9 +238,8 @@ if(M_COUNT GREATER 0)
       set(relative_artifact "${M_ROW_${row_id}_ARTIFACT_PATH}")
       set(expected_artifact_digest "${M_ROW_${row_id}_ARTIFACT_SHA256}")
       set(artifact_path "${GBL_ARTIFACT_ROOT}/${relative_artifact}")
-      file(REAL_PATH "${GBL_ARTIFACT_ROOT}" artifact_root_real)
-      file(REAL_PATH "${artifact_path}" artifact_real
-        BASE_DIRECTORY "${artifact_root_real}")
+      gbl_fixture_resolve_path(artifact_root_real "${GBL_ARTIFACT_ROOT}")
+      gbl_fixture_resolve_path(artifact_real "${artifact_path}")
       if("${artifact_root_real}" STREQUAL "/")
         set(artifact_root_prefix "/")
       else()
@@ -243,7 +275,7 @@ function(gbl_fixture_c_string out value where)
   set(${out} "${value}" PARENT_SCOPE)
 endfunction()
 
-function(gbl_fixture_emit_index output doc prefix)
+function(gbl_fixture_emit_index output prefix)
   string(CONCAT contents
     "/* Generated from fatal-validated fixture metadata. Do not edit. */\n"
     "#ifndef GBL_GENERATED_FIXTURE_INDEX_H\n"
@@ -265,19 +297,20 @@ function(gbl_fixture_emit_index output doc prefix)
   list(LENGTH ids row_count)
   set(row_index 0)
   foreach(id IN LISTS ids)
+    set(row_doc "${${prefix}_ROW_${id}_JSON}")
     gbl_fixture_c_string(c_id "${id}" "id")
-    gbl_json_string(provenance "${doc}" fixtures ${row_index}
+    gbl_json_string(provenance "${row_doc}"
       expected provenance_class)
     gbl_fixture_c_string(c_provenance "${provenance}" "provenance_class")
-    gbl_json_string(bios "${doc}" fixtures ${row_index} bios_requirement)
+    gbl_json_string(bios "${row_doc}" bios_requirement)
     gbl_fixture_c_string(c_bios "${bios}" "bios_requirement")
     set(digest "${${prefix}_ROW_${id}_SHA256}")
     gbl_fixture_c_string(c_digest "${digest}" "rom_sha256")
 
-    gbl_json_type(dispute_type "${doc}" fixtures ${row_index} expected dispute)
+    gbl_json_type(dispute_type "${row_doc}" expected dispute)
     set(dispute "")
     if("${dispute_type}" STREQUAL "STRING")
-      gbl_json_string(dispute "${doc}" fixtures ${row_index} expected dispute)
+      gbl_json_string(dispute "${row_doc}" expected dispute)
     endif()
     set(dispute_count 0)
     set(dispute_expr NULL)
@@ -289,13 +322,13 @@ function(gbl_fixture_emit_index output doc prefix)
       set(dispute_expr "gbl_fixture_disputes_${row_index}")
     endif()
 
-    gbl_json_length(use_count "${doc}" fixtures ${row_index} permitted_use)
+    gbl_json_length(use_count "${row_doc}" permitted_use)
     string(APPEND contents
       "static const char *const gbl_fixture_uses_${row_index}[] = {\n")
     if(use_count GREATER 0)
       math(EXPR use_last "${use_count}-1")
       foreach(use_index RANGE ${use_last})
-        gbl_json_string(use "${doc}" fixtures ${row_index} permitted_use
+        gbl_json_string(use "${row_doc}" permitted_use
           ${use_index})
         gbl_fixture_c_string(c_use "${use}" "permitted_use")
         string(APPEND contents "    \"${c_use}\",\n")
@@ -331,11 +364,7 @@ function(gbl_fixture_emit_index output doc prefix)
   file(WRITE "${output}" "${contents}")
 endfunction()
 
-# Re-read the now-valid documents for extraction. The validators above and this
-# projection use the same authoritative files; no second schema or alternate
-# metadata source is introduced.
-gbl_json_load(production_doc "${GBL_MANIFEST}")
-gbl_json_load(control_doc "${control_manifest_path}")
-gbl_fixture_emit_index("${GBL_OUT_PRODUCTION}" "${production_doc}" M)
-gbl_fixture_emit_index("${GBL_OUT_CONTROL}" "${control_doc}" C)
+# Project the exact row objects parsed by the canonical validator above.
+gbl_fixture_emit_index("${GBL_OUT_PRODUCTION}" M)
+gbl_fixture_emit_index("${GBL_OUT_CONTROL}" C)
 message("fixture-index: ok (production ${M_COUNT} rows; synthetic control ${C_COUNT} rows)")

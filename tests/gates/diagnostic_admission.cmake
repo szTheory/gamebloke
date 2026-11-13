@@ -23,6 +23,7 @@ foreach(i RANGE 0 ${last})
     list(APPEND expected_ids "${isa}-${id}" "${isa}-${id}-broken")
   else()
     list(APPEND expected_ids "${isa}-stop-${id}")
+    string(JSON reason_${id} GET "${row}" source_test expected_reason)
   endif()
 endforeach()
 foreach(id IN LISTS expected_ids)
@@ -36,3 +37,197 @@ list(SORT actual_ids)
 if(NOT actual_ids STREQUAL expected_ids)
   message(FATAL_ERROR "diagnostics-case: production-fixture-set-mismatch")
 endif()
+set(authority "${M_ROW_smoke_COMMIT}")
+include("${source_root}/cmake/CheckDiagnosticAuthority.cmake")
+gbl_check_diagnostic_authority("${source_root}" "${authority}")
+file(STRINGS "${source_root}/toolchain/arm-none-eabi.lock" tool_line REGEX "^linux-x64 ")
+if(NOT tool_line MATCHES "^linux-x64 [0-9]+ ([0-9a-f]+) ")
+  message(FATAL_ERROR "diagnostics-case: canonical-tool-pin-missing")
+endif()
+set(canonical_tool_sha "${CMAKE_MATCH_1}")
+foreach(fid IN LISTS expected_ids)
+  set(row "${M_ROW_${fid}_JSON}")
+  string(JSON bios GET "${row}" bios_requirement)
+  string(JSON license GET "${row}" license spdx)
+  string(JSON notice GET "${row}" license notices 0)
+  string(JSON tool_sha GET "${row}" build toolchain sha256)
+  string(JSON tool_identity GET "${row}" build toolchain identity)
+  if(NOT "${M_ROW_${fid}_KIND}" STREQUAL "git" OR
+     NOT "${M_ROW_${fid}_URL}" STREQUAL "https://github.com/szTheory/gamebloke" OR
+     NOT "${M_ROW_${fid}_COMMIT}" STREQUAL authority OR
+     NOT "${M_ROW_${fid}_CLASS}" STREQUAL "project-authored" OR
+     NOT bios STREQUAL "none" OR
+     NOT license STREQUAL "LicenseRef-Gamebloke-ARMv4T-Diagnostic-Public-CI" OR
+     NOT notice STREQUAL "diagnostics/armv4t/NOTICE" OR
+     NOT tool_sha STREQUAL canonical_tool_sha OR
+     NOT tool_identity MATCHES "xPack GNU Arm Embedded GCC 15\\.2\\.1-1\\.1")
+    message(FATAL_ERROR "diagnostics-case: admitted-authority-mismatch:${fid}")
+  endif()
+endforeach()
+if(CASE STREQUAL "admitted-pair")
+  set(selected_ids arm-343721884 arm-343721884-broken)
+else()
+  set(selected_ids "${expected_ids}")
+endif()
+
+# Rebuild stale/absent producer roots from their admitted authority; later
+# consumer commits do not replace the pinned source-only revision.
+foreach(group IN ITEMS smoke arm thumb)
+  if(CASE STREQUAL "admitted-pair" AND NOT group STREQUAL "arm")
+    continue()
+  endif()
+  if(CASE STREQUAL "admitted-pair")
+    set(root "${source_root}/build/phase05-spike/admission-pair")
+    set(mode case)
+    set(extra -DCASE_ID=343721884)
+  elseif(group STREQUAL "smoke")
+    set(root "${source_root}/build/phase05-spike/admission-smoke")
+    set(mode smoke)
+    set(extra "")
+  else()
+    set(root "${source_root}/build/phase05-matrix/${group}")
+    set(mode all)
+    set(extra "-DISA=${group}")
+  endif()
+  set(receipt "${root}/proof/build-receipt.json")
+  set(receipt_commit "")
+  if(EXISTS "${receipt}")
+    file(READ "${receipt}" receipt_json)
+    string(JSON receipt_commit ERROR_VARIABLE receipt_error GET "${receipt_json}" source_commit)
+  endif()
+  if(NOT receipt_commit STREQUAL authority OR REBUILD STREQUAL "1")
+    execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
+      "-DOUT=${root}" "-DTOOLCHAIN_ROOT=${TOOLCHAIN_ROOT}"
+      "-DSOURCE_COMMIT=${authority}" "-DMODE=${mode}" ${extra}
+      -P "${source_root}/cmake/BuildArmDiagnostics.cmake"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    file(MAKE_DIRECTORY "${binary_root}/diagnostics-results")
+    file(WRITE "${binary_root}/diagnostics-results/build-${group}.log" "${output}${error}")
+    if(NOT rc STREQUAL "0")
+      message(FATAL_ERROR "diagnostics-case: admitted-source-build-failed:${group}:${output}${error}")
+    endif()
+  endif()
+  set(producer_${group} "${root}")
+endforeach()
+
+set(result_root "${binary_root}/diagnostics-results/${CASE}")
+file(MAKE_DIRECTORY "${result_root}")
+foreach(fid IN LISTS selected_ids)
+  set(row "${M_ROW_${fid}_JSON}")
+  string(JSON path GET "${row}" build artifact path)
+  string(JSON revision GET "${row}" source commit)
+  if(NOT revision STREQUAL authority)
+    message(FATAL_ERROR "diagnostics-case: admitted-source-revisions-differ:${fid}")
+  endif()
+  if(fid MATCHES "^(arm|thumb)-")
+    set(group "${CMAKE_MATCH_1}")
+  else()
+    set(group smoke)
+  endif()
+  set(image "${producer_${group}}/roms/${fid}.gba")
+  if(NOT EXISTS "${image}" OR IS_SYMLINK "${image}" OR IS_DIRECTORY "${image}")
+    message(FATAL_ERROR "diagnostics-case: admitted-image-missing:${fid}")
+  endif()
+  file(SHA256 "${image}" sha)
+  if(NOT sha STREQUAL "${M_ROW_${fid}_SHA256}")
+    message(FATAL_ERROR "diagnostics-case: admitted-output-digest-mismatch:${fid}")
+  endif()
+  get_filename_component(dest_dir "${binary_root}/${path}" DIRECTORY)
+  file(MAKE_DIRECTORY "${dest_dir}")
+  file(COPY_FILE "${image}" "${binary_root}/${path}" ONLY_IF_DIFFERENT)
+endforeach()
+
+set(generated "${binary_root}/generated")
+execute_process(COMMAND "${CMAKE_COMMAND}"
+  "-DGBL_SOURCE_DIR=${source_root}" "-DGBL_ARTIFACT_ROOT=${binary_root}"
+  "-DGBL_CONTROL_IMAGE=${generated}/fixtures/owned-arm-pass.gba"
+  "-DGBL_CONTROL_FAIL_IMAGE=${generated}/fixtures/owned-arm-fail.gba"
+  "-DGBL_CONTROL_SKIP_IMAGE=${generated}/fixtures/owned-arm-pass.gba"
+  "-DGBL_CONTROL_ZERO_CASE_IMAGE=${generated}/fixtures/owned-arm-pass-zero-case.gba"
+  "-DGBL_CONTROL_MANIFEST_OUTPUT=${generated}/control/manifest.json"
+  "-DGBL_MANIFEST=${source_root}/tests/fixtures/manifest.json"
+  "-DGBL_REGISTRY=${source_root}/registry/disputes.json"
+  "-DGBL_VOCAB=${source_root}/contracts/evidence.json"
+  "-DGBL_OUT_PRODUCTION=${generated}/production/fixture_index.h"
+  "-DGBL_OUT_CONTROL=${generated}/control/fixture_index.h"
+  -P "${source_root}/cmake/GenerateFixtureIndex.cmake"
+  RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT rc STREQUAL "0")
+  message(FATAL_ERROR "diagnostics-case: admitted-index-failed:${output}${error}")
+endif()
+execute_process(COMMAND "${CMAKE_COMMAND}" --build "${binary_root}" --target gamebloke-run
+  RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT rc STREQUAL "0")
+  message(FATAL_ERROR "diagnostics-case: admitted-runner-build-failed:${output}${error}")
+endif()
+
+set(positive 0)
+set(broken 0)
+set(stops 0)
+foreach(fid IN LISTS selected_ids)
+  if(fid MATCHES "^(arm|thumb)-(stop-)?([0-9]+)(-broken)?$")
+    set(case_id "${CMAKE_MATCH_3}")
+  else()
+    set(case_id 20481)
+  endif()
+  set(status PASS)
+  set(state pass)
+  set(reason guest-mailbox-pass)
+  set(termination mailbox-complete)
+  set(exit_code 0)
+  if(fid MATCHES "-stop-")
+    set(status GUEST_STOP)
+    set(state pending)
+    set(reason "${reason_${case_id}}")
+    set(termination "${reason}")
+    set(exit_code 1)
+    math(EXPR stops "${stops}+1")
+  elseif(fid MATCHES "-broken$")
+    set(status GUEST_FAIL)
+    set(state fail)
+    set(reason guest-mailbox-fail)
+    set(exit_code 1)
+    math(EXPR broken "${broken}+1")
+  else()
+    math(EXPR positive "${positive}+1")
+  endif()
+  execute_process(COMMAND "${binary_root}/gamebloke-run" --rom
+    "${binary_root}/${M_ROW_${fid}_ARTIFACT_PATH}" --cycles 1000 --fixture "${fid}"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE doc ERROR_VARIABLE error)
+  set(result "${result_root}/${fid}.json")
+  file(WRITE "${result}" "${doc}")
+  if(NOT rc STREQUAL "${exit_code}")
+    message(FATAL_ERROR "diagnostics-case: admitted-exit-mismatch:${fid}:${doc}${error}")
+  endif()
+  # The canonical function checks each real result against the full authority
+  # parsed once above; separate checks below bind exact semantics and progress.
+  gbl_result_check("${result}" M R V)
+  gbl_findings_finish(result "admitted result valid:${fid}")
+  foreach(field IN ITEMS status reason termination)
+    string(JSON actual GET "${doc}" ${field})
+    if(NOT actual STREQUAL "${${field}}")
+      message(FATAL_ERROR "diagnostics-case: admitted-${field}-mismatch:${fid}:${actual}")
+    endif()
+  endforeach()
+  string(JSON actual_state GET "${doc}" semantic state)
+  string(JSON actual_id GET "${doc}" semantic case_id)
+  string(JSON fixture_id GET "${doc}" fixture id)
+  string(JSON ran GET "${doc}" fixture ran)
+  string(JSON actual_sha GET "${doc}" fixture rom_sha256)
+  string(JSON indexed_sha GET "${doc}" expected_sha256)
+  string(JSON claim_sha GET "${doc}" claim cart rom_sha256)
+  string(JSON cycles GET "${doc}" time cycles)
+  string(JSON instructions GET "${doc}" time instructions)
+  string(JSON budget GET "${doc}" time budget_cycles)
+  if(NOT actual_state STREQUAL state OR NOT actual_id STREQUAL case_id OR
+     actual_id EQUAL 0 OR NOT fixture_id STREQUAL fid OR NOT ran OR
+     NOT actual_sha STREQUAL "${M_ROW_${fid}_SHA256}" OR
+     NOT indexed_sha STREQUAL actual_sha OR NOT claim_sha STREQUAL actual_sha OR
+     NOT budget STREQUAL "1000" OR cycles LESS 1 OR instructions LESS 1 OR cycles GREATER budget)
+    message(FATAL_ERROR "diagnostics-case: admitted-semantics-identity-progress-mismatch:${fid}:${doc}")
+  endif()
+endforeach()
+list(LENGTH selected_ids outputs)
+file(WRITE "${result_root}/summary.txt"
+  "source.commit=${authority}\noutputs=${outputs}\npositive=${positive}\nbroken=${broken}\nguest-stops=${stops}\ncanonical.result=checked-every-output\nsemantic.case-id=exact-nonzero\nprogress=nonzero-bounded\nloaded.index.claim.digest=exact\n")
+message(STATUS "diagnostics-case: ${CASE} passed: ${outputs} production results; positive=${positive}; broken=${broken}; stops=${stops}")

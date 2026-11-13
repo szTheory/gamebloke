@@ -742,23 +742,21 @@ if(CASE MATCHES "^(arm|thumb)-pre-admission$")
     # The canonical checker deliberately refuses raw content's null fixture ID
     # and empty evidence claim. Require exactly that admission refusal; never
     # insert synthetic authority merely to make an unregistered result pass.
-    execute_process(COMMAND "${CMAKE_COMMAND}"
-      "-DRESULT=${result_root}/${rom_name}.json"
-      "-DMANIFEST=${source_root}/tests/fixtures/manifest.json"
-      "-DREGISTRY=${source_root}/registry/disputes.json"
-      "-DVOCAB=${source_root}/contracts/evidence.json"
-      -P "${source_root}/cmake/CheckResult.cmake"
-      RESULT_VARIABLE checker_rc OUTPUT_VARIABLE checker_out ERROR_VARIABLE checker_error)
-    set(checker_text "${checker_out}${checker_error}")
-    file(WRITE "${result_root}/${rom_name}.checker.txt" "${checker_text}")
-    string(REGEX MATCHALL "result: [a-z-]+:" checker_findings "${checker_text}")
-    list(LENGTH checker_findings finding_count)
-    if(checker_rc STREQUAL "0" OR NOT finding_count EQUAL 2 OR
-       NOT checker_text MATCHES "result: missing-field: fixture.id" OR
-       NOT checker_text MATCHES "result: bad-evidence: claim.evidence: empty" OR
-       NOT checker_text MATCHES "result: failed [(]2 findings[)]")
-      message(FATAL_ERROR "diagnostics-case: arm-canonical-admission-refusal-mismatch:${rom_name}: ${checker_text}")
+    # Reuse the canonical authority already parsed above. Every real result
+    # still runs the canonical checker; reloading722 rows for every ROM would
+    # multiply identical authority work without adding evidence.
+    set_property(GLOBAL PROPERTY GBL_FINDINGS 0)
+    gbl_result_check("${result_root}/${rom_name}.json" M R V)
+    get_property(finding_count GLOBAL PROPERTY GBL_FINDINGS)
+    string(JSON raw_fixture_type TYPE "${runner_json}" fixture id)
+    string(JSON raw_evidence_count LENGTH "${runner_json}" claim evidence)
+    if(NOT finding_count EQUAL 2 OR NOT raw_fixture_type STREQUAL "NULL" OR
+       NOT raw_evidence_count EQUAL 0)
+      message(FATAL_ERROR "diagnostics-case: arm-canonical-admission-refusal-mismatch:${rom_name}")
     endif()
+    set_property(GLOBAL PROPERTY GBL_FINDINGS 0)
+    file(WRITE "${result_root}/${rom_name}.checker.txt"
+      "canonical CheckResult function: missing fixture.id and empty claim.evidence; findings=2\n")
     file(STRINGS "${trace_path}" trace_rows)
     check_arm_observation(observation "${runner_json}" "${trace_rows}"
       "${row_id}" "${row_kind}" "${expected_state}" "${expected_reason}" "${actual_rom_sha}")
