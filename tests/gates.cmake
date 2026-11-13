@@ -6,6 +6,16 @@ if(GBL_LANE STREQUAL "hygiene")
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}/final-proof-controls"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/synthetic_diagnostic_controls.cmake")
+
+  # hygiene-safe: admission controls use synthetic bytes, clone locally, and
+  # build no target. They cover path containment and tracked mode drift.
+  gbl_add_test(
+    NAME artifact.admission.controls
+    LABELS control manifest
+    COMMAND "${CMAKE_COMMAND}"
+      "-DCASE=compatibility-and-controls" "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/artifact_case.cmake")
 endif()
 # Each gate has a negative control that must fail for its stated reason, and a
 # positive control on otherwise identical clean input (D-03).

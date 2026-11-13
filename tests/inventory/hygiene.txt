@@ -1,5 +1,6 @@
 # Sorted (byte order) expected-test inventory for the hygiene lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+artifact.admission.controls control,manifest
 ci.actions.pinned ci,gate
 ci.yml.policy ci,gate
 contract.lint contract,gate

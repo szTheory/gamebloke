@@ -99,7 +99,102 @@ if(CASE STREQUAL "path-controls")
     message(FATAL_ERROR "artifact-case: dangling-symlink-created-external-target")
   endif()
 
-  message(STATUS "artifact-case: admission path-boundary controls passed")
+  if(UNIX)
+    set(source_clone "${path_dir}/authority-source")
+    if(NOT EXISTS "${source_clone}/.git")
+      execute_process(COMMAND git clone --quiet --no-local "${SRC}" "${source_clone}"
+        RESULT_VARIABLE clone_rc ERROR_VARIABLE clone_error)
+      if(NOT clone_rc STREQUAL "0")
+        message(FATAL_ERROR "artifact-case: authority-control-clone-failed:${clone_error}")
+      endif()
+    endif()
+    execute_process(COMMAND git -C "${source_clone}" config core.filemode false
+      RESULT_VARIABLE config_rc ERROR_VARIABLE config_error)
+    if(NOT config_rc STREQUAL "0")
+      message(FATAL_ERROR "artifact-case: filemode-control-config-failed:${config_error}")
+    endif()
+    set(control_image "${path_dir}/synthetic-control.gba")
+    file(WRITE "${control_image}" "synthetic authority control bytes\n")
+    execute_process(COMMAND git -C "${source_clone}" rev-parse HEAD
+      RESULT_VARIABLE authority_rc OUTPUT_VARIABLE authority_commit
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT authority_rc STREQUAL "0")
+      message(FATAL_ERROR "artifact-case: filemode-control-authority-unavailable")
+    endif()
+    file(READ "${SRC}/contracts/examples/manifest.json" manifest_doc)
+    string(JSON manifest_row GET "${manifest_doc}" fixtures 0)
+    set(source_pin "{}")
+    string(JSON source_pin SET "${source_pin}" kind "\"git\"")
+    string(JSON source_pin SET "${source_pin}" url
+      "\"https://github.com/szTheory/gamebloke\"")
+    string(JSON source_pin SET "${source_pin}" commit "\"${authority_commit}\"")
+    string(JSON manifest_row SET "${manifest_row}" source "${source_pin}")
+    set(artifact_pin "{}")
+    string(JSON artifact_pin SET "${artifact_pin}" path
+      "\"generated/diagnostics/armv4t/control.gba\"")
+    file(SHA256 "${control_image}" control_digest)
+    string(JSON artifact_pin SET "${artifact_pin}" sha256 "\"${control_digest}\"")
+    string(JSON manifest_row SET "${manifest_row}" build artifact "${artifact_pin}")
+    string(JSON manifest_doc SET "${manifest_doc}" fixtures "[${manifest_row}]")
+    set(manifest "${path_dir}/authority-manifest.json")
+    file(WRITE "${manifest}" "${manifest_doc}\n")
+
+    function(run_authority_generator label out_result out_report)
+      set(out_dir "${path_dir}/authority-${label}")
+      set(prod "${out_dir}/production/fixture_index.h")
+      set(control "${out_dir}/control/fixture_index.h")
+      set(control_manifest "${out_dir}/control/manifest.json")
+      execute_process(COMMAND "${CMAKE_COMMAND}"
+        "-DGBL_SOURCE_DIR=${source_clone}"
+        "-DGBL_CONTROL_IMAGE=${control_image}"
+        "-DGBL_CONTROL_MANIFEST_OUTPUT=${control_manifest}"
+        "-DGBL_MANIFEST=${manifest}"
+        "-DGBL_REGISTRY=${SRC}/registry/disputes.json"
+        "-DGBL_VOCAB=${SRC}/contracts/evidence.json"
+        "-DGBL_OUT_PRODUCTION=${prod}" "-DGBL_OUT_CONTROL=${control}"
+        -P "${SRC}/cmake/GenerateFixtureIndex.cmake"
+        RESULT_VARIABLE result OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr)
+      set(${out_result} "${result}" PARENT_SCOPE)
+      set(${out_report} "${stdout}${stderr}" PARENT_SCOPE)
+      set("${label}_prod" "${prod}" PARENT_SCOPE)
+      set("${label}_control" "${control}" PARENT_SCOPE)
+    endfunction()
+
+    run_authority_generator(clean clean_rc clean_report)
+    if(NOT clean_rc STREQUAL "0")
+      message(FATAL_ERROR "artifact-case: filemode-clean-companion-failed:${clean_report}")
+    endif()
+    set(mode_input "${source_clone}/scripts/fetch-toolchain.sh")
+    execute_process(COMMAND test -x "${mode_input}" RESULT_VARIABLE clean_mode_rc)
+    if(NOT clean_mode_rc STREQUAL "0")
+      message(FATAL_ERROR "artifact-case: filemode-control-input-not-executable")
+    endif()
+    file(CHMOD "${mode_input}" PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+    execute_process(COMMAND test -x "${mode_input}" RESULT_VARIABLE changed_mode_rc)
+    if(changed_mode_rc STREQUAL "0")
+      file(CHMOD "${mode_input}" PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+      message(FATAL_ERROR "artifact-case: filemode-control-could-not-clear-execute-bit")
+    endif()
+    set(mode_dir "${path_dir}/authority-mode")
+    file(MAKE_DIRECTORY "${mode_dir}/production" "${mode_dir}/control")
+    file(WRITE "${mode_dir}/production/fixture_index.h" "stale production index\n")
+    file(WRITE "${mode_dir}/control/fixture_index.h" "stale control index\n")
+    run_authority_generator(mode mode_rc mode_report)
+    file(CHMOD "${mode_input}" PERMISSIONS
+      OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+    if(mode_rc STREQUAL "0" OR
+       NOT mode_report MATCHES "fixture-index: stale-diagnostic-source-input" OR
+       EXISTS "${mode_prod}" OR EXISTS "${mode_control}")
+      message(FATAL_ERROR "artifact-case: filemode-drift-was-not-refused:${mode_report}")
+    endif()
+    run_authority_generator(restored restored_rc restored_report)
+    if(NOT restored_rc STREQUAL "0")
+      message(FATAL_ERROR "artifact-case: filemode-clean-companion-failed-after-restore:${restored_report}")
+    endif()
+  endif()
+
+  message(STATUS "artifact-case: admission path-boundary and source-mode controls passed")
   return()
 endif()
 

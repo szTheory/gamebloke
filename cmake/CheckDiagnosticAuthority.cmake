@@ -12,8 +12,11 @@ function(gbl_check_diagnostic_authority source_root commit)
   if(NOT list_rc STREQUAL "0")
     message(FATAL_ERROR "fixture-index: diagnostic-input-list-unavailable")
   endif()
-  execute_process(COMMAND git -C "${source_root}" diff --quiet "${commit}" --
-    diagnostics/armv4t/inputs.txt RESULT_VARIABLE list_diff)
+  # Force mode comparison for this command even when the repository has
+  # core.filemode=false; tracked executable bits are part of source authority.
+  execute_process(COMMAND git -C "${source_root}" -c core.filemode=true
+    diff --quiet "${commit}" -- diagnostics/armv4t/inputs.txt
+    RESULT_VARIABLE list_diff)
   if(NOT list_diff STREQUAL "0")
     message(FATAL_ERROR "fixture-index: stale-diagnostic-source-input")
   endif()
@@ -33,8 +36,8 @@ function(gbl_check_diagnostic_authority source_root commit)
   if(NOT "diagnostics/armv4t/inputs.txt" IN_LIST paths)
     message(FATAL_ERROR "fixture-index: diagnostic-input-list-unbound")
   endif()
-  execute_process(COMMAND git -C "${source_root}" diff --quiet "${commit}" -- ${paths}
-    RESULT_VARIABLE diff_rc)
+  execute_process(COMMAND git -C "${source_root}" -c core.filemode=true
+    diff --quiet "${commit}" -- ${paths} RESULT_VARIABLE diff_rc)
   if(NOT diff_rc STREQUAL "0")
     message(FATAL_ERROR "fixture-index: stale-diagnostic-source-input")
   endif()
