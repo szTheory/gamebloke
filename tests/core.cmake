@@ -104,6 +104,17 @@ set(GBL_MUTATION_LINK_FLAGS_CONFIG_VAR
   "CMAKE_EXE_LINKER_FLAGS_${GBL_MUTATION_BUILD_CONFIG}")
 set(GBL_MUTATION_LINK_FLAGS_CONFIG
   "${${GBL_MUTATION_LINK_FLAGS_CONFIG_VAR}}")
+add_custom_target(gbl_mutation_objects ALL
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=prepare -DSELECTOR=all
+    "-DCOMPILER=${CMAKE_C_COMPILER}" "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
+    "-DC_FLAGS=${CMAKE_C_FLAGS}" "-DC_FLAGS_CONFIG=${GBL_MUTATION_C_FLAGS_CONFIG}"
+    "-DLINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+    "-DLINKER_FLAGS_CONFIG=${GBL_MUTATION_LINK_FLAGS_CONFIG}"
+    "-DVERSION=${PROJECT_VERSION}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/core_mutation.cmake"
+  VERBATIM)
 function(gbl__add_bus_mutation_test test_name mutation selector)
   if(mutation STREQUAL "clean")
     set(labels bus positive)
@@ -116,6 +127,7 @@ function(gbl__add_bus_mutation_test test_name mutation selector)
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       "-DCASE=${mutation}" "-DSELECTOR=${selector}"
+      "-DPREPARED_ROOT=${CMAKE_BINARY_DIR}/mutation-objects"
       "-DCOMPILER=${CMAKE_C_COMPILER}"
       "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
       "-DC_FLAGS=${CMAKE_C_FLAGS}"
@@ -144,6 +156,7 @@ function(gbl__add_loader_mutation_test test_name mutation selector)
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       "-DCASE=loader_${mutation}" "-DSELECTOR=${selector}"
+      "-DPREPARED_ROOT=${CMAKE_BINARY_DIR}/mutation-objects"
       "-DCOMPILER=${CMAKE_C_COMPILER}"
       "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
       "-DC_FLAGS=${CMAKE_C_FLAGS}"
@@ -182,6 +195,7 @@ function(gbl__add_cpu_mutation_test test_name mutation selector)
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       "-DCASE=cpu_${mutation}" "-DSELECTOR=${selector}"
+      "-DPREPARED_ROOT=${CMAKE_BINARY_DIR}/mutation-objects"
       "-DCOMPILER=${CMAKE_C_COMPILER}"
       "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
       "-DC_FLAGS=${CMAKE_C_FLAGS}"

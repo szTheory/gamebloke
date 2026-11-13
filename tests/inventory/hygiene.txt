@@ -175,6 +175,7 @@ result.nc.usage control,result
 result.pos.all_states positive,result
 result.pos.bios_provider_forms positive,result
 result.pos.disputed positive,result
+result.pos.instruction_reasons positive,result
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature
