@@ -11,7 +11,7 @@ status: all_fixed
 
 # Phase 05-18: Code Review Fix Report
 
-**Verification ran in:** the main checkout, `/Users/jon/projects/gamebloke`.
+**Verification ran in:** the repository root.
 
 ## Fixed issues
 
