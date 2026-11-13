@@ -21,14 +21,15 @@ if(NOT safe OR output STREQUAL build OR NOT resolved_output STREQUAL existing OR
   message(FATAL_ERROR "synthetic-diagnostics: unsafe-output-root")
 endif()
 
-set(isolated_env "${CMAKE_COMMAND}" -E env
-  --unset=GIT_DIR --unset=GIT_WORK_TREE --unset=GIT_INDEX_FILE
-  --unset=GIT_COMMON_DIR --unset=GIT_OBJECT_DIRECTORY
-  --unset=GIT_ALTERNATE_OBJECT_DIRECTORIES --unset=GIT_CONFIG_COUNT
-  --unset=GIT_CONFIG_PARAMETERS --unset=GIT_CONFIG
-  --unset=GIT_AUTHOR_NAME --unset=GIT_AUTHOR_EMAIL
-  --unset=GIT_COMMITTER_NAME --unset=GIT_COMMITTER_EMAIL
-  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
+set(isolated_git_variables GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+  GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT
+  GIT_CONFIG_PARAMETERS GIT_CONFIG GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL
+  GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL)
+set(isolated_env "${CMAKE_COMMAND}" -E env)
+foreach(variable IN LISTS isolated_git_variables)
+  list(APPEND isolated_env "--unset=${variable}")
+endforeach()
+list(APPEND isolated_env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 execute_process(COMMAND ${isolated_env} git -C "${source}" show HEAD:diagnostics/armv4t/inputs.txt
   RESULT_VARIABLE rc OUTPUT_VARIABLE committed_inputs ERROR_VARIABLE error)
 if(NOT rc STREQUAL "0")
@@ -103,13 +104,41 @@ execute_process(COMMAND "${CMAKE_COMMAND}"
 if(NOT rc STREQUAL "0")
   message(FATAL_ERROR "synthetic-diagnostics: invalid-matrix:${json_out}${json_error}")
 endif()
-execute_process(COMMAND "${CMAKE_COMMAND}" -DMODE=draft
-  "-DMATRIX=${snapshot}/diagnostics/armv4t/cases.json"
-  -P "${snapshot}/cmake/CheckArmCoverage.cmake"
-  RESULT_VARIABLE rc OUTPUT_VARIABLE coverage_out ERROR_VARIABLE coverage_error)
-if(NOT rc STREQUAL "0")
-  message(FATAL_ERROR "synthetic-diagnostics: invalid-matrix:${coverage_out}${coverage_error}")
+# Validate only the matrix data consumed by these parser controls. Full assembly,
+# family/form and hardware coverage qualification stays with its existing gates.
+file(READ "${snapshot}/diagnostics/armv4t/cases.json" matrix)
+string(JSON schema ERROR_VARIABLE schema_error GET "${matrix}" schema)
+string(JSON cases_type ERROR_VARIABLE cases_error TYPE "${matrix}" cases)
+if(NOT schema_error STREQUAL "NOTFOUND" OR
+   NOT schema STREQUAL "gamebloke.armv4t-coverage/1")
+  message(FATAL_ERROR "synthetic-diagnostics: invalid-matrix:bad-schema")
 endif()
+if(NOT cases_error STREQUAL "NOTFOUND" OR NOT cases_type STREQUAL "ARRAY")
+  message(FATAL_ERROR "synthetic-diagnostics: invalid-matrix:cases-shape")
+endif()
+string(JSON rows GET "${matrix}" cases)
+string(JSON count LENGTH "${rows}")
+if(count LESS 1)
+  message(FATAL_ERROR "synthetic-diagnostics: invalid-matrix:cases-shape")
+endif()
+math(EXPR last "${count}-1")
+foreach(index RANGE 0 ${last})
+  string(JSON row GET "${rows}" ${index})
+  string(JSON id_type ERROR_VARIABLE id_error TYPE "${row}" id)
+  string(JSON isa ERROR_VARIABLE isa_error GET "${row}" isa)
+  string(JSON kind ERROR_VARIABLE kind_error GET "${row}" source_test kind)
+  if(NOT id_error STREQUAL "NOTFOUND" OR NOT id_type STREQUAL "NUMBER" OR
+     NOT isa_error STREQUAL "NOTFOUND" OR NOT isa MATCHES "^(arm|thumb)$" OR
+     NOT kind_error STREQUAL "NOTFOUND" OR
+     NOT kind MATCHES "^(semantic|guest-stop|cpu-api|registered-smoke-pair)$")
+    message(FATAL_ERROR "synthetic-diagnostics: invalid-matrix:case-shape")
+  endif()
+  string(JSON id GET "${row}" id)
+  string(LENGTH "${id}" id_length)
+  if(NOT id MATCHES "^[1-9][0-9]*$" OR id_length GREATER 10 OR id GREATER 4294967295)
+    message(FATAL_ERROR "synthetic-diagnostics: invalid-matrix:case-id")
+  endif()
+endforeach()
 function(snapshot_git)
   # Ignore ambient Git configuration/hooks only for this test-only repository.
   execute_process(COMMAND ${isolated_env} git -C "${snapshot}" -c init.defaultBranch=synthetic-controls
@@ -124,12 +153,25 @@ snapshot_git(add -- ${paths})
 snapshot_git(commit --quiet -m "test-only current synthetic parser authority")
 file(WRITE "${output}/latest-snapshot.txt" "${snapshot}\n")
 message(STATUS "synthetic-diagnostics: current working bytes isolated in a test-only committed snapshot; no hosted/build/admission authority")
-execute_process(COMMAND ${isolated_env} "${CMAKE_COMMAND}" -DCASE=final-proof-controls
-  "-DSRC=${snapshot}" -DBIN=build/controls
-  -P "${snapshot}/tests/gates/toolchain_spike.cmake"
-  RESULT_VARIABLE rc OUTPUT_VARIABLE controls_out ERROR_VARIABLE controls_error)
-file(WRITE "${output}/controls.log" "${controls_out}${controls_error}")
-if(NOT rc STREQUAL "0")
-  message(FATAL_ERROR "synthetic-diagnostics: controls-failed:${controls_out}${controls_error}")
+function(run_snapshot_controls)
+  # Avoid wrapping the long-running CMake parser in another capture process.
+  # These environment changes affect this short-lived test process only.
+  foreach(variable IN LISTS isolated_git_variables)
+    unset(ENV{${variable}})
+  endforeach()
+  set(ENV{GIT_CONFIG_GLOBAL} /dev/null)
+  set(ENV{GIT_CONFIG_NOSYSTEM} 1)
+  set(CASE final-proof-controls)
+  set(SRC "${snapshot}")
+  set(BIN build/controls)
+  include("${snapshot}/tests/gates/toolchain_spike.cmake")
+endfunction()
+run_snapshot_controls()
+file(GLOB control_logs "${snapshot}/build/controls/synthetic-controls/*/validation.log")
+list(LENGTH control_logs control_count)
+if(NOT control_count EQUAL 23 OR
+   NOT EXISTS "${snapshot}/build/controls/authority-change.log")
+  message(FATAL_ERROR "synthetic-diagnostics: incomplete-controls")
 endif()
-message("${controls_out}")
+file(WRITE "${output}/control-completion.txt"
+  "Synthetic parser controls passed; no hosted/build/admission authority.\n")
