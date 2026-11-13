@@ -1,12 +1,538 @@
 cmake_minimum_required(VERSION 3.25)
 
-foreach(required IN ITEMS SRC BIN TOOLCHAIN_ROOT CASE)
+foreach(required IN ITEMS SRC BIN CASE)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "diagnostics-case: missing-${required}")
   endif()
 endforeach()
+if(CASE STREQUAL "arm-pre-admission")
+  if(NOT DEFINED ARTIFACT_ROOT OR "${ARTIFACT_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "diagnostics-case: missing-ARTIFACT_ROOT")
+  endif()
+  get_filename_component(source_root "${SRC}" ABSOLUTE)
+  get_filename_component(binary_root "${BIN}" ABSOLUTE)
+  get_filename_component(artifact_root "${ARTIFACT_ROOT}" ABSOLUTE
+    BASE_DIR "${source_root}")
+  set(build_root "${source_root}/build")
+  cmake_path(IS_PREFIX build_root "${binary_root}" NORMALIZE binary_under_build)
+  if(NOT binary_under_build OR binary_root STREQUAL build_root OR
+     IS_SYMLINK "${build_root}" OR IS_SYMLINK "${binary_root}")
+    message(FATAL_ERROR "diagnostics-case: unsafe-arm-result-root")
+  endif()
+  set(expected_artifact_root "${source_root}/build/phase05-matrix/arm")
+  if(NOT "${artifact_root}" STREQUAL "${expected_artifact_root}" OR
+     IS_SYMLINK "${artifact_root}")
+    message(FATAL_ERROR "diagnostics-case: unsafe-arm-artifact-root")
+  endif()
+  set(matrix "${source_root}/diagnostics/armv4t/cases.json")
+  set(matrix_receipt "${artifact_root}/proof/build-receipt.json")
+  set(runner "${binary_root}/gamebloke-run")
+  foreach(path IN ITEMS "${matrix}" "${matrix_receipt}" "${runner}")
+    if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}" OR IS_SYMLINK "${path}")
+      message(FATAL_ERROR "diagnostics-case: arm-pre-admission-input-missing: ${path}")
+    endif()
+  endforeach()
+  file(READ "${matrix}" matrix_json)
+  file(READ "${matrix_receipt}" matrix_build_json)
+  string(JSON receipt_format ERROR_VARIABLE format_error GET "${matrix_build_json}" format)
+  string(JSON receipt_isa ERROR_VARIABLE isa_error GET "${matrix_build_json}" isa)
+  string(JSON receipt_commit ERROR_VARIABLE commit_error GET "${matrix_build_json}" source_commit)
+  string(JSON receipt_semantic ERROR_VARIABLE semantic_count_error GET "${matrix_build_json}" semantic_pairs)
+  string(JSON receipt_stops ERROR_VARIABLE stop_count_error GET "${matrix_build_json}" stop_witnesses)
+  string(JSON receipt_output_count ERROR_VARIABLE output_count_error LENGTH "${matrix_build_json}" output_names)
+  foreach(error IN ITEMS format_error isa_error commit_error semantic_count_error
+      stop_count_error output_count_error)
+    if(NOT "${${error}}" STREQUAL "NOTFOUND")
+      message(FATAL_ERROR "diagnostics-case: invalid-arm-matrix-receipt:${error}")
+    endif()
+  endforeach()
+  string(LENGTH "${receipt_commit}" receipt_commit_length)
+  if(NOT receipt_format STREQUAL "gamebloke.arm-diagnostic-matrix/1" OR
+     NOT receipt_isa STREQUAL "arm" OR NOT receipt_semantic EQUAL 244 OR
+     NOT receipt_stops EQUAL 4 OR NOT receipt_output_count EQUAL 492 OR
+     NOT receipt_commit_length EQUAL 40 OR
+     NOT receipt_commit MATCHES "^[0-9a-f]+$")
+    message(FATAL_ERROR "diagnostics-case: arm-matrix-receipt-mismatch")
+  endif()
+
+  file(STRINGS "${source_root}/diagnostics/armv4t/inputs.txt" producer_inputs)
+  foreach(input IN LISTS producer_inputs)
+    if(input STREQUAL "" OR input MATCHES "^#")
+      continue()
+    endif()
+    execute_process(COMMAND git diff --quiet "${receipt_commit}" -- "${input}"
+      WORKING_DIRECTORY "${source_root}" RESULT_VARIABLE input_rc)
+    if(NOT input_rc STREQUAL "0")
+      message(FATAL_ERROR "diagnostics-case: stale-arm-producer-input:${input}")
+    endif()
+  endforeach()
+
+  set(expected_names "")
+  set(semantic_positive_count 0)
+  set(semantic_broken_count 0)
+  set(stop_witness_count 0)
+  set(result_root "${binary_root}/diagnostics-results/arm-pre-admission")
+  file(REMOVE_RECURSE "${result_root}")
+  file(MAKE_DIRECTORY "${result_root}")
+  include("${source_root}/cmake/CheckResult.cmake")
+  gbl_contract_read(V "${source_root}/contracts/evidence.json")
+  gbl_registry_read(R "${source_root}/registry/disputes.json" V)
+  gbl_manifest_read(M "${source_root}/tests/fixtures/manifest.json" R V)
+  gbl_findings_finish(result "arm pre-admission authorities valid")
+
+  # One validator consumes real observations and the clean-first controls below.
+  # Runner status, mailbox semantics, byte identity and trace are independent.
+  function(check_arm_observation out doc trace_rows row_id row_kind
+      expected_state expected_reason actual_sha)
+    foreach(field IN ITEMS status reason termination)
+      string(JSON value ERROR_VARIABLE error GET "${doc}" ${field})
+      if(NOT error STREQUAL "NOTFOUND")
+        set(${out} json PARENT_SCOPE)
+        return()
+      endif()
+      set(observed_${field} "${value}")
+    endforeach()
+    string(JSON id_type TYPE "${doc}" fixture id)
+    string(JSON ran_type TYPE "${doc}" fixture ran)
+    string(JSON ran GET "${doc}" fixture ran)
+    string(JSON fixture_sha GET "${doc}" fixture rom_sha256)
+    string(JSON claim_sha GET "${doc}" claim cart rom_sha256)
+    string(JSON machine GET "${doc}" claim machine)
+    string(JSON boot GET "${doc}" claim boot)
+    string(JSON bios GET "${doc}" claim bios_provider)
+    string(JSON state GET "${doc}" semantic state)
+    string(JSON id GET "${doc}" semantic case_id)
+    string(JSON cycles GET "${doc}" time cycles)
+    string(JSON instructions GET "${doc}" time instructions)
+    string(JSON budget GET "${doc}" time budget_cycles)
+    if(NOT observed_status STREQUAL "GUEST_STOP" OR
+       NOT observed_reason STREQUAL "${expected_reason}" OR
+       NOT observed_termination STREQUAL "${expected_reason}")
+      set(${out} status PARENT_SCOPE)
+      return()
+    endif()
+    if(NOT id_type STREQUAL "NULL" OR NOT ran_type STREQUAL "BOOLEAN" OR NOT ran OR
+       NOT fixture_sha STREQUAL "${actual_sha}" OR
+       NOT claim_sha STREQUAL "${actual_sha}" OR NOT machine STREQUAL "agb" OR
+       NOT boot STREQUAL "direct-start" OR NOT bios STREQUAL "none")
+      set(${out} identity PARENT_SCOPE)
+      return()
+    endif()
+    if(NOT state STREQUAL "${expected_state}" OR NOT id STREQUAL "${row_id}")
+      set(${out} semantic PARENT_SCOPE)
+      return()
+    endif()
+    if(NOT cycles MATCHES "^[0-9]+$" OR NOT instructions MATCHES "^[0-9]+$" OR
+       NOT budget STREQUAL "1000" OR cycles LESS 1 OR instructions LESS 1 OR
+       cycles GREATER budget)
+      set(${out} time PARENT_SCOPE)
+      return()
+    endif()
+    foreach(field IN ITEMS mask count capacity complete emitted)
+      string(JSON trace_${field} ERROR_VARIABLE error GET "${doc}" trace ${field})
+      if(NOT error STREQUAL "NOTFOUND")
+        set(${out} trace-metadata PARENT_SCOPE)
+        return()
+      endif()
+    endforeach()
+    list(LENGTH trace_rows trace_count)
+    string(JSON reported_trace_count GET "${doc}" trace count)
+    if(NOT trace_mask STREQUAL "7" OR NOT trace_capacity STREQUAL "4096" OR
+       NOT trace_complete OR NOT trace_emitted OR trace_count LESS 1 OR
+       NOT reported_trace_count STREQUAL "${trace_count}")
+      set(${out} trace-metadata PARENT_SCOPE)
+      return()
+    endif()
+    set(sequence 0)
+    set(last_cycle 0)
+    set(retired 0)
+    set(exceptions 0)
+    set(stop_fetches 0)
+    set(expected_opcode "")
+    set(expected_exception 0)
+    set(loaded_pc_opcode "")
+    set(loaded_pc_refills 0)
+    set(loaded_pc_targets 0)
+    if(row_id STREQUAL "314196076")
+      set(loaded_pc_opcode "0xe594f000")
+    elseif(row_id STREQUAL "433134728")
+      set(loaded_pc_opcode "0xe8948000")
+    endif()
+    if(row_kind STREQUAL "guest-stop")
+      if(row_id STREQUAL "1765902634")
+        set(expected_opcode "0xefabcdef")
+        set(expected_exception 3)
+      elseif(row_id STREQUAL "1632756083")
+        set(expected_opcode "0xe7f000f0")
+        set(expected_exception 2)
+      elseif(row_id STREQUAL "1724321294")
+        set(expected_opcode "0xee000010")
+        set(expected_exception 8)
+      elseif(row_id STREQUAL "448472880")
+        set(expected_opcode "0xf0000000")
+      else()
+        set(${out} unknown-stop PARENT_SCOPE)
+        return()
+      endif()
+    endif()
+    foreach(record IN LISTS trace_rows)
+      foreach(field IN ITEMS sequence guest_cycle category instruction_address
+          opcode address value width access_class bus_outcome exception_kind)
+        string(JSON r_${field} ERROR_VARIABLE error GET "${record}" ${field})
+        if(NOT error STREQUAL "NOTFOUND")
+          set(${out} trace-record PARENT_SCOPE)
+          return()
+        endif()
+      endforeach()
+      if(NOT r_sequence STREQUAL "${sequence}" OR
+         NOT r_guest_cycle MATCHES "^[0-9]+$" OR
+         r_guest_cycle LESS last_cycle OR r_guest_cycle GREATER cycles)
+        set(${out} trace-order PARENT_SCOPE)
+        return()
+      endif()
+      if(r_category EQUAL 2)
+        math(EXPR bus_address "${r_address}")
+        if(bus_address LESS 32)
+          if(row_kind STREQUAL "guest-stop")
+            set(${out} vector-fetch PARENT_SCOPE)
+          else()
+            set(${out} low-address-bus PARENT_SCOPE)
+          endif()
+          return()
+        endif()
+        if(NOT loaded_pc_opcode STREQUAL "" AND r_opcode STREQUAL loaded_pc_opcode)
+          if(r_value MATCHES "^0x08" AND r_width EQUAL 4 AND r_bus_outcome EQUAL 4)
+            math(EXPR target_lane "${r_value} & 3")
+            if(target_lane EQUAL 3)
+              math(EXPR loaded_pc_target "${r_value} & 0xfffffffc")
+            endif()
+          endif()
+          if(DEFINED loaded_pc_target AND bus_address EQUAL loaded_pc_target AND
+             r_access_class EQUAL 0 AND r_bus_outcome EQUAL 4 AND
+             r_value STREQUAL "0xe3a00011")
+            math(EXPR loaded_pc_refills "${loaded_pc_refills}+1")
+          endif()
+        endif()
+        if(NOT expected_opcode STREQUAL "" AND r_value STREQUAL expected_opcode AND
+           r_width EQUAL 4 AND r_bus_outcome EQUAL 4)
+          math(EXPR stop_fetches "${stop_fetches}+1")
+          set(stop_address "${r_address}")
+        endif()
+      elseif(r_category EQUAL 1)
+        math(EXPR retired "${retired}+1")
+        set(last_instruction_opcode "${r_opcode}")
+        set(last_instruction_address "${r_instruction_address}")
+        if(DEFINED loaded_pc_target)
+          math(EXPR instruction_address "${r_instruction_address}")
+          if(instruction_address EQUAL loaded_pc_target AND r_opcode STREQUAL "0xe3a00011")
+            math(EXPR loaded_pc_targets "${loaded_pc_targets}+1")
+          endif()
+        endif()
+      elseif(r_category EQUAL 4)
+        math(EXPR exceptions "${exceptions}+1")
+        if(NOT r_opcode STREQUAL expected_opcode OR
+           NOT r_exception_kind EQUAL expected_exception OR
+           NOT r_instruction_address STREQUAL stop_address OR
+           NOT r_instruction_address STREQUAL last_instruction_address OR
+           NOT last_instruction_opcode STREQUAL expected_opcode OR
+           NOT r_guest_cycle STREQUAL cycles)
+          set(${out} exception-context PARENT_SCOPE)
+          return()
+        endif()
+      else()
+        set(${out} trace-category PARENT_SCOPE)
+        return()
+      endif()
+      set(last_category "${r_category}")
+      set(last_cycle "${r_guest_cycle}")
+      math(EXPR sequence "${sequence}+1")
+    endforeach()
+    if(NOT retired EQUAL instructions OR NOT last_cycle STREQUAL cycles)
+      set(${out} trace-time PARENT_SCOPE)
+      return()
+    endif()
+    if(NOT loaded_pc_opcode STREQUAL "" AND
+       (NOT loaded_pc_refills EQUAL 1 OR NOT loaded_pc_targets EQUAL 1))
+      set(${out} loaded-pc-context PARENT_SCOPE)
+      return()
+    endif()
+    if(row_kind STREQUAL "guest-stop")
+      if(NOT stop_fetches EQUAL 1 OR
+         (expected_exception GREATER 0 AND (NOT exceptions EQUAL 1 OR NOT last_category EQUAL 4)) OR
+         (expected_exception EQUAL 0 AND (NOT exceptions EQUAL 0 OR
+          last_instruction_opcode STREQUAL expected_opcode)))
+        set(${out} stop-operation PARENT_SCOPE)
+        return()
+      endif()
+    elseif(NOT exceptions EQUAL 0)
+      set(${out} unexpected-exception PARENT_SCOPE)
+      return()
+    endif()
+    set(${out} ok PARENT_SCOPE)
+  endfunction()
+
+  function(expect_arm_observation_refusal label expected doc trace_rows row_id
+      row_kind expected_state expected_reason actual_sha)
+    check_arm_observation(finding "${doc}" "${trace_rows}" "${row_id}"
+      "${row_kind}" "${expected_state}" "${expected_reason}" "${actual_sha}")
+    if(NOT finding STREQUAL expected)
+      message(FATAL_ERROR
+        "diagnostics-case: arm-control-failed:${label}: expected=${expected} actual=${finding}")
+    endif()
+    file(APPEND "${result_root}/controls.txt" "${label}=${finding}\n")
+  endfunction()
+
+  function(check_arm_observation_controls doc trace_rows row_id row_kind
+      expected_state expected_reason actual_sha)
+    if(expected_state STREQUAL "pass" AND
+       (row_id STREQUAL "314196076" OR row_id STREQUAL "433134728"))
+      foreach(control IN ITEMS refill target)
+        set(changed_rows "")
+        foreach(record IN LISTS trace_rows)
+          string(JSON category GET "${record}" category)
+          string(JSON value GET "${record}" value)
+          string(JSON opcode GET "${record}" opcode)
+          if(control STREQUAL "refill" AND category EQUAL 2 AND value STREQUAL "0xe3a00011")
+            string(JSON record SET "${record}" access_class 1)
+          elseif(control STREQUAL "target" AND category EQUAL 1 AND opcode STREQUAL "0xe3a00011")
+            string(JSON record SET "${record}" opcode "\"0xe3a00022\"")
+          endif()
+          list(APPEND changed_rows "${record}")
+        endforeach()
+        expect_arm_observation_refusal("${row_id}-loaded-pc-${control}" loaded-pc-context
+          "${doc}" "${changed_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+          "${expected_reason}" "${actual_sha}")
+      endforeach()
+    endif()
+    if(row_kind STREQUAL "semantic")
+      get_property(done GLOBAL PROPERTY ARM_SEMANTIC_CONTROLS_DONE)
+      if(done OR NOT expected_state STREQUAL "pass")
+        return()
+      endif()
+      foreach(field IN ITEMS status reason termination)
+        string(JSON changed SET "${doc}" ${field} "\"PASS\"")
+        expect_arm_observation_refusal("semantic-${field}" status "${changed}"
+          "${trace_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+          "${expected_reason}" "${actual_sha}")
+      endforeach()
+      foreach(field IN ITEMS state case_id)
+        string(JSON changed SET "${doc}" semantic ${field} "\"wrong\"")
+        expect_arm_observation_refusal("semantic-${field}" semantic "${changed}"
+          "${trace_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+          "${expected_reason}" "${actual_sha}")
+      endforeach()
+      string(JSON changed SET "${doc}" fixture id "\"unadmitted\"")
+      expect_arm_observation_refusal(registered-identity identity "${changed}"
+        "${trace_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+        "${expected_reason}" "${actual_sha}")
+      string(JSON changed SET "${doc}" claim bios_provider "\"wrong\"")
+      expect_arm_observation_refusal(claim-profile identity "${changed}"
+        "${trace_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+        "${expected_reason}" "${actual_sha}")
+      foreach(location IN ITEMS fixture claim)
+        if(location STREQUAL "fixture")
+          string(JSON changed SET "${doc}" fixture rom_sha256 "\"wrong\"")
+        else()
+          string(JSON changed SET "${doc}" claim cart rom_sha256 "\"wrong\"")
+        endif()
+        expect_arm_observation_refusal("${location}-sha" identity "${changed}"
+          "${trace_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+          "${expected_reason}" "${actual_sha}")
+      endforeach()
+      string(JSON changed SET "${doc}" time cycles "\"0\"")
+      expect_arm_observation_refusal(zero-time time "${changed}" "${trace_rows}"
+        "${row_id}" "${row_kind}" "${expected_state}" "${expected_reason}" "${actual_sha}")
+      foreach(field IN ITEMS complete count)
+        string(JSON changed SET "${doc}" trace ${field} false)
+        expect_arm_observation_refusal("trace-${field}" trace-metadata "${changed}"
+          "${trace_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+          "${expected_reason}" "${actual_sha}")
+      endforeach()
+      list(GET trace_rows 0 first)
+      string(JSON changed_record SET "${first}" sequence "\"99\"")
+      list(REMOVE_AT trace_rows 0)
+      list(PREPEND trace_rows "${changed_record}")
+      expect_arm_observation_refusal(trace-sequence trace-order "${doc}"
+        "${trace_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+        "${expected_reason}" "${actual_sha}")
+      set_property(GLOBAL PROPERTY ARM_SEMANTIC_CONTROLS_DONE TRUE)
+    else()
+      # Every stop gets its own clean-first context controls. A reason token
+      # cannot substitute for the real fetch/operation/exception witness.
+      list(GET trace_rows 0 first)
+      string(JSON changed_record SET "${first}" address "\"0x00000008\"")
+      set(changed_rows "${trace_rows}")
+      list(REMOVE_AT changed_rows 0)
+      list(PREPEND changed_rows "${changed_record}")
+      expect_arm_observation_refusal("${row_id}-vector-fetch" vector-fetch "${doc}"
+        "${changed_rows}" "${row_id}" "${row_kind}" "${expected_state}"
+        "${expected_reason}" "${actual_sha}")
+      set(changed_rows "")
+      foreach(record IN LISTS trace_rows)
+        string(JSON category GET "${record}" category)
+        if(row_id STREQUAL "448472880")
+          string(JSON value GET "${record}" value)
+          if(value STREQUAL "0xf0000000")
+            string(JSON record SET "${record}" value "\"0xe1a00000\"")
+          endif()
+          set(expected_finding stop-operation)
+        elseif(category EQUAL 4)
+          string(JSON record SET "${record}" exception_kind 0)
+          set(expected_finding exception-context)
+        endif()
+        list(APPEND changed_rows "${record}")
+      endforeach()
+      expect_arm_observation_refusal("${row_id}-wrong-operation-context"
+        "${expected_finding}" "${doc}" "${changed_rows}" "${row_id}"
+        "${row_kind}" "${expected_state}" "${expected_reason}" "${actual_sha}")
+    endif()
+  endfunction()
+
+  function(run_arm_pre_admission rom_name row_id row_kind expected_state expected_reason
+      proof_variant)
+    set(rom "${artifact_root}/roms/${rom_name}")
+    set(case_receipt_path "${artifact_root}/cases/${row_id}/proof/${proof_variant}/build-receipt.json")
+    if(NOT EXISTS "${rom}" OR IS_DIRECTORY "${rom}" OR IS_SYMLINK "${rom}" OR
+       NOT EXISTS "${case_receipt_path}" OR IS_DIRECTORY "${case_receipt_path}" OR
+       IS_SYMLINK "${case_receipt_path}")
+      message(FATAL_ERROR "diagnostics-case: arm-pair-artifact-missing: ${rom_name}")
+    endif()
+    file(SHA256 "${rom}" actual_rom_sha)
+    file(SIZE "${rom}" actual_rom_bytes)
+    file(READ "${case_receipt_path}" case_build_json)
+    string(JSON case_receipt_id ERROR_VARIABLE case_id_error GET "${case_build_json}" case_id)
+    string(JSON case_receipt_kind ERROR_VARIABLE case_kind_error GET "${case_build_json}" source_kind)
+    string(JSON case_receipt_sha ERROR_VARIABLE case_sha_error GET "${case_build_json}" rom_sha256)
+    string(JSON case_receipt_bytes ERROR_VARIABLE case_bytes_error GET "${case_build_json}" rom_bytes)
+    string(JSON case_receipt_commit ERROR_VARIABLE case_commit_error GET "${case_build_json}" source_commit)
+    foreach(error IN ITEMS case_id_error case_kind_error case_sha_error
+        case_bytes_error case_commit_error)
+      if(NOT "${${error}}" STREQUAL "NOTFOUND")
+        message(FATAL_ERROR "diagnostics-case: arm-case-receipt-invalid:${rom_name}")
+      endif()
+    endforeach()
+    if(NOT "${case_receipt_id}" STREQUAL "${row_id}" OR
+       NOT "${case_receipt_kind}" STREQUAL "${row_kind}" OR
+       NOT "${case_receipt_sha}" STREQUAL "${actual_rom_sha}" OR
+       NOT "${case_receipt_bytes}" EQUAL "${actual_rom_bytes}" OR
+       NOT "${case_receipt_commit}" STREQUAL "${receipt_commit}")
+      message(FATAL_ERROR "diagnostics-case: arm-case-receipt-identity-mismatch:${rom_name}")
+    endif()
+
+    set(trace_path "${result_root}/${rom_name}.trace.jsonl")
+    execute_process(
+      COMMAND "${runner}" --rom "${rom}" --cycles 1000 --trace-mask 7
+        --trace-capacity 4096 --trace-output "${trace_path}"
+      WORKING_DIRECTORY "${source_root}"
+      RESULT_VARIABLE runner_rc OUTPUT_VARIABLE runner_json ERROR_VARIABLE runner_error)
+    if(NOT "${runner_rc}" STREQUAL "1" OR "${runner_json}" STREQUAL "")
+      message(FATAL_ERROR "diagnostics-case: arm-raw-runner-failed:${rom_name}: ${runner_error}${runner_json}")
+    endif()
+    file(WRITE "${result_root}/${rom_name}.json" "${runner_json}")
+    # The canonical checker deliberately refuses raw content's null fixture ID
+    # and empty evidence claim. Require exactly that admission refusal; never
+    # insert synthetic authority merely to make an unregistered result pass.
+    execute_process(COMMAND "${CMAKE_COMMAND}"
+      "-DRESULT=${result_root}/${rom_name}.json"
+      "-DMANIFEST=${source_root}/tests/fixtures/manifest.json"
+      "-DREGISTRY=${source_root}/registry/disputes.json"
+      "-DVOCAB=${source_root}/contracts/evidence.json"
+      -P "${source_root}/cmake/CheckResult.cmake"
+      RESULT_VARIABLE checker_rc OUTPUT_VARIABLE checker_out ERROR_VARIABLE checker_error)
+    set(checker_text "${checker_out}${checker_error}")
+    file(WRITE "${result_root}/${rom_name}.checker.txt" "${checker_text}")
+    string(REGEX MATCHALL "result: [a-z-]+:" checker_findings "${checker_text}")
+    list(LENGTH checker_findings finding_count)
+    if(checker_rc STREQUAL "0" OR NOT finding_count EQUAL 2 OR
+       NOT checker_text MATCHES "result: missing-field: fixture.id" OR
+       NOT checker_text MATCHES "result: bad-evidence: claim.evidence: empty" OR
+       NOT checker_text MATCHES "result: failed [(]2 findings[)]")
+      message(FATAL_ERROR "diagnostics-case: arm-canonical-admission-refusal-mismatch:${rom_name}: ${checker_text}")
+    endif()
+    file(STRINGS "${trace_path}" trace_rows)
+    check_arm_observation(observation "${runner_json}" "${trace_rows}"
+      "${row_id}" "${row_kind}" "${expected_state}" "${expected_reason}" "${actual_rom_sha}")
+    if(NOT observation STREQUAL "ok")
+      message(FATAL_ERROR "diagnostics-case: arm-observation-${observation}:${rom_name}")
+    endif()
+    check_arm_observation_controls("${runner_json}" "${trace_rows}" "${row_id}"
+      "${row_kind}" "${expected_state}" "${expected_reason}" "${actual_rom_sha}")
+  endfunction()
+
+  string(JSON case_count LENGTH "${matrix_json}" cases)
+  math(EXPR case_last "${case_count}-1")
+  foreach(index RANGE 0 ${case_last})
+    string(JSON row_json GET "${matrix_json}" cases ${index})
+    string(JSON row_id GET "${row_json}" id)
+    string(JSON row_isa GET "${row_json}" isa)
+    string(JSON source_kind ERROR_VARIABLE source_kind_error GET
+      "${row_json}" source_test kind)
+    if(NOT "${source_kind_error}" STREQUAL "NOTFOUND" OR
+       NOT row_isa STREQUAL "arm" OR
+       NOT source_kind MATCHES "^(semantic|guest-stop)$")
+      continue()
+    endif()
+    if(source_kind STREQUAL "semantic")
+      foreach(name IN ITEMS "arm-${row_id}.gba" "arm-${row_id}-broken.gba")
+        list(APPEND expected_names "${name}")
+        if(name MATCHES "-broken[.]gba$")
+          set(state fail)
+          set(variant "arm-${row_id}-broken")
+          math(EXPR semantic_broken_count "${semantic_broken_count}+1")
+        else()
+          set(state pass)
+          set(variant "arm-${row_id}")
+          math(EXPR semantic_positive_count "${semantic_positive_count}+1")
+        endif()
+        run_arm_pre_admission("${name}" "${row_id}" semantic "${state}"
+          unregistered-content "${variant}")
+      endforeach()
+    else()
+      string(JSON stop_reason GET "${row_json}" source_test expected_reason)
+      set(name "arm-stop-${row_id}.gba")
+      set(variant "arm-stop-${row_id}")
+      list(APPEND expected_names "${name}")
+      run_arm_pre_admission("${name}" "${row_id}" guest-stop pending
+        "${stop_reason}" "${variant}")
+      math(EXPR stop_witness_count "${stop_witness_count}+1")
+    endif()
+  endforeach()
+  if(NOT semantic_positive_count EQUAL 244 OR
+     NOT semantic_broken_count EQUAL 244 OR NOT stop_witness_count EQUAL 4)
+    message(FATAL_ERROR
+      "diagnostics-case: arm-observation-count-mismatch: positive=${semantic_positive_count} broken=${semantic_broken_count} stops=${stop_witness_count}")
+  endif()
+  list(SORT expected_names)
+  set(receipt_names "")
+  math(EXPR receipt_names_last "${receipt_output_count}-1")
+  foreach(index RANGE 0 ${receipt_names_last})
+    string(JSON name GET "${matrix_build_json}" output_names ${index})
+    list(APPEND receipt_names "${name}")
+  endforeach()
+  list(SORT receipt_names)
+  if(NOT "${receipt_names}" STREQUAL "${expected_names}")
+    message(FATAL_ERROR "diagnostics-case: arm-matrix-output-set-mismatch")
+  endif()
+  file(GLOB actual_names RELATIVE "${artifact_root}/roms" "${artifact_root}/roms/*")
+  list(SORT actual_names)
+  if(NOT actual_names STREQUAL expected_names)
+    message(FATAL_ERROR "diagnostics-case: arm-rom-directory-set-mismatch")
+  endif()
+  file(STRINGS "${result_root}/controls.txt" observed_controls)
+  list(LENGTH observed_controls control_count)
+  if(NOT control_count EQUAL 25)
+    message(FATAL_ERROR "diagnostics-case: arm-observation-controls-missing")
+  endif()
+  file(WRITE "${result_root}/summary.txt"
+    "source.commit=${receipt_commit}\nsemantic.positive=${semantic_positive_count}\nsemantic.broken=${semantic_broken_count}\nstop.witnesses=${stop_witness_count}\nraw.status=GUEST_STOP\nsemantic.admission=unregistered-content\nresult.contract=unregistered-admission-refused\nraw.observation=checked\ntrace.context=checked\nvector.fetch=none\nobservation.controls=${control_count}\n")
+  message("diagnostics-case: ok (244 raw ARM pass/fail pairs; 4 named guest stops; all unregistered)")
+  return()
+endif()
 if(NOT CASE STREQUAL "smoke-pair")
   message(FATAL_ERROR "diagnostics-case: unsupported-case")
+endif()
+if(NOT DEFINED TOOLCHAIN_ROOT OR "${TOOLCHAIN_ROOT}" STREQUAL "")
+  message(FATAL_ERROR "diagnostics-case: missing-TOOLCHAIN_ROOT")
 endif()
 
 get_filename_component(source_root "${SRC}" ABSOLUTE)
