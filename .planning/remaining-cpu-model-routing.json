@@ -6,12 +6,14 @@
   "approved": "Owner selected Use stronger model for both CPU batches",
   "model": "gpt-6.1-sol",
   "effort": "high",
-  "status": "plan17_ready",
+  "status": "plan17_reviewed_plan18_ready",
   "restore_after": "Plan18 reviewed and focused checks complete",
   "restore_rule": "If config bytes match build/phase05-remaining-cpu-model/config-applied.json, restore exact config-before.json dirty owner bytes; otherwise restore only untouched trial fields preserving newer owner edits. Never restore HEAD config.",
   "unchanged_roles": [
     "gsd-code-reviewer",
     "gsd-code-fixer"
   ],
-  "approved_utc": "2026-11-13T00:27:30.756721+00:00"
+  "approved_utc": "2026-11-13T00:27:30.756721+00:00",
+  "plan17_dispatch_to_terminal_seconds": 950,
+  "plan17_review": "clean"
 }
