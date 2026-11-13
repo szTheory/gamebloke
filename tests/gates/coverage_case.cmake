@@ -84,6 +84,7 @@ foreach(line IN LISTS input_lines)
 endforeach()
 foreach(required_input IN ITEMS
     cmake/BuildArmDiagnostics.cmake cmake/FixGbaHeader.cmake
+    cmake/CheckArmCoverage.cmake cmake/GblJson.cmake
     diagnostics/armv4t/NOTICE diagnostics/armv4t/cases.json
     diagnostics/armv4t/inputs.txt diagnostics/armv4t/linker.ld
     diagnostics/armv4t/smoke.S diagnostics/armv4t/startup.S
@@ -125,6 +126,20 @@ function(find_case_index out family form)
   set(${out} "${found}" PARENT_SCOPE)
 endfunction()
 
+function(find_case_id_index out wanted_id)
+  gbl_json_length(count "${matrix_json}" cases)
+  math(EXPR last "${count}-1")
+  set(found -1)
+  foreach(index RANGE 0 ${last})
+    string(JSON row_id GET "${matrix_json}" cases ${index} id)
+    if(row_id STREQUAL "${wanted_id}")
+      set(found "${index}")
+      break()
+    endif()
+  endforeach()
+  set(${out} "${found}" PARENT_SCOPE)
+endfunction()
+
 function(checker_failure label mode matrix_path expected_code)
   set(manifest_path "${source_root}/tests/fixtures/manifest.json")
   if(ARGC GREATER 4)
@@ -150,7 +165,10 @@ if(NOT "${clean_rc}" STREQUAL "0" OR
    NOT clean_combined MATCHES "coverage: ok" OR
    NOT clean_combined MATCHES "targets=334" OR
    NOT clean_combined MATCHES "pending=356" OR
-   NOT clean_combined MATCHES "source-verified=1")
+   NOT clean_combined MATCHES "source-verified=1" OR
+   NOT clean_combined MATCHES "semantic-sources=244" OR
+   NOT clean_combined MATCHES "guest-stops=4" OR
+   NOT clean_combined MATCHES "cpu-api=19")
   message(FATAL_ERROR "coverage-case: clean-ledger-control-failed: ${clean_error}${clean_out}")
 endif()
 message(STATUS "coverage-case: clean draft inventory passed (334 ARM/Thumb forms; formats 1..19)")
@@ -163,7 +181,24 @@ checker_failure(zero-id draft "${variant}" invalid-id)
 find_case_index(smoke_index diagnostic-harness
   smoke-positive-and-real-assertion-broken-same-case-pair)
 find_case_index(target_index data-processing AND:rotated-immediate)
-if(smoke_index LESS 0 OR target_index LESS 0)
+find_case_index(stop_index condition NV-1111)
+find_case_index(cpu9_index cpu-quirk "CPU-9 exception decode")
+find_case_index(cpu7_index cpu-quirk "CPU-7 Thumb BL boundary")
+find_case_id_index(short_multiply_policy_index 1147774326)
+find_case_id_index(long_multiply_policy_index 1263725929)
+find_case_id_index(data_wrap_policy_index 1275797271)
+find_case_id_index(loaded_pc_policy_index 1214630623)
+find_case_id_index(sequential_wrap_policy_index 1232880025)
+find_case_id_index(timing_policy_index 1129470292)
+find_case_id_index(mul_source_index 419836810)
+find_case_id_index(data_wrap_source_index 529906570)
+find_case_id_index(odd_ldrh_source_index 363662911)
+if(smoke_index LESS 0 OR target_index LESS 0 OR stop_index LESS 0 OR
+   cpu9_index LESS 0 OR cpu7_index LESS 0 OR
+   short_multiply_policy_index LESS 0 OR long_multiply_policy_index LESS 0 OR
+   data_wrap_policy_index LESS 0 OR loaded_pc_policy_index LESS 0 OR
+   sequential_wrap_policy_index LESS 0 OR timing_policy_index LESS 0 OR
+   mul_source_index LESS 0 OR data_wrap_source_index LESS 0 OR odd_ldrh_source_index LESS 0)
   message(FATAL_ERROR "coverage-case: required-control-case-missing")
 endif()
 string(JSON smoke_id GET "${matrix_json}" cases ${smoke_index} id)
@@ -193,6 +228,105 @@ string(JSON changed SET "${changed}" cases ${smoke_index}
   broken_assertion thumb_broken_operand 6)
 file(WRITE "${variant}" "${changed}\n")
 checker_failure(malformed-verified-smoke draft "${variant}" broken-assertion-invalid)
+
+set(variant "${control_root}/missing-arm-source.json")
+string(JSON changed REMOVE "${matrix_json}" cases ${target_index} source_test)
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(missing-arm-source draft "${variant}" arm-source-test-missing)
+
+set(variant "${control_root}/same-arm-expectations.json")
+string(JSON target_expected GET "${matrix_json}" cases ${target_index}
+  source_test independent_expectation expected_value)
+string(JSON changed SET "${matrix_json}" cases ${target_index}
+  source_test independent_expectation broken_expected "\"${target_expected}\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(same-arm-expectations draft "${variant}" semantic-source-invalid)
+
+set(variant "${control_root}/missing-stop-boundary.json")
+string(JSON changed REMOVE "${matrix_json}" cases ${stop_index} execution_boundary)
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(missing-stop-boundary draft "${variant}" missing-execution-boundary)
+
+set(variant "${control_root}/false-stop-status.json")
+string(JSON changed SET "${matrix_json}" cases ${stop_index} expected_status
+  "\"GUEST_STOP/unregistered-content; semantic PASS/FAIL\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(false-stop-status draft "${variant}" guest-stop-source-invalid)
+
+set(variant "${control_root}/false-stop-operation.json")
+string(JSON changed SET "${matrix_json}" cases ${stop_index} source_test operation
+  "\"mov r0,#0\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(false-stop-operation draft "${variant}" guest-stop-source-invalid)
+
+set(variant "${control_root}/false-api-boundary.json")
+string(JSON changed SET "${matrix_json}" cases ${cpu9_index} expected_status
+  "\"GUEST_STOP/no-bios-undefined\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(false-api-boundary draft "${variant}" cpu-api-boundary-invalid)
+
+set(variant "${control_root}/missing-cpu9-stop-link.json")
+string(JSON changed REMOVE "${matrix_json}" cases ${cpu9_index}
+  companion_case_ids 0)
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(missing-cpu9-stop-link draft "${variant}" cpu9-stop-companion-missing)
+
+set(variant "${control_root}/duplicate-companion.json")
+string(JSON first_companion GET "${matrix_json}" cases ${cpu9_index}
+  companion_case_ids 0)
+string(JSON changed SET "${matrix_json}" cases ${cpu9_index}
+  companion_case_ids 1 ${first_companion})
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(duplicate-companion draft "${variant}" duplicate-companion-case-id)
+
+set(variant "${control_root}/missing-api-irq-lower-boundary.json")
+string(JSON changed SET "${matrix_json}" cases ${cpu7_index} expected value
+  "\"API-only observation\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(missing-api-irq-lower-boundary draft "${variant}" api-irq-boundary-invalid)
+
+set(variant "${control_root}/missing-short-multiply-policy-companion.json")
+string(JSON changed REMOVE "${matrix_json}" cases ${short_multiply_policy_index}
+  companion_case_ids 0)
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(missing-short-multiply-policy-companion draft "${variant}"
+  policy-companion-map-invalid)
+
+set(variant "${control_root}/missing-s-multiply-assertion.json")
+string(JSON mul_program GET "${matrix_json}" cases ${mul_source_index} source_test program)
+string(REPLACE "muls r0,r1,r2" "mul r0,r1,r2" broken_mul_program "${mul_program}")
+string(REPLACE "\n" "\\n" encoded_mul_program "${broken_mul_program}")
+string(JSON changed SET "${matrix_json}" cases ${mul_source_index} source_test program
+  "\"${encoded_mul_program}\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(missing-s-multiply-assertion draft "${variant}"
+  semantic-multiply-flags-invalid)
+
+set(variant "${control_root}/missing-data-wrap-policy-companion.json")
+string(JSON changed REMOVE "${matrix_json}" cases ${data_wrap_policy_index}
+  companion_case_ids 0)
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(missing-data-wrap-policy-companion draft "${variant}"
+  policy-companion-map-invalid)
+
+set(variant "${control_root}/generic-loaded-pc-policy-companion.json")
+string(JSON changed SET "${matrix_json}" cases ${loaded_pc_policy_index}
+  companion_case_ids 0 529906570)
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(generic-loaded-pc-policy-companion draft "${variant}"
+  policy-companion-map-invalid)
+
+set(variant "${control_root}/aligned-only-ldrh-source.json")
+string(JSON odd_ldrh_program GET "${matrix_json}" cases ${odd_ldrh_source_index}
+  source_test program)
+string(REPLACE "ldrh r0, [r4, #5]" "ldrh r0, [r4, #4]"
+  aligned_ldrh_program "${odd_ldrh_program}")
+string(REPLACE "\n" "\\n" encoded_aligned_ldrh_program "${aligned_ldrh_program}")
+string(JSON changed SET "${matrix_json}" cases ${odd_ldrh_source_index}
+  source_test program "\"${encoded_aligned_ldrh_program}\"")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(aligned-only-ldrh-source draft "${variant}"
+  semantic-source-edge-invalid)
 
 set(variant "${control_root}/temporal-smoke-expectation.json")
 string(JSON changed SET "${matrix_json}" cases ${smoke_index} expected value
@@ -259,8 +393,13 @@ set(pending_case_id "")
 foreach(index RANGE 0 ${case_last})
   string(JSON row_json GET "${matrix_json}" cases ${index})
   string(JSON inventory_target GET "${row_json}" inventory_target)
+  string(JSON row_isa GET "${row_json}" isa)
   gbl_json_string(coverage_state "${row_json}" coverage_state)
-  if(inventory_target AND coverage_state STREQUAL "pending")
+  string(JSON source_kind_error ERROR_VARIABLE source_kind_error GET
+    "${row_json}" source_test kind)
+  if(inventory_target AND row_isa STREQUAL "thumb" AND
+     coverage_state STREQUAL "pending" AND
+     NOT "${source_kind_error}" STREQUAL "NOTFOUND")
     string(JSON pending_case_id GET "${row_json}" id)
     break()
   endif()
@@ -273,7 +412,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
     "-DOUT=${control_root}/pending-case-output"
     "-DTOOLCHAIN_ROOT=${source_root}/build/toolchains"
-    -DMODE=case "-DCASE_ID=${pending_case_id}"
+    -DMODE=case -DISA=arm "-DCASE_ID=${pending_case_id}"
     -P "${builder}"
   RESULT_VARIABLE case_rc OUTPUT_VARIABLE case_out ERROR_VARIABLE case_error)
 set(case_combined "${case_out}${case_error}")
@@ -290,9 +429,8 @@ execute_process(
   RESULT_VARIABLE all_rc OUTPUT_VARIABLE all_out ERROR_VARIABLE all_error)
 set(all_combined "${all_out}${all_error}")
 if("${all_rc}" STREQUAL "0" OR
-   NOT all_combined MATCHES "arm-diagnostics: all-cases-incomplete: pending=356" OR
-   NOT all_combined MATCHES "source-verified=1")
+   NOT all_combined MATCHES "arm-diagnostics: all-output-must-be-build/phase05-matrix/arm")
   message(FATAL_ERROR "coverage-case: all-builder-refusal-failed: ${all_combined}")
 endif()
-message(STATUS "coverage-case: aggregate build refused while cases remain pending")
+message(STATUS "coverage-case: aggregate builder refuses an unsafe output root")
 message("coverage-case: ok (draft/final/admission states, source-input boundary, and mutation controls)")

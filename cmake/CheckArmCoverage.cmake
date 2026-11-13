@@ -336,6 +336,52 @@ foreach(index RANGE 0 ${case_last})
        NOT program MATCHES "${broken_expected}")
       gbl_cov_error(semantic-source-invalid "${row_id}")
     endif()
+    if(row_family STREQUAL "multiply")
+      string(TOLOWER "${row_form}" multiply_form_lower)
+      string(TOLOWER "${program}" multiply_program_lower)
+      string(FIND "${multiply_program_lower}" "${multiply_form_lower} " non_s_multiply_position)
+      string(FIND "${multiply_program_lower}" "${multiply_form_lower}s " s_multiply_position)
+      string(REGEX MATCHALL "GBL_ASSERT_MASKED" masked_assertions "${program}")
+      list(LENGTH masked_assertions masked_assertion_count)
+      if(non_s_multiply_position LESS 0 OR s_multiply_position LESS 0 OR
+         masked_assertion_count LESS 3 OR
+         NOT program MATCHES "0xF0000000" OR
+         NOT program MATCHES "0xC0000000" OR
+         NOT program MATCHES "0x30000000")
+        gbl_cov_error(semantic-multiply-flags-invalid "${row_id}")
+      endif()
+    endif()
+    if(row_id STREQUAL "529906570")
+      if(NOT program MATCHES "0xFFFFFFFC" OR
+         NOT program MATCHES "0x01800002" OR
+         NOT program MATCHES "0x03000000" OR
+         NOT program MATCHES "r5, LSL #1" OR
+         NOT program MATCHES "0x11223344")
+        gbl_cov_error(semantic-source-edge-invalid "${row_id}: scaled-address-wrap")
+      endif()
+    elseif(row_id STREQUAL "363662911")
+      if(NOT program MATCHES "ldrh r0, \\[r4, #5\\]" OR
+         NOT program MATCHES "0x00004433")
+        gbl_cov_error(semantic-source-edge-invalid "${row_id}: odd-LDRH-rotation")
+      endif()
+    elseif(row_id STREQUAL "375018760")
+      if(NOT program MATCHES "ldrsh r0, \\[r4, #5\\]" OR
+         NOT program MATCHES "0xFFFFFF80")
+        gbl_cov_error(semantic-source-edge-invalid "${row_id}: odd-LDRSH-signed-byte")
+      endif()
+    elseif(row_id STREQUAL "397407432")
+      if(NOT program MATCHES "strh r2, \\[r4, #5\\]" OR
+         NOT program MATCHES "0x5566C3D4")
+        gbl_cov_error(semantic-source-edge-invalid "${row_id}: odd-STRH-align-down")
+      endif()
+    elseif(row_id STREQUAL "314196076" OR row_id STREQUAL "433134728")
+      if(NOT program MATCHES "Lpc_target\\+3" OR
+         NOT program MATCHES "0x00000011" OR
+         NOT program MATCHES "0x00000022" OR
+         NOT program MATCHES "mrs r1,cpsr")
+        gbl_cov_error(semantic-source-edge-invalid "${row_id}: odd-loaded-PC-target")
+      endif()
+    endif()
   elseif(source_kind STREQUAL "guest-stop")
     math(EXPR guest_stop_count "${guest_stop_count}+1")
     string(JSON program GET "${row_json}" source_test program)
@@ -376,6 +422,31 @@ foreach(index RANGE 0 ${case_last})
        NOT row_expected_status MATCHES "^API_ONLY($|/no-bios-vector-boundary$)" OR
        "${api_evidence}" STREQUAL "")
       gbl_cov_error(cpu-api-boundary-invalid "${row_id}")
+    endif()
+    if(row_id STREQUAL "1147774326")
+      if(NOT row_companions STREQUAL "419836810;301305780" OR
+         NOT api_evidence MATCHES "exact MUL and MLA source cases")
+        gbl_cov_error(policy-companion-map-invalid "${row_id}: short-multiply-flags")
+      endif()
+    elseif(row_id STREQUAL "1263725929")
+      if(NOT row_companions STREQUAL "320234117;378322231;324645631;519488761" OR
+         NOT api_evidence MATCHES "exact UMULL, UMLAL, SMULL and SMLAL")
+        gbl_cov_error(policy-companion-map-invalid "${row_id}: long-multiply-flags")
+      endif()
+    elseif(row_id STREQUAL "1275797271")
+      if(NOT row_companions STREQUAL "529906570" OR
+         NOT api_evidence MATCHES "exact scaled-register LDR case")
+        gbl_cov_error(policy-companion-map-invalid "${row_id}: data-address-wrap")
+      endif()
+    elseif(row_id STREQUAL "1214630623")
+      if(NOT row_companions STREQUAL "314196076;433134728" OR
+         NOT api_evidence MATCHES "deliberately odd \.Lpc_target\\+3")
+        gbl_cov_error(policy-companion-map-invalid "${row_id}: loaded-PC-alignment")
+      endif()
+    elseif(row_id STREQUAL "1232880025" OR row_id STREQUAL "1129470292")
+      if(NOT row_companions STREQUAL "")
+        gbl_cov_error(policy-companion-map-invalid "${row_id}: unavailable-api-boundary")
+      endif()
     endif()
     if(row_family STREQUAL "cpu-quirk" AND
        row_form STREQUAL "CPU-9 exception decode")

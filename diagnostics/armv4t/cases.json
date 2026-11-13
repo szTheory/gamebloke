@@ -3406,7 +3406,7 @@
       "observe": "Observe instruction-state, visible PC, target alignment, refill addresses, LR and trace ordering.",
       "expected": {
         "derivation": "Apply ARM7TDMI PC operand and ARMv4T state-transition rules; ordinary LDR/LDM PC must not import ARMv5 interworking.",
-        "value": "State, aligned target and refill sequence follow the instruction-specific rule in DDI0029G/DDI0100I."
+        "value": "An odd LDR-to-PC target clears low alignment bits, executes the 0x11 target sentinel, skips 0x22, and leaves T clear."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -3425,12 +3425,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=.Lpc_target\nldr pc,[r4]\n.Lpc_target:\nmov r0,#1\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nmrs r1,cpsr\nand r1,r1,#0x20\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
+        "program": "ldr r4,=.Lpc_target+3\nldr pc,[r4]\n.Lpc_target:\nmov r0,#0x11\nb .Lpc_done\nmov r0,#0x22\n.Lpc_done:\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000022\nmrs r1,cpsr\nand r1,r1,#0x20\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
         "independent_expectation": {
           "instruction": "ldr-pc-preserves-arm-state",
-          "derivation": "Address/refill expectation derives from the ARM/Thumb instruction address and documented pipeline PC rule.",
-          "expected_value": "0x00000001",
-          "broken_expected": "0x00000000",
+          "derivation": "The loaded target is deliberately odd (.Lpc_target+3). ARMv4T LDR-to-PC clears alignment bits without importing Thumb state; the aligned target writes 0x11 and branches around a contrasting 0x22 sentinel. The CPSR T-bit assertion independently checks ARM state.",
+          "expected_value": "0x00000011",
+          "broken_expected": "0x00000022",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -3445,7 +3445,7 @@
       "observe": "Observe instruction-state, visible PC, target alignment, refill addresses, LR and trace ordering.",
       "expected": {
         "derivation": "Apply ARM7TDMI PC operand and ARMv4T state-transition rules; ordinary LDR/LDM PC must not import ARMv5 interworking.",
-        "value": "State, aligned target and refill sequence follow the instruction-specific rule in DDI0029G/DDI0100I."
+        "value": "Odd LDM-to-PC target clears low alignment bits, executes 0x11, skips 0x22, and leaves T clear."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -3464,10 +3464,10 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lpc_data\nldmia r4,{pc}\n.Lpc_target:\nmrs r0,cpsr\nand r0,r0,#0x20\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nb .Lpc_done\n.align 2\n.Lpc_data:.word .Lpc_target\n.Lpc_done:\n",
+        "program": "adr r4,.Lpc_data\nldmia r4,{pc}\n.Lpc_target:\nmov r0,#0x11\nb .Lpc_done\nmov r0,#0x22\n.Lpc_done:\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000022\nmrs r1,cpsr\nand r1,r1,#0x20\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n.align 2\n.Lpc_data:.word .Lpc_target+3\n",
         "independent_expectation": {
           "instruction": "ldm-pc-without-s-preserves-t",
-          "derivation": "Address/refill expectation derives from the ARM/Thumb instruction address and documented pipeline PC rule.",
+          "derivation": "LDM loads an odd PC value (.Lpc_target+3) but, without S, ARMv4T stays in ARM state and applies the loaded-PC alignment policy. The 0x11 target sentinel must execute and skip the contrasting 0x22 instruction; the T-bit assertion checks state.",
           "expected_value": "0x00000000",
           "broken_expected": "0x00000001",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -4541,15 +4541,20 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mov r1,#3\nmov r2,#7\nmul r0,r1,r2\nGBL_ASSERT_EQ r0, 0x00000015, 0x00000014\n",
+        "program": "mov r1,#3\nmov r2,#7\nldr r7, =0x30000000\nmsr cpsr_f, r7\nmul r0,r1,r2\nmrs r8, cpsr\nGBL_ASSERT_MASKED r8, 0xF0000000, 0x30000000, 0x20000000\nldr r7, =0x30000000\nmsr cpsr_f, r7\nmuls r0,r1,r2\nmrs r8,cpsr\nGBL_ASSERT_EQ r0, 0x00000015, 0x00000014\nGBL_ASSERT_MASKED r8, 0xC0000000, 0x00000000, 0x40000000\nGBL_ASSERT_MASKED r8, 0x30000000, 0x30000000, 0x20000000\n",
         "independent_expectation": {
           "instruction": "MUL",
           "expected_low": "0x00000015",
           "expected_high": "0x00000000",
-          "derivation": "Independent integer multiply/accumulate with explicit 32-bit register halves.",
+          "derivation": "Execute the existing non-S form and the S form with identical operands. The non-S instruction must preserve seeded NZCV; the S form derives N/Z from the 32-bit or 64-bit result and separately preserves the explicit C/V policy bits. Products and accumulators are hand-derived from the literal operands.",
           "expected_value": "0x00000015",
           "broken_expected": "0x00000014",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
+        },
+        "flag_assertions": {
+          "non_s": "NZCV=0x30000000 is captured immediately after the legacy instruction.",
+          "s_defined": "NZ is captured immediately after the S-form instruction and checked against the result sign/zero state.",
+          "s_policy": "C/V=0x30000000 are checked separately as the chosen deterministic policy."
         }
       }
     },
@@ -4582,15 +4587,20 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mov r1,#3\nmov r2,#7\nmov r3,#5\nmla r0,r1,r2,r3\nGBL_ASSERT_EQ r0, 0x0000001A, 0x0000001B\n",
+        "program": "mov r1,#3\nmov r2,#7\nmov r3,#5\nldr r7, =0x30000000\nmsr cpsr_f, r7\nmla r0,r1,r2,r3\nmrs r8, cpsr\nGBL_ASSERT_MASKED r8, 0xF0000000, 0x30000000, 0x20000000\nmov r0,#5\nldr r7, =0x30000000\nmsr cpsr_f, r7\nmlas r0,r1,r2,r3\nmrs r8,cpsr\nGBL_ASSERT_EQ r0, 0x0000001A, 0x0000001B\nGBL_ASSERT_MASKED r8, 0xC0000000, 0x00000000, 0x40000000\nGBL_ASSERT_MASKED r8, 0x30000000, 0x30000000, 0x20000000\n",
         "independent_expectation": {
           "instruction": "MLA",
           "expected_low": "0x0000001A",
           "expected_high": "0x00000000",
-          "derivation": "Independent integer multiply/accumulate with explicit 32-bit register halves.",
+          "derivation": "Execute the existing non-S form and the S form with identical operands. The non-S instruction must preserve seeded NZCV; the S form derives N/Z from the 32-bit or 64-bit result and separately preserves the explicit C/V policy bits. Products and accumulators are hand-derived from the literal operands.",
           "expected_value": "0x0000001A",
           "broken_expected": "0x0000001B",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
+        },
+        "flag_assertions": {
+          "non_s": "NZCV=0x30000000 is captured immediately after the legacy instruction.",
+          "s_defined": "NZ is captured immediately after the S-form instruction and checked against the result sign/zero state.",
+          "s_policy": "C/V=0x30000000 are checked separately as the chosen deterministic policy."
         }
       }
     },
@@ -4623,15 +4633,20 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mov r2,#3\nmov r3,#7\numull r0,r1,r2,r3\nGBL_ASSERT_EQ r0, 0x00000015, 0x00000014\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
+        "program": "mov r2,#3\nmov r3,#7\nldr r7, =0x30000000\nmsr cpsr_f, r7\numull r0,r1,r2,r3\nmrs r8, cpsr\nGBL_ASSERT_MASKED r8, 0xF0000000, 0x30000000, 0x20000000\nldr r7, =0x30000000\nmsr cpsr_f, r7\numulls r0,r1,r2,r3\nmrs r8,cpsr\nGBL_ASSERT_EQ r0, 0x00000015, 0x00000014\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r8, 0xC0000000, 0x00000000, 0x40000000\nGBL_ASSERT_MASKED r8, 0x30000000, 0x30000000, 0x20000000\n",
         "independent_expectation": {
           "instruction": "UMULL",
           "expected_low": "0x00000015",
           "expected_high": "0x00000000",
-          "derivation": "Independent integer multiply/accumulate with explicit 32-bit register halves.",
+          "derivation": "Execute the existing non-S form and the S form with identical operands. The non-S instruction must preserve seeded NZCV; the S form derives N/Z from the 32-bit or 64-bit result and separately preserves the explicit C/V policy bits. Products and accumulators are hand-derived from the literal operands.",
           "expected_value": "0x00000015",
           "broken_expected": "0x00000014",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
+        },
+        "flag_assertions": {
+          "non_s": "NZCV=0x30000000 is captured immediately after the legacy instruction.",
+          "s_defined": "NZ is captured immediately after the S-form instruction and checked against the result sign/zero state.",
+          "s_policy": "C/V=0x30000000 are checked separately as the chosen deterministic policy."
         }
       }
     },
@@ -4664,15 +4679,20 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mov r2,#3\nmov r3,#7\nmov r0,#5\nmov r1,#1\numlal r0,r1,r2,r3\nGBL_ASSERT_EQ r0, 0x0000001A, 0x0000001B\nGBL_ASSERT_EQ r1, 0x00000001, 0x00000000\n",
+        "program": "mov r2,#3\nmov r3,#7\nmov r0,#5\nmov r1,#1\nldr r7, =0x30000000\nmsr cpsr_f, r7\numlal r0,r1,r2,r3\nmrs r8, cpsr\nGBL_ASSERT_MASKED r8, 0xF0000000, 0x30000000, 0x20000000\nmov r0,#5\nmov r1,#1\nldr r7, =0x30000000\nmsr cpsr_f, r7\numlals r0,r1,r2,r3\nmrs r8,cpsr\nGBL_ASSERT_EQ r0, 0x0000001A, 0x0000001B\nGBL_ASSERT_EQ r1, 0x00000001, 0x00000000\nGBL_ASSERT_MASKED r8, 0xC0000000, 0x00000000, 0x40000000\nGBL_ASSERT_MASKED r8, 0x30000000, 0x30000000, 0x20000000\n",
         "independent_expectation": {
           "instruction": "UMLAL",
           "expected_low": "0x0000001A",
           "expected_high": "0x00000001",
-          "derivation": "Independent integer multiply/accumulate with explicit 32-bit register halves.",
+          "derivation": "Execute the existing non-S form and the S form with identical operands. The non-S instruction must preserve seeded NZCV; the S form derives N/Z from the 32-bit or 64-bit result and separately preserves the explicit C/V policy bits. Products and accumulators are hand-derived from the literal operands.",
           "expected_value": "0x0000001A",
           "broken_expected": "0x0000001B",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
+        },
+        "flag_assertions": {
+          "non_s": "NZCV=0x30000000 is captured immediately after the legacy instruction.",
+          "s_defined": "NZ is captured immediately after the S-form instruction and checked against the result sign/zero state.",
+          "s_policy": "C/V=0x30000000 are checked separately as the chosen deterministic policy."
         }
       }
     },
@@ -4705,15 +4725,20 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mvn r2,#0\nmov r3,#3\nsmull r0,r1,r2,r3\nGBL_ASSERT_EQ r0, 0xFFFFFFFD, 0xFFFFFFFC\nGBL_ASSERT_EQ r1, 0xFFFFFFFF, 0xFFFFFFFE\n",
+        "program": "mvn r2,#0\nmov r3,#3\nldr r7, =0x30000000\nmsr cpsr_f, r7\nsmull r0,r1,r2,r3\nmrs r8, cpsr\nGBL_ASSERT_MASKED r8, 0xF0000000, 0x30000000, 0x20000000\nldr r7, =0x30000000\nmsr cpsr_f, r7\nsmulls r0,r1,r2,r3\nmrs r8,cpsr\nGBL_ASSERT_EQ r0, 0xFFFFFFFD, 0xFFFFFFFC\nGBL_ASSERT_EQ r1, 0xFFFFFFFF, 0xFFFFFFFE\nGBL_ASSERT_MASKED r8, 0xC0000000, 0x80000000, 0xC0000000\nGBL_ASSERT_MASKED r8, 0x30000000, 0x30000000, 0x20000000\n",
         "independent_expectation": {
           "instruction": "SMULL",
           "expected_low": "0xFFFFFFFD",
           "expected_high": "0xFFFFFFFF",
-          "derivation": "Independent integer multiply/accumulate with explicit 32-bit register halves.",
+          "derivation": "Execute the existing non-S form and the S form with identical operands. The non-S instruction must preserve seeded NZCV; the S form derives N/Z from the 32-bit or 64-bit result and separately preserves the explicit C/V policy bits. Products and accumulators are hand-derived from the literal operands.",
           "expected_value": "0xFFFFFFFD",
           "broken_expected": "0xFFFFFFFC",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
+        },
+        "flag_assertions": {
+          "non_s": "NZCV=0x30000000 is captured immediately after the legacy instruction.",
+          "s_defined": "NZ is captured immediately after the S-form instruction and checked against the result sign/zero state.",
+          "s_policy": "C/V=0x30000000 are checked separately as the chosen deterministic policy."
         }
       }
     },
@@ -4746,15 +4771,20 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mvn r2,#0\nmov r3,#3\nmov r0,#5\nmov r1,#0\nsmlal r0,r1,r2,r3\nGBL_ASSERT_EQ r0, 0x00000002, 0x00000003\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
+        "program": "mvn r2,#0\nmov r3,#3\nmov r0,#5\nmov r1,#0\nldr r7, =0x30000000\nmsr cpsr_f, r7\nsmlal r0,r1,r2,r3\nmrs r8, cpsr\nGBL_ASSERT_MASKED r8, 0xF0000000, 0x30000000, 0x20000000\nmov r0,#5\nmov r1,#0\nldr r7, =0x30000000\nmsr cpsr_f, r7\nsmlals r0,r1,r2,r3\nmrs r8,cpsr\nGBL_ASSERT_EQ r0, 0x00000002, 0x00000003\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r8, 0xC0000000, 0x00000000, 0x40000000\nGBL_ASSERT_MASKED r8, 0x30000000, 0x30000000, 0x20000000\n",
         "independent_expectation": {
           "instruction": "SMLAL",
           "expected_low": "0x00000002",
           "expected_high": "0x00000000",
-          "derivation": "Independent integer multiply/accumulate with explicit 32-bit register halves.",
+          "derivation": "Execute the existing non-S form and the S form with identical operands. The non-S instruction must preserve seeded NZCV; the S form derives N/Z from the 32-bit or 64-bit result and separately preserves the explicit C/V policy bits. Products and accumulators are hand-derived from the literal operands.",
           "expected_value": "0x00000002",
           "broken_expected": "0x00000003",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
+        },
+        "flag_assertions": {
+          "non_s": "NZCV=0x30000000 is captured immediately after the legacy instruction.",
+          "s_defined": "NZ is captured immediately after the S-form instruction and checked against the result sign/zero state.",
+          "s_policy": "C/V=0x30000000 are checked separately as the chosen deterministic policy."
         }
       }
     },
@@ -5674,7 +5704,7 @@
       "observe": "Observe exact address, byte/word bus transactions, writeback, destination/source snapshot and alignment behavior.",
       "expected": {
         "derivation": "Apply ARM7TDMI Table 1-3 and ARM ARM A5.2–A5.4 P/U/B/W/L decoding and register-shift rules.",
-        "value": "Effective address and transfer width follow P/U/B/W/L; writes occur through bus; defined alignment result follows the GBA reference policy."
+        "value": "LDR reads the seeded IWRAM sentinel at (0xFFFFFFFC + (0x01800002 << 1)) modulo 2^32 = 0x03000000, without writeback."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5695,16 +5725,17 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r0, =0x11223344\nstr r0, [r4, #4]\nmov r6, r4\nmov r5,#1\nldr r0, [r4, r5, LSL #2]\nGBL_ASSERT_EQ r0, 0x11223344, 0x11223345\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n\n",
+        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r4, =0xFFFFFFFC\nmov r6, r4\nldr r5, =0x01800002\nldr r0, [r4, r5, LSL #1]\nGBL_ASSERT_EQ r0, 0x11223344, 0x11223345\ncmp r4, r6\nbne .Ldiagnostic_assert_fail\n",
         "independent_expectation": {
           "instruction": "LDR",
           "address_form": "scaled-register:pre-no-writeback",
           "expected_value": "0x11223344",
           "writeback": false,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
+          "derivation": "Seed IWRAM at 0x03000000. The source base 0xFFFFFFFC plus the shifted-register offset 0x03000004 wraps modulo 2^32 to 0x03000000; the loaded sentinel distinguishes the wrapped target from an unchecked overflow address.",
           "broken_expected": "0x11223345",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
+        },
+        "edge": "effective-address wraps from 0xFFFFFFFC plus scaled register offset 0x03000004 to seeded IWRAM 0x03000000"
       }
     },
     {
@@ -6846,7 +6877,7 @@
       "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
+        "value": "Odd LDRH at r4+5 rotates the aligned halfword 0x3344 by eight bits to 0x4433."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -6865,16 +6896,17 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r0, =0x11223344\nstr r0, [r4, #4]\nmov r6, r4\nldrh r0, [r4, #4]\nGBL_ASSERT_EQ r0, 0x00003344, 0x00003345\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n\n",
+        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r0, =0x11223344\nstr r0, [r4, #4]\nmov r6, r4\nldrh r0, [r4, #5]\nGBL_ASSERT_EQ r0, 0x00004433, 0x00004432\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n",
         "independent_expectation": {
           "instruction": "LDRH",
           "address_form": "split-nibble-immediate:pre-no-writeback",
-          "expected_value": "0x00003344",
+          "expected_value": "0x00004433",
           "writeback": false,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0x00003345",
+          "derivation": "An odd LDRH address rotates the aligned halfword by eight bits: bytes at r4+4 are 0x44,0x33, yielding 0x4433 at r4+5. Base r4 is unchanged.",
+          "broken_expected": "0x00004432",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
+        },
+        "edge": "odd halfword load at base+5 rotates aligned 0x3344 to 0x4433"
       }
     },
     {
@@ -7174,7 +7206,7 @@
       "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
+        "value": "Odd STRH at r4+5 aligns the store down to r4+4 and writes low halfword 0xC3D4."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -7193,16 +7225,17 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x55667788\nstr r0, [r4]\nldr r0, =0x55667788\nstr r0, [r4, #4]\nmov r6, r4\nldr r2, =0xA1B2C3D4\nstrh r2, [r4, #4]\nldr r0, [r6, #4]\nGBL_ASSERT_EQ r0, 0x5566C3D4, 0x5566C3D5\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n\n",
+        "program": "ldr r4, =0x03000000\nldr r0, =0x55667788\nstr r0, [r4]\nldr r0, =0x55667788\nstr r0, [r4, #4]\nmov r6, r4\nldr r2, =0xA1B2C3D4\nstrh r2, [r4, #5]\nldr r0, [r6, #4]\nGBL_ASSERT_EQ r0, 0x5566C3D4, 0x5566C3D5\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n",
         "independent_expectation": {
           "instruction": "STRH",
           "address_form": "split-nibble-immediate:pre-no-writeback",
           "expected_value": "0x5566C3D4",
           "writeback": false,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
+          "derivation": "Odd STRH aligns the halfword write down to r4+4. Low source halfword 0xC3D4 replaces the seeded low halfword, leaving the upper bytes 0x5566; base r4 is unchanged.",
           "broken_expected": "0x5566C3D5",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
+        },
+        "edge": "odd halfword store at base+5 aligns down and replaces the sentinel low halfword"
       }
     },
     {
@@ -7830,7 +7863,7 @@
       "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
+        "value": "Odd LDRSH at r4+5 follows the signed-byte rule: byte 0x80 sign-extends to 0xFFFFFF80."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -7849,16 +7882,17 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11228001\nstr r0, [r4]\nldr r0, =0x11228001\nstr r0, [r4, #4]\nmov r6, r4\nldrsh r0, [r4, #4]\nGBL_ASSERT_EQ r0, 0xFFFF8001, 0xFFFF8000\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n\n",
+        "program": "ldr r4, =0x03000000\nldr r0, =0x11228001\nstr r0, [r4]\nldr r0, =0x11228001\nstr r0, [r4, #4]\nmov r6, r4\nldrsh r0, [r4, #5]\nGBL_ASSERT_EQ r0, 0xFFFFFF80, 0xFFFFFF81\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n",
         "independent_expectation": {
           "instruction": "LDRSH",
           "address_form": "split-nibble-immediate:pre-no-writeback",
-          "expected_value": "0xFFFF8001",
+          "expected_value": "0xFFFFFF80",
           "writeback": false,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0xFFFF8000",
+          "derivation": "For odd LDRSH, the ARMv4T/GBA reference rule loads the addressed signed byte. Byte r4+5 is 0x80, sign-extended to 0xFFFFFF80; base r4 is unchanged.",
+          "broken_expected": "0xFFFFFF81",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
+        },
+        "edge": "odd signed-halfword load at base+5 uses addressed byte 0x80 and sign-extends"
       }
     },
     {
@@ -12272,6 +12306,7 @@
         274432459,
         300724923,
         311315858,
+        314196076,
         337012917,
         337366577,
         337575578,
@@ -12281,6 +12316,7 @@
         403393264,
         407369446,
         410394214,
+        433134728,
         433787074,
         459678872,
         466786727,
@@ -12649,16 +12685,12 @@
       "execution_boundary": "cpu-api",
       "expected_status": "API_ONLY",
       "companion_case_ids": [
-        301305780,
-        320234117,
-        324645631,
-        378322231,
         419836810,
-        519488761
+        301305780
       ],
       "source_test": {
         "kind": "cpu-api",
-        "evidence": "Explicit project policy evidence: short-multiply-preserves-unpredictable-C."
+        "evidence": "The exact MUL and MLA source cases run both non-S and S forms; they separately assert N/Z and the selected C/V preservation policy."
       }
     },
     {
@@ -12686,16 +12718,14 @@
       "execution_boundary": "cpu-api",
       "expected_status": "API_ONLY",
       "companion_case_ids": [
-        301305780,
         320234117,
-        324645631,
         378322231,
-        419836810,
+        324645631,
         519488761
       ],
       "source_test": {
         "kind": "cpu-api",
-        "evidence": "Explicit project policy evidence: long-multiply-preserves-unpredictable-C-and-V."
+        "evidence": "The exact UMULL, UMLAL, SMULL and SMLAL source cases run both non-S and S forms; they separately assert 64-bit N/Z and selected C/V preservation."
       }
     },
     {
@@ -12723,36 +12753,12 @@
       "execution_boundary": "cpu-api",
       "expected_status": "API_ONLY",
       "companion_case_ids": [
-        268640271,
-        274432459,
-        300724923,
-        311315858,
-        337012917,
-        337366577,
-        337575578,
-        348179605,
-        372341308,
-        400703187,
-        403393264,
-        407369446,
-        410394214,
-        433787074,
-        459678872,
-        466786727,
-        466987161,
-        467006272,
-        472532248,
-        475702002,
-        479897899,
-        480469734,
-        484671140,
-        505272308,
-        507654410,
-        529906570
+        314196076,
+        433134728
       ],
       "source_test": {
         "kind": "cpu-api",
-        "evidence": "Explicit project policy evidence: loaded-PC-unpredictable-alignment-clears-low-state-bits."
+        "evidence": "Exact LDR-PC and LDM-PC source cases load deliberately odd .Lpc_target+3 values; each asserts target sentinel execution, a contrasting skipped sentinel, and ARM state."
       }
     },
     {
@@ -12779,37 +12785,10 @@
       "coverage_state": "pending",
       "execution_boundary": "cpu-api",
       "expected_status": "API_ONLY",
-      "companion_case_ids": [
-        268640271,
-        274432459,
-        300724923,
-        311315858,
-        337012917,
-        337366577,
-        337575578,
-        348179605,
-        372341308,
-        400703187,
-        403393264,
-        407369446,
-        410394214,
-        433787074,
-        459678872,
-        466786727,
-        466987161,
-        467006272,
-        472532248,
-        475702002,
-        479897899,
-        480469734,
-        484671140,
-        505272308,
-        507654410,
-        529906570
-      ],
+      "companion_case_ids": [],
       "source_test": {
         "kind": "cpu-api",
-        "evidence": "Explicit project policy evidence: sequential-refill-unpredictable-overflow-wraps-to-zero."
+        "evidence": "API-only: this top-boundary sequential refill policy requires a PC near 0xFFFFFFFF, outside the direct-start guest image and unavailable through guest continuation; no generic PC case is claimed as evidence."
       }
     },
     {
@@ -12834,10 +12813,12 @@
       "coverage_state": "pending",
       "execution_boundary": "cpu-api",
       "expected_status": "API_ONLY",
-      "companion_case_ids": [],
+      "companion_case_ids": [
+        529906570
+      ],
       "source_test": {
         "kind": "cpu-api",
-        "evidence": "Explicit project policy evidence: data-effective-address-arithmetic-is-modulo-32-bits."
+        "evidence": "The exact scaled-register LDR case adds 0x03000004 to base 0xFFFFFFFC, wraps to seeded IWRAM at 0x03000000, and asserts the loaded sentinel."
       }
     },
     {
@@ -12864,17 +12845,10 @@
       "coverage_state": "pending",
       "execution_boundary": "cpu-api",
       "expected_status": "API_ONLY",
-      "companion_case_ids": [
-        301305780,
-        320234117,
-        324645631,
-        378322231,
-        419836810,
-        519488761
-      ],
+      "companion_case_ids": [],
       "source_test": {
         "kind": "cpu-api",
-        "evidence": "Explicit project policy evidence: multiply-and-shift-costs-are-core-local-only."
+        "evidence": "API-only timing boundary: source cases establish multiply/shift semantics but cannot independently observe exact internal cycle costs, Game Pak waits, or prefetch; no timing evidence is claimed."
       }
     },
     {
