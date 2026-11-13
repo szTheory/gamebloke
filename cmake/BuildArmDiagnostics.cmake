@@ -766,7 +766,7 @@ if(MODE STREQUAL "all")
   if(ISA STREQUAL "arm")
     set(expected_stop_count 4)
   else()
-    set(expected_stop_count 2)
+    set(expected_stop_count 8)
   endif()
   if(semantic_count LESS 1 OR NOT stop_count EQUAL expected_stop_count)
     message(FATAL_ERROR

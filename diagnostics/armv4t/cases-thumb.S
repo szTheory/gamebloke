@@ -22,7 +22,11 @@
     .thumb
 .endm
 .macro GBL_CAPTURE_FLAGS
+    /* Branch over alignment padding: zero fill would execute MOVS r0,r0 and
+     * destroy the flags being measured after an explicitly encoded opcode. */
+    b .Lcapture_aligned\@
     .balign 4
+.Lcapture_aligned\@:
     bx pc
     nop
     .arm
@@ -43,7 +47,6 @@ diagnostic_main:
     adr r12, .Lthumb_entry+1
     bx r12
 .thumb
-.thumb_func
 .Lthumb_entry:
     .include "thumb-case.inc"
     movs r0, #2

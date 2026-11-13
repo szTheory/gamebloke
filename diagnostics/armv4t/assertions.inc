@@ -16,7 +16,9 @@
 .endif
     cmp r0, r1
     pop {r0-r2}
-    bne .Ldiagnostic_assert_fail
+    beq .Lthumb_assert_eq_ok\@
+    b .Ldiagnostic_assert_fail
+.Lthumb_assert_eq_ok\@:
 .else
     ldr r12, =\expected
 .if GBL_BROKEN
@@ -39,7 +41,9 @@
 .endif
     cmp r0, r1
     pop {r0-r2}
-    bne .Ldiagnostic_assert_fail
+    beq .Lthumb_assert_mask_ok\@
+    b .Ldiagnostic_assert_fail
+.Lthumb_assert_mask_ok\@:
 .else
     ldr r12, =\mask
     and r11, \reg, r12
