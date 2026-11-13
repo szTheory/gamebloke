@@ -83,7 +83,8 @@ if(MODE STREQUAL "case")
   string(JSON selected_kind ERROR_VARIABLE selected_kind_error GET
     "${selected_row}" source_test kind)
   if(NOT "${CASE_ID}" STREQUAL "20481" AND
-     NOT "${selected_kind_error}" STREQUAL "NOTFOUND")
+     (NOT "${selected_kind_error}" STREQUAL "NOTFOUND" OR
+      NOT selected_kind MATCHES "^(semantic|guest-stop)$"))
     message(FATAL_ERROR "arm-diagnostics: case-not-runnable: pending id=${CASE_ID}")
   endif()
   if("${CASE_ID}" STREQUAL "20481")
@@ -821,7 +822,7 @@ if(MODE STREQUAL "all")
   file(WRITE "${output_root}/proof/build-receipt.json"
     "${matrix_receipt}\n")
   message(STATUS
-    "arm-diagnostics: built all ARM outputs semantic=${semantic_count} stops=${stop_count} names=${output_count}")
+    "arm-diagnostics: built all ${ISA} outputs semantic=${semantic_count} stops=${stop_count} names=${output_count}")
   return()
 endif()
 

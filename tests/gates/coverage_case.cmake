@@ -5,7 +5,7 @@ foreach(required IN ITEMS CASE SRC BIN)
     message(FATAL_ERROR "coverage-case: missing-${required}")
   endif()
 endforeach()
-if(NOT CASE MATCHES "^(ledger-controls|arm-matrix-build)$")
+if(NOT CASE MATCHES "^(ledger-controls|thumb-ledger-controls|arm-matrix-build)$")
   message(FATAL_ERROR "coverage-case: unsupported-case")
 endif()
 
@@ -27,13 +27,14 @@ foreach(index RANGE 0 ${inventory_last})
   string(JSON target GET "${row}" inventory_target)
   string(JSON state GET "${row}" coverage_state)
   string(JSON kind ERROR_VARIABLE kind_error GET "${row}" source_test kind)
+  string(JSON isa GET "${row}" isa)
   if(target)
     math(EXPR expected_targets "${expected_targets}+1")
   endif()
   if(state STREQUAL "pending")
     math(EXPR expected_pending "${expected_pending}+1")
   endif()
-  if(kind STREQUAL "semantic")
+  if(kind STREQUAL "semantic" AND isa STREQUAL "arm")
     math(EXPR expected_semantics "${expected_semantics}+1")
   endif()
 endforeach()
@@ -108,7 +109,8 @@ endforeach()
 foreach(required_input IN ITEMS
     cmake/BuildArmDiagnostics.cmake cmake/FixGbaHeader.cmake
     cmake/CheckArmCoverage.cmake cmake/GblJson.cmake
-    diagnostics/armv4t/NOTICE diagnostics/armv4t/cases.json
+    diagnostics/armv4t/NOTICE diagnostics/armv4t/assertions.inc
+    diagnostics/armv4t/cases-arm.S diagnostics/armv4t/cases-thumb.S diagnostics/armv4t/cases.json
     diagnostics/armv4t/inputs.txt diagnostics/armv4t/linker.ld
     diagnostics/armv4t/smoke.S diagnostics/armv4t/startup.S
     scripts/fetch-toolchain.sh scripts/signature-scan.sh
@@ -263,6 +265,74 @@ foreach(boundary_id IN ITEMS 293321832 292551648)
     "GBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000"
     "GBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000" semantic-boundary-vector-invalid)
 endforeach()
+
+# Thumb controls start from the same clean ledger and preserve all existing
+# ARM controls below. They exercise distinct omission/meaning failure classes.
+foreach(wanted_id IN ITEMS 1800200001 1800200002 1800200003 1800200004
+    555469226 747712347 638430992)
+  find_case_id_index(thumb_index "${wanted_id}")
+  string(JSON changed REMOVE "${matrix_json}" cases ${thumb_index})
+  set(variant "${control_root}/thumb-missing-${wanted_id}.json")
+  file(WRITE "${variant}" "${changed}\n")
+  checker_failure("thumb-missing-${wanted_id}" draft "${variant}" missing-form)
+endforeach()
+find_case_id_index(thumb_index 631794229)
+foreach(control IN ITEMS missing-source missing-probes wrong-operation weak-mask missing-label wrong-format)
+  set(changed "${matrix_json}")
+  if(control STREQUAL "missing-source")
+    string(JSON changed REMOVE "${changed}" cases ${thumb_index} source_test)
+    set(finding arm-source-test-missing)
+  elseif(control STREQUAL "missing-probes")
+    string(JSON changed SET "${changed}" cases ${thumb_index} source_test encoding_checks "[]")
+    set(finding thumb-encoding-check-missing)
+  elseif(control STREQUAL "wrong-operation")
+    string(JSON changed SET "${changed}" cases ${thumb_index} source_test encoding_checks 0 value "\"0x0808\"")
+    set(finding thumb-operation-encoding-invalid)
+  elseif(control STREQUAL "weak-mask")
+    string(JSON changed SET "${changed}" cases ${thumb_index} source_test encoding_checks 0 mask "\"0x0000\"")
+    set(finding thumb-operation-encoding-invalid)
+  elseif(control STREQUAL "missing-label")
+    string(JSON changed SET "${changed}" cases ${thumb_index} source_test encoding_checks 0 symbol "\"gbl_absent\"")
+    set(finding thumb-encoding-check-invalid)
+  else()
+    string(JSON changed SET "${changed}" cases ${thumb_index} format 2)
+    set(finding missing-form)
+  endif()
+  set(variant "${control_root}/thumb-${control}.json")
+  file(WRITE "${variant}" "${changed}\n")
+  checker_failure("thumb-${control}" draft "${variant}" "${finding}")
+endforeach()
+foreach(vector IN ITEMS 0x00000000 0x00000001 0x80000000 0xFFFFFFFF)
+  reject_program_mutation("thumb-vector-${vector}" ${thumb_index}
+    "ldr r1,=${vector}" "ldr r1,=0x80000009" thumb-boundary-vector-invalid)
+endforeach()
+reject_program_mutation(thumb-vector-carry-zero ${thumb_index}
+  "GBL_SEED_FLAGS 0x00000000" "GBL_SEED_FLAGS 0x20000000" thumb-boundary-vector-invalid)
+reject_program_mutation(thumb-broken-mask-bit ${thumb_index}
+  "GBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000"
+  "GBL_ASSERT_MASKED r3, 0xD0000000, 0x40000000, 0x60000000" thumb-boundary-vector-invalid)
+foreach(bl_id IN ITEMS 772491234 555469226 747712347)
+  find_case_id_index(bl_index "${bl_id}")
+  reject_program_mutation("thumb-bl-${bl_id}-actual-read" ${bl_index}
+    "ldr r0,[r4,#8]" "movs r0,#0" thumb-bl-source-invalid)
+endforeach()
+find_case_index(cpu7_index cpu-quirk "CPU-7 Thumb BL boundary")
+string(JSON changed SET "${matrix_json}" cases ${cpu7_index} source_test evidence "\"generic CPU API test\"")
+set(variant "${control_root}/thumb-generic-irq-link.json")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(thumb-generic-irq-link draft "${variant}" api-irq-boundary-invalid)
+find_case_id_index(other_thumb_index 742650290)
+string(JSON first_thumb GET "${matrix_json}" cases ${thumb_index})
+string(JSON other_thumb GET "${matrix_json}" cases ${other_thumb_index})
+string(JSON changed SET "${matrix_json}" cases ${thumb_index} "${other_thumb}")
+string(JSON changed SET "${changed}" cases ${other_thumb_index} "${first_thumb}")
+set(variant "${control_root}/thumb-reordered-ids.json")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(thumb-reordered-ids draft "${variant}" thumb-stable-order-invalid)
+if(CASE STREQUAL "thumb-ledger-controls")
+  message(STATUS "coverage-case: Thumb omission/meaning controls passed")
+  return()
+endif()
 
 set(variant "${control_root}/zero-id.json")
 string(JSON changed SET "${matrix_json}" cases 0 id "0")
@@ -486,11 +556,11 @@ foreach(index RANGE 0 ${case_last})
   string(JSON inventory_target GET "${row_json}" inventory_target)
   string(JSON row_isa GET "${row_json}" isa)
   gbl_json_string(coverage_state "${row_json}" coverage_state)
-  string(JSON source_kind_error ERROR_VARIABLE source_kind_error GET
+  string(JSON source_kind ERROR_VARIABLE source_kind_error GET
     "${row_json}" source_test kind)
-  if(inventory_target AND row_isa STREQUAL "thumb" AND
-     coverage_state STREQUAL "pending" AND
-     NOT "${source_kind_error}" STREQUAL "NOTFOUND")
+  if(coverage_state STREQUAL "pending" AND
+     "${source_kind_error}" STREQUAL "NOTFOUND" AND
+     source_kind STREQUAL "cpu-api")
     string(JSON pending_case_id GET "${row_json}" id)
     break()
   endif()

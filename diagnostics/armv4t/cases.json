@@ -16116,6 +16116,178 @@
           }
         ]
       }
+    },
+    {
+      "id": 1800200033,
+      "isa": "thumb",
+      "family": "push-pop",
+      "form": "PUSH:maximum-low-list-and-LR",
+      "format": 14,
+      "inventory_target": true,
+      "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
+      "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
+      "expected": {
+        "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+        "value": "0x00000011"
+      },
+      "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
+      "cpu_quirk": [],
+      "native_selector": "thumb.push-pop.push-maximum-low-list-and-lr",
+      "positive_fixture": null,
+      "negative_fixture": null,
+      "expected_fail_case_id": null,
+      "trace_required": true,
+      "coverage_state": "pending",
+      "execution_boundary": "guest-semantic",
+      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
+      "companion_case_ids": [],
+      "source_test": {
+        "kind": "semantic",
+        "program": "ldr r0,=0x03004000\nmov sp,r0\nmovs r0,#17\nmovs r1,#18\nmovs r2,#19\nmovs r3,#20\nmovs r4,#21\nmovs r5,#22\nmovs r6,#23\nmovs r7,#24\nldr r2,=0x55667788\nmov lr,r2\nmovs r2,#0x13\ngbl_probe_0:\npush {r0-r7,lr}\nmov r5,sp\nldr r0,[r5,#0]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r5,#4]\nGBL_ASSERT_EQ r0, 0x00000012, 0x00000013\nldr r0,[r5,#8]\nGBL_ASSERT_EQ r0, 0x00000013, 0x00000012\nldr r0,[r5,#12]\nGBL_ASSERT_EQ r0, 0x00000014, 0x00000015\nldr r0,[r5,#16]\nGBL_ASSERT_EQ r0, 0x00000015, 0x00000014\nldr r0,[r5,#20]\nGBL_ASSERT_EQ r0, 0x00000016, 0x00000017\nldr r0,[r5,#24]\nGBL_ASSERT_EQ r0, 0x00000017, 0x00000016\nldr r0,[r5,#28]\nGBL_ASSERT_EQ r0, 0x00000018, 0x00000019\nldr r0,[r5,#32]\nGBL_ASSERT_EQ r0, 0x55667788, 0x55667789\nmov r0,sp\nGBL_ASSERT_EQ r0, 0x03003FDC, 0x03003FDD\n",
+        "independent_expectation": {
+          "expected_value": "0x00000011",
+          "broken_expected": "0x00000010",
+          "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+          "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
+        },
+        "encoding_checks": [
+          {
+            "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0xb5ff",
+            "width": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": 1800200034,
+      "isa": "thumb",
+      "family": "push-pop",
+      "form": "POP:maximum-low-list-and-PC",
+      "format": 14,
+      "inventory_target": true,
+      "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
+      "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
+      "expected": {
+        "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+        "value": "0x00000011"
+      },
+      "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
+      "cpu_quirk": [],
+      "native_selector": "thumb.push-pop.pop-maximum-low-list-and-pc",
+      "positive_fixture": null,
+      "negative_fixture": null,
+      "expected_fail_case_id": null,
+      "trace_required": true,
+      "coverage_state": "pending",
+      "execution_boundary": "guest-semantic",
+      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
+      "companion_case_ids": [],
+      "source_test": {
+        "kind": "semantic",
+        "program": "ldr r4,=0x03004000\nmov sp,r4\nmovs r0,#17\nstr r0,[r4,#0]\nmovs r0,#18\nstr r0,[r4,#4]\nmovs r0,#19\nstr r0,[r4,#8]\nmovs r0,#20\nstr r0,[r4,#12]\nmovs r0,#21\nstr r0,[r4,#16]\nmovs r0,#22\nstr r0,[r4,#20]\nmovs r0,#23\nstr r0,[r4,#24]\nmovs r0,#24\nstr r0,[r4,#28]\nldr r0,=.Lmax_pop_target+1\nstr r0,[r4,#32]\ngbl_probe_0:\npop {r0-r7,pc}\nb .Ldiagnostic_assert_fail\n.Lmax_pop_target:\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nGBL_ASSERT_EQ r1, 0x00000012, 0x00000013\nGBL_ASSERT_EQ r2, 0x00000013, 0x00000012\nGBL_ASSERT_EQ r3, 0x00000014, 0x00000015\nGBL_ASSERT_EQ r4, 0x00000015, 0x00000014\nGBL_ASSERT_EQ r5, 0x00000016, 0x00000017\nGBL_ASSERT_EQ r6, 0x00000017, 0x00000016\nGBL_ASSERT_EQ r7, 0x00000018, 0x00000019\nmov r0,sp\nGBL_ASSERT_EQ r0, 0x03004024, 0x03004025\n",
+        "independent_expectation": {
+          "expected_value": "0x00000011",
+          "broken_expected": "0x00000010",
+          "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+          "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
+        },
+        "encoding_checks": [
+          {
+            "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0xbdff",
+            "width": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": 1800200035,
+      "isa": "thumb",
+      "family": "multiple-transfer",
+      "form": "STMIA:maximum-list-base-first",
+      "format": 15,
+      "inventory_target": true,
+      "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
+      "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
+      "expected": {
+        "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+        "value": "0x03004020"
+      },
+      "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
+      "cpu_quirk": [],
+      "native_selector": "thumb.multiple-transfer.stmia-maximum-list-base-first",
+      "positive_fixture": null,
+      "negative_fixture": null,
+      "expected_fail_case_id": null,
+      "trace_required": true,
+      "coverage_state": "pending",
+      "execution_boundary": "guest-semantic",
+      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
+      "companion_case_ids": [],
+      "source_test": {
+        "kind": "semantic",
+        "program": "ldr r0,=0x03004000\nmov r8,r0\nmovs r1,#18\nmovs r2,#19\nmovs r3,#20\nmovs r4,#21\nmovs r5,#22\nmovs r6,#23\nmovs r7,#24\ngbl_probe_0:\nstmia r0!,{r0-r7}\nGBL_ASSERT_EQ r0, 0x03004020, 0x03004021\nmov r4,r8\nldr r0,[r4,#0]\nGBL_ASSERT_EQ r0, 0x03004000, 0x03004001\nldr r0,[r4,#4]\nGBL_ASSERT_EQ r0, 0x00000012, 0x00000013\nldr r0,[r4,#8]\nGBL_ASSERT_EQ r0, 0x00000013, 0x00000012\nldr r0,[r4,#12]\nGBL_ASSERT_EQ r0, 0x00000014, 0x00000015\nldr r0,[r4,#16]\nGBL_ASSERT_EQ r0, 0x00000015, 0x00000014\nldr r0,[r4,#20]\nGBL_ASSERT_EQ r0, 0x00000016, 0x00000017\nldr r0,[r4,#24]\nGBL_ASSERT_EQ r0, 0x00000017, 0x00000016\nldr r0,[r4,#28]\nGBL_ASSERT_EQ r0, 0x00000018, 0x00000019\n",
+        "independent_expectation": {
+          "expected_value": "0x03004020",
+          "broken_expected": "0x03004021",
+          "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+          "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
+        },
+        "encoding_checks": [
+          {
+            "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0xc0ff",
+            "width": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": 1800200036,
+      "isa": "thumb",
+      "family": "multiple-transfer",
+      "form": "LDMIA:maximum-list-base-last",
+      "format": 15,
+      "inventory_target": true,
+      "setup": "Original direct-start ARM wrapper establishes System SP=0x03007F00 and enters Thumb via BX; program explicitly seeds the operands/flags/memory below.",
+      "observe": "Real production runner mailbox case ID plus full instruction/bus trace; each labeled tested opcode is independently checked in GNU disassembly.",
+      "expected": {
+        "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+        "value": "0x00000011"
+      },
+      "source_reference": "ARM7TDMI DDI0029G Figure 1-6/Table 1-7; ARM ARM DDI0100I operation pseudocode; 05-CPU-NOTES.md architectural facts",
+      "cpu_quirk": [],
+      "native_selector": "thumb.multiple-transfer.ldmia-maximum-list-base-last",
+      "positive_fixture": null,
+      "negative_fixture": null,
+      "expected_fail_case_id": null,
+      "trace_required": true,
+      "coverage_state": "pending",
+      "execution_boundary": "guest-semantic",
+      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
+      "companion_case_ids": [],
+      "source_test": {
+        "kind": "semantic",
+        "program": "ldr r7,=0x03004000\nmovs r0,#17\nstr r0,[r7,#0]\nmovs r0,#18\nstr r0,[r7,#4]\nmovs r0,#19\nstr r0,[r7,#8]\nmovs r0,#20\nstr r0,[r7,#12]\nmovs r0,#21\nstr r0,[r7,#16]\nmovs r0,#22\nstr r0,[r7,#20]\nmovs r0,#23\nstr r0,[r7,#24]\nmovs r0,#24\nstr r0,[r7,#28]\ngbl_probe_0:\n.inst.n 0xCFFF\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nGBL_ASSERT_EQ r1, 0x00000012, 0x00000013\nGBL_ASSERT_EQ r2, 0x00000013, 0x00000012\nGBL_ASSERT_EQ r3, 0x00000014, 0x00000015\nGBL_ASSERT_EQ r4, 0x00000015, 0x00000014\nGBL_ASSERT_EQ r5, 0x00000016, 0x00000017\nGBL_ASSERT_EQ r6, 0x00000017, 0x00000016\nGBL_ASSERT_EQ r7, 0x00000018, 0x00000019\n",
+        "independent_expectation": {
+          "expected_value": "0x00000011",
+          "broken_expected": "0x00000010",
+          "derivation": "Full legal low register list in ascending register/address order, literal values0x11..0x18; maximum stack includes LR/PC (nine words,36bytes). STM base-first stores old base; LDM base-in-list retains loaded value, not writeback. Every slot and stack/base result asserted.",
+          "broken_expectation": "GBL_BROKEN changes only expected operands; first reached assertion fails with the same stable ID. Later assertions are not claimed reached by the broken run."
+        },
+        "encoding_checks": [
+          {
+            "symbol": "gbl_probe_0",
+            "mask": "0xffff",
+            "value": "0xcfff",
+            "width": 2
+          }
+        ]
+      }
     }
   ]
 }

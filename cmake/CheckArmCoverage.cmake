@@ -166,8 +166,8 @@ set(thumb_format_10 "STRH:halfword-scaled-imm5|LDRH:halfword-scaled-imm5")
 set(thumb_format_11 "STR:word-sp-relative|LDR:word-sp-relative")
 set(thumb_format_12 "ADD:pc-relative-aligned|ADD:sp-relative")
 set(thumb_format_13 "ADD:sp-plus-imm7-scaled-4|SUB:sp-minus-imm7-scaled-4")
-set(thumb_format_14 "PUSH:low-register-list|PUSH:include-LR|POP:low-register-list|POP:include-PC|empty-list-ARMv4-classification|POP:empty-list-classification")
-set(thumb_format_15 "STMIA:low-register-list|LDMIA:low-register-list|empty-list-ARMv4-behavior|base-in-list-writeback|ascending-register-order|STMIA:base-first-old-base|STMIA:base-middle-classification|STMIA:base-last-classification")
+set(thumb_format_14 "PUSH:low-register-list|PUSH:include-LR|POP:low-register-list|POP:include-PC|empty-list-ARMv4-classification|POP:empty-list-classification|PUSH:maximum-low-list-and-LR|POP:maximum-low-list-and-PC")
+set(thumb_format_15 "STMIA:low-register-list|LDMIA:low-register-list|empty-list-ARMv4-behavior|base-in-list-writeback|ascending-register-order|STMIA:base-first-old-base|STMIA:base-middle-classification|STMIA:base-last-classification|STMIA:maximum-list-base-first|LDMIA:maximum-list-base-last")
 set(thumb_format_16 "B-EQ|B-NE|B-CS|B-CC|B-MI|B-PL|B-VS|B-VC|B-HI|B-LS|B-GE|B-LT|B-GT|B-LE|reserved-cond-E")
 set(thumb_format_17 "SWI-imm8-cond-F")
 set(thumb_format_18 "B:signed-imm11-scaled-2")
@@ -223,7 +223,7 @@ set(expected_thumb_ids
   1800200008 1800200009 1800200010 1800200011 1800200012 1800200013 1800200014 1800200015
   1800200016 1800200017 1800200018 1800200019 1800200020 1800200021 1800200022 1800200023
   1800200024 1800200025 1800200026 1800200027 1800200028 1800200029 1800200030 1800200031
-  1800200032
+  1800200032 1800200033 1800200034 1800200035 1800200036
 )
 set(actual_thumb_ids "")
 set(actual_inventory "")
@@ -1093,9 +1093,9 @@ if(NOT "${GBL_COV_ERRORS}" STREQUAL "")
   message(FATAL_ERROR "coverage: invalid-ledger")
 endif()
 if(MODE STREQUAL "draft")
-  message("coverage: ok (draft; targets=${actual_target_count}; pending=${pending_count}; source-verified=${source_verified_count}; verified=${verified_count}; smoke-pairs=${smoke_count}; semantic-sources=${source_semantic_count}; guest-stops=${guest_stop_count}; cpu-api=${cpu_api_count})")
+  message("coverage: ok (draft; targets=${actual_target_count}; pending=${pending_count}; source-verified=${source_verified_count}; verified=${verified_count}; smoke-pairs=${smoke_count}; semantic-sources=${source_semantic_count}; guest-stops=${guest_stop_count}; cpu-api=${cpu_api_count}; thumb-semantic-sources=${thumb_semantic_count}; thumb-guest-stops=${thumb_stop_count})")
 elseif(MODE STREQUAL "smoke-admission")
   message("smoke-admission: ok (case=20481; fixture-links=${smoke_admission_links}; source-state=source-verified; membership-only)")
 else()
-  message("coverage: ok (final; targets=${actual_target_count}; pending=${pending_count}; source-verified=${source_verified_count}; verified=${verified_count}; smoke-pairs=${smoke_count}; semantic-sources=${source_semantic_count}; guest-stops=${guest_stop_count}; cpu-api=${cpu_api_count})")
+  message("coverage: ok (final; targets=${actual_target_count}; pending=${pending_count}; source-verified=${source_verified_count}; verified=${verified_count}; smoke-pairs=${smoke_count}; semantic-sources=${source_semantic_count}; guest-stops=${guest_stop_count}; cpu-api=${cpu_api_count}; thumb-semantic-sources=${thumb_semantic_count}; thumb-guest-stops=${thumb_stop_count})")
 endif()
