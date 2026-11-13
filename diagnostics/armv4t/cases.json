@@ -28,7 +28,22 @@
       "negative_fixture": null,
       "expected_fail_case_id": null,
       "trace_required": true,
-      "coverage_state": "pending"
+      "coverage_state": "pending",
+      "execution_boundary": "guest-semantic",
+      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
+      "companion_case_ids": [
+        828304059
+      ],
+      "source_test": {
+        "kind": "semantic",
+        "program": "mov r1, #9\nand r0, r1, #3\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\n",
+        "independent_expectation": {
+          "instruction": "AND rotated-immediate",
+          "expected_value": "0x00000001",
+          "broken_expected": "0x00000000",
+          "derivation": "0x9 AND 0x3 = 0x1; the broken member changes only the expected result."
+        }
+      }
     },
     {
       "id": 525199251,

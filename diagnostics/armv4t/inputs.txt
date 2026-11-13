@@ -9,6 +9,8 @@
 cmake/BuildArmDiagnostics.cmake
 cmake/FixGbaHeader.cmake
 diagnostics/armv4t/NOTICE
+diagnostics/armv4t/assertions.inc
+diagnostics/armv4t/cases-arm.S
 diagnostics/armv4t/cases.json
 diagnostics/armv4t/inputs.txt
 diagnostics/armv4t/linker.ld

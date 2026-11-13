@@ -72,45 +72,62 @@ if(MODE STREQUAL "case")
     message(FATAL_ERROR "arm-diagnostics: case-id-unknown: ${CASE_ID}")
   endif()
   string(JSON selected_state GET "${selected_row}" coverage_state)
-  if(selected_state STREQUAL "pending")
+  if(selected_state STREQUAL "pending" AND "${CASE_ID}" STREQUAL "20481")
     message(FATAL_ERROR "arm-diagnostics: case-not-runnable: pending id=${CASE_ID}")
   endif()
   string(JSON selected_family GET "${selected_row}" family)
   string(JSON selected_target GET "${selected_row}" inventory_target)
-  if(NOT "${CASE_ID}" STREQUAL "20481" OR
-     NOT selected_state MATCHES "^(source-verified|verified)$" OR
-     NOT selected_family STREQUAL "diagnostic-harness" OR selected_target)
-    message(FATAL_ERROR "arm-diagnostics: case-builder-unimplemented: ${CASE_ID}")
-  endif()
-  string(JSON selected_positive_fixture GET "${selected_row}" positive_fixture)
-  string(JSON selected_negative_fixture GET "${selected_row}" negative_fixture)
-  string(JSON selected_fail_case GET "${selected_row}" expected_fail_case_id)
-  string(JSON broken_source GET "${selected_row}" broken_assertion source)
-  string(JSON arm_clean_operand GET "${selected_row}" broken_assertion arm_clean_operand)
-  string(JSON arm_broken_operand GET "${selected_row}" broken_assertion arm_broken_operand)
-  string(JSON thumb_clean_operand GET "${selected_row}" broken_assertion thumb_clean_operand)
-  string(JSON thumb_broken_operand GET "${selected_row}" broken_assertion thumb_broken_operand)
-  string(JSON broken_case_id GET "${selected_row}" broken_assertion fail_case_id)
-  if(NOT selected_positive_fixture STREQUAL "smoke" OR
-     NOT selected_negative_fixture STREQUAL "smoke-broken" OR
-     NOT "${selected_fail_case}" STREQUAL "${CASE_ID}" OR
-     NOT "${broken_case_id}" STREQUAL "${CASE_ID}" OR
-     NOT broken_source STREQUAL "diagnostics/armv4t/smoke.S GBL_BROKEN comparison operands")
-    message(FATAL_ERROR "arm-diagnostics: case-variant-metadata-invalid: ${CASE_ID}")
-  endif()
-  file(READ "${source_root}/diagnostics/armv4t/smoke.S" smoke_source)
-  foreach(expected_operand IN ITEMS
-      "${arm_clean_operand}" "${arm_broken_operand}"
-      "${thumb_clean_operand}" "${thumb_broken_operand}")
-    string(FIND "${smoke_source}" "cmp r2, #${expected_operand}" operand_found)
-    if(operand_found EQUAL -1)
-      message(FATAL_ERROR
-        "arm-diagnostics: broken-assertion-source-mismatch: expected operand ${expected_operand}")
+  if("${CASE_ID}" STREQUAL "20481")
+    if(NOT selected_state MATCHES "^(source-verified|verified)$" OR
+       NOT selected_family STREQUAL "diagnostic-harness" OR selected_target)
+      message(FATAL_ERROR "arm-diagnostics: case-builder-unimplemented: ${CASE_ID}")
     endif()
-  endforeach()
-  if("${arm_clean_operand}" STREQUAL "${arm_broken_operand}" OR
-     "${thumb_clean_operand}" STREQUAL "${thumb_broken_operand}")
-    message(FATAL_ERROR "arm-diagnostics: broken-assertion-not-distinct: ${CASE_ID}")
+    set(selected_kind smoke)
+  else()
+    if(NOT DEFINED ISA OR NOT ISA STREQUAL "arm" OR
+       NOT selected_state STREQUAL "pending" OR NOT selected_target OR
+       NOT selected_family MATCHES "^(data-processing|condition|pc-control|shifter-boundary|multiply|status-register|single-transfer|halfword-signed-transfer|swap|block-transfer|block-transfer-edge)$")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-selection-invalid: ${CASE_ID}")
+    endif()
+    string(JSON selected_isa GET "${selected_row}" isa)
+    string(JSON selected_kind GET "${selected_row}" source_test kind)
+    string(JSON selected_source_program GET "${selected_row}" source_test program)
+    if(NOT selected_isa STREQUAL "arm" OR NOT selected_kind STREQUAL "semantic" OR
+       "${selected_source_program}" STREQUAL "")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-source-missing: ${CASE_ID}")
+    endif()
+  endif()
+  if(selected_kind STREQUAL "smoke")
+    string(JSON selected_positive_fixture GET "${selected_row}" positive_fixture)
+    string(JSON selected_negative_fixture GET "${selected_row}" negative_fixture)
+    string(JSON selected_fail_case GET "${selected_row}" expected_fail_case_id)
+    string(JSON broken_source GET "${selected_row}" broken_assertion source)
+    string(JSON arm_clean_operand GET "${selected_row}" broken_assertion arm_clean_operand)
+    string(JSON arm_broken_operand GET "${selected_row}" broken_assertion arm_broken_operand)
+    string(JSON thumb_clean_operand GET "${selected_row}" broken_assertion thumb_clean_operand)
+    string(JSON thumb_broken_operand GET "${selected_row}" broken_assertion thumb_broken_operand)
+    string(JSON broken_case_id GET "${selected_row}" broken_assertion fail_case_id)
+    if(NOT selected_positive_fixture STREQUAL "smoke" OR
+       NOT selected_negative_fixture STREQUAL "smoke-broken" OR
+       NOT "${selected_fail_case}" STREQUAL "${CASE_ID}" OR
+       NOT "${broken_case_id}" STREQUAL "${CASE_ID}" OR
+       NOT broken_source STREQUAL "diagnostics/armv4t/smoke.S GBL_BROKEN comparison operands")
+      message(FATAL_ERROR "arm-diagnostics: case-variant-metadata-invalid: ${CASE_ID}")
+    endif()
+    file(READ "${source_root}/diagnostics/armv4t/smoke.S" smoke_source)
+    foreach(expected_operand IN ITEMS
+        "${arm_clean_operand}" "${arm_broken_operand}"
+        "${thumb_clean_operand}" "${thumb_broken_operand}")
+      string(FIND "${smoke_source}" "cmp r2, #${expected_operand}" operand_found)
+      if(operand_found EQUAL -1)
+        message(FATAL_ERROR
+          "arm-diagnostics: broken-assertion-source-mismatch: expected operand ${expected_operand}")
+      endif()
+    endforeach()
+    if("${arm_clean_operand}" STREQUAL "${arm_broken_operand}" OR
+       "${thumb_clean_operand}" STREQUAL "${thumb_broken_operand}")
+      message(FATAL_ERROR "arm-diagnostics: broken-assertion-not-distinct: ${CASE_ID}")
+    endif()
   endif()
 endif()
 
@@ -548,6 +565,191 @@ function(build_variant variant broken rom_name)
   message(STATUS "arm-diagnostics: built ${rom_name} host=${HOST} bytes=${rom_bytes} sha256=${rom_sha} seconds=${variant_seconds}")
 endfunction()
 
+if(MODE STREQUAL "case" AND selected_kind STREQUAL "semantic")
+  string(JSON expected_value GET "${selected_row}" source_test
+    independent_expectation expected_value)
+  string(JSON broken_expected GET "${selected_row}" source_test
+    independent_expectation broken_expected)
+  if("${expected_value}" STREQUAL "${broken_expected}" OR
+     NOT "${selected_source_program}" MATCHES "GBL_ASSERT_EQ")
+    message(FATAL_ERROR "arm-diagnostics: arm-case-assertion-invalid: ${CASE_ID}")
+  endif()
+
+  math(EXPR case_id_hex "${CASE_ID}" OUTPUT_FORMAT HEXADECIMAL)
+  set(rom_names "arm-${CASE_ID}.gba" "arm-${CASE_ID}-broken.gba")
+  set(variant_index 0)
+  foreach(variant IN ITEMS "arm-${CASE_ID}" "arm-${CASE_ID}-broken")
+    if(variant_index EQUAL 0)
+      set(broken 0)
+      list(GET rom_names 0 rom_name)
+    else()
+      set(broken 1)
+      list(GET rom_names 1 rom_name)
+    endif()
+    set(variant_relative "${output_relative}/proof/${variant}")
+    set(variant_root "${output_root}/proof/${variant}")
+    file(MAKE_DIRECTORY "${variant_root}")
+    file(WRITE "${variant_root}/arm-case.inc" "${selected_source_program}")
+
+    file(READ "${source_root}/diagnostics/armv4t/startup.S" startup_source)
+    string(REPLACE "0x00005001" "${case_id_hex}" case_startup_source
+      "${startup_source}")
+    if("${case_startup_source}" STREQUAL "${startup_source}")
+      message(FATAL_ERROR "arm-diagnostics: case-id-mailbox-patch-missing")
+    endif()
+    file(WRITE "${variant_root}/startup.S" "${case_startup_source}")
+    file(SHA256 "${variant_root}/startup.S" derived_startup_sha)
+    file(SHA256 "${source_root}/diagnostics/armv4t/cases-arm.S" case_source_sha)
+    file(SHA256 "${variant_root}/arm-case.inc" generated_case_sha)
+
+    execute_process(
+      COMMAND "${tool_bin}/arm-none-eabi-as" -mcpu=arm7tdmi
+        -o "${variant_relative}/startup.o" "${variant_relative}/startup.S"
+      WORKING_DIRECTORY "${source_root}"
+      RESULT_VARIABLE case_startup_rc OUTPUT_VARIABLE case_startup_output
+      ERROR_VARIABLE case_startup_error)
+    if(NOT "${case_startup_rc}" STREQUAL "0")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-startup-failed: ${case_startup_error}${case_startup_output}")
+    endif()
+    execute_process(
+      COMMAND "${tool_bin}/arm-none-eabi-as" -mcpu=arm7tdmi
+        -I "${variant_root}" --defsym "GBL_BROKEN=${broken}"
+        -o "${variant_relative}/case.o" diagnostics/armv4t/cases-arm.S
+      WORKING_DIRECTORY "${source_root}"
+      RESULT_VARIABLE case_asm_rc OUTPUT_VARIABLE case_asm_output
+      ERROR_VARIABLE case_asm_error)
+    if(NOT "${case_asm_rc}" STREQUAL "0")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-assembler-failed: ${case_asm_error}${case_asm_output}")
+    endif()
+    execute_process(
+      COMMAND "${tool_bin}/arm-none-eabi-ld" -T diagnostics/armv4t/linker.ld
+        "-Map=${variant_relative}/case.map" -o "${variant_relative}/case.elf"
+        "${variant_relative}/startup.o" "${variant_relative}/case.o"
+      WORKING_DIRECTORY "${source_root}"
+      RESULT_VARIABLE case_link_rc OUTPUT_VARIABLE case_link_output
+      ERROR_VARIABLE case_link_error)
+    if(NOT "${case_link_rc}" STREQUAL "0")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-link-failed: ${case_link_error}${case_link_output}")
+    endif()
+
+    file(STRINGS "${variant_root}/case.map" case_map_lines)
+    set(case_map_objects "")
+    foreach(line IN LISTS case_map_lines)
+      if(line MATCHES "^LOAD ")
+        string(REGEX REPLACE "^LOAD +" "" loaded "${line}")
+        if(NOT loaded STREQUAL "linker stubs")
+          list(APPEND case_map_objects "${loaded}")
+        endif()
+      endif()
+    endforeach()
+    set(expected_case_objects "${variant_relative}/startup.o" "${variant_relative}/case.o")
+    if(NOT "${case_map_objects}" STREQUAL "${expected_case_objects}")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-map-inputs-invalid: ${variant}")
+    endif()
+    string(TOLOWER "${case_map_lines}" case_map_lower)
+    if(case_map_lower MATCHES "(libgcc[.]a|libc[.]a|newlib|crt[0-9a-z_.-]*[.]o)")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-runtime-input: ${variant}")
+    endif()
+    file(WRITE "${variant_root}/map-inputs.txt"
+      "project-object ${variant_relative}/startup.o\nproject-object ${variant_relative}/case.o\n")
+
+    require_v4t("${tool_bin}/arm-none-eabi-readelf"
+      "${variant_root}/startup.o" "${variant_root}/startup.attributes.txt")
+    require_v4t("${tool_bin}/arm-none-eabi-readelf"
+      "${variant_root}/case.o" "${variant_root}/case.attributes.txt")
+    require_v4t("${tool_bin}/arm-none-eabi-readelf"
+      "${variant_root}/case.elf" "${variant_root}/elf.attributes.txt")
+    execute_process(
+      COMMAND "${tool_bin}/arm-none-eabi-objdump" -d -j .gba_header -j .text
+        "${variant_root}/case.elf"
+      RESULT_VARIABLE case_disasm_rc OUTPUT_VARIABLE case_disassembly
+      ERROR_VARIABLE case_disasm_error)
+    if(NOT "${case_disasm_rc}" STREQUAL "0" OR
+       NOT "${case_disassembly}" MATCHES "diagnostic_main" OR
+       NOT "${case_disassembly}" MATCHES "bx")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-disassembly-invalid: ${case_disasm_error}")
+    endif()
+    file(WRITE "${variant_root}/case.disasm.txt" "${case_disassembly}")
+    execute_process(
+      COMMAND "${tool_bin}/arm-none-eabi-objcopy" -O binary
+        "${variant_root}/case.elf" "${variant_root}/case.unfixed"
+      RESULT_VARIABLE case_copy_rc OUTPUT_VARIABLE case_copy_output
+      ERROR_VARIABLE case_copy_error)
+    if(NOT "${case_copy_rc}" STREQUAL "0")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-objcopy-failed: ${case_copy_error}${case_copy_output}")
+    endif()
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" "-DINPUT=${variant_root}/case.unfixed"
+        "-DOUTPUT=${output_root}/roms/${rom_name}"
+        -P "${source_root}/cmake/FixGbaHeader.cmake"
+      WORKING_DIRECTORY "${source_root}"
+      RESULT_VARIABLE case_header_rc OUTPUT_VARIABLE case_header_output
+      ERROR_VARIABLE case_header_error)
+    if(NOT "${case_header_rc}" STREQUAL "0")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-header-fix-failed: ${case_header_error}${case_header_output}")
+    endif()
+    file(SHA256 "${output_root}/roms/${rom_name}" rom_sha)
+    file(SIZE "${output_root}/roms/${rom_name}" rom_bytes)
+    set(case_receipt "{}")
+    string(JSON case_receipt SET "${case_receipt}" format
+      "\"gamebloke.arm-diagnostic-case/1\"")
+    string(JSON case_receipt SET "${case_receipt}" source_commit
+      "\"${source_commit}\"")
+    string(JSON case_receipt SET "${case_receipt}" case_id "${CASE_ID}")
+    string(JSON case_receipt SET "${case_receipt}" broken "${broken}")
+    string(JSON case_receipt SET "${case_receipt}" isa "\"arm\"")
+    string(JSON case_receipt SET "${case_receipt}" startup_source_sha256
+      "\"${startup_sha}\"")
+    string(JSON case_receipt SET "${case_receipt}" derived_startup_sha256
+      "\"${derived_startup_sha}\"")
+    string(JSON case_receipt SET "${case_receipt}" source_sha256
+      "\"${case_source_sha}\"")
+    string(JSON case_receipt SET "${case_receipt}" program_sha256
+      "\"${generated_case_sha}\"")
+    string(JSON case_receipt SET "${case_receipt}" rom_sha256 "\"${rom_sha}\"")
+    string(JSON case_receipt SET "${case_receipt}" rom_bytes "${rom_bytes}")
+    file(WRITE "${variant_root}/build-receipt.json" "${case_receipt}\n")
+    math(EXPR variant_index "${variant_index}+1")
+  endforeach()
+
+  file(WRITE "${output_root}/proof/signature-allowlist.txt"
+    "arm-${CASE_ID}.gba\narm-${CASE_ID}-broken.gba\n")
+  execute_process(
+    COMMAND sh "${source_root}/scripts/signature-scan.sh" --dir
+      "${output_root}/roms" --allowlist
+      "${output_root}/proof/signature-allowlist.txt"
+    WORKING_DIRECTORY "${source_root}"
+    RESULT_VARIABLE case_signature_rc OUTPUT_VARIABLE case_signature_output
+    ERROR_VARIABLE case_signature_error)
+  if(NOT "${case_signature_rc}" STREQUAL "0" OR
+     NOT case_signature_output MATCHES "signature: ok")
+    message(FATAL_ERROR "arm-diagnostics: arm-case-signature-scan-failed: ${case_signature_error}${case_signature_output}")
+  endif()
+  file(WRITE "${output_root}/proof/signature-scan.txt"
+    "${case_signature_output}${case_signature_error}")
+  file(GLOB case_rom_entries LIST_DIRECTORIES TRUE "${output_root}/roms/*")
+  list(SORT case_rom_entries)
+  set(expected_case_roms "${output_root}/roms/arm-${CASE_ID}-broken.gba"
+    "${output_root}/roms/arm-${CASE_ID}.gba")
+  if(NOT "${case_rom_entries}" STREQUAL "${expected_case_roms}")
+    message(FATAL_ERROR "arm-diagnostics: arm-case-rom-name-set-mismatch")
+  endif()
+  set(case_summary "{}")
+  string(JSON case_summary SET "${case_summary}" format
+    "\"gamebloke.arm-diagnostic-case-pair/1\"")
+  string(JSON case_summary SET "${case_summary}" source_commit
+    "\"${source_commit}\"")
+  string(JSON case_summary SET "${case_summary}" case_id "${CASE_ID}")
+  string(JSON case_summary SET "${case_summary}" isa "\"arm\"")
+  string(JSON case_summary SET "${case_summary}" semantic_pairs "1")
+  string(JSON case_summary SET "${case_summary}" output_names
+    "[\"arm-${CASE_ID}.gba\",\"arm-${CASE_ID}-broken.gba\"]")
+  file(WRITE "${output_root}/proof/build-receipt.json" "${case_summary}\n")
+  message(STATUS "arm-diagnostics: built selected ARM semantic pair id=${CASE_ID}")
+  return()
+endif()
+
+if(MODE STREQUAL "case")
 build_variant(smoke 0 smoke.gba)
 build_variant(smoke-broken 1 smoke-broken.gba)
 
@@ -605,3 +807,4 @@ string(JSON summary SET "${summary}" output_names "[\"smoke.gba\",\"smoke-broken
 file(WRITE "${output_root}/proof/build-receipt.json" "${summary}\n")
 
 message(STATUS "arm-diagnostics: smoke build receipt ${output_root}/proof/build-receipt.json")
+endif()
