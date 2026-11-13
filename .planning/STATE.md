@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan20 Thumb diagnostics reviewed clean after form/carry fixes; Plan21 final cross-host proof and admission next; human review and formal TDD deviation retained for Phase5 acceptance
-stopped_at: Plan20 reviewed; continuing Plan21 cross-host proof and admission
-last_updated: "2026-11-13T09:14:35.327Z"
+status: Bounded CI repair and seven local preflight lanes pass independent review; final source proof and one owner-authorized hosted retry pending
+stopped_at: Fresh final source proof before single approved hosted retry
+last_updated: "2026-11-13T15:02:03.658Z"
 last_activity: 2026-11-13
-last_activity_desc: Plan20 corrected Thumb matrix and independent re-review complete; Plan21 next
-state_head: 13ffd857176ef07c982e8e76ee26feaa856108c5
+last_activity_desc: CI repair reviewed clean; checks and180s limits preserved; no hosted retry used
+state_head: 67ef708a982bba6760f8c792fa4bdc2779abe1c0
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 21 of 25
-Status: Plan20 Thumb diagnostics reviewed clean after form/carry fixes; Plan21 final cross-host proof and admission next; human review and formal TDD deviation retained for Phase5 acceptance
-Last activity: 2026-11-13 — Plan20 corrected Thumb matrix and independent re-review complete; Plan21 next
+Status: Bounded CI repair and seven local preflight lanes pass independent review; final source proof and one owner-authorized hosted retry pending
+Last activity: 2026-11-13 — CI repair reviewed clean; checks and180s limits preserved; no hosted retry used
 
 Progress: [███████░░░] 67%
 
@@ -293,6 +293,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-13T09:14:33.880Z
-Stopped at: Plan20 reviewed; continuing Plan21 cross-host proof and admission
+Last session: 2026-11-13T15:02:03.164Z
+Stopped at: Fresh final source proof before single approved hosted retry
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
