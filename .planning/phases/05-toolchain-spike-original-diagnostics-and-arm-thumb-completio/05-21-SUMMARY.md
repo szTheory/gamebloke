@@ -264,5 +264,6 @@ After all current implementation changes, canonical CI passed in158.21 seconds,
 all722 admitted production results passed, and full source/output/pin/index
 refusal controls passed. This supersedes the earlier local runtime concern;
 the253.63-second result remains historical. No producer input or c3 authority
-pin changed. Independent closure of the new output finding is pending; cold
+pin changed. Independent re-review closed the output finding with zero active
+findings; cold
 compiler/sanitizer and actual final hosted evidence remain later plan gates.

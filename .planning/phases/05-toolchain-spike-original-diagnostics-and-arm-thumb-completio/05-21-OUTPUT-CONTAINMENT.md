@@ -42,6 +42,7 @@ immutable source-only authority and the same actual output pins. Producer
 inputs remain unchanged. The shorter later times are observations, not a claim
 that the small output-guard change caused those savings.
 
-Independent closure of the new output finding is next. Final cold compiler,
+Independent re-review closed the output finding at `fa62cbf`; no active findings
+remain in [the review](05-21-ADMISSION-REVIEW.md). Final cold compiler,
 sanitizer and hosted checks remain in the later Phase5 plans. No hosted run,
 ROM upload, rights change, external personal-file access or Phase6 work occurred.

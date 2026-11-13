@@ -50,7 +50,8 @@ local literal byte comparison and hosted hash witness remain distinct evidence.
 
 ## Remaining work
 
-Independent review of these changes and the admission containment fixes remains
-required. The local result is not a new hosted timing claim. Cold compiler,
+Independent review of these changes and the admission containment fixes is clean;
+see [the review](05-21-ADMISSION-REVIEW.md). The local result is not a new hosted
+timing claim. Cold compiler,
 sanitizer and required hosted checks remain owned by the later Phase5 integration
 plans before publication/acceptance. No hosted attempt was made here.

@@ -247,7 +247,7 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: 20/25 plans executed. Plan 05 admitted the measured smoke pair. The reviewed original matrices contain 236 ARM semantic pairs/four stops and 118 Thumb pairs/eight stops; 385 ledger rows remain pending admission. Cross-host comparison and final admission remain in Plan 21.
+**Plans**: 21/25 plans executed. Plan21 completed final local/hosted proof and admitted all722 production images:355 positive/broken pairs and12 named guest stops. Independent admission review is clean after path/mode controls; canonical local CI and every admitted result pass. Producer ledger closure, maximum-unit safety, mandatory execution wiring and final compiler/hosted/owner gates remain in Plans22–25.
 
 Plans:
 **Wave 1**
@@ -311,7 +311,7 @@ Plans:
 - [x] 05-20-PLAN.md — Original Thumb formats and BL diagnostic matrix
 
 **Wave 21** *(blocked on Wave 20 completion)*
-- [ ] 05-21-PLAN.md — Cross-host final-output proof and digest re-admission
+- [x] 05-21-PLAN.md — Cross-host final-output proof and digest re-admission
 
 **Wave 22** *(blocked on Wave 21 completion)*
 - [ ] 05-22-PLAN.md — Semantic mutation and maximum-unit negative evidence

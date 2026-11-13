@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Bounded CI repair and seven local preflight lanes pass independent review; final source proof and one owner-authorized hosted retry pending
-stopped_at: Fresh final source proof before single approved hosted retry
-last_updated: "2026-11-13T15:02:03.658Z"
+status: Plan21 verified and reviewed clean; Plan22 semantic mutation and maximum-unit safety executing
+stopped_at: Plan21 complete; continue Plan22 mutation and whole-unit refusal evidence
+last_updated: "2026-11-13T20:04:56.981Z"
 last_activity: 2026-11-13
-last_activity_desc: CI repair reviewed clean; checks and180s limits preserved; no hosted retry used
-state_head: 67ef708a982bba6760f8c792fa4bdc2779abe1c0
+last_activity_desc: Complete fixture admission and review closure; current canonical CI and all722 results pass; continue authorized Phase5
+state_head: fa62cbfce473fb23179c662bd85f56cdbaa99510
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 58
+  completed_plans: 59
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 21 of 25
-Status: Bounded CI repair and seven local preflight lanes pass independent review; final source proof and one owner-authorized hosted retry pending
-Last activity: 2026-11-13 — CI repair reviewed clean; checks and180s limits preserved; no hosted retry used
+Plan: 22 of 25
+Status: Plan21 verified and reviewed clean; Plan22 semantic mutation and maximum-unit safety executing
+Last activity: 2026-11-13 — Complete fixture admission and review closure; current canonical CI and all722 results pass; continue authorized Phase5
 
 Progress: [███████░░░] 67%
 
@@ -117,6 +117,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P18 | 25min05s dispatch-to-terminal; review/fixes/integration excluded | 2 tasks | 16 files |
 | Phase 05 P19 | 160m21s | 2 tasks | 10 files |
 | Phase 05 P20 | 35m00s dispatch-to-acceptance; review/fixes excluded | 2 tasks | 8 files |
+| Phase 05 P21 | multi-resume; Task2 RED-to-code 22m43s; review and integration separate | 2 tasks | 43 files |
 
 ## Accumulated Context
 
@@ -293,6 +294,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-13T15:02:03.164Z
-Stopped at: Fresh final source proof before single approved hosted retry
+Last session: 2026-11-13T20:04:56.736Z
+Stopped at: Plan21 complete; continue Plan22 mutation and whole-unit refusal evidence
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
