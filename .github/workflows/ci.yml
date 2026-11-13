@@ -134,7 +134,8 @@ jobs:
       - run: dpkg -s clang-21 libclang-rt-21-dev >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y clang-21 libclang-rt-21-dev; }
       - run: cmake --workflow --preset asan
 
-  # Source-built diagnostics use full Git history for source-input identity.
+  # Complete pre-admission smoke/ARM/Thumb proof uses full Git history for
+  # source-input identity. Its output hashes are log witnesses; ROMs stay local.
   # Other lanes stay shallow and metadata-only configuration does not require it.
   diagnostics:
     needs: changes

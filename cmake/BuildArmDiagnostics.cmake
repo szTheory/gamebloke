@@ -8,6 +8,12 @@ endforeach()
 if(NOT MODE MATCHES "^(smoke|case|all)$")
   message(FATAL_ERROR "arm-diagnostics: unsupported-mode: ${MODE}")
 endif()
+# Keep the original public smoke recipe on the same validated selectable case
+# path. MODE=smoke must never return success without constructing its pair.
+if(MODE STREQUAL "smoke")
+  set(MODE case)
+  set(CASE_ID 20481)
+endif()
 if(MODE STREQUAL "case" AND
    (NOT DEFINED CASE_ID OR NOT "${CASE_ID}" MATCHES "^[1-9][0-9]*$"))
   message(FATAL_ERROR "arm-diagnostics: missing-or-invalid-case-id")
@@ -295,6 +301,7 @@ foreach(required_input IN ITEMS
     diagnostics/armv4t/smoke.S diagnostics/armv4t/startup.S
     scripts/fetch-toolchain.sh scripts/lib/signature-common.sh
     scripts/signature-scan.sh tests/signatures/allowlist.txt
+    tests/gates/diagnostic_linkmap.cmake
     tests/signatures/bios.sha256 tests/signatures/logo.sha256
     toolchain/arm-none-eabi.lock)
   list(FIND source_inputs "${required_input}" required_input_found)
@@ -944,6 +951,30 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
       message(FATAL_ERROR "arm-diagnostics: arm-case-disassembly-invalid: ${case_disasm_error}")
     endif()
     file(WRITE "${variant_root}/case.disasm.txt" "${case_disassembly}")
+    execute_process(COMMAND "${tool_bin}/arm-none-eabi-readelf" -SW
+      "${variant_root}/case.elf" RESULT_VARIABLE sections_rc
+      OUTPUT_FILE "${variant_root}/elf-sections.txt" ERROR_VARIABLE sections_error)
+    execute_process(COMMAND "${tool_bin}/arm-none-eabi-nm" -u
+      "${variant_root}/case.elf" RESULT_VARIABLE symbols_rc
+      OUTPUT_VARIABLE undefined_symbols ERROR_VARIABLE symbols_error)
+    string(STRIP "${undefined_symbols}" undefined_symbols)
+    if(NOT sections_rc STREQUAL "0" OR NOT symbols_rc STREQUAL "0" OR
+       NOT undefined_symbols STREQUAL "")
+      message(FATAL_ERROR "arm-diagnostics: case-sections-or-symbols-invalid: ${sections_error}${symbols_error}${undefined_symbols}")
+    endif()
+    file(WRITE "${variant_root}/unresolved-symbols.txt" "No unresolved symbols.\n")
+    execute_process(COMMAND "${CMAKE_COMMAND}"
+      "-DMAP=${variant_root}/case.map"
+      "-DOBJECTS=${variant_root}/startup.o;${variant_root}/case.o"
+      "-DATTRIBUTES=${variant_root}/startup.attributes.txt;${variant_root}/case.attributes.txt;${variant_root}/elf.attributes.txt"
+      "-DSECTIONS=${variant_root}/elf-sections.txt"
+      "-DDISASSEMBLY=${variant_root}/case.disasm.txt" "-DSRC=${source_root}"
+      -P "${source_root}/tests/gates/diagnostic_linkmap.cmake"
+      RESULT_VARIABLE audit_rc OUTPUT_VARIABLE audit_out ERROR_VARIABLE audit_error)
+    if(NOT audit_rc STREQUAL "0")
+      message(FATAL_ERROR "arm-diagnostics: case-link-audit-failed: ${audit_out}${audit_error}")
+    endif()
+    file(WRITE "${variant_root}/link-audit.txt" "${audit_out}${audit_error}")
     if(ISA STREQUAL "thumb")
       string(JSON probe_count LENGTH "${selected_row}" source_test encoding_checks)
       if(probe_count LESS 1)

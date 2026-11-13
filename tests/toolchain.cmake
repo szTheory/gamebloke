@@ -363,6 +363,21 @@ if(NOT GBL_LANE STREQUAL "diagnostics")
 endif()
 
 set(GBL_TOOLCHAIN_DRIVER "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}")
+if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
+  gbl_add_test(
+    NAME diagnostics.final.outputs
+    LABELS diagnostics gate integration
+    COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-host-set
+      "-DBIN=${CMAKE_BINARY_DIR}/final-proof"
+      "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
+  gbl_add_test(
+    NAME diagnostics.final.controls
+    LABELS control diagnostics
+    COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-proof-controls
+      "-DBIN=${CMAKE_BINARY_DIR}/final-proof-controls"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
+endif()
 gbl_add_test(
   NAME diagnostics.presets
   LABELS diagnostics gate

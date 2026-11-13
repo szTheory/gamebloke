@@ -22,6 +22,7 @@ diagnostics/armv4t/startup.S
 scripts/fetch-toolchain.sh
 scripts/lib/signature-common.sh
 scripts/signature-scan.sh
+tests/gates/diagnostic_linkmap.cmake
 tests/signatures/allowlist.txt
 tests/signatures/bios.sha256
 tests/signatures/logo.sha256

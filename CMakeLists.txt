@@ -188,6 +188,10 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   if(GBL_LANE STREQUAL "diagnostics")
     set(GBL_DIAGNOSTIC_OUTPUT_ROOT
       "${CMAKE_SOURCE_DIR}/build/phase05-spike/${GBL_DIAGNOSTIC_OUTPUT_LEAF}")
+    if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
+      set(GBL_DIAGNOSTIC_OUTPUT_ROOT
+        "${CMAKE_SOURCE_DIR}/build/phase05-spike/final-smoke")
+    endif()
     set(GBL_DIAGNOSTIC_RAW_ROMS
       "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke.gba"
       "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke-broken.gba")
@@ -210,7 +214,26 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       list(APPEND GBL_DIAGNOSTIC_SOURCE_DEPENDS
         "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/cases.json")
     endif()
-    add_custom_command(
+    if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
+      file(STRINGS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
+        GBL_FINAL_PRODUCER_INPUTS REGEX "^[A-Za-z0-9]")
+      list(TRANSFORM GBL_FINAL_PRODUCER_INPUTS PREPEND "${CMAKE_SOURCE_DIR}/")
+      set(GBL_FINAL_PROOF_RECEIPT "${CMAKE_BINARY_DIR}/final-proof/complete-host.json")
+      add_custom_command(
+        OUTPUT "${GBL_FINAL_PROOF_RECEIPT}"
+        COMMAND "${CMAKE_COMMAND}" -DCASE=final-host-build
+          "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}/final-proof"
+          "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+          -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake"
+        DEPENDS ${GBL_FINAL_PRODUCER_INPUTS}
+          "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake"
+          "${CMAKE_SOURCE_DIR}/tests/gates/final_diagnostic_proof.cmake"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Proving every final original diagnostic output before admission"
+        VERBATIM)
+      add_custom_target(gbl_diagnostics ALL DEPENDS "${GBL_FINAL_PROOF_RECEIPT}")
+    else()
+      add_custom_command(
       OUTPUT ${GBL_DIAGNOSTIC_RAW_ROMS}
       COMMAND "${CMAKE_COMMAND}"
         "-DSRC=${CMAKE_SOURCE_DIR}"
@@ -224,6 +247,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       COMMENT "Building pinned ARMv4T diagnostic source outputs"
       VERBATIM)
     add_custom_target(gbl_diagnostics ALL DEPENDS ${GBL_DIAGNOSTIC_RAW_ROMS})
+    endif()
 
     if(GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
       set(GBL_DIAGNOSTIC_ARTIFACT_ROOT
