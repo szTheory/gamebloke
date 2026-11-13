@@ -7,7 +7,9 @@
 # flags live in cmake/BuildArmDiagnostics.cmake.
 # Add every future case-specific assembly source here before enabling that case.
 cmake/BuildArmDiagnostics.cmake
+cmake/CheckArmCoverage.cmake
 cmake/FixGbaHeader.cmake
+cmake/GblJson.cmake
 diagnostics/armv4t/NOTICE
 diagnostics/armv4t/assertions.inc
 diagnostics/armv4t/cases-arm.S

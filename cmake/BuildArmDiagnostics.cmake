@@ -236,7 +236,8 @@ foreach(input_line IN LISTS source_input_lines)
 endforeach()
 
 foreach(required_input IN ITEMS
-    cmake/BuildArmDiagnostics.cmake cmake/FixGbaHeader.cmake
+    cmake/BuildArmDiagnostics.cmake cmake/CheckArmCoverage.cmake
+    cmake/FixGbaHeader.cmake cmake/GblJson.cmake
     diagnostics/armv4t/NOTICE diagnostics/armv4t/assertions.inc
     diagnostics/armv4t/cases-arm.S diagnostics/armv4t/cases.json
     diagnostics/armv4t/inputs.txt diagnostics/armv4t/linker.ld
