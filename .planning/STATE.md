@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan21 verified and reviewed clean; Plan22 semantic mutation and maximum-unit safety executing
-stopped_at: Plan21 complete; continue Plan22 mutation and whole-unit refusal evidence
-last_updated: "2026-11-13T20:04:56.981Z"
+status: Plan22 verified and reviewed clean; Plan23 diagnostic registration and mandatory execution executing
+stopped_at: Plan22 complete; continue Plan23 diagnostic inventories and dependency controls
+last_updated: "2026-11-13T20:38:21.056Z"
 last_activity: 2026-11-13
-last_activity_desc: Complete fixture admission and review closure; current canonical CI and all722 results pass; continue authorized Phase5
-state_head: fa62cbfce473fb23179c662bd85f56cdbaa99510
+last_activity_desc: CPU safety mutation and maximum-unit evidence complete; canonical CI passes; final diagnostic wiring next
+state_head: 9643cfc9a5217840a14451a37cdf9cc089aa71f4
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 59
+  completed_plans: 60
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 22 of 25
-Status: Plan21 verified and reviewed clean; Plan22 semantic mutation and maximum-unit safety executing
-Last activity: 2026-11-13 — Complete fixture admission and review closure; current canonical CI and all722 results pass; continue authorized Phase5
+Plan: 23 of 25
+Status: Plan22 verified and reviewed clean; Plan23 diagnostic registration and mandatory execution executing
+Last activity: 2026-11-13 — CPU safety mutation and maximum-unit evidence complete; canonical CI passes; final diagnostic wiring next
 
 Progress: [███████░░░] 67%
 
@@ -118,6 +118,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P19 | 160m21s | 2 tasks | 10 files |
 | Phase 05 P20 | 35m00s dispatch-to-acceptance; review/fixes excluded | 2 tasks | 8 files |
 | Phase 05 P21 | multi-resume; Task2 RED-to-code 22m43s; review and integration separate | 2 tasks | 43 files |
+| Phase 05 P22 | 23m40s through Task2 commit including review | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -294,6 +295,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-13T20:04:56.736Z
-Stopped at: Plan21 complete; continue Plan22 mutation and whole-unit refusal evidence
+Last session: 2026-11-13T20:38:20.818Z
+Stopped at: Plan22 complete; continue Plan23 diagnostic inventories and dependency controls
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

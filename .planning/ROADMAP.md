@@ -247,7 +247,7 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: 21/25 plans executed. Plan21 completed final local/hosted proof and admitted all722 production images:355 positive/broken pairs and12 named guest stops. Independent admission review is clean after path/mode controls; canonical local CI and every admitted result pass. Producer ledger closure, maximum-unit safety, mandatory execution wiring and final compiler/hosted/owner gates remain in Plans22–25.
+**Plans**: 22/25 plans executed. Plan21 completed final local/hosted proof and admitted all722 production images:355 positive/broken pairs and12 named guest stops. Plan22 added eight actual CPU fault controls and63 maximum-unit boundary witnesses; review and canonical local CI pass. Producer ledger closure, mandatory execution wiring and final compiler/hosted/owner gates remain in Plans23–25.
 
 Plans:
 **Wave 1**
@@ -314,7 +314,7 @@ Plans:
 - [x] 05-21-PLAN.md — Cross-host final-output proof and digest re-admission
 
 **Wave 22** *(blocked on Wave 21 completion)*
-- [ ] 05-22-PLAN.md — Semantic mutation and maximum-unit negative evidence
+- [x] 05-22-PLAN.md — Semantic mutation and maximum-unit negative evidence
 
 **Wave 23** *(blocked on Wave 22 completion)*
 - [ ] 05-23-PLAN.md — Inventoried diagnostics, visible skips and mandatory execution

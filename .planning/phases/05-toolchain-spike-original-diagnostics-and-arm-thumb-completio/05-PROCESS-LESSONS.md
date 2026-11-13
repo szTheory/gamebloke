@@ -78,3 +78,14 @@ escaping symlink. Controls must preserve an outside synthetic sentinel and
 include a valid contained companion. Force file-mode comparison per Git command
 when executable mode is part of source authority; repository configuration must
 not silently weaken that check.
+
+## Verify review premises against actual storage
+
+Plan22 review initially treated the machine RAM regions as allocated pointers.
+They are inline arrays, so structure assignment already copies those bytes. A
+small probe against the real canonical comparison helper changed each RAM
+region independently and confirmed both equality and digest detect memory-only
+changes. The reviewer withdrew the warning; no snapshot redesign was needed.
+Check actual field definitions and reproduce the proposed failure before adding
+an abstraction or extra allocations in response to a review claim. Keep false
+findings distinct from defects that were fixed.
