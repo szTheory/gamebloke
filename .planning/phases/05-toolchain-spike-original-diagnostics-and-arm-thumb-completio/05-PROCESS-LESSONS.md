@@ -42,3 +42,13 @@ Before scaling a new matrix, run a real clean/broken tracer, then representative
 Group demonstrated producer fixes before rebuilding at one frozen source revision. Preserve completed OS work across transport loss, record unknown exit codes honestly, and rebuild only when authority inputs actually change. A validated internal row-location hint removed repeated JSON searches while retaining literal case-ID and parent-authority checks; isolated lookup timing is not a full-build or emulator benchmark.
 
 The corrected ARM builder/raw gate took48.05/25.53s locally; expanded ledger controls took108.62s. Inspect this distinct recurring control cost before Plan24's fixed180s hosted path. Preserve every regression class while reducing repeated parsing/validation where measurements justify it. Do not assume the old hosted green covers these changes. The original formal TDD reporter gap remains visible in WINDOWS; unsupported raw CMake output cannot be presented as recognized RED evidence.
+
+## Thumb source review and timing attribution
+
+Plan20's genuine narrow CTest/JUnit RED reports passed the installed classifier after an initial working-directory setup failure was explicitly rejected. Use the real supported reporter plus semantic inspection; parsing a report alone cannot establish an intended failing behavior.
+
+Derive form-defining opcode bits independently of a case's supplied full opcode. Coordinated source/metadata mutations exposed missing high-register selector and PUSH/POP LR/PC constraints. Carry tests must contrast incoming C with the independently required outgoing bit, and count-zero preservation must use both C inputs. New immediate/register shift and ROR0/33 vectors detect isolated carry-only faults; native tests alone do not establish original guest coverage.
+
+Challenge candidate findings against primary instruction fields and the real assembler. A proposed residual BX issue was rejected: bits5–3 select the source register, and GNU confirms0x4718 is legal BX r3. Tightening those variable bits would have restricted a valid instruction form.
+
+Current source produces118 Thumb semantic pairs/eight stops, with65 raw controls. Full ledger controls retain187 refusals. Initial Plan20 ledger wall time was220.44s; a later run recorded2833.27s and a selected build919.70s, without established attribution. Do not treat unexplained wall intervals as CPU work, hosted timing or model speed. During required CI-budget work, measure attributable command CPU time and elapsed time separately, inspect repeated parsing/validation and targeted processes, and preserve every failure class. No whole-machine restart or additional cache/concurrency/dependency is justified by a timeout alone.

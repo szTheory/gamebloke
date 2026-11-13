@@ -1,64 +1,65 @@
 ---
 phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio
-reviewed: 2026-11-13T06:57:08Z
+reviewed: 2026-11-13T09:12:01Z
 depth: standard
-files_reviewed: 8
+files_reviewed: 3
 files_reviewed_list:
-  - cmake/BuildArmDiagnostics.cmake
   - cmake/CheckArmCoverage.cmake
-  - diagnostics/armv4t/assertions.inc
-  - diagnostics/armv4t/cases-thumb.S
   - diagnostics/armv4t/cases.json
-  - diagnostics/armv4t/inputs.txt
   - tests/gates/coverage_case.cmake
-  - tests/gates/diagnostics_case.cmake
 findings:
-  critical: 1
-  warning: 2
+  critical: 0
+  warning: 0
   info: 0
-  total: 3
+  total: 0
   necessity: 0
-status: issues_found
+status: clean
 ---
 
 # Phase 05: Code Review Report
 
-**Reviewed:** 2026-11-13T06:57:08Z  
-**Depth:** standard  
-**Files Reviewed:** 8  
-**Status:** issues_found
+**Reviewed:** 2026-11-13T09:12:01Z
+**Depth:** standard
+**Files Reviewed:** 3
+**Status:** clean
 
 ## Summary
 
-Reviewed the Thumb assembly, 117 semantic pairs, eight stop witnesses, producer and coverage checker, and raw trace gate. The current rows build and observe the intended instruction forms, but the coverage crosswalk does not independently enforce several form-defining bits, and several shift boundary vectors do not distinguish the expected carry behavior from stale carry state.
+Re-reviewed the three Plan 20 correction paths against the original findings and the phase's encoding and arithmetic contracts. The format 5 and 14 crosswalk now derives required selector/list bits from each named form and checks that masks cover them. The shift cases and checker pin the incoming carry, operands, results, NZCV fields, probe count, and actual opcode. No active findings remain in this scoped re-review.
 
-## Critical Issues
+## Narrative Findings (AI reviewer)
 
-### CR-01: Coverage crosswalk does not enforce format-defining operand bits
+No active findings.
 
-**Severity:** BLOCKER  
-**File:** `cmake/CheckArmCoverage.cmake:622-626`
-**Issue:** The format 5 crosswalk masks only `0xff00`, which checks ADD/CMP/MOV/BX opcode class but omits H1/H2 bits 7 and 6 that distinguish high from low registers. Format 14 similarly masks `0xfe00` at lines 658-663 and omits bit 8, which distinguishes PUSH/POP with LR/PC. The later validation at lines 708-711 compares only those masks against `encoding_checks` values supplied by the same case row. A coordinated change to the program and its supplied opcode value can therefore keep a row such as `ADD:low-high` or `PUSH:include-LR` while executing a different form and still pass the format crosswalk. The current source rows contain the named forms, but the checker does not protect them from silent coverage loss.
-**Fix:** Derive and require the H1/H2 selector bits for format 5 subforms and the LR/PC bit for format 14 forms. Require each row's check mask to include those bits and compare them against fixed values derived from its `form`; add mutation controls that change both the instruction and its matrix encoding value and assert the checker rejects the mismatch.
+## Resolved Findings (prior review)
 
-## Warnings
+### CR-01: Coverage crosswalk omitted format-defining operand bits — RESOLVED
 
-### WR-01: Special LSR and ASR carry cases can pass with stale carry
+**Original severity:** BLOCKER
+**Original file:** `cmake/CheckArmCoverage.cmake:622-626`
 
-**Severity:** WARNING  
-**File:** `diagnostics/armv4t/cases.json:9879-9903`
-**Issue:** Case `742650290` tests immediate LSR #0 as LSR #32 using input `0x80000009` and seeds C=1; the expected outgoing C is also 1. Case `1800200023` does the same for ASR #32. The register-count-zero LSR/ASR vectors (`1800200027` and `1800200028`) also seed C=1 with an operand whose sign bit is 1. These vectors do not distinguish the specified carry result or preservation from an implementation that reuses the old C bit.
-**Fix:** Add vectors where incoming C differs from the required result: use C=0 with bit 31 set for immediate LSR/ASR #0, and C=0 with count zero for register LSR/ASR while asserting that C remains 0. Keep the existing C=1 vectors as the complementary cases.
+The original checker did not enforce format 5 H1/H2 selectors or format 14 LR/PC selection. The revised crosswalk derives selector values from each named form and requires the corresponding bits in the supplied mask. It also fixes the concrete empty and maximum list boundaries and the format 15 base-in-list witnesses. The controls coordinate instruction-source and supplied-opcode mutations, then verify rejection; weak-mask mutations are rejected as well ([CheckArmCoverage.cmake](cmake/CheckArmCoverage.cmake:622), [coverage_case.cmake](tests/gates/coverage_case.cmake:333)).
 
-### WR-02: Register ROR omits zero and non-multiple over-32 boundaries
+The unrestricted BX form intentionally leaves its Rm selector variable. Its positive `0x4700` control remains accepted, and GNU 15.2.1 decodes `0x4718` as `bx r3`; this is a valid register selection, not an unchecked reserved field.
 
-**Severity:** WARNING  
-**File:** `diagnostics/armv4t/cases.json:10062-10090`
-**Issue:** The only ROR boundary case runs counts 32 and 64; the regular `ROR:register` case uses count 3. There is no ROR count-zero case to verify operand/C preservation, nor a non-multiple count above 32 (such as 33) to verify the result and carry path after the special multiple-of-32 cases. The format crosswalk therefore counts the ROR form without covering these distinct boundary behaviors.
-**Fix:** Add a stable-ID ROR boundary case covering count 0 with both incoming carry values and a non-multiple count above 32, such as 33, with an operand whose shifted-out bit distinguishes the expected C. Retain the current 32/64 vectors for the modulo-32 special case.
+### WR-01: Special LSR and ASR carry cases could pass with stale carry — RESOLVED
+
+**Original severity:** WARNING
+**Original file:** `diagnostics/armv4t/cases.json:9879-9903`
+
+Immediate LSR/ASR #32 now check both incoming C values against the carry derived from operand bit 31. Register-count-zero cases add contrasting incoming carry and sign-bit vectors while retaining the original count boundaries. The checker binds each source sequence to literal result/NZCV/opcode vectors and exact probe count ([CheckArmCoverage.cmake](cmake/CheckArmCoverage.cmake:780), [cases.json](diagnostics/armv4t/cases.json:9876)). The gate includes clean-first mutations for both carry seeds, instruction replacement, mask weakening, encoding changes, and probe omission ([coverage_case.cmake](tests/gates/coverage_case.cmake:422)).
+
+### WR-02: Register ROR omitted zero and non-multiple over-32 boundaries — RESOLVED
+
+**Original severity:** WARNING
+**Original file:** `diagnostics/armv4t/cases.json:10062-10090`
+
+Stable ID `1800200037` adds ROR count-zero vectors for both carry inputs and count-33 vectors whose bit-zero/result/carry outcomes differ. Its four source probes, full opcode values, results, and NZCV expectations are checked independently; the existing count-32/64 case remains. The gate rejects changes to count 33, operand bit zero, result, flags, opcode, or the whole case ([CheckArmCoverage.cmake](cmake/CheckArmCoverage.cmake:820), [cases.json](diagnostics/armv4t/cases.json:16329), [coverage_case.cmake](tests/gates/coverage_case.cmake:445)).
+
+The correction report records the focused clean/broken guest runs and isolated carry-fault controls. This re-review did not repeat the full matrix or ledger gates.
 
 ---
 
-_Reviewed: 2026-11-13T06:57:08Z_  
-_Reviewer: the agent (gsd-code-reviewer)_  
+_Reviewed: 2026-11-13T09:12:01Z_
+_Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_

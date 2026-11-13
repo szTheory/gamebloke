@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan19 ARM diagnostics reviewed clean after source coverage fixes; Plan20 Thumb diagnostics next; human review and formal TDD deviation retained for Phase5 acceptance
-stopped_at: Plan19 reviewed; continuing Plan20 original Thumb diagnostics
-last_updated: "2026-11-13T05:58:53.815Z"
+status: Plan20 Thumb diagnostics reviewed clean after form/carry fixes; Plan21 final cross-host proof and admission next; human review and formal TDD deviation retained for Phase5 acceptance
+stopped_at: Plan20 reviewed; continuing Plan21 cross-host proof and admission
+last_updated: "2026-11-13T09:14:35.327Z"
 last_activity: 2026-11-13
-last_activity_desc: Plan19 corrected ARM matrix and independent re-review complete; Plan20 next
-state_head: c246a115459f4bc859e5cde050bffd73a01029a7
+last_activity_desc: Plan20 corrected Thumb matrix and independent re-review complete; Plan21 next
+state_head: 13ffd857176ef07c982e8e76ee26feaa856108c5
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 57
+  completed_plans: 58
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 20 of 25
-Status: Plan19 ARM diagnostics reviewed clean after source coverage fixes; Plan20 Thumb diagnostics next; human review and formal TDD deviation retained for Phase5 acceptance
-Last activity: 2026-11-13 — Plan19 corrected ARM matrix and independent re-review complete; Plan20 next
+Plan: 21 of 25
+Status: Plan20 Thumb diagnostics reviewed clean after form/carry fixes; Plan21 final cross-host proof and admission next; human review and formal TDD deviation retained for Phase5 acceptance
+Last activity: 2026-11-13 — Plan20 corrected Thumb matrix and independent re-review complete; Plan21 next
 
 Progress: [███████░░░] 67%
 
@@ -116,6 +116,7 @@ Progress: [███████░░░] 67%
 | Phase 05 P17 | 15min50s dispatch-to-terminal; review excluded | 2 tasks | 5 files |
 | Phase 05 P18 | 25min05s dispatch-to-terminal; review/fixes/integration excluded | 2 tasks | 16 files |
 | Phase 05 P19 | 160m21s | 2 tasks | 10 files |
+| Phase 05 P20 | 35m00s dispatch-to-acceptance; review/fixes excluded | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -292,6 +293,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-13T05:58:53.612Z
-Stopped at: Plan19 reviewed; continuing Plan20 original Thumb diagnostics
+Last session: 2026-11-13T09:14:33.880Z
+Stopped at: Plan20 reviewed; continuing Plan21 cross-host proof and admission
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
