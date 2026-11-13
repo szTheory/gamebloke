@@ -106,3 +106,7 @@ No unresolved Plan 17 defect or required skipped check. Parent owns independent 
 ## Self-Check: PASSED
 
 All five modified implementation/test files, both selectors' receipts, RED evidence, controls, native/sanitizer logs and both GNU logs exist. All three task commits are ancestors of final task HEAD, and the persisted ledger measures three commits. Owner-managed dirty files were neither staged nor changed by this plan.
+
+## Root reviewed closeout
+
+[Independent standard-depth review](05-17-REVIEW.md) is clean, including the BL/IRQ boundary and project-policy labels. Root reran BL/control/decode selectors successfully. Current schema/UI gates do not block; codebase drift is explicitly skipped without STRUCTURE.md. Plan18 owns additive stop reasons and coherent profile5 before full Thumb/compiler/sanitizer inventory integration. No newer hosted evidence is claimed. Root saved dispatch-to-terminal observation950s (includes metadata handoff after the summary's14m05s verification interval), receipt `build/phase05-plan17/dispatch.json`.
