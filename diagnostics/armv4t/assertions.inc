@@ -9,7 +9,7 @@
 .macro GBL_ASSERT_EQ reg, expected, broken_expected
 .if GBL_THUMB
     push {r0-r2}
-    mov r0, \reg
+    movs r0, \reg
     ldr r1, =\expected
 .if GBL_BROKEN
     ldr r1, =\broken_expected
@@ -30,7 +30,7 @@
 .macro GBL_ASSERT_MASKED reg, mask, expected, broken_expected
 .if GBL_THUMB
     push {r0-r2}
-    mov r0, \reg
+    movs r0, \reg
     ldr r2, =\mask
     ands r0, r2
     ldr r1, =\expected
