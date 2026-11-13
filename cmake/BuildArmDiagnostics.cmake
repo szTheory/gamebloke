@@ -801,7 +801,7 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     string(JSON broken_expected GET "${selected_row}" source_test
       independent_expectation broken_expected)
     if("${expected_value}" STREQUAL "${broken_expected}" OR
-       NOT "${selected_source_program}" MATCHES "GBL_ASSERT_EQ")
+       NOT "${selected_source_program}" MATCHES "GBL_ASSERT_(EQ|MASKED)")
       message(FATAL_ERROR "arm-diagnostics: arm-case-assertion-invalid: ${CASE_ID}")
     endif()
     set(variant_labels "arm-${CASE_ID}" "arm-${CASE_ID}-broken")
