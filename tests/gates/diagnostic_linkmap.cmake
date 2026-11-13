@@ -69,6 +69,7 @@ if(NOT linker_stubs EQUAL 1)
 endif()
 
 set(expected_real "")
+set(expected_real "")
 foreach(path IN LISTS expected_objects)
   if(NOT path MATCHES "[.]o$")
     message(FATAL_ERROR "linkmap: non-object-input")

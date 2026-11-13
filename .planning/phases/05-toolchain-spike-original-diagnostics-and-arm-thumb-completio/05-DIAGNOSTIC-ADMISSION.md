@@ -21,6 +21,15 @@ object map, unresolved-symbol and exact-name generated signature checks remain
 mandatory. A mismatch is preserved and stops admission for a parent decision
 about explicit Linux ownership and host-specific binding.
 
+Local macOS proof runs the canonical diagnostics workflow once, including its
+actual build and registered controls. Selected matrix children label signature
+proof deferred/unverified; only the mandatory parent scan of the exact final
+output directory establishes scanned authority. Standalone selected cases
+retain their own scan. The complete proof consumer requires the successful
+parent witness and exact output set before accepting any deferred child.
+Map and header validation execute the same standalone scripts in fresh function
+scopes to avoid duplicate process startup without removing their checks.
+
 The diagnostics workflow retains the existing pinned actions, exact PR-head
 checkout with full history, required jobs and180s limits. Proof mode builds
 the entire selected output set and emits each output's name, stable case ID,

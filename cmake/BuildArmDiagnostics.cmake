@@ -476,6 +476,29 @@ function(epoch_seconds output_name)
   set(${output_name} "${epoch}" PARENT_SCOPE)
 endfunction()
 
+function(fix_owned_header raw_path output_path report_path)
+  # Same standalone validator/fixer, with fresh argument/temporary scope.
+  set(INPUT "${raw_path}")
+  set(OUTPUT "${output_path}")
+  include("${source_root}/cmake/FixGbaHeader.cmake")
+  file(WRITE "${report_path}"
+    "gba-header: fixed size=${input_size} checksum=0x${expected_checksum}\n")
+endfunction()
+
+function(audit_original_case proof_root)
+  # Execute the unchanged standalone gate without a per-image CMake process.
+  set(AUDIT_KIND case)
+  set(SRC "${source_root}")
+  set(MAP "${proof_root}/case.map")
+  set(OBJECTS "${proof_root}/startup.o;${proof_root}/case.o")
+  set(ATTRIBUTES "${proof_root}/startup.attributes.txt;${proof_root}/case.attributes.txt;${proof_root}/elf.attributes.txt")
+  set(SECTIONS "${proof_root}/elf-sections.txt")
+  set(DISASSEMBLY "${proof_root}/case.disasm.txt")
+  include("${source_root}/tests/gates/diagnostic_linkmap.cmake")
+  file(WRITE "${proof_root}/link-audit.txt"
+    "linkmap: ok objects=${expected_count} executable_sections=.gba_header,.text linker_stubs=${linker_stubs}\n")
+endfunction()
+
 if(MODE STREQUAL "case" AND selected_kind STREQUAL "smoke")
 epoch_seconds(plan_started)
 set(common_relative "${output_relative}/proof/common")
@@ -640,17 +663,8 @@ function(build_variant variant broken rom_name)
   if(NOT "${objcopy_rc}" STREQUAL "0")
     message(FATAL_ERROR "arm-diagnostics: objcopy-failed: ${objcopy_error}${objcopy_output}")
   endif()
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}"
-      "-DINPUT=${raw_rom}" "-DOUTPUT=${output_root}/roms/${rom_name}"
-      -P "${source_root}/cmake/FixGbaHeader.cmake"
-    WORKING_DIRECTORY "${source_root}"
-    RESULT_VARIABLE header_rc OUTPUT_VARIABLE header_output
-    ERROR_VARIABLE header_error)
-  if(NOT "${header_rc}" STREQUAL "0")
-    message(FATAL_ERROR "arm-diagnostics: header-fix-failed: ${header_error}${header_output}")
-  endif()
-  file(WRITE "${variant_root}/header-fix.txt" "${header_output}${header_error}")
+  fix_owned_header("${raw_rom}" "${output_root}/roms/${rom_name}"
+    "${variant_root}/header-fix.txt")
 
   file(SHA256 "${output_root}/roms/${rom_name}" rom_sha)
   file(SIZE "${output_root}/roms/${rom_name}" rom_bytes)
@@ -715,8 +729,12 @@ if(MODE STREQUAL "all")
     string(JSON child_id ERROR_VARIABLE child_id_error GET "${child_json}" case_id)
     string(JSON child_names_length ERROR_VARIABLE child_names_error
       LENGTH "${child_json}" output_names)
+    string(JSON child_scan ERROR_VARIABLE child_scan_error
+      GET "${child_json}" signature_scan)
     if(NOT "${child_id_error}" STREQUAL "NOTFOUND" OR
        NOT "${child_names_error}" STREQUAL "NOTFOUND" OR
+       NOT "${child_scan_error}" STREQUAL "NOTFOUND" OR
+       NOT child_scan STREQUAL "deferred-to-matrix-parent" OR
        NOT "${child_id}" STREQUAL "${row_id}")
       message(FATAL_ERROR "arm-diagnostics: matrix-child-identity-invalid: ${row_id}")
     endif()
@@ -788,6 +806,12 @@ if(MODE STREQUAL "all")
   set(sorted_names "${output_names}")
   list(SORT sorted_names)
   set(output_names "${sorted_names}")
+  file(GLOB aggregate_entries RELATIVE "${output_root}/roms"
+    LIST_DIRECTORIES TRUE "${output_root}/roms/*")
+  list(SORT aggregate_entries)
+  if(NOT aggregate_entries STREQUAL output_names)
+    message(FATAL_ERROR "arm-diagnostics: aggregate-output-name-set-mismatch")
+  endif()
   set(allowlist "")
   foreach(name IN LISTS output_names)
     string(APPEND allowlist "${name}\n")
@@ -801,7 +825,7 @@ if(MODE STREQUAL "all")
     RESULT_VARIABLE matrix_signature_rc OUTPUT_VARIABLE matrix_signature_out
     ERROR_VARIABLE matrix_signature_error)
   if(NOT "${matrix_signature_rc}" STREQUAL "0" OR
-     NOT matrix_signature_out MATCHES "signature: ok")
+     NOT matrix_signature_out MATCHES "signature: ok [(]${output_count} files[)]")
     message(FATAL_ERROR
       "arm-diagnostics: matrix-signature-scan-failed: ${matrix_signature_error}${matrix_signature_out}")
   endif()
@@ -963,19 +987,7 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
       message(FATAL_ERROR "arm-diagnostics: case-sections-or-symbols-invalid: ${sections_error}${symbols_error}${undefined_symbols}")
     endif()
     file(WRITE "${variant_root}/unresolved-symbols.txt" "No unresolved symbols.\n")
-    execute_process(COMMAND "${CMAKE_COMMAND}"
-      -DAUDIT_KIND=case
-      "-DMAP=${variant_root}/case.map"
-      "-DOBJECTS=${variant_root}/startup.o;${variant_root}/case.o"
-      "-DATTRIBUTES=${variant_root}/startup.attributes.txt;${variant_root}/case.attributes.txt;${variant_root}/elf.attributes.txt"
-      "-DSECTIONS=${variant_root}/elf-sections.txt"
-      "-DDISASSEMBLY=${variant_root}/case.disasm.txt" "-DSRC=${source_root}"
-      -P "${source_root}/tests/gates/diagnostic_linkmap.cmake"
-      RESULT_VARIABLE audit_rc OUTPUT_VARIABLE audit_out ERROR_VARIABLE audit_error)
-    if(NOT audit_rc STREQUAL "0")
-      message(FATAL_ERROR "arm-diagnostics: case-link-audit-failed: ${audit_out}${audit_error}")
-    endif()
-    file(WRITE "${variant_root}/link-audit.txt" "${audit_out}${audit_error}")
+    audit_original_case("${variant_root}")
     if(ISA STREQUAL "thumb")
       string(JSON probe_count LENGTH "${selected_row}" source_test encoding_checks)
       if(probe_count LESS 1)
@@ -1054,16 +1066,8 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     if(NOT "${case_copy_rc}" STREQUAL "0")
       message(FATAL_ERROR "arm-diagnostics: arm-case-objcopy-failed: ${case_copy_error}${case_copy_output}")
     endif()
-    execute_process(
-      COMMAND "${CMAKE_COMMAND}" "-DINPUT=${variant_root}/case.unfixed"
-        "-DOUTPUT=${output_root}/roms/${rom_name}"
-        -P "${source_root}/cmake/FixGbaHeader.cmake"
-      WORKING_DIRECTORY "${source_root}"
-      RESULT_VARIABLE case_header_rc OUTPUT_VARIABLE case_header_output
-      ERROR_VARIABLE case_header_error)
-    if(NOT "${case_header_rc}" STREQUAL "0")
-      message(FATAL_ERROR "arm-diagnostics: arm-case-header-fix-failed: ${case_header_error}${case_header_output}")
-    endif()
+    fix_owned_header("${variant_root}/case.unfixed"
+      "${output_root}/roms/${rom_name}" "${variant_root}/header-fix.txt")
     file(SHA256 "${output_root}/roms/${rom_name}" rom_sha)
     file(SIZE "${output_root}/roms/${rom_name}" rom_bytes)
     set(case_receipt "{}")
@@ -1100,19 +1104,28 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     string(APPEND case_allowlist "${rom_name}\n")
   endforeach()
   file(WRITE "${output_root}/proof/signature-allowlist.txt" "${case_allowlist}")
-  execute_process(
-    COMMAND sh "${source_root}/scripts/signature-scan.sh" --dir
-      "${output_root}/roms" --allowlist
-      "${output_root}/proof/signature-allowlist.txt"
-    WORKING_DIRECTORY "${source_root}"
-    RESULT_VARIABLE case_signature_rc OUTPUT_VARIABLE case_signature_output
-    ERROR_VARIABLE case_signature_error)
-  if(NOT "${case_signature_rc}" STREQUAL "0" OR
-     NOT case_signature_output MATCHES "signature: ok")
-    message(FATAL_ERROR "arm-diagnostics: arm-case-signature-scan-failed: ${case_signature_error}${case_signature_output}")
+  if(is_matrix_child)
+    # A child alone is unverified. The parent must scan the exact aggregate
+    # output directory, after copying every byte and validating every name.
+    set(case_signature_state deferred-to-matrix-parent)
+    file(WRITE "${output_root}/proof/signature-scan.txt"
+      "DEFERRED: child alone is unverified; mandatory parent aggregate exact-directory scan required.\n")
+  else()
+    set(case_signature_state passed)
+    execute_process(
+      COMMAND sh "${source_root}/scripts/signature-scan.sh" --dir
+        "${output_root}/roms" --allowlist
+        "${output_root}/proof/signature-allowlist.txt"
+      WORKING_DIRECTORY "${source_root}"
+      RESULT_VARIABLE case_signature_rc OUTPUT_VARIABLE case_signature_output
+      ERROR_VARIABLE case_signature_error)
+    if(NOT "${case_signature_rc}" STREQUAL "0" OR
+       NOT case_signature_output MATCHES "signature: ok")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-signature-scan-failed: ${case_signature_error}${case_signature_output}")
+    endif()
+    file(WRITE "${output_root}/proof/signature-scan.txt"
+      "${case_signature_output}${case_signature_error}")
   endif()
-  file(WRITE "${output_root}/proof/signature-scan.txt"
-    "${case_signature_output}${case_signature_error}")
   file(GLOB case_rom_entries LIST_DIRECTORIES TRUE "${output_root}/roms/*")
   list(SORT case_rom_entries)
   set(expected_case_roms "")
@@ -1137,6 +1150,8 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     "\"${case_summary_format}\"")
   string(JSON case_summary SET "${case_summary}" source_commit
     "\"${source_commit}\"")
+  string(JSON case_summary SET "${case_summary}" signature_scan
+    "\"${case_signature_state}\"")
   string(JSON case_summary SET "${case_summary}" case_id "${CASE_ID}")
   string(JSON case_summary SET "${case_summary}" isa "\"${ISA}\"")
   string(JSON case_summary SET "${case_summary}" semantic_pairs
