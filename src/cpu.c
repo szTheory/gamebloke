@@ -2146,10 +2146,6 @@ static bool gbl_cpu_prepare_thumb_multiple_transfer(
     uint32_t updated_base;
     uint32_t span;
 
-    if (cpu == NULL || unit == NULL ||
-        (stack_mode ? base_register != 13u : base_register >= 8u)) {
-        return false;
-    }
     base_in_list = !stack_mode &&
         (register_list & (uint8_t)(UINT8_C(1) << base_register)) != 0u;
     for (register_index = 0u; register_index < 8u; ++register_index) {
