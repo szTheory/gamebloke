@@ -5,6 +5,26 @@ foreach(required IN ITEMS SRC BIN CASE)
     message(FATAL_ERROR "diagnostics-case: missing-${required}")
   endif()
 endforeach()
+if(CASE STREQUAL "thumb-producer-tracer")
+  # Narrow executable contract: the first stable Thumb ID must be selectable
+  # through the production builder, not merely named in the draft inventory.
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
+    -DOUT=build/phase05-spike/thumb-tracer -DTOOLCHAIN_ROOT=build/toolchains
+    -DMODE=case -DISA=thumb -DCASE_ID=631794229
+    -P "${SRC}/cmake/BuildArmDiagnostics.cmake"
+    WORKING_DIRECTORY "${SRC}"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT rc STREQUAL "0")
+    message(FATAL_ERROR "diagnostics-case: thumb-producer-contract: selected original pair must build: ${output}${error}")
+  endif()
+  foreach(name IN ITEMS thumb-631794229.gba thumb-631794229-broken.gba)
+    if(NOT EXISTS "${SRC}/build/phase05-spike/thumb-tracer/roms/${name}")
+      message(FATAL_ERROR "diagnostics-case: thumb-producer-contract: missing ${name}")
+    endif()
+  endforeach()
+  message(STATUS "diagnostics-case: thumb-producer-tracer passed")
+  return()
+endif()
 if(CASE STREQUAL "arm-pre-admission")
   if(NOT DEFINED ARTIFACT_ROOT OR "${ARTIFACT_ROOT}" STREQUAL "")
     message(FATAL_ERROR "diagnostics-case: missing-ARTIFACT_ROOT")
