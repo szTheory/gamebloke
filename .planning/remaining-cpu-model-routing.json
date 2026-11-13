@@ -6,7 +6,7 @@
   "approved": "Owner selected Use stronger model for both CPU batches",
   "model": "gpt-6.1-sol",
   "effort": "high",
-  "status": "plan17_reviewed_plan18_ready",
+  "status": "complete_routing_restored",
   "restore_after": "Plan18 reviewed and focused checks complete",
   "restore_rule": "If config bytes match build/phase05-remaining-cpu-model/config-applied.json, restore exact config-before.json dirty owner bytes; otherwise restore only untouched trial fields preserving newer owner edits. Never restore HEAD config.",
   "unchanged_roles": [
@@ -15,5 +15,9 @@
   ],
   "approved_utc": "2026-11-13T00:27:30.756721+00:00",
   "plan17_dispatch_to_terminal_seconds": 950,
-  "plan17_review": "clean"
+  "plan17_review": "clean",
+  "completed_utc": "2026-11-13T01:51:43.070875+00:00",
+  "restored_exact_prechange_dirty_config": true,
+  "review_result": "Plan17 clean; Plan18 condition-ordering and format-label findings fixed/re-reviewed; human review flag preserved for phase acceptance.",
+  "integration": "full current-source inventories pending"
 }

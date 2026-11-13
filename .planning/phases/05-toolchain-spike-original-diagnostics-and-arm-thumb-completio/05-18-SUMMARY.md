@@ -65,7 +65,7 @@ No fabricated legal unsupported witness was introduced. Existing unsupported ABI
 
 ## Source audit
 
-Read local primary-source extracts `build/phase04-research/arm/ARM7TDMI-DDI0029G.txt` §1.4/Tables1-2..1-7 and CPU timing sections, and `ARM-DDI0100I.txt` A3.16/A4–A7 operand/version rules. GBATEK3.06 supplies selected GBA reference policies, not hardware measurements. The exact committed source/ledger hashes and crosswalk are in [decode-audit.json](../../../build/phase05-plan18/decode-audit.json).
+Read local primary-source extracts `build/phase04-research/arm/ARM7TDMI-DDI0029G.txt` §1.4/Tables1-2..1-7 and CPU timing sections, and `ARM-DDI0100I.txt` A3.16/A4–A7 operand/version rules. GBATEK3.06 supplies selected GBA reference policies, not hardware measurements. The exact committed source/ledger hashes and crosswalk are in [durable decode-source audit](05-18-DECODE-AUDIT.json).
 
 | Decoder region | Source/form audit and existing native seams |
 | --- | --- |
@@ -107,3 +107,9 @@ Actuals are85,436 realized implementation-diff characters/4 =21,359 tokens and f
 ## Self-Check: PASSED
 
 All16 changed implementation paths and the summary exist; all five listed commits are ancestors of HEAD. Final source receipts identify `e20ee01`, source/ledger audit hashes match disk, no task changes remain uncommitted, and parent-owned dirty files were preserved.
+
+## Root reviewed implementation closeout
+
+Independent review found ARM condition classification occurring before annulment, plus incorrect Thumb format grouping. Both are fixed and re-reviewed clean at `a30f05e`; [review](05-18-REVIEW.md), [fix evidence](05-18-REVIEW-FIX.md). New regression cases fail on the old source and pass with the shared annul guard; passing-condition stop companions remain intact. Focused native11 and AppleClangASan11, profile validator and clean-first controls, and pinnedGNU CPU/runner compilation pass. Full current-source integration remains pending.
+
+The logic-fix human-review flag remains for the existing phase acceptance/UAT; AI re-review does not satisfy it. Source/ledger crosswalk is retained compactly in05-18-DECODE-AUDIT.json, joining exact original case forms from the unchanged hash-pinned ledger; no original case-execution claim is added. Root restored exact pre-extension dirty owner config after the two approved stronger CPU batches; default executor again resolvesLuna/xhigh, both runtime maps preserved.

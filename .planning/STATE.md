@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan17 reviewed clean; Plan18 classification/profile synchronization approved stronger executor next
+status: Plan18 fixes re-reviewed clean; full Thumb/API/profile integration pending; default routing restored
 stopped_at: Plan17 reviewed; Plan18 ready with approved stronger executor
-last_updated: "2026-11-13T00:48:58.315Z"
+last_updated: "2026-11-13T01:53:14.884Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 05 Plan 13 completed locally; root owns independent review and final pinned Linux verification
-state_head: 01feaebffe12f318584876f3cc3292218b94dfd3
+state_head: a30f05e2c907c6a38bcfc70abf5cbf416a86ecec
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 18 of 25
-Status: Plan17 reviewed clean; Plan18 classification/profile synchronization approved stronger executor next
+Status: Plan18 fixes re-reviewed clean; full Thumb/API/profile integration pending; default routing restored
 Last activity: 2026-11-12 — Phase 05 Plan 13 completed locally; root owns independent review and final pinned Linux verification
 
 Progress: [███████░░░] 67%

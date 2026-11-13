@@ -1,0 +1,772 @@
+{
+  "schema": "gamebloke.decode-source-audit/1",
+  "scope": "Family/form source crosswalk audit, not original case execution or hardware qualification",
+  "original_case_execution_claim": false,
+  "native_crosswalk_semantics": "Relevant family-level native seams, not proof that each original diagnostic case executed or is admitted.",
+  "ledger": {
+    "path": "diagnostics/armv4t/cases.json",
+    "sha256": "51e9fe81cda86e4c75d9e22abed7e4105fe6a376311c333c51d2a3bc49f803b3",
+    "rows": 357,
+    "coverage_states": {
+      "pending": 356,
+      "source-verified": 1
+    },
+    "join_rule": "Resolve case_ids against the hash-pinned ledger for exact ISA/family/form and pending state; no duplicate case authority."
+  },
+  "source_hierarchy": [
+    "ARM7TDMI DDI0029G 1.4/Tables1-2..1-7",
+    "ARM ARM DDI0100I A3.16 and instruction/operand semantics A4-A7",
+    "GBATEK3.06 selected GBA reference policies"
+  ],
+  "initial_audit": {
+    "source_head": "e20ee01936aa7d2bb61b94f9da1c014015a8f67a",
+    "cpu_sha256": "e0add55325db29794d20f99cca4cc43ff84a3a23169249fedfe850b8b506a9dd"
+  },
+  "reviewed_source": {
+    "source_head": "a30f05e2c907c6a38bcfc70abf5cbf416a86ecec",
+    "cpu_sha256": "a4373816d4ae51a6b07366df9ec756936c6eca5a71dafd186eab9191c17d4c88",
+    "post_audit_changes": [
+      "Annul ARM conditions0-14 before refusal classification; reviewed regression/positive-stop companions.",
+      "Correct profile/validator Thumb format labels."
+    ]
+  },
+  "groups": [
+    {
+      "isa": "arm",
+      "family": "block-transfer",
+      "canonical_decoder": "gbl_cpu_decode_arm_block_transfer",
+      "native_selectors": [
+        "arm_block",
+        "arm_block_banks",
+        "arm_block_bounds"
+      ],
+      "case_ids": [
+        283683078,
+        288313823,
+        297057203,
+        314309498,
+        318692640,
+        344471309,
+        345582293,
+        350835577,
+        355734903,
+        364050890,
+        365724880,
+        375948205,
+        377336269,
+        384014724,
+        390626671,
+        416055714,
+        419276516,
+        424415185,
+        431505905,
+        443871320,
+        469844796,
+        478218274,
+        489121831,
+        489728888,
+        495708335,
+        496152314,
+        498688940,
+        516644361
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "block-transfer-edge",
+      "canonical_decoder": "gbl_cpu_decode_arm_block_transfer",
+      "native_selectors": [
+        "arm_block_edges"
+      ],
+      "case_ids": [
+        319862487,
+        335954676,
+        394293021,
+        432575333,
+        462003146,
+        493113720,
+        513524554,
+        514296593,
+        525943575
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "classification",
+      "canonical_decoder": "gbl_cpu_decode",
+      "native_selectors": [
+        "isa_classification",
+        "no_bios"
+      ],
+      "case_ids": [
+        1632756083,
+        1645664415,
+        1724321294,
+        1765902634,
+        1833963930,
+        1837099443,
+        1869343625
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "condition",
+      "canonical_decoder": "gbl_cpu_condition_passed",
+      "native_selectors": [
+        "arm_shifts_conditions"
+      ],
+      "case_ids": [
+        297504232,
+        346371378,
+        362783879,
+        363155445,
+        364288278,
+        381059449,
+        396006239,
+        396012687,
+        397837068,
+        399411186,
+        399417634,
+        412515460,
+        430694310,
+        448472880,
+        498349239,
+        515888125
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "cpu-quirk",
+      "canonical_decoder": "gbl_cpu_decode",
+      "native_selectors": [
+        "isa_classification",
+        "arm_shifts_conditions",
+        "arm_block_edges",
+        "thumb_bl",
+        "thumb_control"
+      ],
+      "case_ids": [
+        818289137,
+        828304059,
+        885386896,
+        901840706,
+        930236915,
+        971746404,
+        991535153,
+        993740274,
+        1028106793
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "data-processing",
+      "canonical_decoder": "gbl_cpu_decode_data_processing",
+      "native_selectors": [
+        "arm_alu",
+        "arm_shifts_conditions",
+        "arm_pc_return"
+      ],
+      "case_ids": [
+        269048390,
+        273356310,
+        273641661,
+        273892621,
+        280007948,
+        280792659,
+        286371300,
+        287665087,
+        288293189,
+        288859223,
+        291748534,
+        298079424,
+        308135862,
+        311359414,
+        314649761,
+        325156899,
+        325612611,
+        329017024,
+        333264000,
+        338477418,
+        341729805,
+        342965333,
+        343436358,
+        343721884,
+        350623082,
+        351703266,
+        355170608,
+        368806686,
+        373821632,
+        375765682,
+        391267641,
+        393041556,
+        404008276,
+        404308220,
+        406026609,
+        407111441,
+        412317588,
+        415246372,
+        418278031,
+        418772819,
+        419600986,
+        440111400,
+        455874743,
+        465977678,
+        466834014,
+        473464122,
+        474173593,
+        474597968,
+        475134939,
+        476135671,
+        480358335,
+        480438260,
+        487941604,
+        492336181,
+        497071493,
+        511307758,
+        513369961,
+        519373755,
+        521173703,
+        525199251,
+        526327912,
+        527648661,
+        531715376,
+        534463572
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "diagnostic-harness",
+      "canonical_decoder": "gbl_cpu_run",
+      "native_selectors": [
+        "peek",
+        "mailbox"
+      ],
+      "case_ids": [
+        20481
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "halfword-signed-transfer",
+      "canonical_decoder": "gbl_cpu_decode_arm_subword_transfer",
+      "native_selectors": [
+        "arm_subword",
+        "arm_subword_alignment"
+      ],
+      "case_ids": [
+        290537885,
+        294797695,
+        295703206,
+        307663732,
+        319613451,
+        320561679,
+        327800698,
+        336439768,
+        348959853,
+        349804262,
+        355081736,
+        361421750,
+        363662911,
+        365220062,
+        373177293,
+        375018760,
+        386420797,
+        395853884,
+        397407432,
+        418546165,
+        421981425,
+        423103475,
+        427234685,
+        430038493,
+        434308478,
+        440968216,
+        466070916,
+        479963661,
+        492687423,
+        499670646,
+        515475758,
+        523744941
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "multiply",
+      "canonical_decoder": "gbl_cpu_decode_arm_multiply",
+      "native_selectors": [
+        "multiply_signed_timing",
+        "multiply_unsigned"
+      ],
+      "case_ids": [
+        301305780,
+        320234117,
+        324645631,
+        378322231,
+        419836810,
+        519488761
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "pc-control",
+      "canonical_decoder": "gbl_cpu_decode",
+      "native_selectors": [
+        "decode",
+        "arm_pc_return",
+        "loaded_pc"
+      ],
+      "case_ids": [
+        314196076,
+        337366577,
+        348179605,
+        403393264,
+        407369446,
+        410394214,
+        433134728,
+        467006272,
+        475702002,
+        480469734,
+        484671140,
+        507654410
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "policy",
+      "canonical_decoder": "gbl_cpu_decode",
+      "native_selectors": [
+        "isa_classification",
+        "multiply_signed_timing",
+        "arm_block_edges"
+      ],
+      "case_ids": [
+        1129470292,
+        1147774326,
+        1214630623,
+        1232880025,
+        1263725929,
+        1275797271
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "shifter-boundary",
+      "canonical_decoder": "gbl_cpu_decode_data_processing",
+      "native_selectors": [
+        "arm_shifts_conditions"
+      ],
+      "case_ids": [
+        269997436,
+        271498717,
+        282171986,
+        292551648,
+        293321832,
+        328139271,
+        328545235,
+        353256291,
+        354830933,
+        356836761,
+        382430202,
+        388416870,
+        389883204,
+        391037676,
+        404084826,
+        404807722,
+        411240016,
+        456915579,
+        467141940,
+        489601316,
+        506378935,
+        521839114,
+        522127195,
+        536168950
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "single-transfer",
+      "canonical_decoder": "gbl_cpu_decode_arm_single_transfer",
+      "native_selectors": [
+        "arm_transfer",
+        "loaded_pc"
+      ],
+      "case_ids": [
+        268640271,
+        274432459,
+        275093850,
+        300724923,
+        311315858,
+        315868977,
+        322022040,
+        328668778,
+        337012917,
+        337575578,
+        347813201,
+        354903217,
+        357940917,
+        372341308,
+        374387597,
+        386601171,
+        388491929,
+        400703187,
+        401838786,
+        432594855,
+        433787074,
+        459678872,
+        466786727,
+        466987161,
+        472532248,
+        479897899,
+        501256082,
+        503119932,
+        504796460,
+        505272308,
+        526005280,
+        529906570
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "status-register",
+      "canonical_decoder": "gbl_cpu_decode_arm_psr_transfer",
+      "native_selectors": [
+        "psr",
+        "arm_pc_return"
+      ],
+      "case_ids": [
+        275873585,
+        293575539,
+        326206442,
+        326212890,
+        331398143,
+        398514398,
+        398520846,
+        432070305,
+        443649775,
+        444222166,
+        444574110,
+        444580558,
+        482396714,
+        482402493,
+        482403162,
+        498951558,
+        515957731,
+        528468653
+      ]
+    },
+    {
+      "isa": "arm",
+      "family": "swap",
+      "canonical_decoder": "gbl_cpu_decode_arm_swap",
+      "native_selectors": [
+        "slots",
+        "slots_bounds"
+      ],
+      "case_ids": [
+        286458208,
+        342646202,
+        397143278,
+        399952470
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "add-subtract",
+      "canonical_decoder": "gbl_cpu_decode_thumb_alu",
+      "native_selectors": [
+        "thumb_alu"
+      ],
+      "case_ids": [
+        566059354,
+        674616641,
+        715259574,
+        723415973
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "alu-register",
+      "canonical_decoder": "gbl_cpu_decode_thumb_alu",
+      "native_selectors": [
+        "thumb_alu",
+        "thumb_high"
+      ],
+      "case_ids": [
+        558078754,
+        577578130,
+        580702450,
+        591952999,
+        595596642,
+        614264136,
+        635654357,
+        682453594,
+        717553878,
+        760057826,
+        765126593,
+        775953627,
+        776113618,
+        788220598,
+        800184132,
+        801801009
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "conditional-branch-swi",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_control",
+        "isa_classification"
+      ],
+      "case_ids": [
+        553969564,
+        566931810,
+        583702981,
+        584835814,
+        585168692,
+        601619881,
+        615580933,
+        615587381,
+        638430992,
+        699187734,
+        718083924,
+        751479171,
+        751952696,
+        751959144,
+        784381549,
+        784649947
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "format-edge",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_high",
+        "thumb_transfer",
+        "thumb_stack",
+        "thumb_multiple",
+        "thumb_control"
+      ],
+      "case_ids": [
+        539564381,
+        553220592,
+        556470422,
+        571259220,
+        593210606,
+        631794229,
+        658283233,
+        718382599,
+        736225106,
+        742650290,
+        772491234
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "high-register-operations",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_high"
+      ],
+      "case_ids": [
+        654394787,
+        663506278,
+        677986452,
+        695071734
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "immediate-byte-halfword-transfer",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_transfer",
+        "thumb_sp"
+      ],
+      "case_ids": [
+        647096719,
+        647912361,
+        671493370,
+        734176702
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "immediate-operations",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_alu",
+        "thumb"
+      ],
+      "case_ids": [
+        567029739,
+        595130464,
+        698043845,
+        752072083
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "immediate-word-transfer",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_transfer"
+      ],
+      "case_ids": [
+        539716427,
+        560869080
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "long-branch-link-prefix",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_bl",
+        "thumb_control"
+      ],
+      "case_ids": [
+        555469226
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "long-branch-link-suffix",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_bl",
+        "thumb_control"
+      ],
+      "case_ids": [
+        747712347
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "multiple-transfer",
+      "canonical_decoder": "gbl_cpu_prepare_thumb_multiple_transfer",
+      "native_selectors": [
+        "thumb_multiple"
+      ],
+      "case_ids": [
+        560631589,
+        721574955,
+        737278802,
+        743579965,
+        804445520
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "pc-relative-load",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_transfer"
+      ],
+      "case_ids": [
+        758799407
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "pc-sp-address-formation",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_sp"
+      ],
+      "case_ids": [
+        538772867,
+        687196780
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "push-pop",
+      "canonical_decoder": "gbl_cpu_prepare_thumb_multiple_transfer",
+      "native_selectors": [
+        "thumb_stack"
+      ],
+      "case_ids": [
+        569802504,
+        650578773,
+        654000269,
+        766592286,
+        785410767
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "register-offset-halfword",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_transfer"
+      ],
+      "case_ids": [
+        757473640,
+        802531845
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "register-offset-transfer",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_transfer"
+      ],
+      "case_ids": [
+        596907138,
+        640127838,
+        703998505,
+        763575131
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "shift-immediate",
+      "canonical_decoder": "gbl_cpu_decode_thumb_alu",
+      "native_selectors": [
+        "thumb_alu",
+        "thumb_high"
+      ],
+      "case_ids": [
+        647125783,
+        701735249
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "sp-adjust",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_sp"
+      ],
+      "case_ids": [
+        634923230,
+        678062113
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "sp-relative-transfer",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_sp"
+      ],
+      "case_ids": [
+        619139603,
+        731110552
+      ]
+    },
+    {
+      "isa": "thumb",
+      "family": "unconditional-branch",
+      "canonical_decoder": "gbl_cpu_decode_thumb",
+      "native_selectors": [
+        "thumb_control"
+      ],
+      "case_ids": [
+        684714906
+      ]
+    }
+  ]
+}
