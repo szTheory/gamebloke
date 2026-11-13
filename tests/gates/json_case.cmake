@@ -116,7 +116,17 @@ function(tail_text out name)
 endfunction()
 
 # ---- negative cases ----------------------------------------------------------
-if(CASE STREQUAL "trailing_variant")
+if(CASE STREQUAL "census_probe")
+  if(NOT DEFINED CONTROL_INPUT)
+    message(FATAL_ERROR "json-case: census probe input required")
+  endif()
+  include("${LOADER}")
+  function(gbl__json_census)
+    message(FATAL_ERROR "census-probe-called")
+  endfunction()
+  gbl_json_load(probe_doc "${CONTROL_INPUT}")
+
+elseif(CASE STREQUAL "trailing_variant")
   if(NOT DEFINED CONTROL_INPUT OR NOT DEFINED CONTROL_QUIET OR
      NOT CONTROL_QUIET MATCHES "^[01]$")
     message(FATAL_ERROR "json-case: trailing variant arguments required")
@@ -163,6 +173,16 @@ elseif(CASE STREQUAL "trailing_comma")
   expect_code(trailing-comma "${f}")
 
 elseif(CASE STREQUAL "trailing_content")
+  # The instrumented census is observable on clean input, but an already
+  # refused trailing root must abort without entering that expensive traversal.
+  file(WRITE "${dir}/census-clean.json" "{\"a\":1}\n")
+  file(WRITE "${dir}/census-trailing.json" "{\"a\":1}\n}")
+  gbl_expect_fail(COMMAND "${CMAKE_COMMAND}" -DCASE=census_probe
+    "-DCONTROL_INPUT=${dir}/census-clean.json" "-DSRC=${SRC}" "-DBIN=${BIN}"
+    -P "${SELF}" REGEX "census-probe-called")
+  gbl_expect_fail(COMMAND "${CMAKE_COMMAND}" -DCASE=census_probe
+    "-DCONTROL_INPUT=${dir}/census-trailing.json" "-DSRC=${SRC}" "-DBIN=${BIN}"
+    -P "${SELF}" REGEX "json: trailing-content" NO_ECHO "census-probe-called")
   # Seven tails on the tiny base and on a copy of every real document. The
   # tails append to the file, so each variant always differs from its base.
   real_docs(docs)

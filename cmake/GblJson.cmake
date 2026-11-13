@@ -226,12 +226,17 @@ function(gbl_json_load out file)
       message("json: trailing-comma: ${file}")
       set(bad TRUE)
     endif()
-    string(REGEX MATCHALL "S:" raw_keys "${region}")
-    list(LENGTH raw_keys raw_count)
-    gbl__json_census(parsed_members parsed_objects parsed_arrays "${text}")
-    if(NOT raw_count EQUAL parsed_members)
-      message("json: duplicate-key: ${file}")
-      set(bad TRUE)
+    # A known structural refusal cannot become accepted. Avoid walking the
+    # complete parsed tree again; every otherwise acceptable object, including
+    # a duplicate-key-only input, still requires the full census below.
+    if(NOT bad)
+      string(REGEX MATCHALL "S:" raw_keys "${region}")
+      list(LENGTH raw_keys raw_count)
+      gbl__json_census(parsed_members parsed_objects parsed_arrays "${text}")
+      if(NOT raw_count EQUAL parsed_members)
+        message("json: duplicate-key: ${file}")
+        set(bad TRUE)
+      endif()
     endif()
   endif()
 

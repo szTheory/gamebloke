@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan23 candidate reviewed clean; freezing revised producer for fresh complete proof and readmission
+status: Plan23 reviewed JSON refusal optimization; replacement source freeze and complete proof next
 stopped_at: Plan22 complete; continue Plan23 diagnostic inventories and dependency controls
-last_updated: "2026-11-13T23:17:24.163Z"
+last_updated: "2026-11-13T23:50:04.364Z"
 last_activity: 2026-11-13
-last_activity_desc: Boundary-specific final ledger and guarded registration reviewed; native proof presets explicit; no new pins or hosted attempt
-state_head: 426af7edb4d7342c56d70fff9bb4f3f51259f00e
+last_activity_desc: Partial Darwin proof preserved; measured native budget risk addressed without changing accepted JSON or caps; new proof pending
+state_head: d128c4048f3ec5d399ef3c20eae03c8a0e2f3d3e
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 23 of 25
-Status: Plan23 candidate reviewed clean; freezing revised producer for fresh complete proof and readmission
-Last activity: 2026-11-13 — Boundary-specific final ledger and guarded registration reviewed; native proof presets explicit; no new pins or hosted attempt
+Status: Plan23 reviewed JSON refusal optimization; replacement source freeze and complete proof next
+Last activity: 2026-11-13 — Partial Darwin proof preserved; measured native budget risk addressed without changing accepted JSON or caps; new proof pending
 
 Progress: [███████░░░] 67%
 
