@@ -146,6 +146,7 @@ if(CASE STREQUAL "path-controls")
       set(control_manifest "${out_dir}/control/manifest.json")
       execute_process(COMMAND "${CMAKE_COMMAND}"
         "-DGBL_SOURCE_DIR=${source_clone}"
+        "-DGBL_OUTPUT_ROOT=${BIN}"
         "-DGBL_CONTROL_IMAGE=${control_image}"
         "-DGBL_CONTROL_MANIFEST_OUTPUT=${control_manifest}"
         "-DGBL_MANIFEST=${manifest}"
@@ -229,6 +230,7 @@ function(generate label expected)
   file(WRITE "${control}" "stale control index\n")
   execute_process(COMMAND "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${source}" "-DGBL_ARTIFACT_ROOT=${artifact_root}"
+    "-DGBL_OUTPUT_ROOT=${BIN}"
     "-DGBL_CONTROL_IMAGE=${BIN}/generated/fixtures/owned-arm-pass.gba"
     "-DGBL_CONTROL_MANIFEST_OUTPUT=${dir}/${label}/control.json"
     "-DGBL_MANIFEST=${manifest}" "-DGBL_REGISTRY=${SRC}/registry/disputes.json"

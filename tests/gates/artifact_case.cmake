@@ -22,8 +22,13 @@ function(run_generator out_result out_report manifest artifact_root production_i
   if(ARGC GREATER 7)
     set(generator_source_root "${ARGV7}")
   endif()
+  set(generator_output_root "${BIN}")
+  if(ARGC GREATER 8)
+    set(generator_output_root "${ARGV8}")
+  endif()
   set(command "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${generator_source_root}"
+    "-DGBL_OUTPUT_ROOT=${generator_output_root}"
     "-DGBL_CONTROL_IMAGE=${control_image}"
     "-DGBL_CONTROL_MANIFEST_OUTPUT=${control_manifest}"
     "-DGBL_MANIFEST=${manifest}"
@@ -120,6 +125,63 @@ message("artifact-case: roundtrip source commit, toolchain and artifact identiti
 message("artifact-case: canonical result checker accepted the exact indexed artifact digest")
 
 if(CASE STREQUAL "compatibility-and-controls")
+  # Each generated output has its own path boundary, independent of the ROM
+  # artifact root. Refusal must precede removal of an outside stale sentinel.
+  foreach(role IN ITEMS production control manifest)
+    foreach(kind IN ITEMS parent final dangling)
+      set(output_root "${dir}/output-${role}-${kind}/root")
+      set(outside "${dir}/output-${role}-${kind}/outside")
+      file(MAKE_DIRECTORY "${output_root}/production" "${output_root}/control"
+        "${output_root}/manifest" "${outside}")
+      set(output_production "${output_root}/production/index.h")
+      set(output_control "${output_root}/control/index.h")
+      set(output_manifest "${output_root}/manifest/control.json")
+      set(hostile "${output_${role}}")
+      get_filename_component(hostile_parent "${hostile}" DIRECTORY)
+      get_filename_component(hostile_name "${hostile}" NAME)
+      set(sentinel "${outside}/${hostile_name}")
+      if(kind STREQUAL "parent")
+        file(REMOVE_RECURSE "${hostile_parent}")
+        set(link_target "${outside}")
+        set(link_path "${hostile_parent}")
+      else()
+        set(link_target "${sentinel}")
+        set(link_path "${hostile}")
+      endif()
+      if(NOT kind STREQUAL "dangling")
+        file(WRITE "${sentinel}" "synthetic outside output sentinel\n")
+        file(SHA256 "${sentinel}" sentinel_before)
+      endif()
+      file(CREATE_LINK "${link_target}" "${link_path}" SYMBOLIC RESULT link_rc)
+      if(NOT link_rc STREQUAL "0")
+        message(FATAL_ERROR "artifact-case: output-symlink-control-setup-failed")
+      endif()
+      run_generator(output_rc output_report "${manifest}" "${dir}/build-root"
+        "${output_production}" "${output_control}" "${output_manifest}"
+        "${SRC}" "${output_root}")
+      if(output_rc STREQUAL "0" OR NOT output_report MATCHES
+          "fixture-index: output-(path-escape|dangling-symlink)")
+        message(FATAL_ERROR "artifact-case: output-symlink-was-not-refused:${role}:${kind}:${output_report}")
+      endif()
+      if(kind STREQUAL "dangling")
+        if(EXISTS "${sentinel}")
+          message(FATAL_ERROR "artifact-case: dangling-output-created-outside-file")
+        endif()
+      else()
+        file(SHA256 "${sentinel}" sentinel_after)
+        if(NOT sentinel_after STREQUAL sentinel_before)
+          message(FATAL_ERROR "artifact-case: output-symlink-changed-outside-sentinel")
+        endif()
+      endif()
+    endforeach()
+  endforeach()
+  run_generator(clean_output_rc clean_output_report "${manifest}" "${dir}/build-root"
+    "${dir}/output-clean/production/index.h" "${dir}/output-clean/control/index.h"
+    "${dir}/output-clean/manifest/control.json" "${SRC}" "${dir}/output-clean")
+  if(NOT clean_output_rc STREQUAL "0")
+    message(FATAL_ERROR "artifact-case: contained-output-clean-companion-failed:${clean_output_report}")
+  endif()
+
   # Legacy git metadata must still generate an empty runtime digest.
   set(legacy_manifest "${dir}/legacy-manifest.json")
   file(COPY_FILE "${SRC}/contracts/examples/manifest.json" "${legacy_manifest}")

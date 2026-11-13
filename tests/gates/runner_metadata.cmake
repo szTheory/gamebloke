@@ -191,6 +191,7 @@ set(bad_manifest_out "${control_dir}/unused-control-manifest.json")
 execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${SRC}"
+    "-DGBL_OUTPUT_ROOT=${BIN}"
     "-DGBL_CONTROL_IMAGE=${pass_image}"
     "-DGBL_CONTROL_FAIL_IMAGE=${fail_image}"
     "-DGBL_CONTROL_SKIP_IMAGE=${pass_image}"
@@ -219,6 +220,7 @@ set(drift_control_index "${control_dir}/drift-control.h")
 execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${SRC}"
+    "-DGBL_OUTPUT_ROOT=${BIN}"
     "-DGBL_CONTROL_IMAGE=${mutated_image}"
     "-DGBL_CONTROL_FAIL_IMAGE=${fail_image}"
     "-DGBL_CONTROL_SKIP_IMAGE=${pass_image}"
@@ -262,6 +264,7 @@ file(COPY_FILE "${SRC}/contracts/examples/manifest.json" "${legacy_manifest}")
 execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${SRC}"
+    "-DGBL_OUTPUT_ROOT=${BIN}"
     "-DGBL_CONTROL_IMAGE=${pass_image}"
     "-DGBL_CONTROL_FAIL_IMAGE=${fail_image}"
     "-DGBL_CONTROL_SKIP_IMAGE=${pass_image}"

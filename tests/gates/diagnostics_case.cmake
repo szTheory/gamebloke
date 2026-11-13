@@ -1084,6 +1084,7 @@ set(generated "${binary_root}/generated")
 execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DGBL_SOURCE_DIR=${source_root}"
+    "-DGBL_OUTPUT_ROOT=${binary_root}"
     "-DGBL_ARTIFACT_ROOT=${binary_root}"
     "-DGBL_CONTROL_IMAGE=${generated}/fixtures/owned-arm-pass.gba"
     "-DGBL_CONTROL_FAIL_IMAGE=${generated}/fixtures/owned-arm-fail.gba"

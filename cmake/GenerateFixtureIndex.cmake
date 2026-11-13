@@ -7,13 +7,17 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckManifest.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckDiagnosticAuthority.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/PathContainment.cmake")
 
-foreach(required IN ITEMS GBL_SOURCE_DIR GBL_CONTROL_IMAGE
+foreach(required IN ITEMS GBL_SOURCE_DIR GBL_OUTPUT_ROOT GBL_CONTROL_IMAGE
     GBL_CONTROL_MANIFEST_OUTPUT GBL_MANIFEST GBL_REGISTRY GBL_VOCAB
     GBL_OUT_PRODUCTION GBL_OUT_CONTROL)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "fixture-index: usage: -D${required}= is required")
   endif()
 endforeach()
+if(NOT IS_ABSOLUTE "${GBL_OUTPUT_ROOT}")
+  message(FATAL_ERROR "fixture-index: output-root-not-absolute")
+endif()
+get_filename_component(GBL_OUTPUT_ROOT "${GBL_OUTPUT_ROOT}" ABSOLUTE)
 
 get_filename_component(GBL_SOURCE_DIR "${GBL_SOURCE_DIR}" ABSOLUTE)
 gbl_resolve_path(source_root_real source_root_status "${GBL_SOURCE_DIR}")
@@ -50,14 +54,49 @@ get_filename_component(GBL_OUT_CONTROL "${GBL_OUT_CONTROL}" ABSOLUTE)
 get_filename_component(GBL_CONTROL_MANIFEST_OUTPUT
   "${GBL_CONTROL_MANIFEST_OUTPUT}" ABSOLUTE)
 
-# A failed rerun must not leave a stale index that looks current.
-file(REMOVE "${GBL_OUT_PRODUCTION}" "${GBL_OUT_CONTROL}")
+# Check every output before any removal, directory creation, or write. The
+# caller supplies this root independently of output paths and ROM identities.
+set(output_error "")
+foreach(output IN ITEMS GBL_OUT_PRODUCTION GBL_OUT_CONTROL GBL_CONTROL_MANIFEST_OUTPUT)
+  gbl_resolve_contained_path(output_real output_status_${output}
+    "${GBL_OUTPUT_ROOT}" "${${output}}")
+  if(NOT output_status_${output} STREQUAL "ok")
+    set(output_error "fixture-index: output-${output_status_${output}}:${output}")
+  elseif(EXISTS "${${output}}" AND IS_DIRECTORY "${${output}}")
+    set(output_status_${output} "not-file")
+    set(output_error "fixture-index: output-not-file:${output}")
+  endif()
+endforeach()
+# A failed rerun clears safe stale headers; an escaping target stays untouched.
+foreach(output IN ITEMS GBL_OUT_PRODUCTION GBL_OUT_CONTROL)
+  if(output_status_${output} STREQUAL "ok")
+    gbl_remove_file_contained(remove_status "${GBL_OUTPUT_ROOT}" "${${output}}")
+    if(NOT remove_status STREQUAL "ok")
+      set(output_error "fixture-index: output-${remove_status}:${output}")
+    endif()
+  endif()
+endforeach()
+if(NOT output_error STREQUAL "")
+  message(FATAL_ERROR "${output_error}")
+endif()
 get_filename_component(production_dir "${GBL_OUT_PRODUCTION}" DIRECTORY)
 get_filename_component(control_dir "${GBL_OUT_CONTROL}" DIRECTORY)
 get_filename_component(control_manifest_dir
   "${GBL_CONTROL_MANIFEST_OUTPUT}" DIRECTORY)
-file(MAKE_DIRECTORY "${production_dir}" "${control_dir}"
-  "${control_manifest_dir}")
+foreach(directory IN ITEMS "${production_dir}" "${control_dir}" "${control_manifest_dir}")
+  gbl_ensure_directory_contained(directory_status "${GBL_OUTPUT_ROOT}" "${directory}")
+  if(NOT directory_status STREQUAL "ok")
+    message(FATAL_ERROR "fixture-index: output-directory-${directory_status}")
+  endif()
+endforeach()
+
+function(gbl_fixture_write_output output contents)
+  gbl_write_file_contained(write_status write_reason
+    "${GBL_OUTPUT_ROOT}" "${output}" "${contents}")
+  if(NOT write_status STREQUAL "ok")
+    message(FATAL_ERROR "fixture-index: output-${write_reason}")
+  endif()
+endfunction()
 
 if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
   if(NOT EXISTS "${GBL_CONTROL_IMAGE}" OR IS_DIRECTORY "${GBL_CONTROL_IMAGE}")
@@ -126,7 +165,7 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
     "${control_rows}\n"
     "  ]\n"
     "}\n")
-  file(WRITE "${GBL_CONTROL_MANIFEST_OUTPUT}" "${control_manifest}")
+  gbl_fixture_write_output("${GBL_CONTROL_MANIFEST_OUTPUT}" "${control_manifest}")
   set(control_manifest_path "${GBL_CONTROL_MANIFEST_OUTPUT}")
 else()
   get_filename_component(control_manifest_path "${GBL_CONTROL_MANIFEST}" ABSOLUTE)
@@ -383,7 +422,7 @@ function(gbl_fixture_emit_index output prefix)
   string(APPEND contents
     "static const size_t gbl_fixture_metadata_count = ${row_count}u;\n"
     "#endif\n")
-  file(WRITE "${output}" "${contents}")
+  gbl_fixture_write_output("${output}" "${contents}")
 endfunction()
 
 # Project the exact row objects parsed by the canonical validator above.

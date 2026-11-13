@@ -247,3 +247,22 @@ All required implementation/admission/summary files exist. All16 recorded
 commits are ancestors of HEAD, and the on-disk plan ledger and recorded code
 head produce the stated count. The final independent binding check confirms722
 manifest/proof/loaded-output identities and the unchanged producer digest.
+
+## Parent integration and review follow-up
+
+Independent review found three concrete admission path/mode defects, fixed in
+`0ced20f` and `6ffac6e` with real negative and clean controls. Re-review confirmed
+those fixes and the consumer-only runtime correction `3dcbbb7`, then found an
+adjacent generator-output escape. The parent added an explicit generated-output
+root, contained cleanup/writes and nine output-symlink controls. See
+[the current review](05-21-ADMISSION-REVIEW.md),
+[first fix report](05-21-ADMISSION-REVIEW-FIX.md),
+[measured runtime correction](05-21-ADMISSION-PERFORMANCE.md), and
+[output guard evidence](05-21-OUTPUT-CONTAINMENT.md).
+
+After all current implementation changes, canonical CI passed in158.21 seconds,
+all722 admitted production results passed, and full source/output/pin/index
+refusal controls passed. This supersedes the earlier local runtime concern;
+the253.63-second result remains historical. No producer input or c3 authority
+pin changed. Independent closure of the new output finding is pending; cold
+compiler/sanitizer and actual final hosted evidence remain later plan gates.
