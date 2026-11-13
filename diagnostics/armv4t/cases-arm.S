@@ -15,12 +15,16 @@
 .global diagnostic_main
 .type diagnostic_main,%function
 diagnostic_main:
+    /* Preserve the startup caller's return address across BL-family cases. */
+    stmdb sp!, {lr}
     .include "arm-case.inc"
     mov r0, #2
+    ldmia sp!, {lr}
     bx lr
 
 .Ldiagnostic_assert_fail:
     mov r0, #3
+    ldmia sp!, {lr}
     bx lr
 
 .size diagnostic_main, .-diagnostic_main
