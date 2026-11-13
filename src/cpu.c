@@ -1115,7 +1115,8 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
         unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
         return true;
     }
-    if ((opcode & UINT32_C(0x01900000)) == UINT32_C(0x01000000)) {
+    if ((opcode & UINT32_C(0x01900000)) == UINT32_C(0x01000000) &&
+        (immediate || (opcode & UINT32_C(0x00000090)) != UINT32_C(0x00000090))) {
         /* Unrecognized control-space encodings: A3.16 distinguishes a
          * malformed allocated decode from an unallocated decode. Exact PSR
          * and BX encodings were consumed before data-processing dispatch. */
@@ -1132,7 +1133,11 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     }
     if (!immediate && (opcode & UINT32_C(0x00000090)) ==
                            UINT32_C(0x00000090)) {
-        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        const uint32_t decode = opcode & UINT32_C(0x0FF000F0);
+        unit->kind = decode == UINT32_C(0x01000090) ||
+                     decode == UINT32_C(0x01400090)
+                         ? GBL_CPU_UNIT_UNPREDICTABLE
+                         : GBL_CPU_UNIT_UNDEFINED;
         return true;
     }
 

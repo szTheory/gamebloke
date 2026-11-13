@@ -13261,6 +13261,7 @@ static void test_isa_classification(void)
         { 0xE1200010u, false, 10u, 12u }, /* malformed allocated BX */
         { 0xE1A10000u, false, 10u, 12u }, /* MOV reserved Rn */
         { 0xE1101000u, false, 10u, 12u }, /* TST reserved Rd */
+        { 0xE1000190u, false, 10u, 12u }, /* SWP reserved bits */
         { 0xE10FF000u, false, 10u, 12u }, /* MRS PC */
         { 0xE590F001u, false, 10u, 12u }, /* unaligned LDR PC */
         { 0x00004340u, true, 10u, 12u }, /* MUL same register */
@@ -13408,7 +13409,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("thumb_multiple", 17u, thumb_multiple_functions),
     CPU_TEST_GROUP("thumb_transfer", 31u, thumb_transfer_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
-    CPU_TEST_GROUP("isa_classification", 38u, isa_classification_functions),
+    CPU_TEST_GROUP("isa_classification", 39u, isa_classification_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
     CPU_TEST_GROUP("slots_bounds", 27u, slots_bounds_functions)
