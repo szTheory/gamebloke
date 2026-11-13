@@ -3464,7 +3464,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lpc_data\nldmia r4,{pc}\n.Lpc_target:\nmov r0,#0x11\nb .Lpc_done\nmov r0,#0x22\n.Lpc_done:\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000022\nmrs r1,cpsr\nand r1,r1,#0x20\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n.align 2\n.Lpc_data:.word .Lpc_target+3\n",
+        "program": "adr r4,.Lpc_data\nldmia r4,{pc}\n.Lpc_target:\nmov r0,#0x11\nb .Lpc_done\nmov r0,#0x22\n.Lpc_done:\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000022\nmrs r1,cpsr\nand r1,r1,#0x20\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\nb .Lpc_finished\n.align 2\n.Lpc_data:.word .Lpc_target+3\n.Lpc_finished:\n",
         "independent_expectation": {
           "instruction": "ldm-pc-without-s-preserves-t",
           "derivation": "LDM loads an odd PC value (.Lpc_target+3) but, without S, ARMv4T stays in ARM state and applies the loaded-PC alignment policy. The 0x11 target sentinel must execute and skip the contrasting 0x22 instruction; the T-bit assertion checks state.",
