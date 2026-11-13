@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
+set(final_proof_script "${CMAKE_CURRENT_LIST_FILE}")
 
 # Included only by toolchain_spike.cmake's final-* selectors. These receipts
 # describe pre-admission build bytes, never production fixture PASS results.
@@ -125,6 +126,30 @@ function(proof_assert_set actual expected reason)
   endif()
 endfunction()
 
+function(proof_assert_parent_signature_witness witness_path group_count group)
+  if(IS_SYMLINK "${witness_path}")
+    message(FATAL_ERROR "final-proof: parent-signature-proof-not-regular:${group}")
+  endif()
+  if(NOT EXISTS "${witness_path}")
+    message(FATAL_ERROR "final-proof: parent-signature-proof-missing:${group}")
+  endif()
+  if(IS_DIRECTORY "${witness_path}")
+    message(FATAL_ERROR "final-proof: parent-signature-proof-not-regular:${group}")
+  endif()
+  execute_process(COMMAND sh -c [=[test -f "$1" && test ! -L "$1"]=] sh
+      "${witness_path}"
+    RESULT_VARIABLE regular_rc OUTPUT_QUIET ERROR_QUIET)
+  if(NOT regular_rc STREQUAL "0")
+    message(FATAL_ERROR "final-proof: parent-signature-proof-not-regular:${group}")
+  endif()
+
+  file(READ "${witness_path}" signature_proof)
+  set(expected_signature "signature: ok (${group_count} files)\n")
+  if(NOT signature_proof STREQUAL expected_signature)
+    message(FATAL_ERROR "final-proof: parent-signature-proof-invalid:${group}")
+  endif()
+endfunction()
+
 function(proof_collect)
   proof_expected()
   proof_inputs(input_digest)
@@ -168,13 +193,8 @@ function(proof_collect)
     endif()
     proof_array("${receipt}" output_names group_names)
     list(LENGTH group_names group_count)
-    if(NOT EXISTS "${root}/proof/signature-scan.txt")
-      message(FATAL_ERROR "final-proof: parent-signature-proof-missing:${group}")
-    endif()
-    file(READ "${root}/proof/signature-scan.txt" signature_proof)
-    if(NOT signature_proof MATCHES "signature: ok [(]${group_count} files[)]")
-      message(FATAL_ERROR "final-proof: parent-signature-proof-invalid:${group}")
-    endif()
+    proof_assert_parent_signature_witness(
+      "${root}/proof/signature-scan.txt" "${group_count}" "${group}")
     file(GLOB actual RELATIVE "${root}/roms" LIST_DIRECTORIES TRUE "${root}/roms/*")
     proof_assert_set("${actual}" "${group_names}" "output-directory-set:${group}")
     file(READ "${root}/proof/matrix-parent.json" parent)
@@ -557,6 +577,117 @@ if(CASE STREQUAL "final-hosted-proof")
   message(STATUS "final-proof: current complete hosted hashes and every green required job verified within 180s; hash witness is distinct from local literal cmp")
   return()
 endif()
+if(CASE STREQUAL "final-scan-witness-check")
+  foreach(required IN ITEMS WITNESS GROUP_COUNT GROUP)
+    if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+      message(FATAL_ERROR "final-proof: scan-witness-control-missing-${required}")
+    endif()
+  endforeach()
+  proof_assert_parent_signature_witness("${WITNESS}" "${GROUP_COUNT}" "${GROUP}")
+  message(STATUS "final-proof: parent scan witness accepted for ${GROUP}")
+  return()
+endif()
+
+if(CASE STREQUAL "final-scan-witness-controls")
+  proof_inputs(input_digest)
+  set(group arm)
+  set(root "${source_root}/build/phase05-matrix/${group}")
+  file(READ "${root}/proof/build-receipt.json" receipt)
+  string(JSON revision GET "${receipt}" source_commit)
+  string(JSON scan GET "${receipt}" signature_scan)
+  if(NOT revision STREQUAL source_head OR NOT scan STREQUAL "passed")
+    message(FATAL_ERROR "final-proof: scan-witness-control-stale-receipt:${group}")
+  endif()
+  proof_array("${receipt}" output_names group_names)
+  list(LENGTH group_names group_count)
+  file(READ "${root}/proof/matrix-parent.json" parent)
+  string(JSON parent_digest GET "${parent}" source_input_sha256)
+  if(NOT parent_digest STREQUAL input_digest)
+    message(FATAL_ERROR "final-proof: scan-witness-control-input-binding:${group}")
+  endif()
+
+  set(witness "${root}/proof/signature-scan.txt")
+  set(expected_signature "signature: ok (${group_count} files)\n")
+  proof_assert_parent_signature_witness("${witness}" "${group_count}" "${group}")
+  file(READ "${witness}" original)
+  set(control_root "${bin_root}/witness-controls")
+  if(EXISTS "${control_root}")
+    message(FATAL_ERROR "final-proof: preserve-existing-scan-witness-controls")
+  endif()
+  file(MAKE_DIRECTORY "${control_root}")
+  file(WRITE "${control_root}/clean.log"
+    "clean-first actual ${group} parent witness accepted; source=${source_head}; files=${group_count}\n")
+  message(STATUS "final-proof: scan-witness control clean real parent witness accepted")
+
+  function(run_scan_witness_refusal label mutation contents expected_reason)
+    set(target "${control_root}/symlink-target.txt")
+    if(mutation STREQUAL "write")
+      file(WRITE "${witness}" "${contents}")
+    elseif(mutation STREQUAL "symlink")
+      file(WRITE "${target}" "${original}")
+      file(REMOVE "${witness}")
+      file(CREATE_LINK "${target}" "${witness}" SYMBOLIC RESULT link_rc)
+      if(NOT link_rc STREQUAL "0")
+        file(WRITE "${witness}" "${original}")
+        message(FATAL_ERROR "final-proof: scan-witness-control-symlink-setup-failed:${link_rc}")
+      endif()
+    elseif(mutation STREQUAL "missing")
+      file(REMOVE "${witness}")
+    else()
+      message(FATAL_ERROR "final-proof: scan-witness-control-unknown-mutation:${label}")
+    endif()
+
+    execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=final-scan-witness-check
+        "-DSRC=${source_root}" "-DBIN=${control_root}/checks/${label}"
+        "-DWITNESS=${witness}" "-DGROUP=${group}"
+        "-DGROUP_COUNT=${group_count}" -P "${final_proof_script}"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+
+    file(REMOVE "${witness}")
+    file(WRITE "${witness}" "${original}")
+    file(READ "${witness}" restored)
+    if(IS_SYMLINK "${witness}" OR NOT restored STREQUAL original)
+      message(FATAL_ERROR "final-proof: scan-witness-control-restore-failed:${label}")
+    endif()
+
+    set(report "${output}${error}")
+    file(APPEND "${control_root}/${label}.log"
+      "mutation=${label}; expected=${expected_reason}; exit=${rc}\n${report}\n")
+    if(rc STREQUAL "0" OR NOT report MATCHES "${expected_reason}")
+      message(FATAL_ERROR "final-proof: scan-witness-control-missed:${label}:${report}")
+    endif()
+    message(STATUS "final-proof: scan-witness control ${label} refused with ${expected_reason}; witness restored")
+  endfunction()
+
+  set(prefix "unexpected prefix\n${expected_signature}")
+  run_scan_witness_refusal(prefix write "${prefix}"
+    "parent-signature-proof-invalid:${group}")
+  set(suffix "${expected_signature}unexpected suffix\n")
+  run_scan_witness_refusal(suffix write "${suffix}"
+    "parent-signature-proof-invalid:${group}")
+  string(REPLACE "signature: ok" "signature: altered" substituted
+    "${expected_signature}")
+  run_scan_witness_refusal(substituted write "${substituted}"
+    "parent-signature-proof-invalid:${group}")
+  math(EXPR wrong_count "${group_count}+1")
+  set(wrong_count_text "signature: ok (${wrong_count} files)\n")
+  run_scan_witness_refusal(wrong-count write "${wrong_count_text}"
+    "parent-signature-proof-invalid:${group}")
+  string(LENGTH "${expected_signature}" expected_length)
+  math(EXPR without_newline_length "${expected_length}-1")
+  string(SUBSTRING "${expected_signature}" 0 "${without_newline_length}"
+    missing_newline)
+  run_scan_witness_refusal(missing-newline write "${missing_newline}"
+    "parent-signature-proof-invalid:${group}")
+  run_scan_witness_refusal(symlink symlink ""
+    "parent-signature-proof-not-regular:${group}")
+  run_scan_witness_refusal(missing-witness missing ""
+    "parent-signature-proof-missing:${group}")
+  file(REMOVE "${control_root}/symlink-target.txt")
+  message(STATUS "final-proof: seven actual scan-witness refusal controls passed; no hosted evidence claimed")
+  return()
+endif()
+
 if(CASE STREQUAL "final-proof-controls")
   # These are expressly synthetic parser/control inputs, never hosted receipts.
   # Real evidence is supplied separately by the parent from GitHub job logs/API.
