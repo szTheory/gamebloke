@@ -18,3 +18,9 @@ Current Plan 13 implementation remains active. Root owns family review and the f
 ## First bounded stronger-executor observation
 
 Owner authorized Plan14 alone at configured gpt-6.1-sol/high. Dispatch to terminal implementation/verification handoff took about16min; review and one adjacent evidence-label correction added about14min. No concrete Thumb defect was found in that review. Different plan scope, starting code and corrected verification cadence prevent a model-only speedup claim; billing usage was not available. Routing restored to exact pretrial dirty bytes afterward, default executor Luna/xhigh. Keep implementation, review/rework and integration wait measured separately. Source audit before claiming hardware behavior remains essential: this batch corrected its own Thumb multiply timing oracle and exposed an older overconfident ARM alias label.
+
+## Reduce context and fixture mistakes without new infrastructure
+
+Use a fresh executor for the next bounded instruction batch, with durable plans/notes/receipts as its context. The reused executor had accumulated several families and briefly confused a later RED commit with its starting HEAD; the saved dispatch record and graph resolved that without a ref change. Treat saved epochs/HEAD as authoritative. This is a context-management change, not a proven speedup.
+
+Known fixture traps: seed architectural r13 through the correct bank slot, not r14; observe stored data through memory because write trace values are bus return values; account for already queued instructions when asserting next fetch. Keep sorted selector inventories synchronized before classifying RED, and keep test setup failures distinct from intended behavioral failures. Root can apply a trivial proven four-line review cleanup inline with focused checks rather than creating another implementation handoff.

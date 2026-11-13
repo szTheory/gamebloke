@@ -132,3 +132,7 @@ Plan05-16 is complete and ready for the parent’s independent source review and
 ---
 *Phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio*
 *Completed: 2026-11-13*
+
+## Root reviewed closeout
+
+[Independent review](05-16-REVIEW.md) found no functional/security defect and one unreachable private guard. Root removed its four lines in `5c417a3`, verified its two call-site invariants, and passed five focused native plus five AppleClang ASan/UBSan groups. Pinned Ubuntu26.04/aarch64 GCC15.2 compilation passed at that exact source. [Fix report](05-16-REVIEW-FIX.md); no new test for unreachable arguments and no broad inventory repeated. Re-review is clean. Full Thumb/phase inventories and newer hosted CI remain pending; Plan17 is next.
