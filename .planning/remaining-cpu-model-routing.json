@@ -19,5 +19,5 @@
   "completed_utc": "2026-11-13T01:51:43.070875+00:00",
   "restored_exact_prechange_dirty_config": true,
   "review_result": "Plan17 clean; Plan18 condition-ordering and format-label findings fixed/re-reviewed; human review flag preserved for phase acceptance.",
-  "integration": "full current-source inventories pending"
+  "integration": "Full native/GNU and AppleClang/Clang21 sanitizer inventories/post audits passed at e34d944"
 }

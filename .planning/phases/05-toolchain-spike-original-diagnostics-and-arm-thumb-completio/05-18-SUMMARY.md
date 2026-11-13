@@ -113,3 +113,18 @@ All16 changed implementation paths and the summary exist; all five listed commit
 Independent review found ARM condition classification occurring before annulment, plus incorrect Thumb format grouping. Both are fixed and re-reviewed clean at `a30f05e`; [review](05-18-REVIEW.md), [fix evidence](05-18-REVIEW-FIX.md). New regression cases fail on the old source and pass with the shared annul guard; passing-condition stop companions remain intact. Focused native11 and AppleClangASan11, profile validator and clean-first controls, and pinnedGNU CPU/runner compilation pass. Full current-source integration remains pending.
 
 The logic-fix human-review flag remains for the existing phase acceptance/UAT; AI re-review does not satisfy it. Source/ledger crosswalk is retained compactly in05-18-DECODE-AUDIT.json, joining exact original case forms from the unchanged hash-pinned ledger; no original case-execution claim is added. Root restored exact pre-extension dirty owner config after the two approved stronger CPU batches; default executor again resolvesLuna/xhigh, both runtime maps preserved.
+
+## Full current-source Thumb/API/profile integration
+
+All four lanes ran sequentially at frozen HEAD `e34d94485d8f8ffc35b57f0bfacc8ed1be469d08`; wrapper verifies unchanged HEAD after every lane.
+
+| Lane | Inventory and audit | Main CTest seconds |
+| --- | --- | --- |
+| Native canonical CI | 354 ran, one permitted owner-local signature skip; post audit passes | 185.16 |
+| Native AppleClang ASan/UBSan | 97 ran, zero skips; post audit passes | 124.26 |
+| Pinned Ubuntu26.04/aarch64 GCC15.2 | 354 ran, one permitted owner-local signature skip; post audit passes | 241.98 |
+| Pinned Ubuntu26.04/aarch64 Clang21 ASan/UBSan | 97 ran, zero skips; post audit passes | 467.32 |
+
+Receipts: `build/phase05-plan18/integration-v2/integration.log`, `integration-head.txt` and per-lane logs; wall02:01:13Z–02:19:43Z includes setup/builds. The initial native run caught an absolute home path in the new review-fix report; corrected to repository-relative prose, targeted hygiene passed, then reran the complete inventory. Original failed receipts remain under `build/phase05-plan18/`. No hosted run or new hosted stop occurred.
+
+Current schema/UI gates do not block; codebase drift is explicitly skipped without STRUCTURE.md. Source implementation and profile integration are complete locally. Original guest diagnostic source/execution/admission remains Plan19 onward. Human review of the decoder logic fix stays an explicit phase acceptance item. No phase-wide CPU or diagnostic requirement is marked complete here.

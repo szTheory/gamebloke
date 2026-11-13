@@ -24,3 +24,11 @@ Owner authorized Plan14 alone at configured gpt-6.1-sol/high. Dispatch to termin
 Use a fresh executor for the next bounded instruction batch, with durable plans/notes/receipts as its context. The reused executor had accumulated several families and briefly confused a later RED commit with its starting HEAD; the saved dispatch record and graph resolved that without a ref change. Treat saved epochs/HEAD as authoritative. This is a context-management change, not a proven speedup.
 
 Known fixture traps: seed architectural r13 through the correct bank slot, not r14; observe stored data through memory because write trace values are bus return values; account for already queued instructions when asserting next fetch. Keep sorted selector inventories synchronized before classifying RED, and keep test setup failures distinct from intended behavioral failures. Root can apply a trivial proven four-line review cleanup inline with focused checks rather than creating another implementation handoff.
+
+## Boundary integration evidence and reporting hygiene
+
+Plan18's complete source integration took18m30s across four sequential lanes, including setup/builds. Native canonical/ASan CTest185.16/124.26s; local pinnedGNU/ClangASan241.98/467.32s. A preceding native run267.80s failed only reporting hygiene; these unequal/noisy observations are not a throughput or model benchmark. Preserve guest throughput separately from compiler/test/orchestration time.
+
+Keep committed evidence paths relative. An absolute checkout home path in a fixer report passed diff-whitespace checks but failed canonical hygiene; targeted hygiene and a complete inventory rerun established the correction. Do the applicable hygiene check before committing newly generated reports, especially reports produced by a reused agent.
+
+Before Plan24 publication, inspect measured mutation-compile costs and the fixed180s hosted budget. Repeated compilation of unchanged source within clean/mutant pairs is a concrete candidate to measure, extending the existing guarded six-CPU-case optimization only if paired receipts demonstrate savings with all failure classes preserved. Header-affecting/unknown cases must retain safe full rebuilds. Do not infer hosted timing from these local runs or add caches/concurrency/dependencies/timeouts by default.
