@@ -86,6 +86,7 @@ cpu.arm_transfer core,cpu,unit
 cpu.budget core,cpu,unit
 cpu.decode core,cpu,unit
 cpu.exceptions core,cpu,unit
+cpu.isa_classification core,cpu,unit
 cpu.lifecycle core,cpu,unit
 cpu.loaded_pc core,cpu,unit
 cpu.mailbox core,cpu,unit
@@ -313,6 +314,7 @@ result.nc.usage control,result
 result.pos.all_states positive,result
 result.pos.bios_provider_forms positive,result
 result.pos.disputed positive,result
+result.pos.instruction_reasons positive,result
 runner.hash runner,unit
 runner.help runner,unit
 runner.metadata gate,runner

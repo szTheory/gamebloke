@@ -169,6 +169,9 @@ static bool gbl_test_guest_stop_json_matrix(void)
     return true;
 }
 
+static void *gbl_test_allocate(void *context, size_t size);
+static void gbl_test_release(void *context, void *pointer, size_t size);
+
 static bool gbl_test_instruction_stop_json(const char *directory)
 {
     static const struct {
@@ -192,6 +195,10 @@ static bool gbl_test_instruction_stop_json(const char *directory)
         gbl_run_result run = { 0 };
         gbl_run_options options = { .cycle_budget = 10u };
         gbl_runner_result result = { 0 };
+        gbl_test_allocator_state allocator_state = { 0 };
+        const gbl_allocator allocator = {
+            &allocator_state, gbl_test_allocate, gbl_test_release
+        };
         char path[GBL_RUNNER_TEST_PATH_CAPACITY];
         char json[4096];
         char time[128];
@@ -202,7 +209,7 @@ static bool gbl_test_instruction_stop_json(const char *directory)
         image[1] = (uint8_t)((cases[index].opcode >> 8u) & 0xFFu);
         image[2] = (uint8_t)((cases[index].opcode >> 16u) & 0xFFu);
         image[3] = (uint8_t)(cases[index].opcode >> 24u);
-        okay = gbl_machine_init(&machine, NULL) == GBL_BUS_STATUS_OK &&
+        okay = gbl_machine_init(&machine, &allocator) == GBL_BUS_STATUS_OK &&
             gbl_load_rom(&machine, image, sizeof(image)).status == GBL_LOAD_STATUS_OK &&
             gbl_cpu_set_cpsr(&machine, cases[index].thumb ? 0x7Fu : 0x5Fu) ==
                 GBL_CPU_STATUS_OK &&
@@ -217,14 +224,13 @@ static bool gbl_test_instruction_stop_json(const char *directory)
         result.instructions = run.instructions;
         result.budget_cycles = options.cycle_budget;
         result.has_rom_sha256 = true;
-        memset(result.rom_sha256, '0', 64u);
-        result.rom_sha256[64] = '\0'; /* test identity, no fixture admission */
+        okay = gbl_sha256_span(image, sizeof(image), result.rom_sha256);
         gbl_runner_classify_guest_stop(&result, &machine, run.reason);
         (void)snprintf(time, sizeof(time),
             "\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\"",
             run.cycles, run.instructions);
         (void)snprintf(json, sizeof(json), "instruction-stop-%u.json", (unsigned int)index);
-        okay = gbl_test_path(path, sizeof(path), directory, json);
+        okay = okay && gbl_test_path(path, sizeof(path), directory, json);
         output = okay ? fopen(path, "w+b") : NULL;
         okay = output != NULL && gbl_runner_write_json(output, &result) &&
             fflush(output) == 0 && fseek(output, 0L, SEEK_SET) == 0;
@@ -369,7 +375,10 @@ static bool gbl_test_cli_cancel_budget(const char *runner_path,
         }
         (void)close(out_fd);
         (void)close(err_fd);
-        (void)signal(SIGINT, SIG_DFL);
+        /* exec preserves ignored signals. A cold executable may still be
+         * starting when the first probe arrives; only the CLI's installed
+         * handler should turn this test's SIGINT into cancellation. */
+        (void)signal(SIGINT, SIG_IGN);
         if (trace_output_path == NULL) {
             execl(runner_path, "gamebloke-run-control", "--rom", loop_path,
                   budget_option, budget_value, (char *)NULL);
@@ -432,6 +441,9 @@ static bool gbl_test_cli_cancel_budget(const char *runner_path,
             (void)kill(child, SIGKILL);
             (void)waitpid(child, &status, 0);
             return false;
+        }
+        if (tick % 10u == 0u) {
+            (void)kill(child, SIGINT);
         }
         (void)nanosleep(&poll_wait, NULL);
     }

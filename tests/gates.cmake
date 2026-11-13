@@ -370,7 +370,7 @@ foreach(case IN ITEMS
 endforeach()
 
 foreach(case IN ITEMS
-    all_states bios_provider_forms disputed)
+    all_states bios_provider_forms disputed instruction_reasons)
   gbl_add_test(
     NAME result.pos.${case}
     LABELS positive result

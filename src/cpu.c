@@ -44,6 +44,7 @@ typedef enum gbl_cpu_unit_kind {
     GBL_CPU_UNIT_BRANCH,
     GBL_CPU_UNIT_UNSUPPORTED,
     GBL_CPU_UNIT_UNPREDICTABLE,
+    GBL_CPU_UNIT_LATER_ARCHITECTURE,
     GBL_CPU_UNIT_UNDEFINED,
     GBL_CPU_UNIT_EXCEPTION
 } gbl_cpu_unit_kind;
@@ -1057,7 +1058,20 @@ static bool gbl_cpu_prepare_thumb_data_transfer(
 
 static bool gbl_cpu_is_arm_extension(uint32_t opcode)
 {
-    return (opcode & UINT32_C(0x0E000090)) == UINT32_C(0x00000090);
+    /* Allocated later-version encodings in DDI0100I A3.16.2-.4, A4.
+     * Reserved holes are not evidence of a supported or later instruction. */
+    return (opcode & UINT32_C(0xFE000000)) == UINT32_C(0xFA000000) ||
+           (opcode & UINT32_C(0x0FFFFFF0)) == UINT32_C(0x012FFF30) ||
+           (opcode & UINT32_C(0x0FFFFFF0)) == UINT32_C(0x012FFF20) ||
+           (opcode & UINT32_C(0x0FF000F0)) == UINT32_C(0x01200070) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x016F0F10) ||
+           (opcode & UINT32_C(0x0F900FF0)) == UINT32_C(0x01000050) ||
+           (opcode & UINT32_C(0x0F900090)) == UINT32_C(0x01000080) ||
+           (opcode & UINT32_C(0x0FF000F0)) == UINT32_C(0x00400090) ||
+           (opcode & UINT32_C(0x0FE00000)) == UINT32_C(0x0C400000) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x06BF0F30) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x06BF0FB0) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x06FF0FB0);
 }
 
 /* ARM ARM DDI0100I A3.16.5 reserves this encoding space as architecturally
@@ -1098,7 +1112,22 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
         return false;
     }
     if (gbl_cpu_is_arm_extension(opcode)) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
+        return true;
+    }
+    if ((opcode & UINT32_C(0x01900000)) == UINT32_C(0x01000000)) {
+        /* Unrecognized control-space encodings: A3.16 distinguishes a
+         * malformed allocated decode from an unallocated decode. Exact PSR
+         * and BX encodings were consumed before data-processing dispatch. */
+        const uint32_t decode = opcode & UINT32_C(0x0FF000F0);
+        const bool allocated = decode == UINT32_C(0x01000000) ||
+            decode == UINT32_C(0x01400000) ||
+            decode == UINT32_C(0x01200000) ||
+            decode == UINT32_C(0x01600000) ||
+            decode == UINT32_C(0x01200010) ||
+            (opcode & UINT32_C(0x0FB00000)) == UINT32_C(0x03200000);
+        unit->kind = allocated ? GBL_CPU_UNIT_UNPREDICTABLE
+                               : GBL_CPU_UNIT_UNDEFINED;
         return true;
     }
     if (!immediate && (opcode & UINT32_C(0x00000090)) ==
@@ -1139,7 +1168,8 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
                     operation == 10u || operation == 11u;
     if ((is_test && (!set_flags || rd != 0u)) ||
         ((operation == 13u || operation == 15u) && rn != 0u)) {
-        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        unit->kind = is_test && !set_flags ? GBL_CPU_UNIT_UNDEFINED
+                                         : GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
     if (!supported_operation) {
@@ -1148,7 +1178,7 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     }
     if (!immediate && (opcode & UINT32_C(0x00000010)) != 0u &&
         ((opcode >> 8u) & UINT32_C(0x0F)) == 15u) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
     condition_passed = gbl_cpu_condition_passed(
@@ -1917,7 +1947,7 @@ static bool gbl_cpu_decode_arm_subword_transfer(
     /* DDI0100I A5.3.1 assigns S=1,L=0 to the later LDRD/STRD
      * extension space; ARM7TDMI DDI0029G does not implement those forms. */
     if (sign && !load) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
         return true;
     }
     /* Register-offset mode reserves bits[11:8], and Mode 3 requires W=0
@@ -2275,6 +2305,14 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
     const uint16_t opcode = (uint16_t)unit->opcode;
     const uint32_t instruction_address = unit->instruction_address;
 
+    /* ARMv5 BLX/BKPT encodings are not ARM7TDMI operations. */
+    if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xBE00) ||
+        (opcode & UINT16_C(0xFF87)) == UINT16_C(0x4780) ||
+        (opcode & UINT16_C(0xF800)) == UINT16_C(0xE800)) {
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
+        return true;
+    }
+
     if ((opcode & UINT16_C(0xE000)) == 0u ||
         (opcode & UINT16_C(0xFC00)) == UINT16_C(0x4000)) {
         return gbl_cpu_decode_thumb_alu(cpu, unit, next_fetch_address);
@@ -2436,7 +2474,7 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
             bool thumb;
 
             if ((opcode & UINT16_C(0x0087)) != 0u) {
-                unit->kind = GBL_CPU_UNIT_UNDEFINED;
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
                 return true;
             }
             target_value = gbl_cpu_read_register(
@@ -2666,7 +2704,7 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         return true;
     }
 
-    unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    unit->kind = GBL_CPU_UNIT_UNDEFINED;
     return true;
 }
 
@@ -2930,6 +2968,12 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
         return true;
     }
 
+    /* Recognize allocated later encodings before general ARMv4 NV. The
+     * distinction is project reporting policy, not execution on ARM7TDMI. */
+    if (!thumb && gbl_cpu_is_arm_extension(opcode)) {
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
+        return true;
+    }
     if ((opcode >> 28u) == UINT32_C(0x0F)) {
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
@@ -3054,12 +3098,18 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
             return gbl_cpu_finalize_decoded(unit, true);
         }
     }
+    /* ARMv4T Mode 2 has bit4 clear for register offsets. This region is
+     * reserved in the exact-core encoding map, not a legal missing transfer. */
+    if ((opcode & UINT32_C(0x0E000010)) == UINT32_C(0x06000010)) {
+        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        return gbl_cpu_finalize_decoded(unit, true);
+    }
     if (gbl_cpu_decode_arm_single_transfer(cpu, unit, next_fetch_address)) {
         return gbl_cpu_finalize_decoded(unit, true);
     }
 
-    unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-    return true;
+    unit->kind = GBL_CPU_UNIT_UNDEFINED;
+    return gbl_cpu_finalize_decoded(unit, true);
 }
 
 static bool gbl_cpu_preflight(const gbl_machine *machine,
@@ -3582,6 +3632,10 @@ static gbl_run_reason gbl_cpu_stop_result(gbl_cpu_stop_reason reason)
     switch (reason) {
     case GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION:
         return GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION;
+    case GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION:
+        return GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION;
+    case GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION:
+        return GBL_RUN_REASON_LATER_ARCHITECTURE_INSTRUCTION;
     case GBL_CPU_STOP_COUNTER_OVERFLOW:
         return GBL_RUN_REASON_COUNTER_OVERFLOW;
     case GBL_CPU_STOP_RESET_NO_BIOS:
@@ -3659,9 +3713,15 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         }
         unit_start_cycle = machine->master_cycles;
         if (unit.kind == GBL_CPU_UNIT_UNSUPPORTED ||
-            unit.kind == GBL_CPU_UNIT_UNPREDICTABLE) {
+            unit.kind == GBL_CPU_UNIT_UNPREDICTABLE ||
+            unit.kind == GBL_CPU_UNIT_LATER_ARCHITECTURE) {
             machine->cpu.stopped = true;
-            machine->cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+            machine->cpu.stop_reason =
+                unit.kind == GBL_CPU_UNIT_UNPREDICTABLE
+                    ? GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION
+                    : unit.kind == GBL_CPU_UNIT_LATER_ARCHITECTURE
+                        ? GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION
+                        : GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = gbl_cpu_stop_result(machine->cpu.stop_reason);
             break;

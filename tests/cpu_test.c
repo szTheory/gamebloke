@@ -1261,6 +1261,8 @@ static bool run_guest_exception_case(bool thumb, uint32_t opcode,
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
     gbl_run_result result;
+    gbl_trace_record records[8];
+    gbl_trace_buffer trace = { records, 8u, 0u, 17u };
     const uint32_t marker = UINT32_C(0xE3A0005A);
     bool loaded;
     bool ran;
@@ -1279,7 +1281,8 @@ static bool run_guest_exception_case(bool thumb, uint32_t opcode,
             (thumb ? UINT32_C(0x00000020) : 0u);
     }
     /* Leave room for a broken stop latch to fetch from the absent vector. */
-    ran = loaded && run_units(&machine, UINT64_C(5), 0u, &result);
+    ran = loaded && run_traced_units(&machine, UINT64_C(5), 0u,
+        GBL_TRACE_CATEGORY_MASK, &trace, &result);
     if (!ran) {
         gbl_machine_dispose(&machine);
         return false;
@@ -1300,6 +1303,11 @@ static bool run_guest_exception_case(bool thumb, uint32_t opcode,
             machine.cpu.last_exception.next_address == expected_next &&
             machine.cpu.last_exception.fault_address == expected_current &&
             machine.cpu.last_exception.thumb_state == thumb &&
+            trace.count == 4u &&
+            records[2].category == GBL_TRACE_INSTRUCTION &&
+            records[2].opcode == opcode &&
+            records[3].category == GBL_TRACE_EXCEPTION &&
+            records[3].opcode == opcode && records[3].exception_kind == kind &&
             !machine.cpu.pipeline[0].valid &&
             !machine.cpu.pipeline[1].valid &&
             machine.open_bus ==
@@ -2156,7 +2164,7 @@ static void test_arm_condition_1111_is_unpredictable(void)
         before = machine;
         expected = before;
         expected.cpu.stopped = true;
-        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         options = (gbl_run_options){
             .cycle_budget = 1u,
             .unit_limit = 1u,
@@ -2170,7 +2178,7 @@ static void test_arm_condition_1111_is_unpredictable(void)
     }
     test_case(loaded && status == GBL_RUN_STATUS_OK &&
                   result.termination == GBL_RUN_STOPPED &&
-                  result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                  result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
                   result.instructions == 0u && result.cycles == 0u &&
                   gbl_test_canonical_equal(&machine, &expected) &&
                   gbl_test_same_instance_identity_equal(&before, &machine) &&
@@ -3367,10 +3375,10 @@ static bool arm_block_unpredictable_is_atomic(uint32_t opcode,
     before = machine;
     expected = before;
     expected.cpu.stopped = true;
-    expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+    expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
     passed = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK &&
              result.termination == GBL_RUN_STOPPED &&
-             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+             result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
              result.instructions == 0u && result.cycles == 0u &&
              gbl_test_canonical_equal(&expected, &machine) &&
              gbl_test_same_instance_identity_equal(&before, &machine) &&
@@ -3545,11 +3553,11 @@ static void test_arm_block_thumb_wrap_return(void)
     cycles_after_return = machine.master_cycles;
     passed = passed && run_units(&machine, UINT64_C(1), UINT64_C(1), &result) &&
              result.termination == GBL_RUN_STOPPED &&
-             result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+             result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
              result.instructions == 0u && result.cycles == 0u &&
              machine.master_cycles == cycles_after_return &&
              machine.cpu.stop_reason ==
-                 GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+                 GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
     test_case(passed,
               "LDM^ PC forms a valid Thumb wrap refill pair and stops its next execution as unpredictable");
     gbl_machine_dispose(&machine);
@@ -4279,6 +4287,8 @@ static bool arm_subword_refusal_is_atomic(uint32_t opcode)
         .trace_buffer = &trace
     };
     gbl_run_result result = { 0 };
+    const bool extension = (opcode & UINT32_C(0x00000040)) != 0u &&
+                           (opcode & UINT32_C(0x00100000)) == 0u;
     bool loaded;
     bool ran = false;
     bool atomic = false;
@@ -4310,9 +4320,12 @@ static bool arm_subword_refusal_is_atomic(uint32_t opcode)
         ran = gbl_cpu_run(&machine, &options, &result) ==
               GBL_RUN_STATUS_OK;
         expected.cpu.stopped = true;
-        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        expected.cpu.stop_reason = extension
+            ? GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION
+            : GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         atomic = ran && result.termination == GBL_RUN_STOPPED &&
-            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.reason == (extension ? GBL_RUN_REASON_LATER_ARCHITECTURE_INSTRUCTION
+                                       : GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION) &&
             gbl_test_canonical_equal(&expected, &machine) &&
             gbl_test_same_instance_identity_equal(&before, &machine) &&
             trace.count == 1u && trace.next_sequence == UINT64_C(71) &&
@@ -5556,9 +5569,9 @@ static bool arm_transfer_unpredictable_is_atomic(uint32_t opcode)
         ran = gbl_cpu_run(&machine, &options, &result) ==
               GBL_RUN_STATUS_OK;
         expected.cpu.stopped = true;
-        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         atomic = ran && result.termination == GBL_RUN_STOPPED &&
-            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
             gbl_test_canonical_equal(&expected, &machine) &&
             gbl_test_same_instance_identity_equal(&before, &machine) &&
             trace.count == 1u && trace.next_sequence == UINT64_C(71) &&
@@ -5975,7 +5988,7 @@ static bool arm_loaded_pc_wraps_second_refill(void)
         expected_boundary = before_boundary;
         expected_boundary.cpu.stopped = true;
         expected_boundary.cpu.stop_reason =
-            GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+            GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         trace_before_boundary = trace;
         memcpy(records_before_boundary, records, sizeof(records));
         boundary_status = gbl_cpu_run(&machine, &boundary_options,
@@ -5983,7 +5996,7 @@ static bool arm_loaded_pc_wraps_second_refill(void)
         boundary_matched =
             boundary_status == GBL_RUN_STATUS_OK &&
             boundary_result.termination == GBL_RUN_STOPPED &&
-            boundary_result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            boundary_result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
             boundary_result.cycles == 0u && boundary_result.instructions == 0u &&
             gbl_test_canonical_equal(&expected_boundary, &machine) &&
             gbl_test_same_instance_identity_equal(&before_boundary, &machine) &&
@@ -6262,10 +6275,10 @@ static void test_pc_return_condition_and_refusal(void)
     before = machine;
     expected = machine;
     expected.cpu.stopped = true;
-    expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+    expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
     absent_spsr = absent_spsr && run_arm_program_unit(&machine, 2u, &result) &&
         result.termination == GBL_RUN_STOPPED &&
-        result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+        result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
         result.instructions == 0u && result.cycles == 0u &&
         machine.master_cycles == before.master_cycles &&
         gbl_test_canonical_equal(&expected, &machine) &&
@@ -7043,11 +7056,11 @@ static void test_psr_unpredictable_refusals(void)
         before = machine;
         expected = machine;
         expected.cpu.stopped = true;
-        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         refused = primed && run_traced_units(
             &machine, 1u, 1u, GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
             &trace, &result) && result.termination == GBL_RUN_STOPPED &&
-            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
             result.instructions == 0u && result.cycles == 0u &&
             gbl_test_canonical_equal(&expected, &machine) &&
             gbl_test_same_instance_identity_equal(&before, &machine) &&
@@ -7807,10 +7820,14 @@ static void test_thumb_high_restrictions(void)
         machine.cpu.usr_r8_14[0] = 0xFFFFFFFFu; /* preserve checked refill extent */
         before = machine;
         valid = valid && run_units(&machine, 3u, 1u, &result) &&
-            result.termination == GBL_RUN_STOPPED && result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+            result.termination == GBL_RUN_STOPPED && result.reason == ((index == 4u || index == 5u)
+                ? GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION
+                : GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION) &&
             result.instructions == 0u && result.cycles == 0u;
         before.cpu.stopped = true;
-        before.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        before.cpu.stop_reason = (index == 4u || index == 5u)
+            ? GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION
+            : GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         test_case(valid && gbl_test_canonical_equal(&machine, &before),
                   "Thumb unpredictable encoding or static BX refusal has only documented stop effects");
         gbl_machine_dispose(&machine);
@@ -9103,11 +9120,11 @@ static bool thumb_stack_empty_refusal_case(uint16_t opcode)
         before = machine;
         expected = before;
         expected.cpu.stopped = true;
-        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         passed = gbl_cpu_run(&machine, &options, &result) ==
                      GBL_RUN_STATUS_OK &&
                  result.termination == GBL_RUN_STOPPED &&
-                 result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                 result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
                  result.instructions == 0u && result.cycles == 0u &&
                  gbl_test_canonical_equal(&expected, &machine) &&
                  gbl_test_same_instance_identity_equal(&before, &machine) &&
@@ -9604,11 +9621,11 @@ static bool thumb_multiple_refusal_case(uint16_t opcode)
         before = machine;
         expected = before;
         expected.cpu.stopped = true;
-        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         passed = gbl_cpu_run(&machine, &options, &result) ==
                      GBL_RUN_STATUS_OK &&
                  result.termination == GBL_RUN_STOPPED &&
-                 result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                 result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
                  result.instructions == 0u && result.cycles == 0u &&
                  gbl_test_canonical_equal(&expected, &machine) &&
                  gbl_test_same_instance_identity_equal(&before, &machine) &&
@@ -10892,13 +10909,13 @@ static void test_swp_pc_restrictions(void)
             after.cpu.stopped = before.cpu.stopped;
             after.cpu.stop_reason = before.cpu.stop_reason;
             valid = valid && ran && result.termination == GBL_RUN_STOPPED &&
-                result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
                 result.cycles == 0u && result.instructions == 0u &&
                 machine.master_cycles == before.master_cycles &&
                 machine.cpu.retired_instructions ==
                     before.cpu.retired_instructions &&
                 machine.cpu.stopped &&
-                machine.cpu.stop_reason == GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION &&
+                machine.cpu.stop_reason == GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION &&
                 gbl_test_canonical_equal(&before, &after) &&
                 gbl_test_canonical_digest(&before) ==
                     gbl_test_canonical_digest(&after);
@@ -11261,9 +11278,9 @@ static bool multiply_unpredictable_refused(uint32_t opcode)
                          GBL_RUN_STATUS_OK;
 
         expected.cpu.stopped = true;
-        expected.cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+        expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
         valid = ran && result.termination == GBL_RUN_STOPPED &&
-                result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
+                result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
                 result.cycles == 0u && result.instructions == 0u &&
                 machine.master_cycles == before.master_cycles &&
                 machine.cpu.retired_instructions ==
@@ -13240,11 +13257,16 @@ static void test_isa_classification(void)
     } cases[] = {
         { 0xF1A00000u, false, 10u, 12u }, /* NV */
         { 0xE1A00F10u, false, 10u, 12u }, /* shift count R15 */
+        { 0xE10F0800u, false, 10u, 12u }, /* malformed allocated MRS */
+        { 0xE1200010u, false, 10u, 12u }, /* malformed allocated BX */
+        { 0xE1A10000u, false, 10u, 12u }, /* MOV reserved Rn */
+        { 0xE1101000u, false, 10u, 12u }, /* TST reserved Rd */
         { 0xE10FF000u, false, 10u, 12u }, /* MRS PC */
         { 0xE590F001u, false, 10u, 12u }, /* unaligned LDR PC */
         { 0x00004340u, true, 10u, 12u }, /* MUL same register */
         { 0x0000B400u, true, 10u, 12u }, /* empty PUSH */
         { 0x0000C000u, true, 10u, 12u }, /* empty STMIA */
+        { 0x00004701u, true, 10u, 12u }, /* malformed BX */
         { 0xE12FFF30u, false, 11u, 13u }, /* BLX register */
         { 0xFA000000u, false, 11u, 13u }, /* BLX immediate */
         { 0xE12FFF20u, false, 11u, 13u }, /* BXJ */
@@ -13253,6 +13275,9 @@ static void test_isa_classification(void)
         { 0xE1000050u, false, 11u, 13u }, /* QADD */
         { 0xE1000080u, false, 11u, 13u }, /* SMLABB */
         { 0xE0400090u, false, 11u, 13u }, /* UMAAL */
+        { 0xEC400000u, false, 11u, 13u }, /* MCRR */
+        { 0xEC500000u, false, 11u, 13u }, /* MRRC */
+        { 0xE6BF0F30u, false, 11u, 13u }, /* REV */
         { 0xE1C000D0u, false, 11u, 13u }, /* LDRD */
         { 0xE1C000F0u, false, 11u, 13u }, /* STRD */
         { 0x00004780u, true, 11u, 13u }, /* BLX register */
@@ -13282,6 +13307,7 @@ static void test_isa_classification(void)
         }
         if (valid) {
             const uint32_t old_cpsr = machine.cpu.cpsr;
+            const gbl_exception_kind old_exception = machine.cpu.last_exception.kind;
             machine.cpu.r0_7[0] = UINT32_C(0x03000000);
             valid = run_traced_units(&machine, 10u, 1u, GBL_TRACE_CATEGORY_MASK,
                                      &trace, &result) &&
@@ -13303,7 +13329,7 @@ static void test_isa_classification(void)
                     trace.count == 0u && machine.cpu.cpsr == old_cpsr &&
                     machine.cpu.execution_address == UINT32_C(0x08000000) &&
                     machine.cpu.pipeline[0].opcode == cases[index].opcode &&
-                    machine.cpu.last_exception.kind == GBL_EXCEPTION_NONE;
+                    machine.cpu.last_exception.kind == old_exception;
             }
         }
         (void)snprintf(description, sizeof(description),
@@ -13382,7 +13408,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("thumb_multiple", 17u, thumb_multiple_functions),
     CPU_TEST_GROUP("thumb_transfer", 31u, thumb_transfer_functions),
     CPU_TEST_GROUP("decode", 8u, decode_functions),
-    CPU_TEST_GROUP("isa_classification", 30u, isa_classification_functions),
+    CPU_TEST_GROUP("isa_classification", 38u, isa_classification_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
     CPU_TEST_GROUP("slots_bounds", 27u, slots_bounds_functions)
