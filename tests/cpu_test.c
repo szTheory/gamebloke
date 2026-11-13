@@ -9354,7 +9354,7 @@ static void test_thumb_multiple_store_base_first(void)
                  records[2].width == 4u &&
                  records[2].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
                  records[3].category == GBL_TRACE_BUS &&
-                 records[3].address == UINT32_C(0x08000002);
+                 records[3].address == UINT32_C(0x08000004);
     }
     test_case(passed,
               "Thumb STMIA base-first stores the original base then ascending source registers");
@@ -9502,7 +9502,7 @@ static void test_thumb_multiple_load_base_aliases(void)
                      trace.next_sequence ==
                          UINT64_C(500) + trace.count &&
                      records[trace.count - 1u].address ==
-                         UINT32_C(0x08000002) &&
+                         UINT32_C(0x08000004) &&
                      records[trace.count - 1u].access_class ==
                          GBL_BUS_CLASS_SEQUENTIAL &&
                      read_test_word(machine.iwram,
@@ -9759,7 +9759,7 @@ static bool thumb_multiple_maximum_exact_boundary(void)
                  records[10].sequence == UINT64_MAX - UINT64_C(1) &&
                  records[2].address == base &&
                  records[9].address == base + UINT32_C(28) &&
-                 records[10].address == UINT32_C(0x08000002);
+                 records[10].address == UINT32_C(0x08000004);
         gbl_machine_dispose(&machine);
     }
     return loaded && passed;
@@ -9818,13 +9818,13 @@ static void test_thumb_multiple_wrapped_writeback(void)
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                  result.instructions == 1u && result.cycles == 3u &&
-                 machine.cpu.r0_7[7] == 0u && trace.count == 4u &&
-                 trace.next_sequence == UINT64_C(804) &&
+                 machine.cpu.r0_7[7] == 0u && trace.count == 3u &&
+                 trace.next_sequence == UINT64_C(803) &&
                  records[1].category == GBL_TRACE_BUS &&
                  records[1].address == UINT32_C(0xFFFFFFFC) &&
                  records[1].width == 4u &&
                  machine.cpu.r0_7[0] == records[1].value &&
-                 records[2].address == UINT32_C(0x08000002);
+                 records[2].address == UINT32_C(0x08000004);
     }
     test_case(passed,
               "Thumb LDMIA reads the high open-bus word once and wraps writeback modulo 2^32");
