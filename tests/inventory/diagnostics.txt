@@ -1,6 +1,6 @@
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
 # Sorted (byte order) expected-test inventory for the diagnostics lane.
-diagnostics.final.controls control,diagnostics
+diagnostics.final.budget control,diagnostics
 diagnostics.final.outputs diagnostics,gate,integration
 diagnostics.presets diagnostics,gate
 diagnostics.spike diagnostics,gate,integration

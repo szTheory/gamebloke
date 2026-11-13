@@ -33,6 +33,10 @@ if(NOT GBL_DIAGNOSTIC_STAGE MATCHES "^(proof|admitted)$")
 endif()
 set(GBL_TOOLCHAIN_ROOT "${CMAKE_SOURCE_DIR}/build/toolchains" CACHE PATH
   "Ignored cache root for the pinned ARM diagnostics toolchain")
+set(GBL_DIAGNOSTIC_GROUP "all" CACHE STRING "Diagnostic output ownership: all | arm | thumb")
+if(NOT GBL_DIAGNOSTIC_GROUP MATCHES "^(all|arm|thumb)$")
+  message(FATAL_ERROR "gamebloke: invalid-diagnostic-group")
+endif()
 option(GBL_REQUIRE_DIAGNOSTICS
   "Require a verified host ARM diagnostics toolchain during configure" OFF)
 
@@ -218,11 +222,16 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       file(STRINGS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
         GBL_FINAL_PRODUCER_INPUTS REGEX "^[A-Za-z0-9]")
       list(TRANSFORM GBL_FINAL_PRODUCER_INPUTS PREPEND "${CMAKE_SOURCE_DIR}/")
-      set(GBL_FINAL_PROOF_RECEIPT "${CMAKE_SOURCE_DIR}/build/final-proof/complete-host.json")
+      set(GBL_FINAL_PROOF_ROOT "${CMAKE_SOURCE_DIR}/build/final-proof")
+      if(NOT GBL_DIAGNOSTIC_GROUP STREQUAL "all")
+        set(GBL_FINAL_PROOF_ROOT "${CMAKE_SOURCE_DIR}/build/final-proof-${GBL_DIAGNOSTIC_GROUP}")
+      endif()
+      set(GBL_FINAL_PROOF_RECEIPT "${GBL_FINAL_PROOF_ROOT}/complete-host.json")
       add_custom_command(
         OUTPUT "${GBL_FINAL_PROOF_RECEIPT}"
         COMMAND "${CMAKE_COMMAND}" -DCASE=final-host-build
-          "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_SOURCE_DIR}/build/final-proof"
+          "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${GBL_FINAL_PROOF_ROOT}"
+          "-DPROOF_GROUP=${GBL_DIAGNOSTIC_GROUP}"
           "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
           -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake"
         DEPENDS ${GBL_FINAL_PRODUCER_INPUTS}

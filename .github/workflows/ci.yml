@@ -138,6 +138,7 @@ jobs:
   # source-input identity. Its output hashes are log witnesses; ROMs stay local.
   # Other lanes stay shallow and metadata-only configuration does not require it.
   diagnostics:
+    name: diagnostics (${{ matrix.host }}, ${{ matrix.group }})
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     strategy:
@@ -146,10 +147,22 @@ jobs:
         include:
           - runner: ubuntu-26.04
             host: linux-x64
+            group: arm
             cc: gcc
             id: GNU
           - runner: macos-26
             host: darwin-arm64
+            group: arm
+            cc: cc
+            id: AppleClang
+          - runner: ubuntu-26.04
+            host: linux-x64
+            group: thumb
+            cc: gcc
+            id: GNU
+          - runner: macos-26
+            host: darwin-arm64
+            group: thumb
             cc: cc
             id: AppleClang
     runs-on: ${{ matrix.runner }}
@@ -158,6 +171,7 @@ jobs:
       CC: ${{ matrix.cc }}
       GBL_EXPECT_C_ID: ${{ matrix.id }}
       GBL_TOOLCHAIN_HOST: ${{ matrix.host }}
+      GBL_PROOF_RUN_ID: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -167,7 +181,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: sh scripts/fetch-toolchain.sh --host "$GBL_TOOLCHAIN_HOST" --root build/toolchains
-      - run: cmake --workflow --preset diagnostics
+      - if: matrix.group == 'arm'
+        run: cmake --workflow --preset diagnostics-arm
+      - if: matrix.group == 'thumb'
+        run: cmake --workflow --preset diagnostics-thumb
 
   # The single required check. `if: always()` makes it run (and fail) even
   # when a needed job failed or was skipped; CiRequired.cmake judges each

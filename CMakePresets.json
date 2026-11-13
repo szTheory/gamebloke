@@ -46,8 +46,23 @@
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "GBL_LANE": "diagnostics",
         "GBL_DIAGNOSTIC_STAGE": "proof",
+        "GBL_DIAGNOSTIC_GROUP": "all",
         "GBL_REQUIRE_DIAGNOSTICS": "ON",
         "GBL_TOOLCHAIN_ROOT": "${sourceDir}/build/toolchains"
+      }
+    },
+    {
+      "name": "diagnostics-arm",
+      "inherits": "diagnostics",
+      "cacheVariables": {
+        "GBL_DIAGNOSTIC_GROUP": "arm"
+      }
+    },
+    {
+      "name": "diagnostics-thumb",
+      "inherits": "diagnostics",
+      "cacheVariables": {
+        "GBL_DIAGNOSTIC_GROUP": "thumb"
       }
     }
   ],
@@ -55,7 +70,15 @@
     { "name": "ci", "configurePreset": "ci" },
     { "name": "hygiene", "configurePreset": "hygiene" },
     { "name": "asan", "configurePreset": "asan" },
-    { "name": "diagnostics", "configurePreset": "diagnostics" }
+    { "name": "diagnostics", "configurePreset": "diagnostics" },
+    {
+      "name": "diagnostics-arm",
+      "configurePreset": "diagnostics-arm"
+    },
+    {
+      "name": "diagnostics-thumb",
+      "configurePreset": "diagnostics-thumb"
+    }
   ],
   "testPresets": [
     {
@@ -127,6 +150,70 @@
       "output": { "verbosity": "verbose" },
       "filter": { "include": { "label": "^post$" } },
       "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "diagnostics-arm",
+      "configurePreset": "diagnostics-arm",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/diagnostics-arm/junit.xml",
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "exclude": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "diagnostics-arm-post",
+      "configurePreset": "diagnostics-arm",
+      "output": {
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "include": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "diagnostics-thumb",
+      "configurePreset": "diagnostics-thumb",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/diagnostics-thumb/junit.xml",
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "exclude": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "diagnostics-thumb-post",
+      "configurePreset": "diagnostics-thumb",
+      "output": {
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "include": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ],
   "workflowPresets": [
@@ -164,6 +251,48 @@
         { "type": "build", "name": "diagnostics" },
         { "type": "test", "name": "diagnostics" },
         { "type": "test", "name": "diagnostics-post" }
+      ]
+    },
+    {
+      "name": "diagnostics-arm",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "diagnostics-arm"
+        },
+        {
+          "type": "build",
+          "name": "diagnostics-arm"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-arm"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-arm-post"
+        }
+      ]
+    },
+    {
+      "name": "diagnostics-thumb",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "diagnostics-thumb"
+        },
+        {
+          "type": "build",
+          "name": "diagnostics-thumb"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-thumb"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-thumb-post"
+        }
       ]
     }
   ]

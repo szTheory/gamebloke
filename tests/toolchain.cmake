@@ -29,6 +29,7 @@ function(check_preset_contract source_root)
   foreach(pair IN ITEMS
       "GBL_LANE;diagnostics"
       "GBL_DIAGNOSTIC_STAGE;proof"
+      "GBL_DIAGNOSTIC_GROUP;all"
       "GBL_REQUIRE_DIAGNOSTICS;ON"
       "GBL_TOOLCHAIN_ROOT;\${sourceDir}/build/toolchains"
       "CMAKE_BUILD_TYPE;Release"
@@ -40,6 +41,41 @@ function(check_preset_contract source_root)
     if(NOT "${actual}" STREQUAL "${expected}")
       message(FATAL_ERROR "toolchain: preset-${key}-mismatch: ${actual}")
     endif()
+  endforeach()
+  foreach(group IN ITEMS arm thumb)
+    set(name "diagnostics-${group}")
+    find_preset("${presets}" configurePresets "${name}" configured)
+    string(JSON actual GET "${presets}" configurePresets ${configured} cacheVariables GBL_DIAGNOSTIC_GROUP)
+    string(JSON parent GET "${presets}" configurePresets ${configured} inherits)
+    if(NOT actual STREQUAL group OR NOT parent STREQUAL "diagnostics")
+      message(FATAL_ERROR "toolchain: grouped-preset-authority-mismatch")
+    endif()
+    foreach(collection IN ITEMS buildPresets testPresets)
+      find_preset("${presets}" "${collection}" "${name}" configured)
+      string(JSON actual GET "${presets}" "${collection}" ${configured} configurePreset)
+      if(NOT actual STREQUAL name)
+        message(FATAL_ERROR "toolchain: grouped-preset-unlinked")
+      endif()
+    endforeach()
+    find_preset("${presets}" testPresets "${name}" configured)
+    string(JSON actual GET "${presets}" testPresets ${configured} output outputJUnitFile)
+    if(NOT actual STREQUAL "\${sourceDir}/build/${name}/junit.xml")
+      message(FATAL_ERROR "toolchain: grouped-preset-junit-mismatch")
+    endif()
+    find_preset("${presets}" workflowPresets "${name}" configured)
+    string(JSON count LENGTH "${presets}" workflowPresets ${configured} steps)
+    if(NOT count EQUAL 4)
+      message(FATAL_ERROR "toolchain: grouped-preset-step-count")
+    endif()
+    set(expected "configure:${name}" "build:${name}" "test:${name}" "test:${name}-post")
+    foreach(index RANGE 0 3)
+      string(JSON type GET "${presets}" workflowPresets ${configured} steps ${index} type)
+      string(JSON step GET "${presets}" workflowPresets ${configured} steps ${index} name)
+      list(GET expected ${index} required)
+      if(NOT "${type}:${step}" STREQUAL required)
+        message(FATAL_ERROR "toolchain: grouped-preset-step-mismatch")
+      endif()
+    endforeach()
   endforeach()
 
   find_preset("${presets}" buildPresets diagnostics build_index)
@@ -368,14 +404,15 @@ if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
     NAME diagnostics.final.outputs
     LABELS diagnostics gate integration
     COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-host-set
-      "-DBIN=${CMAKE_SOURCE_DIR}/build/final-proof"
+      "-DBIN=${GBL_FINAL_PROOF_ROOT}"
+      "-DPROOF_GROUP=${GBL_DIAGNOSTIC_GROUP}"
       "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
   gbl_add_test(
-    NAME diagnostics.final.controls
+    NAME diagnostics.final.budget
     LABELS control diagnostics
-    COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-proof-controls
-      "-DBIN=${CMAKE_BINARY_DIR}/final-proof-controls"
+    COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-budget-controls
+      "-DBIN=${CMAKE_BINARY_DIR}/final-budget-controls"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
 endif()
 gbl_add_test(
@@ -390,6 +427,7 @@ gbl_add_test(
     "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
     "-DHOST=${GBL_DIAGNOSTIC_HOST}"
     -P "${CMAKE_SOURCE_DIR}/tests/toolchain.cmake")
+if(NOT GBL_DIAGNOSTIC_GROUP STREQUAL "thumb")
 gbl_add_test(
   NAME diagnostics.spike
   LABELS diagnostics gate integration
@@ -398,6 +436,7 @@ gbl_add_test(
     "-DHOST=${GBL_DIAGNOSTIC_HOST}"
     "-DRUNNER=$<TARGET_FILE:gamebloke-run>"
     -P "${CMAKE_SOURCE_DIR}/tests/toolchain.cmake")
+endif()
 gbl_add_test(
   NAME toolchain.offline
   LABELS control diagnostics

@@ -23,6 +23,36 @@ if(NOT DEFINED CASE OR NOT DEFINED SRC)
   message(FATAL_ERROR "ci-cases: -DCASE= and -DSRC= are required")
 endif()
 
+function(check_diagnostic_groups text)
+  string(REGEX MATCHALL "- runner: [^\n]+\n            host: [^\n]+\n            group: [^\n]+\n            cc: [^\n]+\n            id: [^\n]+" rows "${text}")
+  list(SORT rows)
+  set(expected "")
+  foreach(group IN ITEMS arm thumb)
+    list(APPEND expected
+      "- runner: ubuntu-26.04\n            host: linux-x64\n            group: ${group}\n            cc: gcc\n            id: GNU"
+      "- runner: macos-26\n            host: darwin-arm64\n            group: ${group}\n            cc: cc\n            id: AppleClang")
+  endforeach()
+  list(SORT expected)
+  if(NOT rows STREQUAL expected)
+    message(FATAL_ERROR "ci-routing: diagnostic-group-matrix-mismatch")
+  endif()
+  foreach(required IN ITEMS
+      [=[name: diagnostics (${{ matrix.host }}, ${{ matrix.group }})]=]
+      "if: matrix.group == 'arm'\n        run: cmake --workflow --preset diagnostics-arm"
+      "if: matrix.group == 'thumb'\n        run: cmake --workflow --preset diagnostics-thumb")
+    string(FIND "${text}" "${required}" found)
+    if(found EQUAL -1)
+      message(FATAL_ERROR "ci-routing: diagnostic-group-command-mismatch")
+    endif()
+  endforeach()
+endfunction()
+
+if(CASE STREQUAL "diagnostic-route-control")
+  file(READ "${WORKFLOW}" text)
+  check_diagnostic_groups("${text}")
+  return()
+endif()
+
 function(check_diagnostics_route source_root)
   set(workflow_file "${source_root}/.github/workflows/ci.yml")
   if(NOT EXISTS "${workflow_file}")
@@ -46,6 +76,7 @@ function(check_diagnostics_route source_root)
   math(EXPR diagnostics_length "${required_start} - ${diagnostics_start}")
   string(SUBSTRING "${workflow_text}" ${diagnostics_start}
     ${diagnostics_length} diagnostics_block)
+  check_diagnostic_groups("${diagnostics_block}")
   foreach(expected IN ITEMS
       "runner: ubuntu-26.04" "host: linux-x64"
       "runner: macos-26" "host: darwin-arm64"
@@ -53,7 +84,8 @@ function(check_diagnostics_route source_root)
       "persist-credentials: false"
       [=[ref: ${{ github.event.pull_request.head.sha || github.sha }}]=]
       "sh scripts/fetch-toolchain.sh"
-      "cmake --workflow --preset diagnostics")
+      "cmake --workflow --preset diagnostics-arm"
+      "cmake --workflow --preset diagnostics-thumb")
     string(FIND "${diagnostics_block}" "${expected}" found)
     if(found EQUAL -1)
       message(FATAL_ERROR "ci-routing: diagnostics-job-missing-${expected}")
@@ -74,6 +106,16 @@ function(check_diagnostics_route source_root)
     message(FATAL_ERROR "ci-routing: needs-negative-control-no-match")
   endif()
   set(control_workflow "${needs_control_root}/ci.yml")
+  foreach(group IN ITEMS wrong thumb)
+    string(REPLACE "group: arm" "group: ${group}" mutation "${diagnostics_block}")
+    file(WRITE "${control_workflow}" "${mutation}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=diagnostic-route-control
+      "-DSRC=${source_root}" "-DWORKFLOW=${control_workflow}" -P "${CMAKE_CURRENT_FUNCTION_LIST_FILE}"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "diagnostic-group-matrix-mismatch")
+      message(FATAL_ERROR "ci-routing: diagnostic-group-control-missed")
+    endif()
+  endforeach()
   file(WRITE "${control_workflow}" "${missing_diagnostic_need}")
   execute_process(
     COMMAND sh "${source_root}/scripts/check-workflow.sh" "${control_workflow}"

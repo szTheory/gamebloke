@@ -1,4 +1,12 @@
 # Gate tests (ci and hygiene lanes). Included from the top-level CMakeLists.txt.
+if(GBL_LANE STREQUAL "hygiene")
+  gbl_add_test(
+    NAME diagnostics.final.controls
+    LABELS control diagnostics
+    COMMAND "${CMAKE_COMMAND}" -DCASE=final-proof-controls
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}/final-proof-controls"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
+endif()
 # Each gate has a negative control that must fail for its stated reason, and a
 # positive control on otherwise identical clean input (D-03).
 set(GBL_HYGIENE_DRIVER
