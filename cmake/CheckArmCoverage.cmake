@@ -361,7 +361,7 @@ foreach(index RANGE 0 ${case_last})
       endif()
     elseif(row_id STREQUAL "363662911")
       if(NOT program MATCHES "ldrh r0, \\[r4, #5\\]" OR
-         NOT program MATCHES "0x00004433")
+         NOT program MATCHES "0x44000033")
         gbl_cov_error(semantic-source-edge-invalid "${row_id}: odd-LDRH-rotation")
       endif()
     elseif(row_id STREQUAL "375018760")

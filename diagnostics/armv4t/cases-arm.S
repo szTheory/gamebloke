@@ -19,11 +19,14 @@ diagnostic_main:
     stmdb sp!, {lr}
     .include "arm-case.inc"
     mov r0, #2
+    /* Bank-sensitive cases must return through the original System stack. */
+    msr cpsr_c, #0xDF
     ldmia sp!, {lr}
     bx lr
 
 .Ldiagnostic_assert_fail:
     mov r0, #3
+    msr cpsr_c, #0xDF
     ldmia sp!, {lr}
     bx lr
 

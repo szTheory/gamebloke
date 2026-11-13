@@ -433,4 +433,38 @@ if("${all_rc}" STREQUAL "0" OR
   message(FATAL_ERROR "coverage-case: all-builder-refusal-failed: ${all_combined}")
 endif()
 message(STATUS "coverage-case: aggregate builder refuses an unsafe output root")
+
+# Parent iteration can supply a row-location hint, but literal CASE_ID remains
+# the identity. Invalid hints must fail before deleting or creating output.
+set(hint_output "${control_root}/index-hint-output")
+file(MAKE_DIRECTORY "${hint_output}")
+file(WRITE "${hint_output}/preserve.txt" "prior-output\n")
+foreach(control IN ITEMS wrong-id out-of-range malformed external-hint)
+  set(hint "${target_index}")
+  set(hint_id 1)
+  set(child 1)
+  set(expected_code matrix-case-index-id-mismatch)
+  if(control STREQUAL "out-of-range")
+    set(hint "${case_count}")
+    set(expected_code invalid-matrix-case-index)
+  elseif(control STREQUAL "malformed")
+    set(hint invalid)
+    set(expected_code invalid-matrix-case-index)
+  elseif(control STREQUAL "external-hint")
+    set(child 0)
+    set(expected_code invalid-matrix-case-index)
+  endif()
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}" "-DOUT=${hint_output}"
+      "-DTOOLCHAIN_ROOT=${source_root}/build/toolchains"
+      -DMODE=case -DISA=arm "-DCASE_ID=${hint_id}" "-DMATRIX_CHILD=${child}"
+      "-DMATRIX_CASE_INDEX=${hint}" -P "${builder}"
+    RESULT_VARIABLE hint_rc OUTPUT_VARIABLE hint_out ERROR_VARIABLE hint_error)
+  if(hint_rc STREQUAL "0" OR
+     NOT "${hint_out}${hint_error}" MATCHES "arm-diagnostics: ${expected_code}" OR
+     NOT EXISTS "${hint_output}/preserve.txt")
+    message(FATAL_ERROR "coverage-case: ${control}-hint-control-failed: ${hint_out}${hint_error}")
+  endif()
+  message(STATUS "coverage-case: ${control} hint refused before output mutation")
+endforeach()
 message("coverage-case: ok (draft/final/admission states, source-input boundary, and mutation controls)")

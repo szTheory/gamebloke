@@ -3425,7 +3425,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=.Lpc_target+3\nldr pc,[r4]\n.Lpc_target:\nmov r0,#0x11\nb .Lpc_done\nmov r0,#0x22\n.Lpc_done:\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000022\nmrs r1,cpsr\nand r1,r1,#0x20\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\n",
+        "program": "adr r4,.Lpc_data\nldr pc,[r4]\n.Lpc_target:\nmov r0,#0x11\nb .Lpc_done\nmov r0,#0x22\n.Lpc_done:\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000022\nmrs r1,cpsr\nand r1,r1,#0x20\nGBL_ASSERT_EQ r1, 0x00000000, 0x00000001\nb .Lpc_finished\n.align 2\n.Lpc_data:.word .Lpc_target+3\n.Lpc_finished:\n",
         "independent_expectation": {
           "instruction": "ldr-pc-preserves-arm-state",
           "derivation": "The loaded target is deliberately odd (.Lpc_target+3). ARMv4T LDR-to-PC clears alignment bits without importing Thumb state; the aligned target writes 0x11 and branches around a contrasting 0x22 sentinel. The CPSR T-bit assertion independently checks ARM state.",
@@ -3701,12 +3701,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5, =0x20000000\nmsr cpsr_f, r5\nldr r1, =0x80000001\nmovs r0, r1, lsr #0\nmrs r3, cpsr\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x70000000\n",
+        "program": "ldr r5, =0x20000000\nmsr cpsr_f, r5\nldr r1, =0x80000001\nmovs r0, r1, lsr #32\nmrs r3, cpsr\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x70000000\n",
         "independent_expectation": {
           "instruction": "MOVS lsr count=0",
           "expected_value": "0x00000000",
           "expected_nzcv": "0x60000000",
-          "derivation": "Independent ARM7TDMI shift-count/carry pseudocode applied to 0x80000001 and incoming C=1.",
+          "derivation": "Independent ARM7TDMI shift-count/carry pseudocode applied to 0x80000001 and incoming C=1. Assembly uses #32 to force the architecture shift_imm=0 LSR/ASR encoding; GNU syntax #0 aliases an unshifted MOV.",
           "broken_expected": "0x00000001",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
@@ -3821,12 +3821,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5, =0x20000000\nmsr cpsr_f, r5\nldr r1, =0x80000001\nmovs r0, r1, asr #0\nmrs r3, cpsr\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0xB0000000\n",
+        "program": "ldr r5, =0x20000000\nmsr cpsr_f, r5\nldr r1, =0x80000001\nmovs r0, r1, asr #32\nmrs r3, cpsr\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0xB0000000\n",
         "independent_expectation": {
           "instruction": "MOVS asr count=0",
           "expected_value": "0xFFFFFFFF",
           "expected_nzcv": "0xA0000000",
-          "derivation": "Independent ARM7TDMI shift-count/carry pseudocode applied to 0x80000001 and incoming C=1.",
+          "derivation": "Independent ARM7TDMI shift-count/carry pseudocode applied to 0x80000001 and incoming C=1. Assembly uses #32 to force the architecture shift_imm=0 LSR/ASR encoding; GNU syntax #0 aliases an unshifted MOV.",
           "broken_expected": "0xFFFFFFFE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
@@ -4798,7 +4798,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -4833,11 +4833,11 @@
       "family": "status-register",
       "form": "MRS:SPSR",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -4856,12 +4856,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mrs r0,spsr\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MRS:SPSR",
-          "expected_value": "0x00000000",
+          "expected_value": "0x000000DF",
           "derivation": "Fresh direct-start SVC SPSR is zero.",
-          "broken_expected": "0x00000001",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -4876,7 +4876,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x0000005F; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -4917,7 +4917,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -4936,14 +4936,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x0000A500\nmsr cpsr_x, r4\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x0000A5DF, 0x0000A5DE\n",
+        "program": "ldr r4, =0x00000000\nmsr cpsr_x, r4\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:register:CPSR:x",
           "written_value": "0x0000A500",
           "field_mask": "0x0000FF00",
-          "expected_value": "0x0000A5DF",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x0000A5DE",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -4958,7 +4958,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -4977,14 +4977,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x005A0000\nmsr cpsr_s, r4\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x005A00DF, 0x005A00DE\n",
+        "program": "ldr r4, =0x00000000\nmsr cpsr_s, r4\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:register:CPSR:s",
           "written_value": "0x005A0000",
           "field_mask": "0x00FF0000",
-          "expected_value": "0x005A00DF",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x005A00DE",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -4999,7 +4999,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0xA00000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5036,11 +5036,11 @@
       "family": "status-register",
       "form": "MSR:register:SPSR:c",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x0000005F; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5059,7 +5059,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x0000005F\nmsr spsr_c, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x0000005F, 0x0000005E\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nldr r4, =0x0000005F\nmsr spsr_c, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x0000005F, 0x0000005E\n",
         "independent_expectation": {
           "instruction": "MSR:register:SPSR:c",
           "written_value": "0x0000005F",
@@ -5077,11 +5077,11 @@
       "family": "status-register",
       "form": "MSR:register:SPSR:x",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5100,14 +5100,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x0000A500\nmsr spsr_x, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x0000A500, 0x0000A501\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nldr r4, =0x00000000\nmsr spsr_x, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:register:SPSR:x",
           "written_value": "0x0000A500",
           "field_mask": "0x0000FF00",
-          "expected_value": "0x0000A500",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x0000A501",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -5118,11 +5118,11 @@
       "family": "status-register",
       "form": "MSR:register:SPSR:s",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5141,14 +5141,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x005A0000\nmsr spsr_s, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x005A0000, 0x005A0001\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nldr r4, =0x00000000\nmsr spsr_s, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:register:SPSR:s",
           "written_value": "0x005A0000",
           "field_mask": "0x00FF0000",
-          "expected_value": "0x005A0000",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x005A0001",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -5159,11 +5159,11 @@
       "family": "status-register",
       "form": "MSR:register:SPSR:f",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0xA00000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5182,14 +5182,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0xA0000000\nmsr spsr_f, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0xA0000000, 0xA0000001\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nldr r4, =0xA0000000\nmsr spsr_f, r4\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0xA00000DF, 0xA00000DE\n",
         "independent_expectation": {
           "instruction": "MSR:register:SPSR:f",
           "written_value": "0xA0000000",
           "field_mask": "0xFF000000",
-          "expected_value": "0xA0000000",
+          "expected_value": "0xA00000DF",
           "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0xA0000001",
+          "broken_expected": "0xA00000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -5204,7 +5204,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x0000005F; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5245,7 +5245,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5264,14 +5264,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "msr cpsr_x, #0x0000A500\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x0000A5DF, 0x0000A5DE\n",
+        "program": "msr cpsr_x, #0x00000000\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:rotated-immediate:CPSR:x",
           "written_value": "0x0000A500",
           "field_mask": "0x0000FF00",
-          "expected_value": "0x0000A5DF",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x0000A5DE",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -5286,7 +5286,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5305,14 +5305,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "msr cpsr_s, #0x005A0000\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x005A00DF, 0x005A00DE\n",
+        "program": "msr cpsr_s, #0x00000000\nmrs r0,cpsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:rotated-immediate:CPSR:s",
           "written_value": "0x005A0000",
           "field_mask": "0x00FF0000",
-          "expected_value": "0x005A00DF",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x005A00DE",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -5327,7 +5327,7 @@
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0xA00000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5364,11 +5364,11 @@
       "family": "status-register",
       "form": "MSR:rotated-immediate:SPSR:c",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x0000005F; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5387,7 +5387,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "msr spsr_c, #0x0000005F\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x0000005F, 0x0000005E\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nmsr spsr_c, #0x0000005F\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x0000005F, 0x0000005E\n",
         "independent_expectation": {
           "instruction": "MSR:rotated-immediate:SPSR:c",
           "written_value": "0x0000005F",
@@ -5405,11 +5405,11 @@
       "family": "status-register",
       "form": "MSR:rotated-immediate:SPSR:x",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5428,14 +5428,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "msr spsr_x, #0x0000A500\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x0000A500, 0x0000A501\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nmsr spsr_x, #0x00000000\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:rotated-immediate:SPSR:x",
           "written_value": "0x0000A500",
           "field_mask": "0x0000FF00",
-          "expected_value": "0x0000A500",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x0000A501",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -5446,11 +5446,11 @@
       "family": "status-register",
       "form": "MSR:rotated-immediate:SPSR:s",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0x000000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5469,14 +5469,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "msr spsr_s, #0x005A0000\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x005A0000, 0x005A0001\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nmsr spsr_s, #0x00000000\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0x000000DF, 0x000000DE\n",
         "independent_expectation": {
           "instruction": "MSR:rotated-immediate:SPSR:s",
           "written_value": "0x005A0000",
           "field_mask": "0x00FF0000",
-          "expected_value": "0x005A0000",
-          "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0x005A0001",
+          "expected_value": "0x000000DF",
+          "derivation": "ARM DDI0100I MSR: preserve unallocated PSR bits as zero. ARM7TDMI has no allocated x/s bits, so zero writes preserve the initialized status, tested separately from control and flags.",
+          "broken_expected": "0x000000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -5487,11 +5487,11 @@
       "family": "status-register",
       "form": "MSR:rotated-immediate:SPSR:f",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Switch from privileged System mode to Supervisor mode, initialize its SPSR to valid ARM System status 0xDF, then test the selected field. The shared epilogue restores System mode before popping the caller stack.",
       "observe": "Observe CPSR/SPSR values, field-mask effect, privilege/mode and banked-register visibility.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A2.5 and MRS/MSR A4 pseudocode, including user-mode and SPSR availability rules.",
-        "value": "Only selected writable fields change; control writes obey privilege/mode rules; invalid T/mode outcomes follow the documented project policy."
+        "value": "The selected legal field operation yields 0xA00000DF; reserved x/s bits remain zero and SPSR accesses use initialized Supervisor state."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -5510,14 +5510,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "msr spsr_f, #0xA0000000\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0xA0000000, 0xA0000001\n",
+        "program": "msr cpsr_c,#0xD3\nmsr spsr_cxsf,#0xDF\nmsr spsr_f, #0xA0000000\nmrs r0,spsr\nGBL_ASSERT_EQ r0, 0xA00000DF, 0xA00000DE\n",
         "independent_expectation": {
           "instruction": "MSR:rotated-immediate:SPSR:f",
           "written_value": "0xA0000000",
           "field_mask": "0xFF000000",
-          "expected_value": "0xA0000000",
+          "expected_value": "0xA00000DF",
           "derivation": "ARM CPSR/SPSR byte-field mask applied to known direct-start values.",
-          "broken_expected": "0xA0000001",
+          "broken_expected": "0xA00000DE",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -6877,7 +6877,7 @@
       "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
       "expected": {
         "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "Odd LDRH at r4+5 rotates the aligned halfword 0x3344 by eight bits to 0x4433."
+        "value": "GBATEK 3.06 ARM CPU Memory Alignments: odd LDRH returns the aligned zero-extended halfword ROR 8 in a 32-bit word, placing bytes in bits0..7 and24..31. At base+4 the halfword is 0x3344; ROR32(0x3344,8)=0x44000033."
       },
       "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
       "cpu_quirk": [
@@ -6896,14 +6896,14 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r0, =0x11223344\nstr r0, [r4, #4]\nmov r6, r4\nldrh r0, [r4, #5]\nGBL_ASSERT_EQ r0, 0x00004433, 0x00004432\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n",
+        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r0, =0x11223344\nstr r0, [r4, #4]\nmov r6, r4\nldrh r0, [r4, #5]\nGBL_ASSERT_EQ r0, 0x44000033, 0x44000032\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\n",
         "independent_expectation": {
           "instruction": "LDRH",
           "address_form": "split-nibble-immediate:pre-no-writeback",
-          "expected_value": "0x00004433",
+          "expected_value": "0x44000033",
           "writeback": false,
-          "derivation": "An odd LDRH address rotates the aligned halfword by eight bits: bytes at r4+4 are 0x44,0x33, yielding 0x4433 at r4+5. Base r4 is unchanged.",
-          "broken_expected": "0x00004432",
+          "derivation": "GBATEK 3.06 ARM CPU Memory Alignments: odd LDRH returns the aligned zero-extended halfword ROR 8 in a 32-bit word, placing bytes in bits0..7 and24..31. At base+4 the halfword is 0x3344; ROR32(0x3344,8)=0x44000033.",
+          "broken_expected": "0x44000032",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         },
         "edge": "odd halfword load at base+5 rotates aligned 0x3344 to 0x4433"
@@ -8434,7 +8434,7 @@
       "family": "block-transfer",
       "form": "LDM:IA:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -8457,7 +8457,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmia r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x55555555, 0x55555554\nGBL_ASSERT_EQ r1, 0x66666666, 0x66666667\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmia r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x55555555, 0x55555554\nGBL_ASSERT_EQ r1, 0x66666666, 0x66666667\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:IA:S-user-bank-transfer",
           "address_mode": "IA",
@@ -8475,7 +8475,7 @@
       "family": "block-transfer",
       "form": "LDM:IA:S-PC-exception-return",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe non-PC destination banks, captured old SPSR, restored CPSR/T and resolved refill target.",
       "expected": {
         "derivation": "Apply ARM ARM LDM^ semantics; capture SPSR and destination banks before ordered reads, then restore CPSR before refill.",
@@ -8500,7 +8500,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmia r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x55555555, 0x55555554\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, .Lblk_return_target, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmia r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x55555555, 0x55555554\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, .Lblk_return_target, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:IA:S-PC-exception-return",
           "address_mode": "IA",
@@ -8600,7 +8600,7 @@
       "family": "block-transfer",
       "form": "LDM:IB:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -8623,7 +8623,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmib r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x66666666, 0x66666667\nGBL_ASSERT_EQ r1, 0x77777777, 0x77777776\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmib r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x66666666, 0x66666667\nGBL_ASSERT_EQ r1, 0x77777777, 0x77777776\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:IB:S-user-bank-transfer",
           "address_mode": "IB",
@@ -8641,7 +8641,7 @@
       "family": "block-transfer",
       "form": "LDM:IB:S-PC-exception-return",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe non-PC destination banks, captured old SPSR, restored CPSR/T and resolved refill target.",
       "expected": {
         "derivation": "Apply ARM ARM LDM^ semantics; capture SPSR and destination banks before ordered reads, then restore CPSR before refill.",
@@ -8666,7 +8666,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmib r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x66666666, 0x66666667\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, .Lblk_return_target, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmib r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x66666666, 0x66666667\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, .Lblk_return_target, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:IB:S-PC-exception-return",
           "address_mode": "IB",
@@ -8766,7 +8766,7 @@
       "family": "block-transfer",
       "form": "LDM:DA:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -8789,7 +8789,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmda r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x44444444, 0x44444445\nGBL_ASSERT_EQ r1, 0x55555555, 0x55555554\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmda r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x44444444, 0x44444445\nGBL_ASSERT_EQ r1, 0x55555555, 0x55555554\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:DA:S-user-bank-transfer",
           "address_mode": "DA",
@@ -8807,7 +8807,7 @@
       "family": "block-transfer",
       "form": "LDM:DA:S-PC-exception-return",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe non-PC destination banks, captured old SPSR, restored CPSR/T and resolved refill target.",
       "expected": {
         "derivation": "Apply ARM ARM LDM^ semantics; capture SPSR and destination banks before ordered reads, then restore CPSR before refill.",
@@ -8832,7 +8832,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmda r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x44444444, 0x44444445\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, .Lblk_return_target, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmda r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x44444444, 0x44444445\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, .Lblk_return_target, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:DA:S-PC-exception-return",
           "address_mode": "DA",
@@ -8932,7 +8932,7 @@
       "family": "block-transfer",
       "form": "LDM:DB:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -8955,7 +8955,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmdb r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x33333333, 0x33333332\nGBL_ASSERT_EQ r1, 0x44444444, 0x44444445\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmdb r4, {r0,r1}^\nGBL_ASSERT_EQ r0, 0x33333333, 0x33333332\nGBL_ASSERT_EQ r1, 0x44444444, 0x44444445\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:DB:S-user-bank-transfer",
           "address_mode": "DB",
@@ -8973,7 +8973,7 @@
       "family": "block-transfer",
       "form": "LDM:DB:S-PC-exception-return",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe non-PC destination banks, captured old SPSR, restored CPSR/T and resolved refill target.",
       "expected": {
         "derivation": "Apply ARM ARM LDM^ semantics; capture SPSR and destination banks before ordered reads, then restore CPSR before refill.",
@@ -8998,7 +8998,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmdb r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x33333333, 0x33333332\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, .Lblk_return_target, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r5,=0xDF\nmsr spsr_cxsf,r5\nadr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmdb r4, {r0,pc}^\n.Lblk_return_target:\nGBL_ASSERT_EQ r0, 0x33333333, 0x33333332\n\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, .Lblk_return_target, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:DB:S-PC-exception-return",
           "address_mode": "DB",
@@ -9098,7 +9098,7 @@
       "family": "block-transfer",
       "form": "STM:IA:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -9121,7 +9121,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmia r4, {r0,r1}^\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x11111111, 0x22222222, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmia r4, {r0,r1}^\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x11111111, 0x22222222, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:IA:S-user-bank-transfer",
           "address_mode": "IA",
@@ -9221,7 +9221,7 @@
       "family": "block-transfer",
       "form": "STM:IB:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -9244,7 +9244,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmib r4, {r0,r1}^\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#8]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x11111111, 0x22222222, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmib r4, {r0,r1}^\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#8]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x11111111, 0x22222222, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:IB:S-user-bank-transfer",
           "address_mode": "IB",
@@ -9344,7 +9344,7 @@
       "family": "block-transfer",
       "form": "STM:DA:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -9367,7 +9367,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmda r4, {r0,r1}^\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x11111111, 0x22222222, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmda r4, {r0,r1}^\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x11111111, 0x22222222, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:DA:S-user-bank-transfer",
           "address_mode": "DA",
@@ -9467,7 +9467,7 @@
       "family": "block-transfer",
       "form": "STM:DB:S-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe ascending register/address transaction order, source snapshots, selected register bank and final base.",
       "expected": {
         "derivation": "Apply ARM ARM A4 LDM/STM and GBATEK 3.06 ARMv4 list/bank rules for this addressing mode.",
@@ -9490,7 +9490,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmdb r4, {r0,r1}^\nldr r0,[r6,#-8]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x11111111, 0x22222222, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmdb r4, {r0,r1}^\nldr r0,[r6,#-8]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x11111111, 0x22222222, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:DB:S-user-bank-transfer",
           "address_mode": "DB",
@@ -9715,7 +9715,7 @@
       "family": "block-transfer-edge",
       "form": "S-bit-user-bank-transfer",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe all listed registers, memory transaction order, base writeback and CPSR/mode transition.",
       "expected": {
         "derivation": "Use ARMv4T DDI0029G and GBATEK 3.06 block-transfer edge rules; do not import ARMv5 behavior.",
@@ -9740,11 +9740,11 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r0,#0x42\nstmia r4,{r0}^\nldr r1,[r4]\nGBL_ASSERT_EQ r1, 0x00000042, 0x00000043\nb .Lblk_done\n .align 2\n.Lblk_data:\n.word 0x11111111,0x22222222,0x33333333,0x44444444,0x55555555,0x66666666,0x77777777,0x88888888\n.Lblk_done:\n",
+        "program": "mov lr,#0x42\nmsr cpsr_c,#0xD3\nmov lr,#0x24\nldr r4,=0x03000030\nstmia r4,{r14}^\nldr r1,[r4]\nGBL_ASSERT_EQ r1, 0x00000042, 0x00000043\n",
         "independent_expectation": {
           "instruction": "STMIA user-bank transfer ^",
           "expected_value": "0x00000042",
-          "derivation": "User banked register transfer with S bit in privileged mode.",
+          "derivation": "In Supervisor mode, STM with S and no PC reads the User/System bank. User LR=0x42 and Supervisor LR=0x24 distinguish the actual bank, independently of shared r0..r7.",
           "broken_expected": "0x00000043",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
@@ -9756,7 +9756,7 @@
       "family": "block-transfer-edge",
       "form": "S-bit-and-PC-restores-CPSR",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe all listed registers, memory transaction order, base writeback and CPSR/mode transition.",
       "expected": {
         "derivation": "Use ARMv4T DDI0029G and GBATEK 3.06 block-transfer edge rules; do not import ARMv5 behavior.",
@@ -9783,7 +9783,7 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5,=0xDF\nmsr spsr_cxsf,r5\nldr r4,=0x03000030\nldr r0,=0x42\nstr r0,[r4]\nldr r0,=.Lreturn_after\nstr r0,[r4,#4]\nldmia r4,{r0,pc}^\n.Lreturn_after:\nmrs r1,cpsr\nand r1,r1,#0x3f\nGBL_ASSERT_EQ r0, 0x00000042, 0x00000043\nGBL_ASSERT_EQ r1, 0x0000001F, 0x0000001E\nb .Lblk_done\n .align 2\n.Lblk_data:\n.word 0x11111111,0x22222222,0x33333333,0x44444444,0x55555555,0x66666666,0x77777777,0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r5,=0xDF\nmsr spsr_cxsf,r5\nldr r4,=0x03000030\nldr r0,=0x42\nstr r0,[r4]\nldr r0,=.Lreturn_after\nstr r0,[r4,#4]\nldmia r4,{r0,pc}^\n.Lreturn_after:\nmrs r1,cpsr\nand r1,r1,#0x3f\nGBL_ASSERT_EQ r0, 0x00000042, 0x00000043\nGBL_ASSERT_EQ r1, 0x0000001F, 0x0000001E\nb .Lblk_done\n .align 2\n.Lblk_data:\n.word 0x11111111,0x22222222,0x33333333,0x44444444,0x55555555,0x66666666,0x77777777,0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDMIA S+PC exception return",
           "expected_mode": "0x0000001F",
@@ -9841,7 +9841,7 @@
       "family": "block-transfer-edge",
       "form": "banked-destination-captured-before-mode-return",
       "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
+      "setup": "Enter privileged Supervisor mode from direct-start System mode before the S-bit operation; initialize SPSR explicitly for exception return. The shared epilogue restores System mode and its caller stack on either verdict.",
       "observe": "Observe all listed registers, memory transaction order, base writeback and CPSR/mode transition.",
       "expected": {
         "derivation": "Use ARMv4T DDI0029G and GBATEK 3.06 block-transfer edge rules; do not import ARMv5 behavior.",
@@ -9866,10 +9866,10 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5,=0xDF\nmsr spsr_cxsf,r5\nldr r4,=0x03000030\nldr r0,=0x12345678\nstr r0,[r4]\nldr r0,=.Lbank_return\nstr r0,[r4,#4]\nldmia r4,{r13,pc}^\n.Lbank_return:\nldr r1,=0x03000000\nstmia r1,{r13}^\nldr r0,[r1]\nGBL_ASSERT_EQ r0, 0x12345678, 0x12345679\nb .Lblk_done\n .align 2\n.Lblk_data:\n.word 0x11111111,0x22222222,0x33333333,0x44444444,0x55555555,0x66666666,0x77777777,0x88888888\n.Lblk_done:\n",
+        "program": "msr cpsr_c,#0xD3\nldr r5,=0xDF\nmsr spsr_cxsf,r5\nldr r4,=0x03000030\nldr r0,=0x12345678\nstr r0,[r4]\nldr r0,=.Lbank_return\nstr r0,[r4,#4]\nldmia r4,{r13,pc}^\n.Lbank_return:\nmsr cpsr_c,#0xD3\nmov r0,sp\nmsr cpsr_c,#0xDF\nGBL_ASSERT_EQ r0, 0x12345678, 0x12345679\nb .Lblk_done\n .align 2\n.Lblk_data:\n.word 0x11111111,0x22222222,0x33333333,0x44444444,0x55555555,0x66666666,0x77777777,0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM user-bank r13 and exception return",
-          "derivation": "S-bit banked destination is captured before CPSR mode return.",
+          "derivation": "LDM^ with PC writes r13 in the original Supervisor bank before restoring SPSR=0xDF (System). Re-enter Supervisor to read its loaded SP=0x12345678, then restore System so the caller stack remains usable.",
           "expected_value": "0x12345678",
           "broken_expected": "0x12345679",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
