@@ -2285,6 +2285,40 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         return true;
     }
 
+    /* DDI0100I A7.1.17: BL supplies high and low offsets in two
+     * halfwords. Gamebloke retires each independently and uses only banked
+     * LR between them, including isolated-half probes. Unsigned offset
+     * arithmetic is the project's deterministic policy at unpredictable
+     * address-wrap boundaries; existing static refill guards still apply. */
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0xF000)) {
+        uint32_t offset = opcode & UINT16_C(0x07FF);
+        uint32_t link;
+
+        if ((opcode & UINT16_C(0x0800)) == 0u) {
+            if ((offset & UINT32_C(0x400)) != 0u) {
+                offset |= UINT32_C(0xFFFFF800);
+            }
+            link = instruction_address + UINT32_C(4) + (offset << 12u);
+            unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+            return gbl_cpu_add_literal_register_effect(
+                       unit, (uint8_t)14u, cpu->cpsr, link) &&
+                   gbl_cpu_schedule_sequential_fetch(
+                       unit, next_fetch_address, true);
+        }
+        {
+            const uint32_t old_lr = gbl_cpu_read_register(
+                cpu, (uint8_t)14u, instruction_address, GBL_CPU_PC_READ_NORMAL);
+            const uint32_t target = (old_lr + (offset << 1u)) & ~UINT32_C(1);
+
+            link = (instruction_address + UINT32_C(2)) | UINT32_C(1);
+            if (!gbl_cpu_add_literal_register_effect(
+                    unit, (uint8_t)14u, cpu->cpsr, link)) {
+                return false;
+            }
+            return gbl_cpu_schedule_branch(unit, target, true);
+        }
+    }
+
     if ((opcode & UINT16_C(0xF800)) == UINT16_C(0x2000) ||
         (opcode & UINT16_C(0xF800)) == UINT16_C(0x3000) ||
         (opcode & UINT16_C(0xF800)) == UINT16_C(0x3800) ||

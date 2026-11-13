@@ -8025,12 +8025,14 @@ static void test_decode(void)
     }
 
     {
-        const bool valid_unimplemented_thumb_bl_prefix = loaded &&
+        const bool implemented_thumb_bl_prefix = loaded &&
             run_thumb_instruction(&machine, UINT16_C(0xF000), 0u,
                                   UINT64_C(1), &result) &&
-            result.termination == GBL_RUN_STOPPED &&
-            result.reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION &&
-            machine.cpu.stop_reason == GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+            result.termination == GBL_RUN_PROGRESS &&
+            result.instructions == 1u && result.cycles == 1u &&
+            machine.cpu.execution_address == UINT32_C(0x08000002) &&
+            machine.cpu.usr_r8_14[6] == UINT32_C(0x08000004) &&
+            machine.cpu.stop_reason == GBL_CPU_STOP_NONE;
         const bool undefined_encoding = loaded && run_arm_instruction(
             &machine, UINT32_C(0xE7F000F0), 0u, 1u, &result) &&
             result.termination == GBL_RUN_STOPPED &&
@@ -8039,8 +8041,8 @@ static void test_decode(void)
             machine.cpu.spsr[4] == TEST_CPSR_SYSTEM &&
             machine.cpu.execution_address == UINT32_C(4);
 
-        test_case(valid_unimplemented_thumb_bl_prefix && undefined_encoding,
-                  "valid unimplemented Thumb BL prefix and architecturally undefined ARM words stop distinctly");
+        test_case(implemented_thumb_bl_prefix && undefined_encoding,
+                  "implemented Thumb BL prefix retires while architecturally undefined ARM words trap");
     }
 
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xDE00), 0u,
@@ -12611,8 +12613,9 @@ static void test_thumb_bl_stream_boundary(void)
 
     if (valid) {
         /* Start with empty pipeline: the initial refill must not retire BL. */
-        machine.cpu.pipeline[0].valid = false;
-        machine.cpu.pipeline[1].valid = false;
+        machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){ 0 };
+        machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){ 0 };
+        machine.cpu.next_fetch_sequential = false;
         valid = run_traced_units(&machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
                                 &trace, &result) &&
             result.instructions == 0u && result.cycles == 2u && trace.count == 2u;
