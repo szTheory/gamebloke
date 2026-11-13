@@ -2973,6 +2973,21 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
         return true;
     }
 
+    /* ARM conditions 0-14 annul the whole instruction when false. Resolve
+     * that before any operand, encoding or extension classification so a
+     * failed conditional instruction retires as its sequential no-op. Keep
+     * condition 1111 outside this rule: its explicit NV/extension reporting
+     * policy is handled below. */
+    if (!thumb && (opcode >> 28u) != UINT32_C(0x0F) &&
+        !gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
     /* Recognize allocated later encodings before general ARMv4 NV. The
      * distinction is project reporting policy, not execution on ARM7TDMI. */
     if (!thumb && gbl_cpu_is_arm_extension(opcode)) {

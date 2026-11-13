@@ -2103,6 +2103,228 @@ static void test_arm_condition_predicates(void)
     gbl_machine_dispose(&machine);
 }
 
+static bool arm_condition_failed_decode_pair(uint32_t opcode)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine reference = { 0 };
+    gbl_machine candidate = { 0 };
+    gbl_cpu_state candidate_before;
+    gbl_trace_record reference_records[4] = { { 0 } };
+    gbl_trace_record candidate_records[4] = { { 0 } };
+    const uint64_t initial_sequence = UINT64_C(700);
+    gbl_trace_buffer reference_trace = {
+        reference_records, 3u, 1u, initial_sequence
+    };
+    gbl_trace_buffer candidate_trace = {
+        candidate_records, 3u, 1u, initial_sequence
+    };
+    gbl_run_result reference_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    gbl_run_result candidate_result = {
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+    };
+    const uint32_t flags = TEST_CPSR_SYSTEM | TEST_CPSR_N | TEST_CPSR_C |
+                           TEST_CPSR_V;
+    const uint32_t reference_opcode = UINT32_C(0x01A00000);
+    const uint32_t initial_cycles = UINT64_C(37);
+    bool reference_loaded;
+    bool candidate_loaded;
+    bool reference_ran = false;
+    bool candidate_ran = false;
+    size_t index;
+
+    make_empty_image(image);
+    reference_loaded = machine_load(&reference, image);
+    candidate_loaded = machine_load(&candidate, image);
+    if (reference_loaded && candidate_loaded) {
+        seed_nondefault_cpu_state(&reference.cpu);
+        seed_nondefault_cpu_state(&candidate.cpu);
+        reference.master_cycles = initial_cycles;
+        candidate.master_cycles = initial_cycles;
+        reference.open_bus = UINT32_C(0xFACEB00C);
+        candidate.open_bus = UINT32_C(0xFACEB00C);
+        prepare_arm_instruction(&reference, reference_opcode, flags);
+        prepare_arm_instruction(&candidate, opcode, flags);
+        candidate_before = candidate.cpu;
+
+        for (index = 0u; index < 4u; ++index) {
+            reference_records[index].sequence = initial_sequence + index;
+            reference_records[index].category = GBL_TRACE_EXCEPTION;
+            reference_records[index].instruction_address =
+                UINT32_C(0x03000020) + (uint32_t)index * UINT32_C(4);
+            reference_records[index].opcode =
+                UINT32_C(0xA5000000) + (uint32_t)index;
+            reference_records[index].address =
+                UINT32_C(0x03000040) + (uint32_t)index * UINT32_C(4);
+            reference_records[index].width = 4u;
+            candidate_records[index] = reference_records[index];
+        }
+        reference_ran = run_arm_instruction_with_trace(
+            &reference, reference_opcode, flags, UINT64_C(1),
+            &reference_trace, &reference_result);
+        candidate_ran = run_arm_instruction_with_trace(
+            &candidate, opcode, flags, UINT64_C(1), &candidate_trace,
+            &candidate_result);
+    } else {
+        candidate_before = candidate.cpu;
+    }
+
+    const bool valid = reference_loaded && candidate_loaded &&
+        reference_ran && candidate_ran &&
+        reference_result.termination == GBL_RUN_PROGRESS &&
+        reference_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+        reference_result.instructions == UINT64_C(1) &&
+        reference_result.cycles == UINT64_C(1) &&
+        candidate_result.termination == GBL_RUN_PROGRESS &&
+        candidate_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+        candidate_result.instructions == UINT64_C(1) &&
+        candidate_result.cycles == UINT64_C(1) &&
+        gbl_test_canonical_equal(&reference, &candidate) &&
+        candidate.master_cycles == initial_cycles + UINT64_C(1) &&
+        candidate.cpu.retired_instructions ==
+            candidate_before.retired_instructions + UINT64_C(1) &&
+        candidate.cpu.execution_address == UINT32_C(0x08000004) &&
+        candidate.cpu.pipeline[0].address == UINT32_C(0x08000004) &&
+        candidate.cpu.pipeline[0].opcode == UINT32_C(0xE1A00000) &&
+        candidate.cpu.pipeline[1].address == UINT32_C(0x08000008) &&
+        candidate.cpu.pipeline[1].valid &&
+        candidate.cpu.next_fetch_sequential &&
+        candidate.cpu.cpsr == candidate_before.cpsr &&
+        candidate.cpu.stopped == candidate_before.stopped &&
+        candidate.cpu.stop_reason == candidate_before.stop_reason &&
+        candidate.cpu.last_exception.kind ==
+            candidate_before.last_exception.kind &&
+        candidate.cpu.last_exception.current_address ==
+            candidate_before.last_exception.current_address &&
+        candidate.cpu.last_exception.next_address ==
+            candidate_before.last_exception.next_address &&
+        candidate.cpu.last_exception.fault_address ==
+            candidate_before.last_exception.fault_address &&
+        candidate.cpu.last_exception.thumb_state ==
+            candidate_before.last_exception.thumb_state &&
+        gbl_test_u32_array_equal(candidate.cpu.r0_7,
+                                 candidate_before.r0_7, 8u) &&
+        gbl_test_u32_array_equal(candidate.cpu.usr_r8_14,
+                                 candidate_before.usr_r8_14, 7u) &&
+        gbl_test_u32_array_equal(candidate.cpu.fiq_r8_14,
+                                 candidate_before.fiq_r8_14, 7u) &&
+        gbl_test_u32_array_equal(candidate.cpu.irq_r13_14,
+                                 candidate_before.irq_r13_14, 2u) &&
+        gbl_test_u32_array_equal(candidate.cpu.svc_r13_14,
+                                 candidate_before.svc_r13_14, 2u) &&
+        gbl_test_u32_array_equal(candidate.cpu.abt_r13_14,
+                                 candidate_before.abt_r13_14, 2u) &&
+        gbl_test_u32_array_equal(candidate.cpu.und_r13_14,
+                                 candidate_before.und_r13_14, 2u) &&
+        gbl_test_u32_array_equal(candidate.cpu.spsr,
+                                 candidate_before.spsr, 5u) &&
+        reference_trace.records == reference_records &&
+        candidate_trace.records == candidate_records &&
+        reference_trace.capacity == 3u && candidate_trace.capacity == 3u &&
+        reference_trace.count == 3u && candidate_trace.count == 3u &&
+        reference_trace.next_sequence == initial_sequence + UINT64_C(2) &&
+        candidate_trace.next_sequence == initial_sequence + UINT64_C(2) &&
+        reference_records[0].sequence == initial_sequence &&
+        candidate_records[0].sequence == initial_sequence &&
+        reference_records[1].category == GBL_TRACE_INSTRUCTION &&
+        candidate_records[1].category == GBL_TRACE_INSTRUCTION &&
+        reference_records[1].opcode == reference_opcode &&
+        candidate_records[1].opcode == opcode &&
+        reference_records[2].category == GBL_TRACE_BUS &&
+        candidate_records[2].category == GBL_TRACE_BUS &&
+        reference_records[2].address == UINT32_C(0x08000008) &&
+        candidate_records[2].address == UINT32_C(0x08000008) &&
+        reference_records[3].sequence == initial_sequence + UINT64_C(3) &&
+        candidate_records[3].sequence == initial_sequence + UINT64_C(3);
+
+    if (reference.initialized) {
+        gbl_machine_dispose(&reference);
+    }
+    if (candidate.initialized) {
+        gbl_machine_dispose(&candidate);
+    }
+    return valid;
+}
+
+static bool arm_condition_passing_stop(uint32_t opcode, uint32_t flags,
+                                      gbl_run_reason expected_reason,
+                                      gbl_cpu_stop_reason expected_stop)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_machine expected;
+    gbl_trace_record records[3] = { { 0 } };
+    gbl_trace_buffer trace = { records, 2u, 1u, UINT64_C(900) };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    bool loaded;
+    bool ran = false;
+    size_t index;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    if (loaded) {
+        seed_nondefault_cpu_state(&machine.cpu);
+        machine.master_cycles = UINT64_C(51);
+        machine.open_bus = UINT32_C(0xFACEB00C);
+        prepare_arm_instruction(&machine, opcode, flags);
+        for (index = 0u; index < 3u; ++index) {
+            records[index].sequence = UINT64_C(900) + (uint64_t)index;
+            records[index].category = GBL_TRACE_EXCEPTION;
+            records[index].opcode = UINT32_C(0xB6000000) + (uint32_t)index;
+            records[index].address = UINT32_C(0x03000100) +
+                                     (uint32_t)index * UINT32_C(4);
+        }
+        before = machine;
+        expected = before;
+        expected.cpu.stopped = true;
+        expected.cpu.stop_reason = expected_stop;
+        ran = run_arm_instruction_with_trace(
+            &machine, opcode, flags, UINT64_C(2), &trace, &result);
+    } else {
+        before = machine;
+        expected = machine;
+    }
+
+    const bool valid = loaded && ran &&
+        result.termination == GBL_RUN_STOPPED &&
+        result.reason == expected_reason && result.instructions == 0u &&
+        result.cycles == 0u && gbl_test_canonical_equal(&machine, &expected) &&
+        gbl_test_same_instance_identity_equal(&before, &machine) &&
+        trace.records == records && trace.capacity == 2u && trace.count == 1u &&
+        trace.next_sequence == UINT64_C(900) &&
+        records[0].sequence == UINT64_C(900) &&
+        records[0].opcode == UINT32_C(0xB6000000) &&
+        records[0].address == UINT32_C(0x03000100) &&
+        records[1].sequence == UINT64_C(901) &&
+        records[1].opcode == UINT32_C(0xB6000001) &&
+        records[1].address == UINT32_C(0x03000104);
+
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+    return valid;
+}
+
+static void test_arm_condition_failed_classification_order(void)
+{
+    test_case(arm_condition_failed_decode_pair(UINT32_C(0x01A10000)),
+              "failed EQ reserved-Rn MOV retires as a no-op before operand refusal");
+    test_case(arm_condition_failed_decode_pair(UINT32_C(0x016F0F10)),
+              "failed EQ CLZ retires as a no-op before later-extension reporting");
+    test_case(arm_condition_passing_stop(
+                  UINT32_C(0x01A10000), TEST_CPSR_SYSTEM | TEST_CPSR_Z,
+                  GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION,
+                  GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION),
+              "passing EQ reserved-Rn MOV retains unpredictable refusal");
+    test_case(arm_condition_passing_stop(
+                  UINT32_C(0x016F0F10), TEST_CPSR_SYSTEM | TEST_CPSR_Z,
+                  GBL_RUN_REASON_LATER_ARCHITECTURE_INSTRUCTION,
+                  GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION),
+              "passing EQ CLZ retains later-architecture reporting");
+}
+
 static void test_arm_al_ignores_nzcv(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -13133,6 +13355,7 @@ static const cpu_test_function arm_shifts_conditions_functions[] = {
     test_arm_register_shifted_pc_operand_uses_plus_twelve,
     test_arm_operand2_shift_vectors,
     test_arm_condition_predicates,
+    test_arm_condition_failed_classification_order,
     test_arm_al_ignores_nzcv,
     test_arm_condition_1111_is_unpredictable,
     test_arm_register_shift_cycle_preflight
@@ -13380,7 +13603,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_block_banks", 21u, arm_block_banks_functions),
     CPU_TEST_GROUP("arm_block_bounds", 10u, arm_block_bounds_functions),
     CPU_TEST_GROUP("arm_block_edges", 70u, arm_block_edges_functions),
-    CPU_TEST_GROUP("arm_shifts_conditions", 73u,
+    CPU_TEST_GROUP("arm_shifts_conditions", 77u,
                    arm_shifts_conditions_functions),
     CPU_TEST_GROUP("arm_transfer", 361u, arm_transfer_functions),
     CPU_TEST_GROUP("arm_subword", 70u, arm_subword_functions),
