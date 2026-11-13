@@ -5,6 +5,26 @@ foreach(required IN ITEMS CASE SRC BIN)
     message(FATAL_ERROR "toolchain-spike: missing-${required}")
   endif()
 endforeach()
+if(CASE STREQUAL "final-producer-tracer")
+  # Execute the public smoke recipe in a fresh isolated output root. A zero
+  # process status without its promised bytes cannot satisfy final proof.
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
+    -DOUT=build/phase05-spike/plan21-smoke-tracer
+    -DTOOLCHAIN_ROOT=build/toolchains -DMODE=smoke
+    -P "${SRC}/cmake/BuildArmDiagnostics.cmake"
+    WORKING_DIRECTORY "${SRC}" RESULT_VARIABLE rc
+    OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT rc STREQUAL "0")
+    message(FATAL_ERROR "toolchain-spike: final-producer-contract: smoke recipe failed: ${output}${error}")
+  endif()
+  foreach(name IN ITEMS smoke.gba smoke-broken.gba)
+    if(NOT EXISTS "${SRC}/build/phase05-spike/plan21-smoke-tracer/roms/${name}")
+      message(FATAL_ERROR "toolchain-spike: final-producer-contract: successful smoke recipe omitted ${name}")
+    endif()
+  endforeach()
+  message(STATUS "toolchain-spike: final-producer-contract passed")
+  return()
+endif()
 if(NOT CASE MATCHES "^(offline-controls|local-proof|proof-only|hosted-proof)$")
   message(FATAL_ERROR "toolchain-spike: unsupported-case")
 endif()
