@@ -31,29 +31,6 @@ if(NOT "${coverage_rc}" STREQUAL "0")
     "arm-diagnostics: coverage-ledger-invalid: ${coverage_error}${coverage_output}")
 endif()
 
-if(MODE STREQUAL "all")
-  file(READ "${matrix_file}" matrix_json)
-  string(JSON case_count LENGTH "${matrix_json}" cases)
-  math(EXPR case_last "${case_count}-1")
-  set(pending_cases 0)
-  set(source_verified_cases 0)
-  foreach(index RANGE 0 ${case_last})
-    string(JSON row_json GET "${matrix_json}" cases ${index})
-    string(JSON row_state GET "${row_json}" coverage_state)
-    if(row_state STREQUAL "pending")
-      math(EXPR pending_cases "${pending_cases}+1")
-    elseif(row_state STREQUAL "source-verified")
-      math(EXPR source_verified_cases "${source_verified_cases}+1")
-    endif()
-  endforeach()
-  math(EXPR incomplete_cases "${pending_cases}+${source_verified_cases}")
-  if(incomplete_cases GREATER 0)
-    message(FATAL_ERROR
-      "arm-diagnostics: all-cases-incomplete: pending=${pending_cases} source-verified=${source_verified_cases}")
-  endif()
-  message(FATAL_ERROR "arm-diagnostics: all-cases-builder-unimplemented")
-endif()
-
 if(MODE STREQUAL "case")
   file(READ "${matrix_file}" matrix_json)
   string(JSON case_count LENGTH "${matrix_json}" cases)
@@ -85,14 +62,15 @@ if(MODE STREQUAL "case")
     set(selected_kind smoke)
   else()
     if(NOT DEFINED ISA OR NOT ISA STREQUAL "arm" OR
-       NOT selected_state STREQUAL "pending" OR NOT selected_target OR
-       NOT selected_family MATCHES "^(data-processing|condition|pc-control|shifter-boundary|multiply|status-register|single-transfer|halfword-signed-transfer|swap|block-transfer|block-transfer-edge)$")
+       NOT selected_state STREQUAL "pending" OR
+       (selected_target AND NOT selected_family MATCHES "^(data-processing|condition|pc-control|shifter-boundary|multiply|status-register|single-transfer|halfword-signed-transfer|swap|block-transfer|block-transfer-edge)$"))
       message(FATAL_ERROR "arm-diagnostics: arm-case-selection-invalid: ${CASE_ID}")
     endif()
     string(JSON selected_isa GET "${selected_row}" isa)
     string(JSON selected_kind GET "${selected_row}" source_test kind)
     string(JSON selected_source_program GET "${selected_row}" source_test program)
-    if(NOT selected_isa STREQUAL "arm" OR NOT selected_kind STREQUAL "semantic" OR
+    if(NOT selected_isa STREQUAL "arm" OR
+       NOT selected_kind MATCHES "^(semantic|guest-stop)$" OR
        "${selected_source_program}" STREQUAL "")
       message(FATAL_ERROR "arm-diagnostics: arm-case-source-missing: ${CASE_ID}")
     endif()
@@ -135,14 +113,30 @@ set(out_request "${OUT}")
 cmake_path(ABSOLUTE_PATH out_request BASE_DIRECTORY "${source_root}"
   NORMALIZE OUTPUT_VARIABLE output_root)
 set(spike_root "${source_root}/build/phase05-spike")
-cmake_path(IS_PREFIX spike_root "${output_root}" NORMALIZE output_in_spike_root)
-file(RELATIVE_PATH output_leaf "${spike_root}" "${output_root}")
-if(NOT output_in_spike_root OR "${output_root}" STREQUAL "${spike_root}" OR
-   "${output_leaf}" MATCHES "/" OR "${output_leaf}" MATCHES "^\\.\\." OR
-   IS_SYMLINK "${source_root}/build" OR
-   IS_SYMLINK "${source_root}/build/phase05-spike" OR
-   IS_SYMLINK "${output_root}")
-  message(FATAL_ERROR "arm-diagnostics: output-outside-ignored-spike-root")
+set(matrix_root "${source_root}/build/phase05-matrix")
+if(MODE STREQUAL "all")
+  cmake_path(IS_PREFIX matrix_root "${output_root}" NORMALIZE output_in_matrix_root)
+  file(RELATIVE_PATH output_leaf "${matrix_root}" "${output_root}")
+  if(NOT output_in_matrix_root OR NOT output_leaf STREQUAL "arm")
+    message(FATAL_ERROR "arm-diagnostics: all-output-must-be-build/phase05-matrix/arm")
+  endif()
+elseif(MODE STREQUAL "case" AND MATRIX_CHILD STREQUAL "1")
+  cmake_path(IS_PREFIX matrix_root "${output_root}" NORMALIZE output_in_matrix_root)
+  file(RELATIVE_PATH output_leaf "${matrix_root}/arm/cases" "${output_root}")
+  if(NOT output_in_matrix_root OR NOT output_leaf MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "arm-diagnostics: internal-case-output-invalid")
+  endif()
+else()
+  cmake_path(IS_PREFIX spike_root "${output_root}" NORMALIZE output_in_spike_root)
+  file(RELATIVE_PATH output_leaf "${spike_root}" "${output_root}")
+  if(NOT output_in_spike_root OR "${output_root}" STREQUAL "${spike_root}" OR
+     "${output_leaf}" MATCHES "/" OR "${output_leaf}" MATCHES "^\\.\\.")
+    message(FATAL_ERROR "arm-diagnostics: output-outside-ignored-spike-root")
+  endif()
+endif()
+if(IS_SYMLINK "${source_root}/build" OR IS_SYMLINK "${source_root}/build/phase05-spike" OR
+   IS_SYMLINK "${source_root}/build/phase05-matrix" OR IS_SYMLINK "${output_root}")
+  message(FATAL_ERROR "arm-diagnostics: output-root-symlink")
 endif()
 file(RELATIVE_PATH output_relative "${source_root}" "${output_root}")
 if(output_relative MATCHES "^\\.\\.")
@@ -238,7 +232,8 @@ endforeach()
 
 foreach(required_input IN ITEMS
     cmake/BuildArmDiagnostics.cmake cmake/FixGbaHeader.cmake
-    diagnostics/armv4t/NOTICE diagnostics/armv4t/cases.json
+    diagnostics/armv4t/NOTICE diagnostics/armv4t/assertions.inc
+    diagnostics/armv4t/cases-arm.S diagnostics/armv4t/cases.json
     diagnostics/armv4t/inputs.txt diagnostics/armv4t/linker.ld
     diagnostics/armv4t/smoke.S diagnostics/armv4t/startup.S
     scripts/fetch-toolchain.sh scripts/lib/signature-common.sh
@@ -380,6 +375,7 @@ function(epoch_seconds output_name)
   set(${output_name} "${epoch}" PARENT_SCOPE)
 endfunction()
 
+if(MODE STREQUAL "case" AND selected_kind STREQUAL "smoke")
 epoch_seconds(plan_started)
 set(common_relative "${output_relative}/proof/common")
 set(common_root "${output_root}/proof/common")
@@ -399,6 +395,7 @@ require_v4t("${tool_bin}/arm-none-eabi-readelf"
 file(READ "${common_root}/startup.attributes.txt" common_startup_attributes)
 file(WRITE "${common_root}/object-identity.txt"
   "Reused for the clean and assertion-broken member of each case pair.\n")
+endif()
 
 file(SHA256 "${source_root}/diagnostics/armv4t/startup.S" startup_sha)
 file(SHA256 "${source_root}/diagnostics/armv4t/smoke.S" smoke_sha)
@@ -565,27 +562,198 @@ function(build_variant variant broken rom_name)
   message(STATUS "arm-diagnostics: built ${rom_name} host=${HOST} bytes=${rom_bytes} sha256=${rom_sha} seconds=${variant_seconds}")
 endfunction()
 
-if(MODE STREQUAL "case" AND selected_kind STREQUAL "semantic")
-  string(JSON expected_value GET "${selected_row}" source_test
-    independent_expectation expected_value)
-  string(JSON broken_expected GET "${selected_row}" source_test
-    independent_expectation broken_expected)
-  if("${expected_value}" STREQUAL "${broken_expected}" OR
-     NOT "${selected_source_program}" MATCHES "GBL_ASSERT_EQ")
-    message(FATAL_ERROR "arm-diagnostics: arm-case-assertion-invalid: ${CASE_ID}")
-  endif()
-
-  math(EXPR case_id_hex "${CASE_ID}" OUTPUT_FORMAT HEXADECIMAL)
-  set(rom_names "arm-${CASE_ID}.gba" "arm-${CASE_ID}-broken.gba")
-  set(variant_index 0)
-  foreach(variant IN ITEMS "arm-${CASE_ID}" "arm-${CASE_ID}-broken")
-    if(variant_index EQUAL 0)
-      set(broken 0)
-      list(GET rom_names 0 rom_name)
-    else()
-      set(broken 1)
-      list(GET rom_names 1 rom_name)
+if(MODE STREQUAL "all")
+  file(READ "${matrix_file}" matrix_json)
+  string(JSON case_count LENGTH "${matrix_json}" cases)
+  math(EXPR case_last "${case_count}-1")
+  set(semantic_count 0)
+  set(stop_count 0)
+  set(output_names "")
+  set(allowlist "")
+  foreach(index RANGE 0 ${case_last})
+    string(JSON row_json GET "${matrix_json}" cases ${index})
+    string(JSON row_id GET "${row_json}" id)
+    string(JSON row_isa GET "${row_json}" isa)
+    string(JSON row_state GET "${row_json}" coverage_state)
+    string(JSON source_kind ERROR_VARIABLE source_kind_error GET
+      "${row_json}" source_test kind)
+    if(NOT "${source_kind_error}" STREQUAL "NOTFOUND")
+      continue()
     endif()
+    if(NOT source_kind MATCHES "^(semantic|guest-stop)$")
+      continue()
+    endif()
+    if(NOT row_isa STREQUAL "arm" OR NOT row_state STREQUAL "pending")
+      message(FATAL_ERROR
+        "arm-diagnostics: source-row-not-runnable: id=${row_id} isa=${row_isa} state=${row_state}")
+    endif()
+    set(child_output "${output_root}/cases/${row_id}")
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
+        "-DOUT=${child_output}" "-DTOOLCHAIN_ROOT=${toolchain_root}"
+        -DMODE=case -DISA=arm -DMATRIX_CHILD=1
+        "-DCASE_ID=${row_id}" "-DSOURCE_COMMIT=${source_commit}"
+        -DHOST=${HOST} -P "${source_root}/cmake/BuildArmDiagnostics.cmake"
+      WORKING_DIRECTORY "${source_root}"
+      RESULT_VARIABLE child_rc OUTPUT_VARIABLE child_output_text
+      ERROR_VARIABLE child_error)
+    if(NOT "${child_rc}" STREQUAL "0")
+      message(FATAL_ERROR
+        "arm-diagnostics: matrix-child-failed: id=${row_id}: ${child_error}${child_output_text}")
+    endif()
+    set(child_receipt "${child_output}/proof/build-receipt.json")
+    if(NOT EXISTS "${child_receipt}" OR IS_DIRECTORY "${child_receipt}" OR
+       IS_SYMLINK "${child_receipt}")
+      message(FATAL_ERROR "arm-diagnostics: matrix-child-receipt-missing: ${row_id}")
+    endif()
+    file(READ "${child_receipt}" child_json)
+    string(JSON child_id ERROR_VARIABLE child_id_error GET "${child_json}" case_id)
+    string(JSON child_names_length ERROR_VARIABLE child_names_error
+      LENGTH "${child_json}" output_names)
+    if(NOT "${child_id_error}" STREQUAL "NOTFOUND" OR
+       NOT "${child_names_error}" STREQUAL "NOTFOUND" OR
+       NOT "${child_id}" STREQUAL "${row_id}")
+      message(FATAL_ERROR "arm-diagnostics: matrix-child-identity-invalid: ${row_id}")
+    endif()
+    if(source_kind STREQUAL "semantic")
+      string(JSON child_semantic ERROR_VARIABLE child_semantic_error GET
+        "${child_json}" semantic_pairs)
+      string(JSON child_stops ERROR_VARIABLE child_stops_error GET
+        "${child_json}" stop_witnesses)
+      if(NOT "${child_semantic_error}" STREQUAL "NOTFOUND" OR
+         NOT "${child_stops_error}" STREQUAL "NOTFOUND" OR
+         NOT child_semantic EQUAL 1 OR NOT child_stops EQUAL 0 OR
+         NOT child_names_length EQUAL 2)
+        message(FATAL_ERROR "arm-diagnostics: semantic-child-receipt-invalid: ${row_id}")
+      endif()
+      math(EXPR semantic_count "${semantic_count}+1")
+    else()
+      string(JSON child_semantic ERROR_VARIABLE child_semantic_error GET
+        "${child_json}" semantic_pairs)
+      string(JSON child_stops ERROR_VARIABLE child_stops_error GET
+        "${child_json}" stop_witnesses)
+      string(JSON expected_reason ERROR_VARIABLE reason_error GET
+        "${row_json}" source_test expected_reason)
+      string(JSON receipt_reason ERROR_VARIABLE receipt_reason_error GET
+        "${child_json}" expected_reason)
+      if(NOT "${child_semantic_error}" STREQUAL "NOTFOUND" OR
+         NOT "${child_stops_error}" STREQUAL "NOTFOUND" OR
+         NOT "${reason_error}" STREQUAL "NOTFOUND" OR
+         NOT "${receipt_reason_error}" STREQUAL "NOTFOUND" OR
+         NOT child_semantic EQUAL 0 OR NOT child_stops EQUAL 1 OR
+         NOT child_names_length EQUAL 1 OR
+         NOT "${expected_reason}" STREQUAL "${receipt_reason}")
+        message(FATAL_ERROR "arm-diagnostics: stop-child-receipt-invalid: ${row_id}")
+      endif()
+      math(EXPR stop_count "${stop_count}+1")
+    endif()
+    math(EXPR child_names_last "${child_names_length}-1")
+    foreach(name_index RANGE 0 ${child_names_last})
+      string(JSON rom_name GET "${child_json}" output_names ${name_index})
+      list(FIND output_names "${rom_name}" name_seen)
+      if(NOT name_seen EQUAL -1)
+        message(FATAL_ERROR "arm-diagnostics: duplicate-output-name: ${rom_name}")
+      endif()
+      set(child_rom "${child_output}/roms/${rom_name}")
+      if(NOT EXISTS "${child_rom}" OR IS_DIRECTORY "${child_rom}" OR
+         IS_SYMLINK "${child_rom}")
+        message(FATAL_ERROR "arm-diagnostics: matrix-child-rom-missing: ${rom_name}")
+      endif()
+      file(COPY_FILE "${child_rom}" "${output_root}/roms/${rom_name}")
+      list(APPEND output_names "${rom_name}")
+      string(APPEND allowlist "${rom_name}\n")
+    endforeach()
+  endforeach()
+  if(NOT semantic_count EQUAL 244 OR NOT stop_count EQUAL 4)
+    message(FATAL_ERROR
+      "arm-diagnostics: matrix-count-mismatch: semantic=${semantic_count} stops=${stop_count}")
+  endif()
+  list(LENGTH output_names output_count)
+  if(NOT output_count EQUAL 492)
+    message(FATAL_ERROR "arm-diagnostics: matrix-output-count-mismatch: ${output_count}")
+  endif()
+  set(sorted_names "${output_names}")
+  list(SORT sorted_names)
+  set(output_names "${sorted_names}")
+  set(allowlist "")
+  foreach(name IN LISTS output_names)
+    string(APPEND allowlist "${name}\n")
+  endforeach()
+  file(WRITE "${output_root}/proof/signature-allowlist.txt" "${allowlist}")
+  execute_process(
+    COMMAND sh "${source_root}/scripts/signature-scan.sh" --dir
+      "${output_root}/roms" --allowlist
+      "${output_root}/proof/signature-allowlist.txt"
+    WORKING_DIRECTORY "${source_root}"
+    RESULT_VARIABLE matrix_signature_rc OUTPUT_VARIABLE matrix_signature_out
+    ERROR_VARIABLE matrix_signature_error)
+  if(NOT "${matrix_signature_rc}" STREQUAL "0" OR
+     NOT matrix_signature_out MATCHES "signature: ok")
+    message(FATAL_ERROR
+      "arm-diagnostics: matrix-signature-scan-failed: ${matrix_signature_error}${matrix_signature_out}")
+  endif()
+  file(WRITE "${output_root}/proof/signature-scan.txt"
+    "${matrix_signature_out}${matrix_signature_error}")
+  set(names_json "[]")
+  set(name_index 0)
+  foreach(name IN LISTS output_names)
+    string(JSON names_json SET "${names_json}" ${name_index} "\"${name}\"")
+    math(EXPR name_index "${name_index}+1")
+  endforeach()
+  set(matrix_receipt "{}")
+  string(JSON matrix_receipt SET "${matrix_receipt}" format
+    "\"gamebloke.arm-diagnostic-matrix/1\"")
+  string(JSON matrix_receipt SET "${matrix_receipt}" isa "\"arm\"")
+  string(JSON matrix_receipt SET "${matrix_receipt}" source_commit
+    "\"${source_commit}\"")
+  string(JSON matrix_receipt SET "${matrix_receipt}" host "\"${HOST}\"")
+  string(JSON matrix_receipt SET "${matrix_receipt}" semantic_pairs
+    "${semantic_count}")
+  string(JSON matrix_receipt SET "${matrix_receipt}" stop_witnesses
+    "${stop_count}")
+  string(JSON matrix_receipt SET "${matrix_receipt}" output_names "${names_json}")
+  string(JSON matrix_receipt SET "${matrix_receipt}" signature_scan "\"passed\"")
+  file(WRITE "${output_root}/proof/build-receipt.json"
+    "${matrix_receipt}\n")
+  message(STATUS
+    "arm-diagnostics: built all ARM outputs semantic=${semantic_count} stops=${stop_count} names=${output_count}")
+  return()
+endif()
+
+if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
+  math(EXPR case_id_hex "${CASE_ID}" OUTPUT_FORMAT HEXADECIMAL)
+  if(selected_kind STREQUAL "semantic")
+    string(JSON expected_value GET "${selected_row}" source_test
+      independent_expectation expected_value)
+    string(JSON broken_expected GET "${selected_row}" source_test
+      independent_expectation broken_expected)
+    if("${expected_value}" STREQUAL "${broken_expected}" OR
+       NOT "${selected_source_program}" MATCHES "GBL_ASSERT_EQ")
+      message(FATAL_ERROR "arm-diagnostics: arm-case-assertion-invalid: ${CASE_ID}")
+    endif()
+    set(variant_labels "arm-${CASE_ID}" "arm-${CASE_ID}-broken")
+    set(rom_names "arm-${CASE_ID}.gba" "arm-${CASE_ID}-broken.gba")
+    set(broken_values 0 1)
+  else()
+    string(JSON stop_operation GET "${selected_row}" source_test operation)
+    string(JSON stop_reason GET "${selected_row}" source_test expected_reason)
+    string(JSON witness_id GET "${selected_row}" source_test witness_id)
+    if(NOT "${witness_id}" STREQUAL "${CASE_ID}" OR
+       NOT "${stop_reason}" MATCHES "^(no-bios-swi|no-bios-undefined|no-bios-coprocessor|unpredictable-instruction)$" OR
+       NOT "${selected_source_program}" MATCHES "0x47424C4B" OR
+       NOT "${selected_source_program}" MATCHES "${stop_operation}" OR
+       NOT "${selected_source_program}" MATCHES "str r2,\\[r1,#4\\]" OR
+       NOT "${selected_source_program}" MATCHES "str r2,\\[r1,#12\\]")
+      message(FATAL_ERROR "arm-diagnostics: guest-stop-source-invalid: ${CASE_ID}")
+    endif()
+    set(variant_labels "arm-stop-${CASE_ID}")
+    set(rom_names "arm-stop-${CASE_ID}.gba")
+    set(broken_values 0)
+  endif()
+  set(variant_index 0)
+  foreach(variant IN LISTS variant_labels)
+    list(GET rom_names ${variant_index} rom_name)
+    list(GET broken_values ${variant_index} broken)
     set(variant_relative "${output_relative}/proof/${variant}")
     set(variant_root "${output_root}/proof/${variant}")
     file(MAKE_DIRECTORY "${variant_root}")
@@ -698,6 +866,8 @@ if(MODE STREQUAL "case" AND selected_kind STREQUAL "semantic")
     string(JSON case_receipt SET "${case_receipt}" case_id "${CASE_ID}")
     string(JSON case_receipt SET "${case_receipt}" broken "${broken}")
     string(JSON case_receipt SET "${case_receipt}" isa "\"arm\"")
+    string(JSON case_receipt SET "${case_receipt}" source_kind
+      "\"${selected_kind}\"")
     string(JSON case_receipt SET "${case_receipt}" startup_source_sha256
       "\"${startup_sha}\"")
     string(JSON case_receipt SET "${case_receipt}" derived_startup_sha256
@@ -708,12 +878,20 @@ if(MODE STREQUAL "case" AND selected_kind STREQUAL "semantic")
       "\"${generated_case_sha}\"")
     string(JSON case_receipt SET "${case_receipt}" rom_sha256 "\"${rom_sha}\"")
     string(JSON case_receipt SET "${case_receipt}" rom_bytes "${rom_bytes}")
+    if(selected_kind STREQUAL "guest-stop")
+      string(JSON case_receipt SET "${case_receipt}" expected_reason
+        "\"${stop_reason}\"")
+      string(JSON case_receipt SET "${case_receipt}" witness_id "${witness_id}")
+    endif()
     file(WRITE "${variant_root}/build-receipt.json" "${case_receipt}\n")
     math(EXPR variant_index "${variant_index}+1")
   endforeach()
 
-  file(WRITE "${output_root}/proof/signature-allowlist.txt"
-    "arm-${CASE_ID}.gba\narm-${CASE_ID}-broken.gba\n")
+  set(case_allowlist "")
+  foreach(rom_name IN LISTS rom_names)
+    string(APPEND case_allowlist "${rom_name}\n")
+  endforeach()
+  file(WRITE "${output_root}/proof/signature-allowlist.txt" "${case_allowlist}")
   execute_process(
     COMMAND sh "${source_root}/scripts/signature-scan.sh" --dir
       "${output_root}/roms" --allowlist
@@ -729,23 +907,50 @@ if(MODE STREQUAL "case" AND selected_kind STREQUAL "semantic")
     "${case_signature_output}${case_signature_error}")
   file(GLOB case_rom_entries LIST_DIRECTORIES TRUE "${output_root}/roms/*")
   list(SORT case_rom_entries)
-  set(expected_case_roms "${output_root}/roms/arm-${CASE_ID}-broken.gba"
-    "${output_root}/roms/arm-${CASE_ID}.gba")
+  set(expected_case_roms "")
+  foreach(rom_name IN LISTS rom_names)
+    list(APPEND expected_case_roms "${output_root}/roms/${rom_name}")
+  endforeach()
+  list(SORT expected_case_roms)
   if(NOT "${case_rom_entries}" STREQUAL "${expected_case_roms}")
     message(FATAL_ERROR "arm-diagnostics: arm-case-rom-name-set-mismatch")
   endif()
   set(case_summary "{}")
+  if(selected_kind STREQUAL "semantic")
+    set(case_summary_format "gamebloke.arm-diagnostic-case-pair/1")
+    set(case_semantic_count 1)
+    set(case_stop_count 0)
+  else()
+    set(case_summary_format "gamebloke.arm-diagnostic-stop-witness/1")
+    set(case_semantic_count 0)
+    set(case_stop_count 1)
+  endif()
   string(JSON case_summary SET "${case_summary}" format
-    "\"gamebloke.arm-diagnostic-case-pair/1\"")
+    "\"${case_summary_format}\"")
   string(JSON case_summary SET "${case_summary}" source_commit
     "\"${source_commit}\"")
   string(JSON case_summary SET "${case_summary}" case_id "${CASE_ID}")
   string(JSON case_summary SET "${case_summary}" isa "\"arm\"")
-  string(JSON case_summary SET "${case_summary}" semantic_pairs "1")
+  string(JSON case_summary SET "${case_summary}" semantic_pairs
+    "${case_semantic_count}")
+  string(JSON case_summary SET "${case_summary}" stop_witnesses
+    "${case_stop_count}")
+  set(case_names_json "[]")
+  set(case_name_index 0)
+  foreach(rom_name IN LISTS rom_names)
+    string(JSON case_names_json SET "${case_names_json}"
+      ${case_name_index} "\"${rom_name}\"")
+    math(EXPR case_name_index "${case_name_index}+1")
+  endforeach()
   string(JSON case_summary SET "${case_summary}" output_names
-    "[\"arm-${CASE_ID}.gba\",\"arm-${CASE_ID}-broken.gba\"]")
+    "${case_names_json}")
+  if(selected_kind STREQUAL "guest-stop")
+    string(JSON case_summary SET "${case_summary}" expected_reason
+      "\"${stop_reason}\"")
+    string(JSON case_summary SET "${case_summary}" witness_id "${witness_id}")
+  endif()
   file(WRITE "${output_root}/proof/build-receipt.json" "${case_summary}\n")
-  message(STATUS "arm-diagnostics: built selected ARM semantic pair id=${CASE_ID}")
+  message(STATUS "arm-diagnostics: built selected ARM ${selected_kind} id=${CASE_ID}")
   return()
 endif()
 
