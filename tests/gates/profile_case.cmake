@@ -191,6 +191,11 @@ elseif(CASE STREQUAL "cpu_policy_value")
     cpu_policy supported_opcode_operands 0)
   expect_code(cpu-policy-value "${p}")
 
+  profile_copy(p wrong_thumb_format_mapping)
+  gbl_json_mutate_set("${p}" "\"Thumb formats 6-14: PC-relative, register/immediate byte/word/halfword and signed loads, SP-relative transfers and PC/SP address formation\""
+    cpu_policy supported_opcode_operands 10)
+  expect_code(cpu-policy-value "${p}")
+
 elseif(CASE STREQUAL "cpu_policy_doc")
   profile_copy(p positive_cpu_policy_doc)
   doc_copy(d positive_cpu_policy_doc)
@@ -226,6 +231,12 @@ elseif(CASE STREQUAL "cpu_policy_doc")
   doc_copy(d stale_cpu_scope)
   gbl_text_mutate("${d}" "ARM control flow: B, BL, BX"
     "ARM control flow: B, BL, BX, and extra opcode")
+  expect_code(cpu-policy-doc "${p}" "${d}")
+
+  profile_copy(p stale_thumb_format_mapping)
+  doc_copy(d stale_thumb_format_mapping)
+  gbl_text_mutate("${d}" "| cpu_scope.supported.11 | Thumb formats 6-12:"
+    "| cpu_scope.supported.11 | Thumb formats 6-14:")
   expect_code(cpu-policy-doc "${p}" "${d}")
 
   foreach(key IN ITEMS pc_operand_reads internal_work multiply_flag_policy

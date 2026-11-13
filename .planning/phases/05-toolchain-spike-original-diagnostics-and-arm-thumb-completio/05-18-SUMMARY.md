@@ -75,8 +75,8 @@ Read local primary-source extracts `build/phase04-research/arm/ARM7TDMI-DDI0029G
 | ARM transfers | Mode2 P/U/B/W/L, register shifts/T forms, Mode3 signed/subword forms; `arm_transfer`, `arm_subword`, `arm_subword_alignment`, `loaded_pc`. |
 | ARM blocks/swap | IA/IB/DA/DB, S/user-bank/return/list edges and ordered SWP/B; `arm_block*`, `slots`, `slots_bounds`. Malformed SWP allocated bits stop as unpredictable. |
 | Thumb formats1–5 | Immediate/register ALU, shifts and legal high-register operations; `thumb_alu`, `thumb_high`. |
-| Thumb formats6–14 | Literal, register/immediate/signed/subword/SP transfers and address formation; `thumb_transfer`, `thumb_sp`. |
-| Thumb formats15–19 | SP adjustment, stack/multiple, branch/SWI/reserved and independent BL halves; `thumb_sp`, `thumb_stack`, `thumb_multiple`, `thumb_bl`, `thumb_control`. |
+| Thumb formats6–12 | PC-relative, register-offset, signed, immediate-offset, halfword, SP-relative transfers and PC/SP address formation; `thumb_transfer`, `thumb_sp`. |
+| Thumb formats13–19 | SP adjustment, PUSH/POP, STMIA/LDMIA, conditional B, SWI, unconditional B and BL; `thumb_sp`, `thumb_stack`, `thumb_multiple`, `thumb_bl`, `thumb_control`. |
 | Exceptions/extensions/holes | `isa_classification`, `no_bios`: allocated later BLX/BXJ/BKPT/CLZ/DSP/UMAAL/doubleword/MCRR/MRRC/recognized REV patterns, reserved UND, malformed allocated encodings and absent coprocessor are distinguished. |
 
 The crosswalk accounts for all357 existing ledger rows across35 family groups. It makes **zero executed-original-case claims**: the356 pending rows, frozen producer inputs, toolchain pins and two admitted smoke ROM rows are unchanged. No legal missing family was found by this source audit; full original diagnostic execution/admission remains later work.

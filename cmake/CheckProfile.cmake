@@ -92,8 +92,8 @@ set(GBL_PROFILE_CPU_SUPPORTED
   "ARM swap: SWP and SWPB with ordered read/write and captured operands"
   "ARM exception decode: full SWI imm24, reserved UND and absent CDP/MRC/MCR/LDC/STC coprocessor entry before BIOS-none stop"
   "Thumb formats 1-5: immediate shifts, add/subtract, immediate operations, all 16 register ALU operations and legal high-register ADD/CMP/MOV/BX"
-  "Thumb formats 6-14: PC-relative, register/immediate byte/word/halfword and signed loads, SP-relative transfers and PC/SP address formation"
-  "Thumb formats 15-19: SP adjustment, PUSH/POP with LR/PC, STMIA/LDMIA, conditional/unconditional branches, SWI imm8 and separately retired BL prefix/suffix"
+  "Thumb formats 6-12: 6 PC-relative LDR, 7 register-offset transfers, 8 signed byte/halfword transfers, 9 immediate-offset byte/word transfers, 10 halfword transfers, 11 SP-relative transfers, 12 PC/SP address formation"
+  "Thumb formats 13-19: 13 SP adjustment, 14 PUSH/POP with LR/PC, 15 STMIA/LDMIA, 16 conditional B, 17 SWI imm8, 18 unconditional B, 19 BL prefix/suffix"
   "Executing project policies: short MUL Rd=Rm and SWP/SWPB Rn=Rd or Rn=Rm snapshot aliases, ARM empty/base-in-list reference rules and isolated BL halves/modulo offset arithmetic")
 set(GBL_PROFILE_CPU_EXCLUDED
   "Unpredictable operands stop before effects except the explicitly listed executing project policies, including named stops for NV, invalid PC/PSR operands, Thumb same-register MUL, empty Thumb lists and STMIA base-middle/last"
