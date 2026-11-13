@@ -29,8 +29,10 @@ include("${SRC}/tests/gates/json_mutate.cmake")
 
 set(SELF "${CMAKE_CURRENT_LIST_FILE}")
 set(dir "${BIN}/nc/json_${CASE}")
-file(REMOVE_RECURSE "${dir}")
-file(MAKE_DIRECTORY "${dir}")
+if(NOT CASE STREQUAL "trailing_variant")
+  file(REMOVE_RECURSE "${dir}")
+  file(MAKE_DIRECTORY "${dir}")
+endif()
 set(LOADER "${SRC}/cmake/GblJson.cmake")
 
 # One token, assembled from fragments: it occurs in no reason code, case name,
@@ -47,13 +49,27 @@ endfunction()
 # expect_code(<code> <file> [QUIET]): the loader fails on <file> with
 # `json: <code>`; with QUIET the output must also lack the marker.
 function(expect_code code file)
+  set(extra "")
+  if("${ARGN}" STREQUAL "QUIET")
+    set(extra NO_ECHO "${MARKER}")
+  endif()
   gbl_expect_fail(
     COMMAND "${CMAKE_COMMAND}" "-DFILE=${file}" -P "${LOADER}"
-    REGEX "json: ${code}")
-  if("${ARGN}" STREQUAL "QUIET")
-    gbl_assert_no_echo("${MARKER}"
-      COMMAND "${CMAKE_COMMAND}" "-DFILE=${file}" -P "${LOADER}")
-  endif()
+    REGEX "json: ${code}" ${extra})
+endfunction()
+
+# Bracket quoting keeps generated CTest commands literal even when a checkout
+# path contains quotes, semicolons, dollars, or a bracket delimiter.
+function(ctest_literal out value)
+  set(equals "=")
+  while(TRUE)
+    string(FIND "${value}" "]${equals}]" closer)
+    if(closer EQUAL -1)
+      break()
+    endif()
+    string(APPEND equals "=")
+  endwhile()
+  set(${out} "[${equals}[${value}]${equals}]" PARENT_SCOPE)
 endfunction()
 
 # The fixed set of real committed documents (B1). It stops the case when the
@@ -100,7 +116,18 @@ function(tail_text out name)
 endfunction()
 
 # ---- negative cases ----------------------------------------------------------
-if(CASE STREQUAL "unreadable")
+if(CASE STREQUAL "trailing_variant")
+  if(NOT DEFINED CONTROL_INPUT OR NOT DEFINED CONTROL_QUIET OR
+     NOT CONTROL_QUIET MATCHES "^[01]$")
+    message(FATAL_ERROR "json-case: trailing variant arguments required")
+  endif()
+  if(CONTROL_QUIET STREQUAL "1")
+    expect_code(trailing-content "${CONTROL_INPUT}" QUIET)
+  else()
+    expect_code(trailing-content "${CONTROL_INPUT}")
+  endif()
+
+elseif(CASE STREQUAL "unreadable")
   expect_code(unreadable "${dir}/absent.json")
 
 elseif(CASE STREQUAL "not_json")
@@ -141,12 +168,16 @@ elseif(CASE STREQUAL "trailing_content")
   real_docs(docs)
   file(WRITE "${dir}/base_tiny.json" "{\"a\":1}\n")
   set(bases "${dir}/base_tiny.json")
+  set(test_dir "${dir}/variants")
+  file(MAKE_DIRECTORY "${test_dir}")
+  file(WRITE "${test_dir}/CTestTestfile.cmake" "# Independent strict-loader controls.\n")
   set(n 0)
   foreach(doc IN LISTS docs)
     file(COPY_FILE "${doc}" "${dir}/base_${n}.json")
     list(APPEND bases "${dir}/base_${n}.json")
     math(EXPR n "${n}+1")
   endforeach()
+  set(variants 0)
   foreach(base IN LISTS bases)
     foreach(tail IN ITEMS rbrace comma rbracket colon semicolon word root)
       get_filename_component(stem "${base}" NAME_WE)
@@ -154,13 +185,38 @@ elseif(CASE STREQUAL "trailing_content")
       file(COPY_FILE "${base}" "${f}")
       tail_text(text "${tail}")
       file(APPEND "${f}" "${text}")
+      set(quiet 0)
       if(tail STREQUAL "word" OR tail STREQUAL "root")
-        expect_code(trailing-content "${f}" QUIET)
-      else()
-        expect_code(trailing-content "${f}")
+        set(quiet 1)
       endif()
+      set(command "add_test(")
+      foreach(argument IN ITEMS "${stem}_${tail}" "${CMAKE_COMMAND}"
+          "-DCASE=trailing_variant" "-DCONTROL_INPUT=${f}"
+          "-DCONTROL_QUIET=${quiet}" "-DSRC=${SRC}" "-DBIN=${BIN}"
+          -P "${SELF}")
+        ctest_literal(literal "${argument}")
+        string(APPEND command " ${literal}")
+      endforeach()
+      file(APPEND "${test_dir}/CTestTestfile.cmake" "${command})\n")
+      math(EXPR variants "${variants}+1")
     endforeach()
   endforeach()
+  # Every previous base/tail remains a separate real loader invocation. Only
+  # these read-only controls run concurrently; other project tests stay serial.
+  execute_process(COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${test_dir}"
+    --parallel 3 --output-on-failure --no-tests=error
+    --output-junit "${test_dir}/junit.xml"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  file(WRITE "${test_dir}/ctest.log" "${output}${error}")
+  if(NOT rc STREQUAL "0")
+    message(FATAL_ERROR "json-case: trailing controls failed\n${output}${error}")
+  endif()
+  file(READ "${test_dir}/junit.xml" junit)
+  if(NOT junit MATCHES "tests=\"${variants}\"" OR
+     NOT junit MATCHES "failures=\"0\"" OR junit MATCHES "<skipped")
+    message(FATAL_ERROR "json-case: trailing control inventory mismatch")
+  endif()
+  message("json-case: trailing controls: ${variants} executed; none skipped; workers=3")
 
 elseif(CASE STREQUAL "duplicate_key")
   copy_vocab(f top)
@@ -206,6 +262,42 @@ elseif(CASE STREQUAL "no_echo_guard")
     COMMAND "${CMAKE_COMMAND}" -DCASE=no_echo_probe
       "-DSRC=${SRC}" "-DBIN=${BIN}" -P "${SELF}"
     REGEX "no-echo: leaked")
+  # The paired failure/no-echo assertion must also reject a leak, a successful
+  # child, and a wrong-reason failure. Its clean companion runs exactly once.
+  foreach(probe IN ITEMS leak pass reason)
+    if(probe STREQUAL "leak")
+      set(expected "no-echo: leaked")
+    elseif(probe STREQUAL "pass")
+      set(expected "expect-fail: gate PASSED")
+    else()
+      set(expected "expect-fail: failed for the wrong reason")
+    endif()
+    gbl_expect_fail(COMMAND "${CMAKE_COMMAND}" -DCASE=paired_echo_probe
+      "-DPROBE=${probe}" "-DSRC=${SRC}" "-DBIN=${BIN}" -P "${SELF}"
+      REGEX "${expected}")
+  endforeach()
+  file(WRITE "${dir}/paired-clean.cmake"
+    "file(APPEND [==[${dir}/executions.txt]==] \"run\\n\")\nmessage(FATAL_ERROR \"json: trailing-content\")\n")
+  gbl_expect_fail(COMMAND "${CMAKE_COMMAND}" -P "${dir}/paired-clean.cmake"
+    REGEX "json: trailing-content" NO_ECHO "${MARKER}")
+  file(READ "${dir}/executions.txt" executions)
+  if(NOT executions STREQUAL "run\n")
+    message(FATAL_ERROR "json-case: paired assertion executed child more than once")
+  endif()
+
+elseif(CASE STREQUAL "paired_echo_probe")
+  if(PROBE STREQUAL "leak")
+    set(script "message(\"${MARKER}\")\nmessage(FATAL_ERROR \"json: trailing-content\")\n")
+  elseif(PROBE STREQUAL "pass")
+    set(script "message(\"json: trailing-content\")\n")
+  elseif(PROBE STREQUAL "reason")
+    set(script "message(FATAL_ERROR \"different failure\")\n")
+  else()
+    message(FATAL_ERROR "json-case: unknown paired probe")
+  endif()
+  file(WRITE "${dir}/paired.cmake" "${script}")
+  gbl_expect_fail(COMMAND "${CMAKE_COMMAND}" -P "${dir}/paired.cmake"
+    REGEX "json: trailing-content" NO_ECHO "${MARKER}")
 
 elseif(CASE STREQUAL "no_echo_probe")
   # A script that prints the marker and fails: the assertion must trip.

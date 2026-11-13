@@ -52,3 +52,29 @@ Derive form-defining opcode bits independently of a case's supplied full opcode.
 Challenge candidate findings against primary instruction fields and the real assembler. A proposed residual BX issue was rejected: bits5–3 select the source register, and GNU confirms0x4718 is legal BX r3. Tightening those variable bits would have restricted a valid instruction form.
 
 Current source produces118 Thumb semantic pairs/eight stops, with65 raw controls. Full ledger controls retain187 refusals. Initial Plan20 ledger wall time was220.44s; a later run recorded2833.27s and a selected build919.70s, without established attribution. Do not treat unexplained wall intervals as CPU work, hosted timing or model speed. During required CI-budget work, measure attributable command CPU time and elapsed time separately, inspect repeated parsing/validation and targeted processes, and preserve every failure class. No whole-machine restart or additional cache/concurrency/dependency is justified by a timeout alone.
+
+## Admission scale and control cost
+
+Measure the full authority readers and malformed-input controls at the proposed
+fixture count before scaling admission. A representative guest pair established
+runtime correctness but did not expose the722-row manifest's repeated strict
+parsing cost. Reuse the canonical parsed authority across result checks and
+index projection; do not weaken validation or change ROM producer inputs merely
+to avoid consumer overhead.
+
+Inspect duplicate command execution before adding workers. The failure-reason
+and no-echo assertions formerly launched the identical loader twice. Pairing
+those assertions on one execution removed duplicate work, with controls for
+leaks, unexpected success, wrong failure and exact single execution. The
+remaining independent trailing variants then justified a bounded three-worker
+pool: all63 variants remain visible and mandatory. A serial matched measurement
+fell64.54→22.01 seconds, with CPU62.61→50.68 seconds. Full canonical CI passed
+in166.72 seconds; hosted timing remains a separate later gate. See
+[the measured report](05-21-ADMISSION-PERFORMANCE.md).
+
+Check resolved containment before copying, writing or hashing fixture paths.
+Checking the generated index afterward cannot undo an earlier write through an
+escaping symlink. Controls must preserve an outside synthetic sentinel and
+include a valid contained companion. Force file-mode comparison per Git command
+when executable mode is part of source authority; repository configuration must
+not silently weaken that check.
