@@ -5,6 +5,10 @@ foreach(required IN ITEMS SRC BIN CASE)
     message(FATAL_ERROR "diagnostics-case: missing-${required}")
   endif()
 endforeach()
+if(CASE MATCHES "^(all-admitted|admitted-pair)$")
+  include("${SRC}/tests/gates/diagnostic_admission.cmake")
+  return()
+endif()
 if(CASE STREQUAL "thumb-boundary-tracer")
   execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=thumb-pre-admission
     "-DSRC=${SRC}" "-DBIN=${BIN}" -DARTIFACT_ROOT=build/phase05-matrix/thumb
