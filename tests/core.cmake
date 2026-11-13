@@ -87,7 +87,7 @@ gbl_add_test(
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
 foreach(selector IN ITEMS arithmetic arm_alu arm_block arm_block_banks arm_block_bounds arm_block_edges arm_pc_return arm_shifts_conditions arm_transfer arm_subword arm_subword_alignment loaded_pc thumb thumb_alu thumb_bl thumb_control thumb_high thumb_multiple thumb_sp thumb_stack thumb_transfer decode alignment modes exceptions multiply_signed_timing multiply_unsigned
-    no_bios peek mailbox psr trace_capacity trace slots slots_bounds isa_classification)
+    no_bios peek mailbox psr trace_capacity trace slots slots_bounds isa_classification unit_boundaries)
   gbl_add_test(
     NAME cpu.${selector}
     LABELS cpu core unit
@@ -221,6 +221,7 @@ gbl__add_cpu_mutation_test(cpu.nc.loaded_pc loaded_pc loaded_pc)
 gbl__add_cpu_mutation_test(cpu.nc.maximum_trace maximum_trace arm_block_bounds)
 gbl__add_cpu_mutation_test(cpu.nc.multiply_flags multiply_flags multiply_unsigned)
 gbl__add_cpu_mutation_test(cpu.nc.bl_halves bl_halves thumb_bl)
+gbl__add_cpu_mutation_test(cpu.nc.late_refusal late_refusal unit_boundaries)
 
 gbl_add_test(
   NAME machine.state

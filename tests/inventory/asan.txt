@@ -46,6 +46,7 @@ cpu.nc.bl_halves control,core,cpu
 cpu.nc.block_effect_order control,core,cpu
 cpu.nc.budget_overshoot control,core,cpu
 cpu.nc.exception_lr control,core,cpu
+cpu.nc.late_refusal control,core,cpu
 cpu.nc.loaded_pc control,core,cpu
 cpu.nc.maximum_trace control,core,cpu
 cpu.nc.multiply_flags control,core,cpu
@@ -72,6 +73,7 @@ cpu.thumb_transfer core,cpu,unit
 cpu.trace core,cpu,unit
 cpu.trace_capacity core,cpu,unit
 cpu.tracer core,cpu,unit
+cpu.unit_boundaries core,cpu,unit
 inventory.junit post
 loader.diagnostics core,loader,unit
 loader.integration core,integration,loader,unit

@@ -240,6 +240,21 @@ function(gbl__mutate_cpu cpu_source mutation)
       "result = accumulator ^ product;")
   elseif(mutation STREQUAL "bl_halves")
     gbl_text_mutate("${cpu_source}" "offset << 12u" "offset << 11u")
+  elseif(mutation STREQUAL "late_refusal")
+    gbl_text_mutate("${cpu_source}" [=[                               &preflight_reason)) {
+            run_result.termination =]=] [=[                               &preflight_reason)) {
+            if (unit.data_slot_count > 0u &&
+                unit.data_slots[0].operation == GBL_CPU_DATA_WRITE) {
+                const gbl_cpu_data_slot *first = &unit.data_slots[0];
+                (void)gbl_bus_write(machine, first->address, first->width,
+                                    first->access_class, first->write_value);
+            }
+            run_result.termination =]=])
+  elseif(mutation STREQUAL "post_effect_request")
+    gbl_text_mutate("${cpu_source}" [=[                        machine, slot->address, slot->width,
+                        slot->access_class, slot->write_value);]=]
+      [=[                        machine, slot->address, data_index == 1u ? 3u : slot->width,
+                        slot->access_class, slot->write_value);]=])
   else()
     message(FATAL_ERROR "mutation: unknown CPU case '${mutation}'")
   endif()
@@ -357,7 +372,7 @@ endfunction()
 set(GBL_CPU_SOURCE_ONLY_MUTATIONS
   pc_refill bank_alias exception_lr vector_fetch trace_loss budget_overshoot
   block_effect_order loaded_pc maximum_trace multiply_flags multiply_accumulate
-  bl_halves)
+  bl_halves late_refusal post_effect_request)
 
 function(gbl__assert_cpu_reuse_inputs mutant_sandbox clean_sandbox mutation)
   if("${mutant_sandbox}" STREQUAL "${clean_sandbox}")
@@ -541,6 +556,10 @@ function(gbl__run_cpu_pair mutation label selector)
     set(failure_regex "not ok 6 - UMLALS carries low accumulator overflow into the high word")
   elseif(mutation STREQUAL "bl_halves")
     set(failure_regex "not ok 2 - Thumb BL isolated prefix literal vector 1 uses banked LR and exact fetches")
+  elseif(mutation STREQUAL "late_refusal")
+    set(failure_regex "not ok 9 - maximum STM16-PC boundary 1 preserves whole-unit effects and caller guards")
+  elseif(mutation STREQUAL "post_effect_request")
+    set(failure_regex "not ok 8 - maximum STM16-PC boundary 0 preserves whole-unit effects and caller guards")
   else()
     message(FATAL_ERROR "mutation: no semantic failure assertion for '${mutation}'")
   endif()
@@ -561,7 +580,7 @@ function(gbl__run_cpu_pair mutation label selector)
     set(clean_regex "ok 4 - invalid state and failing verdict without a case ID are malformed")
   elseif(selector STREQUAL "trace" OR selector STREQUAL "trace_capacity")
     set(clean_regex "ok 2 - exact trace capacity records instruction, data and refill order")
-  elseif(mutation MATCHES "^(block_effect_order|loaded_pc|maximum_trace|multiply_flags|multiply_accumulate|bl_halves)$")
+  elseif(mutation MATCHES "^(block_effect_order|loaded_pc|maximum_trace|multiply_flags|multiply_accumulate|bl_halves|late_refusal|post_effect_request)$")
     string(REPLACE "not ok " "ok " clean_regex "${failure_regex}")
   else()
     set(clean_regex "ok 1 - ARM BL links the next instruction and refills without stale slots")
@@ -707,6 +726,8 @@ elseif(CASE MATCHES "^cpu_")
     gbl__run_cpu_pair("${cpu_mutation}" "${cpu_mutation}" "${SELECTOR}")
     if(cpu_mutation STREQUAL "multiply_flags")
       gbl__run_cpu_pair(multiply_accumulate multiply_accumulate "${SELECTOR}")
+    elseif(cpu_mutation STREQUAL "late_refusal")
+      gbl__run_cpu_pair(post_effect_request post_effect_request "${SELECTOR}")
     endif()
   endif()
 elseif(CASE MATCHES "^loader_")

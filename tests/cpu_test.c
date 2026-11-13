@@ -4556,7 +4556,8 @@ static bool arm_subword_refusal_is_atomic(uint32_t opcode)
             gbl_test_canonical_equal(&expected, &machine) &&
             gbl_test_same_instance_identity_equal(&before, &machine) &&
             trace.count == 1u && trace.next_sequence == UINT64_C(71) &&
-            memcmp(records, records_before, sizeof(records)) == 0;
+            gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
     }
     if (loaded) {
         gbl_machine_dispose(&machine);
@@ -5319,13 +5320,12 @@ static bool arm_subword_preflight_case(uint8_t mode)
                 trace.records == records && trace.count == 3u &&
                 trace.capacity == initial_trace_capacity &&
                 trace.next_sequence == UINT64_MAX &&
-                memcmp(&records[3], &records_before[3],
-                       sizeof(records[3])) == 0;
+                gbl_test_trace_equal(&records[3], &records_before[3], 1u);
         }
         if (mode < 5u) {
             observed = observed && trace.records == records &&
-                       memcmp(records, records_before,
-                              sizeof(records)) == 0;
+                       gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
         }
         if (mode < 5u) {
             observed = observed && trace.count == initial_trace_count &&
@@ -5802,7 +5802,8 @@ static bool arm_transfer_unpredictable_is_atomic(uint32_t opcode)
             gbl_test_canonical_equal(&expected, &machine) &&
             gbl_test_same_instance_identity_equal(&before, &machine) &&
             trace.count == 1u && trace.next_sequence == UINT64_C(71) &&
-            memcmp(records, records_before, sizeof(records)) == 0;
+            gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
     }
     if (loaded) {
         gbl_machine_dispose(&machine);
@@ -5910,7 +5911,8 @@ static bool arm_transfer_preflight_boundary(uint64_t cycle_budget,
                 gbl_test_canonical_equal(&before, &machine) &&
                 gbl_test_same_instance_identity_equal(&before, &machine) &&
                 trace.count == 1u && trace.next_sequence == UINT64_C(90) &&
-                memcmp(records, records_before, sizeof(records)) == 0;
+                gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
         } else {
             matched = ran && result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                 result.termination == GBL_RUN_PROGRESS &&
@@ -6229,7 +6231,8 @@ static bool arm_loaded_pc_wraps_second_refill(void)
             gbl_test_same_instance_identity_equal(&before_boundary, &machine) &&
             trace.count == trace_before_boundary.count &&
             trace.next_sequence == trace_before_boundary.next_sequence &&
-            memcmp(records, records_before_boundary, sizeof(records)) == 0;
+            gbl_test_trace_equal(records, records_before_boundary,
+                                 sizeof(records) / sizeof(records[0]));
     }
     if (loaded) {
         gbl_machine_dispose(&machine);
@@ -6284,8 +6287,8 @@ static bool arm_loaded_pc_preflight_boundary(
                       trace.count == trace_before.count &&
                       trace.capacity == trace_before.capacity &&
                       trace.next_sequence == trace_before.next_sequence &&
-                      memcmp(records, records_before,
-                             sizeof(records_before)) == 0;
+                      gbl_test_trace_equal(records, records_before,
+                          sizeof(records_before) / sizeof(records_before[0]));
         } else {
             matched = ran && result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                       result.instructions == 1u &&
@@ -6575,7 +6578,8 @@ static void test_arm_pc_return(void)
         trace.count == trace_before.count &&
         trace.capacity == trace_before.capacity &&
         trace.next_sequence == trace_before.next_sequence &&
-        memcmp(records, records_before, sizeof(records)) == 0;
+        gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
     test_case(one_short,
               "one-short S+PC refill preserves full state and trace bytes");
 
@@ -7296,7 +7300,8 @@ static void test_psr_unpredictable_refusals(void)
             trace.count == trace_before.count &&
             trace.capacity == trace_before.capacity &&
             trace.next_sequence == trace_before.next_sequence &&
-            memcmp(records, records_before, sizeof(records)) == 0;
+            gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
         test_case(refused, names[index]);
         gbl_machine_dispose(&machine);
     }
@@ -8012,7 +8017,7 @@ static void test_thumb_unit_bounds(void)
                     trace.count == forms[form].records + 1u &&
                     machine.master_cycles == before.master_cycles + forms[form].cost &&
                     machine.cpu.retired_instructions == before.cpu.retired_instructions + 1u &&
-                    memcmp(&records[0], &prior[0], sizeof(records[0])) == 0 &&
+                    gbl_test_trace_equal(&records[0], &prior[0], 1u) &&
                     records[1].sequence == (boundary == 6u ? UINT64_MAX - (uint64_t)forms[form].records : 71u) &&
                     records[1].guest_cycle == before.master_cycles &&
                     records[2].guest_cycle == before.master_cycles + (form == 2u ? 1u : forms[form].cost);
@@ -8024,7 +8029,8 @@ static void test_thumb_unit_bounds(void)
                     result.reason == reason && gbl_test_canonical_equal(&machine, &before) &&
                     gbl_test_same_instance_identity_equal(&before, &machine) &&
                     trace.count == 1u && trace.next_sequence == (boundary == 3u ? UINT64_MAX - (uint64_t)forms[form].records + 1u : 71u) &&
-                    memcmp(records, prior, sizeof(records)) == 0;
+                    gbl_test_trace_equal(records, prior,
+                                 sizeof(records) / sizeof(records[0]));
             }
             (void)snprintf(name, sizeof(name), "Thumb unit %04X exact/one-short bound %u", (unsigned int)forms[form].opcode, boundary);
             test_case(valid, name);
@@ -8671,7 +8677,8 @@ static bool thumb_transfer_preflight_case(unsigned int boundary,
                 trace.records == records && trace.count == 1u &&
                 trace.capacity == (boundary == 0u ? 4u : 3u) &&
                 trace.next_sequence == UINT64_C(77) &&
-                memcmp(records, records_before, sizeof(records)) == 0;
+                gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
         } else {
             observed = observed && result.instructions == 1u &&
                 result.cycles == 2u &&
@@ -8683,8 +8690,7 @@ static bool thumb_transfer_preflight_case(unsigned int boundary,
                 trace.capacity == 4u && trace.next_sequence == UINT64_C(80) &&
                 records[2].address == address &&
                 records[2].width == 4u &&
-                memcmp(&records[4], &records_before[4],
-                       sizeof(records[4])) == 0;
+                gbl_test_trace_equal(&records[4], &records_before[4], 1u);
         }
     }
     if (loaded) {
@@ -9358,7 +9364,8 @@ static bool thumb_stack_empty_refusal_case(uint16_t opcode)
                  trace.records == records && trace.capacity == 8u &&
                  trace.count == 1u &&
                  trace.next_sequence == UINT64_C(550) &&
-                 memcmp(records, records_before, sizeof(records)) == 0;
+                 gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
     }
     if (machine.initialized) {
         gbl_machine_dispose(&machine);
@@ -9443,7 +9450,8 @@ static bool thumb_stack_maximum_refusal_case(
              result.instructions == 0u && trace.records == records &&
              trace.capacity == trace_capacity && trace.count == 1u &&
              trace.next_sequence == next_sequence &&
-             memcmp(records, records_before, sizeof(records)) == 0 &&
+             gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0])) &&
              gbl_test_canonical_equal(before, &machine) &&
              gbl_test_same_instance_identity_equal(before, &machine);
     free(before);
@@ -9859,7 +9867,8 @@ static bool thumb_multiple_refusal_case(uint16_t opcode)
                  trace.records == records && trace.capacity == 8u &&
                  trace.count == 1u &&
                  trace.next_sequence == UINT64_C(600) &&
-                 memcmp(records, records_before, sizeof(records)) == 0;
+                 gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
     }
     if (machine.initialized) {
         gbl_machine_dispose(&machine);
@@ -9941,7 +9950,8 @@ static bool thumb_multiple_maximum_refusal_case(
              result.instructions == 0u && trace.records == records &&
              trace.capacity == trace_capacity && trace.count == 1u &&
              trace.next_sequence == next_sequence &&
-             memcmp(records, records_before, sizeof(records)) == 0 &&
+             gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0])) &&
              gbl_test_canonical_equal(before, &machine) &&
              gbl_test_same_instance_identity_equal(before, &machine);
     free(before);
@@ -11867,7 +11877,8 @@ static bool maximum_reservation_case_passes(
            trace.capacity == trace_before.capacity &&
            trace.count == trace_before.count &&
            trace.next_sequence == trace_before.next_sequence &&
-           memcmp(records, records_before, sizeof(records)) == 0;
+           gbl_test_trace_equal(records, records_before,
+                                 sizeof(records) / sizeof(records[0]));
 }
 
 static void test_maximum_unit_reservations(void)
@@ -12962,7 +12973,8 @@ static bool thumb_control_resource_case(uint16_t opcode, uint64_t cost,
                 trace.count == saved_trace.count &&
                 trace.next_sequence == saved_trace.next_sequence &&
                 trace.capacity == saved_trace.capacity && trace.records == records &&
-                memcmp(records, saved_records, sizeof(records)) == 0;
+                gbl_test_trace_equal(records, saved_records,
+                                 sizeof(records) / sizeof(records[0]));
         }
     } else {
         valid = false;
@@ -13061,7 +13073,8 @@ static void test_thumb_bl_irq_boundary(void)
                     gbl_test_same_instance_identity_equal(expected, &machine);
             }
             valid = valid && trace.count == 2u && trace.next_sequence == 33u &&
-                memcmp(records, saved_records, sizeof(records)) == 0;
+                gbl_test_trace_equal(records, saved_records,
+                                 sizeof(records) / sizeof(records[0]));
         } else {
             valid = false;
         }
@@ -13261,7 +13274,8 @@ static void test_thumb_control_static_guards(void)
                 gbl_test_canonical_equal(expected, &machine) &&
                 gbl_test_same_instance_identity_equal(expected, &machine) &&
                 trace.count == 1u && trace.next_sequence == 23u &&
-                memcmp(records, saved_records, sizeof(records)) == 0;
+                gbl_test_trace_equal(records, saved_records,
+                                 sizeof(records) / sizeof(records[0]));
         } else {
             valid = false;
         }
@@ -13292,7 +13306,324 @@ static void test_thumb_control_preflight(void)
     }
 }
 
-typedef void (*cpu_test_function)(void);
+/* Independent maximum-unit witnesses. The cost and record counts are literal
+ * consequences of the selected uniform one-cycle bus profile, not decoded
+ * values read back from the implementation. No device/MMIO side effects or
+ * address-dependent waits are admitted by this contract. */
+typedef struct unit_boundary_case {
+    const char *name;
+    uint32_t opcode;
+    uint64_t cost;
+    size_t records;
+    uint8_t transfers;
+    bool load;
+    bool thumb;
+    bool user_bank;
+    bool restore;
+    bool swap;
+    bool wrap_data;
+    bool wrap_target;
+} unit_boundary_case;
+
+static void unit_boundary_seed_memory(gbl_machine *machine)
+{
+    uint8_t *const regions[] = {
+        machine->ewram, machine->iwram, machine->pram,
+        machine->vram, machine->oam
+    };
+    const size_t sizes[] = {
+        GBL_EWRAM_SIZE, GBL_IWRAM_SIZE, GBL_PRAM_SIZE,
+        GBL_VRAM_SIZE, GBL_OAM_SIZE
+    };
+    size_t region;
+    size_t index;
+
+    for (region = 0u; region < 5u; ++region) {
+        for (index = 0u; index < sizes[region]; ++index) {
+            regions[region][index] =
+                (uint8_t)((index * 37u + region * 17u + 91u) & 255u);
+        }
+    }
+    machine->dispcnt = UINT16_C(0x1234);
+    machine->open_bus = UINT32_C(0xD00DF00D);
+}
+
+static bool unit_boundary_run(const unit_boundary_case *spec,
+                              unsigned int boundary)
+{
+    struct {
+        uint8_t left[8];
+        uint8_t image[TEST_IMAGE_SIZE];
+        uint8_t right[8];
+    } caller;
+    uint8_t original_image[TEST_IMAGE_SIZE];
+    uint8_t original_rom[TEST_IMAGE_SIZE];
+    cpu_test_allocator_state allocations = { 0 };
+    cpu_test_allocator_state allocations_before;
+    gbl_machine machine = { 0 };
+    gbl_machine *before = NULL;
+    gbl_trace_record records[23];
+    gbl_trace_record prior[23];
+    const uint32_t base = spec->wrap_data ? UINT32_C(0xFFFFFFE0)
+                                         : UINT32_C(0x03000800);
+    const uint32_t target = spec->wrap_target ? UINT32_C(0xFFFFFFFC)
+                                              : UINT32_C(0x08000040);
+    const uint32_t mode = spec->user_bank || spec->restore
+                              ? TEST_CPSR_FIQ : TEST_CPSR_SYSTEM;
+    const uint32_t cpsr = mode | TEST_CPSR_N | TEST_CPSR_C |
+                          (spec->thumb ? TEST_CPSR_T : 0u);
+    const uint64_t start_cycles = boundary == 4u
+        ? UINT64_MAX - spec->cost + 1u
+        : boundary == 6u ? UINT64_MAX - spec->cost : UINT64_C(123);
+    const uint64_t retired = boundary == 5u ? UINT64_MAX
+        : boundary == 6u ? UINT64_MAX - 1u : UINT64_C(456);
+    const uint64_t sequence = boundary == 3u
+        ? UINT64_MAX - (uint64_t)spec->records + 1u
+        : boundary == 6u ? UINT64_MAX - (uint64_t)spec->records : 700u;
+    const size_t capacity = spec->records + (boundary == 2u ? 0u : 1u);
+    gbl_trace_buffer trace = { &records[1], capacity, 1u, sequence };
+    gbl_run_options options = {
+        .cycle_budget = spec->cost - (boundary == 1u ? 1u : 0u),
+        .unit_limit = 1u,
+        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+        .trace_buffer = &trace
+    };
+    const gbl_run_options prior_options = options;
+    struct {
+        uint64_t left;
+        gbl_run_result result;
+        uint64_t right;
+    } output = { UINT64_C(0x1020304050607080),
+        { GBL_RUN_STOPPED, GBL_RUN_REASON_NONE, 91u, 73u },
+        UINT64_C(0x8877665544332211) };
+    const bool exact = boundary == 0u || boundary == 6u;
+    bool valid;
+    size_t index;
+    uint32_t values[16];
+
+    memset(caller.left, 0xA6, sizeof(caller.left));
+    memset(caller.right, 0x5B, sizeof(caller.right));
+    make_empty_image(caller.image);
+    for (index = 0u; index < TEST_IMAGE_SIZE; index += 4u) {
+        write_word(caller.image, index, UINT32_C(0xE1A00000));
+    }
+    if (spec->thumb || spec->restore) {
+        write_halfword(caller.image, 0x40u, UINT16_C(0x2735));
+        write_halfword(caller.image, 0x42u, UINT16_C(0x46C0));
+    }
+    memcpy(original_image, caller.image, TEST_IMAGE_SIZE);
+    if (!machine_load_with_allocator(&machine, caller.image, &allocations)) {
+        return false;
+    }
+    unit_boundary_seed_memory(&machine);
+    seed_nondefault_cpu_state(&machine.cpu);
+    prepare_arm_instruction(&machine, spec->opcode, cpsr);
+    machine.cpu.cpsr = cpsr;
+    if (spec->thumb) {
+        machine.cpu.pipeline[0].width = 2u;
+        machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+            UINT32_C(0x08000002), UINT16_C(0x46C0), 2u, true
+        };
+    }
+    machine.cpu.r0_7[0] = base;
+    machine.cpu.usr_r8_14[5] = spec->thumb && !spec->load
+        ? base + 36u : base;
+    machine.cpu.spsr[0] = TEST_CPSR_SYSTEM | TEST_CPSR_T | TEST_CPSR_V;
+    for (index = 0u; index < 16u; ++index) {
+        values[index] = UINT32_C(0xA1000000) + (uint32_t)index * 257u;
+    }
+    values[spec->transfers - 1u] = target | 1u;
+    if (spec->load && !spec->wrap_data) {
+        for (index = 0u; index < spec->transfers; ++index) {
+            write_word(machine.iwram, 0x800u + index * 4u, values[index]);
+        }
+    }
+    if (spec->swap) {
+        machine.cpu.r0_7[1] = UINT32_C(0xDEADBEEF);
+        machine.cpu.r0_7[2] = UINT32_C(0x12345678);
+        write_word(machine.iwram, 0x800u, UINT32_C(0x87654321));
+    }
+    machine.master_cycles = start_cycles;
+    machine.cpu.retired_instructions = retired;
+    memcpy(original_rom, machine.rom, TEST_IMAGE_SIZE);
+    for (index = 0u; index < 23u; ++index) {
+        records[index] = arm_block_trace_marker(900u + (uint64_t)index);
+        prior[index] = records[index];
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    *before = machine;
+    allocations_before = allocations;
+    valid = gbl_cpu_run(&machine, &options, &output.result) == GBL_RUN_STATUS_OK &&
+        output.left == UINT64_C(0x1020304050607080) &&
+        output.right == UINT64_C(0x8877665544332211) &&
+        allocations.fail_next_allocation == allocations_before.fail_next_allocation &&
+        allocations.successful_allocation_count == allocations_before.successful_allocation_count &&
+        allocations.live_allocation_count == allocations_before.live_allocation_count &&
+        allocations.live_bytes == allocations_before.live_bytes &&
+        trace.records == &records[1] && trace.capacity == capacity &&
+        gbl_test_same_instance_identity_equal(before, &machine) &&
+        gbl_test_bytes_equal(original_image, caller.image, TEST_IMAGE_SIZE) &&
+        gbl_test_bytes_equal(original_rom, machine.rom, TEST_IMAGE_SIZE) &&
+        options.cycle_budget == prior_options.cycle_budget &&
+        options.unit_limit == prior_options.unit_limit &&
+        options.category_mask == prior_options.category_mask &&
+        options.trace_buffer == prior_options.trace_buffer;
+    for (index = 0u; index < 8u; ++index) {
+        valid = valid && caller.left[index] == UINT8_C(0xA6) &&
+                         caller.right[index] == UINT8_C(0x5B);
+    }
+    if (!exact) {
+        const gbl_run_reason reason = boundary == 1u
+            ? GBL_RUN_REASON_CYCLE_BUDGET
+            : boundary == 2u || boundary == 3u
+                ? GBL_RUN_REASON_TRACE_OUTPUT_FULL
+                : GBL_RUN_REASON_COUNTER_OVERFLOW;
+        const gbl_run_termination termination = boundary == 1u
+            ? GBL_RUN_TIMEOUT
+            : boundary == 2u || boundary == 3u
+                ? GBL_RUN_TRACE_OUTPUT_FULL : GBL_RUN_STOPPED;
+
+        valid = valid && output.result.reason == reason &&
+            output.result.termination == termination && output.result.cycles == 0u &&
+            output.result.instructions == 0u && trace.count == 1u &&
+            trace.next_sequence == sequence &&
+            gbl_test_trace_equal(records, prior, 23u) &&
+            gbl_test_canonical_equal(before, &machine) &&
+            gbl_test_canonical_digest(before) ==
+                gbl_test_canonical_digest(&machine);
+    } else {
+        const bool pc_load = spec->load && !spec->user_bank && !spec->swap;
+        const bool target_thumb = spec->thumb || spec->restore;
+        const uint32_t width = target_thumb ? 2u : 4u;
+        const uint32_t next = pc_load ? target
+            : spec->thumb ? UINT32_C(0x08000002) : UINT32_C(0x08000004);
+
+        valid = valid && output.result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+            output.result.termination == GBL_RUN_PROGRESS &&
+            output.result.cycles == spec->cost && output.result.instructions == 1u &&
+            machine.master_cycles == start_cycles + spec->cost &&
+            machine.cpu.retired_instructions == retired + 1u &&
+            machine.cpu.execution_address == next &&
+            !machine.cpu.stopped && machine.cpu.next_fetch_sequential &&
+            trace.count == spec->records + 1u &&
+            trace.next_sequence == sequence + (uint64_t)spec->records &&
+            gbl_test_trace_equal(records, prior, 2u) &&
+            gbl_test_trace_equal(&records[spec->records + 2u],
+                                 &prior[spec->records + 2u],
+                                 21u - spec->records);
+        for (index = 0u; index < spec->records; ++index) {
+            valid = valid && records[index + 2u].sequence == sequence + index;
+        }
+        if (pc_load) {
+            valid = valid && machine.cpu.pipeline[0].address == target &&
+                machine.cpu.pipeline[1].address == target + width &&
+                machine.cpu.pipeline[0].width == width &&
+                machine.cpu.pipeline[1].width == width &&
+                records[spec->records].address == target &&
+                records[spec->records + 1u].address == target + width;
+        }
+        for (index = 0u; index < spec->transfers && !spec->swap; ++index) {
+            const gbl_trace_record *record = &records[index + 3u];
+            const uint32_t address = base + (uint32_t)index * 4u;
+            uint32_t expected_value;
+
+            if (spec->load) {
+                expected_value = values[index];
+                if (index < 8u) {
+                    valid = valid && machine.cpu.r0_7[index] == values[index];
+                } else if (index < 15u && !spec->thumb) {
+                    valid = valid &&
+                        (spec->restore ? machine.cpu.fiq_r8_14[index - 8u]
+                                       : machine.cpu.usr_r8_14[index - 8u]) ==
+                            values[index];
+                }
+            } else {
+                const uint8_t reg = spec->thumb && index == 8u
+                    ? 14u : (uint8_t)index;
+
+                expected_value = reg == 15u ? UINT32_C(0x0800000C)
+                    : arm_block_read_system_register(&before->cpu, reg);
+                if (!spec->wrap_data) {
+                    valid = valid && read_test_word(machine.iwram,
+                        0x800u + index * 4u) == expected_value;
+                }
+            }
+            valid = valid && record->address == address &&
+                record->width == 4u && record->category == GBL_TRACE_BUS &&
+                record->guest_cycle == start_cycles + index + 1u &&
+                record->access_class == (index == 0u
+                    ? GBL_BUS_CLASS_NONSEQUENTIAL : GBL_BUS_CLASS_SEQUENTIAL) &&
+                (spec->load ? record->value == expected_value
+                            : record->value == 0u);
+        }
+        if (spec->thumb) {
+            valid = valid && machine.cpu.usr_r8_14[5] ==
+                (spec->load ? base + 36u : base);
+        } else if (!spec->load && !spec->swap) {
+            valid = valid && machine.cpu.r0_7[0] == base + 64u;
+        }
+        if (spec->restore) {
+            valid = valid && machine.cpu.cpsr == before->cpu.spsr[0] &&
+                gbl_test_u32_array_equal(machine.cpu.usr_r8_14,
+                                         before->cpu.usr_r8_14, 7u);
+        } else if (spec->user_bank) {
+            valid = valid && machine.cpu.cpsr == cpsr &&
+                gbl_test_u32_array_equal(machine.cpu.fiq_r8_14,
+                                         before->cpu.fiq_r8_14, 7u);
+        } else if (spec->swap) {
+            valid = valid && machine.cpu.r0_7[1] == UINT32_C(0x87654321) &&
+                machine.cpu.r0_7[2] == UINT32_C(0x12345678) &&
+                read_test_word(machine.iwram, 0x800u) == UINT32_C(0x12345678) &&
+                records[3].value == UINT32_C(0x87654321) &&
+                records[4].address == base;
+        }
+    }
+    free(before);
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_unit_boundaries(void)
+{
+    static const unit_boundary_case cases[] = {
+        { "LDM16-PC", 0xE8B0FFFFu, 20u, 19u, 16u,
+          true, false, false, false, false, false, false },
+        { "STM16-PC", 0xE8A0FFFFu, 17u, 18u, 16u,
+          false, false, false, false, false, false, false },
+        { "LDM16-SPSR", 0xE8D0FFFFu, 20u, 19u, 16u,
+          true, false, false, true, false, false, false },
+        { "LDM15-user", 0xE8D07FFFu, 17u, 17u, 15u,
+          true, false, true, false, false, false, false },
+        { "SWP", 0xE1001092u, 3u, 4u, 1u,
+          false, false, false, false, true, false, false },
+        { "PUSH9", 0xB5FFu, 10u, 11u, 9u,
+          false, true, false, false, false, false, false },
+        { "POP9-PC", 0xBDFFu, 13u, 12u, 9u,
+          true, true, false, false, false, false, false },
+        { "STM16-data-wrap", 0xE8A0FFFFu, 17u, 18u, 16u,
+          false, false, false, false, false, true, false },
+        { "LDM16-target-wrap", 0xE8B0FFFFu, 20u, 19u, 16u,
+          true, false, false, false, false, false, true }
+    };
+    size_t index;
+    unsigned int boundary;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        for (boundary = 0u; boundary < 7u; ++boundary) {
+            char description[160];
+
+            (void)snprintf(description, sizeof(description),
+                "maximum %s boundary %u preserves whole-unit effects and caller guards",
+                cases[index].name, boundary);
+            test_case(unit_boundary_run(&cases[index], boundary), description);
+        }
+    }
+}
+
 typedef void (*cpu_test_function)(void);
 
 typedef struct cpu_test_group {
@@ -13603,7 +13934,12 @@ static const cpu_test_function slots_bounds_functions[] = {
     test_maximum_unit_reservations
 };
 
+static const cpu_test_function unit_boundaries_functions[] = {
+    test_unit_boundaries
+};
+
 static const cpu_test_group cpu_test_groups[] = {
+    CPU_TEST_GROUP("unit_boundaries", 63u, unit_boundaries_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),

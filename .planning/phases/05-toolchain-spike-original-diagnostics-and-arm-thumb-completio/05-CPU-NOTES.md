@@ -137,6 +137,39 @@ The phase also owns the pinned toolchain and project-authored image build per DI
 
 ## Evidence and limits
 
+### Plan 22 maximum-unit evidence and future bus prerequisite
+
+The native `unit_boundaries` selector exercises sixteen-register LDM/STM with
+PC, full FIQ-bank LDM with SPSR return, fifteen-register User-bank LDM, SWP,
+nine-register Thumb PUSH/POP, wrapped STM data addresses, and a loaded-PC refill
+crossing the top address boundary. Each uses exact-fit work plus one-short
+cycle/trace/sequence/master-clock/retirement limits and simultaneous exact
+counter headroom. Refusals compare all canonical fields and memory bytes,
+same-instance ownership bindings, the independent ROM-byte snapshot, caller
+image/result guards, options and every prefix/unused trace record. Trace
+comparison is field-based, never a struct-padding comparison; digest agreement
+is secondary. Actual isolated CPU mutants separately detect an early write
+before refusal and a malformed second write after the first effect.
+
+The guarantee depends on the current bus contract: checked requests validate
+machine identity, width, access class, address extent and shared master-clock
+headroom before mutation. There is no separate persistent bus cycle counter.
+Concrete data spans and complete aggregate cycle headroom are validated before
+execution. Symbolic refill masks and unsigned addends produce aligned valid
+width spans even at the explicit wrapped refill policy boundary. With one
+cycle per transaction, the reserved aggregate also covers every later bus
+request and CPU-local internal-cycle advance. BIOS-absent, unmapped and
+unimplemented-I/O results remain successful bus outcomes. Exact-fit units run
+all their requests to completion without a checked-request failure; this is
+local implementation evidence, not a hardware oracle.
+
+Before adding side-effecting or faulting MMIO, arbitration, variable waits,
+WAITCNT/prefetch, or concurrent DMA/device execution, provide a side-effect-free
+prepare/commit or staged-transaction bus contract (or explicitly scope a
+partial-abort model). Do not extend the current atomic whole-unit claim by
+probing devices during preflight or by introducing snapshot rollback. Plan 22
+adds no device, BIOS service, host timing or physical qualification scope.
+
 - Primary architecture evidence: [ARM7TDMI Technical Reference Manual DDI0029G, Issue G](https://documentation-service.arm.com/static/5e8e1323fd977155116a3129) and [ARM Architecture Reference Manual DDI0100I](https://documentation-service.arm.com/static/5f8dacc8f86e16515cdb865a).
 - GBA integration/quirk cross-check: [GBATEK 3.06, ARM CPU Reference](https://mgba-emu.github.io/gbatek/). It is a detailed community technical reference, not an official Nintendo manual or a hardware measurement. Follow the exact ARM7TDMI TRM when a generic version note conflicts with the core-specific instruction table.
 - Project state/source evidence: .planning/ROADMAP.md Phase 5; .planning/REQUIREMENTS.md CPU-01, CPU-02, DIAG-01..03, VERIF-04; Phase 4 CONTEXT/ARM/GBA notes; docs/profile-agb.md; docs/evidence-contract.md; src/cpu.c; src/cpu_helpers.h; include/gamebloke/gamebloke.h; tests/state_check.h.
