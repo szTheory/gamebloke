@@ -20,15 +20,21 @@ endif()
 
 set(matrix_file "${source_root}/diagnostics/armv4t/cases.json")
 set(coverage_checker "${source_root}/cmake/CheckArmCoverage.cmake")
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" -DMODE=draft "-DMATRIX=${matrix_file}"
-    -P "${coverage_checker}"
-  WORKING_DIRECTORY "${source_root}"
-  RESULT_VARIABLE coverage_rc OUTPUT_VARIABLE coverage_output
-  ERROR_VARIABLE coverage_error)
-if(NOT "${coverage_rc}" STREQUAL "0")
-  message(FATAL_ERROR
-    "arm-diagnostics: coverage-ledger-invalid: ${coverage_error}${coverage_output}")
+set(inputs_file "${source_root}/diagnostics/armv4t/inputs.txt")
+set(is_matrix_child FALSE)
+if(MODE STREQUAL "case" AND MATRIX_CHILD STREQUAL "1")
+  set(is_matrix_child TRUE)
+else()
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -DMODE=draft "-DMATRIX=${matrix_file}"
+      -P "${coverage_checker}"
+    WORKING_DIRECTORY "${source_root}"
+    RESULT_VARIABLE coverage_rc OUTPUT_VARIABLE coverage_output
+    ERROR_VARIABLE coverage_error)
+  if(NOT "${coverage_rc}" STREQUAL "0")
+    message(FATAL_ERROR
+      "arm-diagnostics: coverage-ledger-invalid: ${coverage_error}${coverage_output}")
+  endif()
 endif()
 
 if(MODE STREQUAL "case")
@@ -177,12 +183,12 @@ if(NOT "${source_commit_rc}" STREQUAL "0" OR
   message(FATAL_ERROR "arm-diagnostics: source-revision-invalid: ${source_commit_error}")
 endif()
 
-set(inputs_file "${source_root}/diagnostics/armv4t/inputs.txt")
 if(NOT EXISTS "${inputs_file}" OR IS_DIRECTORY "${inputs_file}" OR IS_SYMLINK "${inputs_file}")
   message(FATAL_ERROR "arm-diagnostics: source-input-list-missing")
 endif()
 file(STRINGS "${inputs_file}" source_input_lines)
 set(source_inputs "")
+set(source_input_digest_material "")
 foreach(input_line IN LISTS source_input_lines)
   string(STRIP "${input_line}" input_line)
   if("${input_line}" STREQUAL "" OR "${input_line}" MATCHES "^#")
@@ -207,6 +213,12 @@ foreach(input_line IN LISTS source_input_lines)
   if(NOT "${real_input_path}" STREQUAL "${expected_input_path}")
     message(FATAL_ERROR "arm-diagnostics: source-input-symlink: ${input_line}")
   endif()
+  file(SHA256 "${input_path}" current_input_sha)
+  string(APPEND source_input_digest_material
+    "${input_line}=${current_input_sha}\n")
+  if(is_matrix_child)
+    continue()
+  endif()
   execute_process(
     COMMAND git -C "${source_root}" ls-files --error-unmatch -- "${input_line}"
     RESULT_VARIABLE tracked_rc OUTPUT_QUIET ERROR_QUIET)
@@ -228,12 +240,30 @@ foreach(input_line IN LISTS source_input_lines)
   if(NOT "${show_rc}" STREQUAL "0")
     message(FATAL_ERROR "arm-diagnostics: source-input-absent-from-revision: ${input_line}: ${show_error}")
   endif()
-  file(SHA256 "${input_path}" current_input_sha)
   file(SHA256 "${tracked_copy}" pinned_input_sha)
   if(NOT "${current_input_sha}" STREQUAL "${pinned_input_sha}")
     message(FATAL_ERROR "arm-diagnostics: source-input-mismatch: ${input_line}")
   endif()
 endforeach()
+string(SHA256 source_input_digest "${source_input_digest_material}")
+if(is_matrix_child)
+  set(matrix_parent_receipt "${matrix_root}/arm/proof/matrix-parent.json")
+  if(NOT EXISTS "${matrix_parent_receipt}" OR
+     IS_DIRECTORY "${matrix_parent_receipt}" OR IS_SYMLINK "${matrix_parent_receipt}")
+    message(FATAL_ERROR "arm-diagnostics: matrix-parent-verification-missing")
+  endif()
+  file(READ "${matrix_parent_receipt}" matrix_parent_json)
+  string(JSON matrix_parent_commit ERROR_VARIABLE parent_commit_error
+    GET "${matrix_parent_json}" source_commit)
+  string(JSON matrix_parent_digest ERROR_VARIABLE parent_digest_error
+    GET "${matrix_parent_json}" source_input_sha256)
+  if(NOT "${parent_commit_error}" STREQUAL "NOTFOUND" OR
+     NOT "${parent_digest_error}" STREQUAL "NOTFOUND" OR
+     NOT "${matrix_parent_commit}" STREQUAL "${source_commit}" OR
+     NOT "${matrix_parent_digest}" STREQUAL "${source_input_digest}")
+    message(FATAL_ERROR "arm-diagnostics: matrix-parent-input-identity-mismatch")
+  endif()
+endif()
 
 foreach(required_input IN ITEMS
     cmake/BuildArmDiagnostics.cmake cmake/CheckArmCoverage.cmake
@@ -261,7 +291,7 @@ if(NOT "${sorted_source_inputs}" STREQUAL "${source_inputs}")
   message(FATAL_ERROR "arm-diagnostics: source-input-list-not-sorted")
 endif()
 file(WRITE "${output_root}/proof/source-inputs.txt"
-  "source.commit=${source_commit}\ntracked inputs=${source_inputs}\n")
+  "source.commit=${source_commit}\nsource.input_sha256=${source_input_digest}\ntracked inputs=${source_inputs}\n")
 message(STATUS
   "arm-diagnostics: verified ${source_inputs} against source revision ${source_commit}")
 
@@ -303,18 +333,40 @@ if(DEFINED HOST AND NOT "${HOST}" STREQUAL "" AND NOT "${HOST}" STREQUAL "${actu
 endif()
 set(HOST "${actual_host}")
 
-execute_process(
-  COMMAND "${source_root}/scripts/fetch-toolchain.sh" --check
-    --host "${HOST}" --root "${toolchain_root}"
-  WORKING_DIRECTORY "${source_root}"
-  RESULT_VARIABLE tool_check_rc
-  OUTPUT_VARIABLE tool_check_output
-  ERROR_VARIABLE tool_check_error)
-if(NOT "${tool_check_rc}" STREQUAL "0")
-  message(FATAL_ERROR "arm-diagnostics: toolchain-receipt-invalid: ${tool_check_error}${tool_check_output}")
+set(toolchain_install "${toolchain_root}/arm-none-eabi/${HOST}-15.2.1-1.1/install.json")
+if(is_matrix_child)
+  string(JSON matrix_parent_host ERROR_VARIABLE parent_host_error
+    GET "${matrix_parent_json}" host)
+  string(JSON matrix_parent_toolchain_sha ERROR_VARIABLE parent_toolchain_error
+    GET "${matrix_parent_json}" toolchain_install_sha256)
+  if(NOT "${parent_host_error}" STREQUAL "NOTFOUND" OR
+     NOT "${parent_toolchain_error}" STREQUAL "NOTFOUND" OR
+     NOT "${matrix_parent_host}" STREQUAL "${HOST}" OR
+     NOT EXISTS "${toolchain_install}" OR IS_SYMLINK "${toolchain_install}")
+    message(FATAL_ERROR "arm-diagnostics: matrix-parent-toolchain-identity-mismatch")
+  endif()
+  file(SHA256 "${toolchain_install}" current_toolchain_sha)
+  if(NOT "${current_toolchain_sha}" STREQUAL "${matrix_parent_toolchain_sha}")
+    message(FATAL_ERROR "arm-diagnostics: matrix-parent-toolchain-changed")
+  endif()
+  file(WRITE "${output_root}/proof/toolchain-check.txt"
+    "Reused parent-verified xPack GNU Arm Embedded 15.2.1-1.1 receipt: ${current_toolchain_sha}\n")
+  file(COPY_FILE "${matrix_root}/arm/proof/tool-versions.txt"
+    "${output_root}/proof/tool-versions.txt")
+else()
+  execute_process(
+    COMMAND "${source_root}/scripts/fetch-toolchain.sh" --check
+      --host "${HOST}" --root "${toolchain_root}"
+    WORKING_DIRECTORY "${source_root}"
+    RESULT_VARIABLE tool_check_rc
+    OUTPUT_VARIABLE tool_check_output
+    ERROR_VARIABLE tool_check_error)
+  if(NOT "${tool_check_rc}" STREQUAL "0")
+    message(FATAL_ERROR "arm-diagnostics: toolchain-receipt-invalid: ${tool_check_error}${tool_check_output}")
+  endif()
+  file(WRITE "${output_root}/proof/toolchain-check.txt"
+    "${tool_check_output}${tool_check_error}")
 endif()
-file(WRITE "${output_root}/proof/toolchain-check.txt"
-  "${tool_check_output}${tool_check_error}")
 
 set(tool_bin "${toolchain_root}/arm-none-eabi/${HOST}-15.2.1-1.1/bin")
 foreach(tool IN ITEMS as ld objcopy readelf objdump nm)
@@ -322,16 +374,31 @@ foreach(tool IN ITEMS as ld objcopy readelf objdump nm)
   if(NOT EXISTS "${tool_path}" OR IS_DIRECTORY "${tool_path}")
     message(FATAL_ERROR "arm-diagnostics: tool-missing-or-unusable: ${tool}")
   endif()
-  execute_process(COMMAND "${tool_path}" --version
-    RESULT_VARIABLE version_rc OUTPUT_VARIABLE version_output
-    ERROR_VARIABLE version_error)
-  if(NOT "${version_rc}" STREQUAL "0")
-    message(FATAL_ERROR "arm-diagnostics: tool-version-failed: ${tool}: ${version_error}")
+  if(NOT is_matrix_child)
+    execute_process(COMMAND "${tool_path}" --version
+      RESULT_VARIABLE version_rc OUTPUT_VARIABLE version_output
+      ERROR_VARIABLE version_error)
+    if(NOT "${version_rc}" STREQUAL "0")
+      message(FATAL_ERROR "arm-diagnostics: tool-version-failed: ${tool}: ${version_error}")
+    endif()
+    string(REGEX MATCH "^[^\r\n]+" version_line "${version_output}")
+    file(APPEND "${output_root}/proof/tool-versions.txt"
+      "arm-none-eabi-${tool}: ${version_line}\n")
   endif()
-  string(REGEX MATCH "^[^\r\n]+" version_line "${version_output}")
-  file(APPEND "${output_root}/proof/tool-versions.txt"
-    "arm-none-eabi-${tool}: ${version_line}\n")
 endforeach()
+if(NOT is_matrix_child)
+  file(SHA256 "${toolchain_install}" toolchain_install_sha)
+  set(matrix_parent_receipt "{}")
+  string(JSON matrix_parent_receipt SET "${matrix_parent_receipt}" source_commit
+    "\"${source_commit}\"")
+  string(JSON matrix_parent_receipt SET "${matrix_parent_receipt}" source_input_sha256
+    "\"${source_input_digest}\"")
+  string(JSON matrix_parent_receipt SET "${matrix_parent_receipt}" toolchain_install_sha256
+    "\"${toolchain_install_sha}\"")
+  string(JSON matrix_parent_receipt SET "${matrix_parent_receipt}" host "\"${HOST}\"")
+  file(WRITE "${output_root}/proof/matrix-parent.json"
+    "${matrix_parent_receipt}\n")
+endif()
 
 function(require_v4t tool_path object_path output_file)
   execute_process(COMMAND "${tool_path}" -A "${object_path}"
