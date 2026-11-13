@@ -15,6 +15,29 @@ set(matrix "${source_root}/diagnostics/armv4t/cases.json")
 set(checker "${source_root}/cmake/CheckArmCoverage.cmake")
 set(builder "${source_root}/cmake/BuildArmDiagnostics.cmake")
 set(inputs "${source_root}/diagnostics/armv4t/inputs.txt")
+include("${source_root}/cmake/GblJson.cmake")
+file(READ "${matrix}" matrix_json)
+string(JSON inventory_rows LENGTH "${matrix_json}" cases)
+math(EXPR inventory_last "${inventory_rows}-1")
+set(expected_targets 0)
+set(expected_semantics 0)
+set(expected_pending 0)
+foreach(index RANGE 0 ${inventory_last})
+  string(JSON row GET "${matrix_json}" cases ${index})
+  string(JSON target GET "${row}" inventory_target)
+  string(JSON state GET "${row}" coverage_state)
+  string(JSON kind ERROR_VARIABLE kind_error GET "${row}" source_test kind)
+  if(target)
+    math(EXPR expected_targets "${expected_targets}+1")
+  endif()
+  if(state STREQUAL "pending")
+    math(EXPR expected_pending "${expected_pending}+1")
+  endif()
+  if(kind STREQUAL "semantic")
+    math(EXPR expected_semantics "${expected_semantics}+1")
+  endif()
+endforeach()
+math(EXPR expected_outputs "${expected_semantics}*2+4")
 set(build_root "${source_root}/build")
 cmake_path(IS_PREFIX build_root "${binary_root}" NORMALIZE binary_under_build)
 if(NOT binary_under_build OR IS_SYMLINK "${source_root}/build" OR
@@ -56,11 +79,11 @@ if(CASE STREQUAL "arm-matrix-build")
     endif()
   endforeach()
   if(NOT receipt_format STREQUAL "gamebloke.arm-diagnostic-matrix/1" OR
-     NOT receipt_isa STREQUAL "arm" OR NOT semantic_count EQUAL 244 OR
-     NOT stop_count EQUAL 4 OR NOT rom_count EQUAL 492)
+     NOT receipt_isa STREQUAL "arm" OR NOT semantic_count EQUAL expected_semantics OR
+     NOT stop_count EQUAL 4 OR NOT rom_count EQUAL expected_outputs)
     message(FATAL_ERROR "coverage-case: arm-matrix-output-count-mismatch")
   endif()
-  message("coverage-case: ok (244 ARM semantic pairs; 4 named stop witnesses)")
+  message("coverage-case: ok (${expected_semantics} ARM semantic pairs; 4 named stop witnesses)")
   return()
 endif()
 
@@ -163,15 +186,83 @@ execute_process(
 set(clean_combined "${clean_out}${clean_error}")
 if(NOT "${clean_rc}" STREQUAL "0" OR
    NOT clean_combined MATCHES "coverage: ok" OR
-   NOT clean_combined MATCHES "targets=334" OR
-   NOT clean_combined MATCHES "pending=356" OR
+   NOT clean_combined MATCHES "targets=${expected_targets};" OR
+   NOT clean_combined MATCHES "pending=${expected_pending};" OR
    NOT clean_combined MATCHES "source-verified=1" OR
-   NOT clean_combined MATCHES "semantic-sources=244" OR
+   NOT clean_combined MATCHES "semantic-sources=${expected_semantics};" OR
    NOT clean_combined MATCHES "guest-stops=4" OR
    NOT clean_combined MATCHES "cpu-api=19")
   message(FATAL_ERROR "coverage-case: clean-ledger-control-failed: ${clean_error}${clean_out}")
 endif()
-message(STATUS "coverage-case: clean draft inventory passed (334 ARM/Thumb forms; formats 1..19)")
+message(STATUS "coverage-case: clean draft inventory passed (${expected_targets} ARM/Thumb forms; formats 1..19)")
+
+# Each mutation starts from the clean ledger above. These reject the former
+# semantic mismatches, and independently protect operands, bases and flags.
+function(reject_program_mutation label row_index before after reason)
+  string(JSON original_program GET "${matrix_json}" cases ${row_index} source_test program)
+  string(FIND "${original_program}" "${before}" mutation_at)
+  if(mutation_at LESS 0)
+    message(FATAL_ERROR "coverage-case: ${label}-mutation-not-applied")
+  endif()
+  string(REPLACE "${before}" "${after}" changed_program "${original_program}")
+  string(REPLACE "\\" "\\\\" changed_program "${changed_program}")
+  string(REPLACE "\n" "\\n" changed_program "${changed_program}")
+  string(JSON changed SET "${matrix_json}" cases ${row_index} source_test program "\"${changed_program}\"")
+  set(variant "${control_root}/${label}.json")
+  file(WRITE "${variant}" "${changed}\n")
+  checker_failure("${label}" draft "${variant}" "${reason}")
+endfunction()
+
+find_case_id_index(pc_operand_index 507654410)
+reject_program_mutation(pc-old-rn-form ${pc_operand_index}
+  ".inst 0xE082031F" "add r0,pc,r2,lsl #1" semantic-pc-operand-invalid)
+reject_program_mutation(pc-immediate-shift ${pc_operand_index}
+  ".inst 0xE082031F" ".inst 0xE082008F" semantic-pc-operand-invalid)
+reject_program_mutation(pc-plus-eight-oracle ${pc_operand_index}
+  "add r1,r1,#12" "add r1,r1,#8" semantic-pc-operand-invalid)
+
+foreach(block_id IN ITEMS 416055714 355734903 495708335 314309498
+    344471309 469844796 489728888 516644361)
+  find_case_id_index(block_index "${block_id}")
+  reject_program_mutation("block-writeback-${block_id}" ${block_index}
+    "r4, {r0,r1}" "r4!, {r0,r1}" semantic-block-writeback-invalid)
+endforeach()
+reject_program_mutation(block-base-oracle ${block_index}
+  "cmp r4,r6" "cmp r4,r7" semantic-block-writeback-invalid)
+string(JSON changed SET "${matrix_json}" cases ${block_index}
+  source_test independent_expectation writeback true)
+set(variant "${control_root}/block-writeback-metadata.json")
+file(WRITE "${variant}" "${changed}\n")
+checker_failure(block-writeback-metadata draft "${variant}" semantic-block-writeback-invalid)
+
+# Reintroduce each removed Mode 3 form using its ordinary post-index producer:
+# a duplicate legal instruction must never count as force-user coverage.
+foreach(op IN ITEMS LDRH STRH LDRSB LDRSH)
+  foreach(offset IN ITEMS split-nibble-immediate register-offset)
+    find_case_index(mode3_index halfword-signed-transfer "${op}:${offset}:post-index")
+    string(JSON changed SET "${matrix_json}" cases ${mode3_index} form
+      "\"${op}:${offset}:post-index-force-user\"")
+    set(variant "${control_root}/mode3-${op}-${offset}.json")
+    file(WRITE "${variant}" "${changed}\n")
+    checker_failure("mode3-${op}-${offset}" draft "${variant}" semantic-mode3-form-invalid)
+  endforeach()
+endforeach()
+
+foreach(boundary_id IN ITEMS 293321832 292551648)
+  find_case_id_index(boundary_index "${boundary_id}")
+  foreach(vector IN ITEMS 0x00000000 0x00000001 0x80000000 0xFFFFFFFF)
+    reject_program_mutation("boundary-${boundary_id}-${vector}" ${boundary_index}
+      "ldr r1,=${vector}" "ldr r1,=0x80000001" semantic-boundary-vector-invalid)
+  endforeach()
+  reject_program_mutation("boundary-c-zero-${boundary_id}" ${boundary_index}
+    "ldr r5,=0x00000000" "ldr r5,=0x20000000" semantic-boundary-vector-invalid)
+  reject_program_mutation("boundary-result-${boundary_id}" ${boundary_index}
+    "GBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE"
+    "GBL_ASSERT_EQ r0, 0xFFFFFFFE, 0xFFFFFFFF" semantic-boundary-vector-invalid)
+  reject_program_mutation("boundary-flags-${boundary_id}" ${boundary_index}
+    "GBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000"
+    "GBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000" semantic-boundary-vector-invalid)
+endforeach()
 
 set(variant "${control_root}/zero-id.json")
 string(JSON changed SET "${matrix_json}" cases 0 id "0")
@@ -217,7 +308,7 @@ set(verified_combined "${verified_out}${verified_error}")
 if(NOT "${verified_rc}" STREQUAL "0" OR
    NOT verified_combined MATCHES "verified=1" OR
    NOT verified_combined MATCHES "smoke-pairs=1" OR
-   NOT verified_combined MATCHES "pending=356")
+   NOT verified_combined MATCHES "pending=${expected_pending};")
   message(FATAL_ERROR "coverage-case: verified-smoke-count-control-failed: ${verified_combined}")
 endif()
 message(STATUS "coverage-case: verified smoke still counts as exactly one pair in draft mode")

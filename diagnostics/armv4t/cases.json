@@ -3347,12 +3347,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "mov r2,#3\n.Lpc_add:\nadd r0,pc,r2,lsl #1\nldr r1,=.Lpc_add+14\nsub r0,r0,r1\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\n",
+        "program": "mov r2,#3\nmov r3,#1\n.Lpc_operand:\n.inst 0xE082031F\nadr r1,.Lpc_operand\nadd r1,r1,#12\nmov r1,r1,lsl #1\nadd r1,r1,#3\nsub r0,r0,r1\nGBL_ASSERT_EQ r0, 0x00000000, 0xFFFFFFF8\n",
         "independent_expectation": {
-          "instruction": "arm-register-shifted-operand-pc-plus-12",
-          "derivation": "Address/refill expectation derives from the ARM/Thumb instruction address and documented pipeline PC rule.",
+          "instruction": "ADD r0,r2,pc,LSL r3; opcode 0xE082031F",
+          "derivation": "ARM7TDMI register-controlled Operand2 reads Rm=R15 as instruction address A+12. Rs=r3=1, Rn=r2=3, so result=2*(A+12)+3. ADR independently recovers A; subtracting the derived value gives zero. Using A+8 instead gives -8 (0xFFFFFFF8).",
           "expected_value": "0x00000000",
-          "broken_expected": "0x00000001",
+          "broken_expected": "0xFFFFFFF8",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -4461,13 +4461,13 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5, =0x20000000\nmsr cpsr_f, r5\nldr r1, =0x80000001\nmovs r0, r1, lsl #0\nmrs r3, cpsr\nGBL_ASSERT_EQ r0, 0x80000001, 0x80000000\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0xB0000000\n",
+        "program": "ldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0x00000000\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0x00000000\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000\nldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0x00000001\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x00000000, 0x20000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0x00000001\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0x80000000\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x80000000, 0x80000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0x80000000\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x80000000, 0x80000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0xFFFFFFFF\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0xFFFFFFFF\nmovs r0,r1,lsl #0\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\n",
         "independent_expectation": {
-          "instruction": "MOVS lsl count=0",
-          "expected_value": "0x80000001",
-          "expected_nzcv": "0xA0000000",
-          "derivation": "Independent ARM7TDMI shift-count/carry pseudocode applied to 0x80000001 and incoming C=1.",
-          "broken_expected": "0x80000000",
+          "instruction": "MOVS LSL #0",
+          "expected_value": "0x00000000",
+          "expected_nzcv": "Per vector: N=bit31, Z=(operand==0), C=incoming, V=0",
+          "derivation": "DDI0100I A5.1: LSL immediate zero / ROR register count zero returns the original operand and preserves C. Execute operands zero, one, sign-bit and all-ones with incoming C=0 and C=1, reseeding flags before each instruction; snapshot CPSR before assertions. Every result assertion flips bit0 in the broken companion and every flag assertion flips C.",
+          "broken_expected": "0x00000001",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -4501,13 +4501,13 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r5, =0x20000000\nmsr cpsr_f, r5\nldr r1, =0x80000001\nmovs r0, r1, lsr #1\nmrs r3, cpsr\nGBL_ASSERT_EQ r0, 0x40000000, 0x40000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x30000000\n",
+        "program": "ldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0x00000000\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x40000000, 0x60000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0x00000000\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000000, 0x00000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x60000000, 0x40000000\nldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0x00000001\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x00000000, 0x20000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0x00000001\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x00000001, 0x00000000\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x20000000, 0x00000000\nldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0x80000000\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x80000000, 0x80000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0x80000000\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0x80000000, 0x80000001\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\nldr r5,=0x00000000\nmsr cpsr_f,r5\nldr r1,=0xFFFFFFFF\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nGBL_ASSERT_MASKED r3, 0xF0000000, 0x80000000, 0xA0000000\nldr r5,=0x20000000\nmsr cpsr_f,r5\nldr r1,=0xFFFFFFFF\nmov r2,#0\nmovs r0,r1,ror r2\nmrs r3,cpsr\nGBL_ASSERT_EQ r0, 0xFFFFFFFF, 0xFFFFFFFE\nGBL_ASSERT_MASKED r3, 0xF0000000, 0xA0000000, 0x80000000\n",
         "independent_expectation": {
-          "instruction": "MOVS lsr count=1",
-          "expected_value": "0x40000000",
-          "expected_nzcv": "0x20000000",
-          "derivation": "Independent ARM7TDMI shift-count/carry pseudocode applied to 0x80000001 and incoming C=1.",
-          "broken_expected": "0x40000001",
+          "instruction": "MOVS ROR r2 with r2=0",
+          "expected_value": "0x00000000",
+          "expected_nzcv": "Per vector: N=bit31, Z=(operand==0), C=incoming, V=0",
+          "derivation": "DDI0100I A5.1: LSL immediate zero / ROR register count zero returns the original operand and preserves C. Execute operands zero, one, sign-bit and all-ones with incoming C=0 and C=1, reseeding flags before each instruction; snapshot CPSR before assertions. Every result assertion flips bit0 in the broken companion and every flag assertion flips C.",
+          "broken_expected": "0x00000001",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
         }
       }
@@ -6992,47 +6992,6 @@
       }
     },
     {
-      "id": 395853884,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "LDRH:split-nibble-immediate:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.ldrh-split-nibble-immediate-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r0, =0x11223344\nstr r0, [r4, #4]\nmov r6, r4\nldrh r0, [r4], #4\nGBL_ASSERT_EQ r0, 0x00003344, 0x00003345\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "LDRH",
-          "address_form": "split-nibble-immediate:post-index-force-user",
-          "expected_value": "0x00003344",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0x00003345",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
       "id": 421981425,
       "isa": "arm",
       "family": "halfword-signed-transfer",
@@ -7147,47 +7106,6 @@
         "independent_expectation": {
           "instruction": "LDRH",
           "address_form": "register-offset:post-index",
-          "expected_value": "0x00003344",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0x00003345",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
-      "id": 434308478,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "LDRH:register-offset:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.ldrh-register-offset-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11223344\nstr r0, [r4]\nldr r0, =0x11223344\nstr r0, [r4, #4]\nmov r6, r4\nmov r5,#4\nldrh r0, [r4], r5\nGBL_ASSERT_EQ r0, 0x00003344, 0x00003345\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "LDRH",
-          "address_form": "register-offset:post-index-force-user",
           "expected_value": "0x00003344",
           "writeback": true,
           "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
@@ -7321,47 +7239,6 @@
       }
     },
     {
-      "id": 523744941,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "STRH:split-nibble-immediate:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.strh-split-nibble-immediate-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x55667788\nstr r0, [r4]\nldr r0, =0x55667788\nstr r0, [r4, #4]\nmov r6, r4\nldr r2, =0xA1B2C3D4\nstrh r2, [r4], #4\nldr r0, [r6, #0]\nGBL_ASSERT_EQ r0, 0x5566C3D4, 0x5566C3D5\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "STRH",
-          "address_form": "split-nibble-immediate:post-index-force-user",
-          "expected_value": "0x5566C3D4",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0x5566C3D5",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
       "id": 440968216,
       "isa": "arm",
       "family": "halfword-signed-transfer",
@@ -7476,47 +7353,6 @@
         "independent_expectation": {
           "instruction": "STRH",
           "address_form": "register-offset:post-index",
-          "expected_value": "0x5566C3D4",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0x5566C3D5",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
-      "id": 386420797,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "STRH:register-offset:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.strh-register-offset-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x55667788\nstr r0, [r4]\nldr r0, =0x55667788\nstr r0, [r4, #4]\nmov r6, r4\nmov r5,#4\nldr r2, =0xA1B2C3D4\nstrh r2, [r4], r5\nldr r0, [r6, #0]\nGBL_ASSERT_EQ r0, 0x5566C3D4, 0x5566C3D5\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "STRH",
-          "address_form": "register-offset:post-index-force-user",
           "expected_value": "0x5566C3D4",
           "writeback": true,
           "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
@@ -7649,47 +7485,6 @@
       }
     },
     {
-      "id": 492687423,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "LDRSB:split-nibble-immediate:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.ldrsb-split-nibble-immediate-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11223380\nstr r0, [r4]\nldr r0, =0x11223380\nstr r0, [r4, #4]\nmov r6, r4\nldrsb r0, [r4], #4\nGBL_ASSERT_EQ r0, 0xFFFFFF80, 0xFFFFFF81\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "LDRSB",
-          "address_form": "split-nibble-immediate:post-index-force-user",
-          "expected_value": "0xFFFFFF80",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0xFFFFFF81",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
       "id": 365220062,
       "isa": "arm",
       "family": "halfword-signed-transfer",
@@ -7804,47 +7599,6 @@
         "independent_expectation": {
           "instruction": "LDRSB",
           "address_form": "register-offset:post-index",
-          "expected_value": "0xFFFFFF80",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0xFFFFFF81",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
-      "id": 423103475,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "LDRSB:register-offset:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.ldrsb-register-offset-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11223380\nstr r0, [r4]\nldr r0, =0x11223380\nstr r0, [r4, #4]\nmov r6, r4\nmov r5,#4\nldrsb r0, [r4], r5\nGBL_ASSERT_EQ r0, 0xFFFFFF80, 0xFFFFFF81\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "LDRSB",
-          "address_form": "register-offset:post-index-force-user",
           "expected_value": "0xFFFFFF80",
           "writeback": true,
           "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
@@ -7978,47 +7732,6 @@
       }
     },
     {
-      "id": 348959853,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "LDRSH:split-nibble-immediate:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.ldrsh-split-nibble-immediate-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11228001\nstr r0, [r4]\nldr r0, =0x11228001\nstr r0, [r4, #4]\nmov r6, r4\nldrsh r0, [r4], #4\nGBL_ASSERT_EQ r0, 0xFFFF8001, 0xFFFF8000\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "LDRSH",
-          "address_form": "split-nibble-immediate:post-index-force-user",
-          "expected_value": "0xFFFF8001",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0xFFFF8000",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
       "id": 336439768,
       "isa": "arm",
       "family": "halfword-signed-transfer",
@@ -8133,47 +7846,6 @@
         "independent_expectation": {
           "instruction": "LDRSH",
           "address_form": "register-offset:post-index",
-          "expected_value": "0xFFFF8001",
-          "writeback": true,
-          "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
-          "broken_expected": "0xFFFF8000",
-          "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
-        }
-      }
-    },
-    {
-      "id": 427234685,
-      "isa": "arm",
-      "family": "halfword-signed-transfer",
-      "form": "LDRSH:register-offset:post-index-force-user",
-      "inventory_target": true,
-      "setup": "Fresh direct-start ARM state; seed only the operands, flags and memory required by this form.",
-      "observe": "Observe ordered bus width/address, signed or unsigned extension, writeback and odd-address behavior.",
-      "expected": {
-        "derivation": "Apply ARM ARM DDI0100I A5.4 and GBATEK 3.06 alignment notes to the bus-returned value.",
-        "value": "LDRH/STRH and LDRSB/LDRSH use the correct offset and sign/rotation rule; odd LDRSH follows the signed-byte reference rule."
-      },
-      "source_reference": "ARM7TDMI TRM DDI0029G §1.4 and Table 1-2; ARM ARM DDI0100I Part A, Chapters A3–A6; .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-CPU-NOTES.md#full-coverage-boundary",
-      "cpu_quirk": [
-        "CPU-5"
-      ],
-      "native_selector": "arm.halfword-signed-transfer.ldrsh-register-offset-post-index-force-user",
-      "positive_fixture": null,
-      "negative_fixture": null,
-      "expected_fail_case_id": null,
-      "trace_required": true,
-      "coverage_state": "pending",
-      "execution_boundary": "guest-semantic",
-      "expected_status": "GUEST_STOP/unregistered-content; semantic PASS/FAIL",
-      "companion_case_ids": [
-        901840706
-      ],
-      "source_test": {
-        "kind": "semantic",
-        "program": "ldr r4, =0x03000000\nldr r0, =0x11228001\nstr r0, [r4]\nldr r0, =0x11228001\nstr r0, [r4, #4]\nmov r6, r4\nmov r5,#4\nldrsh r0, [r4], r5\nGBL_ASSERT_EQ r0, 0xFFFF8001, 0xFFFF8000\nadd r7, r6, #4\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\n\n",
-        "independent_expectation": {
-          "instruction": "LDRSH",
-          "address_form": "register-offset:post-index-force-user",
           "expected_value": "0xFFFF8001",
           "writeback": true,
           "derivation": "Independent little-endian transfer vector and ARM address/writeback calculation.",
@@ -8375,12 +8047,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmia r4!, {r0,r1}\nGBL_ASSERT_EQ r0, 0x55555555, 0x55555554\nGBL_ASSERT_EQ r1, 0x66666666, 0x66666667\nadd r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmia r4, {r0,r1}\nGBL_ASSERT_EQ r0, 0x55555555, 0x55555554\nGBL_ASSERT_EQ r1, 0x66666666, 0x66666667\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:IA:normal-no-writeback",
           "address_mode": "IA",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x55555555",
           "broken_expected": "0x55555554",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -8541,12 +8213,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmib r4!, {r0,r1}\nGBL_ASSERT_EQ r0, 0x66666666, 0x66666667\nGBL_ASSERT_EQ r1, 0x77777777, 0x77777776\nadd r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmib r4, {r0,r1}\nGBL_ASSERT_EQ r0, 0x66666666, 0x66666667\nGBL_ASSERT_EQ r1, 0x77777777, 0x77777776\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:IB:normal-no-writeback",
           "address_mode": "IB",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x66666666",
           "broken_expected": "0x66666667",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -8707,12 +8379,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmda r4!, {r0,r1}\nGBL_ASSERT_EQ r0, 0x44444444, 0x44444445\nGBL_ASSERT_EQ r1, 0x55555555, 0x55555554\nsub r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmda r4, {r0,r1}\nGBL_ASSERT_EQ r0, 0x44444444, 0x44444445\nGBL_ASSERT_EQ r1, 0x55555555, 0x55555554\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:DA:normal-no-writeback",
           "address_mode": "DA",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x44444444",
           "broken_expected": "0x44444445",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -8873,12 +8545,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmdb r4!, {r0,r1}\nGBL_ASSERT_EQ r0, 0x33333333, 0x33333332\nGBL_ASSERT_EQ r1, 0x44444444, 0x44444445\nsub r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "adr r4,.Lblk_data\nadd r4,r4,#16\nmov r6,r4\nldmdb r4, {r0,r1}\nGBL_ASSERT_EQ r0, 0x33333333, 0x33333332\nGBL_ASSERT_EQ r1, 0x44444444, 0x44444445\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "LDM:DB:normal-no-writeback",
           "address_mode": "DB",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x33333333",
           "broken_expected": "0x33333332",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -9039,12 +8711,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmia r4!, {r0,r1}\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\nadd r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x11111111, 0x22222222, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmia r4, {r0,r1}\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x11111111, 0x22222222, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:IA:normal-no-writeback",
           "address_mode": "IA",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x00000011",
           "broken_expected": "0x00000010",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -9162,12 +8834,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmib r4!, {r0,r1}\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#8]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\nadd r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x11111111, 0x22222222, 0x88888888\n.Lblk_done:\n",
+        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmib r4, {r0,r1}\nldr r0,[r6,#4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#8]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x11111111, 0x22222222, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:IB:normal-no-writeback",
           "address_mode": "IB",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x00000011",
           "broken_expected": "0x00000010",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -9285,12 +8957,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmda r4!, {r0,r1}\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\nsub r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x11111111, 0x22222222, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmda r4, {r0,r1}\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#0]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x33333333, 0x11111111, 0x22222222, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:DA:normal-no-writeback",
           "address_mode": "DA",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x00000011",
           "broken_expected": "0x00000010",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -9408,12 +9080,12 @@
       ],
       "source_test": {
         "kind": "semantic",
-        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmdb r4!, {r0,r1}\nldr r0,[r6,#-8]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\nsub r7,r6,#8\ncmp r4,r7\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x11111111, 0x22222222, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
+        "program": "ldr r4,=0x03000030\nmov r6,r4\nmov r0,#0x11\nmov r1,#0x22\nstmdb r4, {r0,r1}\nldr r0,[r6,#-8]\nGBL_ASSERT_EQ r0, 0x00000011, 0x00000010\nldr r0,[r6,#-4]\nGBL_ASSERT_EQ r0, 0x00000022, 0x00000023\ncmp r4,r6\nbne .Ldiagnostic_assert_fail\nb .Lblk_done\n.align 2\n.Lblk_data:\n.word 0x11111111, 0x22222222, 0x11111111, 0x22222222, 0x55555555, 0x66666666, 0x77777777, 0x88888888\n.Lblk_done:\n",
         "independent_expectation": {
           "instruction": "STM:DB:normal-no-writeback",
           "address_mode": "DB",
-          "writeback": true,
-          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics.",
+          "writeback": false,
+          "derivation": "ARM7TDMI block address generation, increasing register order, and selected bank/exception-return semantics. W=0 preserves r4 exactly; r6 snapshots the base before transfer.",
           "expected_value": "0x00000011",
           "broken_expected": "0x00000010",
           "broken_expectation": "Only the asserted expectation changes; both members execute the same tested instruction and assertion path."
@@ -12450,7 +12122,6 @@
         337575578,
         342646202,
         347813201,
-        348959853,
         349804262,
         354903217,
         355081736,
@@ -12462,10 +12133,8 @@
         373177293,
         374387597,
         375018760,
-        386420797,
         386601171,
         388491929,
-        395853884,
         397143278,
         397407432,
         399952470,
@@ -12473,12 +12142,9 @@
         401838786,
         418546165,
         421981425,
-        423103475,
-        427234685,
         430038493,
         432594855,
         433787074,
-        434308478,
         440968216,
         459678872,
         466070916,
@@ -12487,14 +12153,12 @@
         472532248,
         479897899,
         479963661,
-        492687423,
         499670646,
         501256082,
         503119932,
         504796460,
         505272308,
         515475758,
-        523744941,
         526005280,
         529906570
       ],

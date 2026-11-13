@@ -33,6 +33,23 @@ if(CASE STREQUAL "arm-pre-admission")
     endif()
   endforeach()
   file(READ "${matrix}" matrix_json)
+  # Require the architecture-derived ledger before deriving runtime totals.
+  execute_process(COMMAND "${CMAKE_COMMAND}" -DMODE=draft "-DMATRIX=${matrix}"
+    -P "${source_root}/cmake/CheckArmCoverage.cmake"
+    RESULT_VARIABLE ledger_rc OUTPUT_VARIABLE ledger_out ERROR_VARIABLE ledger_err)
+  if(NOT ledger_rc STREQUAL "0")
+    message(FATAL_ERROR "diagnostics-case: invalid-arm-ledger:${ledger_out}${ledger_err}")
+  endif()
+  string(JSON inventory_rows LENGTH "${matrix_json}" cases)
+  math(EXPR inventory_last "${inventory_rows}-1")
+  set(expected_semantics 0)
+  foreach(index RANGE 0 ${inventory_last})
+    string(JSON kind ERROR_VARIABLE kind_error GET "${matrix_json}" cases ${index} source_test kind)
+    if(kind STREQUAL "semantic")
+      math(EXPR expected_semantics "${expected_semantics}+1")
+    endif()
+  endforeach()
+  math(EXPR expected_outputs "${expected_semantics}*2+4")
   file(READ "${matrix_receipt}" matrix_build_json)
   string(JSON receipt_format ERROR_VARIABLE format_error GET "${matrix_build_json}" format)
   string(JSON receipt_isa ERROR_VARIABLE isa_error GET "${matrix_build_json}" isa)
@@ -48,8 +65,8 @@ if(CASE STREQUAL "arm-pre-admission")
   endforeach()
   string(LENGTH "${receipt_commit}" receipt_commit_length)
   if(NOT receipt_format STREQUAL "gamebloke.arm-diagnostic-matrix/1" OR
-     NOT receipt_isa STREQUAL "arm" OR NOT receipt_semantic EQUAL 244 OR
-     NOT receipt_stops EQUAL 4 OR NOT receipt_output_count EQUAL 492 OR
+     NOT receipt_isa STREQUAL "arm" OR NOT receipt_semantic EQUAL expected_semantics OR
+     NOT receipt_stops EQUAL 4 OR NOT receipt_output_count EQUAL expected_outputs OR
      NOT receipt_commit_length EQUAL 40 OR
      NOT receipt_commit MATCHES "^[0-9a-f]+$")
     message(FATAL_ERROR "diagnostics-case: arm-matrix-receipt-mismatch")
@@ -497,8 +514,8 @@ if(CASE STREQUAL "arm-pre-admission")
       math(EXPR stop_witness_count "${stop_witness_count}+1")
     endif()
   endforeach()
-  if(NOT semantic_positive_count EQUAL 244 OR
-     NOT semantic_broken_count EQUAL 244 OR NOT stop_witness_count EQUAL 4)
+  if(NOT semantic_positive_count EQUAL expected_semantics OR
+     NOT semantic_broken_count EQUAL expected_semantics OR NOT stop_witness_count EQUAL 4)
     message(FATAL_ERROR
       "diagnostics-case: arm-observation-count-mismatch: positive=${semantic_positive_count} broken=${semantic_broken_count} stops=${stop_witness_count}")
   endif()
@@ -525,7 +542,7 @@ if(CASE STREQUAL "arm-pre-admission")
   endif()
   file(WRITE "${result_root}/summary.txt"
     "source.commit=${receipt_commit}\nsemantic.positive=${semantic_positive_count}\nsemantic.broken=${semantic_broken_count}\nstop.witnesses=${stop_witness_count}\nraw.status=GUEST_STOP\nsemantic.admission=unregistered-content\nresult.contract=unregistered-admission-refused\nraw.observation=checked\ntrace.context=checked\nvector.fetch=none\nobservation.controls=${control_count}\n")
-  message("diagnostics-case: ok (244 raw ARM pass/fail pairs; 4 named guest stops; all unregistered)")
+  message("diagnostics-case: ok (${expected_semantics} raw ARM pass/fail pairs; 4 named guest stops; all unregistered)")
   return()
 endif()
 if(NOT CASE STREQUAL "smoke-pair")

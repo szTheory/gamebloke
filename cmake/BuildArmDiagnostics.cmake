@@ -751,12 +751,15 @@ if(MODE STREQUAL "all")
       string(APPEND allowlist "${rom_name}\n")
     endforeach()
   endforeach()
-  if(NOT semantic_count EQUAL 244 OR NOT stop_count EQUAL 4)
+  # The coverage checker already proves the architecture-derived inventory.
+  # Count the selected producers above rather than freezing a historical total.
+  if(semantic_count LESS 1 OR NOT stop_count EQUAL 4)
     message(FATAL_ERROR
       "arm-diagnostics: matrix-count-mismatch: semantic=${semantic_count} stops=${stop_count}")
   endif()
   list(LENGTH output_names output_count)
-  if(NOT output_count EQUAL 492)
+  math(EXPR expected_output_count "${semantic_count}*2+${stop_count}")
+  if(NOT output_count EQUAL expected_output_count)
     message(FATAL_ERROR "arm-diagnostics: matrix-output-count-mismatch: ${output_count}")
   endif()
   set(sorted_names "${output_names}")
@@ -925,6 +928,52 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
       message(FATAL_ERROR "arm-diagnostics: arm-case-disassembly-invalid: ${case_disasm_error}")
     endif()
     file(WRITE "${variant_root}/case.disasm.txt" "${case_disassembly}")
+    # Confirm the real assembler encoding for the reviewed PC and block forms.
+    # These are architectural field checks, not a second assembler.
+    string(TOLOWER "${case_disassembly}" reviewed_disassembly)
+    string(JSON selected_form GET "${selected_row}" form)
+    if(selected_form STREQUAL "arm-register-shifted-operand-pc-plus-12")
+      if(NOT reviewed_disassembly MATCHES "e082031f[ \t]+add[ \t]+r0, r2, pc, lsl r3")
+        message(FATAL_ERROR "arm-diagnostics: pc-operand-encoding-invalid")
+      endif()
+    elseif(selected_family STREQUAL "block-transfer" AND
+           selected_form MATCHES ":normal-no-writeback$")
+      string(REPLACE ":" ";" block_parts "${selected_form}")
+      list(GET block_parts 0 block_op)
+      list(GET block_parts 1 block_mode)
+      set(block_p 0)
+      set(block_u 0)
+      set(block_l 0)
+      if(block_mode MATCHES "^(IB|DB)$")
+        set(block_p 1)
+      endif()
+      if(block_mode MATCHES "^(IA|IB)$")
+        set(block_u 1)
+      endif()
+      if(block_op STREQUAL "LDM")
+        set(block_l 1)
+      endif()
+      # cond=AL, class=100, S=0,W=0,Rn=4,list={r0,r1}.
+      math(EXPR block_opcode "0xE8040003 | (${block_p} << 24) | (${block_u} << 23) | (${block_l} << 20)" OUTPUT_FORMAT HEXADECIMAL)
+      string(SUBSTRING "${block_opcode}" 2 -1 block_hex)
+      if(NOT reviewed_disassembly MATCHES "${block_hex}[ \t]+(ldm|stm)")
+        message(FATAL_ERROR "arm-diagnostics: block-writeback-encoding-invalid:${CASE_ID}")
+      endif()
+    elseif(selected_form STREQUAL "incoming-c-boundary-vectors" OR
+           selected_form STREQUAL "zero-one-sign-bit-and-all-ones-operands")
+      set(boundary_opcode e1b00001) # MOVS r0,r1,LSL #0
+      set(boundary_mnemonic movs)
+      if(selected_form STREQUAL "zero-one-sign-bit-and-all-ones-operands")
+        set(boundary_opcode e1b00271) # MOVS r0,r1,ROR r2 (r2=0)
+        set(boundary_mnemonic rors) # GNU objdump's equivalent preferred alias
+      endif()
+      string(REGEX MATCHALL "${boundary_opcode}[ \t]+${boundary_mnemonic}" boundary_operations
+        "${reviewed_disassembly}")
+      list(LENGTH boundary_operations boundary_operation_count)
+      if(NOT boundary_operation_count EQUAL 8)
+        message(FATAL_ERROR "arm-diagnostics: boundary-operation-encoding-invalid:${CASE_ID}")
+      endif()
+    endif()
     execute_process(
       COMMAND "${tool_bin}/arm-none-eabi-objcopy" -O binary
         "${variant_root}/case.elf" "${variant_root}/case.unfixed"
