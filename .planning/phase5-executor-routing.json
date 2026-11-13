@@ -1,0 +1,16 @@
+{
+  "runtime": "codex",
+  "scope": "remaining Phase5 execution after completed ARM matrix build, including recovered verification tail and Plans20-25",
+  "approved": "User selected Use stronger executor through Phase5 (Recommended)",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "unchanged_roles": [
+    "gsd-code-reviewer",
+    "gsd-code-fixer"
+  ],
+  "status": "active_after_daemon_recovery",
+  "activated_utc": "2026-11-13T04:38:51.457170+00:00",
+  "recovery": "Original Luna agent lost on server restart; its completed492-output build was preserved and independently verified; no regeneration or duplicate build",
+  "restore_after": "Phase5 execution/review readiness before required owner phase acceptance; no extension to Phase6",
+  "restore_rule": "If config matches build/phase05-through-phase5-model/config-applied.json, restore exact config-before.json dirty owner bytes. Otherwise restore only untouched owned fields while preserving newer owner edits. Never restore HEAD config."
+}

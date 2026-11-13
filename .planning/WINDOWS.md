@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 2
+open_count: 3
 waived_count: 0
 fixed_count: 9
-total_count: 11
-last_updated: 2026-11-11T17:07:05.294Z
+total_count: 12
+last_updated: 2026-11-13T05:37:03.666Z
 ---
 
 # Broken Windows Ledger
@@ -26,6 +26,7 @@ last_updated: 2026-11-11T17:07:05.294Z
 | 9 | 04 | deviation | tests/gates/runner_case.cmake |  | Five external no-BIOS stop kinds are not CLI-reachable under direct-start. All five were verified through the existing CPU exception API and shared production runner classification/JSON path; no CLI triggers, interrupt source or abort model was added. | fixed |  | 2026-11-11T10:04:01.038Z | 2026-11-11T10:04:01.118Z |
 | 10 | 04 | deviation | cmake/CheckResult.cmake |  | Moved trace-output-full and incomplete-trace consistency checks out of status-branch chaining so all applicable statuses reach the checks. Regression controls, actual producer checks, canonical CI and focused sanitizers pass. | fixed |  | 2026-11-11T10:46:06.440Z | 2026-11-11T10:46:06.510Z |
 | 11 | 05 | deviation | scripts/fetch-toolchain.sh |  | Host-row URL validation now refuses a cross-host archive URL before curl; the regression control and offline matrix pass. | fixed |  | 2026-11-11T17:07:01.463Z | 2026-11-11T17:07:05.294Z |
+| 12 | 05 | deviation | .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-19-SUMMARY.md |  | Plan19 original formal TDD record is incomplete: preserved original RED log is empty, no classifier evidence exists, and task2 has no separate RED commit. Fresh semantic/trace controls pass but cannot reconstruct historical compliance. Keep this process deviation visible for the existing Phase5 acceptance boundary. | open |  | 2026-11-13T05:37:03.666Z |  |
 
 ````json
 [
@@ -170,6 +171,19 @@ last_updated: 2026-11-11T17:07:05.294Z
     "reason": "",
     "recorded_at": "2026-11-11T17:07:01.463Z",
     "resolved_at": "2026-11-11T17:07:05.294Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 12,
+    "kind": "deviation",
+    "phase": "05",
+    "file": ".planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-19-SUMMARY.md",
+    "line": null,
+    "description": "Plan19 original formal TDD record is incomplete: preserved original RED log is empty, no classifier evidence exists, and task2 has no separate RED commit. Fresh semantic/trace controls pass but cannot reconstruct historical compliance. Keep this process deviation visible for the existing Phase5 acceptance boundary.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-13T05:37:03.666Z",
+    "resolved_at": null,
     "milestone": "v1.0"
   }
 ]
