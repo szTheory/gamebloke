@@ -105,6 +105,9 @@ if(CASE STREQUAL "copy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
 
 elseif(CASE STREQUAL "cpu_policy_value")
+  if(NOT PROFILE_VERSION EQUAL 5)
+    message(FATAL_ERROR "profile-case: expanded CPU contract requires profile version 5")
+  endif()
   profile_copy(p positive_cpu_policy)
   doc_copy(d positive_cpu_policy)
   check_command(cmd "${p}" "${d}")
@@ -114,6 +117,28 @@ elseif(CASE STREQUAL "cpu_policy_value")
   profile_copy(p missing_cpu_policy)
   gbl_json_mutate_remove("${p}" cpu_policy)
   expect_code(cpu-policy-missing "${p}")
+
+  profile_copy(p stale_version_four)
+  gbl_json_mutate_set("${p}" "4" profile_version)
+  expect_detail(cpu-policy-value "profile_version: expected 5" "${p}")
+
+  foreach(key IN ITEMS pc_operand_reads internal_work multiply_flag_policy
+      loaded_pc_boundary unpredictable_operands extension_encoding address_arithmetic)
+    foreach(bad IN ITEMS missing number value)
+      profile_copy(p bad_${key}_${bad})
+      if(bad STREQUAL "missing")
+        gbl_json_mutate_remove("${p}" cpu_policy ${key})
+      elseif(bad STREQUAL "number")
+        gbl_json_mutate_set("${p}" "5" cpu_policy ${key})
+      else()
+        gbl_json_mutate_set("${p}" "\"hardware-qualified\"" cpu_policy ${key})
+      endif()
+      expect_detail(cpu-policy-value "cpu_policy\\.${key}: expected" "${p}")
+    endforeach()
+  endforeach()
+  profile_copy(p extra_policy_field)
+  gbl_json_mutate_set("${p}" "true" cpu_policy hardware_qualified)
+  expect_detail(cpu-policy-value "cpu_policy: field count" "${p}")
 
   profile_copy(p wrong_entry)
   gbl_json_mutate_set("${p}" "134217732" cpu_policy entry_address)
@@ -152,9 +177,9 @@ elseif(CASE STREQUAL "cpu_policy_value")
   expect_code(cpu-policy-value "${p}")
 
   profile_copy(p excess_supported_rows)
-  gbl_text_mutate("${p}"
-    "\"Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers\"\n    ],"
-    "\"Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers\",\n      \"Extra instruction family not implemented\"\n    ],")
+  string(JSON supported_count LENGTH "${base_profile}" cpu_policy supported_opcode_operands)
+  gbl_json_mutate_set("${p}" "\"Extra instruction family not implemented\""
+    cpu_policy supported_opcode_operands ${supported_count})
   expect_code(cpu-policy-value "${p}")
 
   profile_copy(p omitted_excluded_rows)
@@ -197,6 +222,16 @@ elseif(CASE STREQUAL "cpu_policy_doc")
   gbl_text_mutate("${d}" "ARM control flow: B, BL, BX"
     "ARM control flow: B, BL, BX, and extra opcode")
   expect_code(cpu-policy-doc "${p}" "${d}")
+
+  foreach(key IN ITEMS pc_operand_reads internal_work multiply_flag_policy
+      loaded_pc_boundary unpredictable_operands extension_encoding address_arithmetic)
+    profile_copy(p stale_${key}_doc)
+    doc_copy(d stale_${key}_doc)
+    string(JSON value GET "${base_profile}" cpu_policy ${key})
+    gbl_text_mutate("${d}" "| cpu_policy.${key} | ${value} |"
+      "| cpu_policy.${key} | hardware-qualified |")
+    expect_code(cpu-policy-doc "${p}" "${d}")
+  endforeach()
 
 elseif(CASE STREQUAL "bus_policy_missing")
   profile_copy(p missing_bus_policy)
