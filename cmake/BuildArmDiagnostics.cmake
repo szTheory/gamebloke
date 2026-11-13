@@ -964,6 +964,7 @@ if(MODE STREQUAL "case" AND selected_kind MATCHES "^(semantic|guest-stop)$")
     endif()
     file(WRITE "${variant_root}/unresolved-symbols.txt" "No unresolved symbols.\n")
     execute_process(COMMAND "${CMAKE_COMMAND}"
+      -DAUDIT_KIND=case
       "-DMAP=${variant_root}/case.map"
       "-DOBJECTS=${variant_root}/startup.o;${variant_root}/case.o"
       "-DATTRIBUTES=${variant_root}/startup.attributes.txt;${variant_root}/case.attributes.txt;${variant_root}/elf.attributes.txt"

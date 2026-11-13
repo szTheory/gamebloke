@@ -5,6 +5,12 @@ foreach(required IN ITEMS MAP OBJECTS ATTRIBUTES SECTIONS DISASSEMBLY SRC)
     message(FATAL_ERROR "linkmap: missing-${required}")
   endif()
 endforeach()
+if(NOT DEFINED AUDIT_KIND)
+  set(AUDIT_KIND smoke)
+endif()
+if(NOT AUDIT_KIND MATCHES "^(smoke|case)$")
+  message(FATAL_ERROR "linkmap: unknown-audit-kind")
+endif()
 if(NOT EXISTS "${MAP}" OR IS_DIRECTORY "${MAP}" OR IS_SYMLINK "${MAP}")
   message(FATAL_ERROR "linkmap: map-not-regular")
 endif()
@@ -133,8 +139,10 @@ if(NOT disassembly MATCHES "Disassembly of section [.]gba_header" OR
    NOT disassembly MATCHES "Disassembly of section [.]text" OR
    NOT disassembly MATCHES "_start" OR
    NOT disassembly MATCHES "diagnostic_main" OR
-   NOT disassembly MATCHES "thumb_probe" OR
    NOT disassembly MATCHES "bx")
+  message(FATAL_ERROR "linkmap: executable-disassembly-incomplete")
+endif()
+if(AUDIT_KIND STREQUAL "smoke" AND NOT disassembly MATCHES "thumb_probe")
   message(FATAL_ERROR "linkmap: executable-disassembly-incomplete")
 endif()
 

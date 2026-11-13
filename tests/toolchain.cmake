@@ -368,7 +368,7 @@ if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
     NAME diagnostics.final.outputs
     LABELS diagnostics gate integration
     COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-host-set
-      "-DBIN=${CMAKE_BINARY_DIR}/final-proof"
+      "-DBIN=${CMAKE_SOURCE_DIR}/build/final-proof"
       "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
   gbl_add_test(

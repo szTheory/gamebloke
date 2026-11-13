@@ -218,11 +218,11 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       file(STRINGS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
         GBL_FINAL_PRODUCER_INPUTS REGEX "^[A-Za-z0-9]")
       list(TRANSFORM GBL_FINAL_PRODUCER_INPUTS PREPEND "${CMAKE_SOURCE_DIR}/")
-      set(GBL_FINAL_PROOF_RECEIPT "${CMAKE_BINARY_DIR}/final-proof/complete-host.json")
+      set(GBL_FINAL_PROOF_RECEIPT "${CMAKE_SOURCE_DIR}/build/final-proof/complete-host.json")
       add_custom_command(
         OUTPUT "${GBL_FINAL_PROOF_RECEIPT}"
         COMMAND "${CMAKE_COMMAND}" -DCASE=final-host-build
-          "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}/final-proof"
+          "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_SOURCE_DIR}/build/final-proof"
           "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
           -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake"
         DEPENDS ${GBL_FINAL_PRODUCER_INPUTS}

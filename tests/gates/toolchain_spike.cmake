@@ -25,7 +25,7 @@ if(CASE STREQUAL "final-producer-tracer")
   message(STATUS "toolchain-spike: final-producer-contract passed")
   return()
 endif()
-if(CASE MATCHES "^final-(host-build|host-set|output-proof|hosted-proof|proof-controls)$")
+if(CASE MATCHES "^final-(host-build|host-set|output-proof|hosted-proof|proof-controls|proof-authority-control)$")
   include("${SRC}/tests/gates/final_diagnostic_proof.cmake")
   return()
 endif()
@@ -47,8 +47,13 @@ set(linkmap_gate "${source_root}/tests/gates/diagnostic_linkmap.cmake")
 
 function(run_linkmap label map_path object_paths attr_paths section_path
     disassembly_path expected)
+  set(audit_kind smoke)
+  if(ARGC GREATER 7)
+    set(audit_kind "${ARGV7}")
+  endif()
   execute_process(
     COMMAND "${CMAKE_COMMAND}" "-DMAP=${map_path}"
+      "-DAUDIT_KIND=${audit_kind}"
       "-DOBJECTS=${object_paths}" "-DATTRIBUTES=${attr_paths}"
       "-DSECTIONS=${section_path}" "-DDISASSEMBLY=${disassembly_path}"
       "-DSRC=${source_root}" -P "${linkmap_gate}"
@@ -93,6 +98,16 @@ if(CASE STREQUAL "offline-controls")
     "Disassembly of section .gba_header:\n08000000 <_start>:\n  b 080000c0\nDisassembly of section .text:\n080000c0 <diagnostic_main>:\n  bx r3\n08000120 <thumb_probe>:\n  bx lr\n")
   run_linkmap("clean-map" "${map}" "${objects}" "${attributes}"
     "${sections}" "${disassembly}" "pass")
+  file(READ "${disassembly}" case_disassembly)
+  string(REPLACE "08000120 <thumb_probe>:\n" "" case_disassembly "${case_disassembly}")
+  file(WRITE "${control_root}/case-disassembly.txt" "${case_disassembly}")
+  run_linkmap("case-kind" "${map}" "${objects}" "${attributes}"
+    "${sections}" "${control_root}/case-disassembly.txt" "pass" case)
+  run_linkmap("smoke-symbol-retained" "${map}" "${objects}" "${attributes}"
+    "${sections}" "${control_root}/case-disassembly.txt"
+    "linkmap: executable-disassembly-incomplete" smoke)
+  run_linkmap("unknown-audit-kind" "${map}" "${objects}" "${attributes}"
+    "${sections}" "${disassembly}" "linkmap: unknown-audit-kind" unknown)
   file(WRITE "${control_root}/runtime.map"
     "LOAD ${startup}\nLOAD crt0.o\nLOAD ${smoke}\nLOAD linker stubs\n")
   run_linkmap("runtime-injection" "${control_root}/runtime.map"
