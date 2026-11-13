@@ -5,6 +5,18 @@ foreach(required IN ITEMS SRC BIN CASE)
     message(FATAL_ERROR "diagnostics-case: missing-${required}")
   endif()
 endforeach()
+if(CASE STREQUAL "thumb-boundary-tracer")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=thumb-pre-admission
+    "-DSRC=${SRC}" "-DBIN=${BIN}" -DARTIFACT_ROOT=build/phase05-matrix/thumb
+    -P "${SRC}/tests/gates/diagnostics_case.cmake"
+    WORKING_DIRECTORY "${SRC}"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT rc STREQUAL "0")
+    message(FATAL_ERROR "diagnostics-case: thumb-boundary-contract: every raw pair/stop and separate BL observation must be checked: ${output}${error}")
+  endif()
+  message(STATUS "diagnostics-case: thumb-boundary-tracer passed")
+  return()
+endif()
 if(CASE STREQUAL "thumb-producer-tracer")
   # Narrow executable contract: the first stable Thumb ID must be selectable
   # through the production builder, not merely named in the draft inventory.
