@@ -9624,13 +9624,13 @@ static bool thumb_multiple_refusal_case(uint16_t opcode)
 static void test_thumb_multiple_empty_and_unpredictable(void)
 {
     test_case(thumb_multiple_refusal_case(UINT16_C(0xC000)),
-              "empty Thumb STMIA list follows the DDI0100I UNPREDICTABLE stop policy");
+              "Gamebloke stops the DDI0100I UNPREDICTABLE empty Thumb STMIA list before effects");
     test_case(thumb_multiple_refusal_case(UINT16_C(0xC800)),
-              "empty Thumb LDMIA list follows the DDI0100I UNPREDICTABLE stop policy");
+              "Gamebloke stops the DDI0100I UNPREDICTABLE empty Thumb LDMIA list before effects");
     test_case(thumb_multiple_refusal_case(UINT16_C(0xC107)),
-              "Thumb STMIA base-middle follows the DDI0100I UNPREDICTABLE stop policy");
+              "Gamebloke stops Thumb STMIA base-middle when its stored base is DDI0100I UNPREDICTABLE");
     test_case(thumb_multiple_refusal_case(UINT16_C(0xC207)),
-              "Thumb STMIA base-last follows the DDI0100I UNPREDICTABLE stop policy");
+              "Gamebloke stops Thumb STMIA base-last when its stored base is DDI0100I UNPREDICTABLE");
 }
 
 static bool thumb_multiple_maximum_refusal_case(
