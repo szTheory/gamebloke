@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 3.25)
 # synthetic manifest and never grants real fixture rights.
 include("${CMAKE_CURRENT_LIST_DIR}/CheckManifest.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckDiagnosticAuthority.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/PathContainment.cmake")
 
 foreach(required IN ITEMS GBL_SOURCE_DIR GBL_CONTROL_IMAGE
     GBL_CONTROL_MANIFEST_OUTPUT GBL_MANIFEST GBL_REGISTRY GBL_VOCAB
@@ -15,6 +16,11 @@ foreach(required IN ITEMS GBL_SOURCE_DIR GBL_CONTROL_IMAGE
 endforeach()
 
 get_filename_component(GBL_SOURCE_DIR "${GBL_SOURCE_DIR}" ABSOLUTE)
+gbl_resolve_path(source_root_real source_root_status "${GBL_SOURCE_DIR}")
+if(NOT source_root_status STREQUAL "ok" OR NOT IS_DIRECTORY "${source_root_real}")
+  message(FATAL_ERROR "fixture-index: source-root-${source_root_status}")
+endif()
+set(GBL_SOURCE_DIR "${source_root_real}")
 if(DEFINED GBL_ARTIFACT_ROOT AND NOT "${GBL_ARTIFACT_ROOT}" STREQUAL "")
   if(NOT IS_ABSOLUTE "${GBL_ARTIFACT_ROOT}")
     message(FATAL_ERROR "fixture-index: artifact-root-not-absolute")
@@ -223,11 +229,27 @@ if(M_COUNT GREATER 0)
         source path)
       gbl_json_string(expected_digest "${row_doc}"
         source sha256)
-      set(source_path "${GBL_SOURCE_DIR}/${relative_path}")
-      if(NOT EXISTS "${source_path}" OR IS_DIRECTORY "${source_path}")
+      gbl__manifest_path_ok(source_path_ok "${relative_path}")
+      if(NOT source_path_ok)
+        # CheckManifest.cmake already recorded the malformed manifest path.
+        # Do not resolve it or let it influence a filesystem read.
+      else()
+        set(source_path "${GBL_SOURCE_DIR}/${relative_path}")
+        gbl_resolve_contained_path(source_real source_status
+          "${GBL_SOURCE_DIR}" "${source_path}")
+      endif()
+      if(NOT source_path_ok)
+        # The manifest finding is authoritative for spelling errors.
+      elseif(source_status STREQUAL "path-escape")
+        gbl_finding(fixture-index in-tree-path-escape "${row_id}")
+      elseif(source_status STREQUAL "dangling-symlink")
+        gbl_finding(fixture-index in-tree-path-dangling-symlink "${row_id}")
+      elseif(NOT source_status STREQUAL "ok")
+        gbl_finding(fixture-index in-tree-path-unresolvable "${row_id}")
+      elseif(NOT EXISTS "${source_real}" OR IS_DIRECTORY "${source_real}")
         gbl_finding(fixture-index in-tree-file-missing "${row_id}")
       else()
-        file(SHA256 "${source_path}" actual_digest)
+        file(SHA256 "${source_real}" actual_digest)
         if(NOT "${expected_digest}" STREQUAL "${actual_digest}")
           gbl_finding(fixture-index digest-mismatch "${row_id}")
         endif()

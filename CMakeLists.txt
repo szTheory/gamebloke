@@ -301,6 +301,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     DEPENDS ${GBL_OWNED_FIXTURE_FILES} ${GBL_DIAGNOSTIC_INDEX_DEPENDS}
       "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "${CMAKE_SOURCE_DIR}/cmake/CheckDiagnosticAuthority.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/PathContainment.cmake"
       "${CMAKE_SOURCE_DIR}/registry/disputes.json"
       "${CMAKE_SOURCE_DIR}/contracts/evidence.json"
       "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake"

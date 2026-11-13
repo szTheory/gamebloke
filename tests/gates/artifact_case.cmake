@@ -18,8 +18,12 @@ include("${SRC}/tests/gates/json_mutate.cmake")
 
 function(run_generator out_result out_report manifest artifact_root production_index
     control_index control_manifest)
+  set(generator_source_root "${SRC}")
+  if(ARGC GREATER 7)
+    set(generator_source_root "${ARGV7}")
+  endif()
   set(command "${CMAKE_COMMAND}"
-    "-DGBL_SOURCE_DIR=${SRC}"
+    "-DGBL_SOURCE_DIR=${generator_source_root}"
     "-DGBL_CONTROL_IMAGE=${control_image}"
     "-DGBL_CONTROL_MANIFEST_OUTPUT=${control_manifest}"
     "-DGBL_MANIFEST=${manifest}"
@@ -249,6 +253,80 @@ if(CASE STREQUAL "compatibility-and-controls")
     message(FATAL_ERROR "artifact-case: symlink-escape-accepted\n${escape_report}")
   endif()
 
+  # An in-tree manifest path may use a contained symlink alias, but its
+  # resolved bytes must remain inside the declared source root.
+  set(in_tree_manifest "${dir}/in-tree-manifest.json")
+  file(READ "${manifest}" in_tree_doc)
+  string(JSON in_tree_row GET "${in_tree_doc}" fixtures 0)
+  string(JSON in_tree_row REMOVE "${in_tree_row}" build artifact)
+  set(in_tree_source "{}")
+  string(JSON in_tree_source SET "${in_tree_source}" kind "\"in-tree\"")
+  string(JSON in_tree_source SET "${in_tree_source}" path "\"fixtures/diagnostic.gba\"")
+  file(MAKE_DIRECTORY "${dir}/in-tree-source" "${dir}/in-tree-external")
+  set(in_tree_external_file "${dir}/in-tree-external/diagnostic.gba")
+  file(WRITE "${in_tree_external_file}" "synthetic external in-tree identity bytes\n")
+  file(SHA256 "${in_tree_external_file}" in_tree_external_digest)
+  string(JSON in_tree_source SET "${in_tree_source}" sha256 "\"${in_tree_external_digest}\"")
+  string(JSON in_tree_row SET "${in_tree_row}" source "${in_tree_source}")
+  string(JSON in_tree_doc SET "${in_tree_doc}" fixtures "[${in_tree_row}]")
+  file(WRITE "${in_tree_manifest}" "${in_tree_doc}\n")
+  file(CREATE_LINK "${dir}/in-tree-external" "${dir}/in-tree-source/fixtures"
+    SYMBOLIC RESULT in_tree_link)
+  if(NOT in_tree_link STREQUAL "0")
+    message(FATAL_ERROR "artifact-case: in-tree-symlink-control-could-not-be-created:${in_tree_link}")
+  endif()
+  set(in_tree_prod "${dir}/in-tree-generated/production/fixture_index.h")
+  set(in_tree_control "${dir}/in-tree-generated/control/fixture_index.h")
+  set(in_tree_control_manifest "${dir}/in-tree-generated/control/manifest.json")
+  get_filename_component(in_tree_prod_dir "${in_tree_prod}" DIRECTORY)
+  get_filename_component(in_tree_control_dir "${in_tree_control}" DIRECTORY)
+  file(MAKE_DIRECTORY "${in_tree_prod_dir}" "${in_tree_control_dir}")
+  file(WRITE "${in_tree_prod}" "stale in-tree production index\n")
+  file(WRITE "${in_tree_control}" "stale in-tree control index\n")
+  file(SHA256 "${in_tree_external_file}" in_tree_before)
+  run_generator(in_tree_result in_tree_report "${in_tree_manifest}" ""
+    "${in_tree_prod}" "${in_tree_control}" "${in_tree_control_manifest}"
+    "${dir}/in-tree-source")
+  file(SHA256 "${in_tree_external_file}" in_tree_after)
+  if("${in_tree_result}" STREQUAL "0" OR
+      NOT "${in_tree_report}" MATCHES
+        "fixture-index: in-tree-path-escape: example-row" OR
+      EXISTS "${in_tree_prod}" OR EXISTS "${in_tree_control}" OR
+      NOT in_tree_before STREQUAL in_tree_after)
+    message(FATAL_ERROR "artifact-case: in-tree-symlink-escape-accepted-or-stale-index-kept\n${in_tree_report}")
+  endif()
+
+  # A contained alias has the same contract: the pin is the bytes resolved
+  # beneath the repository root, so this clean companion remains admissible.
+  set(contained_source_root "${dir}/in-tree-contained")
+  file(MAKE_DIRECTORY "${contained_source_root}/fixtures" "${contained_source_root}/owned")
+  set(contained_target "${contained_source_root}/owned/diagnostic.gba")
+  file(WRITE "${contained_target}" "synthetic contained in-tree identity bytes\n")
+  file(SHA256 "${contained_target}" contained_digest)
+  file(CREATE_LINK "../owned/diagnostic.gba"
+    "${contained_source_root}/fixtures/contained-alias.gba"
+    SYMBOLIC RESULT contained_link)
+  if(NOT contained_link STREQUAL "0")
+    message(FATAL_ERROR "artifact-case: contained-alias-control-could-not-be-created:${contained_link}")
+  endif()
+  string(JSON contained_source SET "${in_tree_source}" path
+    "\"fixtures/contained-alias.gba\"")
+  string(JSON contained_source SET "${contained_source}" sha256 "\"${contained_digest}\"")
+  string(JSON contained_row SET "${in_tree_row}" source "${contained_source}")
+  string(JSON contained_doc SET "${in_tree_doc}" fixtures "[${contained_row}]")
+  set(contained_manifest "${dir}/contained-in-tree-manifest.json")
+  file(WRITE "${contained_manifest}" "${contained_doc}\n")
+  set(contained_prod "${dir}/contained-generated/production/fixture_index.h")
+  set(contained_control "${dir}/contained-generated/control/fixture_index.h")
+  set(contained_control_manifest "${dir}/contained-generated/control/manifest.json")
+  run_generator(contained_result contained_report "${contained_manifest}" ""
+    "${contained_prod}" "${contained_control}" "${contained_control_manifest}"
+    "${contained_source_root}")
+  if(NOT "${contained_result}" STREQUAL "0" OR
+      NOT EXISTS "${contained_prod}" OR NOT EXISTS "${contained_control}")
+    message(FATAL_ERROR "artifact-case: contained-in-tree-alias-rejected\n${contained_report}")
+  endif()
+
   run_companion_case("tests/gates/manifest_case.cmake" artifact_shape
     manifest_control_result manifest_control_report)
   if(NOT "${manifest_control_result}" STREQUAL "0")
@@ -258,6 +336,12 @@ if(CASE STREQUAL "compatibility-and-controls")
     result_control_result result_control_report)
   if(NOT "${result_control_result}" STREQUAL "0")
     message(FATAL_ERROR "artifact-case: result-binding-controls-failed\n${result_control_report}")
+  endif()
+
+  run_companion_case("tests/gates/diagnostic_admission_controls.cmake" path-controls
+    admission_path_result admission_path_report)
+  if(NOT "${admission_path_result}" STREQUAL "0")
+    message(FATAL_ERROR "artifact-case: admission-path-controls-failed\n${admission_path_report}")
   endif()
 
   message("artifact-case: legacy git digest remains empty; absent output uses metadata pin")

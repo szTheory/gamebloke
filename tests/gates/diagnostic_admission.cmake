@@ -2,6 +2,24 @@
 # runner controls. Keep each fixture ID distinct while retaining paired case IDs.
 get_filename_component(source_root "${SRC}" ABSOLUTE)
 get_filename_component(binary_root "${BIN}" ABSOLUTE)
+include("${source_root}/cmake/PathContainment.cmake")
+gbl_resolve_path(binary_root_real binary_root_status "${binary_root}")
+if(NOT binary_root_status STREQUAL "ok")
+  message(FATAL_ERROR "diagnostics-case: binary-root-${binary_root_status}")
+endif()
+set(binary_root "${binary_root_real}")
+# A refusal must not leave an old production index available to a later build.
+# Check each output first so removal cannot follow a link outside the build root.
+foreach(relative IN ITEMS
+    generated/production/fixture_index.h
+    generated/control/fixture_index.h
+    generated/control/manifest.json)
+  gbl_remove_file_contained(remove_status "${binary_root}"
+    "${binary_root}/${relative}")
+  if(NOT remove_status STREQUAL "ok")
+    message(FATAL_ERROR "diagnostics-case: generated-output-${remove_status}:${relative}")
+  endif()
+endforeach()
 include("${source_root}/cmake/CheckResult.cmake")
 gbl_contract_read(V "${source_root}/contracts/evidence.json")
 gbl_registry_read(R "${source_root}/registry/disputes.json" V)
@@ -101,8 +119,17 @@ foreach(group IN ITEMS smoke arm thumb)
       "-DSOURCE_COMMIT=${authority}" "-DMODE=${mode}" ${extra}
       -P "${source_root}/cmake/BuildArmDiagnostics.cmake"
       RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
-    file(MAKE_DIRECTORY "${binary_root}/diagnostics-results")
-    file(WRITE "${binary_root}/diagnostics-results/build-${group}.log" "${output}${error}")
+    gbl_ensure_directory_contained(directory_status "${binary_root}"
+      "${binary_root}/diagnostics-results")
+    if(NOT directory_status STREQUAL "ok")
+      message(FATAL_ERROR "diagnostics-case: result-directory-${directory_status}")
+    endif()
+    set(build_log "${binary_root}/diagnostics-results/build-${group}.log")
+    gbl_write_file_contained(write_status write_reason "${binary_root}"
+      "${build_log}" "${output}${error}")
+    if(NOT write_status STREQUAL "ok")
+      message(FATAL_ERROR "diagnostics-case: build-log-${write_reason}")
+    endif()
     if(NOT rc STREQUAL "0")
       message(FATAL_ERROR "diagnostics-case: admitted-source-build-failed:${group}:${output}${error}")
     endif()
@@ -111,7 +138,6 @@ foreach(group IN ITEMS smoke arm thumb)
 endforeach()
 
 set(result_root "${binary_root}/diagnostics-results/${CASE}")
-file(MAKE_DIRECTORY "${result_root}")
 foreach(fid IN LISTS selected_ids)
   set(row "${M_ROW_${fid}_JSON}")
   string(JSON path GET "${row}" build artifact path)
@@ -132,9 +158,27 @@ foreach(fid IN LISTS selected_ids)
   if(NOT sha STREQUAL "${M_ROW_${fid}_SHA256}")
     message(FATAL_ERROR "diagnostics-case: admitted-output-digest-mismatch:${fid}")
   endif()
-  get_filename_component(dest_dir "${binary_root}/${path}" DIRECTORY)
-  file(MAKE_DIRECTORY "${dest_dir}")
-  file(COPY_FILE "${image}" "${binary_root}/${path}" ONLY_IF_DIFFERENT)
+  set(admitted_image_${fid} "${image}")
+  set(admitted_destination_${fid} "${binary_root}/${path}")
+  gbl_resolve_contained_path(destination_real destination_status
+    "${binary_root}" "${admitted_destination_${fid}}")
+  if(NOT destination_status STREQUAL "ok")
+    message(FATAL_ERROR
+      "diagnostics-case: admitted-output-${destination_status}:${fid}")
+  endif()
+endforeach()
+
+gbl_ensure_directory_contained(result_dir_status "${binary_root}" "${result_root}")
+if(NOT result_dir_status STREQUAL "ok")
+  message(FATAL_ERROR "diagnostics-case: result-directory-${result_dir_status}")
+endif()
+foreach(fid IN LISTS selected_ids)
+  gbl_copy_file_contained(copy_status copy_reason
+    "${admitted_image_${fid}}" "${binary_root}"
+    "${admitted_destination_${fid}}")
+  if(NOT copy_status STREQUAL "ok")
+    message(FATAL_ERROR "diagnostics-case: admitted-output-${copy_reason}:${fid}")
+  endif()
 endforeach()
 
 set(generated "${binary_root}/generated")
@@ -195,7 +239,11 @@ foreach(fid IN LISTS selected_ids)
     "${binary_root}/${M_ROW_${fid}_ARTIFACT_PATH}" --cycles 1000 --fixture "${fid}"
     RESULT_VARIABLE rc OUTPUT_VARIABLE doc ERROR_VARIABLE error)
   set(result "${result_root}/${fid}.json")
-  file(WRITE "${result}" "${doc}")
+  gbl_write_file_contained(write_status write_reason "${binary_root}"
+    "${result}" "${doc}")
+  if(NOT write_status STREQUAL "ok")
+    message(FATAL_ERROR "diagnostics-case: result-file-${write_reason}:${fid}")
+  endif()
   if(NOT rc STREQUAL "${exit_code}")
     message(FATAL_ERROR "diagnostics-case: admitted-exit-mismatch:${fid}:${doc}${error}")
   endif()
@@ -228,6 +276,10 @@ foreach(fid IN LISTS selected_ids)
   endif()
 endforeach()
 list(LENGTH selected_ids outputs)
-file(WRITE "${result_root}/summary.txt"
+gbl_write_file_contained(write_status write_reason "${binary_root}"
+  "${result_root}/summary.txt"
   "source.commit=${authority}\noutputs=${outputs}\npositive=${positive}\nbroken=${broken}\nguest-stops=${stops}\ncanonical.result=checked-every-output\nsemantic.case-id=exact-nonzero\nprogress=nonzero-bounded\nloaded.index.claim.digest=exact\n")
+if(NOT write_status STREQUAL "ok")
+  message(FATAL_ERROR "diagnostics-case: summary-file-${write_reason}")
+endif()
 message(STATUS "diagnostics-case: ${CASE} passed: ${outputs} production results; positive=${positive}; broken=${broken}; stops=${stops}")

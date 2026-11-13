@@ -1,7 +1,110 @@
 get_filename_component(SRC "${SRC}" ABSOLUTE)
 get_filename_component(BIN "${BIN}" ABSOLUTE)
 set(dir "${BIN}/artifact-case/admission-controls")
+if(DEFINED COPY_CASE)
+  include("${SRC}/cmake/PathContainment.cmake")
+  gbl_copy_file_contained(copy_status copy_reason
+    "${COPY_SOURCE}" "${COPY_ROOT}" "${COPY_DESTINATION}")
+  if(NOT copy_status STREQUAL "ok")
+    message(FATAL_ERROR "artifact-case: ${copy_reason}")
+  endif()
+  message(STATUS "artifact-case: contained-copy-passed:${COPY_CASE}")
+  return()
+endif()
+
+if(CASE STREQUAL "path-controls")
+  include("${SRC}/cmake/PathContainment.cmake")
+  set(path_dir "${BIN}/artifact-case/admission-path-controls")
+  file(MAKE_DIRECTORY "${path_dir}")
+  set(copy_source "${path_dir}/synthetic-copy-source.bin")
+  file(WRITE "${copy_source}" "synthetic diagnostic admission control bytes\n")
+
+  function(run_copy_control label root destination expected)
+    execute_process(COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${SRC}" "-DBIN=${BIN}" "-DCOPY_CASE=${label}"
+      "-DCOPY_SOURCE=${copy_source}" "-DCOPY_ROOT=${root}"
+      "-DCOPY_DESTINATION=${destination}"
+      -P "${SRC}/tests/gates/diagnostic_admission_controls.cmake"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    set(report "${output}${error}")
+    if(expected STREQUAL "ok")
+      if(NOT rc STREQUAL "0" OR NOT EXISTS "${destination}")
+        message(FATAL_ERROR "artifact-case: contained-copy-control-failed:${label}:${report}")
+      endif()
+      file(SHA256 "${copy_source}" source_digest)
+      file(SHA256 "${destination}" copy_digest)
+      if(NOT source_digest STREQUAL copy_digest)
+        message(FATAL_ERROR "artifact-case: contained-copy-bytes-mismatch:${label}")
+      endif()
+    elseif(rc STREQUAL "0" OR NOT report MATCHES "${expected}")
+      message(FATAL_ERROR "artifact-case: escaping-copy-was-not-refused:${label}:${report}")
+    endif()
+  endfunction()
+
+  set(clean_copy_root "${path_dir}/copy-contained/root")
+  run_copy_control(contained "${clean_copy_root}"
+    "${clean_copy_root}/generated/diagnostics/clean.bin" ok)
+
+  set(nested_copy_root "${path_dir}/copy-nested/root")
+  set(nested_outside "${path_dir}/copy-nested-external")
+  set(nested_sentinel "${nested_outside}/sentinel.bin")
+  file(MAKE_DIRECTORY "${nested_copy_root}/generated/diagnostics" "${nested_outside}")
+  file(WRITE "${nested_sentinel}" "synthetic nested-symlink sentinel\n")
+  file(SHA256 "${nested_sentinel}" nested_before)
+  file(CREATE_LINK "${nested_outside}"
+    "${nested_copy_root}/generated/diagnostics/escape" SYMBOLIC RESULT nested_link)
+  if(NOT nested_link STREQUAL "0")
+    message(FATAL_ERROR "artifact-case: nested-symlink-control-could-not-be-created:${nested_link}")
+  endif()
+  run_copy_control(nested-directory-escape "${nested_copy_root}"
+    "${nested_copy_root}/generated/diagnostics/escape/sentinel.bin"
+    "copy-destination-path-escape")
+  file(SHA256 "${nested_sentinel}" nested_after)
+  if(NOT nested_before STREQUAL nested_after)
+    message(FATAL_ERROR "artifact-case: nested-symlink-overwrote-external-sentinel")
+  endif()
+
+  set(final_copy_root "${path_dir}/copy-final/root")
+  set(final_outside "${path_dir}/copy-final-external/sentinel.bin")
+  file(MAKE_DIRECTORY "${final_copy_root}/generated/diagnostics" "${path_dir}/copy-final-external")
+  file(WRITE "${final_outside}" "synthetic final-symlink sentinel\n")
+  file(SHA256 "${final_outside}" final_before)
+  file(CREATE_LINK "${final_outside}"
+    "${final_copy_root}/generated/diagnostics/escape.bin" SYMBOLIC RESULT final_link)
+  if(NOT final_link STREQUAL "0")
+    message(FATAL_ERROR "artifact-case: final-symlink-control-could-not-be-created:${final_link}")
+  endif()
+  run_copy_control(final-file-escape "${final_copy_root}"
+    "${final_copy_root}/generated/diagnostics/escape.bin"
+    "copy-destination-path-escape")
+  file(SHA256 "${final_outside}" final_after)
+  if(NOT final_before STREQUAL final_after)
+    message(FATAL_ERROR "artifact-case: final-symlink-overwrote-external-sentinel")
+  endif()
+
+  set(dangling_copy_root "${path_dir}/copy-dangling/root")
+  set(dangling_target "${path_dir}/copy-dangling-external/not-created.bin")
+  file(MAKE_DIRECTORY "${dangling_copy_root}/generated/diagnostics"
+    "${path_dir}/copy-dangling-external")
+  file(CREATE_LINK "${dangling_target}"
+    "${dangling_copy_root}/generated/diagnostics/dangling.bin"
+    SYMBOLIC RESULT dangling_link)
+  if(NOT dangling_link STREQUAL "0")
+    message(FATAL_ERROR "artifact-case: dangling-symlink-control-could-not-be-created:${dangling_link}")
+  endif()
+  run_copy_control(final-dangling-symlink "${dangling_copy_root}"
+    "${dangling_copy_root}/generated/diagnostics/dangling.bin"
+    "copy-destination-dangling-symlink")
+  if(EXISTS "${dangling_target}")
+    message(FATAL_ERROR "artifact-case: dangling-symlink-created-external-target")
+  endif()
+
+  message(STATUS "artifact-case: admission path-boundary controls passed")
+  return()
+endif()
+
 file(MAKE_DIRECTORY "${dir}")
+
 include("${SRC}/cmake/CheckResult.cmake")
 gbl_contract_read(V "${SRC}/contracts/evidence.json")
 gbl_registry_read(R "${SRC}/registry/disputes.json" V)
@@ -71,6 +174,91 @@ function(run_smoke label expected_status expected_reason expected_rc)
   endif()
 endfunction()
 
+function(run_copy_control label root destination expected)
+  execute_process(COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${SRC}" "-DBIN=${BIN}" "-DCOPY_CASE=${label}"
+    "-DCOPY_SOURCE=${copy_source}" "-DCOPY_ROOT=${root}"
+    "-DCOPY_DESTINATION=${destination}"
+    -P "${SRC}/tests/gates/diagnostic_admission_controls.cmake"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  set(report "${output}${error}")
+  if(expected STREQUAL "ok")
+    if(NOT rc STREQUAL "0" OR NOT EXISTS "${destination}")
+      message(FATAL_ERROR "artifact-case: contained-copy-control-failed:${label}:${report}")
+    endif()
+    file(SHA256 "${copy_source}" source_digest)
+    file(SHA256 "${destination}" copy_digest)
+    if(NOT source_digest STREQUAL copy_digest)
+      message(FATAL_ERROR "artifact-case: contained-copy-bytes-mismatch:${label}")
+    endif()
+  elseif(rc STREQUAL "0" OR NOT report MATCHES "${expected}")
+    message(FATAL_ERROR "artifact-case: escaping-copy-was-not-refused:${label}:${report}")
+  endif()
+endfunction()
+
+# Exercise the exact copy helper used by diagnostic_admission.cmake with
+# synthetic bytes. Every external sentinel lives beside, not inside, its root.
+set(copy_source "${dir}/synthetic-copy-source.bin")
+file(WRITE "${copy_source}" "synthetic diagnostic admission control bytes\n")
+
+set(clean_copy_root "${dir}/copy-contained/root")
+set(clean_copy_dest "${clean_copy_root}/generated/diagnostics/clean.bin")
+run_copy_control(contained "${clean_copy_root}" "${clean_copy_dest}" ok)
+
+set(nested_copy_root "${dir}/copy-nested/root")
+set(nested_outside "${dir}/copy-nested-external")
+set(nested_sentinel "${nested_outside}/sentinel.bin")
+file(MAKE_DIRECTORY "${nested_copy_root}/generated/diagnostics" "${nested_outside}")
+file(WRITE "${nested_sentinel}" "synthetic nested-symlink sentinel\n")
+file(SHA256 "${nested_sentinel}" nested_before)
+file(CREATE_LINK "${nested_outside}"
+  "${nested_copy_root}/generated/diagnostics/escape" SYMBOLIC RESULT nested_link)
+if(NOT nested_link STREQUAL "0")
+  message(FATAL_ERROR "artifact-case: nested-symlink-control-could-not-be-created:${nested_link}")
+endif()
+run_copy_control(nested-directory-escape "${nested_copy_root}"
+  "${nested_copy_root}/generated/diagnostics/escape/sentinel.bin"
+  "copy-destination-path-escape")
+file(SHA256 "${nested_sentinel}" nested_after)
+if(NOT nested_before STREQUAL nested_after)
+  message(FATAL_ERROR "artifact-case: nested-symlink-overwrote-external-sentinel")
+endif()
+
+set(final_copy_root "${dir}/copy-final/root")
+set(final_outside "${dir}/copy-final-external/sentinel.bin")
+file(MAKE_DIRECTORY "${final_copy_root}/generated/diagnostics" "${dir}/copy-final-external")
+file(WRITE "${final_outside}" "synthetic final-symlink sentinel\n")
+file(SHA256 "${final_outside}" final_before)
+file(CREATE_LINK "${final_outside}"
+  "${final_copy_root}/generated/diagnostics/escape.bin" SYMBOLIC RESULT final_link)
+if(NOT final_link STREQUAL "0")
+  message(FATAL_ERROR "artifact-case: final-symlink-control-could-not-be-created:${final_link}")
+endif()
+run_copy_control(final-file-escape "${final_copy_root}"
+  "${final_copy_root}/generated/diagnostics/escape.bin"
+  "copy-destination-path-escape")
+file(SHA256 "${final_outside}" final_after)
+if(NOT final_before STREQUAL final_after)
+  message(FATAL_ERROR "artifact-case: final-symlink-overwrote-external-sentinel")
+endif()
+
+set(dangling_copy_root "${dir}/copy-dangling/root")
+set(dangling_target "${dir}/copy-dangling-external/not-created.bin")
+file(MAKE_DIRECTORY "${dangling_copy_root}/generated/diagnostics"
+  "${dir}/copy-dangling-external")
+file(CREATE_LINK "${dangling_target}"
+  "${dangling_copy_root}/generated/diagnostics/dangling.bin"
+  SYMBOLIC RESULT dangling_link)
+if(NOT dangling_link STREQUAL "0")
+  message(FATAL_ERROR "artifact-case: dangling-symlink-control-could-not-be-created:${dangling_link}")
+endif()
+run_copy_control(final-dangling-symlink "${dangling_copy_root}"
+  "${dangling_copy_root}/generated/diagnostics/dangling.bin"
+  "copy-destination-dangling-symlink")
+if(EXISTS "${dangling_target}")
+  message(FATAL_ERROR "artifact-case: dangling-symlink-created-external-target")
+endif()
+
 generate(clean ok)
 run_smoke(clean PASS guest-mailbox-pass 0)
 file(APPEND "${artifact_root}/${path}" "x")
@@ -104,6 +292,11 @@ generate(source-restored ok)
 
 # Compile the production target against a deliberately wrong immutable index.
 # Restore/rebuild before evaluating observations, including on failed builds.
+execute_process(COMMAND "${CMAKE_COMMAND}" --build "${BIN}" --target gamebloke-run
+  RESULT_VARIABLE baseline_build_rc OUTPUT_VARIABLE baseline_output ERROR_VARIABLE baseline_error)
+if(NOT baseline_build_rc STREQUAL "0")
+  message(FATAL_ERROR "artifact-case: index-control-baseline-build-failed:${baseline_output}${baseline_error}")
+endif()
 set(index "${BIN}/generated/production/fixture_index.h")
 file(READ "${index}" clean_index)
 string(REPLACE "\"${pin}\"" "\"${wrong_pin}\"" changed_index "${clean_index}")
