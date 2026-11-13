@@ -87,10 +87,24 @@ if(CASE STREQUAL "admitted-pair")
 else()
   set(selected_ids "${expected_ids}")
 endif()
+if(DEFINED GROUP AND NOT GROUP STREQUAL "all")
+  if(NOT GROUP MATCHES "^(arm|thumb)$")
+    message(FATAL_ERROR "diagnostics-case: invalid-admitted-group")
+  endif()
+  if(GROUP STREQUAL "arm")
+    list(FILTER selected_ids EXCLUDE REGEX "^thumb-")
+  else()
+    list(FILTER selected_ids INCLUDE REGEX "^thumb-")
+  endif()
+endif()
 
 # Rebuild stale/absent producer roots from their admitted authority; later
 # consumer commits do not replace the pinned source-only revision.
 foreach(group IN ITEMS smoke arm thumb)
+  if(DEFINED GROUP AND ((GROUP STREQUAL "thumb" AND NOT group STREQUAL "thumb") OR
+      (GROUP STREQUAL "arm" AND group STREQUAL "thumb")))
+    continue()
+  endif()
   if(CASE STREQUAL "admitted-pair" AND NOT group STREQUAL "arm")
     continue()
   endif()
@@ -180,6 +194,11 @@ foreach(fid IN LISTS selected_ids)
     message(FATAL_ERROR "diagnostics-case: admitted-output-${copy_reason}:${fid}")
   endif()
 endforeach()
+
+if(PREPARE_ONLY)
+  message(STATUS "diagnostics-case: exact source outputs prepared for ${GROUP}")
+  return()
+endif()
 
 set(generated "${binary_root}/generated")
 execute_process(COMMAND "${CMAKE_COMMAND}"

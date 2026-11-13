@@ -6,6 +6,8 @@ set_property(GLOBAL PROPERTY GBL_REGISTERED_TESTS "")
 set(GBL_INVENTORY_LANE "${GBL_LANE}")
 if(GBL_LANE STREQUAL "diagnostics" AND GBL_DIAGNOSTIC_GROUP STREQUAL "thumb")
   set(GBL_INVENTORY_LANE diagnostics-thumb)
+elseif(GBL_LANE STREQUAL "diagnostics" AND GBL_DIAGNOSTIC_GROUP STREQUAL "arm")
+  set(GBL_INVENTORY_LANE diagnostics-arm)
 endif()
 
 # gbl_add_test(NAME <name> LABELS <label>... COMMAND <cmd>... [SKIPPABLE]

@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan22 verified and reviewed clean; Plan23 diagnostic registration and mandatory execution executing
+status: Plan23 candidate reviewed clean; freezing revised producer for fresh complete proof and readmission
 stopped_at: Plan22 complete; continue Plan23 diagnostic inventories and dependency controls
-last_updated: "2026-11-13T20:38:21.056Z"
+last_updated: "2026-11-13T23:17:24.163Z"
 last_activity: 2026-11-13
-last_activity_desc: CPU safety mutation and maximum-unit evidence complete; canonical CI passes; final diagnostic wiring next
-state_head: 9643cfc9a5217840a14451a37cdf9cc089aa71f4
+last_activity_desc: Boundary-specific final ledger and guarded registration reviewed; native proof presets explicit; no new pins or hosted attempt
+state_head: 426af7edb4d7342c56d70fff9bb4f3f51259f00e
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 23 of 25
-Status: Plan22 verified and reviewed clean; Plan23 diagnostic registration and mandatory execution executing
-Last activity: 2026-11-13 — CPU safety mutation and maximum-unit evidence complete; canonical CI passes; final diagnostic wiring next
+Status: Plan23 candidate reviewed clean; freezing revised producer for fresh complete proof and readmission
+Last activity: 2026-11-13 — Boundary-specific final ledger and guarded registration reviewed; native proof presets explicit; no new pins or hosted attempt
 
 Progress: [███████░░░] 67%
 

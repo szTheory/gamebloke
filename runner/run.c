@@ -123,7 +123,7 @@ static const gbl_fixture_metadata *gbl_runner_find_metadata(
 {
     size_t index;
 
-    if (fixture_id == NULL) {
+    if (fixture_id == NULL || !gbl_fixture_index_qualified) {
         return NULL;
     }
     for (index = 0u; index < gbl_fixture_metadata_count; ++index) {

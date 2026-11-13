@@ -40,7 +40,7 @@ endif()
 option(GBL_REQUIRE_DIAGNOSTICS
   "Require a verified host ARM diagnostics toolchain during configure" OFF)
 
-if(GBL_LANE STREQUAL "diagnostics" OR GBL_REQUIRE_DIAGNOSTICS)
+if(GBL_LANE MATCHES "^(ci|asan|diagnostics)$" OR GBL_REQUIRE_DIAGNOSTICS)
   execute_process(COMMAND uname -s RESULT_VARIABLE gbl_uname_system_rc
     OUTPUT_VARIABLE gbl_uname_system OUTPUT_STRIP_TRAILING_WHITESPACE)
   execute_process(COMMAND uname -m RESULT_VARIABLE gbl_uname_machine_rc
@@ -242,42 +242,33 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
         VERBATIM)
       add_custom_target(gbl_diagnostics ALL DEPENDS "${GBL_FINAL_PROOF_RECEIPT}")
     else()
+      file(STRINGS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
+        GBL_ADMITTED_PRODUCER_INPUTS REGEX "^[A-Za-z0-9]")
+      list(TRANSFORM GBL_ADMITTED_PRODUCER_INPUTS PREPEND "${CMAKE_SOURCE_DIR}/")
+      set(GBL_DIAGNOSTIC_PREPARED
+        "${CMAKE_BINARY_DIR}/generated/diagnostics/prepared-${GBL_DIAGNOSTIC_GROUP}.stamp")
       add_custom_command(
-      OUTPUT ${GBL_DIAGNOSTIC_RAW_ROMS}
+      OUTPUT "${GBL_DIAGNOSTIC_PREPARED}"
       COMMAND "${CMAKE_COMMAND}"
+        -DCASE=all-admitted -DPREPARE_ONLY=1
         "-DSRC=${CMAKE_SOURCE_DIR}"
-        "-DOUT=${GBL_DIAGNOSTIC_OUTPUT_ROOT}"
+        "-DBIN=${CMAKE_BINARY_DIR}"
+        "-DGROUP=${GBL_DIAGNOSTIC_GROUP}"
         "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
-        "-DHOST=${GBL_DIAGNOSTIC_HOST}"
-        "-DMODE=smoke"
-        -P "${CMAKE_SOURCE_DIR}/cmake/BuildArmDiagnostics.cmake"
-      DEPENDS ${GBL_DIAGNOSTIC_SOURCE_DEPENDS}
+        -P "${CMAKE_SOURCE_DIR}/tests/gates/diagnostics_case.cmake"
+      COMMAND "${CMAKE_COMMAND}" -E touch "${GBL_DIAGNOSTIC_PREPARED}"
+      DEPENDS ${GBL_ADMITTED_PRODUCER_INPUTS}
+        "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+        "${CMAKE_SOURCE_DIR}/tests/gates/diagnostic_admission.cmake"
+        "${CMAKE_SOURCE_DIR}/tests/gates/diagnostics_case.cmake"
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      COMMENT "Building pinned ARMv4T diagnostic source outputs"
+      COMMENT "Building and placing the exact complete admitted diagnostic group"
       VERBATIM)
-    add_custom_target(gbl_diagnostics ALL DEPENDS ${GBL_DIAGNOSTIC_RAW_ROMS})
+    add_custom_target(gbl_diagnostics ALL DEPENDS "${GBL_DIAGNOSTIC_PREPARED}")
     endif()
 
     if(GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
-      set(GBL_DIAGNOSTIC_ARTIFACT_ROOT
-        "${CMAKE_BINARY_DIR}/generated/diagnostics/armv4t")
-      set(GBL_DIAGNOSTIC_ARTIFACT_ROMS
-        "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke.gba"
-        "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke-broken.gba")
-      add_custom_command(
-        OUTPUT ${GBL_DIAGNOSTIC_ARTIFACT_ROMS}
-        COMMAND "${CMAKE_COMMAND}" -E make_directory
-          "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-          "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke.gba"
-          "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke.gba"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-          "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke-broken.gba"
-          "${GBL_DIAGNOSTIC_ARTIFACT_ROOT}/roms/smoke-broken.gba"
-        DEPENDS ${GBL_DIAGNOSTIC_RAW_ROMS}
-        COMMENT "Placing verified diagnostic images under the build artifact root"
-        VERBATIM)
-      list(APPEND GBL_DIAGNOSTIC_INDEX_DEPENDS ${GBL_DIAGNOSTIC_ARTIFACT_ROMS})
+      list(APPEND GBL_DIAGNOSTIC_INDEX_DEPENDS "${GBL_DIAGNOSTIC_PREPARED}")
     endif()
   endif()
 
@@ -286,6 +277,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "${GBL_CONTROL_MANIFEST}"
     COMMAND "${CMAKE_COMMAND}"
       "-DGBL_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+      "-DGBL_PROOF_METADATA=$<IF:$<STREQUAL:${GBL_DIAGNOSTIC_STAGE},proof>,ON,OFF>"
       "-DGBL_OUTPUT_ROOT=${CMAKE_BINARY_DIR}"
       "-DGBL_ARTIFACT_ROOT=${CMAKE_BINARY_DIR}"
       "-DGBL_CONTROL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
@@ -401,4 +393,7 @@ if(GBL_LANE STREQUAL "diagnostics")
     add_dependencies(gbl_fixture_indexes gbl_diagnostics)
   endif()
   include(tests/toolchain.cmake)
+endif()
+if(GBL_LANE MATCHES "^(ci|asan|diagnostics)$")
+  include(tests/diagnostics.cmake)
 endif()

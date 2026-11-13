@@ -7,6 +7,16 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckManifest.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckDiagnosticAuthority.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/PathContainment.cmake")
 
+# Explicit pre-admission projection preserves historical immutable metadata for
+# host builds, but never grants runtime fixture authority. Default generation
+# continues to require the current producer inputs to match every source pin.
+if(NOT DEFINED GBL_PROOF_METADATA)
+  set(GBL_PROOF_METADATA OFF)
+endif()
+if(NOT "${GBL_PROOF_METADATA}" MATCHES "^(ON|OFF)$")
+  message(FATAL_ERROR "fixture-index: invalid-proof-metadata-mode")
+endif()
+
 foreach(required IN ITEMS GBL_SOURCE_DIR GBL_OUTPUT_ROOT GBL_CONTROL_IMAGE
     GBL_CONTROL_MANIFEST_OUTPUT GBL_MANIFEST GBL_REGISTRY GBL_VOCAB
     GBL_OUT_PRODUCTION GBL_OUT_CONTROL)
@@ -258,7 +268,9 @@ if(M_COUNT GREATER 0)
        "${M_ROW_${row_id}_ARTIFACT_PATH}" MATCHES "^generated/diagnostics/armv4t/")
       set(revision "${M_ROW_${row_id}_COMMIT}")
       if(NOT revision IN_LIST checked_diagnostic_revisions)
-        gbl_check_diagnostic_authority("${GBL_SOURCE_DIR}" "${revision}")
+        if(NOT GBL_PROOF_METADATA)
+          gbl_check_diagnostic_authority("${GBL_SOURCE_DIR}" "${revision}")
+        endif()
         list(APPEND checked_diagnostic_revisions "${revision}")
       endif()
     endif()
@@ -337,11 +349,16 @@ function(gbl_fixture_c_string out value where)
 endfunction()
 
 function(gbl_fixture_emit_index output prefix)
+  set(qualified 1)
+  if(prefix STREQUAL "M" AND GBL_PROOF_METADATA)
+    set(qualified 0)
+  endif()
   string(CONCAT contents
     "/* Generated from fatal-validated fixture metadata. Do not edit. */\n"
     "#ifndef GBL_GENERATED_FIXTURE_INDEX_H\n"
     "#define GBL_GENERATED_FIXTURE_INDEX_H\n"
     "#include <stddef.h>\n\n"
+    "static const int gbl_fixture_index_qualified = ${qualified};\n\n"
     "typedef struct gbl_fixture_metadata {\n"
     "    const char *id;\n"
     "    const char *rom_sha256;\n"

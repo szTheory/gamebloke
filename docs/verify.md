@@ -302,12 +302,81 @@ The CI `hygiene` job is the enforcing gate; the hook only saves a round trip.
 
 ## CI shape
 
-`.github/workflows/ci.yml` has six jobs: `changes`, `hygiene`, `title`, `build`
-(ubuntu-26.04 GNU and macos-26 AppleClang), `asan`, and `CI required`. The ruleset
+`.github/workflows/ci.yml` defines `changes`, `hygiene`, `title`, `build`
+(ubuntu-26.04 GNU and macos-26 AppleClang), `asan`, `diagnostics`
+(ARM and Thumb groups on both hosts), and `CI required`. The ruleset
 requires only `CI required`, which judges every other job. A pull request whose
 every changed path is under `.planning/` skips `build` and `asan`; a push to `main`
 always runs everything. There is no trigger-level path filter, so the required check
 is never left pending.
+
+## Original ARMv4T diagnostics
+
+The complete local guest lane is `cmake --workflow --preset diagnostics`.
+`diagnostics-arm` owns the smoke pair, ARM cases and API-only witnesses;
+`diagnostics-thumb` owns the Thumb cases. The four hosted diagnostic jobs retain
+that split. Each preset has its own literal sorted inventory, including
+`tests/inventory/diagnostics-arm.txt`; configure and the JUnit post step both
+reconcile actual registration against it.
+
+The pinned tool root is `build/toolchains`, overridable with
+`-DGBL_TOOLCHAIN_ROOT=<directory>` at configure. The existing installer is
+`sh scripts/fetch-toolchain.sh --root build/toolchains`; its `--check` operation
+verifies an installed host package without downloading. Native ci/asan metadata
+generation does not need an ARM toolchain. A genuinely absent optional install
+produces exactly `SKIPPED: arm-toolchain-absent` for the inventoried guest cases.
+A present but unusable install fails. Required diagnostic lanes and
+`GBL_REQUIRE_DIAGNOSTICS=ON` reject absence, wrong identity and unusable tools;
+compile, link, header, map, signature, guest and result-checker failures are never
+converted into tool-absence skips. No compiler or BIOS fallback exists.
+
+`diagnostics.execute` runs the selected complete group once, retaining actual
+runner JSON, native TAP and fresh execution receipts under the build directory.
+Every `diagnostics.case.*` test checks its own real result, exact nonzero case ID,
+semantic state, stop reason and output identity. `diagnostics.execution_set`
+reconciles the complete required output set and the API-only native assertions.
+It cannot accept an empty or partial receipt set, a stale configure token,
+changed producer inputs, changed runner/ROM/result bytes or a required all-skipped
+run. API-only rows retain their native boundary; they never acquire invented ROM
+fixtures. The actual declared-BIOS control reports `SKIPPED` with `ran=false`
+and zero progress. Zero/missing IDs and incomplete mailboxes cannot become
+completed PASS/GUEST_FAIL results.
+
+`GBL_DIAGNOSTIC_STAGE=proof` is explicit pre-admission tooling. Its private
+production index projects historical metadata with an immutable unqualified
+marker. Even matching historical ROM bytes requested with `--fixture` are
+refused as `fixture-unknown` before execution. Raw source observations remain
+`GUEST_STOP`/unregistered results; the canonical result checker refuses their
+missing fixture admission. The separately generated artificial control index
+continues testing the runner contract. Production and control targets use the
+same runner sources and options. A proof metadata projection can work in a
+shallow checkout without granting historical source authority.
+
+Default/admitted index generation still requires real source ancestry and exact
+producer freshness. Before changing a listed producer input, including ledger
+witness state or its checker, prepare a new source-only revision. Build the full
+output set, obtain fresh complete local literal byte parity and the real hosted
+group witnesses, then re-admit exact output digests against that revision.
+Unchanged ROM bytes do not permit reusing a changed source identity's old proof.
+Required admitted execution needs sufficient Git history to verify the actual
+pinned ancestor. Arrange and verify that history before hosted publication.
+
+During an explicitly staged source-proof run, a native metadata build can be
+configured with `-DGBL_DIAGNOSTIC_STAGE=proof`; this setting grants no guest
+fixture authority. Restore `-DGBL_DIAGNOSTIC_STAGE=admitted` after new proof and
+admission. The phase's final required-preset switch remains a separate gate;
+the currently explicit proof preset does not establish final admitted CI.
+`cmake -DCASE=mandatory-final -DSRC=. -DBIN=build/diagnostics
+-P tests/gates/diagnostic_dependency.cmake` refuses proof mode and verifies the
+complete admitted receipt set when that stage is available.
+
+Network-free dependency controls run with
+`cmake -DCASE=all -DSRC=. -DBIN=build/phase05-dependency
+-P tests/gates/diagnostic_dependency.cmake` after the native runners are built.
+The diagnostic ARM lane additionally instruments the real compiler pipeline's
+failure paths with clean source-built companions. It reuses only the real
+aggregate builder's matching parent verification, avoiding repeated whole-ledger
+audits; it never manufactures a successful guest or hosted-proof receipt.
 
 ## Slow-lane checks
 

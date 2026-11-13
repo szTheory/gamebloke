@@ -101,7 +101,7 @@ if(MODE STREQUAL "case")
     set(selected_kind smoke)
   else()
     if(NOT DEFINED ISA OR NOT ISA MATCHES "^(arm|thumb)$" OR
-       NOT selected_state STREQUAL "pending" OR
+       NOT selected_state MATCHES "^(pending|source-verified|verified)$" OR
        (ISA STREQUAL "arm" AND selected_target AND NOT selected_family MATCHES "^(data-processing|condition|pc-control|shifter-boundary|multiply|status-register|single-transfer|halfword-signed-transfer|swap|block-transfer|block-transfer-edge)$"))
       message(FATAL_ERROR "arm-diagnostics: arm-case-selection-invalid: ${CASE_ID}")
     endif()
@@ -701,7 +701,7 @@ if(MODE STREQUAL "all")
     if(NOT row_isa STREQUAL "${ISA}")
       continue()
     endif()
-    if(NOT row_state STREQUAL "pending")
+    if(NOT row_state MATCHES "^(pending|source-verified|verified)$")
       message(FATAL_ERROR
         "arm-diagnostics: source-row-not-runnable: id=${row_id} isa=${row_isa} state=${row_state}")
     endif()

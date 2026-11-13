@@ -65,7 +65,9 @@ if(CASE MATCHES "^(arm|thumb)-pre-admission$")
     message(FATAL_ERROR "diagnostics-case: unsafe-arm-result-root")
   endif()
   set(expected_artifact_root "${source_root}/build/phase05-matrix/${diagnostic_isa}")
-  if(NOT "${artifact_root}" STREQUAL "${expected_artifact_root}" OR
+  set(lane_artifact_root "${binary_root}/generated/diagnostics/proof/${diagnostic_isa}")
+  if((NOT "${artifact_root}" STREQUAL "${expected_artifact_root}" AND
+      NOT "${artifact_root}" STREQUAL "${lane_artifact_root}") OR
      IS_SYMLINK "${artifact_root}")
     message(FATAL_ERROR "diagnostics-case: unsafe-arm-artifact-root")
   endif()

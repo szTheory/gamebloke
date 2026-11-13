@@ -39,6 +39,12 @@ set(parent_cache "${BIN}/CMakeCache.txt")
 if(NOT EXISTS "${parent_cache}" OR IS_DIRECTORY "${parent_cache}")
   message(FATAL_ERROR "runner-metadata: parent-cache-missing")
 endif()
+gbl_read_cache_entry("${parent_cache}" GBL_DIAGNOSTIC_STAGE
+  parent_stage_type parent_stage)
+set(proof_metadata OFF)
+if(parent_stage STREQUAL "proof")
+  set(proof_metadata ON)
+endif()
 foreach(key IN ITEMS CMAKE_C_COMPILER CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS
     CMAKE_BUILD_TYPE CMAKE_GENERATOR CMAKE_MAKE_PROGRAM)
   gbl_read_cache_entry("${parent_cache}" "${key}"
@@ -219,6 +225,7 @@ set(drift_prod_index "${control_dir}/drift-production.h")
 set(drift_control_index "${control_dir}/drift-control.h")
 execute_process(
   COMMAND "${CMAKE_COMMAND}"
+    "-DGBL_PROOF_METADATA=${proof_metadata}"
     "-DGBL_SOURCE_DIR=${SRC}"
     "-DGBL_OUTPUT_ROOT=${BIN}"
     "-DGBL_CONTROL_IMAGE=${mutated_image}"
