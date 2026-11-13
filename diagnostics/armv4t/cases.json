@@ -3077,7 +3077,7 @@
       ],
       "source_test": {
         "kind": "guest-stop",
-        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#0\nstr r2,[r1,#8]\nldr r2,=0x1ABB2730\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\n.word 0xF0000000\n",
+        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#1\nstr r2,[r1,#8]\nldr r2,=0x1ABB2730\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\n.word 0xF0000000\n",
         "operation": ".word 0xF0000000",
         "expected_reason": "unpredictable-instruction",
         "witness_id": 448472880,
@@ -9871,7 +9871,7 @@
       ],
       "source_test": {
         "kind": "guest-stop",
-        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#0\nstr r2,[r1,#8]\nldr r2,=0x6941892A\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\nswi 0xABCDEF\n",
+        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#1\nstr r2,[r1,#8]\nldr r2,=0x6941892A\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\nswi 0xABCDEF\n",
         "operation": "swi 0xABCDEF",
         "expected_reason": "no-bios-swi",
         "witness_id": 1765902634,
@@ -9907,7 +9907,7 @@
       ],
       "source_test": {
         "kind": "guest-stop",
-        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#0\nstr r2,[r1,#8]\nldr r2,=0x66C70E0E\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\n.word 0xEE000010\n",
+        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#1\nstr r2,[r1,#8]\nldr r2,=0x66C70E0E\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\n.word 0xEE000010\n",
         "operation": ".word 0xEE000010",
         "expected_reason": "no-bios-coprocessor",
         "witness_id": 1724321294,
@@ -9943,7 +9943,7 @@
       ],
       "source_test": {
         "kind": "guest-stop",
-        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#0\nstr r2,[r1,#8]\nldr r2,=0x6151E173\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\n.word 0xE7F000F0\n",
+        "program": "ldr r1,=0x03007FC0\nldr r2,=0x47424C4B\nstr r2,[r1,#0]\nmov r2,#1\nstr r2,[r1,#4]\nmov r2,#1\nstr r2,[r1,#8]\nldr r2,=0x6151E173\nstr r2,[r1,#12]\nldr r2,=0x434F4D50\nstr r2,[r1,#16]\n.word 0xE7F000F0\n",
         "operation": ".word 0xE7F000F0",
         "expected_reason": "no-bios-undefined",
         "witness_id": 1632756083,
