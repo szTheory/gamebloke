@@ -2126,36 +2126,55 @@ static bool gbl_cpu_decode_thumb_alu(const gbl_cpu_state *cpu,
            gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, true);
 }
 
-/* DDI0100I A6.6 and A7.1.49/.50 define PUSH/POP as fixed-SP stack formats.
- * Their empty lists are UNPREDICTABLE; format15 list rules are handled
- * separately because they differ from ARM block-transfer policies. */
-static bool gbl_cpu_prepare_thumb_stack_transfer(
+/* DDI0100I A6.6 and A7.1.27/.49/.50/.57 define two distinct Thumb transfer
+ * formats. Empty lists are UNPREDICTABLE. LDMIA suppresses writeback when Rn
+ * is loaded, so the actual memory result wins; STMIA only defines an in-list
+ * base when it is the lowest listed register. Keep these rules separate from
+ * ARM block transfers. */
+static bool gbl_cpu_prepare_thumb_multiple_transfer(
     const gbl_cpu_state *cpu, gbl_cpu_unit *unit,
-    uint32_t next_fetch_address, uint8_t register_list,
-    bool load, bool extra_register)
+    uint32_t next_fetch_address, uint8_t base_register,
+    uint8_t register_list, bool load, bool stack_mode, bool extra_register)
 {
     uint8_t transfer_count = 0u;
+    uint8_t first_register = UINT8_MAX;
     uint8_t register_index;
     uint8_t pc_result_index = UINT8_MAX;
-    const uint8_t base_register = (uint8_t)13u;
+    bool base_in_list;
     uint32_t base;
     uint32_t address;
     uint32_t updated_base;
     uint32_t span;
 
-    if (cpu == NULL || unit == NULL) {
+    if (cpu == NULL || unit == NULL ||
+        (stack_mode ? base_register != 13u : base_register >= 8u)) {
         return false;
     }
+    base_in_list = !stack_mode &&
+        (register_list & (uint8_t)(UINT8_C(1) << base_register)) != 0u;
     for (register_index = 0u; register_index < 8u; ++register_index) {
         if ((register_list & (uint8_t)(UINT8_C(1) << register_index)) != 0u) {
+            if (first_register == UINT8_MAX) {
+                first_register = register_index;
+            }
             transfer_count++;
         }
     }
     if (extra_register) {
         transfer_count++;
+        if (first_register == UINT8_MAX) {
+            first_register = load ? (uint8_t)15u : (uint8_t)14u;
+        }
     }
     if (transfer_count == 0u) {
-        /* DDI0100I A7.1.49/.50 specifies non-empty stack lists. */
+        /* DDI0100I A7.1.27/.49/.50/.57 specifies non-empty lists. */
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+    if (!stack_mode && !load && base_in_list &&
+        base_register != first_register) {
+        /* DDI0100I A7.1.57 makes only the stored base value unpredictable;
+         * Gamebloke's deterministic policy stops this whole unit pre-effect. */
         unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
@@ -2164,8 +2183,8 @@ static bool gbl_cpu_prepare_thumb_stack_transfer(
                                  unit->instruction_address,
                                  GBL_CPU_PC_READ_NORMAL);
     span = (uint32_t)transfer_count * UINT32_C(4);
-    address = !load ? base - span : base;
-    updated_base = !load ? base - span : base + span;
+    address = stack_mode && !load ? base - span : base;
+    updated_base = stack_mode && !load ? base - span : base + span;
     unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
     unit->multiple_transfer = true;
 
@@ -2234,7 +2253,8 @@ static bool gbl_cpu_prepare_thumb_stack_transfer(
     unit->post_data_pipeline_cycles =
         load && pc_result_index != UINT8_MAX ? (uint8_t)1u : 0u;
 
-    if (!gbl_cpu_add_literal_register_effect(
+    if ((stack_mode || !load || !base_in_list) &&
+        !gbl_cpu_add_literal_register_effect(
             unit, base_register, cpu->cpsr, updated_base)) {
         return false;
     }
@@ -2595,9 +2615,22 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         const bool extra_register = (opcode & UINT16_C(0x0100)) != 0u;
         const uint8_t register_list = (uint8_t)opcode;
 
-        if (!gbl_cpu_prepare_thumb_stack_transfer(
-                cpu, unit, next_fetch_address, register_list, load,
-                extra_register)) {
+        if (!gbl_cpu_prepare_thumb_multiple_transfer(
+                cpu, unit, next_fetch_address, (uint8_t)13u, register_list,
+                load, true, extra_register)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0xC000)) {
+        const bool load = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t base_register = (uint8_t)((opcode >> 8u) & 7u);
+        const uint8_t register_list = (uint8_t)opcode;
+
+        if (!gbl_cpu_prepare_thumb_multiple_transfer(
+                cpu, unit, next_fetch_address, base_register, register_list,
+                load, false, false)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         }
         return true;
