@@ -98,49 +98,30 @@ function(gbl_json_length out json)
 endfunction()
 
 # ---- strictness helpers -------------------------------------------------------
-# gbl__json_census(<members-out> <objects-out> <arrays-out> <json>): the number
-# of object members, objects, and arrays in the parsed document, recursively.
-# The member count is compared with the raw count of `"key":` tokens: a
-# duplicate key parses as one member but is two tokens.
+# gbl__json_census(<members-out> <objects-out> <arrays-out> <json>): counts
+# in the parsed document. CMake's serializer emits each retained object member
+# exactly once, including members nested in arrays. Counting its structural
+# tokens is equivalent to recursively visiting that parsed tree, without
+# repeatedly reparsing the complete parent array for every child. Strings use
+# the same literal stripping as the raw strictness guard, so punctuation and
+# escaped/Unicode member names cannot contribute structural tokens.
 function(gbl__json_census members_out objects_out arrays_out json)
   set(members 0)
   set(objects 0)
   set(arrays 0)
   string(JSON ty TYPE "${json}")
-  if("${ty}" STREQUAL "OBJECT")
-    set(objects 1)
-    string(JSON len LENGTH "${json}")
-    set(members ${len})
-    if(len GREATER 0)
-      math(EXPR last "${len}-1")
-      foreach(i RANGE ${last})
-        string(JSON m MEMBER "${json}" ${i})
-        string(JSON cty TYPE "${json}" "${m}")
-        if("${cty}" STREQUAL "OBJECT" OR "${cty}" STREQUAL "ARRAY")
-          string(JSON child GET "${json}" "${m}")
-          gbl__json_census(cm co ca "${child}")
-          math(EXPR members "${members}+${cm}")
-          math(EXPR objects "${objects}+${co}")
-          math(EXPR arrays "${arrays}+${ca}")
-        endif()
-      endforeach()
-    endif()
-  elseif("${ty}" STREQUAL "ARRAY")
-    set(arrays 1)
-    string(JSON len LENGTH "${json}")
-    if(len GREATER 0)
-      math(EXPR last "${len}-1")
-      foreach(i RANGE ${last})
-        string(JSON cty TYPE "${json}" ${i})
-        if("${cty}" STREQUAL "OBJECT" OR "${cty}" STREQUAL "ARRAY")
-          string(JSON child GET "${json}" ${i})
-          gbl__json_census(cm co ca "${child}")
-          math(EXPR members "${members}+${cm}")
-          math(EXPR objects "${objects}+${co}")
-          math(EXPR arrays "${arrays}+${ca}")
-        endif()
-      endforeach()
-    endif()
+  if("${ty}" STREQUAL "OBJECT" OR "${ty}" STREQUAL "ARRAY")
+    string(JSON normalized GET "${json}")
+    string(REGEX REPLACE "\"([^\"\\\\]|\\\\.)*\"" "S" structure "${normalized}")
+    string(REGEX MATCHALL "S[ \t\r\n]*:" keys "${structure}")
+    list(LENGTH keys members)
+    string(LENGTH "${structure}" length)
+    string(REPLACE "{" "" without_objects "${structure}")
+    string(LENGTH "${without_objects}" without_objects_length)
+    math(EXPR objects "${length}-${without_objects_length}")
+    string(REPLACE "[" "" without_arrays "${structure}")
+    string(LENGTH "${without_arrays}" without_arrays_length)
+    math(EXPR arrays "${length}-${without_arrays_length}")
   endif()
   set(${members_out} ${members} PARENT_SCOPE)
   set(${objects_out} ${objects} PARENT_SCOPE)

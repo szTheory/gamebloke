@@ -247,6 +247,14 @@ elseif(CASE STREQUAL "duplicate_key")
   gbl_text_mutate("${f}" "{\"name\": \"PASS\","
     "{\"name\": \"PASS\", \"${MARKER}\": 1, \"${MARKER}\": 2,")
   expect_code(duplicate-key "${f}" QUIET)
+  # Normalization must collapse decoded aliases and overwritten subtrees just
+  # as the parsed-tree census did; object-array boundaries must remain visible.
+  file(WRITE "${dir}/escaped-alias.json" [==[{"a":1,"\u0061":2}]==])
+  expect_code(duplicate-key "${dir}/escaped-alias.json" QUIET)
+  file(WRITE "${dir}/array-alias.json" [==[{"rows":[{"a\"b":1,"a\u0022b":2}]}]==])
+  expect_code(duplicate-key "${dir}/array-alias.json" QUIET)
+  file(WRITE "${dir}/overwritten-subtree.json" [==[{"a":{"b":[{"c":1}]},"a":null}]==])
+  expect_code(duplicate-key "${dir}/overwritten-subtree.json" QUIET)
 
 elseif(CASE STREQUAL "usage")
   gbl_expect_fail(COMMAND "${CMAKE_COMMAND}" -P "${LOADER}" REGEX "json: usage")
@@ -338,6 +346,8 @@ elseif(CASE STREQUAL "strict_clean")
   "ends_backslash": "ends with \\",
   "brackets": "text with ] } [ { , ] inside",
   "comma_bracket": "a,]",
+  "punctuation": "semi;colon S: and { [ with \"quoted\": keys",
+  "unicode_key": {"\u0061": 1, "b": 2},
   "empty_obj": {},
   "empty_arr": [],
   "rows": [{"k": 1}, {"k": 2}, {"k": 3}],
@@ -347,6 +357,12 @@ elseif(CASE STREQUAL "strict_clean")
   gbl_expect_pass(
     COMMAND "${CMAKE_COMMAND}" "-DFILE=${dir}/clean.json" -P "${LOADER}"
     REGEX "json: ok: ")
+  include("${LOADER}")
+  file(READ "${dir}/clean.json" clean)
+  gbl__json_census(members objects arrays "${clean}")
+  if(NOT members EQUAL 20 OR NOT objects EQUAL 9 OR NOT arrays EQUAL 3)
+    message(FATAL_ERROR "json-case: parsed structural census mismatch")
+  endif()
 
 elseif(CASE STREQUAL "real_docs")
   real_docs(docs)

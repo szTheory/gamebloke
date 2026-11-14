@@ -100,3 +100,15 @@ test costs, and target proven duplicate verification work at final fixture scale
 Local Linux ARM64 timing and Darwin portability lanes cannot qualify hosted
 Ubuntu-x64 budgets. Do not turn a timeout into another unchanged retry or larger
 cap. See [the concrete stop and recovery proposal](05-23-HOSTED-STOP.md).
+
+## Measure shared validation primitives before repeating proof matrices
+
+The first consumer repair removed real duplicate authority loads but left
+substantial unfinished hosted work. Count all remaining tests and front-stage
+costs before spending the renewed attempt; a timeout duration is not a completed
+baseline. Pause further expensive lanes when early evidence still lacks margin.
+A subsequent isolated probe found the strict JSON census reparsing full arrays
+per child: the same15886member count used11.60seconds userCPU versus0.10 after
+counting CMake's serialized parsed tree. Independent structural counts and
+adversarial duplicate controls guard the equivalence. Producer-input changes
+still require a new freeze and fresh proof; no historical receipt is relabelled.
