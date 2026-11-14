@@ -247,7 +247,7 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: 22/25 plans executed. Plan21 completed final local/hosted proof and admitted all722 production images:355 positive/broken pairs and12 named guest stops. Plan22 added eight actual CPU fault controls and63 maximum-unit boundary witnesses; review and canonical local CI pass. Producer ledger closure, mandatory execution wiring and final compiler/hosted/owner gates remain in Plans23–25.
+**Plans**: 23/25 plans executed. Plan21 completed final local/hosted proof and admitted all722 production images:355 positive/broken pairs and12 named guest stops. Plan22 added eight actual CPU fault controls and63 maximum-unit boundary witnesses; review and canonical local CI pass. Producer ledger closure, mandatory execution wiring and final compiler/hosted/owner gates remain in Plans23–25.
 
 Plans:
 **Wave 1**
@@ -317,7 +317,7 @@ Plans:
 - [x] 05-22-PLAN.md — Semantic mutation and maximum-unit negative evidence
 
 **Wave 23** *(blocked on Wave 22 completion)*
-- [ ] 05-23-PLAN.md — Inventoried diagnostics, visible skips and mandatory execution
+- [x] 05-23-PLAN.md — Inventoried diagnostics, visible skips and mandatory execution
 
 **Wave 24** *(blocked on Wave 23 completion)*
 - [ ] 05-24-PLAN.md — Required final diagnostic CI and measured critical path
@@ -409,7 +409,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 13/13 | Complete    | 2026-11-11 |
-| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 20/25 | In Progress | - |
+| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 23/25 | In Progress | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
 
 ---
