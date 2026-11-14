@@ -1,8 +1,30 @@
 #ifndef GAMEBLOKE_CPU_HELPERS_H
 #define GAMEBLOKE_CPU_HELPERS_H
 
+#include "gamebloke/gamebloke.h"
+
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
+/* Test-only count perturbations for the private maximum-unit reservation
+ * probe. These do not describe guest instructions or extend the public API. */
+typedef enum gbl_cpu_test_count_overflow {
+    GBL_CPU_TEST_COUNT_VALID,
+    GBL_CPU_TEST_FETCH_COUNT_OVERFLOW,
+    GBL_CPU_TEST_DATA_COUNT_OVERFLOW,
+    GBL_CPU_TEST_RESULT_COUNT_OVERFLOW,
+    GBL_CPU_TEST_REGISTER_EFFECT_COUNT_OVERFLOW,
+    GBL_CPU_TEST_STATUS_EFFECT_COUNT_OVERFLOW
+} gbl_cpu_test_count_overflow;
+
+/* Build a synthetic unit at the private descriptor's declared maxima and run
+ * the same cost, machine-preflight, selected-trace-count, and trace-reservation
+ * checks used by gbl_cpu_run. No bus operation or effect is executed. */
+bool gbl_cpu_test_maximum_preflight(
+    const gbl_machine *machine, const gbl_run_options *options,
+    gbl_cpu_test_count_overflow count_overflow, uint64_t *cycle_cost,
+    size_t *required_records, gbl_run_reason *reason);
 
 typedef enum gbl_shift_kind {
     GBL_SHIFT_LSL = 0,
@@ -107,28 +129,45 @@ static inline gbl_shift_result gbl_shift(gbl_shift_kind kind, uint32_t value,
     return result;
 }
 
-static inline gbl_arithmetic_result gbl_add_flags(uint32_t left,
-                                                   uint32_t right)
+static inline gbl_arithmetic_result gbl_add_with_carry_flags(
+    uint32_t left, uint32_t right, bool carry_in)
 {
     gbl_arithmetic_result result;
+    const uint64_t sum = (uint64_t)left + (uint64_t)right +
+                         (carry_in ? UINT64_C(1) : UINT64_C(0));
 
-    result.value = left + right;
-    result.carry = result.value < left;
+    result.value = (uint32_t)sum;
+    result.carry = (sum >> 32u) != 0u;
     result.overflow = ((~(left ^ right) & (left ^ result.value) &
                         UINT32_C(0x80000000)) != 0u);
     return result;
 }
 
-static inline gbl_arithmetic_result gbl_sub_flags(uint32_t left,
-                                                   uint32_t right)
+static inline gbl_arithmetic_result gbl_sub_with_carry_flags(
+    uint32_t left, uint32_t right, bool carry_in)
 {
     gbl_arithmetic_result result;
+    const uint32_t inverted_right = right ^ UINT32_MAX;
+    const uint64_t difference = (uint64_t)left + (uint64_t)inverted_right +
+                                (carry_in ? UINT64_C(1) : UINT64_C(0));
 
-    result.value = left - right;
-    result.carry = left >= right;
+    result.value = (uint32_t)difference;
+    result.carry = (difference >> 32u) != 0u;
     result.overflow = (((left ^ right) & (left ^ result.value) &
                         UINT32_C(0x80000000)) != 0u);
     return result;
+}
+
+static inline gbl_arithmetic_result gbl_add_flags(uint32_t left,
+                                                   uint32_t right)
+{
+    return gbl_add_with_carry_flags(left, right, false);
+}
+
+static inline gbl_arithmetic_result gbl_sub_flags(uint32_t left,
+                                                   uint32_t right)
+{
+    return gbl_sub_with_carry_flags(left, right, true);
 }
 
 #endif

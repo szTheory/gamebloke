@@ -11,6 +11,7 @@ endforeach()
 
 include("${SRC}/cmake/ExpectFail.cmake")
 include("${SRC}/tests/gates/json_mutate.cmake")
+include("${SRC}/tests/gates/mutation_objects.cmake")
 
 if(NOT COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
   message(FATAL_ERROR "mutation: unsupported compiler id '${COMPILER_ID}'")
@@ -70,6 +71,14 @@ function(gbl__compile_bus sandbox mutation output_executable)
   gbl__copy_inputs("${sandbox}")
   if(NOT mutation STREQUAL "")
     gbl__mutate_bus("${sandbox}/src/bus.c" "${mutation}")
+    set(changed_source src/bus.c)
+  else()
+    set(changed_source "")
+  endif()
+  gbl__reuse_mutation_objects("${sandbox}" bus "${changed_source}" executable reused)
+  if(reused)
+    set(${output_executable} "${executable}" PARENT_SCOPE)
+    return()
   endif()
 
   separate_arguments(base_flags NATIVE_COMMAND "${C_FLAGS}")
@@ -210,6 +219,42 @@ function(gbl__mutate_cpu cpu_source mutation)
       [=[        if (run_options.unit_limit != 0u &&
             completed_units >= run_options.unit_limit) {]=]
       [=[        if (completed_units == UINT64_MAX) {]=])
+  elseif(mutation STREQUAL "block_effect_order")
+    # Resolve destinations using the restored bank instead of the captured old
+    # bank: a real exception-return ordering error, not an altered expectation.
+    gbl_text_mutate("${cpu_source}" "effect->bank_cpsr, value);"
+      "unit->restore_cpsr_from_spsr ? unit->status_effects[0].value : effect->bank_cpsr, value);")
+  elseif(mutation STREQUAL "loaded_pc")
+    gbl_text_mutate("${cpu_source}"
+      "(unit->results[unit->fetch_result_index] &"
+      "((unit->results[unit->fetch_result_index] ^ UINT32_C(4)) &")
+  elseif(mutation STREQUAL "maximum_trace")
+    gbl_text_mutate("${cpu_source}"
+      "    for (index = 0u; index < record_count; ++index) {"
+      "    if (record_count == 19u) { record_count--; }\n    for (index = 0u; index < record_count; ++index) {")
+  elseif(mutation STREQUAL "multiply_flags")
+    gbl_text_mutate("${cpu_source}" "flags = gbl_cpu_nz_flags(short_result);"
+      "flags = gbl_cpu_nz_flags(short_result) ^ GBL_CPU_CPSR_N;")
+  elseif(mutation STREQUAL "multiply_accumulate")
+    gbl_text_mutate("${cpu_source}" "result = accumulator + product;"
+      "result = accumulator ^ product;")
+  elseif(mutation STREQUAL "bl_halves")
+    gbl_text_mutate("${cpu_source}" "offset << 12u" "offset << 11u")
+  elseif(mutation STREQUAL "late_refusal")
+    gbl_text_mutate("${cpu_source}" [=[                               &preflight_reason)) {
+            run_result.termination =]=] [=[                               &preflight_reason)) {
+            if (unit.data_slot_count > 0u &&
+                unit.data_slots[0].operation == GBL_CPU_DATA_WRITE) {
+                const gbl_cpu_data_slot *first = &unit.data_slots[0];
+                (void)gbl_bus_write(machine, first->address, first->width,
+                                    first->access_class, first->write_value);
+            }
+            run_result.termination =]=])
+  elseif(mutation STREQUAL "post_effect_request")
+    gbl_text_mutate("${cpu_source}" [=[                        machine, slot->address, slot->width,
+                        slot->access_class, slot->write_value);]=]
+      [=[                        machine, slot->address, data_index == 1u ? 3u : slot->width,
+                        slot->access_class, slot->write_value);]=])
   else()
     message(FATAL_ERROR "mutation: unknown CPU case '${mutation}'")
   endif()
@@ -257,6 +302,24 @@ function(gbl__copy_cpu_inputs sandbox)
   file(COPY_FILE "${SRC}/tests/cpu_test.c" "${sandbox}/tests/cpu_test.c")
 endfunction()
 
+function(gbl__cpu_compile_flags base_output config_output warning_output
+    core_output link_output link_config_output)
+  separate_arguments(base_flags NATIVE_COMMAND "${C_FLAGS}")
+  separate_arguments(config_flags NATIVE_COMMAND "${C_FLAGS_CONFIG}")
+  separate_arguments(link_flags NATIVE_COMMAND "${LINKER_FLAGS}")
+  separate_arguments(link_config_flags NATIVE_COMMAND "${LINKER_FLAGS_CONFIG}")
+  set(warning_flags
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes
+    -Wmissing-prototypes -Wundef -Wcast-qual -Werror)
+  set(core_flags -fno-stack-protector -U_FORTIFY_SOURCE)
+  set(${base_output} "${base_flags}" PARENT_SCOPE)
+  set(${config_output} "${config_flags}" PARENT_SCOPE)
+  set(${warning_output} "${warning_flags}" PARENT_SCOPE)
+  set(${core_output} "${core_flags}" PARENT_SCOPE)
+  set(${link_output} "${link_flags}" PARENT_SCOPE)
+  set(${link_config_output} "${link_config_flags}" PARENT_SCOPE)
+endfunction()
+
 function(gbl__compile_cpu sandbox mutation output_executable)
   gbl__copy_cpu_inputs("${sandbox}")
   if(NOT mutation STREQUAL "")
@@ -270,14 +333,20 @@ function(gbl__compile_cpu sandbox mutation output_executable)
     endif()
   endif()
 
-  separate_arguments(base_flags NATIVE_COMMAND "${C_FLAGS}")
-  separate_arguments(config_flags NATIVE_COMMAND "${C_FLAGS_CONFIG}")
-  separate_arguments(link_flags NATIVE_COMMAND "${LINKER_FLAGS}")
-  separate_arguments(link_config_flags NATIVE_COMMAND "${LINKER_FLAGS_CONFIG}")
-  set(warning_flags
-    -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes
-    -Wmissing-prototypes -Wundef -Wcast-qual -Werror)
-  set(core_flags -fno-stack-protector -U_FORTIFY_SOURCE)
+  if(mutation STREQUAL "" OR mutation IN_LIST GBL_CPU_SOURCE_ONLY_MUTATIONS)
+    set(changed_source "")
+    if(NOT mutation STREQUAL "")
+      set(changed_source src/cpu.c)
+    endif()
+    gbl__reuse_mutation_objects("${sandbox}" cpu "${changed_source}" executable reused)
+    if(reused)
+      set(${output_executable} "${executable}" PARENT_SCOPE)
+      return()
+    endif()
+  endif()
+
+  gbl__cpu_compile_flags(base_flags config_flags warning_flags core_flags
+    link_flags link_config_flags)
   set(executable "${sandbox}/cpu_test")
   execute_process(
     COMMAND "${COMPILER}" -std=c17 ${base_flags} ${config_flags}
@@ -297,10 +366,168 @@ function(gbl__compile_cpu sandbox mutation output_executable)
   set(${output_executable} "${executable}" PARENT_SCOPE)
 endfunction()
 
+# Only these mutations edit src/cpu.c and leave every other copied source and
+# header byte-identical. New and header-affecting mutations use the full-build
+# path unless they are deliberately added here after dependency review.
+set(GBL_CPU_SOURCE_ONLY_MUTATIONS
+  pc_refill bank_alias exception_lr vector_fetch trace_loss budget_overshoot
+  block_effect_order loaded_pc maximum_trace multiply_flags multiply_accumulate
+  bl_halves late_refusal post_effect_request)
+
+function(gbl__assert_cpu_reuse_inputs mutant_sandbox clean_sandbox mutation)
+  if("${mutant_sandbox}" STREQUAL "${clean_sandbox}")
+    message(FATAL_ERROR "mutation: reuse-control: mutant and clean copies are not isolated")
+  endif()
+
+  file(GLOB_RECURSE mutant_inputs RELATIVE "${mutant_sandbox}"
+    "${mutant_sandbox}/*")
+  file(GLOB_RECURSE clean_inputs RELATIVE "${clean_sandbox}"
+    "${clean_sandbox}/*")
+  list(SORT mutant_inputs)
+  list(SORT clean_inputs)
+  if(NOT "${mutant_inputs}" STREQUAL "${clean_inputs}")
+    message(FATAL_ERROR
+      "mutation: reuse-control: copied input sets differ for '${mutation}'")
+  endif()
+  list(FIND mutant_inputs "src/cpu.c" cpu_source_index)
+  if(cpu_source_index EQUAL -1)
+    message(FATAL_ERROR "mutation: reuse-control: src/cpu.c is not a copied input")
+  endif()
+
+  foreach(input IN LISTS mutant_inputs)
+    if(NOT input STREQUAL "src/cpu.c")
+      file(SHA256 "${mutant_sandbox}/${input}" mutant_hash)
+      file(SHA256 "${clean_sandbox}/${input}" clean_hash)
+      if(NOT "${mutant_hash}" STREQUAL "${clean_hash}")
+        message(FATAL_ERROR
+          "mutation: reuse-control: shared input changed for '${mutation}': ${input}")
+      endif()
+    endif()
+  endforeach()
+
+  file(SHA256 "${mutant_sandbox}/src/cpu.c" mutant_cpu_hash)
+  file(SHA256 "${clean_sandbox}/src/cpu.c" clean_cpu_hash)
+  if("${mutant_cpu_hash}" STREQUAL "${clean_cpu_hash}")
+    message(FATAL_ERROR
+      "mutation: reuse-control: '${mutation}' did not change its isolated CPU source")
+  endif()
+
+  list(LENGTH mutant_inputs input_count)
+  math(EXPR shared_input_count "${input_count} - 1")
+  message(STATUS
+    "mutation: reuse-control passed for '${mutation}': ${shared_input_count} shared inputs match; src/cpu.c differs")
+endfunction()
+
+function(gbl__compile_cpu_object sandbox source object_dir object_name output_object)
+  gbl__cpu_compile_flags(base_flags config_flags warning_flags core_flags
+    link_flags link_config_flags)
+  file(MAKE_DIRECTORY "${object_dir}")
+  set(object "${object_dir}/${object_name}.o")
+  execute_process(
+    COMMAND "${COMPILER}" -std=c17 ${base_flags} ${config_flags}
+      ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
+      "-I${sandbox}/include" "-I${sandbox}/tests"
+      -c "${sandbox}/${source}" -o "${object}"
+    RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
+    ERROR_VARIABLE compile_err)
+  if(NOT "${compile_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "mutation: compile failed for ${source} (${compile_result}); not semantic evidence\n${compile_out}${compile_err}")
+  endif()
+  set(${output_object} "${object}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__link_cpu sandbox object_dir variant objects output_executable)
+  gbl__cpu_compile_flags(base_flags config_flags warning_flags core_flags
+    link_flags link_config_flags)
+  file(MAKE_DIRECTORY "${object_dir}")
+  set(executable "${object_dir}/${variant}-cpu_test")
+  execute_process(
+    COMMAND "${COMPILER}" -std=c17 ${base_flags} ${config_flags}
+      ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
+      "-I${sandbox}/include" "-I${sandbox}/tests"
+      ${objects} -o "${executable}" ${link_flags} ${link_config_flags}
+    RESULT_VARIABLE link_result OUTPUT_VARIABLE link_out
+    ERROR_VARIABLE link_err)
+  if(NOT "${link_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "mutation: link failed for ${variant} (${link_result}); not semantic evidence\n${link_out}${link_err}")
+  endif()
+  set(${output_executable} "${executable}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__compile_cpu_reused_pair root mutation output_mutant
+    output_clean)
+  set(mutant_sandbox "${root}/mutant")
+  set(clean_sandbox "${root}/clean")
+  gbl__copy_cpu_inputs("${mutant_sandbox}")
+  gbl__copy_cpu_inputs("${clean_sandbox}")
+  gbl__mutate_cpu("${mutant_sandbox}/src/cpu.c" "${mutation}")
+  gbl__assert_cpu_reuse_inputs("${mutant_sandbox}" "${clean_sandbox}"
+    "${mutation}")
+
+  # Compile unchanged translation units once for this pair. The identity guard
+  # above covers every copied input except cpu.c, including all headers and the
+  # real cpu_test.c. The two CPU objects and links remain independent.
+  set(shared_objects "")
+  foreach(source IN ITEMS src/version.c src/machine.c src/bus.c src/loader.c)
+    get_filename_component(object_name "${source}" NAME_WE)
+    gbl__compile_cpu_object("${clean_sandbox}" "${source}"
+      "${root}/objects/shared" "${object_name}" object)
+    list(APPEND shared_objects "${object}")
+  endforeach()
+  gbl__compile_cpu_object("${clean_sandbox}" src/inspect.c
+    "${root}/objects/shared" inspect inspect_object)
+  gbl__compile_cpu_object("${clean_sandbox}" tests/cpu_test.c
+    "${root}/objects/shared" cpu_test cpu_test_object)
+
+  gbl__compile_cpu_object("${mutant_sandbox}" src/cpu.c
+    "${root}/objects/mutant" cpu_mutant mutant_cpu_object)
+  gbl__compile_cpu_object("${clean_sandbox}" src/cpu.c
+    "${root}/objects/clean" cpu_clean clean_cpu_object)
+  if("${mutant_cpu_object}" STREQUAL "${clean_cpu_object}")
+    message(FATAL_ERROR
+      "mutation: reuse-control: mutant and clean CPU objects are not isolated for '${mutation}'")
+  endif()
+  file(SHA256 "${mutant_cpu_object}" mutant_object_hash)
+  file(SHA256 "${clean_cpu_object}" clean_object_hash)
+  if("${mutant_object_hash}" STREQUAL "${clean_object_hash}")
+    message(FATAL_ERROR
+      "mutation: reuse-control: mutant and clean CPU objects are identical for '${mutation}'")
+  endif()
+
+  # Preserve the original source/object order at link time.
+  set(mutant_objects "${shared_objects};${mutant_cpu_object};${inspect_object};${cpu_test_object}")
+  set(clean_objects "${shared_objects};${clean_cpu_object};${inspect_object};${cpu_test_object}")
+  gbl__link_cpu("${mutant_sandbox}" "${root}/mutant" mutant
+    "${mutant_objects}" mutant_executable)
+  gbl__link_cpu("${clean_sandbox}" "${root}/clean" clean
+    "${clean_objects}" clean_executable)
+  if("${mutant_executable}" STREQUAL "${clean_executable}")
+    message(FATAL_ERROR
+      "mutation: reuse-control: mutant and clean executables are not isolated")
+  endif()
+  message(STATUS
+    "mutation: reuse-control passed for '${mutation}': six common objects shared; CPU objects and executables are separate")
+
+  set(${output_mutant} "${mutant_executable}" PARENT_SCOPE)
+  set(${output_clean} "${clean_executable}" PARENT_SCOPE)
+endfunction()
+
 function(gbl__run_cpu_pair mutation label selector)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-${label}-${run_id}")
-  gbl__compile_cpu("${root}/mutant" "${mutation}" mutant_executable)
+  if(mutation IN_LIST GBL_CPU_SOURCE_ONLY_MUTATIONS AND NOT DEFINED PREPARED_ROOT)
+    gbl__compile_cpu_reused_pair("${root}" "${mutation}" mutant_executable
+      clean_executable)
+  else()
+    if(NOT mutation IN_LIST GBL_CPU_SOURCE_ONLY_MUTATIONS)
+      message(STATUS
+        "mutation: full-rebuild path retained for '${mutation}' (headers or other shared inputs may differ)")
+    endif()
+    gbl__compile_cpu("${root}/mutant" "${mutation}" mutant_executable)
+    gbl__compile_cpu("${root}/clean" "" clean_executable)
+  endif()
   if(mutation STREQUAL "pc_refill")
     set(failure_regex "not ok 1 - ARM BL links the next instruction and refills without stale slots")
   elseif(mutation STREQUAL "shift_carry")
@@ -317,13 +544,28 @@ function(gbl__run_cpu_pair mutation label selector)
     set(failure_regex "not ok 2 - exact trace capacity records instruction, data and refill order")
   elseif(mutation STREQUAL "budget_overshoot")
     set(failure_regex "not ok 29 - unit limit stops after one instruction despite spare cycle budget")
+  elseif(mutation STREQUAL "block_effect_order")
+    set(failure_regex "not ok 5 - LDM\\^ PC returns from FIQ using captured banked destinations and Thumb SPSR")
+  elseif(mutation STREQUAL "loaded_pc")
+    set(failure_regex "not ok 1 - LDR PC refills from the actual BIOS-absent word result")
+  elseif(mutation STREQUAL "maximum_trace")
+    set(failure_regex "not ok 1 - sixteen-register LDM uses the final bus result for PC and fits 19 trace records")
+  elseif(mutation STREQUAL "multiply_flags")
+    set(failure_regex "not ok 1 - MULS high-bit product sets N and preserves chosen C/V")
+  elseif(mutation STREQUAL "multiply_accumulate")
+    set(failure_regex "not ok 6 - UMLALS carries low accumulator overflow into the high word")
+  elseif(mutation STREQUAL "bl_halves")
+    set(failure_regex "not ok 2 - Thumb BL isolated prefix literal vector 1 uses banked LR and exact fetches")
+  elseif(mutation STREQUAL "late_refusal")
+    set(failure_regex "not ok 9 - maximum STM16-PC boundary 1 preserves whole-unit effects and caller guards")
+  elseif(mutation STREQUAL "post_effect_request")
+    set(failure_regex "not ok 8 - maximum STM16-PC boundary 0 preserves whole-unit effects and caller guards")
   else()
     message(FATAL_ERROR "mutation: no semantic failure assertion for '${mutation}'")
   endif()
   gbl_expect_fail(COMMAND "${mutant_executable}" "${selector}"
     REGEX "${failure_regex}")
 
-  gbl__compile_cpu("${root}/clean" "" clean_executable)
   if(selector STREQUAL "arithmetic")
     set(clean_regex "ok 28 - helper defines large LSR/ASR/ROR counts without host UB")
   elseif(selector STREQUAL "modes")
@@ -338,6 +580,8 @@ function(gbl__run_cpu_pair mutation label selector)
     set(clean_regex "ok 4 - invalid state and failing verdict without a case ID are malformed")
   elseif(selector STREQUAL "trace" OR selector STREQUAL "trace_capacity")
     set(clean_regex "ok 2 - exact trace capacity records instruction, data and refill order")
+  elseif(mutation MATCHES "^(block_effect_order|loaded_pc|maximum_trace|multiply_flags|multiply_accumulate|bl_halves|late_refusal|post_effect_request)$")
+    string(REPLACE "not ok " "ok " clean_regex "${failure_regex}")
   else()
     set(clean_regex "ok 1 - ARM BL links the next instruction and refills without stale slots")
   endif()
@@ -349,16 +593,41 @@ function(gbl__run_cpu_clean)
   string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
   set(root "${BIN}/nc/core_mutation/${CASE}-positive-${run_id}")
   gbl__compile_cpu("${root}/clean" "" clean_executable)
-  foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
-      no_bios peek mailbox trace_capacity trace)
+  # The native registry is the selector authority. Derive the complete list so
+  # future groups cannot be silently omitted from this clean copied core.
+  file(STRINGS "${SRC}/tests/cpu_test.c" groups REGEX "CPU_TEST_GROUP\\(\"")
+  set(selectors "")
+  foreach(group IN LISTS groups)
+    string(REGEX REPLACE ".*CPU_TEST_GROUP\\(\"([^\"]+)\".*" "\\1" selector "${group}")
+    list(APPEND selectors "${selector}")
+  endforeach()
+  list(LENGTH selectors selector_count)
+  if(selector_count LESS 39)
+    message(FATAL_ERROR "mutation: incomplete native selector registry")
+  endif()
+  foreach(selector IN LISTS selectors)
     gbl_expect_pass(COMMAND "${clean_executable}" "${selector}")
   endforeach()
+  message(STATUS "mutation: clean copied core exercised all ${selector_count} native selectors: ${selectors}")
+  if(DEFINED PREPARED_ROOT)
+    gbl__mutation_reuse_controls()
+  endif()
 endfunction()
 
 function(gbl__compile_loader sandbox mutation output_executable expectation_mode)
   gbl__copy_loader_inputs("${sandbox}")
   if(NOT mutation STREQUAL "")
     gbl__mutate_loader("${sandbox}/src/loader.c" "${mutation}")
+    set(changed_source src/loader.c)
+  else()
+    set(changed_source "")
+  endif()
+  if(NOT expectation_mode STREQUAL "synthetic")
+    gbl__reuse_mutation_objects("${sandbox}" loader "${changed_source}" executable reused)
+    if(reused)
+      set(${output_executable} "${executable}" PARENT_SCOPE)
+      return()
+    endif()
   endif()
 
   separate_arguments(base_flags NATIVE_COMMAND "${C_FLAGS}")
@@ -432,12 +701,34 @@ function(gbl__run_loader_clean)
     REGEX "loader: diagnostics ok")
 endfunction()
 
-if(CASE MATCHES "^cpu_")
+if(CASE STREQUAL "prepare")
+  gbl__prepare_mutation_objects()
+elseif(CASE STREQUAL "reuse-control")
+  set(sandbox "${BIN}/nc/mutation-reuse-${CONTROL}")
+  file(REMOVE_RECURSE "${sandbox}")
+  gbl__copy_cpu_inputs("${sandbox}")
+  if(CONTROL STREQUAL "flags")
+    string(APPEND C_FLAGS " -DGBL_REUSE_MISMATCH")
+  elseif(CONTROL STREQUAL "source")
+    file(APPEND "${sandbox}/src/cpu.c" "\n/* isolated identity control */\n")
+  elseif(CONTROL STREQUAL "header")
+    file(APPEND "${sandbox}/src/cpu_helpers.h" "\n/* isolated identity control */\n")
+  else()
+    message(FATAL_ERROR "mutation: unknown-reuse-control")
+  endif()
+  gbl__reuse_mutation_objects("${sandbox}" cpu "" unused reused)
+  message(FATAL_ERROR "mutation: changed-reuse-input-accepted")
+elseif(CASE MATCHES "^cpu_")
   if(CASE STREQUAL "cpu_clean")
     gbl__run_cpu_clean()
   else()
     string(REPLACE "cpu_" "" cpu_mutation "${CASE}")
     gbl__run_cpu_pair("${cpu_mutation}" "${cpu_mutation}" "${SELECTOR}")
+    if(cpu_mutation STREQUAL "multiply_flags")
+      gbl__run_cpu_pair(multiply_accumulate multiply_accumulate "${SELECTOR}")
+    elseif(cpu_mutation STREQUAL "late_refusal")
+      gbl__run_cpu_pair(post_effect_request post_effect_request "${SELECTOR}")
+    endif()
   endif()
 elseif(CASE MATCHES "^loader_")
   if(CASE STREQUAL "loader_clean")

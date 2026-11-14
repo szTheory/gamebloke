@@ -23,14 +23,152 @@ if(NOT DEFINED CASE OR NOT DEFINED SRC)
   message(FATAL_ERROR "ci-cases: -DCASE= and -DSRC= are required")
 endif()
 
+function(check_diagnostic_groups text)
+  include("${SRC}/cmake/CiPreflight.cmake")
+  string(REGEX MATCHALL "- runner: [^\n]+\n            host: [^\n]+\n            group: [^\n]+\n            cc: [^\n]+\n            id: [^\n]+" rows "${text}")
+  list(SORT rows)
+  set(expected "")
+  foreach(group IN ITEMS arm thumb)
+    list(APPEND expected
+      "- runner: ubuntu-26.04\n            host: linux-x64\n            group: ${group}\n            cc: gcc\n            id: GNU"
+      "- runner: macos-26\n            host: darwin-arm64\n            group: ${group}\n            cc: cc\n            id: AppleClang")
+  endforeach()
+  list(SORT expected)
+  if(NOT rows STREQUAL expected)
+    message(FATAL_ERROR "ci-routing: diagnostic-group-matrix-mismatch")
+  endif()
+  foreach(required IN ITEMS
+      [=[name: diagnostics (${{ matrix.host }}, ${{ matrix.group }})]=]
+      "if: matrix.group == 'arm'\n        run: cmake --workflow --preset diagnostics-arm"
+      "if: matrix.group == 'thumb'\n        run: cmake --workflow --preset diagnostics-thumb")
+    string(FIND "${text}" "${required}" found)
+    if(found EQUAL -1)
+      message(FATAL_ERROR "ci-routing: diagnostic-group-command-mismatch")
+    endif()
+  endforeach()
+endfunction()
+
+if(CASE STREQUAL "diagnostic-route-control")
+  file(READ "${WORKFLOW}" text)
+  check_diagnostic_groups("${text}")
+  return()
+endif()
+
+function(check_diagnostics_route source_root)
+  include("${source_root}/cmake/CiPreflight.cmake")
+  gbl_ci_workflow("${source_root}" "${source_root}/.github/workflows/ci.yml")
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
+    "-DBIN=${source_root}/build/phase05-spike/ci-preflight-controls"
+    -P "${source_root}/tests/ci/preflight_cases.cmake"
+    RESULT_VARIABLE preflight_rc OUTPUT_VARIABLE preflight_out ERROR_VARIABLE preflight_err)
+  if(NOT preflight_rc STREQUAL "0")
+    message(FATAL_ERROR "ci-routing: budget-preflight-controls-failed:${preflight_out}${preflight_err}")
+  endif()
+  set(workflow_file "${source_root}/.github/workflows/ci.yml")
+  if(NOT EXISTS "${workflow_file}")
+    message(FATAL_ERROR "ci-routing: ci-workflow-missing")
+  endif()
+  file(READ "${workflow_file}" workflow_text)
+  string(FIND "${workflow_text}" "\n  diagnostics:\n" diagnostics_start)
+  if(diagnostics_start EQUAL -1)
+    message(FATAL_ERROR "ci-routing: required-diagnostics-job-missing")
+  endif()
+  set(required_needs "needs: [changes, hygiene, title, build, asan, diagnostics]")
+  string(FIND "${workflow_text}" "${required_needs}" needs_position)
+  if(needs_position EQUAL -1)
+    message(FATAL_ERROR "ci-routing: diagnostics-job-not-in-required-needs")
+  endif()
+
+  string(FIND "${workflow_text}" "\n  ci-required:\n" required_start)
+  if(required_start EQUAL -1 OR required_start LESS diagnostics_start)
+    message(FATAL_ERROR "ci-routing: required-check-job-missing-or-misordered")
+  endif()
+  math(EXPR diagnostics_length "${required_start} - ${diagnostics_start}")
+  string(SUBSTRING "${workflow_text}" ${diagnostics_start}
+    ${diagnostics_length} diagnostics_block)
+  check_diagnostic_groups("${diagnostics_block}")
+  foreach(expected IN ITEMS
+      "runner: ubuntu-26.04" "host: linux-x64"
+      "runner: macos-26" "host: darwin-arm64"
+      [=[timeout-minutes: ${{ matrix.minutes }}]=] "fetch-depth: 0"
+      "persist-credentials: false"
+      [=[ref: ${{ github.event.pull_request.head.sha || github.sha }}]=]
+      "sh scripts/fetch-toolchain.sh"
+      "cmake --workflow --preset diagnostics-arm"
+      "cmake --workflow --preset diagnostics-thumb")
+    string(FIND "${diagnostics_block}" "${expected}" found)
+    if(found EQUAL -1)
+      message(FATAL_ERROR "ci-routing: diagnostics-job-missing-${expected}")
+    endif()
+  endforeach()
+  if(diagnostics_block MATCHES "actions/upload-artifact@")
+    message(FATAL_ERROR "ci-routing: diagnostic-artifact-upload-forbidden")
+  endif()
+
+  # The static checker must catch a diagnostic job that is removed from the
+  # required needs list, even though no job result then reaches CiRequired.cmake.
+  set(needs_control_root "${source_root}/build/phase05-spike/ci-needs-control")
+  file(MAKE_DIRECTORY "${needs_control_root}")
+  string(REPLACE "${required_needs}"
+    "needs: [changes, hygiene, title, build, asan]" missing_diagnostic_need
+    "${workflow_text}")
+  if(missing_diagnostic_need STREQUAL workflow_text)
+    message(FATAL_ERROR "ci-routing: needs-negative-control-no-match")
+  endif()
+  set(control_workflow "${needs_control_root}/ci.yml")
+  foreach(group IN ITEMS wrong thumb)
+    string(REPLACE "group: arm" "group: ${group}" mutation "${diagnostics_block}")
+    file(WRITE "${control_workflow}" "${mutation}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=diagnostic-route-control
+      "-DSRC=${source_root}" "-DWORKFLOW=${control_workflow}" -P "${CMAKE_CURRENT_FUNCTION_LIST_FILE}"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "diagnostic-group-matrix-mismatch")
+      message(FATAL_ERROR "ci-routing: diagnostic-group-control-missed")
+    endif()
+  endforeach()
+  file(WRITE "${control_workflow}" "${missing_diagnostic_need}")
+  execute_process(
+    COMMAND sh "${source_root}/scripts/check-workflow.sh" "${control_workflow}"
+    WORKING_DIRECTORY "${source_root}"
+    RESULT_VARIABLE control_rc OUTPUT_VARIABLE control_out
+    ERROR_VARIABLE control_error)
+  if("${control_rc}" STREQUAL "0" OR
+     NOT "${control_out}${control_error}" MATCHES
+       "workflow: needs-missing: diagnostics")
+    message(FATAL_ERROR
+      "ci-routing: missing-diagnostic-need-control-missed: ${control_error}${control_out}")
+  endif()
+  foreach(mutation IN ITEMS history upload)
+    if(mutation STREQUAL "history")
+      string(REPLACE "fetch-depth: 0" "fetch-depth: 1" changed "${workflow_text}")
+      set(reason "workflow: full-history-required")
+    else()
+      string(REPLACE "path: build/ci/junit.xml" "path: build/**/*.gba" changed "${workflow_text}")
+      set(reason "workflow: junit-only-upload")
+    endif()
+    file(WRITE "${control_workflow}" "${changed}")
+    execute_process(COMMAND sh "${source_root}/scripts/check-workflow.sh" "${control_workflow}"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "${reason}")
+      message(FATAL_ERROR "ci-routing: missing-${mutation}-refusal:${output}${error}")
+    endif()
+  endforeach()
+endfunction()
+
 if(CASE STREQUAL "needs")
   set(cases
     # every job succeeded
-    [=[pass true pull_request {"changes":{"result":"success","outputs":{"heavy":"true"}},"hygiene":{"result":"success","outputs":{}},"title":{"result":"success","outputs":{}},"build":{"result":"success","outputs":{}},"asan":{"result":"success","outputs":{}}}]=]
+    [=[pass true pull_request {"changes":{"result":"success","outputs":{"heavy":"true"}},"hygiene":{"result":"success","outputs":{}},"title":{"result":"success","outputs":{}},"build":{"result":"success","outputs":{}},"asan":{"result":"success","outputs":{}},"diagnostics":{"result":"success","outputs":{}}}]=]
     # planning-only: heavy lanes skipped on purpose
-    [=[pass false pull_request {"changes":{"result":"success"},"hygiene":{"result":"success"},"title":{"result":"success"},"build":{"result":"skipped"},"asan":{"result":"skipped"}}]=]
+    [=[pass false pull_request {"changes":{"result":"success"},"hygiene":{"result":"success"},"title":{"result":"success"},"build":{"result":"skipped"},"asan":{"result":"skipped"},"diagnostics":{"result":"skipped"}}]=]
     # a heavy job skipped while heavy=true must fail
     [=[fail true pull_request {"changes":{"result":"success"},"hygiene":{"result":"success"},"title":{"result":"success"},"build":{"result":"skipped"},"asan":{"result":"success"}} not\ allowed:\ build=skipped]=]
+    # diagnostics may skip only when the complete file listing makes the change planning-only
+    [=[fail true pull_request {"changes":{"result":"success"},"hygiene":{"result":"success"},"title":{"result":"success"},"build":{"result":"success"},"asan":{"result":"success"},"diagnostics":{"result":"skipped"}} diagnostics=skipped]=]
+    # a failed or cancelled diagnostics matrix result is never allowed
+    [=[fail true pull_request {"changes":{"result":"success"},"hygiene":{"result":"success"},"title":{"result":"success"},"build":{"result":"success"},"asan":{"result":"success"},"diagnostics":{"result":"failure"}} diagnostics=failure]=]
+    # a missing result from the required diagnostics job fails closed
+    [=[fail true pull_request {"changes":{"result":"success"},"hygiene":{"result":"success"},"title":{"result":"success"},"build":{"result":"success"},"asan":{"result":"success"},"diagnostics":{"outputs":{}}} diagnostics=missing]=]
     # changes failed: HEAVY is empty, so skipped heavy jobs fail too
     [=[fail - pull_request {"changes":{"result":"failure"},"hygiene":{"result":"success"},"title":{"result":"success"},"build":{"result":"skipped"},"asan":{"result":"skipped"}} changes=failure&build=skipped]=]
     # hygiene is always required
@@ -97,6 +235,7 @@ if(CASE STREQUAL "needs")
     endforeach()
     message(FATAL_ERROR "needs-case: FAIL (see above)")
   endif()
+  check_diagnostics_route("${SRC}")
   message("needs-cases: ${n} ok")
 elseif(CASE STREQUAL "compiler_id_guard")
   if(NOT DEFINED BIN)

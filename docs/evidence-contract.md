@@ -116,8 +116,13 @@ these fields:
 must equal the row's class; `claim.cart.rom_sha256` must equal `fixture.rom_sha256`
 (two nulls are equal); some evidence item must name `fixture.id`; and when the manifest
 row is a `url` or `in-tree` row, a non-null `fixture.rom_sha256` must equal the row's
-`source.sha256` (`claim-mismatch`). A `git` row pins a commit, not a digest, so no digest
-tie exists for it yet.
+`source.sha256` (`claim-mismatch`). A source-built `git` row may instead carry an optional
+`build.artifact` object with exactly `path` and `sha256`; that SHA is the generated ROM
+identity checked by the result validator and projected into the runner's existing
+`rom_sha256` slot. The git `source.commit` remains the reviewed source revision, and
+`build.toolchain` remains tool identity. A legacy git row without `build.artifact` still
+has no output digest and the production runner refuses it with
+`fixture-digest-unavailable`.
 
 Dispute disclosure: when the manifest row for the fixture, or for any evidence fixture,
 carries a dispute id, the result's `disputes` list must contain it, and a non-empty
@@ -175,11 +180,12 @@ runtime CMake, manifest, or fixture-index path and does not need the source tree
 built.
 
 The production fixture index is generated only from `tests/fixtures/manifest.json`, which
-is currently empty. The separate `gamebloke-run-control` binary and its generated manifest
+now admits the source-owned ARMv4T diagnostics against their exact artifact hashes
+and immutable producer revision. The separate `gamebloke-run-control` binary and its generated manifest
 exist only for local validation mechanics. Their rows and generated instruction images are
 artificial, `local-only`, and non-redistributable with unknown rights; they are not actual
 fixture approvals and must never be copied into the production index or described as grants.
-The same control output is rejected by the canonical empty production manifest as an
+The same artificial control output is rejected by the canonical production manifest as an
 unknown fixture. Running a raw path without a registered `--fixture` can report an honest
 diagnostic such as `GUEST_STOP` with `unregistered-content`, semantic observation, and
 machine time, but it has no claim evidence and cannot validate as a manifest-backed result.
@@ -202,22 +208,19 @@ pending PASS, malformed case id/time, overflow, budget overrun, removed dispute 
 and incomplete trace are rejected for their named reasons. This proves the configured
 producer/checker path only; synthetic metadata remains an artificial validator input.
 
-Current evidence is limited to the direct-start profile and the implemented ARM7TDMI
-instruction subset. Unsupported instruction families stop rather than silently acquiring
-semantics; full ARM/Thumb diagnostic coverage remains future work. No BIOS execution or
-HLE, timers, DMA, active I/O devices, WAITCNT/Game Pak prefetch, display/audio presentation,
-physical input, or host presentation is modeled. Bus timing uses project placeholder costs;
-absent-BIOS, unsupported-I/O, and shorter-cartridge current-latch behavior remain unverified.
-The exact opcode and operand boundary is the version 4 table in
-[profile-agb.md](profile-agb.md#cpu-instruction-scope): ARM data processing (MOV, ADD, SUB,
-CMP, AND, ORR), B/BL/BX, and the listed immediate pre-indexed byte/word transfers; Thumb
-MOV/ADD/SUB/CMP immediates, high-register MOV/BX, conditional and unconditional branches,
-and the listed PC-relative and low-register immediate transfers. It excludes ARM
-post-index/writeback, halfword/signed and block transfers, multiply/swap/full PSR and
-coprocessor execution, the table's restricted PC/register forms, Thumb BL pairs and other
-unlisted transfer/data-processing forms, later architecture extensions, and every other
-valid but unimplemented opcode or operand. Valid unsupported operations stop with an
-unsupported reason; reserved undefined encodings remain separately classified.
+Current evidence is limited to the direct-start profile and the implemented
+ARM7TDMI ARMv4T families in the version 5 scope/policy tables in
+[profile-agb.md](profile-agb.md#cpu-instruction-scope). The original ARM/Thumb
+corpus has admitted production fixtures and actual local execution receipts;
+current-source verification, hosted qualification and owner acceptance are
+separate gates. See [the verification guide](verify.md#original-armv4t-diagnostics)
+and the current Phase 5 final-check record for their exact status. Unpredictable operand
+stops, recognized later extensions, reserved UND and absent-coprocessor UND have
+separate causes. Explicit executing project policies and static target refusals
+are listed in the profile. Public unsupported values remain compatible without
+inventing a legal unimplemented instruction. No BIOS execution/HLE, timers, DMA,
+active I/O, WAITCNT/prefetch, display/audio, physical input or host presentation
+is modeled. Bus timing and latch behavior remain unqualified.
 
 The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
 undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the
@@ -235,6 +238,44 @@ The result is not hardware qualification, broad game compatibility, a BIOS-backe
 a rights determination. The phase's unresolved spec-less probe classifications and the
 standing restrictions on repurposing rights-bearing inputs or inflating compatibility
 claims remain for phase verification; no human judgment is inferred from these controls.
+
+### Reading Phase 5 CPU evidence
+
+The canonical crosswalk is `diagnostics/armv4t/cases.json`. Each row names its
+instruction/form, independent derivation, fixed ID, execution boundary, and
+positive/broken fixtures or native API evidence. `cmake/CheckArmCoverage.cmake`
+checks the complete legal family/form set, including all 19 Thumb formats;
+the execution-set gate binds those rows to actual results. A complete ledger
+and a passing execution set answer different questions and both are needed.
+
+| Named area | What to inspect | Limit |
+| --- | --- | --- |
+| CPU-1 | ARMv4 version/classification boundaries and explicit operand policies | Unpredictable behavior uses a documented project choice. |
+| CPU-2 | Shifter counts, carry, immediate/register boundaries and defined flags | Preserved unpredictable flags are policy, not measured silicon. |
+| CPU-3 | Instruction-specific visible PC, alignment, branch/refill and stored PC | Direct-start profile and modeled bus only. |
+| CPU-4 | Empty/base-in-list block and stack transfers, bank/order and writeback | Invalid-list policies are distinguished from defined transfers. |
+| CPU-5 | Byte/halfword/signed accesses and misaligned-load behavior | The cited exact-core rules and explicit GBA policies remain separate. |
+| CPU-6 | All six multiply forms, defined N/Z and non-S preservation | Short C and long C/V treatment is deterministic policy. |
+| CPU-7 | Separate Thumb BL fetch/retirement and intermediate LR/PC | Injected IRQ is a native CPU API boundary, with no live interrupt controller. |
+| CPU-8 | PSR masks, privilege/banks, SPSR and exception returns | Absent-SPSR and invalid-mode handling remains explicit. |
+| CPU-9 | ARM 24-bit and Thumb 8-bit SWI comments, UND and coprocessor causes | Named BIOS-none stops do not execute a handler. |
+
+Semantic fixture pairs execute the tested instruction and the same assertion
+path; the broken member changes an expected operand and must report the same
+case ID with `GUEST_FAIL`. That proves the diagnostic detects its deliberately
+broken expectation. Native semantic mutants separately test selected core
+faults. Neither is an independent physical GBA oracle. Guest-stop rows report
+their named cause with pending semantics; API-only rows have no invented ROM
+or CLI PASS. Trace writes record bus return values, so stored data assertions
+use actual guest reads rather than treating write trace values as payloads.
+
+The original fixture notice permits only necessary compilation/execution in
+Gamebloke public CI. Generated ROMs remain local build outputs, with exact-name
+signature scans and original-object-only link-map checks. Source/tool/output
+pins establish identity; they grant no additional redistribution permission.
+The installed production relocation gate checks immutable admitted identity
+and actual observations with explicit owned input, alongside the raw-image and
+missing-executable controls; it does not qualify a stable public ABI or release.
 
 The probe audit surfaced 11 rows, and all 11 remain unresolved. Five have category
 labels: CPU-04 bank adjacency, empty User/System SPSR, and exception-entry ordering;
@@ -260,8 +301,9 @@ that is not settled carries the label `UNK` and a dispute id, never a number.
 
 ## Manifest rows
 
-`tests/fixtures/manifest.json` has a `fixtures` array. It holds zero rows today, which
-is the stated empty state: Phases 5 and 6 add the first fixtures. The row fields and
+`tests/fixtures/manifest.json` has a `fixtures` array. Phase 5's source-owned
+diagnostics supply its first admitted rows. Source revision, actual ROM digest,
+expected-value provenance and permitted use are separate facts. The row fields and
 the EVID-01 item each one satisfies:
 
 | Field | Satisfies | Rule |
@@ -269,17 +311,24 @@ the EVID-01 item each one satisfies:
 | `id` | identity | `^[a-z0-9][a-z0-9._-]*$`, unique |
 | `source` | source and revision | `kind` is `git`, `url`, or `in-tree`; see below |
 | `license` | license and notices | `spdx`, a non-empty `notices` array, and `redistributable` of `yes`, `no`, or `unknown` |
-| `build` | build recipe and toolchain | `recipe`, and `toolchain.identity` plus `toolchain.sha256` (null allowed) |
+| `build` | build recipe, toolchain and optional output identity | `recipe`, `toolchain.identity` plus `toolchain.sha256` (null allowed), and optional `artifact: {path, sha256}` |
 | `bios_requirement` | BIOS need | `none`, `project-stub`, `hle`, `replacement`, or `user-official` |
 | `expected` | expected-value provenance | `provenance_class` from the vocabulary; `dispute` is null or a registry id |
 | `permitted_use` | where it may run | a non-empty unique array of `public-ci`, `local-only`, `differential-only` |
 | `fetch` | how it is obtained | optional; when present, `pin_dest` is a relative path |
 
 Source kinds and pinning rules (D-13, R-3): a `git` row carries a `url` (https only) and
-a `commit` of exactly 40 lowercase hex; a branch or tag name is not a pin. A `url` row
-carries an https `url` and a 64-hex `sha256`. An `in-tree` row carries a relative `path`
-and a `sha256`, and has no `fetch`. A `disputed` provenance class needs a dispute id, and
-a dispute id under any other class is rejected.
+a `commit` of exactly 40 lowercase hex; a branch or tag name is not a pin. For a built
+git fixture, optional `build.artifact.path` is a normalized, nonempty path relative to the
+explicit current `GBL_ARTIFACT_ROOT`, and `build.artifact.sha256` is the lowercase SHA-256
+of the generated ROM bytes. The artifact object has exactly those two keys and is valid
+only for a git source row. Index generation can use the committed metadata pin when an
+optional local output is absent; when the lane supplies `GBL_ARTIFACT_ROOT` and the output
+exists, generation checks its containment and bytes. The runtime runner always compares
+the ROM it is asked to execute with the immutable indexed digest. A `url` row carries an
+https `url` and a 64-hex `sha256`. An `in-tree` row carries a relative `path` and a
+`sha256`, and has no `fetch`. A `disputed` provenance class needs a dispute id, and a
+dispute id under any other class is rejected.
 
 The provenance classes are `project-authored`, `hardware-observed`,
 `reference-emulator`, `suite-self-checking`, and `disputed`.

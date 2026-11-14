@@ -1,0 +1,171 @@
+---
+phase: "05"
+slug: "toolchain-spike-original-diagnostics-and-arm-thumb-completio"
+status: draft
+nyquist_compliant: false
+wave_0_complete: false
+created: "2026-11-11"
+---
+
+# Phase 05 — Validation Strategy
+
+## Test Infrastructure
+
+Existing CTest/C17 assertion harness, strict CMake validators, POSIX controls, sorted per-lane inventories and JUnit reconciliation. No new testing framework or Python runtime.
+
+| Property | Value |
+| --- | --- |
+| Config | CMakeLists.txt, CMakePresets.json, tests/core.cmake, tests/gates.cmake |
+| Quick command | Exact task commands/creation dependencies appear below; existing configured CPU target is build/ci/cpu_test and every new selector is created by its owning task. |
+| Full command | cmake --workflow --preset ci |
+| Sanitizers | Existing fresh AppleClang compiler override locally; canonical Linux clang-21 asan workflow in hosted CI. |
+| Measured baseline | Final Phase 4 main jobs: macOS140s, Linux129s, ASan119s, hygiene48s. These are not Phase 5 measurements. |
+| Resource limit | Owner-amended job budgets:300s only for macOS native build and macOSARM diagnostics,180s for the other jobs; cheap policy/source preflight precedes long verification. Historical spike measurements remain historical. |
+
+## Sampling Rate
+
+After each production tracer/change, run the exact new behavior plus a relevant negative/clean control. Do not build once per opcode/vector or repeat full suites for unchanged documents. Run canonical CI at integration boundaries and final source; sanitizer/current compiler evidence when host C changes. All checks background by default. No watch mode. A missing check or skipped case remains visible.
+
+## Per-Task Verification Map
+
+All25 plans/50 tasks are mapped below. This is the original planning/creation map:
+its PENDING cells mean that planning asserted no execution result. Actual plan
+summaries and the local execution overlay below now supply observed evidence.
+The extra sanitizer/GNU rows belong to the same final task. Every new
+selector/script must exist before verification. Required final diagnostic CI is
+admitted stage, not initial proof stage.
+
+| Task | Wave | Requirements | Threat refs | Automated command (repo root) | Creation dependency / proof | Actual result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 05-01-01 | 1 | DIAG-01, DIAG-02 | T-05-01, T-05-02 | `cmake -DCASE=installed -DSRC=. -DBIN=build/phase05-toolchain -DTOOLCHAIN_ROOT=build/toolchains -P tests/gates/toolchain_case.cmake` | Phase4 core/runner and current CMake; scripts/fetch-toolchain.sh, tests/gates/toolchain_case.cmake authored/extended by this task before command; tests/gates/toolchain_case.cmake: installed selector; generated install.json receipt | PENDING |
+| 05-01-02 | 1 | DIAG-01, DIAG-02 | T-05-01, T-05-02 | `cmake -DCASE=offline-all -DSRC=. -DBIN=build/phase05-toolchain -P tests/gates/toolchain_case.cmake` | same-plan tracer verified first; scripts/fetch-toolchain.sh, tests/gates/toolchain_case.cmake authored/extended by this task before command; toolchain_case selectors offline-all and individual named refusal cases | PENDING |
+| 05-02-01 | 2 | DIAG-01, DIAG-02 | T-05-03, T-05-04 | `cmake -DSRC=. -DOUT=build/phase05-spike/native -DTOOLCHAIN_ROOT=build/toolchains -DMODE=smoke -P cmake/BuildArmDiagnostics.cmake && cmake --preset ci && cmake --build --preset ci && build/ci/gamebloke-run --rom build/phase05-spike/native/roms/smoke.gba --cycles 1000` | 05-01 completed; cmake/FixGbaHeader.cmake, cmake/BuildArmDiagnostics.cmake authored/extended by this task before command; smoke.S: ARM/Thumb smoke entry and stable smoke case ID; BuildArmDiagnostics.cmake: SRC/OUT/TOOLCHAIN_ROOT/MODE/HOST; per-build receipt, attributes/disassembly/map and ignored smoke.gba | PENDING |
+| 05-02-02 | 2 | DIAG-01, DIAG-02 | T-05-03, T-05-04 | `cmake -DCASE=local-proof -DSRC=. -DBIN=build/phase05-spike -DTOOLCHAIN_ROOT=build/toolchains -P tests/gates/toolchain_spike.cmake` | same-plan tracer verified first; tests/gates/diagnostic_linkmap.cmake, tests/gates/toolchain_spike.cmake authored/extended by this task before command; toolchain_spike.cmake: local-proof, proof-only and offline-controls modes | PENDING |
+| 05-03-01 | 3 | DIAG-01, DIAG-02, VERIF-04 | T-05-05, T-05-06 | `cmake --workflow --preset diagnostics` | 05-02 completed; tests/toolchain.cmake, tests/inventory/diagnostics.txt authored/extended by this task before command; tests/toolchain.cmake and tests/inventory/diagnostics.txt; diagnostics.toolchain/spike and toolchain.offline tests | PENDING |
+| 05-03-02 | 3 | DIAG-01, DIAG-02, VERIF-04 | T-05-05, T-05-06 | `sh scripts/check-workflow.sh && cmake -DCASE=needs -DSRC=. -DBIN=build/phase05-spike -P tests/ci/ci_cases.cmake && cmake -DCASE=hosted-proof -DSRC=. -DBIN=build/phase05-spike -P tests/gates/toolchain_spike.cmake` | same-plan tracer verified first; scripts/check-workflow.sh, tests/ci/ci_cases.cmake authored/extended by this task before command; needs-case coverage for diagnostics failure/skip/missing job | PENDING |
+| 05-04-01 | 4 | DIAG-01, DIAG-02, DIAG-03 | T-05-07, T-05-08 | `cmake -DCASE=roundtrip -DSRC=. -DBIN=build/phase05-artifact -P tests/gates/artifact_case.cmake` | 05-03 completed; cmake/CheckManifest.cmake, cmake/GenerateFixtureIndex.cmake, cmake/CheckResult.cmake, tests/gates/artifact_case.cmake authored/extended by this task before command; artifact_case.cmake: roundtrip mode and metadata identity assertions | PENDING |
+| 05-04-02 | 4 | DIAG-01, DIAG-02, DIAG-03 | T-05-07, T-05-08 | `cmake -DCASE=compatibility-and-controls -DSRC=. -DBIN=build/phase05-artifact -P tests/gates/artifact_case.cmake` | same-plan tracer verified first; tests/gates/artifact_case.cmake, tests/gates/manifest_case.cmake, tests/gates/result_case.cmake, tests/gates/runner_metadata.cmake authored/extended by this task before command; artifact_case selectors compatibility-and-controls plus exact refusal reasons | PENDING |
+| 05-05-01 | 5 | DIAG-01, DIAG-02, DIAG-03 | T-05-09, T-05-10 | `cmake --preset ci && cmake --build --preset ci && cmake -DCASE=smoke-pair -DSRC=. -DBIN=build/ci -DTOOLCHAIN_ROOT=build/toolchains -P tests/gates/diagnostics_case.cmake` | 05-04 completed; tests/fixtures/manifest.json, tests/gates/diagnostics_case.cmake authored/extended by this task before command; diagnostics_case.cmake: smoke-pair, exact production result checks | PENDING |
+| 05-05-02 | 5 | DIAG-01, DIAG-02, DIAG-03 | T-05-09, T-05-10 | `cmake -DCASE=ledger-controls -DSRC=. -DBIN=build/phase05-coverage -P tests/gates/coverage_case.cmake && cmake -DMODE=draft -DMATRIX=diagnostics/armv4t/cases.json -P cmake/CheckArmCoverage.cmake` | same-plan tracer verified first; cmake/CheckArmCoverage.cmake, tests/gates/coverage_case.cmake, cmake/BuildArmDiagnostics.cmake, tests/gates/diagnostics_case.cmake authored/extended by this task before command; cases.json fields id/isa/family/form/setup/observe/expected/source_reference/cpu_quirk/native_selector/positive_fixture/negative_fixture/expected_fail_case_id/trace_required/coverage_state; CheckArmCoverage MODE=draft\|final MATRIX; coverage_case ledger-controls; BuildArmDiagnostics MODE=case\|all with selected case and broken expectation | PENDING |
+| 05-06-01 | 6 | CPU-01 | T-05-11, T-05-12 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test slots` | 05-05 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector slots | PENDING |
+| 05-06-02 | 6 | CPU-01 | T-05-11, T-05-12 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test slots_bounds` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector slots_bounds | PENDING |
+| 05-07-01 | 7 | CPU-01 | T-05-13, T-05-14 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_alu` | 05-06 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_alu | PENDING |
+| 05-07-02 | 7 | CPU-01 | T-05-13, T-05-14 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_shifts_conditions` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_shifts_conditions | PENDING |
+| 05-08-01 | 8 | CPU-01 | T-05-15, T-05-16 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_pc_return` | 05-07 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_pc_return | PENDING |
+| 05-08-02 | 8 | CPU-01 | T-05-15, T-05-16 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test psr` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector psr | PENDING |
+| 05-09-01 | 9 | CPU-01 | T-05-17, T-05-18 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test multiply_unsigned` | 05-08 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector multiply_unsigned | PENDING |
+| 05-09-02 | 9 | CPU-01 | T-05-17, T-05-18 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test multiply_signed_timing` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector multiply_signed_timing | PENDING |
+| 05-10-01 | 10 | CPU-01 | T-05-19, T-05-20 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_transfer` | 05-09 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_transfer | PENDING |
+| 05-10-02 | 10 | CPU-01 | T-05-19, T-05-20 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test loaded_pc` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector loaded_pc | PENDING |
+| 05-11-01 | 11 | CPU-01 | T-05-21, T-05-22 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_subword` | 05-10 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_subword | PENDING |
+| 05-11-02 | 11 | CPU-01 | T-05-21, T-05-22 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_subword_alignment` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_subword_alignment | PENDING |
+| 05-12-01 | 12 | CPU-01 | T-05-23, T-05-24 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_block` | 05-11 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_block | PENDING |
+| 05-12-02 | 12 | CPU-01 | T-05-23, T-05-24 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_block_bounds` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_block_bounds | PENDING |
+| 05-13-01 | 13 | CPU-01 | T-05-25, T-05-26 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_block_banks` | 05-12 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_block_banks | PENDING |
+| 05-13-02 | 13 | CPU-01 | T-05-25, T-05-26 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test arm_block_edges` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector arm_block_edges | PENDING |
+| 05-14-01 | 14 | CPU-01, CPU-02 | T-05-27, T-05-28 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_alu` | 05-13 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_alu | PENDING |
+| 05-14-02 | 14 | CPU-01, CPU-02 | T-05-27, T-05-28 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_high` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_high | PENDING |
+| 05-15-01 | 15 | CPU-02 | T-05-29, T-05-30 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_transfer` | 05-14 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_transfer | PENDING |
+| 05-15-02 | 15 | CPU-02 | T-05-29, T-05-30 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_sp` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_sp | PENDING |
+| 05-16-01 | 16 | CPU-02 | T-05-31, T-05-32 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_stack` | 05-15 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_stack | PENDING |
+| 05-16-02 | 16 | CPU-02 | T-05-31, T-05-32 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_multiple` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_multiple | PENDING |
+| 05-17-01 | 17 | CPU-02, CPU-01 | T-05-33, T-05-34 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_bl` | 05-16 completed; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_bl | PENDING |
+| 05-17-02 | 17 | CPU-02, CPU-01 | T-05-33, T-05-34 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test thumb_control` | same-plan tracer verified first; tests/cpu_test.c authored/extended by this task before command; cpu_test selector thumb_control | PENDING |
+| 05-18-01 | 18 | CPU-01, CPU-02 | T-05-35, T-05-36 | `cmake --preset ci && cmake --build --preset ci && build/ci/cpu_test isa_classification && build/ci/runner_test` | 05-17 completed; tests/cpu_test.c, tests/runner_test.c authored/extended by this task before command; exact behavior/control named in task | PENDING |
+| 05-18-02 | 18 | CPU-01, CPU-02 | T-05-35, T-05-36 | `cmake -DCASE=cpu_policy_value -DSRC=. -DBIN=build/ci -P tests/gates/profile_case.cmake && cmake -DCASE=cpu_policy_doc -DSRC=. -DBIN=build/ci -P tests/gates/profile_case.cmake && cmake -DPROFILE=profiles/agb.json -DDOC=docs/profile-agb.md -DREGISTRY=registry/disputes.json -DVOCAB=contracts/evidence.json -P cmake/CheckProfile.cmake` | same-plan tracer verified first; cmake/CheckProfile.cmake, tests/gates/profile_case.cmake authored/extended by this task before command; exact behavior/control named in task | PENDING |
+| 05-19-01 | 19 | DIAG-01, DIAG-03, CPU-01 | T-05-37, T-05-38 | `cmake -DSRC=. -DOUT=build/phase05-matrix/arm -DTOOLCHAIN_ROOT=build/toolchains -DMODE=all -DISA=arm -P cmake/BuildArmDiagnostics.cmake` | 05-18 completed; cmake/BuildArmDiagnostics.cmake authored/extended by this task before command; cases-arm.S and assertions.inc: original case selection/assertions/mailbox completion; BuildArmDiagnostics ISA=arm\|thumb, CASE_ID, BROKEN flags and deterministic per-case output naming | PENDING |
+| 05-19-02 | 19 | DIAG-01, DIAG-03, CPU-01 | T-05-37, T-05-38 | `cmake -DCASE=arm-pre-admission -DSRC=. -DBIN=build/ci -DARTIFACT_ROOT=build/phase05-matrix/arm -P tests/gates/diagnostics_case.cmake && cmake -DCASE=ledger-controls -DSRC=. -DBIN=build/phase05-coverage -P tests/gates/coverage_case.cmake` | same-plan tracer verified first; tests/gates/diagnostics_case.cmake, cmake/CheckArmCoverage.cmake, tests/gates/coverage_case.cmake authored/extended by this task before command; execution_boundary, expected_status and companion_case_ids ledger fields; diagnostics_case arm-pre-admission; source-built guest-stop witness cases | PENDING |
+| 05-20-01 | 20 | DIAG-01, DIAG-03, CPU-02 | T-05-39, T-05-40 | `cmake -DSRC=. -DOUT=build/phase05-matrix/thumb -DTOOLCHAIN_ROOT=build/toolchains -DMODE=all -DISA=thumb -P cmake/BuildArmDiagnostics.cmake` | 05-19 completed; cmake/BuildArmDiagnostics.cmake authored/extended by this task before command; cases-thumb.S: selectable formats1–19 and operation variants; Thumb case IDs/fixture links and source-derived expectations in cases.json | PENDING |
+| 05-20-02 | 20 | DIAG-01, DIAG-03, CPU-02 | T-05-39, T-05-40 | `cmake -DCASE=thumb-pre-admission -DSRC=. -DBIN=build/ci -DARTIFACT_ROOT=build/phase05-matrix/thumb -P tests/gates/diagnostics_case.cmake && build/ci/cpu_test thumb_bl && build/ci/cpu_test thumb_control` | same-plan tracer verified first; tests/gates/diagnostics_case.cmake, cmake/CheckArmCoverage.cmake authored/extended by this task before command; exact behavior/control named in task | PENDING |
+| 05-21-01 | 21 | DIAG-01, DIAG-02, DIAG-03 | T-05-41, T-05-42 | `cmake -DCASE=final-output-proof -DSRC=. -DBIN=build/phase05-final-parity -DTOOLCHAIN_ROOT=build/toolchains -P tests/gates/toolchain_spike.cmake` | 05-20 completed; cmake/BuildArmDiagnostics.cmake, tests/gates/toolchain_spike.cmake authored/extended by this task before command; exact behavior/control named in task | PENDING |
+| 05-21-02 | 21 | DIAG-01, DIAG-02, DIAG-03 | T-05-41, T-05-42 | `cmake --preset ci && cmake --build --preset ci && cmake -DCASE=all-admitted -DSRC=. -DBIN=build/ci -DTOOLCHAIN_ROOT=build/toolchains -P tests/gates/diagnostics_case.cmake && cmake -DCASE=admission-controls -DSRC=. -DBIN=build/ci -P tests/gates/artifact_case.cmake` | same-plan tracer verified first; tests/fixtures/manifest.json, tests/gates/diagnostics_case.cmake, tests/gates/artifact_case.cmake, tests/gates/runner_metadata.cmake authored/extended by this task before command; diagnostics_case all-admitted; artifact_case admission-controls | PENDING |
+| 05-22-01 | 22 | CPU-01, CPU-02, DIAG-03 | T-05-43, T-05-44 | `cmake --preset ci && cmake --build --preset ci && ctest --test-dir build/ci -R '^cpu\.(nc\.(block_effect_order\|loaded_pc\|maximum_trace\|multiply_flags\|bl_halves)\|pos\.clean)$' --no-tests=error --output-on-failure` | 05-21 completed; tests/gates/core_mutation.cmake, tests/cpu_test.c, tests/core.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt authored/extended by this task before command; cpu.nc.block_effect_order/loaded_pc/maximum_trace/multiply_flags/bl_halves and complete cpu.pos.clean selector list | PENDING |
+| 05-22-02 | 22 | CPU-01, CPU-02, DIAG-03 | T-05-43, T-05-44 | `cmake --build --preset ci && build/ci/cpu_test unit_boundaries && build/ci/cpu_test arm_block_bounds && build/ci/cpu_test slots_bounds` | same-plan tracer verified first; tests/cpu_test.c, tests/state_check.h, tests/gates/core_mutation.cmake authored/extended by this task before command; exact behavior/control named in task | PENDING |
+| 05-23-01 | 23 | DIAG-01, DIAG-03, VERIF-04, CPU-01, CPU-02 | T-05-45, T-05-46 | `cmake --workflow --preset ci && cmake --workflow --preset diagnostics` | 05-22 completed; tests/diagnostics.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt, tests/inventory/diagnostics.txt authored/extended by this task before command; tests/diagnostics.cmake: matrix-driven semantic/stop/coverage/map/signature/artifact registration | PENDING |
+| 05-23-02 | 23 | DIAG-01, DIAG-03, VERIF-04, CPU-01, CPU-02 | T-05-45, T-05-46 | `cmake -DCASE=all -DSRC=. -DBIN=build/phase05-dependency -P tests/gates/diagnostic_dependency.cmake` | same-plan tracer verified first; tests/gates/diagnostic_dependency.cmake, tests/diagnostics.cmake, tests/inventory/ci.txt, tests/inventory/asan.txt authored/extended by this task before command; mandatory case-ID execution receipt-set guard | PENDING |
+| 05-24-01 | 24 | DIAG-01, DIAG-02, DIAG-03, VERIF-04 | T-05-47, T-05-48 | `cmake --workflow --preset diagnostics && cmake -DCASE=mandatory-final -DSRC=. -DBIN=build/diagnostics -P tests/gates/diagnostic_dependency.cmake` | 05-23 completed; tests/toolchain.cmake, tests/inventory/diagnostics.txt, tests/gates/diagnostic_dependency.cmake authored/extended by this task before command; GBL_DIAGNOSTIC_STAGE=admitted final preset and mandatory-final guard | PENDING |
+| 05-24-02 | 24 | DIAG-01, DIAG-02, DIAG-03, VERIF-04 | T-05-47, T-05-48 | `sh scripts/check-workflow.sh && cmake -DCASE=needs -DSRC=. -DBIN=build/phase05-ci -P tests/ci/ci_cases.cmake && cmake --workflow --preset diagnostics && cmake -DCASE=final-hosted-proof -DSRC=. -DBIN=build/phase05-ci -P tests/gates/toolchain_spike.cmake` | same-plan tracer verified first; scripts/check-workflow.sh, tests/ci/ci_cases.cmake authored/extended by this task before command; 05-HOSTED-CHECKS.md: actual final job/case/timing witnesses and any preserved stop | PENDING |
+| 05-25-01 | 25 | DIAG-01, DIAG-02, DIAG-03, VERIF-04, CPU-01, CPU-02 | T-05-49, T-05-50 | `cmake --workflow --preset ci && cmake --workflow --preset diagnostics && cmake -DMODE=final -DMATRIX=diagnostics/armv4t/cases.json -P cmake/CheckArmCoverage.cmake && cmake -DSRC=. -DBIN=build/ci -DMODE=admitted -P tests/gates/runner_relocation.cmake` | 05-24 completed; tests/gates/runner_relocation.cmake authored/extended by this task before command; runner_relocation MODE=admitted real fixture cases | PENDING |
+| 05-25-01 (b) | 25 | DIAG-01, DIAG-02, DIAG-03, VERIF-04, CPU-01, CPU-02 | T-05-49, T-05-50 | `cmake --preset asan -B build/phase05-asan-macos -DCMAKE_C_COMPILER=/usr/bin/clang && cmake --build build/phase05-asan-macos && cmake -E chdir build/phase05-asan-macos ctest --output-on-failure --output-junit junit.xml -LE '^post$' --no-tests=error && cmake -E chdir build/phase05-asan-macos ctest --output-on-failure -L '^post$' --no-tests=error` | 05-24 completed; tests/gates/runner_relocation.cmake authored/extended by this task before command; runner_relocation MODE=admitted real fixture cases | PENDING |
+| 05-25-01 (c) | 25 | DIAG-01, DIAG-02, DIAG-03, VERIF-04, CPU-01, CPU-02 | T-05-49, T-05-50 | `sh scripts/linux-lane.sh ci gcc` | 05-24 completed; tests/gates/runner_relocation.cmake authored/extended by this task before command; runner_relocation MODE=admitted real fixture cases | PENDING |
+| 05-25-02 | 25 | DIAG-01, DIAG-02, DIAG-03, VERIF-04, CPU-01, CPU-02 | T-05-49, T-05-50 | `cmake --workflow --preset hygiene && cmake -DCASE=ledger-controls -DSRC=. -DBIN=build/phase05-coverage -P tests/gates/coverage_case.cmake && cmake -DCASE=all -DSRC=. -DBIN=build/phase05-dependency -P tests/gates/diagnostic_dependency.cmake` | same-plan tracer verified first;  authored/extended by this task before command; exact behavior/control named in task | PENDING |
+
+### Command and creation contracts
+
+Existing paths/targets were grounded through git ls-files and current CMake source: cmake, cpu_test, runner_test, gamebloke-run, canonical ci/asan workflows, runner/profile/manifest/result gates, inventory/JUnit and linux-lane. Prior configured verification commands are inherited; the obsolete raw early Phase4 compile that omitted inspect.c is deliberately not used. New files/flags/selectors are exact deliverables above, never assumed current pass evidence. All commands execute from repository root and each PLAN automated element has an immediately adjacent fails_when.
+
+Task01 real fetch is timed once and runs in background; verification then checks installed binaries/receipts. Task02/03 own initial actual architecture/map/scan/parity and measured CI placement. Task21 repeats exact final output-set comparisons and hosted output identity before final admission, reusing verified tools. Hosted x64 hash receipts and literal local macOS/Linux-arm64 cmp are labeled distinctly. Mismatched output uses the explicit logged Linux-owner/host-row fallback. Any hosted red stops before fixes/retry and every job retains its exact owner-approved180/300s budget.
+
+CPU selectors are added inside their owning native tracer before use, then the complete selector set/semantic mutants reach canonical lanes through Plans22–23. Each positive semantic fixture and broken expected assertion is a real production PASS/GUEST_FAIL pair with exact ID. Guest SWI/UND/absent-coprocessor images are separately admitted named GUEST_STOP witnesses; IRQ-between-BL is a real unmasked CPU API witness. No absent BIOS handler continuation is claimed.
+
+Final source checks include canonical CI, required diagnostics, full coverage gate, installed production relocation, fresh AppleClang ASan/UBSan+JUnit post step, native Linux GNU, generated map/signature, negative/clean controls and rights/claim reviews. Optional owner-local private-content checks remain excluded: no private ROM/BIOS access or execution is authorized by this planning assignment. Public exclusion controls use synthetic content. Counts/timings/semantic results and review sign-off stay pending actual execution.
+
+
+| Requirement | Behavioral verification to author | Failure control |
+| --- | --- | --- |
+| DIAG-02 | First real original toolchain smoke image: exact pins/components, ARMv4T object+ELF tags/disassembly/map, generated-ROM signature scan, timed fresh installation and exact macOS/Linux byte comparison before digest admission. | Bad pin/architecture/runtime/map/signature/redirect/extraction; cross-host mismatch remains honest fallback, not equality. |
+| DIAG-01 | Build original ARM/Thumb source with owned crt0/link/header; exact source/tool/artifact authority; real production CLI result. | Stale source/output/index, modified bytes, linked runtime/map input, signature mutation and present-tool mandatory guard. |
+| DIAG-03 | Stable nonzero per-case mailbox IDs, each positive and real assertion-broken variant executes through production runner and checker. | Exact GUEST_FAIL/state/ID, not fabricated mailbox or identity refusal before execution. |
+| VERIF-04 | Explicit local tool dependency SKIPPED in JUnit/inventory, real declared-BIOS SKIPPED/ran=false; required CI tools/guests cannot skip. | Simulated missing dependency with named reason plus mandatory-present guard and unusable-tool failure. |
+| CPU-01 | Complete ARM family/form ledger; all named CPU-1..9 quirk assertions, defined flags and explicit unpredictable policies; whole-unit transaction bounds. | Selected real semantic mutants, one-short/exact/overflow/max-list/bank/PC/refill/trace capacity tests with non-default complete state. |
+| CPU-02 | All19 Thumb formats and forms, BL halves separate, real API IRQ boundary after explicitly unmasking, no v5 interwork semantics. | BL fusion, incorrect bank/PC/flags/memory cases, separate retirement/trace and exact mailbox IDs. |
+
+## Wave 0 Requirements
+
+Existing infrastructure already runs. New test files/selectors/gates are created with their owning production tracers and referenced only after creation. The task map records those dependencies; no up-front stubs or future tests are represented as passing. wave_0_complete remains false because new execution has not occurred.
+
+## Manual-Only Verifications
+
+No new hardware/rights approval is invented. Current scope covers original owner-controlled diagnostics and necessary public-CI execution only. The existing end-of-phase boundary includes owner review of scope/evidence-guide clarity and retained bespoke judgments, not a waiver. Content beyond this permission requires a concrete owner choice. Physical qualification, broad compatibility, BIOS execution, release and project license remain outside this phase. Actual tool/parity/timing experiments are automated work still pending.
+
+## Probe/Prohibition Boundaries
+
+The installed spec-less edge protocol ran against the six exact requirement texts; report is in 05-PROBE-STATUS.json. Nine defensible explicit acceptance criteria are authored and lifted into truths; their actual test status remains PENDING in 05-PROBE-RESOLUTIONS.md. Three unclassified items remain flagged unresolved. Three descriptor-less bespoke prohibitions remain flagged-unverified; no check descriptor or owner waiver is fabricated. The historical Phase4 eleven rows remain unchanged.
+
+## Validation Sign-Off
+
+- [x] Planned per-task map and automated commands/creation dependencies complete (execution pending)
+- [ ] Every production tracer verified before expansion
+- [ ] All missing target references have explicit creation dependencies
+- [ ] No watch mode or silently permitted required-CI skip
+- [ ] Tool/time/cross-host witnesses measured and bounded
+- [ ] Final current inventories and meaningful negative controls pass
+- [ ] nyquist_compliant true only after actual audit
+
+**Approval:** final independent audits, exact-head hosted checks and owner phase
+boundary remain pending. No Nyquist approval is inferred from this executor's
+local evidence.
+
+## Plan25 local execution overlay (2026-11-14)
+
+Post-review supplement:05-25-COVERAGE-FIX.md retains the Linux snapshot regression
+in canonical CI/hygiene, makes installed admitted relocation mandatory in ARM/all
+with no Thumb expansion, and records current bounded checks. Latest all-diagnostics
+is794/794withzero skips; current CI is1108expected/382ran/726explicit optional
+skips; hygiene208expected/207ran/1owner-local skip. Current31profile tests pass
+for the parent's unchanged three profile paths. Expanded25-file binding is
+separate from the original13-file record. Independent rereview remains pending;
+this evidence does not change nyquist_compliant/wave_0_complete or any boundary.
+
+Actual checkout8e21ef6 plus the saved local consumer diff; this is not a future
+committed head. [05-FINAL-CHECKS.md](05-FINAL-CHECKS.md) and
+[05-25-LOCAL-EXECUTION.md](05-25-LOCAL-EXECUTION.md) record commands, source/consumer
+identity, actual failures, bounded retests and the remaining gate owners.
+
+| Check | Actual observed evidence | Completion limit |
+| --- | --- | --- |
+| Source, pins, modes, ancestry and R4 preservation | Cheap preflight and full local audit pass; unchanged722manifest rows/output hashes, producer85c/input95 and all retained R4 terminal artifact hashes. | Old source proof is preserved, not relabeled to the current consumer. |
+| Canonical current local CI | Corrected full workflow and strict1107expected/381ran/726explicit optional skips pass. Initial helper trap failure is retained. | These native optional-tool skips are not required guest passes. |
+| Mandatory current diagnostics |793main checks/zero skips and strict post pass; actual355PASS/355GUEST_FAIL/12stops plus19native API rows. | No final hosted or physical qualification. |
+| Exact all-row crosswalk |386ledger rows linked to actual results/native receipts and exact source/consumer/token/hash/progress fields. CPU-1..9 and all19Thumb forms retain explicit boundaries. | Independent source/goal/Nyquist audits pending. |
+| Final coverage and installed production relocation | Standalone final coverage and moved installed admitted positive/broken/SWI-stop check pass. Raw and missing-executable control pass. | No stable public ABI/package release claim. |
+| Full ledger negative suite | Draft/final/admission, ID/form/source/flags/policy/builder/output-boundary mutations with clean companion pass. | Historical projection is test authority only; canonical producer inputs unchanged. |
+| Fresh AppleClang sanitizer, Linux GNU/clang21, final maps/signature/hygiene/dependency | All terminal checks passed. Fresh AppleClang849main checks/zero skips; Linux inventories explicitly report optional guest skips. All722maps and2/476/244generated signature files pass. Final hygiene207expected/206ran/1owner-local skip; dependency controls pass. | These local executor observations do not close independent audit, exact-head hosted or owner boundaries. |
+
+Three unclassified Phase5 taxonomy rows, three descriptor-less prohibitions,
+all eleven historical Phase4 rows, and Plan19's historical TDD deviation remain
+unchanged. The nine explicit criteria now have separately linked local
+observations in05-PROBE-RESOLUTIONS.md, not invented independent sign-off or
+waivers. Source-audit rows remain planning coverage and have explicit actual
+evidence destinations in the final-check guide. Owner guide clarity and bespoke
+judgments remain the existing phase boundary. No Phase6 start is authorized.

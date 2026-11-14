@@ -14,12 +14,27 @@
 #define GBL_CPU_CPSR_F UINT32_C(0x00000040)
 #define GBL_CPU_CPSR_I UINT32_C(0x00000080)
 #define GBL_CPU_CPSR_MODE_MASK UINT32_C(0x0000001F)
+#define GBL_CPU_CPSR_USER_MASK UINT32_C(0xF0000000)
+#define GBL_CPU_CPSR_PRIV_MASK UINT32_C(0x000000DF)
+#define GBL_CPU_CPSR_STATE_MASK UINT32_C(0x00000020)
+#define GBL_CPU_PSR_UNALLOC_MASK UINT32_C(0x0FFFFF00)
 #define GBL_CPU_MODE_FIQ UINT32_C(0x00000011)
 #define GBL_CPU_MODE_IRQ UINT32_C(0x00000012)
 #define GBL_CPU_MODE_SVC UINT32_C(0x00000013)
 #define GBL_CPU_MODE_ABT UINT32_C(0x00000017)
 #define GBL_CPU_MODE_UND UINT32_C(0x0000001B)
-#define GBL_CPU_TRACE_UNIT_RECORD_MAX 3u
+#define GBL_CPU_FETCH_SLOT_MAX 2u
+#define GBL_CPU_DATA_SLOT_MAX 16u
+#define GBL_CPU_RESULT_SLOT_MAX GBL_CPU_DATA_SLOT_MAX
+#define GBL_CPU_REGISTER_EFFECT_MAX 16u
+#define GBL_CPU_STATUS_EFFECT_MAX 1u
+#define GBL_CPU_TRACE_UNIT_RECORD_MAX \
+    (1u + GBL_CPU_DATA_SLOT_MAX + GBL_CPU_FETCH_SLOT_MAX)
+
+/* DDI0029G §6.5–6.6: register-specified Operand2 shifts add one internal
+ * cycle; immediate Operand2 forms add none. The decode selects this table
+ * before the same unit is costed, preflighted, and executed. */
+static const uint8_t gbl_cpu_arm_operand2_internal_cycles[2] = { 0u, 1u };
 
 typedef enum gbl_cpu_unit_kind {
     GBL_CPU_UNIT_REFILL,
@@ -28,9 +43,51 @@ typedef enum gbl_cpu_unit_kind {
     GBL_CPU_UNIT_SEQUENTIAL,
     GBL_CPU_UNIT_BRANCH,
     GBL_CPU_UNIT_UNSUPPORTED,
+    GBL_CPU_UNIT_UNPREDICTABLE,
+    GBL_CPU_UNIT_LATER_ARCHITECTURE,
     GBL_CPU_UNIT_UNDEFINED,
     GBL_CPU_UNIT_EXCEPTION
 } gbl_cpu_unit_kind;
+
+typedef enum gbl_cpu_data_operation {
+    GBL_CPU_DATA_READ,
+    GBL_CPU_DATA_WRITE
+} gbl_cpu_data_operation;
+
+typedef struct gbl_cpu_data_slot {
+    gbl_cpu_data_operation operation;
+    gbl_bus_access_class access_class;
+    uint32_t address;
+    uint32_t write_value;
+    uint8_t width;
+    uint8_t result_index;
+    uint8_t alignment_lane;
+    bool rotate_word_read;
+    bool rotate_halfword_read;
+    bool sign_extend_byte_read;
+    bool sign_extend_halfword_read;
+} gbl_cpu_data_slot;
+
+typedef struct gbl_cpu_register_effect {
+    uint32_t bank_cpsr;
+    uint32_t value;
+    uint8_t register_index;
+    uint8_t result_index;
+    bool from_result;
+} gbl_cpu_register_effect;
+
+typedef struct gbl_cpu_status_effect {
+    uint32_t mask;
+    uint32_t value;
+    uint8_t spsr_index;
+} gbl_cpu_status_effect;
+
+typedef enum gbl_cpu_pc_read_context {
+    GBL_CPU_PC_READ_NORMAL = 0,
+    GBL_CPU_PC_READ_REGISTER_SHIFT_OPERAND = 1,
+    GBL_CPU_PC_READ_STORE_SOURCE = 2,
+    GBL_CPU_PC_READ_THUMB_ALIGNED_ADDRESS = 3
+} gbl_cpu_pc_read_context;
 
 /* One ephemeral decode is used both to preflight this unit and to execute it. */
 typedef struct gbl_cpu_unit {
@@ -39,30 +96,227 @@ typedef struct gbl_cpu_unit {
     uint32_t opcode;
     uint32_t branch_target;
     uint32_t value;
-    uint32_t data_address;
-    uint32_t data_value;
-    uint32_t link_value;
-    uint32_t flags;
-    uint32_t flag_mask;
-    uint8_t destination;
     uint8_t fetch_count;
     uint8_t fetch_width;
-    uint8_t data_width;
-    uint8_t alignment_lane;
     uint8_t internal_cycles;
-    bool data_read;
-    bool data_write;
-    bool rotate_word_load;
-    bool writes_link;
+    uint8_t post_data_internal_cycles;
+    uint8_t post_data_pipeline_cycles;
+    uint8_t data_slot_count;
+    uint8_t result_count;
+    uint8_t register_effect_count;
+    uint8_t status_effect_count;
     bool changes_state;
     bool thumb_state;
-    bool writes_destination;
-    bool writes_flags;
+    bool fetch_address_from_result;
+    bool multiple_transfer;
+    bool restore_cpsr_from_spsr;
+    uint8_t fetch_result_index;
+    uint32_t fetch_result_mask;
     gbl_exception_kind exception_kind;
-    uint32_t fetch_address[2];
-    gbl_bus_access_class fetch_class[2];
+    uint32_t fetch_address[GBL_CPU_FETCH_SLOT_MAX];
+    uint32_t fetch_result_addend[GBL_CPU_FETCH_SLOT_MAX];
+    gbl_bus_access_class fetch_class[GBL_CPU_FETCH_SLOT_MAX];
+    gbl_cpu_data_slot data_slots[GBL_CPU_DATA_SLOT_MAX];
+    uint32_t results[GBL_CPU_RESULT_SLOT_MAX];
+    gbl_cpu_register_effect register_effects[GBL_CPU_REGISTER_EFFECT_MAX];
+    gbl_cpu_status_effect status_effects[GBL_CPU_STATUS_EFFECT_MAX];
     uint64_t cycle_cost;
 } gbl_cpu_unit;
+
+_Static_assert(GBL_CPU_TRACE_UNIT_RECORD_MAX == 19u,
+               "trace capacity covers one instruction, sixteen transfers, and two refills");
+_Static_assert(GBL_CPU_DATA_SLOT_MAX == 16u &&
+                   GBL_CPU_RESULT_SLOT_MAX == GBL_CPU_DATA_SLOT_MAX &&
+                   GBL_CPU_REGISTER_EFFECT_MAX == GBL_CPU_DATA_SLOT_MAX,
+               "maximum block work keeps data, result, and register effects bounded together");
+_Static_assert(GBL_CPU_FETCH_SLOT_MAX == 2u &&
+                   GBL_CPU_STATUS_EFFECT_MAX == 1u,
+               "maximum block work retains two refill slots and one status effect");
+
+static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost)
+{
+    uint64_t total;
+
+    if (unit == NULL || cost == NULL ||
+        unit->fetch_count > GBL_CPU_FETCH_SLOT_MAX ||
+        unit->data_slot_count > GBL_CPU_DATA_SLOT_MAX) {
+        return false;
+    }
+    total = (uint64_t)unit->fetch_count;
+    if ((uint64_t)unit->internal_cycles > UINT64_MAX - total) {
+        return false;
+    }
+    total += (uint64_t)unit->internal_cycles;
+    if ((uint64_t)unit->post_data_internal_cycles > UINT64_MAX - total) {
+        return false;
+    }
+    total += (uint64_t)unit->post_data_internal_cycles;
+    if ((uint64_t)unit->post_data_pipeline_cycles > UINT64_MAX - total) {
+        return false;
+    }
+    total += (uint64_t)unit->post_data_pipeline_cycles;
+    if ((uint64_t)unit->data_slot_count > UINT64_MAX - total) {
+        return false;
+    }
+    *cost = total + (uint64_t)unit->data_slot_count;
+    return true;
+}
+
+static bool gbl_cpu_refresh_cycle_cost(gbl_cpu_unit *unit)
+{
+    uint64_t cost;
+
+    if (!gbl_cpu_unit_cost(unit, &cost)) {
+        return false;
+    }
+    unit->cycle_cost = cost;
+    return true;
+}
+
+static bool gbl_cpu_add_data_read_slot(gbl_cpu_unit *unit, uint32_t address,
+                                       uint8_t width, uint8_t alignment_lane,
+                                       bool rotate_word_read,
+                                       uint8_t *result_index)
+{
+    uint8_t result;
+    gbl_cpu_data_slot *slot;
+
+    if (unit == NULL || result_index == NULL ||
+        unit->data_slot_count >= GBL_CPU_DATA_SLOT_MAX ||
+        unit->result_count >= GBL_CPU_RESULT_SLOT_MAX) {
+        return false;
+    }
+    result = unit->result_count;
+    slot = &unit->data_slots[unit->data_slot_count];
+    *slot = (gbl_cpu_data_slot){
+        .operation = GBL_CPU_DATA_READ,
+        .access_class = GBL_BUS_CLASS_NONSEQUENTIAL,
+        .address = address,
+        .width = width,
+        .result_index = result,
+        .alignment_lane = alignment_lane,
+        .rotate_word_read = rotate_word_read,
+        .rotate_halfword_read = false,
+        .sign_extend_byte_read = false,
+        .sign_extend_halfword_read = false
+    };
+    unit->data_slot_count++;
+    unit->result_count++;
+    *result_index = result;
+    return true;
+}
+
+static bool gbl_cpu_add_subword_read_slot(
+    gbl_cpu_unit *unit, uint32_t address, uint8_t width,
+    uint8_t alignment_lane, bool rotate_halfword_read,
+    bool sign_extend_byte_read, bool sign_extend_halfword_read,
+    uint8_t *result_index)
+{
+    gbl_cpu_data_slot *slot;
+
+    if (!gbl_cpu_add_data_read_slot(unit, address, width, alignment_lane,
+                                    false, result_index)) {
+        return false;
+    }
+    slot = &unit->data_slots[unit->data_slot_count - 1u];
+    slot->rotate_halfword_read = rotate_halfword_read;
+    slot->sign_extend_byte_read = sign_extend_byte_read;
+    slot->sign_extend_halfword_read = sign_extend_halfword_read;
+    return true;
+}
+
+static bool gbl_cpu_add_data_write_slot(gbl_cpu_unit *unit, uint32_t address,
+                                        uint8_t width, uint32_t value)
+{
+    gbl_cpu_data_slot *slot;
+
+    if (unit == NULL || unit->data_slot_count >= GBL_CPU_DATA_SLOT_MAX) {
+        return false;
+    }
+    slot = &unit->data_slots[unit->data_slot_count];
+    *slot = (gbl_cpu_data_slot){
+        .operation = GBL_CPU_DATA_WRITE,
+        .access_class = GBL_BUS_CLASS_NONSEQUENTIAL,
+        .address = address,
+        .write_value = value,
+        .width = width,
+        .result_index = UINT8_MAX
+    };
+    unit->data_slot_count++;
+    return true;
+}
+
+static bool gbl_cpu_add_literal_register_effect(gbl_cpu_unit *unit,
+                                                uint8_t register_index,
+                                                uint32_t bank_cpsr,
+                                                uint32_t value)
+{
+    gbl_cpu_register_effect *effect;
+
+    if (unit == NULL || register_index >= 15u ||
+        unit->register_effect_count >= GBL_CPU_REGISTER_EFFECT_MAX) {
+        return false;
+    }
+    effect = &unit->register_effects[unit->register_effect_count];
+    *effect = (gbl_cpu_register_effect){
+        .bank_cpsr = bank_cpsr,
+        .value = value,
+        .register_index = register_index,
+        .result_index = UINT8_MAX,
+        .from_result = false
+    };
+    unit->register_effect_count++;
+    return true;
+}
+
+static bool gbl_cpu_add_result_register_effect(gbl_cpu_unit *unit,
+                                               uint8_t register_index,
+                                               uint32_t bank_cpsr,
+                                               uint8_t result_index)
+{
+    gbl_cpu_register_effect *effect;
+
+    if (unit == NULL || register_index >= 15u ||
+        result_index >= GBL_CPU_RESULT_SLOT_MAX ||
+        unit->register_effect_count >= GBL_CPU_REGISTER_EFFECT_MAX) {
+        return false;
+    }
+    effect = &unit->register_effects[unit->register_effect_count];
+    *effect = (gbl_cpu_register_effect){
+        .bank_cpsr = bank_cpsr,
+        .register_index = register_index,
+        .result_index = result_index,
+        .from_result = true
+    };
+    unit->register_effect_count++;
+    return true;
+}
+
+static bool gbl_cpu_add_status_effect(gbl_cpu_unit *unit, uint32_t mask,
+                                      uint32_t value)
+{
+    if (unit == NULL || mask == 0u ||
+        unit->status_effect_count >= GBL_CPU_STATUS_EFFECT_MAX) {
+        return false;
+    }
+    unit->status_effects[unit->status_effect_count] =
+        (gbl_cpu_status_effect){ mask, value, UINT8_MAX };
+    unit->status_effect_count++;
+    return true;
+}
+
+static bool gbl_cpu_add_spsr_status_effect(gbl_cpu_unit *unit,
+                                           uint8_t spsr_index,
+                                           uint32_t mask, uint32_t value)
+{
+    if (spsr_index >= 5u ||
+        !gbl_cpu_add_status_effect(unit, mask, value)) {
+        return false;
+    }
+    unit->status_effects[(size_t)unit->status_effect_count - 1u].spsr_index =
+        spsr_index;
+    return true;
+}
 
 static bool gbl_cpu_trace_stage(const gbl_run_options *options,
                                 gbl_trace_record records[
@@ -379,16 +633,91 @@ static bool gbl_cpu_schedule_refill(gbl_cpu_unit *unit, uint32_t address,
         !gbl_cpu_fetch_address_valid(second_address, width)) {
         return false;
     }
-    unit->fetch_count = (uint8_t)2u;
+    unit->fetch_count = (uint8_t)GBL_CPU_FETCH_SLOT_MAX;
     unit->fetch_width = width;
     unit->fetch_address[0] = address;
     unit->fetch_address[1] = second_address;
     unit->fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
     unit->fetch_class[1] = GBL_BUS_CLASS_SEQUENTIAL;
-    unit->cycle_cost = UINT64_C(2) + (uint64_t)unit->internal_cycles +
-                       (unit->data_read || unit->data_write ? UINT64_C(1)
-                                                            : UINT64_C(0));
+    return gbl_cpu_refresh_cycle_cost(unit);
+}
+
+/* ARMv4T word loads to PC continue in ARM state. The loaded word result is
+ * the source for both refill addresses; the low bits are ignored, and the
+ * second address wraps in the 32-bit address space. Preflight validates this
+ * bounded symbolic form before the data read, then execution resolves it
+ * once from the actual result. Scalar LDR applies its rotation first; LDM
+ * uses the aligned block-transfer word unchanged. */
+static bool gbl_cpu_schedule_result_refill(gbl_cpu_unit *unit,
+                                           uint8_t result_index,
+                                           bool thumb)
+{
+    const uint8_t width = thumb ? (uint8_t)GBL_CPU_HALF_WIDTH
+                                : (uint8_t)GBL_CPU_WORD_WIDTH;
+
+    if (unit == NULL || result_index >= unit->result_count) {
+        return false;
+    }
+    unit->kind = GBL_CPU_UNIT_BRANCH;
+    unit->changes_state = false;
+    unit->thumb_state = thumb;
+    unit->fetch_address_from_result = true;
+    unit->fetch_result_index = result_index;
+    unit->fetch_result_mask = thumb ? ~UINT32_C(1) : ~UINT32_C(3);
+    unit->fetch_count = (uint8_t)GBL_CPU_FETCH_SLOT_MAX;
+    unit->fetch_width = width;
+    unit->fetch_result_addend[0] = 0u;
+    unit->fetch_result_addend[1] = (uint32_t)width;
+    unit->fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
+    unit->fetch_class[1] = GBL_BUS_CLASS_SEQUENTIAL;
+    return gbl_cpu_refresh_cycle_cost(unit);
+}
+
+static bool gbl_cpu_result_refill_shape_valid(const gbl_cpu_unit *unit)
+{
+    uint8_t index;
+
+    if (unit == NULL || unit->fetch_result_index >= unit->result_count) {
+        return false;
+    }
+    if (!unit->multiple_transfer) {
+        return unit->data_slot_count == 1u && unit->result_count == 1u &&
+               unit->data_slots[0].operation == GBL_CPU_DATA_READ &&
+               unit->data_slots[0].width ==
+                   (uint8_t)GBL_CPU_WORD_WIDTH &&
+               unit->data_slots[0].result_index ==
+                   unit->fetch_result_index &&
+               unit->data_slots[0].rotate_word_read;
+    }
+
+    if (unit->data_slot_count == 0u ||
+        unit->data_slot_count != unit->result_count ||
+        unit->fetch_result_index + 1u != unit->data_slot_count) {
+        return false;
+    }
+    for (index = 0u; index < unit->data_slot_count; ++index) {
+        const gbl_cpu_data_slot *slot = &unit->data_slots[index];
+
+        if (slot->operation != GBL_CPU_DATA_READ ||
+            slot->width != (uint8_t)GBL_CPU_WORD_WIDTH ||
+            slot->result_index != index || slot->rotate_word_read ||
+            slot->rotate_halfword_read || slot->sign_extend_byte_read ||
+            slot->sign_extend_halfword_read) {
+            return false;
+        }
+    }
     return true;
+}
+
+static bool gbl_cpu_spsr_return_shape_valid(const gbl_cpu_unit *unit)
+{
+    return unit != NULL && unit->restore_cpsr_from_spsr &&
+           unit->multiple_transfer && unit->fetch_address_from_result &&
+           unit->status_effect_count == 1u &&
+           unit->status_effects[0].spsr_index == UINT8_MAX &&
+           unit->status_effects[0].mask == UINT32_MAX &&
+           unit->thumb_state ==
+               ((unit->status_effects[0].value & GBL_CPU_CPSR_T) != 0u);
 }
 
 static bool gbl_cpu_schedule_sequential_fetch(gbl_cpu_unit *unit,
@@ -404,15 +733,28 @@ static bool gbl_cpu_schedule_sequential_fetch(gbl_cpu_unit *unit,
     unit->fetch_width = width;
     unit->fetch_address[0] = address;
     unit->fetch_class[0] = GBL_BUS_CLASS_SEQUENTIAL;
-    unit->cycle_cost = UINT64_C(1) + (uint64_t)unit->internal_cycles +
-                       (unit->data_read || unit->data_write ? UINT64_C(1)
-                                                            : UINT64_C(0));
-    return true;
+    return gbl_cpu_refresh_cycle_cost(unit);
 }
 
 static bool gbl_cpu_pipeline_is_empty(const gbl_cpu_state *cpu)
 {
     return !cpu->pipeline[0].valid && !cpu->pipeline[1].valid;
+}
+
+static bool gbl_cpu_pipeline_is_arm_sequential_wrap(
+    const gbl_cpu_state *cpu)
+{
+    return (cpu->cpsr & GBL_CPU_CPSR_T) == 0u &&
+           cpu->pipeline[0].address == UINT32_C(0xFFFFFFFC) &&
+           cpu->pipeline[1].address == 0u;
+}
+
+static bool gbl_cpu_pipeline_is_thumb_sequential_wrap(
+    const gbl_cpu_state *cpu)
+{
+    return (cpu->cpsr & GBL_CPU_CPSR_T) != 0u &&
+           cpu->pipeline[0].address == UINT32_C(0xFFFFFFFE) &&
+           cpu->pipeline[1].address == 0u;
 }
 
 static bool gbl_cpu_pipeline_is_ready(const gbl_cpu_state *cpu)
@@ -428,29 +770,43 @@ static bool gbl_cpu_pipeline_is_ready(const gbl_cpu_state *cpu)
         !gbl_cpu_fetch_address_valid(cpu->pipeline[0].address, width) ||
         !gbl_cpu_fetch_address_valid(cpu->pipeline[1].address, width) ||
         cpu->execution_address != cpu->pipeline[0].address ||
-        !cpu->next_fetch_sequential ||
-        !gbl_cpu_address_add(cpu->pipeline[0].address, (uint32_t)width,
-                             &expected_second_address)) {
+        !cpu->next_fetch_sequential) {
         return false;
+    }
+    if (!gbl_cpu_address_add(cpu->pipeline[0].address, (uint32_t)width,
+                             &expected_second_address)) {
+        /* Result-driven PC loads can form one exact modulo refill pair. The
+         * decoder recognizes it explicitly and stops before executing the
+         * first instruction at that ARM/Thumb boundary. */
+        return thumb ? gbl_cpu_pipeline_is_thumb_sequential_wrap(cpu)
+                     : gbl_cpu_pipeline_is_arm_sequential_wrap(cpu);
     }
     return cpu->pipeline[1].address == expected_second_address;
 }
 
-static uint32_t gbl_cpu_read_register(const gbl_cpu_state *cpu,
-                                      uint8_t index,
-                                      uint32_t instruction_address)
+static uint32_t gbl_cpu_read_register_in_bank(
+    const gbl_cpu_state *cpu, uint8_t index, uint32_t bank_cpsr,
+    uint32_t instruction_address, gbl_cpu_pc_read_context context)
 {
     uint32_t mode;
 
     if (index == (uint8_t)15u) {
+        const bool thumb = (bank_cpsr & GBL_CPU_CPSR_T) != 0u;
+
+        if (context == GBL_CPU_PC_READ_THUMB_ALIGNED_ADDRESS) {
+            return (instruction_address + UINT32_C(4)) & ~UINT32_C(3);
+        }
         return instruction_address +
-               ((cpu->cpsr & GBL_CPU_CPSR_T) != 0u ? UINT32_C(4)
-                                                    : UINT32_C(8));
+               (thumb ? UINT32_C(4)
+                      : context == GBL_CPU_PC_READ_REGISTER_SHIFT_OPERAND ||
+                                context == GBL_CPU_PC_READ_STORE_SOURCE
+                            ? UINT32_C(12)
+                            : UINT32_C(8));
     }
     if (index <= (uint8_t)7u) {
         return cpu->r0_7[index];
     }
-    mode = cpu->cpsr & GBL_CPU_CPSR_MODE_MASK;
+    mode = bank_cpsr & GBL_CPU_CPSR_MODE_MASK;
     if (mode == GBL_CPU_MODE_FIQ) {
         return cpu->fiq_r8_14[(size_t)index - 8u];
     }
@@ -471,10 +827,21 @@ static uint32_t gbl_cpu_read_register(const gbl_cpu_state *cpu,
     }
 }
 
-static void gbl_cpu_write_register(gbl_cpu_state *cpu, uint8_t index,
-                                   uint32_t value)
+static uint32_t gbl_cpu_read_register(const gbl_cpu_state *cpu,
+                                      uint8_t index,
+                                      uint32_t instruction_address,
+                                      gbl_cpu_pc_read_context context)
 {
-    const uint32_t mode = cpu->cpsr & GBL_CPU_CPSR_MODE_MASK;
+    return gbl_cpu_read_register_in_bank(
+        cpu, index, cpu->cpsr, instruction_address, context);
+}
+
+static void gbl_cpu_write_register_in_bank(gbl_cpu_state *cpu,
+                                           uint8_t index,
+                                           uint32_t bank_cpsr,
+                                           uint32_t value)
+{
+    const uint32_t mode = bank_cpsr & GBL_CPU_CPSR_MODE_MASK;
 
     if (index <= (uint8_t)7u) {
         cpu->r0_7[index] = value;
@@ -500,6 +867,39 @@ static void gbl_cpu_write_register(gbl_cpu_state *cpu, uint8_t index,
             cpu->usr_r8_14[(size_t)index - 8u] = value;
             break;
         }
+    }
+}
+
+static void gbl_cpu_write_register(gbl_cpu_state *cpu, uint8_t index,
+                                   uint32_t value)
+{
+    gbl_cpu_write_register_in_bank(cpu, index, cpu->cpsr, value);
+}
+
+static void gbl_cpu_commit_effects(gbl_cpu_state *cpu,
+                                   const gbl_cpu_unit *unit)
+{
+    uint8_t index;
+
+    for (index = 0u; index < unit->register_effect_count; ++index) {
+        const gbl_cpu_register_effect *effect =
+            &unit->register_effects[index];
+        const uint32_t value = effect->from_result
+                                   ? unit->results[effect->result_index]
+                                   : effect->value;
+
+        gbl_cpu_write_register_in_bank(cpu, effect->register_index,
+                                       effect->bank_cpsr, value);
+    }
+    for (index = 0u; index < unit->status_effect_count; ++index) {
+        const gbl_cpu_status_effect *effect = &unit->status_effects[index];
+
+        uint32_t *status = effect->spsr_index == UINT8_MAX
+                               ? &cpu->cpsr
+                               : &cpu->spsr[effect->spsr_index];
+
+        *status = (*status & ~effect->mask) |
+                  (effect->value & effect->mask);
     }
 }
 
@@ -552,29 +952,138 @@ static bool gbl_cpu_data_span_valid(uint32_t address, uint8_t width)
            address <= UINT32_MAX - ((uint32_t)width - UINT32_C(1));
 }
 
-static void gbl_cpu_prepare_data_transfer(gbl_cpu_unit *unit,
+static bool gbl_cpu_prepare_data_transfer(gbl_cpu_unit *unit,
                                           uint32_t address, uint8_t width,
                                           bool load, uint8_t destination,
                                           uint32_t store_value,
-                                          bool rotate_word_load)
+                                          bool rotate_word_load,
+                                          uint32_t bank_cpsr)
 {
+    uint8_t result_index = UINT8_MAX;
+    const uint32_t bus_address =
+        width == (uint8_t)GBL_CPU_WORD_WIDTH
+            ? address & ~UINT32_C(3)
+            : address;
+
     unit->kind = GBL_CPU_UNIT_TRANSFER;
-    unit->destination = destination;
-    unit->data_width = width;
-    unit->data_read = load;
-    unit->data_write = !load;
-    unit->data_value = store_value;
-    unit->rotate_word_load = rotate_word_load;
-    unit->data_address = width == (uint8_t)GBL_CPU_WORD_WIDTH
-                             ? address & ~UINT32_C(3)
-                             : address;
-    unit->alignment_lane = (uint8_t)(address & UINT32_C(3));
+    if (load) {
+        return gbl_cpu_add_data_read_slot(
+                   unit, bus_address, width,
+                   (uint8_t)(address & UINT32_C(3)), rotate_word_load,
+                   &result_index) &&
+               gbl_cpu_add_result_register_effect(
+                   unit, destination, bank_cpsr, result_index);
+    }
+    return gbl_cpu_add_data_write_slot(unit, bus_address, width, store_value);
+}
+
+/* DDI0100I A6.5 defines the Thumb transfer forms. This builder translates
+ * those decoded operands into the existing single-unit bus/result plan. Its
+ * odd halfword handling follows the selected GBA ARM7 policy in GBATEK 3.06;
+ * the bus remains responsible for the raw value returned by each region. */
+static bool gbl_cpu_prepare_thumb_data_transfer(
+    gbl_cpu_unit *unit, uint32_t address, uint8_t width, bool load,
+    uint8_t destination, uint32_t store_value, bool signed_byte,
+    bool signed_halfword, uint32_t bank_cpsr,
+    uint32_t next_fetch_address)
+{
+    uint32_t bus_address = address;
+    uint8_t slot_width = width;
+    uint8_t result_index = UINT8_MAX;
+    uint8_t alignment_lane = (uint8_t)(address & UINT32_C(3));
+    bool rotate_word = false;
+    bool rotate_halfword = false;
+    bool extend_byte = signed_byte;
+    bool extend_halfword = signed_halfword;
+
+    if (width == (uint8_t)GBL_CPU_WORD_WIDTH) {
+        bus_address &= ~UINT32_C(3);
+        rotate_word = load;
+    } else if (width == (uint8_t)GBL_CPU_HALF_WIDTH) {
+        const bool odd = (address & UINT32_C(1)) != 0u;
+
+        if (load && signed_halfword && odd) {
+            /* ARM7/GBA odd LDRSH is the signed byte at the original address. */
+            slot_width = 1u;
+            extend_byte = true;
+            extend_halfword = false;
+        } else {
+            bus_address &= ~UINT32_C(1);
+            alignment_lane = (uint8_t)(address & UINT32_C(1));
+            rotate_halfword = load && !signed_halfword && odd;
+        }
+    }
+
+    if (!gbl_cpu_data_span_valid(bus_address, slot_width)) {
+        return false;
+    }
+    unit->kind = GBL_CPU_UNIT_TRANSFER;
+    if (load) {
+        const bool use_subword_slot = rotate_halfword || extend_byte ||
+                                      extend_halfword;
+        const bool slot_added = use_subword_slot
+            ? gbl_cpu_add_subword_read_slot(
+                  unit, bus_address, slot_width, alignment_lane,
+                  rotate_halfword, extend_byte, extend_halfword,
+                  &result_index)
+            : gbl_cpu_add_data_read_slot(
+                  unit, bus_address, slot_width, alignment_lane,
+                  rotate_word, &result_index);
+
+        if (!slot_added ||
+            !gbl_cpu_add_result_register_effect(
+                unit, destination, bank_cpsr, result_index)) {
+            return false;
+        }
+    } else {
+        uint32_t masked_value = store_value;
+
+        if (slot_width == 1u) {
+            masked_value &= UINT32_C(0x000000FF);
+        } else if (slot_width == (uint8_t)GBL_CPU_HALF_WIDTH) {
+            masked_value &= UINT32_C(0x0000FFFF);
+        } else {
+            bus_address = address & ~UINT32_C(3);
+        }
+        if (!gbl_cpu_add_data_write_slot(unit, bus_address, slot_width,
+                                         masked_value)) {
+            return false;
+        }
+    }
+    if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, true)) {
+        return false;
+    }
+    return true;
 }
 
 static bool gbl_cpu_is_arm_extension(uint32_t opcode)
 {
-    return (opcode & UINT32_C(0x0E000090)) == UINT32_C(0x00000090);
+    /* Allocated later-version encodings in DDI0100I A3.16.2-.4, A4.
+     * Reserved holes are not evidence of a supported or later instruction. */
+    return (opcode & UINT32_C(0xFE000000)) == UINT32_C(0xFA000000) ||
+           (opcode & UINT32_C(0x0FFFFFF0)) == UINT32_C(0x012FFF30) ||
+           (opcode & UINT32_C(0x0FFFFFF0)) == UINT32_C(0x012FFF20) ||
+           (opcode & UINT32_C(0x0FF000F0)) == UINT32_C(0x01200070) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x016F0F10) ||
+           (opcode & UINT32_C(0x0F900FF0)) == UINT32_C(0x01000050) ||
+           (opcode & UINT32_C(0x0F900090)) == UINT32_C(0x01000080) ||
+           (opcode & UINT32_C(0x0FF000F0)) == UINT32_C(0x00400090) ||
+           (opcode & UINT32_C(0x0FE00000)) == UINT32_C(0x0C400000) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x06BF0F30) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x06BF0FB0) ||
+           (opcode & UINT32_C(0x0FFF0FF0)) == UINT32_C(0x06FF0FB0);
 }
+
+/* ARM ARM DDI0100I A3.16.5 reserves this encoding space as architecturally
+ * undefined; ARM7TDMI implements the ARMv4T architecture. */
+static bool gbl_cpu_is_arm_undefined_space(uint32_t opcode)
+{
+    return (opcode & UINT32_C(0x0FF000F0)) == UINT32_C(0x07F000F0);
+}
+
+static bool gbl_cpu_schedule_pc_write(gbl_cpu_unit *unit, uint32_t value,
+                                      uint32_t restored_cpsr,
+                                      bool restore_status);
 
 static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
                                            gbl_cpu_unit *unit,
@@ -593,7 +1102,8 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     uint32_t flag_mask = 0u;
     bool writes_destination = true;
     bool supported_operation = false;
-    bool is_compare = false;
+    bool is_test = false;
+    bool is_arithmetic = false;
     bool condition_passed;
     gbl_shift_result shifted = { 0u, false };
     gbl_arithmetic_result arithmetic = { 0u, false, false };
@@ -602,53 +1112,80 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
         return false;
     }
     if (gbl_cpu_is_arm_extension(opcode)) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
+        return true;
+    }
+    if ((opcode & UINT32_C(0x01900000)) == UINT32_C(0x01000000) &&
+        (immediate || (opcode & UINT32_C(0x00000090)) != UINT32_C(0x00000090))) {
+        /* Unrecognized control-space encodings: A3.16 distinguishes a
+         * malformed allocated decode from an unallocated decode. Exact PSR
+         * and BX encodings were consumed before data-processing dispatch. */
+        const uint32_t decode = opcode & UINT32_C(0x0FF000F0);
+        const bool allocated = decode == UINT32_C(0x01000000) ||
+            decode == UINT32_C(0x01400000) ||
+            decode == UINT32_C(0x01200000) ||
+            decode == UINT32_C(0x01600000) ||
+            decode == UINT32_C(0x01200010) ||
+            (opcode & UINT32_C(0x0FB00000)) == UINT32_C(0x03200000);
+        unit->kind = allocated ? GBL_CPU_UNIT_UNPREDICTABLE
+                               : GBL_CPU_UNIT_UNDEFINED;
         return true;
     }
     if (!immediate && (opcode & UINT32_C(0x00000090)) ==
                            UINT32_C(0x00000090)) {
-        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        const uint32_t decode = opcode & UINT32_C(0x0FF000F0);
+        unit->kind = decode == UINT32_C(0x01000090) ||
+                     decode == UINT32_C(0x01400090)
+                         ? GBL_CPU_UNIT_UNPREDICTABLE
+                         : GBL_CPU_UNIT_UNDEFINED;
         return true;
     }
 
     switch (operation) {
     case 0u:  /* AND */
+    case 1u:  /* EOR */
     case 2u:  /* SUB */
+    case 3u:  /* RSB */
     case 4u:  /* ADD */
+    case 5u:  /* ADC */
+    case 6u:  /* SBC */
+    case 7u:  /* RSC */
+    case 8u:  /* TST */
+    case 9u:  /* TEQ */
+    case 10u: /* CMP */
+    case 11u: /* CMN */
     case 12u: /* ORR */
     case 13u: /* MOV */
+    case 14u: /* BIC */
+    case 15u: /* MVN */
         supported_operation = true;
-        break;
-    case 10u: /* CMP */
-        supported_operation = true;
-        is_compare = true;
-        writes_destination = false;
         break;
     default:
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
 
-    if ((is_compare && (!set_flags || rd != 0u)) ||
-        (operation == 13u && rn != 0u)) {
-        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+    is_test = operation >= 8u && operation <= 11u;
+    writes_destination = !is_test;
+    is_arithmetic = operation == 2u || operation == 3u ||
+                    operation == 4u || operation == 5u ||
+                    operation == 6u || operation == 7u ||
+                    operation == 10u || operation == 11u;
+    if ((is_test && (!set_flags || rd != 0u)) ||
+        ((operation == 13u || operation == 15u) && rn != 0u)) {
+        unit->kind = is_test && !set_flags ? GBL_CPU_UNIT_UNDEFINED
+                                         : GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
     if (!supported_operation) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
-    if (rd == (uint8_t)15u || (!immediate &&
-        (opcode & UINT32_C(0x00000010)) != 0u &&
-        (rm == (uint8_t)15u || ((opcode >> 8u) & UINT32_C(0x0F)) == 15u))) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    if (!immediate && (opcode & UINT32_C(0x00000010)) != 0u &&
+        ((opcode >> 8u) & UINT32_C(0x0F)) == 15u) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
         return true;
     }
-    if (operation == 13u && rd == (uint8_t)15u) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-        return true;
-    }
-
     condition_passed = gbl_cpu_condition_passed(
         (uint8_t)(opcode >> 28u), cpu->cpsr);
     if (!condition_passed) {
@@ -658,7 +1195,8 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     }
 
     if (operation != 13u) {
-        left = gbl_cpu_read_register(cpu, rn, unit->instruction_address);
+        left = gbl_cpu_read_register(cpu, rn, unit->instruction_address,
+                                    GBL_CPU_PC_READ_NORMAL);
     }
     if (immediate) {
         const uint8_t rotate =
@@ -677,43 +1215,88 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
     } else {
         const bool register_shift =
             (opcode & UINT32_C(0x00000010)) != 0u;
+        const uint8_t form = (uint8_t)(register_shift ? 1u : 0u);
         uint8_t amount;
         const gbl_shift_kind shift_kind =
             (gbl_shift_kind)((opcode >> 5u) & UINT32_C(3));
 
-        operand = gbl_cpu_read_register(cpu, rm,
-                                        unit->instruction_address);
+        operand = gbl_cpu_read_register(
+            cpu, rm, unit->instruction_address,
+            register_shift ? GBL_CPU_PC_READ_REGISTER_SHIFT_OPERAND
+                           : GBL_CPU_PC_READ_NORMAL);
         if (register_shift) {
             const uint8_t rs = (uint8_t)((opcode >> 8u) & UINT32_C(0x0F));
 
             amount = (uint8_t)(gbl_cpu_read_register(
-                cpu, rs, unit->instruction_address) & UINT32_C(0xFF));
-            unit->internal_cycles = (uint8_t)1u;
+                cpu, rs, unit->instruction_address,
+                GBL_CPU_PC_READ_NORMAL) & UINT32_C(0xFF));
         } else {
             amount = (uint8_t)((opcode >> 7u) & UINT32_C(0x1F));
         }
+        unit->internal_cycles = gbl_cpu_arm_operand2_internal_cycles[form];
         shifted = gbl_shift(shift_kind, operand, amount,
                             (cpu->cpsr & GBL_CPU_CPSR_C) != 0u,
                             register_shift);
         operand = shifted.value;
     }
 
-    if (operation == 0u) {
+    switch (operation) {
+    case 0u: /* AND */
+    case 8u: /* TST */
         unit->value = left & operand;
-    } else if (operation == 2u || is_compare) {
+        break;
+    case 1u: /* EOR */
+    case 9u: /* TEQ */
+        unit->value = left ^ operand;
+        break;
+    case 2u: /* SUB */
+    case 10u: /* CMP */
         arithmetic = gbl_sub_flags(left, operand);
         unit->value = arithmetic.value;
-    } else if (operation == 4u) {
+        break;
+    case 3u: /* RSB */
+        arithmetic = gbl_sub_flags(operand, left);
+        unit->value = arithmetic.value;
+        break;
+    case 4u: /* ADD */
+    case 11u: /* CMN */
         arithmetic = gbl_add_flags(left, operand);
         unit->value = arithmetic.value;
-    } else if (operation == 12u) {
+        break;
+    case 5u: /* ADC */
+        arithmetic = gbl_add_with_carry_flags(
+            left, operand, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+        unit->value = arithmetic.value;
+        break;
+    case 6u: /* SBC */
+        arithmetic = gbl_sub_with_carry_flags(
+            left, operand, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+        unit->value = arithmetic.value;
+        break;
+    case 7u: /* RSC */
+        arithmetic = gbl_sub_with_carry_flags(
+            operand, left, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+        unit->value = arithmetic.value;
+        break;
+    case 12u: /* ORR */
         unit->value = left | operand;
-    } else {
+        break;
+    case 13u: /* MOV */
         unit->value = operand;
+        break;
+    case 14u: /* BIC */
+        unit->value = left & ~operand;
+        break;
+    case 15u: /* MVN */
+        unit->value = ~operand;
+        break;
+    default:
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
     }
 
     if (set_flags) {
-        if (operation == 2u || operation == 4u || is_compare) {
+        if (is_arithmetic) {
             flags = gbl_cpu_nz_flags(unit->value);
             if (arithmetic.carry) {
                 flags |= GBL_CPU_CPSR_C;
@@ -732,12 +1315,35 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
         }
     }
 
-    unit->destination = rd;
-    unit->writes_destination = writes_destination;
-    unit->writes_flags = set_flags;
-    unit->flags = flags;
-    unit->flag_mask = flag_mask;
+    if (writes_destination && rd == (uint8_t)15u) {
+        uint32_t restored_cpsr = cpu->cpsr;
+
+        if (set_flags) {
+            size_t spsr_index;
+
+            if (!gbl_cpu_spsr_index(cpu->cpsr, &spsr_index)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            restored_cpsr = cpu->spsr[spsr_index];
+            if (!gbl_cpu_mode_valid(restored_cpsr)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+        }
+        return gbl_cpu_schedule_pc_write(unit, unit->value, restored_cpsr,
+                                         set_flags);
+    }
+
     unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+    if ((writes_destination &&
+         !gbl_cpu_add_literal_register_effect(unit, rd, cpu->cpsr,
+                                              unit->value)) ||
+        (set_flags &&
+         !gbl_cpu_add_status_effect(unit, flag_mask, flags))) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
     return gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false);
 }
 
@@ -750,6 +1356,178 @@ static bool gbl_cpu_schedule_branch(gbl_cpu_unit *unit, uint32_t target,
     unit->thumb_state = thumb;
     if (!gbl_cpu_schedule_refill(unit, target, thumb)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    }
+    return true;
+}
+
+static bool gbl_cpu_schedule_pc_write(gbl_cpu_unit *unit, uint32_t value,
+                                      uint32_t restored_cpsr,
+                                      bool restore_status)
+{
+    const bool thumb = (restored_cpsr & GBL_CPU_CPSR_T) != 0u;
+    uint32_t target = value;
+
+    if (thumb) {
+        target &= ~UINT32_C(1);
+    } else if ((target & UINT32_C(3)) != 0u) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+    if (restore_status &&
+        !gbl_cpu_add_status_effect(unit, UINT32_MAX, restored_cpsr)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    unit->kind = GBL_CPU_UNIT_BRANCH;
+    unit->branch_target = target;
+    unit->changes_state = false;
+    unit->thumb_state = thumb;
+    if (!gbl_cpu_schedule_refill(unit, target, thumb)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    }
+    return true;
+}
+
+static bool gbl_cpu_is_arm_psr_transfer(uint32_t opcode)
+{
+    return (opcode & UINT32_C(0x0FBF0FFF)) == UINT32_C(0x010F0000) ||
+           (opcode & UINT32_C(0x0FB0FFF0)) == UINT32_C(0x0120F000) ||
+           (opcode & UINT32_C(0x0FB0F000)) == UINT32_C(0x0320F000);
+}
+
+/* ARM ARM DDI0100I A4.1.39 defines the complete MSR operation, including the
+ * UnallocMask and StateMask checks before applying the selected byte fields. */
+static bool gbl_cpu_decode_arm_psr_transfer(const gbl_cpu_state *cpu,
+                                           gbl_cpu_unit *unit,
+                                           uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool saved = (opcode & UINT32_C(0x00400000)) != 0u;
+    const bool immediate = (opcode & UINT32_C(0x02000000)) != 0u;
+
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        return gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                 false);
+    }
+
+    if ((opcode & UINT32_C(0x0FBF0FFF)) == UINT32_C(0x010F0000)) {
+        const uint8_t destination =
+            (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
+        size_t spsr_index;
+        uint32_t status;
+
+        if (destination == (uint8_t)15u) {
+            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+            return true;
+        }
+        if (saved) {
+            if (!gbl_cpu_spsr_index(cpu->cpsr, &spsr_index)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            status = cpu->spsr[spsr_index];
+        } else {
+            status = cpu->cpsr;
+        }
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (!gbl_cpu_add_literal_register_effect(
+                unit, destination, cpu->cpsr,
+                status & ~GBL_CPU_PSR_UNALLOC_MASK) ||
+            !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    {
+        const uint8_t fields = (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+        uint32_t operand;
+        uint32_t byte_mask = 0u;
+        uint32_t write_mask;
+        uint32_t target_status;
+        size_t spsr_index = 0u;
+        uint8_t lane;
+
+        if (immediate) {
+            const uint32_t immediate_value = opcode & UINT32_C(0xFF);
+            const uint8_t rotation =
+                (uint8_t)(((opcode >> 8u) & UINT32_C(0x0F)) * 2u);
+
+            operand = rotation == 0u
+                          ? immediate_value
+                          : gbl_shift(GBL_SHIFT_ROR, immediate_value,
+                                      rotation, false, false)
+                                .value;
+        } else {
+            const uint8_t source = (uint8_t)(opcode & UINT32_C(0x0F));
+
+            operand = gbl_cpu_read_register(
+                cpu, source, unit->instruction_address,
+                GBL_CPU_PC_READ_NORMAL);
+        }
+
+        if ((operand & GBL_CPU_PSR_UNALLOC_MASK) != 0u) {
+            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+            return true;
+        }
+        for (lane = 0u; lane < 4u; ++lane) {
+            if ((fields & (uint8_t)(1u << lane)) != 0u) {
+                byte_mask |= UINT32_C(0xFF) << ((uint32_t)lane * 8u);
+            }
+        }
+
+        if (saved) {
+            if (!gbl_cpu_spsr_index(cpu->cpsr, &spsr_index)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            write_mask = byte_mask &
+                         (GBL_CPU_CPSR_USER_MASK | GBL_CPU_CPSR_PRIV_MASK |
+                          GBL_CPU_CPSR_STATE_MASK);
+            target_status = cpu->spsr[spsr_index];
+        } else if ((cpu->cpsr & GBL_CPU_CPSR_MODE_MASK) ==
+                   UINT32_C(0x00000010)) {
+            write_mask = byte_mask & GBL_CPU_CPSR_USER_MASK;
+            target_status = cpu->cpsr;
+        } else {
+            if ((operand & GBL_CPU_CPSR_STATE_MASK) != 0u) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            write_mask = byte_mask &
+                         (GBL_CPU_CPSR_USER_MASK | GBL_CPU_CPSR_PRIV_MASK);
+            target_status = cpu->cpsr;
+        }
+
+        target_status = (target_status & ~write_mask) |
+                        (operand & write_mask);
+        if ((write_mask & GBL_CPU_CPSR_MODE_MASK) != 0u &&
+            !gbl_cpu_mode_valid(target_status)) {
+            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+            return true;
+        }
+
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (write_mask != 0u) {
+            const bool added = saved
+                                   ? gbl_cpu_add_spsr_status_effect(
+                                         unit, (uint8_t)spsr_index,
+                                         write_mask, operand)
+                                   : gbl_cpu_add_status_effect(
+                                         unit, write_mask, operand);
+
+            if (!added) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+                return true;
+            }
+        }
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
     }
     return true;
 }
@@ -774,6 +1552,236 @@ static bool gbl_cpu_finalize_decoded(gbl_cpu_unit *unit, bool decoded)
     return true;
 }
 
+static uint8_t gbl_cpu_arm_multiply_algorithm_cycles(
+    uint32_t multiplier, bool signed_termination)
+{
+    const uint32_t top24 = multiplier & UINT32_C(0xFFFFFF00);
+    const uint32_t top16 = multiplier & UINT32_C(0xFFFF0000);
+    const uint32_t top8 = multiplier & UINT32_C(0xFF000000);
+
+    if (top24 == 0u ||
+        (signed_termination && top24 == UINT32_C(0xFFFFFF00))) {
+        return 1u;
+    }
+    if (top16 == 0u ||
+        (signed_termination && top16 == UINT32_C(0xFFFF0000))) {
+        return 2u;
+    }
+    if (top8 == 0u ||
+        (signed_termination && top8 == UINT32_C(0xFF000000))) {
+        return 3u;
+    }
+    return 4u;
+}
+
+static bool gbl_cpu_decode_arm_multiply(const gbl_cpu_state *cpu,
+                                        gbl_cpu_unit *unit,
+                                        uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool long_multiply =
+        (opcode & UINT32_C(0x0F8000F0)) == UINT32_C(0x00800090);
+    const bool short_multiply =
+        (opcode & UINT32_C(0x0FC000F0)) == UINT32_C(0x00000090);
+    const bool signed_long_multiply = long_multiply &&
+        (opcode & UINT32_C(0x00400000)) != 0u;
+    const bool accumulate = (opcode & UINT32_C(0x00200000)) != 0u;
+    const bool set_flags = (opcode & UINT32_C(0x00100000)) != 0u;
+    const uint8_t rd_hi_or_short =
+        (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+    const uint8_t rd_lo_or_accumulator =
+        (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
+    const uint8_t rs = (uint8_t)((opcode >> 8u) & UINT32_C(0x0F));
+    const uint8_t rm = (uint8_t)(opcode & UINT32_C(0x0F));
+    uint32_t rm_value;
+    uint32_t rs_value;
+    uint32_t short_result;
+    uint32_t long_result_low;
+    uint32_t long_result_high;
+    uint32_t flags;
+    uint32_t flag_mask;
+    uint64_t product;
+    uint8_t algorithm_cycles;
+
+    if (!short_multiply && !long_multiply) {
+        return false;
+    }
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        return gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                 false);
+    }
+
+    if (rm == (uint8_t)15u || rs == (uint8_t)15u ||
+        rd_hi_or_short == (uint8_t)15u ||
+        (long_multiply &&
+         (rd_lo_or_accumulator == (uint8_t)15u ||
+          rd_hi_or_short == rd_lo_or_accumulator)) ||
+        (!long_multiply && accumulate &&
+         rd_lo_or_accumulator == (uint8_t)15u) ||
+        (!long_multiply && !accumulate &&
+         rd_lo_or_accumulator != 0u)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+
+    /* Snapshot sources and accumulator words before destination effects.
+     * DDI0100I A4.1.40 records historical UNPREDICTABLE classification for
+     * MUL Rd == Rm and says relevant ARMv4/v5 implementations are believed
+     * not to require the restriction. DDI0029G does not establish this exact
+     * core's alias result; retaining deterministic MUL Rd == Rm behavior is
+     * project policy, not an exact-core or silicon claim. */
+    rm_value = gbl_cpu_read_register(cpu, rm, unit->instruction_address,
+                                     GBL_CPU_PC_READ_NORMAL);
+    rs_value = gbl_cpu_read_register(cpu, rs, unit->instruction_address,
+                                     GBL_CPU_PC_READ_NORMAL);
+    /* DDI0029G §6.6, Tables 6-5–6-8 and §6.20/Table 6-23 define m from
+     * original Rs. Short MUL/MLA use the profile's signed termination choice
+     * (DDI0100I leaves that choice implementation-defined); long forms use
+     * their explicit signed/unsigned opcode. Only this internal work is
+     * modeled here; bus wait states and prefetch are outside this profile. */
+    algorithm_cycles = gbl_cpu_arm_multiply_algorithm_cycles(
+        rs_value, !long_multiply || signed_long_multiply);
+    unit->internal_cycles = (uint8_t)(algorithm_cycles +
+        (long_multiply ? (accumulate ? 2u : 1u)
+                       : (accumulate ? 1u : 0u)));
+    if (long_multiply) {
+        uint64_t result;
+        uint64_t rm_bits = (uint64_t)rm_value;
+        uint64_t rs_bits = (uint64_t)rs_value;
+
+        if (signed_long_multiply) {
+            /* Sign-extend into unsigned bit vectors, then multiply modulo
+             * 2^64. This avoids implementation-defined uint32_t-to-int32_t
+             * conversions while preserving the signed product's exact bits. */
+            if ((rm_value & UINT32_C(0x80000000)) != 0u) {
+                rm_bits |= UINT64_C(0xFFFFFFFF00000000);
+            }
+            if ((rs_value & UINT32_C(0x80000000)) != 0u) {
+                rs_bits |= UINT64_C(0xFFFFFFFF00000000);
+            }
+        }
+        product = rm_bits * rs_bits;
+        if (accumulate) {
+            const uint32_t accumulator_low = gbl_cpu_read_register(
+                cpu, rd_lo_or_accumulator, unit->instruction_address,
+                GBL_CPU_PC_READ_NORMAL);
+            const uint32_t accumulator_high = gbl_cpu_read_register(
+                cpu, rd_hi_or_short, unit->instruction_address,
+                GBL_CPU_PC_READ_NORMAL);
+            const uint64_t accumulator =
+                ((uint64_t)accumulator_high << 32u) |
+                (uint64_t)accumulator_low;
+
+            result = accumulator + product;
+        } else {
+            result = product;
+        }
+        long_result_low = (uint32_t)result;
+        long_result_high = (uint32_t)(result >> 32u);
+        short_result = 0u;
+        flags = (long_result_high & GBL_CPU_CPSR_N) != 0u
+                    ? GBL_CPU_CPSR_N
+                    : 0u;
+        if (long_result_high == 0u && long_result_low == 0u) {
+            flags |= GBL_CPU_CPSR_Z;
+        }
+        flag_mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z;
+    } else {
+        const uint32_t accumulator = accumulate
+            ? gbl_cpu_read_register(cpu, rd_lo_or_accumulator,
+                                    unit->instruction_address,
+                                    GBL_CPU_PC_READ_NORMAL)
+            : 0u;
+
+        product = (uint64_t)rm_value * (uint64_t)rs_value;
+        short_result = (uint32_t)product + accumulator;
+        long_result_low = 0u;
+        long_result_high = 0u;
+        flags = gbl_cpu_nz_flags(short_result);
+        /* N/Z are defined, V is defined to be preserved, and C is
+         * architecturally unpredictable on ARMv4T. The profile chooses to
+         * preserve incoming C; updating only N/Z states that policy directly. */
+        flag_mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z;
+    }
+
+    unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+    if ((long_multiply &&
+         (!gbl_cpu_add_literal_register_effect(
+              unit, rd_lo_or_accumulator, cpu->cpsr, long_result_low) ||
+          !gbl_cpu_add_literal_register_effect(
+              unit, rd_hi_or_short, cpu->cpsr, long_result_high))) ||
+        (!long_multiply &&
+         !gbl_cpu_add_literal_register_effect(
+             unit, rd_hi_or_short, cpu->cpsr, short_result)) ||
+        (set_flags &&
+         !gbl_cpu_add_status_effect(unit, flag_mask, flags))) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    return gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false);
+}
+
+static bool gbl_cpu_decode_arm_swap(const gbl_cpu_state *cpu,
+                                    gbl_cpu_unit *unit,
+                                    uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool byte = (opcode & UINT32_C(0x00400000)) != 0u;
+    const uint8_t base_register =
+        (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+    const uint8_t destination =
+        (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
+    const uint8_t source = (uint8_t)(opcode & UINT32_C(0x0F));
+    uint32_t address;
+    uint32_t source_value;
+    uint8_t result_index;
+    uint8_t width;
+
+    if ((opcode & UINT32_C(0x0FB00FF0)) != UINT32_C(0x01000090)) {
+        return false;
+    }
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+    if (base_register == (uint8_t)15u ||
+        destination == (uint8_t)15u || source == (uint8_t)15u) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+
+    width = byte ? 1u : (uint8_t)GBL_CPU_WORD_WIDTH;
+    address = gbl_cpu_read_register(cpu, base_register,
+                                    unit->instruction_address,
+                                    GBL_CPU_PC_READ_NORMAL);
+    source_value = gbl_cpu_read_register(cpu, source,
+                                         unit->instruction_address,
+                                         GBL_CPU_PC_READ_NORMAL);
+    if (!gbl_cpu_data_span_valid(address, width)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    unit->kind = GBL_CPU_UNIT_TRANSFER;
+    if (!gbl_cpu_add_data_read_slot(
+            unit, byte ? address : address & ~UINT32_C(3), width,
+            byte ? 0u : (uint8_t)(address & UINT32_C(3)), !byte,
+            &result_index) ||
+        !gbl_cpu_add_data_write_slot(
+            unit, byte ? address : address & ~UINT32_C(3), width,
+            source_value) ||
+        !gbl_cpu_add_result_register_effect(unit, destination, cpu->cpsr,
+                                            result_index) ||
+        !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    }
+    return true;
+}
+
 static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
                                                gbl_cpu_unit *unit,
                                                uint32_t next_fetch_address)
@@ -783,26 +1791,26 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
     const bool preindexed = (opcode & UINT32_C(0x01000000)) != 0u;
     const bool add_offset = (opcode & UINT32_C(0x00800000)) != 0u;
     const bool byte = (opcode & UINT32_C(0x00400000)) != 0u;
-    const bool writeback = (opcode & UINT32_C(0x00200000)) != 0u;
+    const bool writeback_bit = (opcode & UINT32_C(0x00200000)) != 0u;
     const bool load = (opcode & UINT32_C(0x00100000)) != 0u;
     const uint8_t base_register =
         (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
     const uint8_t data_register =
         (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
     const uint8_t width = byte ? 1u : (uint8_t)GBL_CPU_WORD_WIDTH;
+    const bool load_pc = load && !byte && data_register == (uint8_t)15u;
+    /* Post-indexed forms always update Rn. W distinguishes the T encoding,
+     * whose forced-User bus access has no extra effect under this flat bus. */
+    const bool writeback = !preindexed || writeback_bit;
     uint32_t base;
     uint32_t offset;
     uint32_t address;
+    uint32_t updated_base;
+    uint32_t store_value = 0u;
+    uint8_t pc_result_index = UINT8_MAX;
 
     if ((opcode & UINT32_C(0x0C000000)) != UINT32_C(0x04000000)) {
         return false;
-    }
-    if (register_offset || !preindexed || writeback ||
-        data_register == (uint8_t)15u ||
-        (base_register == (uint8_t)15u &&
-         (!load || byte || !add_offset))) {
-        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-        return true;
     }
     if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
         unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
@@ -813,21 +1821,484 @@ static bool gbl_cpu_decode_arm_single_transfer(const gbl_cpu_state *cpu,
         return true;
     }
 
+    /* DDI0100I A4.1.99/A4.1.100: STR/STRB writeback with Rd == Rn is
+     * unpredictable, just as the load writeback alias is. */
+    if ((register_offset && (opcode & UINT32_C(0x00000010)) != 0u) ||
+        (base_register == (uint8_t)15u &&
+         (!preindexed || writeback)) ||
+        (register_offset &&
+         ((opcode & UINT32_C(0x0000000F)) == UINT32_C(15) ||
+          ((uint8_t)(opcode & UINT32_C(0x0000000F)) == base_register &&
+           writeback))) ||
+        (writeback && data_register == base_register) ||
+        (load_pc && !preindexed && writeback_bit) ||
+        (byte && data_register == (uint8_t)15u)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
     base = gbl_cpu_read_register(cpu, base_register,
-                                 unit->instruction_address);
-    offset = opcode & UINT32_C(0x00000FFF);
-    address = add_offset ? base + offset : base - offset;
-    if (!gbl_cpu_data_span_valid(address, width)) {
+                                 unit->instruction_address,
+                                 GBL_CPU_PC_READ_NORMAL);
+    if (register_offset) {
+        const uint8_t source_register =
+            (uint8_t)(opcode & UINT32_C(0x0000000F));
+        const uint8_t shift_amount =
+            (uint8_t)((opcode >> 7u) & UINT32_C(0x1F));
+        const gbl_shift_kind shift_kind =
+            (gbl_shift_kind)((opcode >> 5u) & UINT32_C(0x03));
+        const uint32_t source_value = gbl_cpu_read_register(
+            cpu, source_register, unit->instruction_address,
+            GBL_CPU_PC_READ_NORMAL);
+        const gbl_shift_result shifted = gbl_shift(
+            shift_kind, source_value, shift_amount,
+            (cpu->cpsr & GBL_CPU_CPSR_C) != 0u, false);
+
+        offset = shifted.value;
+    } else {
+        offset = opcode & UINT32_C(0x00000FFF);
+    }
+    updated_base = add_offset ? base + offset : base - offset;
+    address = preindexed ? updated_base : base;
+    if (load_pc && (address & UINT32_C(3)) != 0u) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+    if (!load) {
+        store_value = gbl_cpu_read_register(
+            cpu, data_register, unit->instruction_address,
+            GBL_CPU_PC_READ_STORE_SOURCE);
+    }
+    if (!gbl_cpu_data_span_valid(
+            width == (uint8_t)GBL_CPU_WORD_WIDTH
+                ? address & ~UINT32_C(3)
+                : address,
+            width)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
-    gbl_cpu_prepare_data_transfer(
-        unit, address, width, load, data_register,
-        load ? 0u : gbl_cpu_read_register(cpu, data_register,
-                                          unit->instruction_address),
-        load && !byte);
+    if (load_pc) {
+        if (!gbl_cpu_add_data_read_slot(
+                unit, address & ~UINT32_C(3), width,
+                (uint8_t)(address & UINT32_C(3)), true,
+                &pc_result_index)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            return true;
+        }
+    } else if (!gbl_cpu_prepare_data_transfer(
+                   unit, address, width, load, data_register, store_value,
+                   load && !byte, cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if (writeback &&
+        !gbl_cpu_add_literal_register_effect(
+            unit, base_register, cpu->cpsr, updated_base)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if ((load_pc &&
+         !gbl_cpu_schedule_result_refill(unit, pc_result_index, false)) ||
+        (!load_pc &&
+         !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                            false))) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    }
+    return true;
+}
+
+static bool gbl_cpu_decode_arm_subword_transfer(
+    const gbl_cpu_state *cpu, gbl_cpu_unit *unit,
+    uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool sign = (opcode & UINT32_C(0x00000040)) != 0u;
+    const bool halfword = (opcode & UINT32_C(0x00000020)) != 0u;
+    const bool register_offset = (opcode & UINT32_C(0x00400000)) == 0u;
+    const bool preindexed = (opcode & UINT32_C(0x01000000)) != 0u;
+    const bool add_offset = (opcode & UINT32_C(0x00800000)) != 0u;
+    const bool writeback_bit = (opcode & UINT32_C(0x00200000)) != 0u;
+    const bool load = (opcode & UINT32_C(0x00100000)) != 0u;
+    const bool writeback = !preindexed || writeback_bit;
+    const uint8_t base_register =
+        (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+    const uint8_t data_register =
+        (uint8_t)((opcode >> 12u) & UINT32_C(0x0F));
+    const uint8_t offset_register = (uint8_t)(opcode & UINT32_C(0x0F));
+    uint32_t base;
+    uint32_t offset;
+    uint32_t address;
+    uint32_t updated_base;
+    uint32_t source_value = 0u;
+    uint8_t result_index = UINT8_MAX;
+    uint8_t width;
+    uint32_t bus_address;
+    bool rotate_halfword_read = false;
+    bool sign_extend_byte_read = false;
+    bool sign_extend_halfword_read = false;
+
+    if ((opcode & UINT32_C(0x0E000090)) != UINT32_C(0x00000090) ||
+        (!sign && !halfword)) {
+        return false;
+    }
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    /* DDI0100I A5.3.1 assigns S=1,L=0 to the later LDRD/STRD
+     * extension space; ARM7TDMI DDI0029G does not implement those forms. */
+    if (sign && !load) {
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
+        return true;
+    }
+    /* Register-offset mode reserves bits[11:8], and Mode 3 requires W=0
+     * for post-index addressing. Treat malformed/unpredictable operands as
+     * deterministic no-effect stops before creating bus or register slots. */
+    if ((register_offset &&
+         (opcode & UINT32_C(0x00000F00)) != 0u) ||
+        (!preindexed && writeback_bit) || data_register == (uint8_t)15u ||
+        (base_register == (uint8_t)15u &&
+         (!preindexed || writeback)) ||
+        (register_offset && offset_register == (uint8_t)15u) ||
+        (writeback && data_register == base_register) ||
+        (register_offset && writeback &&
+         offset_register == base_register)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+
+    base = gbl_cpu_read_register(cpu, base_register,
+                                 unit->instruction_address,
+                                 GBL_CPU_PC_READ_NORMAL);
+    if (register_offset) {
+        offset = gbl_cpu_read_register(cpu, offset_register,
+                                       unit->instruction_address,
+                                       GBL_CPU_PC_READ_NORMAL);
+    } else {
+        offset = (((opcode >> 4u) & UINT32_C(0xF0)) |
+                  (opcode & UINT32_C(0x0F)));
+    }
+    updated_base = add_offset ? base + offset : base - offset;
+    address = preindexed ? updated_base : base;
+
+    if (!load) {
+        source_value = gbl_cpu_read_register(
+            cpu, data_register, unit->instruction_address,
+            GBL_CPU_PC_READ_STORE_SOURCE);
+        width = (uint8_t)GBL_CPU_HALF_WIDTH;
+        bus_address = address & ~UINT32_C(1);
+    } else if (sign && !halfword) {
+        width = 1u;
+        bus_address = address;
+        sign_extend_byte_read = true;
+    } else if (sign && halfword && (address & UINT32_C(1)) != 0u) {
+        /* GBATEK 3.06, ARM CPU Memory Alignments, ARM7/GBA row: odd
+         * LDRSH is the signed-byte operation at the original address. */
+        width = 1u;
+        bus_address = address;
+        sign_extend_byte_read = true;
+    } else {
+        width = (uint8_t)GBL_CPU_HALF_WIDTH;
+        bus_address = address & ~UINT32_C(1);
+        if (!sign && (address & UINT32_C(1)) != 0u) {
+            /* GBATEK 3.06 reports the ARM7/GBA odd LDRH result as the
+             * aligned halfword read rotated right by eight in a word. */
+            rotate_halfword_read = true;
+        } else if (sign) {
+            sign_extend_halfword_read = true;
+        }
+    }
+    if (!gbl_cpu_data_span_valid(bus_address, width)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+
+    unit->kind = GBL_CPU_UNIT_TRANSFER;
+    if (load) {
+        if (!gbl_cpu_add_subword_read_slot(
+                unit, bus_address, width, (uint8_t)(address & UINT32_C(1)),
+                rotate_halfword_read, sign_extend_byte_read,
+                sign_extend_halfword_read, &result_index) ||
+            !gbl_cpu_add_result_register_effect(
+                unit, data_register, cpu->cpsr, result_index)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            return true;
+        }
+    } else if (!gbl_cpu_add_data_write_slot(
+                   unit, bus_address, width,
+                   source_value & UINT32_C(0x0000FFFF))) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if (writeback &&
+        !gbl_cpu_add_literal_register_effect(
+            unit, base_register, cpu->cpsr, updated_base)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
     if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, false)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    }
+    return true;
+}
+
+/* Thumb formats 1, 2 and 4. DDI0100I A7 specifies their flag masks;
+ * DDI0029G §6.5/6.6 supplies register-shift and multiply internal work.
+ * All source values are captured before effects enter the canonical unit. */
+static bool gbl_cpu_decode_thumb_alu(const gbl_cpu_state *cpu,
+                                     gbl_cpu_unit *unit,
+                                     uint32_t next_fetch_address)
+{
+    const uint16_t opcode = (uint16_t)unit->opcode;
+    const uint8_t rd = (uint8_t)(opcode & 7u);
+    const uint8_t rs = (uint8_t)((opcode >> 3u) & 7u);
+    uint32_t left = cpu->r0_7[rd];
+    const uint32_t right = cpu->r0_7[rs];
+    uint32_t mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z;
+    uint32_t flags;
+    bool write = true;
+    bool arithmetic_flags = false;
+    gbl_arithmetic_result arithmetic = { 0u, false, false };
+    gbl_shift_result shifted = { 0u, false };
+
+    if ((opcode & UINT16_C(0xF800)) == UINT16_C(0x1800)) {
+        const bool immediate = (opcode & UINT16_C(0x0400)) != 0u;
+        const uint8_t operand = (uint8_t)((opcode >> 6u) & 7u);
+        const uint32_t value = immediate ? (uint32_t)operand
+                                         : cpu->r0_7[operand];
+
+        left = right;
+        arithmetic = (opcode & UINT16_C(0x0200)) != 0u
+                         ? gbl_sub_flags(left, value)
+                         : gbl_add_flags(left, value);
+        arithmetic_flags = true;
+    } else if ((opcode & UINT16_C(0xE000)) == 0u) {
+        shifted = gbl_shift((gbl_shift_kind)((opcode >> 11u) & 3u),
+                            right, (uint8_t)((opcode >> 6u) & 31u),
+                            (cpu->cpsr & GBL_CPU_CPSR_C) != 0u, false);
+        unit->value = shifted.value;
+        mask |= GBL_CPU_CPSR_C;
+    } else {
+        const uint8_t operation = (uint8_t)((opcode >> 6u) & 15u);
+
+        switch (operation) {
+        case 0u: unit->value = left & right; break; /* AND */
+        case 1u: unit->value = left ^ right; break; /* EOR */
+        case 2u: /* LSL */
+        case 3u: /* LSR */
+        case 4u: /* ASR */
+        case 7u: /* ROR */
+            shifted = gbl_shift(
+                operation == 7u ? GBL_SHIFT_ROR
+                                 : (gbl_shift_kind)(operation - 2u),
+                left, (uint8_t)(right & UINT32_C(0xFF)),
+                (cpu->cpsr & GBL_CPU_CPSR_C) != 0u, true);
+            unit->value = shifted.value;
+            mask |= GBL_CPU_CPSR_C;
+            unit->internal_cycles = 1u;
+            break;
+        case 5u: /* ADC */
+            arithmetic = gbl_add_with_carry_flags(
+                left, right, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+            arithmetic_flags = true;
+            break;
+        case 6u: /* SBC */
+            arithmetic = gbl_sub_with_carry_flags(
+                left, right, (cpu->cpsr & GBL_CPU_CPSR_C) != 0u);
+            arithmetic_flags = true;
+            break;
+        case 8u: unit->value = left & right; write = false; break; /* TST */
+        case 9u: /* NEG */
+            arithmetic = gbl_sub_flags(0u, right);
+            arithmetic_flags = true;
+            break;
+        case 10u: /* CMP */
+            arithmetic = gbl_sub_flags(left, right);
+            arithmetic_flags = true;
+            write = false;
+            break;
+        case 11u: /* CMN */
+            arithmetic = gbl_add_flags(left, right);
+            arithmetic_flags = true;
+            write = false;
+            break;
+        case 12u: unit->value = left | right; break; /* ORR */
+        case 13u: /* MUL: DDI0100I A7.1.45 uses original Rd for termination. */
+            if (rd == rs) { /* Identical operands are unpredictable before v6. */
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            unit->value = left * right;
+            /* Signed termination and preserved unpredictable C follow the
+             * existing short-multiply project policy. */
+            unit->internal_cycles =
+                gbl_cpu_arm_multiply_algorithm_cycles(left, true);
+            break;
+        case 14u: unit->value = left & ~right; break; /* BIC */
+        case 15u: unit->value = ~right; break; /* MVN */
+        default: return false;
+        }
+    }
+    if (arithmetic_flags) {
+        unit->value = arithmetic.value;
+        mask |= GBL_CPU_CPSR_C | GBL_CPU_CPSR_V;
+    }
+    flags = gbl_cpu_nz_flags(unit->value);
+    if (arithmetic_flags ? arithmetic.carry : shifted.carry) {
+        flags |= GBL_CPU_CPSR_C;
+    }
+    if (arithmetic_flags && arithmetic.overflow) {
+        flags |= GBL_CPU_CPSR_V;
+    }
+    unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+    return (!write || gbl_cpu_add_literal_register_effect(
+                          unit, rd, cpu->cpsr, unit->value)) &&
+           gbl_cpu_add_status_effect(unit, mask, flags) &&
+           gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address, true);
+}
+
+/* DDI0100I A6.6 and A7.1.27/.49/.50/.57 define two distinct Thumb transfer
+ * formats. Empty lists are UNPREDICTABLE. LDMIA suppresses writeback when Rn
+ * is loaded, so the actual memory result wins; STMIA only defines an in-list
+ * base when it is the lowest listed register. Keep these rules separate from
+ * ARM block transfers. */
+static bool gbl_cpu_prepare_thumb_multiple_transfer(
+    const gbl_cpu_state *cpu, gbl_cpu_unit *unit,
+    uint32_t next_fetch_address, uint8_t base_register,
+    uint8_t register_list, bool load, bool stack_mode, bool extra_register)
+{
+    uint8_t transfer_count = 0u;
+    uint8_t first_register = UINT8_MAX;
+    uint8_t register_index;
+    uint8_t pc_result_index = UINT8_MAX;
+    bool base_in_list;
+    uint32_t base;
+    uint32_t address;
+    uint32_t updated_base;
+    uint32_t span;
+
+    base_in_list = !stack_mode &&
+        (register_list & (uint8_t)(UINT8_C(1) << base_register)) != 0u;
+    for (register_index = 0u; register_index < 8u; ++register_index) {
+        if ((register_list & (uint8_t)(UINT8_C(1) << register_index)) != 0u) {
+            if (first_register == UINT8_MAX) {
+                first_register = register_index;
+            }
+            transfer_count++;
+        }
+    }
+    if (extra_register) {
+        transfer_count++;
+        if (first_register == UINT8_MAX) {
+            first_register = load ? (uint8_t)15u : (uint8_t)14u;
+        }
+    }
+    if (transfer_count == 0u) {
+        /* DDI0100I A7.1.27/.49/.50/.57 specifies non-empty lists. */
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+    if (!stack_mode && !load && base_in_list &&
+        base_register != first_register) {
+        /* DDI0100I A7.1.57 makes only the stored base value unpredictable;
+         * Gamebloke's deterministic policy stops this whole unit pre-effect. */
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+
+    base = gbl_cpu_read_register(cpu, base_register,
+                                 unit->instruction_address,
+                                 GBL_CPU_PC_READ_NORMAL);
+    span = (uint32_t)transfer_count * UINT32_C(4);
+    address = stack_mode && !load ? base - span : base;
+    updated_base = stack_mode && !load ? base - span : base + span;
+    unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+    unit->multiple_transfer = true;
+
+    for (register_index = 0u; register_index < 8u; ++register_index) {
+        const uint8_t register_bit =
+            (uint8_t)(UINT8_C(1) << register_index);
+        const uint32_t bus_address = address & ~UINT32_C(3);
+
+        if ((register_list & register_bit) != 0u) {
+            if (!gbl_cpu_data_span_valid(
+                    bus_address, (uint8_t)GBL_CPU_WORD_WIDTH)) {
+                return false;
+            }
+            if (load) {
+                uint8_t result_index;
+
+                if (!gbl_cpu_add_data_read_slot(
+                        unit, bus_address, (uint8_t)GBL_CPU_WORD_WIDTH, 0u,
+                        false, &result_index) ||
+                    !gbl_cpu_add_result_register_effect(
+                        unit, register_index, cpu->cpsr, result_index)) {
+                    return false;
+                }
+            } else if (!gbl_cpu_add_data_write_slot(
+                           unit, bus_address, (uint8_t)GBL_CPU_WORD_WIDTH,
+                           gbl_cpu_read_register_in_bank(
+                               cpu, register_index, cpu->cpsr,
+                               unit->instruction_address,
+                               GBL_CPU_PC_READ_NORMAL))) {
+                return false;
+            }
+            address += UINT32_C(4);
+        }
+    }
+    if (extra_register) {
+        const uint8_t extra_index = load ? (uint8_t)15u : (uint8_t)14u;
+        const uint32_t bus_address = address & ~UINT32_C(3);
+
+        if (!gbl_cpu_data_span_valid(
+                bus_address, (uint8_t)GBL_CPU_WORD_WIDTH)) {
+            return false;
+        }
+        if (load) {
+            if (!gbl_cpu_add_data_read_slot(
+                    unit, bus_address, (uint8_t)GBL_CPU_WORD_WIDTH, 0u,
+                    false, &pc_result_index)) {
+                return false;
+            }
+        } else if (!gbl_cpu_add_data_write_slot(
+                       unit, bus_address, (uint8_t)GBL_CPU_WORD_WIDTH,
+                       gbl_cpu_read_register_in_bank(
+                           cpu, extra_index, cpu->cpsr,
+                           unit->instruction_address,
+                           GBL_CPU_PC_READ_NORMAL))) {
+            return false;
+        }
+    }
+
+    for (register_index = 0u; register_index < unit->data_slot_count;
+         ++register_index) {
+        unit->data_slots[register_index].access_class =
+            register_index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                 : GBL_BUS_CLASS_SEQUENTIAL;
+    }
+    unit->post_data_internal_cycles = load ? (uint8_t)1u : 0u;
+    unit->post_data_pipeline_cycles =
+        load && pc_result_index != UINT8_MAX ? (uint8_t)1u : 0u;
+
+    if ((stack_mode || !load || !base_in_list) &&
+        !gbl_cpu_add_literal_register_effect(
+            unit, base_register, cpu->cpsr, updated_base)) {
+        return false;
+    }
+    if ((load && pc_result_index != UINT8_MAX &&
+         !gbl_cpu_schedule_result_refill(unit, pc_result_index, true)) ||
+        (!(load && pc_result_index != UINT8_MAX) &&
+         !gbl_cpu_schedule_sequential_fetch(
+             unit, next_fetch_address, true))) {
+        return false;
+    }
+    if (!load) {
+        /* The transfer stores precede the following fetch in this model. */
+        unit->fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
     }
     return true;
 }
@@ -839,9 +2310,56 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
     const uint16_t opcode = (uint16_t)unit->opcode;
     const uint32_t instruction_address = unit->instruction_address;
 
+    /* ARMv5 BLX/BKPT encodings are not ARM7TDMI operations. */
+    if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xBE00) ||
+        (opcode & UINT16_C(0xFF87)) == UINT16_C(0x4780) ||
+        (opcode & UINT16_C(0xF800)) == UINT16_C(0xE800)) {
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xE000)) == 0u ||
+        (opcode & UINT16_C(0xFC00)) == UINT16_C(0x4000)) {
+        return gbl_cpu_decode_thumb_alu(cpu, unit, next_fetch_address);
+    }
+
     if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xDF00)) {
         gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
         return true;
+    }
+
+    /* DDI0100I A7.1.17: BL supplies high and low offsets in two
+     * halfwords. Gamebloke retires each independently and uses only banked
+     * LR between them, including isolated-half probes. Unsigned offset
+     * arithmetic is the project's deterministic policy at unpredictable
+     * address-wrap boundaries; existing static refill guards still apply. */
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0xF000)) {
+        uint32_t offset = opcode & UINT16_C(0x07FF);
+        uint32_t link;
+
+        if ((opcode & UINT16_C(0x0800)) == 0u) {
+            if ((offset & UINT32_C(0x400)) != 0u) {
+                offset |= UINT32_C(0xFFFFF800);
+            }
+            link = instruction_address + UINT32_C(4) + (offset << 12u);
+            unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+            return gbl_cpu_add_literal_register_effect(
+                       unit, (uint8_t)14u, cpu->cpsr, link) &&
+                   gbl_cpu_schedule_sequential_fetch(
+                       unit, next_fetch_address, true);
+        }
+        {
+            const uint32_t old_lr = gbl_cpu_read_register(
+                cpu, (uint8_t)14u, instruction_address, GBL_CPU_PC_READ_NORMAL);
+            const uint32_t target = (old_lr + (offset << 1u)) & ~UINT32_C(1);
+
+            link = (instruction_address + UINT32_C(2)) | UINT32_C(1);
+            if (!gbl_cpu_add_literal_register_effect(
+                    unit, (uint8_t)14u, cpu->cpsr, link)) {
+                return false;
+            }
+            return gbl_cpu_schedule_branch(unit, target, true);
+        }
     }
 
     if ((opcode & UINT16_C(0xF800)) == UINT16_C(0x2000) ||
@@ -853,13 +2371,13 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         const uint32_t operand = opcode & UINT16_C(0x00FF);
         uint32_t flags;
         uint32_t flag_mask;
+        bool writes_destination = false;
 
         if (operation == 0u) {
             unit->value = operand;
             flags = gbl_cpu_nz_flags(unit->value);
             flag_mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z;
-            unit->destination = destination;
-            unit->writes_destination = true;
+            writes_destination = true;
         } else if (operation == 1u) {
             const gbl_arithmetic_result arithmetic = gbl_sub_flags(
                 cpu->r0_7[destination], operand);
@@ -874,7 +2392,6 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
             }
             flag_mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z |
                         GBL_CPU_CPSR_C | GBL_CPU_CPSR_V;
-            unit->writes_destination = false;
         } else {
             const bool subtract = operation == 3u;
             const gbl_arithmetic_result arithmetic = subtract
@@ -891,13 +2408,16 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
             }
             flag_mask = GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z |
                         GBL_CPU_CPSR_C | GBL_CPU_CPSR_V;
-            unit->destination = destination;
-            unit->writes_destination = true;
+            writes_destination = true;
         }
         unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
-        unit->writes_flags = true;
-        unit->flags = flags;
-        unit->flag_mask = flag_mask;
+        if ((writes_destination &&
+             !gbl_cpu_add_literal_register_effect(
+                 unit, destination, cpu->cpsr, unit->value)) ||
+            !gbl_cpu_add_status_effect(unit, flag_mask, flags)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            return true;
+        }
         if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
                                                true)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
@@ -911,16 +2431,45 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
         const uint8_t destination =
             (uint8_t)((opcode & 7u) | ((opcode >> 4u) & 8u));
 
-        if (operation == 2u) {
-            if (destination == (uint8_t)15u) {
-                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        if (operation != 3u) {
+            const uint32_t right = gbl_cpu_read_register(
+                cpu, source, instruction_address, GBL_CPU_PC_READ_NORMAL);
+            const uint32_t left = gbl_cpu_read_register(
+                cpu, destination, instruction_address, GBL_CPU_PC_READ_NORMAL);
+
+            /* DDI0100I A7.1.6/.23/.44: low/low high forms are
+             * unpredictable on ARMv4T, as is CMP with R15 as Rn.
+             * In particular do not import ARMv6 CPY into this decoder. */
+            if ((source < 8u && destination < 8u) ||
+                (operation == 1u && destination == 15u)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
                 return true;
             }
             unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
-            unit->destination = destination;
-            unit->value = gbl_cpu_read_register(
-                cpu, source, instruction_address);
-            unit->writes_destination = true;
+            if (operation == 1u) {
+                const gbl_arithmetic_result arithmetic = gbl_sub_flags(left, right);
+                const uint32_t flags = gbl_cpu_nz_flags(arithmetic.value) |
+                    (arithmetic.carry ? GBL_CPU_CPSR_C : 0u) |
+                    (arithmetic.overflow ? GBL_CPU_CPSR_V : 0u);
+
+                if (!gbl_cpu_add_status_effect(unit,
+                        GBL_CPU_CPSR_N | GBL_CPU_CPSR_Z |
+                        GBL_CPU_CPSR_C | GBL_CPU_CPSR_V, flags)) {
+                    return false;
+                }
+            } else {
+                const uint32_t value = operation == 0u ? left + right : right;
+
+                if (destination == 15u) {
+                    /* ADD/MOV retain T even for an even result. Only BX
+                     * interworks; existing static refill guards still apply. */
+                    return gbl_cpu_schedule_pc_write(unit, value, cpu->cpsr, false);
+                }
+                if (!gbl_cpu_add_literal_register_effect(
+                        unit, destination, cpu->cpsr, value)) {
+                    return false;
+                }
+            }
             return gbl_cpu_schedule_sequential_fetch(unit,
                                                       next_fetch_address, true);
         }
@@ -930,11 +2479,11 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
             bool thumb;
 
             if ((opcode & UINT16_C(0x0087)) != 0u) {
-                unit->kind = GBL_CPU_UNIT_UNDEFINED;
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
                 return true;
             }
             target_value = gbl_cpu_read_register(
-                cpu, source, instruction_address);
+                cpu, source, instruction_address, GBL_CPU_PC_READ_NORMAL);
             thumb = (target_value & UINT32_C(1)) != 0u;
             target = target_value & ~UINT32_C(1);
             if (!thumb && (target & UINT32_C(2)) != 0u) {
@@ -991,21 +2540,44 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
 
     if ((opcode & UINT16_C(0xF800)) == UINT16_C(0x4800)) {
         const uint8_t destination = (uint8_t)((opcode >> 8u) & 7u);
-        const uint32_t base = (instruction_address + UINT32_C(4)) &
-                              ~UINT32_C(3);
+        const uint32_t base = gbl_cpu_read_register(
+            cpu, (uint8_t)15u, instruction_address,
+            GBL_CPU_PC_READ_THUMB_ALIGNED_ADDRESS);
         const uint32_t address =
             base + ((uint32_t)(opcode & UINT16_C(0x00FF)) << 2u);
 
-        if (!gbl_cpu_data_span_valid(address,
-                                     (uint8_t)GBL_CPU_WORD_WIDTH)) {
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, address, (uint8_t)GBL_CPU_WORD_WIDTH, true,
+                destination, 0u, false, false, cpu->cpsr,
+                next_fetch_address)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-            return true;
         }
-        gbl_cpu_prepare_data_transfer(unit, address,
-                                      (uint8_t)GBL_CPU_WORD_WIDTH, true,
-                                      destination, 0u, false);
-        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
-                                               true)) {
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0x5000)) {
+        const uint8_t operation = (uint8_t)((opcode >> 9u) & 7u);
+        const uint8_t offset_register = (uint8_t)((opcode >> 6u) & 7u);
+        const uint8_t base_register = (uint8_t)((opcode >> 3u) & 7u);
+        const uint8_t data_register = (uint8_t)(opcode & 7u);
+        const bool load = operation >= 3u;
+        const bool signed_byte = operation == 3u;
+        const bool signed_halfword = operation == 7u;
+        const uint8_t width = (operation == 0u || operation == 4u)
+            ? (uint8_t)GBL_CPU_WORD_WIDTH
+            : (operation == 1u || operation == 5u || operation == 7u)
+                ? (uint8_t)GBL_CPU_HALF_WIDTH
+                : 1u;
+        /* Snapshot both address operands and the store source before the
+         * result/effect records can commit any low-register destination. */
+        const uint32_t base = cpu->r0_7[base_register];
+        const uint32_t offset = cpu->r0_7[offset_register];
+        const uint32_t store_value = cpu->r0_7[data_register];
+
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, base + offset, width, load, data_register,
+                store_value, signed_byte, signed_halfword, cpu->cpsr,
+                next_fetch_address)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         }
         return true;
@@ -1024,21 +2596,338 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
             offset <<= 2u;
         }
         address = cpu->r0_7[base_register] + offset;
-        if (!gbl_cpu_data_span_valid(address, width)) {
-            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-            return true;
-        }
-        gbl_cpu_prepare_data_transfer(
-            unit, address, width, load, destination,
-            load ? 0u : cpu->r0_7[destination], load && !byte);
-        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
-                                               true)) {
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, address, width, load, destination,
+                load ? 0u : cpu->r0_7[destination], false, false,
+                cpu->cpsr, next_fetch_address)) {
             unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         }
         return true;
     }
 
-    unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0x8000)) {
+        const bool load = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t destination = (uint8_t)(opcode & 7u);
+        const uint8_t base_register = (uint8_t)((opcode >> 3u) & 7u);
+        const uint32_t offset =
+            (uint32_t)((opcode >> 6u) & UINT16_C(0x001F)) << 1u;
+        const uint32_t base = cpu->r0_7[base_register];
+        const uint32_t store_value = cpu->r0_7[destination];
+
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, base + offset, (uint8_t)GBL_CPU_HALF_WIDTH, load,
+                destination, store_value, false, false, cpu->cpsr,
+                next_fetch_address)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0x9000)) {
+        const bool load = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t destination = (uint8_t)((opcode >> 8u) & 7u);
+        const uint8_t base_register = (uint8_t)13u;
+        const uint32_t offset =
+            (uint32_t)(opcode & UINT16_C(0x00FF)) << 2u;
+        const uint32_t base = gbl_cpu_read_register(
+            cpu, base_register, instruction_address, GBL_CPU_PC_READ_NORMAL);
+        const uint32_t store_value = cpu->r0_7[destination];
+
+        if (!gbl_cpu_prepare_thumb_data_transfer(
+                unit, base + offset, (uint8_t)GBL_CPU_WORD_WIDTH, load,
+                destination, store_value, false, false, cpu->cpsr,
+                next_fetch_address)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0xA000)) {
+        const bool use_sp = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t destination = (uint8_t)((opcode >> 8u) & 7u);
+        const uint8_t base_register = use_sp ? (uint8_t)13u : (uint8_t)15u;
+        const uint32_t offset =
+            (uint32_t)(opcode & UINT16_C(0x00FF)) << 2u;
+        const gbl_cpu_pc_read_context pc_context = use_sp
+            ? GBL_CPU_PC_READ_NORMAL
+            : GBL_CPU_PC_READ_THUMB_ALIGNED_ADDRESS;
+        const uint32_t base = gbl_cpu_read_register(
+            cpu, base_register, instruction_address, pc_context);
+
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (!gbl_cpu_add_literal_register_effect(
+                unit, destination, cpu->cpsr, base + offset) ||
+            !gbl_cpu_schedule_sequential_fetch(
+                unit, next_fetch_address, true)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xB000)) {
+        const bool subtract = (opcode & UINT16_C(0x0080)) != 0u;
+        const uint32_t offset =
+            (uint32_t)(opcode & UINT16_C(0x007F)) << 2u;
+        const uint32_t base = gbl_cpu_read_register(
+            cpu, (uint8_t)13u, instruction_address,
+            GBL_CPU_PC_READ_NORMAL);
+        const uint32_t result = subtract ? base - offset : base + offset;
+
+        unit->kind = GBL_CPU_UNIT_DATA_PROCESSING;
+        if (!gbl_cpu_add_literal_register_effect(
+                unit, (uint8_t)13u, cpu->cpsr, result) ||
+            !gbl_cpu_schedule_sequential_fetch(
+                unit, next_fetch_address, true)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF600)) == UINT16_C(0xB400)) {
+        const bool load = (opcode & UINT16_C(0x0800)) != 0u;
+        const bool extra_register = (opcode & UINT16_C(0x0100)) != 0u;
+        const uint8_t register_list = (uint8_t)opcode;
+
+        if (!gbl_cpu_prepare_thumb_multiple_transfer(
+                cpu, unit, next_fetch_address, (uint8_t)13u, register_list,
+                load, true, extra_register)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    if ((opcode & UINT16_C(0xF000)) == UINT16_C(0xC000)) {
+        const bool load = (opcode & UINT16_C(0x0800)) != 0u;
+        const uint8_t base_register = (uint8_t)((opcode >> 8u) & 7u);
+        const uint8_t register_list = (uint8_t)opcode;
+
+        if (!gbl_cpu_prepare_thumb_multiple_transfer(
+                cpu, unit, next_fetch_address, base_register, register_list,
+                load, false, false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+
+    unit->kind = GBL_CPU_UNIT_UNDEFINED;
+    return true;
+}
+
+static bool gbl_cpu_decode_arm_block_transfer(
+    const gbl_cpu_state *cpu, gbl_cpu_unit *unit,
+    uint32_t next_fetch_address)
+{
+    const uint32_t opcode = unit->opcode;
+    const bool preindexed = (opcode & UINT32_C(0x01000000)) != 0u;
+    const bool add_offset = (opcode & UINT32_C(0x00800000)) != 0u;
+    const bool user_bank = (opcode & UINT32_C(0x00400000)) != 0u;
+    const bool writeback = (opcode & UINT32_C(0x00200000)) != 0u;
+    const bool load = (opcode & UINT32_C(0x00100000)) != 0u;
+    const uint8_t base_register =
+        (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
+    const uint16_t register_list = (uint16_t)opcode;
+    const bool empty_list = register_list == 0u;
+    const uint16_t effective_register_list =
+        empty_list ? UINT16_C(0x8000) : register_list;
+    const bool pc_in_list =
+        (effective_register_list & UINT16_C(0x8000)) != 0u;
+    const bool base_in_list =
+        (effective_register_list &
+         (uint16_t)(UINT16_C(1) << base_register)) != 0u;
+    uint32_t transfer_count = 0u;
+    uint32_t span;
+    uint32_t writeback_span;
+    uint32_t base;
+    uint32_t address;
+    uint32_t updated_base;
+    uint32_t user_bank_cpsr;
+    uint32_t restored_cpsr = 0u;
+    size_t spsr_index = 0u;
+    bool store_user_bank;
+    bool load_user_bank;
+    uint8_t pc_result_index = UINT8_MAX;
+    uint8_t first_register = UINT8_MAX;
+    uint8_t register_index;
+
+    if ((opcode & UINT32_C(0x0E000000)) != UINT32_C(0x08000000)) {
+        return false;
+    }
+    if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
+        return true;
+    }
+    if (base_register == 15u) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+    /* DDI0100I A5.4 calls an empty list UNPREDICTABLE. The selected GBA ARMv4
+     * policy is GBATEK 3.06 §ARM block transfers: `effective_register_list`
+     * treats it as one PC transfer and the base adjusts by +/-0x40. The data
+     * address follows the normal first-word P/U formula for that one PC slot;
+     * this is an explicit model policy, not a claim of physical measurement. */
+    user_bank_cpsr =
+        (cpu->cpsr & ~GBL_CPU_CPSR_MODE_MASK) | UINT32_C(0x10);
+    store_user_bank = user_bank && !load;
+    load_user_bank = user_bank && load && !pc_in_list;
+    if (user_bank) {
+        const uint32_t mode = cpu->cpsr & GBL_CPU_CPSR_MODE_MASK;
+
+        /* ARM ARM DDI0100I A4.1.21/A4.1.22/A4.1.98 defines the S-bit form
+         * restrictions: User/System execution is unpredictable, and the
+         * User-bank forms require W=0. ARM7TDMI DDI0029G §2.5 identifies User
+         * as the sole nonprivileged mode; §2.6.1 confirms System shares the
+         * User registers and describes the core's bank topology. Its Table
+         * 1-2 distinguishes LDM^PC as “restore CPSR” from LDM^/STM^ as
+         * “user registers,” but does not restate those mode restrictions.
+         * Thus DDI0100I supplies form legality while DDI0029G cross-checks
+         * ARM7TDMI mode and bank identity. LDM (3), selected by S=1 and PC in
+         * the list, restores the current mode's captured SPSR after its loads. */
+        if (mode == UINT32_C(0x10) || mode == UINT32_C(0x1F) ||
+            (writeback && (!load || !pc_in_list))) {
+            unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+            return true;
+        }
+        if (load && pc_in_list) {
+            if (!gbl_cpu_spsr_index(cpu->cpsr, &spsr_index)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+            restored_cpsr = cpu->spsr[spsr_index];
+            if (!gbl_cpu_mode_valid(restored_cpsr)) {
+                unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+                return true;
+            }
+        }
+    }
+
+    base = gbl_cpu_read_register(cpu, base_register,
+                                 unit->instruction_address,
+                                 GBL_CPU_PC_READ_NORMAL);
+    for (register_index = 0u; register_index < 16u; ++register_index) {
+        if ((effective_register_list &
+             (uint16_t)(UINT16_C(1) << register_index)) != 0u) {
+            if (first_register == UINT8_MAX) {
+                first_register = register_index;
+            }
+            transfer_count++;
+        }
+    }
+    span = transfer_count * UINT32_C(4);
+    writeback_span = empty_list ? UINT32_C(0x40) : span;
+    address = add_offset
+                  ? base + (preindexed ? UINT32_C(4) : UINT32_C(0))
+                  : base - span +
+                        (preindexed ? UINT32_C(0) : UINT32_C(4));
+    updated_base = add_offset ? base + writeback_span
+                              : base - writeback_span;
+
+    unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+    unit->multiple_transfer = true;
+    unit->restore_cpsr_from_spsr = user_bank && load && pc_in_list;
+    for (register_index = 0u; register_index < 16u; ++register_index) {
+        const uint16_t register_bit =
+            (uint16_t)(UINT16_C(1) << register_index);
+
+        if ((effective_register_list & register_bit) != 0u) {
+            const uint32_t bus_address = address & ~UINT32_C(3);
+
+            if (!gbl_cpu_data_span_valid(
+                    bus_address, (uint8_t)GBL_CPU_WORD_WIDTH)) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+                return true;
+            }
+            if (load) {
+                uint8_t result_index;
+
+                if (!gbl_cpu_add_data_read_slot(
+                        unit, bus_address, (uint8_t)GBL_CPU_WORD_WIDTH, 0u,
+                        false, &result_index)) {
+                    unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+                    return true;
+                }
+                if (register_index == 15u) {
+                    pc_result_index = result_index;
+                } else if (!gbl_cpu_add_result_register_effect(
+                               unit, register_index,
+                               load_user_bank ? user_bank_cpsr : cpu->cpsr,
+                               result_index)) {
+                    unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+                    return true;
+                }
+            } else {
+                const gbl_cpu_pc_read_context pc_context =
+                    register_index == 15u
+                        ? GBL_CPU_PC_READ_STORE_SOURCE
+                        : GBL_CPU_PC_READ_NORMAL;
+                uint32_t store_value = gbl_cpu_read_register_in_bank(
+                    cpu, register_index,
+                    store_user_bank ? user_bank_cpsr : cpu->cpsr,
+                    unit->instruction_address, pc_context);
+
+                if (writeback && base_in_list &&
+                    register_index == base_register &&
+                    register_index != first_register) {
+                    /* GBATEK's ARMv4 policy stores the final base value when
+                     * Rn is present after the first transfer slot. */
+                    store_value = updated_base;
+                }
+
+                if (!gbl_cpu_add_data_write_slot(
+                        unit, bus_address,
+                        (uint8_t)GBL_CPU_WORD_WIDTH, store_value)) {
+                    unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+                    return true;
+                }
+            }
+            address += UINT32_C(4);
+        }
+    }
+    /* DDI0029G section 6.1 says SEQ is pipelined one cycle ahead. In Tables
+     * 6-12/6-13, row 1's N applies to transfer 0 and later S rows to following
+     * data addresses. */
+    {
+        uint8_t slot_index;
+
+        for (slot_index = 0u; slot_index < unit->data_slot_count;
+             ++slot_index) {
+            unit->data_slots[slot_index].access_class =
+                slot_index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                 : GBL_BUS_CLASS_SEQUENTIAL;
+        }
+    }
+    unit->post_data_internal_cycles = load ? (uint8_t)1u : 0u;
+    unit->post_data_pipeline_cycles =
+        load && pc_result_index != UINT8_MAX ? (uint8_t)1u : 0u;
+    if (unit->restore_cpsr_from_spsr &&
+        !gbl_cpu_add_status_effect(unit, UINT32_MAX, restored_cpsr)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    /* The ARMv4/GBA rule suppresses the writeback effect for LDM when Rn is
+     * loaded from the list. The register-list load itself still commits. */
+    if (writeback && !(load && base_in_list) &&
+        !gbl_cpu_add_literal_register_effect(
+            unit, base_register, cpu->cpsr, updated_base)) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        return true;
+    }
+    if ((load && pc_result_index != UINT8_MAX &&
+         !gbl_cpu_schedule_result_refill(
+             unit, pc_result_index,
+             unit->restore_cpsr_from_spsr &&
+                 (restored_cpsr & GBL_CPU_CPSR_T) != 0u)) ||
+        (!(load && pc_result_index != UINT8_MAX) &&
+         !gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                            false))) {
+        unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+    } else if (!load) {
+        /* ARM7TDMI's STM cycle table signals an N follow-up fetch. */
+        unit->fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
+    }
     return true;
 }
 
@@ -1070,18 +2959,66 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
     if (!gbl_cpu_pipeline_is_ready(cpu)) {
         return false;
     }
+    if (gbl_cpu_pipeline_is_arm_sequential_wrap(cpu) ||
+        gbl_cpu_pipeline_is_thumb_sequential_wrap(cpu)) {
+        /* DDI0100I A2.7.1 classifies sequential address overflow as
+         * unpredictable. Keep only the internally generated ARM/Thumb refill
+         * pair valid, then stop before any instruction, cycle, or trace effect
+         * at that boundary. */
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
     if (!gbl_cpu_next_sequential_address(cpu, thumb, &next_fetch_address)) {
         unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
         return true;
     }
 
-    if ((opcode >> 28u) == UINT32_C(0x0F)) {
-        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_UNDEFINED);
+    /* ARM conditions 0-14 annul the whole instruction when false. Resolve
+     * that before any operand, encoding or extension classification so a
+     * failed conditional instruction retires as its sequential no-op. Keep
+     * condition 1111 outside this rule: its explicit NV/extension reporting
+     * policy is handled below. */
+    if (!thumb && (opcode >> 28u) != UINT32_C(0x0F) &&
+        !gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
+        unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+        if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                               false)) {
+            unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+        }
         return true;
+    }
+
+    /* Recognize allocated later encodings before general ARMv4 NV. The
+     * distinction is project reporting policy, not execution on ARM7TDMI. */
+    if (!thumb && gbl_cpu_is_arm_extension(opcode)) {
+        unit->kind = GBL_CPU_UNIT_LATER_ARCHITECTURE;
+        return true;
+    }
+    if ((opcode >> 28u) == UINT32_C(0x0F)) {
+        unit->kind = GBL_CPU_UNIT_UNPREDICTABLE;
+        return true;
+    }
+    if (!thumb && gbl_cpu_is_arm_undefined_space(opcode)) {
+        if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u),
+                                      cpu->cpsr)) {
+            unit->kind = GBL_CPU_UNIT_SEQUENTIAL;
+            if (!gbl_cpu_schedule_sequential_fetch(unit, next_fetch_address,
+                                                   false)) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+            }
+            return true;
+        }
+        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        return gbl_cpu_finalize_decoded(unit, true);
     }
     if (thumb) {
         return gbl_cpu_finalize_decoded(
             unit, gbl_cpu_decode_thumb(cpu, unit, next_fetch_address));
+    }
+    if (gbl_cpu_is_arm_psr_transfer(opcode)) {
+        return gbl_cpu_finalize_decoded(
+            unit, gbl_cpu_decode_arm_psr_transfer(cpu, unit,
+                                                  next_fetch_address));
     }
     if ((opcode & UINT32_C(0x0F000000)) == UINT32_C(0x0F000000)) {
         if (!gbl_cpu_condition_passed((uint8_t)(opcode >> 28u), cpu->cpsr)) {
@@ -1123,8 +3060,9 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
             }
             return true;
         }
-        target_value = gbl_cpu_read_register(cpu, source,
-                                             unit->instruction_address);
+        target_value = gbl_cpu_read_register(
+            cpu, source, unit->instruction_address,
+            GBL_CPU_PC_READ_NORMAL);
         target_thumb = (target_value & UINT32_C(1)) != 0u;
         target = target_value & ~UINT32_C(1);
         if (!target_thumb && (target & UINT32_C(2)) != 0u) {
@@ -1151,23 +3089,47 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
         }
         offset <<= 2u;
         if (link) {
-            unit->writes_link = true;
-            unit->link_value = unit->instruction_address + UINT32_C(4);
+            if (!gbl_cpu_add_literal_register_effect(
+                    unit, (uint8_t)14u, cpu->cpsr,
+                    unit->instruction_address + UINT32_C(4))) {
+                unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
+                return true;
+            }
         }
         return gbl_cpu_schedule_branch(
             unit, unit->instruction_address + UINT32_C(8) + offset, false);
+    }
+    if (gbl_cpu_decode_arm_subword_transfer(cpu, unit,
+                                           next_fetch_address)) {
+        return gbl_cpu_finalize_decoded(unit, true);
+    }
+    if (gbl_cpu_decode_arm_swap(cpu, unit, next_fetch_address)) {
+        return gbl_cpu_finalize_decoded(unit, true);
+    }
+    if (gbl_cpu_decode_arm_multiply(cpu, unit, next_fetch_address)) {
+        return gbl_cpu_finalize_decoded(unit, true);
+    }
+    if (gbl_cpu_decode_arm_block_transfer(cpu, unit,
+                                          next_fetch_address)) {
+        return gbl_cpu_finalize_decoded(unit, true);
     }
     if ((opcode & UINT32_C(0x0C000000)) == 0u) {
         if (gbl_cpu_decode_data_processing(cpu, unit, next_fetch_address)) {
             return gbl_cpu_finalize_decoded(unit, true);
         }
     }
+    /* ARMv4T Mode 2 has bit4 clear for register offsets. This region is
+     * reserved in the exact-core encoding map, not a legal missing transfer. */
+    if ((opcode & UINT32_C(0x0E000010)) == UINT32_C(0x06000010)) {
+        unit->kind = GBL_CPU_UNIT_UNDEFINED;
+        return gbl_cpu_finalize_decoded(unit, true);
+    }
     if (gbl_cpu_decode_arm_single_transfer(cpu, unit, next_fetch_address)) {
         return gbl_cpu_finalize_decoded(unit, true);
     }
 
-    unit->kind = GBL_CPU_UNIT_UNSUPPORTED;
-    return true;
+    unit->kind = GBL_CPU_UNIT_UNDEFINED;
+    return gbl_cpu_finalize_decoded(unit, true);
 }
 
 static bool gbl_cpu_preflight(const gbl_machine *machine,
@@ -1175,17 +3137,23 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
                               uint64_t remaining_budget,
                               gbl_run_reason *reason)
 {
-    const bool has_data_access = unit->data_read || unit->data_write;
+    const bool has_data_access = unit->data_slot_count != 0u;
     const bool exception = unit->kind == GBL_CPU_UNIT_EXCEPTION;
-    const uint64_t expected_cost = (uint64_t)unit->fetch_count +
-                                   (uint64_t)unit->internal_cycles +
-                                   (has_data_access ? UINT64_C(1) : UINT64_C(0));
+    uint64_t expected_cost = 0u;
+    bool result_seen[GBL_CPU_RESULT_SLOT_MAX] = { false };
     uint8_t index;
 
     if (reason == NULL) {
         return false;
     }
     *reason = GBL_RUN_REASON_NONE;
+    if (!gbl_cpu_unit_cost(unit, &expected_cost) ||
+        unit->result_count > GBL_CPU_RESULT_SLOT_MAX ||
+        unit->register_effect_count > GBL_CPU_REGISTER_EFFECT_MAX ||
+        unit->status_effect_count > GBL_CPU_STATUS_EFFECT_MAX) {
+        *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
     if (unit->cycle_cost > remaining_budget) {
         *reason = GBL_RUN_REASON_CYCLE_BUDGET;
         return false;
@@ -1199,26 +3167,168 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         *reason = GBL_RUN_REASON_COUNTER_OVERFLOW;
         return false;
     }
-    if (unit->cycle_cost != expected_cost || unit->fetch_count > 2u ||
+    if (unit->cycle_cost != expected_cost ||
+        (unit->multiple_transfer &&
+         ((unit->kind != GBL_CPU_UNIT_SEQUENTIAL &&
+           unit->kind != GBL_CPU_UNIT_BRANCH) ||
+          unit->internal_cycles != 0u || unit->data_slot_count == 0u ||
+          unit->post_data_internal_cycles !=
+              (unit->data_slots[0].operation == GBL_CPU_DATA_READ
+                   ? 1u
+                   : 0u) ||
+          unit->post_data_pipeline_cycles !=
+              (unit->data_slots[0].operation == GBL_CPU_DATA_READ &&
+                       unit->fetch_address_from_result
+                   ? 1u
+                   : 0u) ||
+          (unit->data_slots[0].operation == GBL_CPU_DATA_WRITE &&
+           unit->fetch_address_from_result) ||
+          (unit->data_slots[0].operation == GBL_CPU_DATA_READ &&
+           !unit->fetch_address_from_result &&
+           (unit->fetch_count != 1u ||
+            unit->fetch_class[0] != GBL_BUS_CLASS_SEQUENTIAL)) ||
+          (unit->data_slots[0].operation == GBL_CPU_DATA_WRITE &&
+           (unit->fetch_count != 1u ||
+            unit->fetch_class[0] != GBL_BUS_CLASS_NONSEQUENTIAL)) ||
+          unit->status_effect_count !=
+              (unit->restore_cpsr_from_spsr ? 1u : 0u) ||
+          (unit->restore_cpsr_from_spsr &&
+           !gbl_cpu_spsr_return_shape_valid(unit)))) ||
+        (!unit->multiple_transfer &&
+         (unit->post_data_internal_cycles != 0u ||
+          unit->post_data_pipeline_cycles != 0u)) ||
+        (unit->fetch_address_from_result &&
+         (unit->kind != GBL_CPU_UNIT_BRANCH ||
+          (unit->changes_state && !unit->restore_cpsr_from_spsr) ||
+          unit->fetch_count != (uint8_t)GBL_CPU_FETCH_SLOT_MAX ||
+          unit->fetch_width !=
+              (unit->thumb_state ? (uint8_t)GBL_CPU_HALF_WIDTH
+                                 : (uint8_t)GBL_CPU_WORD_WIDTH) ||
+          unit->internal_cycles != 0u ||
+          unit->fetch_result_mask !=
+              (unit->thumb_state ? ~UINT32_C(1) : ~UINT32_C(3)) ||
+          !gbl_cpu_result_refill_shape_valid(unit) ||
+          unit->fetch_result_addend[0] != 0u ||
+          unit->fetch_result_addend[1] !=
+              (uint32_t)unit->fetch_width ||
+          (unit->restore_cpsr_from_spsr
+               ? !gbl_cpu_spsr_return_shape_valid(unit)
+               : (unit->changes_state ||
+                  (unit->thumb_state && !unit->multiple_transfer))) ||
+          unit->fetch_class[0] != GBL_BUS_CLASS_NONSEQUENTIAL ||
+          unit->fetch_class[1] != GBL_BUS_CLASS_SEQUENTIAL)) ||
+        (unit->restore_cpsr_from_spsr &&
+         (!unit->multiple_transfer || !unit->fetch_address_from_result)) ||
         (exception &&
          (unit->fetch_count != 0u || unit->internal_cycles != 1u ||
           has_data_access || unit->exception_kind <= GBL_EXCEPTION_NONE ||
           unit->exception_kind > GBL_EXCEPTION_COPROCESSOR)) ||
         (!exception &&
          (unit->fetch_count == 0u ||
-          !gbl_cpu_fetch_address_valid(unit->fetch_address[0],
-                                       unit->fetch_width))) ||
-        (has_data_access &&
-         (unit->data_read == unit->data_write ||
-          !gbl_cpu_data_span_valid(unit->data_address, unit->data_width)))) {
+          (!unit->fetch_address_from_result &&
+           !gbl_cpu_fetch_address_valid(unit->fetch_address[0],
+                                        unit->fetch_width)))) ||
+        (exception && unit->fetch_address_from_result) ||
+        (exception && (unit->result_count != 0u ||
+                       unit->register_effect_count != 0u ||
+                       unit->status_effect_count != 0u))) {
         *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
         return false;
     }
     for (index = 0u; index < unit->fetch_count; ++index) {
-        if (!gbl_cpu_fetch_address_valid(unit->fetch_address[index],
-                                         unit->fetch_width) ||
+        if ((!unit->fetch_address_from_result &&
+             !gbl_cpu_fetch_address_valid(unit->fetch_address[index],
+                                          unit->fetch_width)) ||
             (unit->fetch_class[index] != GBL_BUS_CLASS_NONSEQUENTIAL &&
              unit->fetch_class[index] != GBL_BUS_CLASS_SEQUENTIAL)) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+    }
+    for (index = 0u; index < unit->data_slot_count; ++index) {
+        const gbl_cpu_data_slot *slot = &unit->data_slots[index];
+
+        if (!gbl_cpu_data_span_valid(slot->address, slot->width)) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+        if (unit->multiple_transfer &&
+            (slot->width != (uint8_t)GBL_CPU_WORD_WIDTH ||
+             slot->access_class !=
+                 (index == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                              : GBL_BUS_CLASS_SEQUENTIAL) ||
+             slot->rotate_word_read || slot->rotate_halfword_read ||
+             slot->sign_extend_byte_read ||
+             slot->sign_extend_halfword_read)) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+        if (slot->access_class != GBL_BUS_CLASS_NONSEQUENTIAL &&
+            slot->access_class != GBL_BUS_CLASS_SEQUENTIAL) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+        if (slot->operation == GBL_CPU_DATA_READ) {
+            const unsigned int transform_count =
+                (slot->rotate_word_read ? 1u : 0u) +
+                (slot->rotate_halfword_read ? 1u : 0u) +
+                (slot->sign_extend_byte_read ? 1u : 0u) +
+                (slot->sign_extend_halfword_read ? 1u : 0u);
+
+            if (slot->result_index >= unit->result_count ||
+                result_seen[slot->result_index] || transform_count > 1u ||
+                (slot->rotate_word_read && slot->width !=
+                                                (uint8_t)GBL_CPU_WORD_WIDTH) ||
+                (slot->rotate_halfword_read && slot->width !=
+                                                    (uint8_t)GBL_CPU_HALF_WIDTH) ||
+                (slot->sign_extend_byte_read && slot->width != 1u) ||
+                (slot->sign_extend_halfword_read && slot->width !=
+                                                        (uint8_t)GBL_CPU_HALF_WIDTH)) {
+                *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+                return false;
+            }
+            result_seen[slot->result_index] = true;
+        } else if (slot->operation == GBL_CPU_DATA_WRITE) {
+            if (slot->result_index != UINT8_MAX ||
+                slot->rotate_word_read || slot->rotate_halfword_read ||
+                slot->sign_extend_byte_read ||
+                slot->sign_extend_halfword_read) {
+                *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+                return false;
+            }
+        } else {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+    }
+    for (index = 0u; index < unit->result_count; ++index) {
+        if (!result_seen[index]) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+    }
+    if (unit->fetch_address_from_result &&
+        !result_seen[unit->fetch_result_index]) {
+        *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
+    for (index = 0u; index < unit->register_effect_count; ++index) {
+        const gbl_cpu_register_effect *effect =
+            &unit->register_effects[index];
+
+        if (effect->register_index >= 15u ||
+            !gbl_cpu_mode_valid(effect->bank_cpsr) ||
+            (effect->from_result
+                 ? effect->result_index >= unit->result_count
+                 : effect->result_index != UINT8_MAX)) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+    }
+    for (index = 0u; index < unit->status_effect_count; ++index) {
+        if (unit->status_effects[index].mask == 0u ||
+            (unit->status_effects[index].spsr_index != UINT8_MAX &&
+             unit->status_effects[index].spsr_index >= 5u)) {
             *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             return false;
         }
@@ -1227,7 +3337,7 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
 }
 
 static bool gbl_cpu_fetch_unit(gbl_machine *machine,
-                               const gbl_cpu_unit *unit,
+                               gbl_cpu_unit *unit,
                                gbl_cpu_pipeline_entry fetched[2],
                                const gbl_run_options *options,
                                gbl_trace_record trace_records[
@@ -1239,8 +3349,22 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
     uint8_t index;
 
     for (index = 0u; index < unit->fetch_count; ++index) {
+        uint32_t fetch_address = unit->fetch_address[index];
+
+        if (unit->fetch_address_from_result) {
+            /* Preflight proves this ARM-word or Thumb-halfword mask/addend
+             * form yields aligned requests. Unsigned addition intentionally
+             * wraps the second refill at 2^32. */
+            fetch_address =
+                (unit->results[unit->fetch_result_index] &
+                 unit->fetch_result_mask) + unit->fetch_result_addend[index];
+            unit->fetch_address[index] = fetch_address;
+            if (index == 0u && unit->kind == GBL_CPU_UNIT_BRANCH) {
+                unit->branch_target = fetch_address;
+            }
+        }
         const gbl_bus_result result = gbl_bus_read(
-            machine, unit->fetch_address[index], unit->fetch_width,
+            machine, fetch_address, unit->fetch_width,
             unit->fetch_class[index]);
 
         if (result.status != GBL_BUS_STATUS_OK) {
@@ -1250,7 +3374,7 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
             machine->open_bus = saved_open_bus;
             return false;
         }
-        fetched[index].address = unit->fetch_address[index];
+        fetched[index].address = fetch_address;
         fetched[index].opcode = result.value;
         fetched[index].width = unit->fetch_width;
         fetched[index].valid = true;
@@ -1263,7 +3387,7 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
             record.opcode = unit->kind == GBL_CPU_UNIT_REFILL
                                 ? 0u
                                 : unit->opcode;
-            record.address = unit->fetch_address[index];
+            record.address = fetch_address;
             record.value = result.value;
             record.width = unit->fetch_width;
             record.access_class = result.access_class;
@@ -1356,9 +3480,7 @@ static size_t gbl_cpu_trace_required_records(const gbl_cpu_unit *unit,
     }
     if ((category_mask & (uint32_t)GBL_TRACE_BUS) != 0u) {
         records += (size_t)unit->fetch_count;
-        if (unit->data_read || unit->data_write) {
-            records++;
-        }
+        records += (size_t)unit->data_slot_count;
     }
     if (unit->kind == GBL_CPU_UNIT_EXCEPTION &&
         (category_mask & (uint32_t)GBL_TRACE_EXCEPTION) != 0u) {
@@ -1384,6 +3506,107 @@ static bool gbl_cpu_trace_preflight(const gbl_run_options *options,
         (uint64_t)required_records >
             UINT64_MAX - trace->next_sequence) {
         *reason = GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_cpu_test_build_maximum_unit(gbl_cpu_unit *unit)
+{
+    uint8_t index;
+
+    if (unit == NULL) {
+        return false;
+    }
+    *unit = (gbl_cpu_unit){
+        .kind = GBL_CPU_UNIT_BRANCH,
+        .instruction_address = UINT32_C(0x08000000),
+        .opcode = UINT32_C(0xEA000000),
+        .fetch_count = (uint8_t)GBL_CPU_FETCH_SLOT_MAX,
+        .fetch_width = (uint8_t)GBL_CPU_WORD_WIDTH,
+        .fetch_address = { UINT32_C(0x08000000), UINT32_C(0x08000004) },
+        .fetch_class = { GBL_BUS_CLASS_NONSEQUENTIAL,
+                         GBL_BUS_CLASS_SEQUENTIAL }
+    };
+
+    for (index = 0u; index < GBL_CPU_DATA_SLOT_MAX; ++index) {
+        uint8_t result_index;
+
+        if (!gbl_cpu_add_data_read_slot(
+                unit, UINT32_C(0x02000000) + (uint32_t)index * UINT32_C(4),
+                (uint8_t)GBL_CPU_WORD_WIDTH, 0u, false, &result_index) ||
+            !gbl_cpu_add_result_register_effect(
+                unit, (uint8_t)(index % 15u), UINT32_C(0x0000001F),
+                result_index)) {
+            return false;
+        }
+    }
+    if (!gbl_cpu_add_status_effect(unit, UINT32_C(0xF0000000),
+                                   UINT32_C(0xA0000000))) {
+        return false;
+    }
+    return gbl_cpu_refresh_cycle_cost(unit);
+}
+
+bool gbl_cpu_test_maximum_preflight(
+    const gbl_machine *machine, const gbl_run_options *options,
+    gbl_cpu_test_count_overflow count_overflow, uint64_t *cycle_cost,
+    size_t *required_records, gbl_run_reason *reason)
+{
+    gbl_cpu_unit unit;
+    gbl_run_reason preflight_reason = GBL_RUN_REASON_NONE;
+    size_t selected_records;
+
+    if (cycle_cost != NULL) {
+        *cycle_cost = 0u;
+    }
+    if (required_records != NULL) {
+        *required_records = 0u;
+    }
+    if (reason != NULL) {
+        *reason = GBL_RUN_REASON_NONE;
+    }
+    if (machine == NULL || options == NULL || cycle_cost == NULL ||
+        required_records == NULL || reason == NULL ||
+        !gbl_cpu_test_build_maximum_unit(&unit)) {
+        return false;
+    }
+    *cycle_cost = unit.cycle_cost;
+
+    switch (count_overflow) {
+    case GBL_CPU_TEST_COUNT_VALID:
+        break;
+    case GBL_CPU_TEST_FETCH_COUNT_OVERFLOW:
+        unit.fetch_count++;
+        break;
+    case GBL_CPU_TEST_DATA_COUNT_OVERFLOW:
+        unit.data_slot_count++;
+        break;
+    case GBL_CPU_TEST_RESULT_COUNT_OVERFLOW:
+        unit.result_count++;
+        break;
+    case GBL_CPU_TEST_REGISTER_EFFECT_COUNT_OVERFLOW:
+        unit.register_effect_count++;
+        break;
+    case GBL_CPU_TEST_STATUS_EFFECT_COUNT_OVERFLOW:
+        unit.status_effect_count++;
+        break;
+    default:
+        *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
+
+    if (!gbl_cpu_preflight(machine, &unit, options->cycle_budget,
+                           &preflight_reason)) {
+        *reason = preflight_reason;
+        return false;
+    }
+    selected_records = gbl_cpu_trace_required_records(
+        &unit, options->category_mask);
+    *required_records = selected_records;
+    if (!gbl_cpu_trace_preflight(options, selected_records,
+                                 &preflight_reason)) {
+        *reason = preflight_reason;
         return false;
     }
     return true;
@@ -1429,6 +3652,10 @@ static gbl_run_reason gbl_cpu_stop_result(gbl_cpu_stop_reason reason)
     switch (reason) {
     case GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION:
         return GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION;
+    case GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION:
+        return GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION;
+    case GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION:
+        return GBL_RUN_REASON_LATER_ARCHITECTURE_INSTRUCTION;
     case GBL_CPU_STOP_COUNTER_OVERFLOW:
         return GBL_RUN_REASON_COUNTER_OVERFLOW;
     case GBL_CPU_STOP_RESET_NO_BIOS:
@@ -1483,6 +3710,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         };
         size_t trace_record_count = 0u;
         uint64_t unit_start_cycle;
+        bool effects_committed_before_fetch = false;
 
         if (machine->cpu.stopped) {
             run_result.termination = GBL_RUN_STOPPED;
@@ -1504,9 +3732,16 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             break;
         }
         unit_start_cycle = machine->master_cycles;
-        if (unit.kind == GBL_CPU_UNIT_UNSUPPORTED) {
+        if (unit.kind == GBL_CPU_UNIT_UNSUPPORTED ||
+            unit.kind == GBL_CPU_UNIT_UNPREDICTABLE ||
+            unit.kind == GBL_CPU_UNIT_LATER_ARCHITECTURE) {
             machine->cpu.stopped = true;
-            machine->cpu.stop_reason = GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
+            machine->cpu.stop_reason =
+                unit.kind == GBL_CPU_UNIT_UNPREDICTABLE
+                    ? GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION
+                    : unit.kind == GBL_CPU_UNIT_LATER_ARCHITECTURE
+                        ? GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION
+                        : GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = gbl_cpu_stop_result(machine->cpu.stop_reason);
             break;
@@ -1608,29 +3843,76 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                 break;
             }
         }
-        if (unit.data_read) {
-            const gbl_bus_result data_result = gbl_bus_read(
-                machine, unit.data_address, unit.data_width,
-                GBL_BUS_CLASS_NONSEQUENTIAL);
+        {
+            uint8_t data_index;
 
-            if (data_result.status != GBL_BUS_STATUS_OK) {
-                run_result.termination = GBL_RUN_STOPPED;
-                run_result.reason = GBL_RUN_REASON_BUS_ERROR;
-                machine->cpu.stopped = true;
-                machine->cpu.stop_reason = GBL_CPU_STOP_BUS_ERROR;
-                break;
-            }
-            unit.value = data_result.value;
-            {
+            for (data_index = 0u; data_index < unit.data_slot_count;
+                 ++data_index) {
+                const gbl_cpu_data_slot *slot =
+                    &unit.data_slots[data_index];
+                gbl_bus_result data_result;
                 gbl_trace_record record = { 0 };
+
+                if (slot->operation == GBL_CPU_DATA_READ) {
+                    uint32_t value;
+
+                    data_result = gbl_bus_read(
+                        machine, slot->address, slot->width,
+                        slot->access_class);
+                    if (data_result.status != GBL_BUS_STATUS_OK) {
+                        run_result.termination = GBL_RUN_STOPPED;
+                        run_result.reason = GBL_RUN_REASON_BUS_ERROR;
+                        machine->cpu.stopped = true;
+                        machine->cpu.stop_reason = GBL_CPU_STOP_BUS_ERROR;
+                        break;
+                    }
+                    value = data_result.value;
+                    if (slot->rotate_word_read) {
+                        const uint8_t rotate =
+                            (uint8_t)((uint32_t)slot->alignment_lane * 8u);
+                        const gbl_shift_result rotated = gbl_shift(
+                            GBL_SHIFT_ROR, value, rotate, false, true);
+
+                        value = rotated.value;
+                    }
+                    if (slot->rotate_halfword_read &&
+                        slot->alignment_lane != 0u) {
+                        value = gbl_shift(GBL_SHIFT_ROR, value, 8u, false,
+                                          true).value;
+                    }
+                    if (slot->sign_extend_byte_read) {
+                        value &= UINT32_C(0x000000FF);
+                        if ((value & UINT32_C(0x00000080)) != 0u) {
+                            value |= UINT32_C(0xFFFFFF00);
+                        }
+                    }
+                    if (slot->sign_extend_halfword_read) {
+                        value &= UINT32_C(0x0000FFFF);
+                        if ((value & UINT32_C(0x00008000)) != 0u) {
+                            value |= UINT32_C(0xFFFF0000);
+                        }
+                    }
+                    unit.results[slot->result_index] = value;
+                } else {
+                    data_result = gbl_bus_write(
+                        machine, slot->address, slot->width,
+                        slot->access_class, slot->write_value);
+                    if (data_result.status != GBL_BUS_STATUS_OK) {
+                        run_result.termination = GBL_RUN_STOPPED;
+                        run_result.reason = GBL_RUN_REASON_BUS_ERROR;
+                        machine->cpu.stopped = true;
+                        machine->cpu.stop_reason = GBL_CPU_STOP_BUS_ERROR;
+                        break;
+                    }
+                }
 
                 record.guest_cycle = machine->master_cycles;
                 record.category = GBL_TRACE_BUS;
                 record.instruction_address = unit.instruction_address;
                 record.opcode = unit.opcode;
-                record.address = unit.data_address;
+                record.address = slot->address;
                 record.value = data_result.value;
-                record.width = unit.data_width;
+                record.width = slot->width;
                 record.access_class = data_result.access_class;
                 record.bus_outcome = data_result.outcome;
                 if (!gbl_cpu_trace_stage(&run_options, trace_records,
@@ -1640,46 +3922,37 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                     break;
                 }
             }
-            if (unit.rotate_word_load) {
-                const uint8_t rotate =
-                    (uint8_t)((uint32_t)unit.alignment_lane * 8u);
-                const gbl_shift_result rotated = gbl_shift(
-                    GBL_SHIFT_ROR, unit.value, rotate, false, true);
-
-                unit.value = rotated.value;
+            if (data_index < unit.data_slot_count) {
+                break;
             }
         }
-        if (unit.data_write) {
-            const gbl_bus_result data_result = gbl_bus_write(
-                machine, unit.data_address, unit.data_width,
-                GBL_BUS_CLASS_NONSEQUENTIAL, unit.data_value);
+        if (unit.post_data_internal_cycles != 0u ||
+            unit.post_data_pipeline_cycles != 0u) {
+            /* DDI0029G charges LDM's final I cycle and, for LDM PC, an
+             * additional S pipeline cycle. Under the current uniform bus,
+             * the latter has no separate memory transaction/trace slot. */
+            const uint64_t post_data_cycles =
+                (uint64_t)unit.post_data_internal_cycles +
+                (uint64_t)unit.post_data_pipeline_cycles;
+            const gbl_bus_result internal_result = gbl_bus_internal(
+                machine, post_data_cycles);
 
-            if (data_result.status != GBL_BUS_STATUS_OK) {
+            if (internal_result.status != GBL_BUS_STATUS_OK ||
+                internal_result.cycles != post_data_cycles) {
                 run_result.termination = GBL_RUN_STOPPED;
                 run_result.reason = GBL_RUN_REASON_BUS_ERROR;
                 machine->cpu.stopped = true;
                 machine->cpu.stop_reason = GBL_CPU_STOP_BUS_ERROR;
                 break;
             }
-            {
-                gbl_trace_record record = { 0 };
-
-                record.guest_cycle = machine->master_cycles;
-                record.category = GBL_TRACE_BUS;
-                record.instruction_address = unit.instruction_address;
-                record.opcode = unit.opcode;
-                record.address = unit.data_address;
-                record.value = data_result.value;
-                record.width = unit.data_width;
-                record.access_class = data_result.access_class;
-                record.bus_outcome = data_result.outcome;
-                if (!gbl_cpu_trace_stage(&run_options, trace_records,
-                                         &trace_record_count, record)) {
-                    run_result.termination = GBL_RUN_STOPPED;
-                    run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
-                    break;
-                }
-            }
+        }
+        if (unit.restore_cpsr_from_spsr) {
+            /* The complete read and both refill slots were preflighted
+             * against the uniform bus before this point. Preserve ARM's
+             * exception-return order: commit original-bank loads, restore
+             * CPSR, then issue state-width-correct refill requests. */
+            gbl_cpu_commit_effects(&machine->cpu, &unit);
+            effects_committed_before_fetch = true;
         }
         if (unit.kind != GBL_CPU_UNIT_REFILL &&
             !gbl_cpu_fetch_unit(machine, &unit, fetched, &run_options,
@@ -1693,9 +3966,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             machine->cpu.pipeline[0] = fetched[0];
             machine->cpu.pipeline[1] = fetched[1];
         } else if (unit.kind == GBL_CPU_UNIT_BRANCH) {
-            if (unit.writes_link) {
-                gbl_cpu_write_register(&machine->cpu, (uint8_t)14u,
-                                       unit.link_value);
+            if (!effects_committed_before_fetch) {
+                gbl_cpu_commit_effects(&machine->cpu, &unit);
             }
             if (unit.changes_state) {
                 machine->cpu.cpsr =
@@ -1708,19 +3980,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             machine->cpu.retired_instructions++;
             run_result.instructions++;
         } else {
-            if (unit.kind == GBL_CPU_UNIT_DATA_PROCESSING &&
-                unit.writes_destination) {
-                gbl_cpu_write_register(&machine->cpu, unit.destination,
-                                       unit.value);
-            }
-            if (unit.kind == GBL_CPU_UNIT_TRANSFER && unit.data_read) {
-                gbl_cpu_write_register(&machine->cpu, unit.destination,
-                                       unit.value);
-            }
-            if (unit.writes_flags) {
-                machine->cpu.cpsr = (machine->cpu.cpsr & ~unit.flag_mask) |
-                                    (unit.flags & unit.flag_mask);
-            }
+            gbl_cpu_commit_effects(&machine->cpu, &unit);
             machine->cpu.execution_address = machine->cpu.pipeline[1].address;
             machine->cpu.pipeline[0] = machine->cpu.pipeline[1];
             machine->cpu.pipeline[1] = fetched[0];

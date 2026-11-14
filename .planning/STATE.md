@@ -2,20 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 5
+current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: planning
-stopped_at: Phase 4 complete, ready to plan Phase 5
-last_updated: "2026-11-11T14:02:14.800Z"
-last_activity: 2026-11-11
-last_activity_desc: Phase 4 complete, transitioned to Phase 5
-state_head: 034cd2f7bbaa741417156bf78ddd944c98d52dad
+status: Owner approved Linux native240second cap and one corrective hosted run; local policy checks active
+stopped_at: Complete local policy verification/review, use one corrective run, resume unused records event only after green; stop again on red
+last_updated: "2026-11-14T17:30:12.539Z"
+last_activity: 2026-11-14
+last_activity_desc: Exact one-job budget policy and mirrored controls updated; unchanged producer proof preserved; no hosted attempt used
+state_head: 2fb31ffbb36111d3b90e7b48bcc40779dd18f712
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 38
-  completed_plans: 38
-  percent: 67
+  total_plans: 63
+  completed_plans: 61
 ---
 
 # Project State
@@ -26,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 5 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
+**Current focus:** Phase 05 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
 
 ## Current Position
 
-Phase: 5 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-11 — Phase 4 complete, transitioned to Phase 5
+Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
+Plan: 24 of 25
+Status: Owner approved Linux native240second cap and one corrective hosted run; local policy checks active
+Last activity: 2026-11-14 — Exact one-job budget policy and mirrored controls updated; unchanged producer proof preserved; no hosted attempt used
 
 Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 38
+- Total plans completed: 41
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -52,6 +51,7 @@ Progress: [███████░░░] 67%
 | 2 | 7 | - | - |
 | 3 | 7 | - | - |
 | 4 | 13 | - | - |
+| 5 | 3 | not measured | not measured |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -97,6 +97,29 @@ Progress: [███████░░░] 67%
 | Phase 04 P11 | 28min-from-first-commit | 2 tasks | 11 files |
 | Phase 04 P12 | 30min-from-first-commit | 2 tasks | 10 files |
 | Phase 04 P13 | 29min35s | 2 tasks | 7 files |
+| Phase 05 P01 | 50min | 2 tasks | 3 files |
+| Phase 05 P02 | 68min | 2 tasks | 8 files |
+| Phase 05 P03 | not measured (multi-resume execution) | 2 tasks | 12 files |
+| Phase 05 P04 | 39 min | 2 tasks | 8 files |
+| Phase 05 P05 | multi-resume; admission continuation about 25 minutes | 2 tasks | 17 files |
+| Phase 05 P06 | 30 min | 2 tasks | 8 files |
+| Phase 05 P07 | 54 min | 2 tasks | 7 files |
+| Phase 05 P08 | 49m | 2 tasks | 5 files |
+| Phase 05 P09 | 43min | 2 tasks | 5 files |
+| Phase 05 P10 | 43 min | 2 tasks | 5 files |
+| Phase 05 P11 | 32m | 2 tasks | 5 files |
+| Phase 05 P12 | 57 min | 2 tasks | 5 files |
+| Phase 05 P13 | 39min49s | 2 tasks | 5 files |
+| Phase 05 P14 | 15min47s dispatch-to-terminal; review excluded | 2 tasks | 5 files |
+| Phase 05 P15 | 16min18s first RED receipt-to-verification; setup and review excluded | 2 tasks | 5 files |
+| Phase 05 P16 | 49min35s dispatch-to-terminal; review excluded | 2 tasks | 5 files |
+| Phase 05 P17 | 15min50s dispatch-to-terminal; review excluded | 2 tasks | 5 files |
+| Phase 05 P18 | 25min05s dispatch-to-terminal; review/fixes/integration excluded | 2 tasks | 16 files |
+| Phase 05 P19 | 160m21s | 2 tasks | 10 files |
+| Phase 05 P20 | 35m00s dispatch-to-acceptance; review/fixes excluded | 2 tasks | 8 files |
+| Phase 05 P21 | multi-resume; Task2 RED-to-code 22m43s; review and integration separate | 2 tasks | 43 files |
+| Phase 05 P22 | 23m40s through Task2 commit including review | 2 tasks | 7 files |
+| Phase 05 P23 | multi-resume; final admitted119.88s, native workflow185.02s | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -104,6 +127,10 @@ Progress: [███████░░░] 67%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [Phase 05]: Owner replied "yes" to the proposed isolated legacy-runner test compiler/flags/standard inheritance correction and bounded local/hosted verification on existing PR #8 after run 43115640150. Resume that correction without weakening sanitizers or other checks. A new red hosted result renews the stop; producer source and ROM admission remain independently gated.
+
+- [Phase 05]: Owner replied "yes" to the proposed offline-helper host-detection correction and bounded local/hosted verification on draft PR #8. Corrected run 43089440697 passed at source head `2a18d8e1b2f7d24b11b40627e697cfd42b60c48b`; the initial red run remains historical, and any future red hosted run renews the stop.
 
 - [Roadmap]: Milestone v1.0 is spine first (G10 default). SUMMARY phases 1-3 are split into six phases. CI lands first; diagnostics come before determinism gates.
 - [Roadmap]: Fixture policy runs on reversible defaults: pinned SHA-256 fetch, no third-party binaries in tree, no logo bytes in owned fixtures (G2, G3).
@@ -192,6 +219,48 @@ Recent decisions affecting current work:
 - [Phase 04]: All thirteen implementation plans are committed and locally verified, including moved-prefix production CLI results/traces, final CI, fresh ASan/UBSan and hygiene inventories. Independent validation, security, code review and goal verification remain before phase acceptance. Review the explicit write-trace limitation: successful store records currently copy the bus API result value zero rather than the attempted payload; no waiver or hardware qualification is inferred. Preserve the Plan 12 guide-clarity human-judgment item until the phase-boundary review.
 
 - [Phase 04]: Owner replied "yes i accpet" to the explicit guide-clarity question. The canonical UAT predicate and verification status pass; all eleven probe rows remain unresolved and rights/qualification restrictions remain active. This is acceptance of the documented current scope, not a waiver.
+- [Phase 05]: Pinned xPack release 15.2.1-1.1 with exact separate archive identities for Darwin arm64, Linux x64, and Linux arm64.
+- [Phase 05]: Bound each host lock row to its exact official release asset URL and allowed only one HTTPS redirect to release-assets.githubusercontent.com.
+- [Phase 05]: Keep the production runner GUEST_STOP/unregistered-content exit 1 as the raw result and assert mailbox state and case identity separately.
+- [Phase 05]: Limit parity to local macOS arm64 and native Linux arm64; hosted Linux x64 remains separate and no ROM digest is admitted here.
+- [Phase 05]: Corrected hosted diagnostics run 43089440697 passed at source head 2a18d8e1b2f7d24b11b40627e697cfd42b60c48b; the authorized Plan 03 stop is resolved, with hosted SHA identity kept separate from local literal cmp evidence and no ROM digest admitted.
+- [Phase 05]: Keep manifest/1 and result/1 versions unchanged; use optional build.artifact.path and build.artifact.sha256 for the output identity.
+- [Phase 05]: Keep source.commit and build.toolchain as provenance fields; project only the generated ROM digest into the existing rom_sha256 slot.
+- [Phase 05]: Do not admit a production diagnostic ROM digest or mark phase-wide DIAG requirements complete from this contract slice.
+- [Phase 05]: Use host-specific locked archive hashes and keep the single scalar manifest toolchain SHA null when host archive identities differ.
+- [Phase 05]: Admit only the measured smoke pair; leave the remaining 356 ARM/Thumb ledger rows pending until independently implemented and verified.
+- [Phase 05]: Plan 06: Keep SWP and SWPB on one bounded ordered path; snapshot operands before data bus effects and commit Rd after the write.
+- [Phase 05]: ARM condition 1111 is UNPREDICTABLE and is refused before machine effects.
+- [Phase 05]: Use the normal-condition E7F000F0 ARMv4T undefined encoding for UND and no-BIOS controls; F1A00000 encodes condition 1111.
+- [Phase 05]: ARMv4T MSR behavior follows ARM ARM DDI0100I A4.1.39, including UnallocMask and the distinct active-CPSR versus saved-SPSR masks.
+- [Phase 05]: Unpredictable classification remains private until Plan18 adds its coherent public reason and result-profile mapping.
+- [Phase 05]: Owner approved WR-05 fixture cleanup, portable allocation-balance check, matching Linux Clang sanitizer verification and one corrected hosted run; another new red renews stop.
+- [Phase 05]: WR-05 owner-approved correction passed all required hosted checks in run43228795941 at2996651; original leak stop resolved, resume Plan09. New red still renews stop.
+- [Phase 05]: Short MUL and MLA use the chosen deterministic signed termination policy; long forms use their explicit opcode signedness.
+- [Phase 05]: S multiply forms update N/Z while preserving incoming C/V under explicit project policy; non-S forms preserve NZCV.
+- [Phase 05]: DDI0029G m is derived from original Rs and charged through bus-owned internal time without wait-state or prefetch claims.
+- [Phase 05]: Owner approved per-pair duplicate mutation compilation reduction, local timing/full verification and one corrected hosted run. Preserve every check/flag, zero sanitizer skips and180s limits; next new red renews stop.
+- [Phase 05]: Plan09 approved mutation-build correction passed all required hosted checks inrun43249533205 ata16dad4; original timeout stop resolved, resumePlan10. GNUCPUcontrols52.8->35.19s, overall175s/180s narrowmargin; future newred renewsstop.
+- [Phase 05]: ARMv4T LDR PC masks loaded bits [1:0], keeps ARM state, and wraps the second aligned refill modulo 2^32.
+- [Phase 05]: Unaligned LDR PC source addresses and LDRT to R15 are unpredictable and refused before effects.
+- [Phase 05]: Batch routine implementation-plan publication until explicit hosted-witness or final phase gates under the existing one-PR-per-phase policy. Keep per-plan local compiler/sanitizer checks and independent review; preserve mandatory hosted CI before acceptance/merge and new-red stop. Latest published green remains a16dad4/run43249533205; local source receipts are distinct.
+- [Phase 05]: Plan10 review fixes refuse store writeback Rd=Rn and STRB-PC per DDI0100I without documented ARM7TDMI exception; exact generated ARM wrap pair has explicit next-run unpredictable stop. Final99d036a passes independent review and native/pinnedLinux compiler-sanitizer inventories.
+- [Phase 05]: Mode 3 legal forms use the shared CPU-unit slot path with captured operands and preflighted effects.
+- [Phase 05]: GBA odd-address alignment follows GBATEK 3.06 reference policy; it is not a physical hardware measurement.
+- [Phase 05]: Odd subword read transforms consume bus results and preserve preflighted no-effect refusals.
+- [Phase 05]: For already implemented planned behavior, preserve baseline-green evidence and use isolated fault controls; document sequencing deviations instead of manufacturing RED or rewriting correct implementation/history.
+- [Phase 05]: Plan11 final69f3095 closes U-matrix coverage and GNU transform-count narrowing; unsigned0..4 sum retains validation. Native focused and full pinnedLinux GCC/Clang sanitizer inventories pass; independent review clean.
+- [Phase 05]: Plan12: DDI0029G section 6.1 signals SEQ one cycle ahead, so block transfer request classes derive from the preceding row: first data address N, following addresses S.
+- [Phase 05]: Plan12: Preflight the ARM7TDMI LDM final I cycle and loaded-PC additional pipeline S cost separately; under the current uniform bus the extra S is abstract work, not a hardware timing claim.
+- [Phase 05]: Plan12: Keep valid user-bank, exception-return, and ARM7-specific base-list block forms distinct from undefined and unpredictable cases; later CPU plan owns those remaining quirks.
+- [Phase 05]: DDI0029G6.1 timing signals describe the next cycle; map request classes from the prior row, not same-row data. Plan12 reserves final LDM I plus abstract PC pipeline S cost: max20 modeledcycles/19trace, no literal hardware-trace claim.
+- [Phase 05]: Store tests must start with contrasting destination data and independent literal mode addresses/writeback, then prove replacement and neighbors. Plan12 review fix673db5f closes false positives; production55cf4c2 fullLinux verified, final test-only focus passes.
+- [Phase 05]: Use ARM ARM DDI0100I for S-bit legality and exact-core DDI0029G for ARM7TDMI bank topology; keep their source scopes distinct.
+- [Phase 05]: Select GBATEK 3.06 empty-list and base-in-list behavior as the GBA ARMv4 reference policy, with explicit distinction from hardware measurement.
+- [Phase 05]: Resolve banked sources and destinations before transfer effects, then restore CPSR before result-driven width-correct PC refill.
+- [Phase 05]: Owner sanity check prompted focused-per-change/earlyGNU checks and family review before full integration, matching05-VALIDATION SamplingRate. Full gates remain at ARM13, Thumb completion, explicit diagnostic/hosted and final source. See05-PROCESS-LESSONS.md.
+- [Phase 05]: Owner approved one stronger-executor trial for next Thumb ALU batch (Plan14): configured codex opus mapping gpt-6.1-sol with heavy-tier high effort; reviewer/fixer remain Luna/xhigh. Temporary pins live in config; restore previous routing after the one batch, preserving owner edits. See model-routing-trial.json.
+- [Phase 05]: Use Git Unix timestamps/UTC epochs for elapsed measurements. Plan13 mixed timezone duration corrected to2389seconds39min49s first committedRED→initialsummary; precommit initialization/review/integration are outside that interval.
 
 ### Pending Todos
 
@@ -199,18 +268,25 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 4 owner accepted the guide-clarity judgment. Technical and UAT completion predicates pass; final publication through PR #7 is in progress before Phase 5 work. No new rights, probe-status or hardware/game qualification is accepted.
+- Before the Phase5 merge, owner must decide the [producer-ancestry merge exception](phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-MERGE-PROVENANCE.md). Cheap graph simulation proves squash would break the source guard; a merge commit preserves it and current rules permit that method. No merge is authorized yet; current PR verification can continue.
+
+- Owner accepted the [targeted macOS budget proposal](phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-23-RUNTIME-RENEWAL-STOP.md): only macOS native build and macOSARM may use300seconds, others180; allsamechecks/jobs and one additionalhostedattempt (unused). Newcheapconsistency preflight comes first; agent continues. Any newhostedred renewsstop.
+
+- Historical Plan23 run43537187982 led to the completed bounded performance repair. Its authorized one-attempt renewal is now exhausted; the active newer stop above takes precedence. Earlier evidence and counters remain preserved.
+
+- Phase 05 Plan 05's earlier hosted failure (run 43115640150) was fixed and superseded by fully green hosted run 43126123712 at source commit `4857ddc9c6ecaef61644fa4cf6286e7951e3bff4`. The measured smoke pair is admitted locally; root owns any future publication or hosted monitoring. A future new red hosted run renews the stop.
+
+- Phase 4 is accepted and squash-merged through PR #7. Final required CI and main CI passed. Phase 5 Plan 03's bounded hosted witness is green; remaining phase-wide diagnostics and admission criteria still apply before any ROM digest admission. No rights/qualification limit is waived.
 
 
 - G1 (license) is open. The public repo has no LICENSE, so default copyright applies. This does not block v1.0. Do not add a LICENSE without the owner.
-- Phase 5: the xPack toolchain identity (ARMv4T, identical bytes on macOS and Linux) is [UNK]. The spike gates any committed ROM digest; the fallback is Linux digest ownership.
+- Phase 5: xPack 15.2.1-1.1 reports ARMv4T on local macOS arm64, local Linux arm64, hosted Linux x64, and hosted macOS arm64. The two measured smoke ROM digests are admitted. Literal `cmp` passed for the two local arm64 builds; hosted Linux x64 has separate hash-identity evidence.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
 - Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
 - Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
 - Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
 
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
-
 
 ## Deferred Items
 
@@ -226,6 +302,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-11
-Stopped at: Phase 4 complete, ready to plan Phase 5
-Resume file: None
+Last session: 2026-11-13T20:38:20.818Z
+Stopped at: Complete local policy verification/review, use one corrective run, resume unused records event only after green; stop again on red
+Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

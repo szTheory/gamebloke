@@ -1,5 +1,6 @@
-# Sorted (byte order) expected-test inventory for the hygiene lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+# Sorted (byte order) expected-test inventory for the hygiene lane.
+artifact.admission.controls control,manifest
 ci.actions.pinned ci,gate
 ci.yml.policy ci,gate
 contract.lint contract,gate
@@ -14,6 +15,7 @@ contract.nc.state_set contract,control
 contract.nc.usage contract,control
 contract.nc.weakened_state_rule contract,control
 contract.pos.copy contract,positive
+diagnostics.final.controls control,diagnostics
 fetch.nc.bad_dest control,fetch
 fetch.nc.bad_digest control,fetch
 fetch.nc.bad_row control,fetch
@@ -69,6 +71,7 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+linux.snapshot control,linux
 logo_digest.authority_cases control,loader
 manifest.lint gate,manifest
 manifest.nc.bad_bios_requirement control,manifest
@@ -175,6 +178,7 @@ result.nc.usage control,result
 result.pos.all_states positive,result
 result.pos.bios_provider_forms positive,result
 result.pos.disputed positive,result
+result.pos.instruction_reasons positive,result
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature

@@ -1,0 +1,40 @@
+{
+  "items": [
+    {
+      "requirement_id": "DIAG-01",
+      "category": "rights",
+      "status": "unresolved",
+      "verification": null,
+      "resolution": null,
+      "reason": "Flagged-unverified under automatic SPEC-less fallback; no wired-check descriptor or owner waiver.",
+      "statement": "MUST NOT turn original diagnostic public-CI permission into a project-wide license, third-party content permission, or public ROM binary distribution."
+    },
+    {
+      "requirement_id": "CPU-01",
+      "category": "transparency",
+      "status": "unresolved",
+      "verification": null,
+      "resolution": null,
+      "reason": "Flagged-unverified under automatic SPEC-less fallback; no wired-check descriptor or owner waiver.",
+      "statement": "MUST NOT present deterministic project policies, emulator agreement, byte identity or case success as physical GBA accuracy, BIOS support or broad game compatibility."
+    },
+    {
+      "requirement_id": "DIAG-02",
+      "category": "privacy",
+      "status": "unresolved",
+      "verification": null,
+      "resolution": null,
+      "reason": "Flagged-unverified under automatic SPEC-less fallback; no wired-check descriptor or owner waiver.",
+      "statement": "MUST NOT use private ROM or BIOS bytes as a hidden toolchain witness or publish them through source, logs, CI or binary artifacts."
+    }
+  ],
+  "coverage": {
+    "applicable": 3,
+    "resolved": 0,
+    "unresolved": 3,
+    "byVerification": {
+      "test": 0,
+      "judgment": 0
+    }
+  }
+}

@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 4
+profile_version: 5
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -134,7 +134,7 @@ about the physical cartridge bus.
 
 ## Header diagnostics
 
-Profile version 4 retains the configured logo-window comparison using the
+Profile version 5 retains the configured logo-window comparison using the
 owner-authorized SHA-256 row in `tests/signatures/logo.sha256`. The loader hashes
 only the copied candidate window `[0x04, 0xA0)` and reports checked match or checked
 mismatch. A mismatch, missing-window convention, checksum finding or unusual
@@ -167,40 +167,130 @@ region/state-specific BIOS open-bus behavior and Game Pak prefetch are not quali
 | cpu_policy.pipeline | empty | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 | cpu_policy.arm_pc_offset | 8 | REF | ARM7TDMI Technical Reference Manual (DDI 0029G, Issue G), ARM state, Thumb state, and processor modes sections. |
 | cpu_policy.thumb_pc_offset | 4 | REF | ARM7TDMI Technical Reference Manual (DDI 0029G, Issue G), ARM state, Thumb state, and processor modes sections. |
-| cpu_policy.timing | unit-preflight-one-cycle-bus | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.timing | unit-preflight-uniform-bus-plus-core-internal-work | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 | cpu_policy.exception_entry_cycles | 1 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 | cpu_policy.bios_none_stop | after-entry-before-vector-fetch | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 | cpu_policy.execution | single-interpreter | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.pc_operand_reads | arm-current+8-register-shift-rm-and-store+12-thumb-current+4 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.internal_work | ddi0029g-6.5-6.6-6.20-cost-table | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.multiply_flag_policy | preserve-short-c-long-cv | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.loaded_pc_boundary | align-mask-wrap-refill | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.unpredictable_operands | named-stop | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.extension_encoding | later-architecture-stop | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_policy.address_arithmetic | data-modulo32-static-fetch-checked | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 
 ## CPU instruction scope
 
-This is the implemented Phase 4 slice, not full ARM7TDMI or broad GBA
-compatibility. Unsupported valid instructions stop explicitly; architecturally
-undefined encodings retain their separate classification.
+The interpreter implements the legal ARM7TDMI ARMv4T ARM families and all 19
+Thumb formats listed below. This is a source/implementation scope statement.
+The complete original diagnostic corpus has executed locally with admitted
+fixtures. Hosted qualification requires separate exact-head evidence. This
+profile does not establish hardware accuracy or broad GBA compatibility.
 
 | Scope | Opcode / operand forms | Label | Citation |
 | ----- | --------------------- | ----- | -------- |
-| cpu_scope.supported.1 | ARM data processing: MOV, ADD, SUB, CMP, AND, ORR, rotated immediate or register operand, immediate or register-specified LSL/LSR/ASR/ROR, S flag supported, destinations r0-r14 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.1 | ARM data processing: AND, EOR, SUB, RSB, ADD, ADC, SBC, RSC, TST, TEQ, CMP, CMN, ORR, MOV, BIC, MVN with rotated immediate and immediate/register LSL/LSR/ASR/ROR, defined flags and legal PC/exception-return forms | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 | cpu_scope.supported.2 | ARM control flow: B, BL, BX | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.supported.3 | ARM single transfer: LDR/STR byte or word, immediate 12-bit offset, pre-indexed, no writeback, U plus or minus, r0-r14 base/data, PC base only for positive LDR literal | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.supported.4 | Thumb data processing: MOV immediate8, ADD/SUB immediate8, CMP immediate8 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.supported.5 | Thumb high-register operations: MOV to r0-r14 and BX | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.supported.6 | Thumb control flow: conditional B except SWI/reserved conditions, and unconditional B | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.supported.7 | Thumb transfer: PC-relative word LDR at aligned(current+4), plus immediate word/byte LDR/STR using low registers | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.excluded.1 | ARM register-specified shifts involving r15, r15 destinations other than branch/BX, STR with PC source, and PC reads | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.excluded.2 | ARM post-indexed or writeback transfers, halfword/signed transfers, block transfers, multiply, swap, full PSR transfers, and coprocessor execution | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.excluded.3 | Thumb data-processing writes to r15 outside BX/branch, Thumb BL pair, and non-listed transfer forms | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.excluded.4 | All other valid-but-unimplemented opcodes and operands stop as unsupported, reserved undefined encodings remain distinct | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.excluded.5 | Later ARM architecture extensions and every instruction family absent from the supported array | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.3 | ARM multiply: MUL, MLA, UMULL, UMLAL, SMULL, SMLAL with S variants and captured operands | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.4 | ARM status transfers: MRS CPSR/SPSR and MSR register/rotated-immediate c/x/s/f masks, privilege and bank rules | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.5 | ARM single transfer: LDR/STR byte/word, immediate/scaled-register offsets, P/U/B/W/L and post-index T forms, legal PC operands and writeback | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.6 | ARM subword transfer: LDRH, STRH, LDRSB, LDRSH with immediate/register offsets, pre/post indexing and writeback | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.7 | ARM block transfer: LDM/STM IA/IB/DA/DB, writeback, user-bank S forms and SPSR-restoring LDM with PC | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.8 | ARM swap: SWP and SWPB with ordered read/write and captured operands | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.9 | ARM exception decode: full SWI imm24, reserved UND and absent CDP/MRC/MCR/LDC/STC coprocessor entry before BIOS-none stop | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.10 | Thumb formats 1-5: immediate shifts, add/subtract, immediate operations, all 16 register ALU operations and legal high-register ADD/CMP/MOV/BX | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.11 | Thumb formats 6-12: 6 PC-relative LDR, 7 register-offset transfers, 8 signed byte/halfword transfers, 9 immediate-offset byte/word transfers, 10 halfword transfers, 11 SP-relative transfers, 12 PC/SP address formation | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.12 | Thumb formats 13-19: 13 SP adjustment, 14 PUSH/POP with LR/PC, 15 STMIA/LDMIA, 16 conditional B, 17 SWI imm8, 18 unconditional B, 19 BL prefix/suffix | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.supported.13 | Executing project policies: short MUL Rd=Rm and SWP/SWPB Rn=Rd or Rn=Rm snapshot aliases, ARM empty/base-in-list reference rules and isolated BL halves/modulo offset arithmetic | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.excluded.1 | Unpredictable operands stop before effects except the explicitly listed executing project policies, including named stops for NV, invalid PC/PSR operands, Thumb same-register MUL, empty Thumb lists and STMIA base-middle/last | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.excluded.2 | Allocated later encodings recognized by the decoder stop as later-architecture-instruction, with no ARMv5+ execution semantics | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.excluded.3 | Unallocated exact-core encodings enter UND, while malformed allocated decode bits are unpredictable | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.excluded.4 | No attached coprocessor or BIOS handler executes, exception entry precedes named BIOS-none stop and vector bytes are never fetched | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.excluded.5 | Static B/BX and ALU-PC target alignment/refill extents retain checked unsupported refusal, not a missing legal instruction family | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.excluded.6 | Original full diagnostic corpus executed locally with admitted fixtures, hosted qualification requires separate exact-head evidence, no hardware, game, BIOS or release qualification is claimed | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 
-No BIOS stack convention is initialized. All general and banked registers plus
-valid SPSR storage start at zero by project policy, User/System has no SPSR, and
-the pipeline starts empty. The ARM entry is `0x08000000` with CPSR `0x000000DF`
-(ARM state, System mode, clear condition flags, IRQ/FIQ masked). Architectural
-ARM and Thumb operand-visible PC offsets are +8 and +4 respectively. The CPU
-uses one interpreter path with whole-unit preflight and the declared one-cycle
-bus model; exception entry charges one project internal cycle. With no BIOS,
-exception bookkeeping completes and the named stop occurs before any vector fetch.
+## CPU stop classifications
+
+Every row projects to GUEST_STOP with matching reason and termination. The
+exception rows enter architectural state first. Operand/extension/static
+refusals stop before instruction effects.
+
+| Setting | Value | Label | Citation |
+| ------- | ----- | ----- | -------- |
+| cpu_stop.unpredictable | unpredictable-instruction | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_stop.later-architecture | later-architecture-instruction | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_stop.undefined | no-bios-undefined | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_stop.absent-coprocessor | no-bios-coprocessor | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_stop.swi | no-bios-swi | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_stop.static-target-refusal | unsupported-instruction | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+
+## CPU source and policy boundaries
+
+The source hierarchy is the exact ARM7TDMI TRM DDI0029G, then ARM ARM DDI0100I
+for architecture-version/operand rules. GBATEK 3.06 supplies the selected GBA
+alignment and ARM empty/base-list reference rules. Reference facts are distinct
+from the deterministic project choices below, none of which is a hardware oracle.
+
+No BIOS stack convention is initialized. General and banked registers and valid
+SPSRs start at zero, User/System has no SPSR, and the pipeline is empty. Entry is
+0x08000000 with CPSR 0x000000DF (ARM/System, flags clear, IRQ/FIQ masked).
+User MSR writes flags only, privileged MSR applies ARMv4 masks, unallocated-bit
+or T-state requests stop as unpredictable, and S+PC requires a valid banked SPSR.
+SPSR restoration changes the active bank/state before the target refill.
+
+Normal ARM PC reads use current+8. Register-shift Rm and ARM store-PC sources
+use current+12. Thumb reads use current+4, aligned down to a word for literals
+and PC-relative address formation. LDR/LDM PC align down to an ARM word without
+interworking, Thumb POP PC masks bit0 and keeps Thumb state. Dynamic loaded-PC
+refills wrap modulo 2^32 and their generated top-address pair stops as
+unpredictable on the next call. BX alone selects state from bit0. Static B/BX
+and ALU-PC alignment/refill-extent checks remain explicit unsupported refusals.
+Data effective-address/writeback arithmetic wraps modulo 2^32 independently.
+
+CPU-local work follows DDI0029G sections 6.5, 6.6 and 6.20. Immediate ARM shifts
+add zero internal cycles, register shifts add one, and Thumb register shifts add
+one. Multiplier m is 1/2/3/4 from the original multiplier's high-byte termination
+pattern. Short MUL/MLA and Thumb MUL choose signed termination as project policy,
+long forms follow opcode signedness. Internal costs are m for MUL/Thumb MUL,
+m+1 for MLA and long multiply, m+2 for long accumulate. Block-load final internal
+work and loaded-PC refill work remain preflighted. All time goes through the bus.
+Raw bus requests still cost one project cycle each, so no WAITCNT, Game Pak
+prefetch, latch, complete cycle-accuracy or physical bus-trace claim follows.
+
+S multiply updates N/Z. Short C and long C/V preservation are deterministic
+project policy because those flags are unpredictable under ARMv4, while short V
+is architecturally preserved. Non-S multiplies preserve all flags. The following
+executing exceptions to unpredictable_operands=named-stop are explicit project
+choices: short MUL Rd=Rm snapshots its operands, SWP/SWPB Rn=Rd or Rn=Rm snapshot
+the original base/source, ARM empty lists transfer PC with +/-0x40 writeback,
+and ARM base-in-list forms use the selected GBATEK ARMv4 reference rules.
+Isolated BL halves execute using banked LR and modulo offset arithmetic as
+project policy. Thumb same-register MUL, empty PUSH/POP/LDMIA/STMIA, and STMIA
+base-middle/last stop for the whole unit before effects. These policies establish
+repeatable project behavior, not exact silicon results for unpredictable inputs.
+
+Public unsupported values remain ABI-compatible. No legal family is assigned
+an invented unsupported witness. Normal NV encodings stop as unpredictable.
+Recognized later allocations (BLX/BXJ/BKPT/CLZ, DSP and doubleword/multiply or
+coprocessor extensions, and recognized REV forms) stop as later architecture.
+BLX-immediate recognition precedes generic NV as an explicit reporting choice.
+Reserved exact-core encodings enter UND. Malformed allocated decode-bit patterns
+are unpredictable under DDI0100I A3.16. No attached coprocessor responds to legal
+ARMv4T coprocessor instructions, so they enter UND with a distinct absent-
+coprocessor cause. All these causes are GUEST_STOP in result/1. Refusals preserve
+machine/time/trace apart from the stop latch and retain the queued full opcode.
+
+ARM SWI preserves its complete 24-bit comment and Thumb SWI its complete imm8
+in both instruction and exception trace records. Exception bookkeeping saves
+the old CPSR and architectural link in the correct bank, selects the vector,
+then stops under BIOS provider none before any vector fetch. No handler
+continuation or diagnostic PASS is implied. IRQ-between-BL is API-only evidence
+with IRQ explicitly unmasked, not an active interrupt-controller or CLI claim.
+
+Successful store traces currently contain the bus result zero rather than the
+attempted write payload. Inspect memory for stored data. BIOS/device execution,
+physical controllers, hardware/game accuracy, licensing and release qualification
+remain outside this profile's evidence.
 
 ## SP and AGS naming
 

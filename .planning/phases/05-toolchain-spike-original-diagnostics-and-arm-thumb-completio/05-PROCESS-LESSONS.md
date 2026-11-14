@@ -1,0 +1,183 @@
+# Phase 5 process correction after the owner's progress check
+
+The original autonomous task continues. The owner asked for a sanity check after a long session. Phase 5 contains 25 plans spanning full ARM/Thumb completion and original diagnostic evidence; completion of an implementation plan does not mean phase acceptance.
+
+The existing `05-VALIDATION.md` Sampling Rate already calls for focused behavior and negative/clean controls after production changes, with canonical CI at integration boundaries and final source. Repeating full native/compiler/sanitizer inventories around every small plan was additional orchestration overhead. Full suites have generally taken minutes; serial source research, verbose test authoring, review and artifact cycles account for substantial additional wall time. Do not attribute all elapsed time to CI.
+
+Apply this cadence now:
+
+- For each change, run its planned focused commands, meaningful negative/clean controls, relevant CPU regressions and targeted native sanitizers. Compile the first committed GREEN with strict GNU warnings early; use the existing pinned Linux toolchain, without running the entire inventory merely to check compilation.
+- Review coherent instruction families before broad integration reruns. Preserve close scrutiny of banking/status, dynamic PC refill and whole-unit atomicity. Group simpler Thumb reviews by family where their dependencies permit it.
+- Run full canonical/compiler/sanitizer inventories after review fixes at real integration boundaries: ARM completion (Plan 13), Thumb completion, explicit diagnostic/hosted-witness gates, and final source. Preserve all required phase gates, inventory audits, negative controls, allowed-skip policy and fixed hosted limits.
+- Keep required summary metadata and self-checks, but make prose concise and link exact receipts. Avoid copying the same test history into several artifacts or creating extra status-only commits.
+- Use compact table-driven test inputs and shared arrange/run/cleanup plumbing. Keep expected results independent of production helpers. Store fixtures start with contrasting sentinels and literal expected addresses; generated CPU state must be consumed by a next-call test at important boundaries.
+- Preserve honest history: an already-implemented behavior has a GREEN baseline plus isolated fault controls, never an artificial production regression to manufacture RED.
+
+Current Plan 13 implementation remains active. Root owns family review and the following full ARM integration checks. Routine publication remains batched under the existing one-PR-per-phase policy. Model mappings, project scope, rights restrictions, human acceptance gates and stop-on-new-hosted-red policy are unchanged.
+
+## First bounded stronger-executor observation
+
+Owner authorized Plan14 alone at configured gpt-6.1-sol/high. Dispatch to terminal implementation/verification handoff took about16min; review and one adjacent evidence-label correction added about14min. No concrete Thumb defect was found in that review. Different plan scope, starting code and corrected verification cadence prevent a model-only speedup claim; billing usage was not available. Routing restored to exact pretrial dirty bytes afterward, default executor Luna/xhigh. Keep implementation, review/rework and integration wait measured separately. Source audit before claiming hardware behavior remains essential: this batch corrected its own Thumb multiply timing oracle and exposed an older overconfident ARM alias label.
+
+## Reduce context and fixture mistakes without new infrastructure
+
+Use a fresh executor for the next bounded instruction batch, with durable plans/notes/receipts as its context. The reused executor had accumulated several families and briefly confused a later RED commit with its starting HEAD; the saved dispatch record and graph resolved that without a ref change. Treat saved epochs/HEAD as authoritative. This is a context-management change, not a proven speedup.
+
+Known fixture traps: seed architectural r13 through the correct bank slot, not r14; observe stored data through memory because write trace values are bus return values; account for already queued instructions when asserting next fetch. Keep sorted selector inventories synchronized before classifying RED, and keep test setup failures distinct from intended behavioral failures. Root can apply a trivial proven four-line review cleanup inline with focused checks rather than creating another implementation handoff.
+
+## Boundary integration evidence and reporting hygiene
+
+Plan18's complete source integration took18m30s across four sequential lanes, including setup/builds. Native canonical/ASan CTest185.16/124.26s; local pinnedGNU/ClangASan241.98/467.32s. A preceding native run267.80s failed only reporting hygiene; these unequal/noisy observations are not a throughput or model benchmark. Preserve guest throughput separately from compiler/test/orchestration time.
+
+Keep committed evidence paths relative. An absolute checkout home path in a fixer report passed diff-whitespace checks but failed canonical hygiene; targeted hygiene and a complete inventory rerun established the correction. Do the applicable hygiene check before committing newly generated reports, especially reports produced by a reused agent.
+
+Before Plan24 publication, inspect measured mutation-compile costs and the fixed180s hosted budget. Repeated compilation of unchanged source within clean/mutant pairs is a concrete candidate to measure, extending the existing guarded six-CPU-case optimization only if paired receipts demonstrate savings with all failure classes preserved. Header-affecting/unknown cases must retain safe full rebuilds. Do not infer hosted timing from these local runs or add caches/concurrency/dependencies/timeouts by default.
+
+## Original diagnostic matrices: validate meaning before scaling
+
+Plan19's independent original assembly exposed a real signed-long-multiply decoder bug that native opcode fixtures shared. Check instruction encodings against GNU assembly and primary instruction forms; independent expected arithmetic alone is insufficient when both producer and test misidentify an opcode.
+
+Before scaling a new matrix, run a real clean/broken tracer, then representative addressing/flags/PC/stop cases with full traces. A mailbox pass missed one case falling through into embedded address data. Source completeness and assembler syntax do not establish semantic coverage: review caught wrong PC operand placement, writeback enabled in no-writeback cases, invalid Mode3 force-user inventory, and duplicated boundary vectors. Corrected source contracts, actual emitted opcode checks and targeted mutation controls now protect those gaps. Apply this scrutiny while authoring Thumb, rather than after its entire matrix is built.
+
+Group demonstrated producer fixes before rebuilding at one frozen source revision. Preserve completed OS work across transport loss, record unknown exit codes honestly, and rebuild only when authority inputs actually change. A validated internal row-location hint removed repeated JSON searches while retaining literal case-ID and parent-authority checks; isolated lookup timing is not a full-build or emulator benchmark.
+
+The corrected ARM builder/raw gate took48.05/25.53s locally; expanded ledger controls took108.62s. Inspect this distinct recurring control cost before Plan24's fixed180s hosted path. Preserve every regression class while reducing repeated parsing/validation where measurements justify it. Do not assume the old hosted green covers these changes. The original formal TDD reporter gap remains visible in WINDOWS; unsupported raw CMake output cannot be presented as recognized RED evidence.
+
+## Thumb source review and timing attribution
+
+Plan20's genuine narrow CTest/JUnit RED reports passed the installed classifier after an initial working-directory setup failure was explicitly rejected. Use the real supported reporter plus semantic inspection; parsing a report alone cannot establish an intended failing behavior.
+
+Derive form-defining opcode bits independently of a case's supplied full opcode. Coordinated source/metadata mutations exposed missing high-register selector and PUSH/POP LR/PC constraints. Carry tests must contrast incoming C with the independently required outgoing bit, and count-zero preservation must use both C inputs. New immediate/register shift and ROR0/33 vectors detect isolated carry-only faults; native tests alone do not establish original guest coverage.
+
+Challenge candidate findings against primary instruction fields and the real assembler. A proposed residual BX issue was rejected: bits5–3 select the source register, and GNU confirms0x4718 is legal BX r3. Tightening those variable bits would have restricted a valid instruction form.
+
+Current source produces118 Thumb semantic pairs/eight stops, with65 raw controls. Full ledger controls retain187 refusals. Initial Plan20 ledger wall time was220.44s; a later run recorded2833.27s and a selected build919.70s, without established attribution. Do not treat unexplained wall intervals as CPU work, hosted timing or model speed. During required CI-budget work, measure attributable command CPU time and elapsed time separately, inspect repeated parsing/validation and targeted processes, and preserve every failure class. No whole-machine restart or additional cache/concurrency/dependency is justified by a timeout alone.
+
+## Admission scale and control cost
+
+Measure the full authority readers and malformed-input controls at the proposed
+fixture count before scaling admission. A representative guest pair established
+runtime correctness but did not expose the722-row manifest's repeated strict
+parsing cost. Reuse the canonical parsed authority across result checks and
+index projection; do not weaken validation or change ROM producer inputs merely
+to avoid consumer overhead.
+
+Inspect duplicate command execution before adding workers. The failure-reason
+and no-echo assertions formerly launched the identical loader twice. Pairing
+those assertions on one execution removed duplicate work, with controls for
+leaks, unexpected success, wrong failure and exact single execution. The
+remaining independent trailing variants then justified a bounded three-worker
+pool: all63 variants remain visible and mandatory. A serial matched measurement
+fell64.54→22.01 seconds, with CPU62.61→50.68 seconds. Full canonical CI passed
+in166.72 seconds; hosted timing remains a separate later gate. See
+[the measured report](05-21-ADMISSION-PERFORMANCE.md).
+
+Check resolved containment before copying, writing or hashing fixture paths.
+Checking the generated index afterward cannot undo an earlier write through an
+escaping symlink. Controls must preserve an outside synthetic sentinel and
+include a valid contained companion. Force file-mode comparison per Git command
+when executable mode is part of source authority; repository configuration must
+not silently weaken that check.
+
+## Verify review premises against actual storage
+
+Plan22 review initially treated the machine RAM regions as allocated pointers.
+They are inline arrays, so structure assignment already copies those bytes. A
+small probe against the real canonical comparison helper changed each RAM
+region independently and confirmed both equality and digest detect memory-only
+changes. The reviewer withdrew the warning; no snapshot redesign was needed.
+Check actual field definitions and reproduce the proposed failure before adding
+an abstraction or extra allocations in response to a review claim. Keep false
+findings distinct from defects that were fixed.
+
+## New hosted runtime stop after complete local proof
+
+The Plan23 source freeze passed ten local lanes and complete literal ROM parity,
+but fresh hosted native builds and ARM groups hit the180-second cap. Historical
+runner overhead plus local timing did not predict current hosted costs closely
+enough. Preserve the resulting stop, measure actual current hosted setup/build/
+test costs, and target proven duplicate verification work at final fixture scale.
+Local Linux ARM64 timing and Darwin portability lanes cannot qualify hosted
+Ubuntu-x64 budgets. Do not turn a timeout into another unchanged retry or larger
+cap. See [the concrete stop and recovery proposal](05-23-HOSTED-STOP.md).
+
+## Measure shared validation primitives before repeating proof matrices
+
+The first consumer repair removed real duplicate authority loads but left
+substantial unfinished hosted work. Count all remaining tests and front-stage
+costs before spending the renewed attempt; a timeout duration is not a completed
+baseline. Pause further expensive lanes when early evidence still lacks margin.
+A subsequent isolated probe found the strict JSON census reparsing full arrays
+per child: the same15886member count used11.60seconds userCPU versus0.10 after
+counting CMake's serialized parsed tree. Independent structural counts and
+adversarial duplicate controls guard the equivalence. Producer-input changes
+still require a new freeze and fresh proof; no historical receipt is relabelled.
+
+## Renewed hosted result: budget policy is now the concrete decision
+
+Run43549814002 passed both Linux native/ARM paths, both Thumb paths, hygiene and
+sanitizers. macOS native completed its full workflow but job status was cancelled
+at the180-second limit; macOSARM cancelled during final coverage. The required
+aggregator correctly rejected them. Preserve this distinction and the active
+stop. The next recommendation is a targeted owner-approved five-minute budget
+for only those two jobs, with matching fail-closed validator policy and controls,
+not another generic optimization cycle or unapproved timeout edit. See
+[the exact proposal](05-23-RUNTIME-RENEWAL-STOP.md).
+
+## Owner correction: put cheap consistency gates first
+
+The owner explicitly requested cheap consistency checks before long suites,
+continuous bottleneck and low-hanging-fruit review, and stepping back rather
+than repeating an ineffective approach. Record this in AGENTS and apply it to
+planning and execution. For the approved two-job budget change, first reconcile
+exact job names, matrix rows, per-job limits, collector/validator policy and
+immutable producer ancestry/digest. Only then run heavier relevant controls.
+Keep already valid ROM proof when producer bytes/modes are unchanged; bind new
+reviewed consumer HEAD separately instead of regenerating identity evidence by
+habit. This is not permission to skip a changed boundary or weaken qualification.
+
+## Make disposable test copies prove their own freshness
+
+A new ancestor-scope control initially loaded the frozen older validator from
+its disposable source copy. Compare the exact changed consumer files with the
+working candidate before running copied tests. This cheap check avoids treating
+old code as current evidence. Keep test-expectation and fixture-copy mistakes
+separate from product failures. Shared policy readers should reject common
+format drift at preflight; the budget table now uses the existing strict loader
+before a later Python consumer is involved.
+
+## Check the final Git graph before an irreversible merge
+
+The cheap merge preflight found that squash would remove the producer commit
+from main ancestry even though all input bytes/modes remain identical. A merge
+commit preserves the required guard. Keep the owner merge-method decision at
+Phase5 acceptance and do not discover this by making main red. The disposable
+probe changed no real refs or settings; current PR work can continue.
+
+
+## Current hosted budget result
+
+The cheap policy/source preflight took a fraction of a second and accepted the reviewed consumer without rebuilding unchanged producer evidence. Actual hosted run43560267506 passed all11 jobs. macOS ARM remains the bottleneck at270/300seconds:243seconds workflow,153.69seconds CTest,37.29seconds final coverage. Linux ARM was92/180seconds. Use these measured stages to guide any later improvement; do not assume the timeout adjustment is a performance fix or transfer a single run into a guarantee. The readmission transaction first refused a smoke-output path mismatch before writing metadata; explicitly normalizing that existing smoke layout then verified all722 exact hashes and only permitted source/recipe fields. No expensive matrix rerun was needed for that check. See05-23-JOB-BUDGET-HOSTED.md.
+
+
+## Final admitted consumer sequencing
+
+Validate consumer evidence shape as a dependency of a stage switch: admitted execution no longer emits pre-admission markers, so adapt its actual receipt emitter and both consumers before spending a hosted attempt. Actual local logs plus isolated semantic negatives expose that mismatch cheaply. Independently reviewed preset/history/admitted controls passed; a synthetic alias finding was reproduced and fixed before publication, without rerunning unchanged producer or emulator matrices. Prepare remaining independently runnable local integration before one final reviewed-head host request; keep all hosted gates visibly pending. Scope clarification for required consumer followthrough is routine parent ownership, not another owner permission gate.
+
+
+## Final local review and publication lessons
+
+Keep inexpensive failure controls in source and canonical inventories: the two-second source-snapshot control covers ignored/private exclusions, multiple Git commits, working modes, signals and cleanup. Deliberate privacy/history/mode/signal/cleanup mutants establish that the guard can fail. Required installed semantics belong in the ARM/all diagnostic lane that owns their fixtures; optional native skips alone were insufficient recurring coverage. Use current actual logs for manual collector controls and label them manual.
+
+Bind the runner after every admitted rebuild before receipt emission; matching source alone cannot guarantee an unchanged Mach-O executable identity. Preserve the concrete sanitizer failure and post-fix exact identity check. Final profile evidence wording expresses a stable separate-host-proof requirement, avoiding a source edit solely because a CI status changes.
+
+Workflow publication has an explicit duplicate cost: pull_request edited reruns all lanes and documentation publication on this code PR is heavy. Prepare the final description and verification-record updates before asking for a bounded complete publication cycle. Do not discover another metadata-triggered run after spending a one-run budget, suppress required CI, or reuse a later reserved run as a retry after red. Model routing was restored exactly to the original dirty owner baseline at local readiness; implementation allowance does not leak into Phase6.
+
+
+## Cold required execution is distinct from warm and history checks
+
+Final hosted run43608603097 exposed a required legacy smoke receipt at a path the admitted producer does not build. Warm local outputs hid it; fresh history/configure checks and native Linux optional-tool skips did not exercise that required cold dependency. Add a cheap selected-stage artifact/consumer-path prerequisite check and a cold minimal smoke execution before the long corpus. Measure complete cold setup/build/test/post, not only warm main tests. Existing staged source/parity evidence remains valid when producer inputs are unchanged. Actual logs also show repeated immutable-index generation and a runner rebuild in admitted setup; measure guarded consumer reuse before changing caps or adding caches. Do not call passed test steps a green job when the authoritative job is cancelled. Stop/reserved-budget boundaries apply before another fix or publication event.
+
+The repair's independent review caught a weak command-substring guard. Query the actual build edges and exact producer arguments, then mutate the real graph with a full-corpus dependency and extra preparation command. These negative controls plus clean companions take about half a second and run before corpus work. A controlled same-input experiment removed one duplicate manifest parse and about twelve seconds of preparation/index work while preserving exact output bytes; variable cold whole-job times do not establish an overall speedup. Keep cross-host measurements separate: a test's execution time is not provisioning time, and local ARM64 results do not predict hosted x64 budget compliance.
+
+The repaired hosted candidate passed every required job, but its metadata-triggered same-source repeat exposed Linux native timing margin:168seconds green versus184seconds cancelled at the180second limit, even though all tests and strict post inventory passed. A first green is not a stability guarantee. Inspect whole-job allowance, not only main tests; preserve the authoritative cancellation and stop before another fix or retry. Prefer an evidence-supported one-job policy decision over a speculative broad optimization. The unused final-records event is not retry authority. See05-FINAL-METADATA-STOP.md for the bounded240second recommendation, which remains unapproved.

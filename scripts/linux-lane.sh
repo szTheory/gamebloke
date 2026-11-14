@@ -7,11 +7,13 @@
 #   sh scripts/linux-lane.sh <workflow-preset> [gcc|clang]
 #
 # The default compiler is clang for the asan preset, gcc otherwise. The working
-# tree is mounted read-only at /src and copied to /work inside the container, so
+# Git-selected snapshot is mounted read-only at /src and copied to /work, so
 # a run never writes into the source tree or into the macOS build directories.
 # The container runs on the host's native architecture (no --platform): an
 # emulated sanitizer run is slow and unrepresentative. The x86_64 Linux proof is
 # the ubuntu-26.04 CI runner.
+# Heavy local work retains the producer-proof bound: four CPUs and eight GiB.
+# GNU Arm's verified host build needs ordinary make in addition to Ninja.
 #
 # Environment:
 #   GBL_LINUX_IMAGE  override the pinned image reference
@@ -46,25 +48,47 @@ esac
 
 root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
 
-exec docker run --rm \
+# Never mount the checkout: it may contain ignored owner content. Clone full
+# history, overlay tracked edits/deletions, then add only unignored new files.
+# Neither Git nor tar dereferences working-tree symlinks here.
+set -eu
+snapshot=$(mktemp -d "${TMPDIR:-/tmp}/gamebloke-linux-lane.XXXXXX")
+trap 'rm -rf "$snapshot"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+git clone --quiet --no-hardlinks "$root" "$snapshot/source"
+git -c core.filemode=true -C "$root" diff --binary HEAD -- > "$snapshot/working.patch"
+if [ -s "$snapshot/working.patch" ]; then
+    git -C "$snapshot/source" apply --binary "$snapshot/working.patch"
+fi
+git -C "$root" ls-files --others --exclude-standard -z > "$snapshot/untracked.list"
+tar -C "$root" -cf "$snapshot/untracked.tar" --null -T "$snapshot/untracked.list"
+tar -C "$snapshot/source" -xf "$snapshot/untracked.tar"
+
+docker run --rm \
+    --cpus 4 --memory 8g \
     -e "GBL_PRESET=$preset" \
     -e "GBL_PACKAGES=$packages" \
     -e "CC=$cc_name" \
     -e "GBL_EXPECT_C_ID=$cc_id" \
-    -v "$root":/src:ro -w /work \
+    -v "$snapshot/source":/src:ro -w /work \
     "$GBL_LINUX_IMAGE" \
     sh -c '
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 echo "linux-lane: preset ${GBL_PRESET}, compiler ${CC}, arch $(uname -m)"
+setup_started=$(date +%s)
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends ca-certificates cmake curl ninja-build git libc6-dev $GBL_PACKAGES >/dev/null
+apt-get install -y -qq --no-install-recommends ca-certificates cmake curl ninja-build make git libc6-dev $GBL_PACKAGES >/dev/null
 mkdir -p /work
-cp -R /src/. /work
-rm -rf /work/build
+tar -C /src -cf - . | tar -C /work -xf -
 git config --global --add safe.directory /work
 cmake --version | head -n 1
 "$CC" --version | head -n 1
 cd /work
+echo "linux-lane: setup wall seconds $(($(date +%s) - setup_started))"
+workflow_started=$(date +%s)
 cmake --workflow --preset "$GBL_PRESET"
+echo "linux-lane: workflow wall seconds $(($(date +%s) - workflow_started))"
 '
