@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 3
 waived_count: 0
-fixed_count: 12
-total_count: 15
-last_updated: 2026-11-14T05:47:31.286Z
+fixed_count: 13
+total_count: 16
+last_updated: 2026-11-14T06:35:00.984Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,7 @@ last_updated: 2026-11-14T05:47:31.286Z
 | 13 | 05 | deviation | cmake/GenerateFixtureIndex.cmake |  | Plan21 independent review found admission-copy, in-tree source and generated-index output escapes plus config-hidden producer mode drift. All four fixed with actual negative and clean controls; fresh canonical CI, all722 production fixtures and refusal controls pass, and independent re-review has zero active findings. See05-21-ADMISSION-REVIEW.md and05-21-OUTPUT-CONTAINMENT.md. | fixed |  | 2026-11-13T20:04:56.192Z | 2026-11-13T20:04:56.268Z |
 | 14 | 05 | deviation | scripts/collect-hosted-proof.py |  | Plan23 budget-policy review found mixed synthetic tags and incomplete marked-ancestor isolation at collector/final-gate boundaries. Focused fixes and source/collector controls pass; independent final re-review pending. No live qualification or hosted attempt occurred. See05-23-JOB-BUDGET-FIX.md. | fixed |  | 2026-11-14T04:43:08.633Z | 2026-11-14T05:02:20.575Z |
 | 15 | 05 | deviation | tests/toolchain.cmake, tests/gates/diagnostic_setup.cmake |  | Admitted integration exposed proof-only registration, ISA output path and API producer-receipt ordering defects. Corrected consumer-only; full admitted lane, canonical CI, focused sanitizer/refusal checks passed and independent review clean. Evidence:05-23-ADMITTED-EXECUTION.md. | fixed |  | 2026-11-14T05:47:21.776Z | 2026-11-14T05:47:31.286Z |
+| 16 | 05 | deviation | scripts/collect-hosted-proof.py |  | Plan24 review reproduced synthetic path alias outside disposable marked scope. Original normalized and resolved source/output/document/log paths now all required inside same scope before API reads. All9alias negatives, admitted and legacy controls pass; re-review clean. See05-24-REVIEW-FIX.md. | fixed |  | 2026-11-14T06:35:00.881Z | 2026-11-14T06:35:00.984Z |
 
 ````json
 [
@@ -226,6 +227,19 @@ last_updated: 2026-11-14T05:47:31.286Z
     "reason": "",
     "recorded_at": "2026-11-14T05:47:21.776Z",
     "resolved_at": "2026-11-14T05:47:31.286Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 16,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "scripts/collect-hosted-proof.py",
+    "line": null,
+    "description": "Plan24 review reproduced synthetic path alias outside disposable marked scope. Original normalized and resolved source/output/document/log paths now all required inside same scope before API reads. All9alias negatives, admitted and legacy controls pass; re-review clean. See05-24-REVIEW-FIX.md.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-14T06:35:00.881Z",
+    "resolved_at": "2026-11-14T06:35:00.984Z",
     "milestone": "v1.0"
   }
 ]

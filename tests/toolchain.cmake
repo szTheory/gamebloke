@@ -17,6 +17,8 @@ function(find_preset json collection desired_name out_index)
 endfunction()
 
 function(check_preset_contract source_root)
+  include("${source_root}/cmake/CiPreflight.cmake")
+  gbl_ci_admission_presets("${source_root}/CMakePresets.json")
   file(READ "${source_root}/CMakePresets.json" presets)
   foreach(collection IN ITEMS configurePresets buildPresets testPresets workflowPresets)
     find_preset("${presets}" "${collection}" diagnostics preset_index)
@@ -28,7 +30,7 @@ function(check_preset_contract source_root)
   find_preset("${presets}" configurePresets diagnostics configure_index)
   foreach(pair IN ITEMS
       "GBL_LANE;diagnostics"
-      "GBL_DIAGNOSTIC_STAGE;proof"
+      "GBL_DIAGNOSTIC_STAGE;admitted"
       "GBL_DIAGNOSTIC_GROUP;all"
       "GBL_REQUIRE_DIAGNOSTICS;ON"
       "GBL_TOOLCHAIN_ROOT;\${sourceDir}/build/toolchains"

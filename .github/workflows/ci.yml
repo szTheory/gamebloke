@@ -113,6 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - run: cmake --workflow --preset ci
       # Diagnostic only: the verdict is the workflow's exit status.
@@ -132,14 +133,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       # Package names proven in an ubuntu:26.04 container (plan 01-05).
       - run: dpkg -s clang-21 libclang-rt-21-dev >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y clang-21 libclang-rt-21-dev; }
       - run: cmake --workflow --preset asan
 
-  # Complete pre-admission smoke/ARM/Thumb proof uses full Git history for
-  # source-input identity. Its output hashes are log witnesses; ROMs stay local.
-  # Other lanes stay shallow and metadata-only configuration does not require it.
+  # Admitted smoke/ARM/Thumb execution binds actual receipts and output hashes;
+  # ROMs stay local. Build, ASan and diagnostics fetch full Git history to verify
+  # the immutable producer ancestor before generating admitted metadata.
   diagnostics:
     name: diagnostics (${{ matrix.host }}, ${{ matrix.group }})
     needs: changes

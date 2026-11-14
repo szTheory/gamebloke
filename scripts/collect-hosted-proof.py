@@ -9,6 +9,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -19,8 +20,75 @@ def require(condition, reason):
         raise ValueError(reason)
 
 
-def synthetic_context(args, root, documents):
-    tags = [document.get("synthetic_control", False) for document in documents]
+def admitted_log(text, context, expected, matrix, manifest):
+    """Parse actual mandatory-final witnesses; also used by local-only controls."""
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "duplicate admitted JSON key")
+            result[key] = value
+        return result
+
+    identities, completions, outputs, apis = [], [], {}, {}
+    for line in text.splitlines():
+        match = re.search(r"admitted-proof: (identity|result|api|complete) (\{.*\})\s*$", line)
+        if not match:
+            continue
+        kind, raw = match.groups()
+        row = json.loads(raw, object_pairs_hook=unique)
+        if kind == "identity":
+            identities.append(row)
+        elif kind == "complete":
+            completions.append(row)
+        else:
+            key = row["name"] if kind == "result" else str(row["evidence"]["id"])
+            target = outputs if kind == "result" else apis
+            require(key not in target or target[key] == row, "conflicting admitted witness")
+            target[key] = row
+    require(identities and all(row == identities[0] for row in identities), "missing/conflicting admitted identity")
+    identity = identities[0]
+    require(all(identity.get(key) == value for key, value in context.items()), "admitted identity binding mismatch")
+    require(identity.get("format") == "gamebloke.admitted-host-log/1" and identity.get("stage") == "admitted" and
+            identity.get("tools") == "available" and re.fullmatch(r"[0-9a-f]{24}", identity.get("token", "")),
+            "admitted stage/tool/token mismatch")
+    for key in ("manifest_sha256", "runner_sha256", "native_sha256"):
+        require(re.fullmatch(r"[0-9a-f]{64}", identity.get(key, "")), "admitted identity digest invalid")
+    require(set(outputs) == set(expected), "incomplete admitted output set")
+    cases = {row["id"]: row for row in matrix["cases"]}
+    fixtures = {row["id"]: row for row in manifest["fixtures"]}
+    for name, row in outputs.items():
+        fid = pathlib.PurePosixPath(name).stem
+        source = expected[name]
+        case = source["case_id"]
+        stop = cases.get(case, {}).get("source_test", {}).get("kind") == "guest-stop"
+        state = "pending" if stop else "fail" if fid.endswith("-broken") else "pass"
+        status = "GUEST_STOP" if stop else "GUEST_FAIL" if state == "fail" else "PASS"
+        reason = cases[case]["source_test"]["expected_reason"] if stop else "guest-mailbox-" + state
+        termination = reason if stop else "mailbox-complete"
+        require(all(row.get(key) == value for key, value in source.items()), "admitted output differs from producer proof")
+        require(fid in fixtures and fixtures[fid]["build"]["artifact"]["sha256"] == row["sha256"] and
+                row.get("fixture_id") == fid and row.get("state") == state and row.get("status") == status and
+                row.get("reason") == reason and row.get("termination") == termination,
+                "admitted semantic/fixture mismatch")
+        require(row.get("ran") is True and all(type(row.get(key)) is int and row[key] > 0 for key in ("cycles", "instructions")) and
+                row.get("budget_cycles") == 1000 and row["cycles"] <= 1000 and
+                re.fullmatch(r"[0-9a-f]{64}", row.get("result_sha256", "")), "admitted progress/result mismatch")
+    api_expected = {str(row["id"]): row for row in matrix["cases"] if row.get("source_test", {}).get("kind") == "cpu-api"}
+    if context.get("group") == "thumb":
+        api_expected = {}
+    require(set(apis) == set(api_expected), "incomplete admitted native API set")
+    for key, row in apis.items():
+        require(row.get("evidence") == api_expected[key], "admitted native evidence mismatch")
+        require(all(row.get(field) == identity.get(field) for field in (
+            "token", "stage", "group", "reviewed_head", "source_commit", "source_input_sha256",
+            "manifest_sha256", "runner_sha256", "native_sha256")), "admitted native identity mismatch")
+    complete = {"outputs": len(outputs), "apis": len(apis), "stage": "admitted"}
+    require(completions and all(row == complete for row in completions), "missing/conflicting admitted completion")
+    return identity, [outputs[name] for name in sorted(outputs)], [apis[key] for key in sorted(apis)]
+
+
+def synthetic_context(args, root, documents=None):
+    tags = [document.get("synthetic_control", False) for document in documents or ()]
     require(all(type(tag) is bool for tag in tags), "synthetic controls require boolean input tags")
     marker_name = "synthetic-control-authority.txt"
     marker_bytes = b"gamebloke.synthetic-final-proof/1\n"
@@ -48,13 +116,18 @@ def synthetic_context(args, root, documents):
     scope = next((parent for parent in output.parents if marked(parent)), None)
     require(scope is not None and "build" in scope.parts and root.is_relative_to(scope) and marked(root),
             "synthetic controls require a marked disposable build tree")
-    require(all(path.resolve().is_relative_to(scope) for path in inputs),
-            "synthetic inputs must stay in the marked disposable build tree")
+    require(all(pathlib.Path(os.path.abspath(path)).is_relative_to(scope) and
+                path.resolve().is_relative_to(scope)
+                for path in [args.source_root, args.output, *inputs]),
+            "synthetic paths must stay in the marked disposable build tree")
     return True
 
 
 def collect(args):
     root = args.source_root.resolve()
+    # Reject path aliases before opening API documents; validate their tags
+    # separately once those contained documents have been parsed.
+    synthetic_context(args, root)
     run = json.loads(args.run.read_text())
     jobs_document = json.loads(args.jobs.read_text())
     local = json.loads(args.local_proof.read_text())
@@ -116,6 +189,10 @@ def collect(args):
         if expected:
             require(rows == expected, "local cross-host rows differ")
         expected = rows
+    stage = getattr(args, "stage", "admitted")
+    require(stage in ("admitted", "pre-admission"), "invalid hosted stage")
+    manifest = json.loads((root / "tests/fixtures/manifest.json").read_text())
+    manifest_sha = hashlib.sha256((root / "tests/fixtures/manifest.json").read_bytes()).hexdigest()
     patterns = {
         "output": re.compile(r"final-proof: output host=(\S+) source=([0-9a-f]{40}) name=(\S+) case=([0-9]+) sha256=([0-9a-f]{64}) bytes=([0-9]+) group=(\S+)"),
         "tool": re.compile(r"final-proof: tool host=(\S+) source=([0-9a-f]{40}) archive_sha256=([0-9a-f]{64}) group=(\S+)"),
@@ -129,6 +206,23 @@ def collect(args):
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             require(digest not in log_hashes, "one log supplied for multiple groups")
             log_hashes.add(digest)
+            if stage == "admitted":
+                context = dict(host=host, group=group, source_commit=source_head,
+                               source_input_sha256=inputs, reviewed_head=args.reviewed_head,
+                               run_id=run["id"], job_name=f"diagnostics ({host}, {group})",
+                               toolchain_archive_sha256=pins[host], manifest_sha256=manifest_sha)
+                identity, executions, api_rows = admitted_log(path.read_text(), context,
+                    {name: expected[name] for name in names[group]}, matrix, manifest)
+                job_name = context["job_name"]
+                job = next(j for j in jobs if j["name"] == job_name)
+                outputs = [{key: row[key] for key in ("name", "case_id", "sha256", "bytes")} for row in executions]
+                proof = dict(format="gamebloke.final-diagnostic-host/1", stage="admitted", host=host,
+                    group=group, source_head=source_head, source_input_sha256=inputs,
+                    toolchain_archive_sha256=pins[host], run_id=run["id"], job_name=job_name,
+                    case_ids=sorted(set(names[group].values())), output_names=sorted(names[group]),
+                    outputs=outputs, execution_identity=identity, executions=executions, native_apis=api_rows)
+                parts.append(dict(host=host, group=group, job_id=job["id"], log_sha256=digest, proof=proof))
+                continue
             outputs, tools, completions, bindings = {}, set(), set(), set()
             for line in path.read_text().splitlines():
                 if m := patterns["output"].search(line):
@@ -170,6 +264,8 @@ def parser():
     p.add_argument("--reviewed-head", required=True, help="actual tested run HEAD; immutable producer pin comes from policy")
     p.add_argument("--source-root", type=pathlib.Path, default=pathlib.Path("."))
     p.add_argument("--synthetic-controls", action="store_true")
+    p.add_argument("--stage", choices=("admitted", "pre-admission"), default="admitted",
+                   help="final execution is admitted; pre-admission is producer qualification only")
     for option in ("run", "jobs", "local-proof", "linux-arm-log", "linux-thumb-log", "macos-arm-log", "macos-thumb-log", "output"):
         p.add_argument("--" + option, type=pathlib.Path, required=True)
     return p

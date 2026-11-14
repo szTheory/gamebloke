@@ -12,6 +12,8 @@
 # The container runs on the host's native architecture (no --platform): an
 # emulated sanitizer run is slow and unrepresentative. The x86_64 Linux proof is
 # the ubuntu-26.04 CI runner.
+# Heavy local work retains the producer-proof bound: four CPUs and eight GiB.
+# GNU Arm's verified host build needs ordinary make in addition to Ninja.
 #
 # Environment:
 #   GBL_LINUX_IMAGE  override the pinned image reference
@@ -47,6 +49,7 @@ esac
 root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
 
 exec docker run --rm \
+    --cpus 4 --memory 8g \
     -e "GBL_PRESET=$preset" \
     -e "GBL_PACKAGES=$packages" \
     -e "CC=$cc_name" \
@@ -58,7 +61,7 @@ set -eu
 export DEBIAN_FRONTEND=noninteractive
 echo "linux-lane: preset ${GBL_PRESET}, compiler ${CC}, arch $(uname -m)"
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends ca-certificates cmake curl ninja-build git libc6-dev $GBL_PACKAGES >/dev/null
+apt-get install -y -qq --no-install-recommends ca-certificates cmake curl ninja-build make git libc6-dev $GBL_PACKAGES >/dev/null
 mkdir -p /work
 cp -R /src/. /work
 rm -rf /work/build

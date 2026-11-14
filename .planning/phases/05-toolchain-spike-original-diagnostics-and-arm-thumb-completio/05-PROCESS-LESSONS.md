@@ -158,3 +158,8 @@ probe changed no real refs or settings; current PR work can continue.
 ## Current hosted budget result
 
 The cheap policy/source preflight took a fraction of a second and accepted the reviewed consumer without rebuilding unchanged producer evidence. Actual hosted run43560267506 passed all11 jobs. macOS ARM remains the bottleneck at270/300seconds:243seconds workflow,153.69seconds CTest,37.29seconds final coverage. Linux ARM was92/180seconds. Use these measured stages to guide any later improvement; do not assume the timeout adjustment is a performance fix or transfer a single run into a guarantee. The readmission transaction first refused a smoke-output path mismatch before writing metadata; explicitly normalizing that existing smoke layout then verified all722 exact hashes and only permitted source/recipe fields. No expensive matrix rerun was needed for that check. See05-23-JOB-BUDGET-HOSTED.md.
+
+
+## Final admitted consumer sequencing
+
+Validate consumer evidence shape as a dependency of a stage switch: admitted execution no longer emits pre-admission markers, so adapt its actual receipt emitter and both consumers before spending a hosted attempt. Actual local logs plus isolated semantic negatives expose that mismatch cheaply. Independently reviewed preset/history/admitted controls passed; a synthetic alias finding was reproduced and fixed before publication, without rerunning unchanged producer or emulator matrices. Prepare remaining independently runnable local integration before one final reviewed-head host request; keep all hosted gates visibly pending. Scope clarification for required consumer followthrough is routine parent ownership, not another owner permission gate.

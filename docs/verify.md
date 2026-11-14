@@ -20,17 +20,21 @@ platform/group routing and exact budgets with `cmake/CiJobBudgets.json`. Only
 `build (macos-26, cc, AppleClang)` and `diagnostics (darwin-arm64, arm)` have
 300-second budgets; all other required jobs retain 180 seconds. The existing
 CI routing test includes missing/misbound-budget, renamed/duplicate-job and
-source-pin refusal controls. This preflight does not substitute for the workflow.
+source-pin refusal controls. It also checks explicit admitted stages for all five
+required presets and full-history checkout configuration for build, ASan and
+diagnostic jobs. Missing or proof-valued stages and shallow checkout mutations
+have clean and refusal controls. This preflight does not substitute for the workflow.
 
 The pre-admission producer pin remains
 `85c361edfd6b56640e68e64c5e32527f85408836`, with input digest
 `95d1b9c7f8c580c37a0051efb54424d40d7c50a57d2774c33512001f31331d43`.
 Preflight verifies the exact current input digest. Full-history checkouts also
 verify pinned ancestry and every listed input's bytes and executable mode through
-`gbl_check_diagnostic_authority`. Shallow native/sanitizer/hygiene metadata
-checkouts report explicitly that ancestry/modes were not checked. Required
-diagnostic lanes (or `-DREQUIRE_AUTHORITY=ON` in the standalone command) refuse
-missing history before compilation.
+`gbl_check_diagnostic_authority`. Admitted native, sanitizer and diagnostic
+configuration refuses shallow history before compiler discovery. Their hosted
+checkouts use `fetch-depth: 0`. Shallow hygiene and explicit optional developer
+proof metadata checks report that ancestry/modes were not checked. The standalone
+`-DREQUIRE_AUTHORITY=ON` check also requires full history.
 
 `scripts/collect-hosted-proof.py` is the promoted project-authored local collector,
 using only the local Python standard library. CI and the emulator gain no Python
@@ -38,7 +42,16 @@ dependency. Supply `--reviewed-head` with the actual run/current checkout HEAD;
 the immutable producer authority comes from the budget policy. The collector
 requires all 11 live jobs to be green at that run/HEAD within their exact budgets,
 then binds four distinct observed log witnesses to their run/host/group and the
-producer pin. Run the committed `final-hosted-proof` CMake validator afterward.
+producer pin. The default collector and `final-hosted-proof` CMake validator now
+require admitted execution witnesses. `diagnostics.final.outputs` emits them
+only after its exact mandatory receipt guard: per-output identity, actual
+PASS/GUEST_FAIL/named stop, bounded nonzero progress, source and tested consumer,
+run/job/host/group and the exact native API evidence (ARM-owned). No binary is
+uploaded. The collector and CMake gate independently reject missing results,
+wrong stages, semantic/progress errors and stale consumer/native bindings.
+For producer qualification tooling only, select collector `--stage pre-admission`
+and CMake `-DHOSTED_STAGE=pre-admission` explicitly; this does not establish
+final admitted execution. Run the committed CMake validator after collection.
 Its outer receipt binds `reviewed_head`; existing local receipts retain their
 actual producer `source_head`. A consumer-only descendant may reuse unchanged
 producer proof after bytes/modes/ancestry verification; it does not relabel an old
@@ -409,12 +422,33 @@ pinned ancestor. Arrange and verify that history before hosted publication.
 
 During an explicitly staged source-proof run, a native metadata build can be
 configured with `-DGBL_DIAGNOSTIC_STAGE=proof`; this setting grants no guest
-fixture authority. Restore `-DGBL_DIAGNOSTIC_STAGE=admitted` after new proof and
-admission. The phase's final required-preset switch remains a separate gate;
-the currently explicit proof preset does not establish final admitted CI.
+fixture authority. All canonical native, sanitizer and all/ARM/Thumb diagnostic
+presets explicitly select `admitted`, overriding a cached proof stage on each
+workflow configure. A diagnostic lane, mandatory diagnostics or `CI=true`
+refuses a proof override before compilation. Optional local native proof remains
+developer tooling. Restore `admitted` after a developer proof experiment.
 `cmake -DCASE=mandatory-final -DSRC=. -DBIN=build/diagnostics
 -P tests/gates/diagnostic_dependency.cmake` refuses proof mode and verifies the
 complete admitted receipt set when that stage is available.
+
+Before publishing a changed admission/history policy, run the real independent
+clone control with a fresh contained output path:
+
+```sh
+cmake -DSRC=. -DBIN=build/ci-history-control -P tests/ci/history_cases.cmake
+```
+
+It overlays the current consumer policy into full and depth-one local clones,
+configures full-history native/ASan and all/ARM/Thumb diagnostic presets using the
+existing checked tool install, and refuses shallow admitted configuration before
+compiler discovery. It neither executes a hosted job nor grants hosted authority.
+The ASan configure control explicitly uses `/usr/bin/clang` on macOS; hosted Linux
+ASan retains its `clang-21` preset and distinct compiler claim.
+
+The local-only `tests/ci/admitted_hosted_cases.py` takes an actual mandatory-final
+log and the preserved local producer proof. It checks that real log, then tests
+both hosted parsers with explicitly tagged synthetic API documents and logs in
+a marked disposable build tree. Its green controls never qualify a hosted run.
 
 Network-free dependency controls run with
 `cmake -DCASE=all -DSRC=. -DBIN=build/phase05-dependency

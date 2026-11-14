@@ -415,6 +415,10 @@ function(proof_host_receipt json expected_host)
   if(ARGC GREATER 2)
     set(PROOF_GROUP "${ARGV2}")
   endif()
+  set(expected_stage pre-admission)
+  if(ARGC GREATER 3)
+    set(expected_stage "${ARGV3}")
+  endif()
   string(JSON receipt_group ERROR_VARIABLE group_error GET "${json}" group)
   if((ARGC GREATER 2 AND NOT group_error STREQUAL "NOTFOUND") OR
      (group_error STREQUAL "NOTFOUND" AND NOT receipt_group STREQUAL PROOF_GROUP))
@@ -426,7 +430,7 @@ function(proof_host_receipt json expected_host)
     string(JSON value_${field} GET "${json}" "${field}")
   endforeach()
   if(NOT value_format STREQUAL "gamebloke.final-diagnostic-host/1" OR
-     NOT value_stage STREQUAL "pre-admission" OR
+     NOT value_stage STREQUAL expected_stage OR
      NOT value_source_head STREQUAL source_head OR
      NOT value_host STREQUAL expected_host OR
      NOT value_source_input_sha256 STREQUAL input_digest)
@@ -483,11 +487,15 @@ endfunction()
 # authority before deriving the matrix or parsing complete output rows. Accepted
 # receipts still run proof_host_receipt, including every freshness/hash check.
 function(proof_source_metadata json expected_host)
+  set(expected_stage pre-admission)
+  if(ARGC GREATER 3)
+    set(expected_stage "${ARGV3}")
+  endif()
   foreach(field IN ITEMS format stage source_head host source_input_sha256)
     string(JSON value_${field} GET "${json}" "${field}")
   endforeach()
   if(NOT value_format STREQUAL "gamebloke.final-diagnostic-host/1" OR
-     NOT value_stage STREQUAL "pre-admission" OR
+     NOT value_stage STREQUAL expected_stage OR
      NOT value_source_head STREQUAL source_head OR
      NOT value_source_input_sha256 STREQUAL GBL_CI_PRODUCER_INPUT OR
      NOT value_host STREQUAL expected_host)
@@ -683,6 +691,12 @@ elseif(CASE STREQUAL "final-budget-controls")
 endif()
 
 if(CASE STREQUAL "final-hosted-proof")
+  if(NOT DEFINED HOSTED_STAGE)
+    set(HOSTED_STAGE admitted)
+  endif()
+  if(NOT HOSTED_STAGE MATCHES "^(admitted|pre-admission)$")
+    message(FATAL_ERROR "final-proof: invalid-hosted-stage")
+  endif()
   foreach(required IN ITEMS HOSTED_RECEIPT LIVE_RUN LIVE_JOBS LOCAL_RECEIPT)
     if(NOT DEFINED ${required} OR NOT EXISTS "${${required}}" OR IS_SYMLINK "${${required}}")
       message(FATAL_ERROR "final-proof: missing-${required}")
@@ -763,7 +777,11 @@ if(CASE STREQUAL "final-hosted-proof")
        NOT proof_run STREQUAL run_id OR NOT proof_job STREQUAL "diagnostics (${host}, ${group})")
       message(FATAL_ERROR "final-proof: hosted-proof-job-context-invalid")
     endif()
-    proof_source_metadata("${receipt}" "${host}" "${group}")
+    proof_source_metadata("${receipt}" "${host}" "${group}" "${HOSTED_STAGE}")
+    if(HOSTED_STAGE STREQUAL "admitted")
+      include("${source_root}/tests/gates/admitted_hosted_proof.cmake")
+      proof_admitted_execution("${receipt}" "${host}" "${group}")
+    endif()
     list(APPEND seen_parts "${host}/${group}")
     set(part_host_${index} "${host}")
     set(part_group_${index} "${group}")
@@ -791,7 +809,7 @@ if(CASE STREQUAL "final-hosted-proof")
     set(host "${part_host_${index}}")
     set(group "${part_group_${index}}")
     set(receipt "${part_receipt_${index}}")
-    proof_host_receipt("${receipt}" "${host}" "${group}")
+    proof_host_receipt("${receipt}" "${host}" "${group}" "${HOSTED_STAGE}")
     proof_array("${receipt}" output_names part_names)
     proof_array("${receipt}" case_ids part_ids)
     list(APPEND union_names_${host} ${part_names})
@@ -1046,6 +1064,7 @@ if(CASE STREQUAL "final-proof-controls")
     file(WRITE "${root}/local.json" "${control_local}\n")
     execute_process(COMMAND /usr/bin/time -p "${CMAKE_COMMAND}" -DCASE=final-hosted-proof
       -DSYNTHETIC_CONTROL=ON
+      -DHOSTED_STAGE=pre-admission
       "-DSYNTHETIC_PRODUCER_HEAD=${source_head}"
       "-DSRC=${source_root}" "-DBIN=${root}" "-DHOSTED_RECEIPT=${root}/hosted.json"
       "-DLIVE_RUN=${root}/run.json" "-DLIVE_JOBS=${root}/jobs.json"

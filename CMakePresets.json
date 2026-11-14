@@ -15,7 +15,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "GBL_LANE": "ci",
-        "GBL_DIAGNOSTIC_STAGE": "proof"
+        "GBL_DIAGNOSTIC_STAGE": "admitted"
       }
     },
     {
@@ -34,7 +34,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "GBL_LANE": "asan",
-        "GBL_DIAGNOSTIC_STAGE": "proof",
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
         "CMAKE_C_COMPILER": "clang-21",
         "CMAKE_C_FLAGS": "-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
@@ -47,7 +47,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "GBL_LANE": "diagnostics",
-        "GBL_DIAGNOSTIC_STAGE": "proof",
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
         "GBL_DIAGNOSTIC_GROUP": "all",
         "GBL_REQUIRE_DIAGNOSTICS": "ON",
         "GBL_TOOLCHAIN_ROOT": "${sourceDir}/build/toolchains"
@@ -57,6 +57,7 @@
       "name": "diagnostics-arm",
       "inherits": "diagnostics",
       "cacheVariables": {
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
         "GBL_DIAGNOSTIC_GROUP": "arm"
       }
     },
@@ -64,6 +65,7 @@
       "name": "diagnostics-thumb",
       "inherits": "diagnostics",
       "cacheVariables": {
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
         "GBL_DIAGNOSTIC_GROUP": "thumb"
       }
     }

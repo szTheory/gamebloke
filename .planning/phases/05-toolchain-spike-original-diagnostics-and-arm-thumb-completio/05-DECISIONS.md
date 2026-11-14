@@ -51,3 +51,8 @@ active bottleneck/low-hanging-fruit review and stepping back when an approach
 stalls. Apply that instruction through the preflight and changed-input evidence
 plan, rather than repeating an unchanged full proof matrix by habit. The actual
 producer pin and actual reviewed/tested consumer HEAD must remain distinct.
+
+
+## D-25: Prepare one final local candidate before renewing hosted authority
+
+Routine execution sequencing under the owner's cheap-first/keep-moving instruction: after reviewed Plan24 local implementation, perform the independently runnable Plan25 local integration and audits before requesting the next exact-head hosted attempt. Plan24 and Plan25 keep their hosted completion gates pending; no summary or shared requirement becomes complete early. Do not publish an intermediate Plan24 revision merely to create a second avoidable final run. The one prior renewed hosted attempt is consumed successfully and grants no further attempt. Parent owns any later concrete authority request and the Phase5 acceptance/merge-provenance boundary. No producer, evidence, gate, scope or authority is weakened.

@@ -46,7 +46,7 @@ def main():
     # Small disposable clone; only its own bytes/modes/history are mutated.
     clone = out / "source"
     subprocess.run(["git", "clone", "--quiet", "--shared", str(root), str(clone)], check=True)
-    for path in ("CMakeLists.txt", "cmake/CiPreflight.cmake", "cmake/CiJobBudgets.cmake", "cmake/CiJobBudgets.json", ".github/workflows/ci.yml"):
+    for path in ("CMakeLists.txt", "CMakePresets.json", "cmake/CiPreflight.cmake", "cmake/CiJobBudgets.cmake", "cmake/CiJobBudgets.json", ".github/workflows/ci.yml"):
         shutil.copy2(root / path, clone / path)
     preflight(clone, extra=("-DREQUIRE_AUTHORITY=ON",))
     policy_path = clone / "cmake/CiJobBudgets.json"
@@ -96,14 +96,14 @@ def main():
     subprocess.run(["git", "clone", "--quiet", "--depth=1", shallow_source.as_uri(), str(shallow)], check=True)
     assert subprocess.run(["git", "-C", str(shallow), "cat-file", "-e", pin], capture_output=True).returncode
     assert "ancestry/modes NOT checked" in preflight(shallow)
-    preflight(shallow, "diagnostic-source-not-ancestor", ("-DREQUIRE_AUTHORITY=ON",))
+    preflight(shallow, "admitted-full-history-required", ("-DREQUIRE_AUTHORITY=ON",))
     for lane in ("ci", "hygiene"):
         result = subprocess.run(["cmake", "-S", str(shallow), "-B", str(shallow / "build" / lane),
                                  f"-DGBL_LANE={lane}", "-DGBL_DIAGNOSTIC_STAGE=proof"], capture_output=True, text=True)
         assert result.returncode == 0 and "ancestry/modes NOT checked" in result.stdout, result.stdout + result.stderr
     result = subprocess.run(["cmake", "-S", str(shallow), "-B", str(shallow / "build/diagnostics"),
                              "-DGBL_LANE=diagnostics", "-DGBL_DIAGNOSTIC_STAGE=proof"], capture_output=True, text=True)
-    assert result.returncode and "diagnostic-source-not-ancestor" in result.stderr and "compiler identification" not in result.stdout
+    assert result.returncode and "required-proof-stage-forbidden" in result.stderr and "compiler identification" not in result.stdout
     print("Source controls passed: real pin, changed bytes/modes, historical source, absent pin in shallow/full modes.", flush=True)
 
     marker = "gamebloke.synthetic-final-proof/1\n"
@@ -111,7 +111,7 @@ def main():
     (clone / "synthetic-control-authority.txt").write_text(marker)
     collector_source = out / "collector-source"
     subprocess.run(["git", "clone", "--quiet", "--shared", str(root), str(collector_source)], check=True)
-    consumer_files = ("cmake/CiPreflight.cmake", "cmake/CiJobBudgets.cmake", "cmake/CiJobBudgets.json",
+    consumer_files = ("CMakePresets.json", "cmake/CiPreflight.cmake", "cmake/CiJobBudgets.cmake", "cmake/CiJobBudgets.json",
                       ".github/workflows/ci.yml", "tests/gates/final_diagnostic_proof.cmake")
     for path in consumer_files:
         shutil.copy2(root / path, collector_source / path)
@@ -198,7 +198,7 @@ def main():
         directory = out / label
         directory.mkdir()
         documents = {"run": run_doc or run, "jobs": job_doc or jobs, "local_proof": local_doc or local}
-        options = dict(source_root=source, reviewed_head=reviewed, synthetic_controls=synthetic, output=output or directory / "receipt.json", **(log_paths or paths))
+        options = dict(source_root=source, reviewed_head=reviewed, stage="pre-admission", synthetic_controls=synthetic, output=output or directory / "receipt.json", **(log_paths or paths))
         for name, doc in documents.items():
             path = directory / (name + ".json")
             path.write_text(json.dumps(doc))
@@ -227,7 +227,7 @@ def main():
     collect("unmarked-source", source=root, expected="marked disposable build tree")
     collect("unmarked-output", output=out.parent / (out.name + "-outside.json"), expected="marked disposable build tree")
     outside_logs = dict(paths, linux_arm_log=root / "scripts/collect-hosted-proof.py")
-    collect("outside-log", log_paths=outside_logs, expected="inputs must stay")
+    collect("outside-log", log_paths=outside_logs, expected="paths must stay")
     # No untagged test documents are written outside their marked scope. Probe
     # the live context boundary directly to isolate each path's ancestry.
     plain = out.parent / (out.name + "-unmarked")
@@ -295,7 +295,7 @@ def main():
     swapped = dict(paths)
     swapped["linux_arm_log"], swapped["linux_thumb_log"] = swapped["linux_thumb_log"], swapped["linux_arm_log"]
     collect("swapped-groups", log_paths=swapped, expected="log live run/job context mismatch")
-    collect("synthetic-live-refusal", synthetic=False, expected="synthetic controls require explicit")
+    collect("synthetic-live-refusal", synthetic=False, expected="synthetic context cannot collect live evidence")
     (out / "RESULTS.json").write_text(json.dumps(dict(synthetic_control=True, passed=True, elapsed_seconds=time.monotonic() - started), indent=2) + "\n")
     print("Local source/collector controls passed; no hosted qualification.")
 

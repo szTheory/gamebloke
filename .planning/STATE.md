@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan24 active; Plan23 admitted execution and independent review complete
-stopped_at: Plan24 local implementation next; no further hosted attempt authorized by exhausted renewal
-last_updated: "2026-11-14T05:49:18.690Z"
+status: Plan24 local candidate reviewed clean; final hosted gate pending; remaining local Phase5 checks next
+stopped_at: Continue remaining authorized local Phase5 integration; Plan24/25 completion waits final exact-head hosted gate
+last_updated: "2026-11-14T06:35:01.543Z"
 last_activity: 2026-11-14
-last_activity_desc: Complete admitted diagnostics, exact inventories and refusal controls pass; reviewed source bindings committed; required preset switch next
-state_head: bb9c24d90febaf1bd2050b1a2b4ad86049d4104e
+last_activity_desc: Required admitted presets, full-history and actual hosted-receipt path pass local checks; alias review fix clean; prepare one final reviewed head before requesting hosted authority
+state_head: aabb1e247f7b44f202a41f7267730aa51d81eaf4
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 24 of 25
-Status: Plan24 active; Plan23 admitted execution and independent review complete
-Last activity: 2026-11-14 — Complete admitted diagnostics, exact inventories and refusal controls pass; reviewed source bindings committed; required preset switch next
+Status: Plan24 local candidate reviewed clean; final hosted gate pending; remaining local Phase5 checks next
+Last activity: 2026-11-14 — Required admitted presets, full-history and actual hosted-receipt path pass local checks; alias review fix clean; prepare one final reviewed head before requesting hosted authority
 
 Progress: [███████░░░] 67%
 
@@ -303,5 +303,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Plan24 local implementation next; no further hosted attempt authorized by exhausted renewal
+Stopped at: Continue remaining authorized local Phase5 integration; Plan24/25 completion waits final exact-head hosted gate
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

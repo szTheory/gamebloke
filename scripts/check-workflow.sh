@@ -34,6 +34,8 @@
 #                                            pull-requests: read (or `{}`)
 #   workflow: missing-ci-yml                 no argument given and .github/workflows/ci.yml is absent
 #   workflow: persist-credentials: <line>    checkout without persist-credentials: false
+#   workflow: full-history-required: <job>  admitted build/ASan/diagnostics checkout without fetch-depth: 0
+#   workflow: junit-only-upload: <job>      upload path outside the existing native/ASan JUnit document
 #   workflow: continue-on-error: <line>      continue-on-error anywhere
 #   workflow: no-jobs                        no job found (an unreadable shape fails closed)
 #   workflow: ok (<f> files, <n> jobs)       nothing found
@@ -230,6 +232,7 @@ BEGIN {
     sub(/^run:[ \t]*/, "", rv)
     nruns++; rl_val[nruns] = rv; rl_blk[nruns] = 0; rl_job[nruns] = job; rl_line[nruns] = n
   }
+  linejob[n] = job
 }
 
 END {
@@ -289,10 +292,33 @@ END {
     }
     e0 = i
     while (e0 < nl && ind_of[lv[e0 + 1]] > D) e0++
-    ok = 0
+    ok = 0; full = 0
     for (k = s0; k <= e0; k++)
       if (kwd[lv[k]] ~ /^persist-credentials:[ \t]*["\047]?false["\047]?$/) ok = 1
+    for (k = s0; k <= e0; k++)
+      if (kwd[lv[k]] ~ /^fetch-depth:[ \t]*0$/) full++
     if (!ok) report("workflow: persist-credentials: " ln)
+    j = linejob[ln]
+    if (strict && (j == "build" || j == "asan" || j == "diagnostics") && full != 1)
+      report("workflow: full-history-required: " j)
+  }
+
+  # Failure diagnostics may upload only the existing lane JUnit document.
+  for (i = 1; i <= nl; i++) {
+    ln = lv[i]
+    if (kwd[ln] !~ /^uses:[ \t]*actions\/upload-artifact@/) continue
+    j = linejob[ln]
+    if (dsh[ln]) D = ind_of[ln]; else D = kin[ln] - 2
+    e0 = i
+    while (e0 < nl && ind_of[lv[e0 + 1]] > D) e0++
+    ok = 0
+    for (k = i; k <= e0; k++) {
+      if (kwd[lv[k]] !~ /^path:/) continue
+      if ((j == "build" && kwd[lv[k]] == "path: build/ci/junit.xml") ||
+          (j == "asan" && kwd[lv[k]] == "path: build/asan/junit.xml")) ok++
+      else if (strict) report("workflow: junit-only-upload: " j)
+    }
+    if (strict && ok != 1) report("workflow: junit-only-upload: " j)
   }
 
   print "JOBS " njobs + 0

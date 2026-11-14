@@ -30,6 +30,14 @@ control(duplicate-job "  asan:\n" "  asan:\n  asan:\n" "workflow-job-set-mismatc
 control(wrong-timeout [=[timeout-minutes: ${{ matrix.minutes }}]=] "timeout-minutes: 5" "workflow-job-timeout-mismatch")
 control(wrong-pin "GBL_PRODUCER_HEAD: 85c361edfd6b56640e68e64c5e32527f85408836"
   "GBL_PRODUCER_HEAD: c3d0000000000000000000000000000000000000" "workflow-producer-pin-mismatch")
+control(shallow-checkouts "fetch-depth: 0" "fetch-depth: 1" "workflow-full-history-required")
+control(missing-history "          fetch-depth: 0\n" "" "workflow-full-history-required")
+execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
+  "-DBIN=${BIN}/admission" -P "${SRC}/tests/ci/admission_cases.cmake"
+  RESULT_VARIABLE admission_rc OUTPUT_VARIABLE admission_out ERROR_VARIABLE admission_err)
+if(NOT admission_rc STREQUAL "0")
+  message(FATAL_ERROR "ci-preflight-controls: admission-controls-failed:${admission_out}${admission_err}")
+endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" -E env GBL_PRODUCER_HEAD=wrong
   "${CMAKE_COMMAND}" "-DSRC=${SRC}" -P "${SRC}/cmake/CiPreflight.cmake"
   RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
@@ -37,3 +45,16 @@ if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "producer-pin-mismatch")
   message(FATAL_ERROR "ci-preflight-controls: missing-env-pin-refusal")
 endif()
 message(STATUS "ci-preflight-controls: exact workflow and source-binding refusals passed")
+foreach(lane IN ITEMS ci asan diagnostics)
+  set(ci false)
+  if(NOT lane STREQUAL "diagnostics")
+    set(ci true)
+  endif()
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E env "CI=${ci}" "${CMAKE_COMMAND}"
+    "-DSRC=${SRC}" "-DGBL_LANE=${lane}" -DGBL_DIAGNOSTIC_STAGE=proof
+    -P "${SRC}/cmake/CiPreflight.cmake"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "required-proof-stage-forbidden")
+    message(FATAL_ERROR "ci-preflight-controls: required-proof-escape:${lane}:${output}${error}")
+  endif()
+endforeach()
