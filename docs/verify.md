@@ -8,6 +8,49 @@ cmake --workflow --preset ci
 
 CI runs the same command. The workflow adds only routing around it.
 
+For a cheap consistency check before a longer run:
+
+```sh
+cmake -P cmake/CiPreflight.cmake
+```
+
+Every canonical configure runs this check before compiler discovery. It reconciles
+the seven workflow definitions (11 expanded required jobs), their stable names,
+platform/group routing and exact budgets with `cmake/CiJobBudgets.json`. Only
+`build (macos-26, cc, AppleClang)` and `diagnostics (darwin-arm64, arm)` have
+300-second budgets; all other required jobs retain 180 seconds. The existing
+CI routing test includes missing/misbound-budget, renamed/duplicate-job and
+source-pin refusal controls. This preflight does not substitute for the workflow.
+
+The pre-admission producer pin remains
+`85c361edfd6b56640e68e64c5e32527f85408836`, with input digest
+`95d1b9c7f8c580c37a0051efb54424d40d7c50a57d2774c33512001f31331d43`.
+Preflight verifies the exact current input digest. Full-history checkouts also
+verify pinned ancestry and every listed input's bytes and executable mode through
+`gbl_check_diagnostic_authority`. Shallow native/sanitizer/hygiene metadata
+checkouts report explicitly that ancestry/modes were not checked. Required
+diagnostic lanes (or `-DREQUIRE_AUTHORITY=ON` in the standalone command) refuse
+missing history before compilation.
+
+`scripts/collect-hosted-proof.py` is the promoted project-authored local collector,
+using only the local Python standard library. CI and the emulator gain no Python
+dependency. Supply `--reviewed-head` with the actual run/current checkout HEAD;
+the immutable producer authority comes from the budget policy. The collector
+requires all 11 live jobs to be green at that run/HEAD within their exact budgets,
+then binds four distinct observed log witnesses to their run/host/group and the
+producer pin. Run the committed `final-hosted-proof` CMake validator afterward.
+Its outer receipt binds `reviewed_head`; existing local receipts retain their
+actual producer `source_head`. A consumer-only descendant may reuse unchanged
+producer proof after bytes/modes/ancestry verification; it does not relabel an old
+receipt as evidence for a new producer. Changed producer inputs require a new
+freeze and fresh producer proof. Synthetic parser snapshots require explicit
+isolated mode, boolean tags on every input, and a marked disposable build
+tree containing source, output and all inputs/logs. Live collection refuses
+synthetic tags and marked synthetic contexts. The final CMake gate independently
+checks all four document tags.
+Internal execution and native API receipts also bind `reviewed_head` separately
+from producer `source_commit`; missing or stale consumer identities are refused.
+
 ## What the command does
 
 The `ci` workflow preset has four steps:
@@ -357,7 +400,10 @@ producer freshness. Before changing a listed producer input, including ledger
 witness state or its checker, prepare a new source-only revision. Build the full
 output set, obtain fresh complete local literal byte parity and the real hosted
 group witnesses, then re-admit exact output digests against that revision.
-Unchanged ROM bytes do not permit reusing a changed source identity's old proof.
+Unchanged ROM bytes alone do not permit reusing a changed producer identity's old
+proof. Consumer-only descendants keep the original producer pin, verify all
+listed producer bytes/modes and ancestry, and bind their actual tested HEAD
+separately as described above.
 Required admitted execution needs sufficient Git history to verify the actual
 pinned ancestor. Arrange and verify that history before hosted publication.
 

@@ -13,10 +13,74 @@ if(NOT safe_bin OR bin_root STREQUAL build_root OR
 endif()
 file(MAKE_DIRECTORY "${bin_root}")
 execute_process(COMMAND git -C "${source_root}" rev-parse HEAD
-  RESULT_VARIABLE head_rc OUTPUT_VARIABLE source_head
+  RESULT_VARIABLE head_rc OUTPUT_VARIABLE reviewed_head
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 if(NOT head_rc STREQUAL "0")
   message(FATAL_ERROR "final-proof: source-head-unavailable")
+endif()
+include("${source_root}/cmake/CiPreflight.cmake")
+include("${source_root}/cmake/CheckDiagnosticAuthority.cmake")
+gbl_ci_policy("${source_root}")
+
+function(proof_assert_live_context)
+  if(ARGC EQUAL 0)
+    return()
+  endif()
+  math(EXPR last "${ARGC}-1")
+  foreach(index RANGE 0 ${last})
+    set(path "${ARGV${index}}")
+    if(path STREQUAL "")
+      continue()
+    endif()
+    get_filename_component(absolute "${path}" ABSOLUTE)
+    file(REAL_PATH "${absolute}" resolved)
+    foreach(kind IN ITEMS absolute resolved)
+      set(cursor "${${kind}}")
+      while(TRUE)
+        set(marker "${cursor}/synthetic-control-authority.txt")
+        if(EXISTS "${marker}" OR IS_SYMLINK "${marker}")
+          message(FATAL_ERROR "final-proof: synthetic-evidence-forbidden: marked-context")
+        endif()
+        get_filename_component(parent "${cursor}" DIRECTORY)
+        if(parent STREQUAL cursor)
+          break()
+        endif()
+        set(cursor "${parent}")
+      endwhile()
+    endforeach()
+  endforeach()
+endfunction()
+
+# Receipts retain the immutable ROM producer authority. Live API evidence must
+# identify the actual reviewed/tested descendant, never relabel the local proof.
+set(source_head "${GBL_CI_PRODUCER_HEAD}")
+if(SYNTHETIC_CONTROL)
+  # Explicitly isolated parser fixtures have their own disposable Git history.
+  # They can exercise parser refusals in shallow CI, never qualify live proof.
+  file(READ "${source_root}/synthetic-control-authority.txt" marker)
+  if(NOT marker STREQUAL "gamebloke.synthetic-final-proof/1\n" OR
+     NOT source_root MATCHES "/build/" OR
+     NOT CASE MATCHES "^final-(proof-controls|hosted-proof|proof-authority-control)$")
+    message(FATAL_ERROR "final-proof: synthetic-authority-invalid")
+  endif()
+  set(source_head "${reviewed_head}")
+  if(NOT "${SYNTHETIC_PRODUCER_HEAD}" STREQUAL "")
+    # Explicit test-only source authority can precede the disposable consumer
+    # commit, exercising the same split as the real immutable producer pin.
+    string(LENGTH "${SYNTHETIC_PRODUCER_HEAD}" synthetic_pin_length)
+    if(NOT synthetic_pin_length EQUAL 40 OR NOT SYNTHETIC_PRODUCER_HEAD MATCHES "^[0-9a-f]+$")
+      message(FATAL_ERROR "final-proof: synthetic-producer-pin-invalid")
+    endif()
+    set(source_head "${SYNTHETIC_PRODUCER_HEAD}")
+    gbl_check_diagnostic_authority("${source_root}" "${source_head}")
+  endif()
+  message(STATUS "final-proof: isolated synthetic parser authority; original producer ancestry NOT checked; no hosted qualification")
+else()
+  if(CASE STREQUAL "final-hosted-proof")
+    proof_assert_live_context("${SRC}" "${source_root}" "${BIN}" "${bin_root}" "${HOSTED_RECEIPT}"
+      "${LIVE_RUN}" "${LIVE_JOBS}" "${LOCAL_RECEIPT}")
+  endif()
+  gbl_ci_preflight("${source_root}" TRUE)
 endif()
 
 if(NOT DEFINED PROOF_GROUP)
@@ -39,7 +103,7 @@ function(proof_expected)
   execute_process(COMMAND git -C "${source_root}" rev-parse HEAD
     RESULT_VARIABLE current_rc OUTPUT_VARIABLE current_head
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-  if(NOT current_rc STREQUAL "0" OR NOT current_head STREQUAL source_head)
+  if(NOT current_rc STREQUAL "0" OR NOT current_head STREQUAL reviewed_head)
     message(FATAL_ERROR "final-proof: source-authority-changed")
   endif()
   get_property(bound_sha GLOBAL PROPERTY GBL_FINAL_PROOF_MATRIX_SHA)
@@ -90,6 +154,7 @@ function(proof_expected)
 endfunction()
 
 function(proof_inputs out)
+  gbl_check_diagnostic_authority("${source_root}" "${source_head}")
   file(STRINGS "${source_root}/diagnostics/armv4t/inputs.txt" inputs)
   set(material "")
   foreach(input IN LISTS inputs)
@@ -99,15 +164,13 @@ function(proof_inputs out)
     if(IS_SYMLINK "${source_root}/${input}" OR IS_DIRECTORY "${source_root}/${input}")
       message(FATAL_ERROR "final-proof: producer-input-not-regular:${input}")
     endif()
-    execute_process(COMMAND git -C "${source_root}" diff --quiet
-      "${source_head}" -- "${input}" RESULT_VARIABLE rc)
-    if(NOT rc STREQUAL "0")
-      message(FATAL_ERROR "final-proof: dirty-producer-input:${input}")
-    endif()
     file(SHA256 "${source_root}/${input}" sha)
     string(APPEND material "${input}=${sha}\n")
   endforeach()
   string(SHA256 digest "${material}")
+  if(NOT digest STREQUAL GBL_CI_PRODUCER_INPUT)
+    message(FATAL_ERROR "final-proof: producer-input-digest-mismatch")
+  endif()
   set(${out} "${digest}" PARENT_SCOPE)
 endfunction()
 
@@ -420,12 +483,13 @@ endfunction()
 # authority before deriving the matrix or parsing complete output rows. Accepted
 # receipts still run proof_host_receipt, including every freshness/hash check.
 function(proof_source_metadata json expected_host)
-  foreach(field IN ITEMS format stage source_head host)
+  foreach(field IN ITEMS format stage source_head host source_input_sha256)
     string(JSON value_${field} GET "${json}" "${field}")
   endforeach()
   if(NOT value_format STREQUAL "gamebloke.final-diagnostic-host/1" OR
      NOT value_stage STREQUAL "pre-admission" OR
      NOT value_source_head STREQUAL source_head OR
+     NOT value_source_input_sha256 STREQUAL GBL_CI_PRODUCER_INPUT OR
      NOT value_host STREQUAL expected_host)
     message(FATAL_ERROR "final-proof: host-source-identity-mismatch")
   endif()
@@ -558,20 +622,35 @@ function(proof_epoch value out)
 endfunction()
 
 function(proof_budget started completed name)
+  gbl_ci_job_budget("${name}" limit)
   proof_epoch("${started}" start)
   proof_epoch("${completed}" finish)
   math(EXPR elapsed "${finish}-${start}")
-  if(elapsed LESS 0 OR elapsed GREATER 180)
+  if(elapsed LESS 0 OR elapsed GREATER limit)
     message(FATAL_ERROR "final-proof: required-job-over-budget:${name}:${elapsed}")
   endif()
 endfunction()
 
 if(CASE STREQUAL "final-budget-check")
-  proof_budget("${STARTED}" "${COMPLETED}" control)
+  proof_budget("${STARTED}" "${COMPLETED}" "${JOB_NAME}")
   return()
 elseif(CASE STREQUAL "final-budget-controls")
-  foreach(end IN ITEMS "2026-11-13T00:00:00Z" "2026-11-13T00:03:00Z")
-    proof_budget("2026-11-13T00:00:00Z" "${end}" boundary)
+  foreach(name IN LISTS GBL_CI_REQUIRED_JOBS)
+    gbl_ci_job_budget("${name}" limit)
+    set(end "2026-11-13T00:03:00Z")
+    if(limit EQUAL 300)
+      set(end "2026-11-13T00:05:00Z")
+    endif()
+    proof_budget("2026-11-13T00:00:00Z" "2026-11-13T00:00:00Z" "${name}")
+    proof_budget("2026-11-13T00:00:00Z" "${end}" "${name}")
+    string(REPLACE ":00Z" ":01Z" over "${end}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=final-budget-check
+      "-DSRC=${source_root}" "-DBIN=${bin_root}/refusals"
+      -DSTARTED=2026-11-13T00:00:00Z "-DCOMPLETED=${over}" "-DJOB_NAME=${name}"
+      -P "${final_proof_script}" RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "required-job-over-budget")
+      message(FATAL_ERROR "final-proof: budget-control-missed:${name}")
+    endif()
   endforeach()
   foreach(pair IN ITEMS
       "2026-11-13T00:03:01Z|required-job-over-budget"
@@ -586,12 +665,20 @@ elseif(CASE STREQUAL "final-budget-controls")
     execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=final-budget-check
       "-DSRC=${source_root}" "-DBIN=${bin_root}/refusals"
       -DSTARTED=2026-11-13T00:00:00Z "-DCOMPLETED=${end}"
+      -DJOB_NAME=changes
       -P "${final_proof_script}" RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
     if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "${reason}")
       message(FATAL_ERROR "final-proof: budget-control-missed:${end}:${output}${error}")
     endif()
   endforeach()
-  message(STATUS "final-proof: platform date and fixed180s boundary/refusal controls passed")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=final-budget-check
+    "-DSRC=${source_root}" "-DBIN=${bin_root}/refusals" -DJOB_NAME=unknown
+    -DSTARTED=2026-11-13T00:00:00Z -DCOMPLETED=2026-11-13T00:00:00Z
+    -P "${final_proof_script}" RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "unknown-required-job")
+    message(FATAL_ERROR "final-proof: unknown-job-control-missed")
+  endif()
+  message(STATUS "final-proof: exact 11-job 180/300s boundary/refusal controls passed")
   return()
 endif()
 
@@ -606,17 +693,26 @@ if(CASE STREQUAL "final-hosted-proof")
   string(JSON run_id GET "${run}" id)
   string(JSON run_status GET "${run}" status)
   string(JSON run_conclusion GET "${run}" conclusion)
-  if(NOT run_head STREQUAL source_head OR NOT run_status STREQUAL "completed" OR
+  if(NOT run_head STREQUAL reviewed_head OR NOT run_status STREQUAL "completed" OR
      NOT run_conclusion STREQUAL "success")
     message(FATAL_ERROR "final-proof: live-run-not-current-green")
   endif()
   file(READ "${LIVE_JOBS}" jobs_doc)
+  file(READ "${HOSTED_RECEIPT}" hosted)
+  file(READ "${LOCAL_RECEIPT}" local)
+  foreach(doc IN ITEMS run jobs_doc hosted local)
+    string(JSON synthetic ERROR_VARIABLE synthetic_error GET "${${doc}}" synthetic_control)
+    if(SYNTHETIC_CONTROL)
+      if(NOT synthetic_error STREQUAL "NOTFOUND" OR NOT synthetic)
+        message(FATAL_ERROR "final-proof: synthetic-context-mismatch")
+      endif()
+    elseif(synthetic_error STREQUAL "NOTFOUND" AND synthetic)
+      message(FATAL_ERROR "final-proof: synthetic-evidence-forbidden")
+    endif()
+  endforeach()
   string(JSON jobs GET "${jobs_doc}" jobs)
   string(JSON job_count LENGTH "${jobs}")
-  set(required_jobs changes hygiene title asan "CI required"
-    "build (ubuntu-26.04, gcc, GNU)" "build (macos-26, cc, AppleClang)"
-    "diagnostics (linux-x64, arm)" "diagnostics (linux-x64, thumb)"
-    "diagnostics (darwin-arm64, arm)" "diagnostics (darwin-arm64, thumb)")
+  set(required_jobs "${GBL_CI_REQUIRED_JOBS}")
   set(seen_jobs "")
   set(seen_job_ids "")
   math(EXPR last "${job_count}-1")
@@ -625,7 +721,7 @@ if(CASE STREQUAL "final-hosted-proof")
     foreach(field IN ITEMS id name run_id head_sha status conclusion started_at completed_at)
       string(JSON job_${field} GET "${job}" "${field}")
     endforeach()
-    if(NOT job_run_id STREQUAL run_id OR NOT job_head_sha STREQUAL source_head OR
+    if(NOT job_run_id STREQUAL run_id OR NOT job_head_sha STREQUAL reviewed_head OR
        NOT job_status STREQUAL "completed" OR NOT job_conclusion STREQUAL "success" OR
        NOT job_id MATCHES "^[1-9][0-9]*$" OR job_id IN_LIST seen_job_ids)
       message(FATAL_ERROR "final-proof: required-job-not-current-green:${job_name}")
@@ -642,9 +738,11 @@ if(CASE STREQUAL "final-hosted-proof")
   # Every successful path still validates the same complete authority.
   file(READ "${HOSTED_RECEIPT}" hosted)
   string(JSON hosted_run GET "${hosted}" run_id)
+  string(JSON hosted_head GET "${hosted}" reviewed_head)
   string(JSON hosts GET "${hosted}" hosts)
   string(JSON host_count LENGTH "${hosts}")
-  if(NOT hosted_run STREQUAL run_id OR NOT host_count EQUAL 4)
+  if(NOT hosted_run STREQUAL run_id OR NOT host_count EQUAL 4 OR
+     NOT hosted_head STREQUAL reviewed_head)
     message(FATAL_ERROR "final-proof: hosted-run-identity-mismatch")
   endif()
   set(seen_parts "")
@@ -730,7 +828,11 @@ if(CASE STREQUAL "final-hosted-proof")
       endif()
     endforeach()
   endforeach()
-  message(STATUS "final-proof: current complete hosted hashes and every green required job verified within 180s; hash witness is distinct from local literal cmp")
+  if(SYNTHETIC_CONTROL)
+    message(STATUS "final-proof: synthetic grouped parser proof accepted within exact job budgets; no hosted qualification")
+  else()
+    message(STATUS "final-proof: current complete hosted hashes and every green required job verified within exact job budgets; hash witness is distinct from local literal cmp")
+  endif()
   return()
 endif()
 if(CASE STREQUAL "final-scan-witness-check")
@@ -915,8 +1017,8 @@ if(CASE STREQUAL "final-proof-controls")
   synthetic_part("${x64}" thumb x64_thumb)
   synthetic_part("${mac}" arm mac_arm)
   synthetic_part("${mac}" thumb mac_thumb)
-  set(hosted "{\"synthetic_control\":true,\"run_id\":1,\"hosts\":[{\"host\":\"linux-x64\",\"group\":\"arm\",\"job_id\":8,\"proof\":${x64_arm}},{\"host\":\"linux-x64\",\"group\":\"thumb\",\"job_id\":9,\"proof\":${x64_thumb}},{\"host\":\"darwin-arm64\",\"group\":\"arm\",\"job_id\":10,\"proof\":${mac_arm}},{\"host\":\"darwin-arm64\",\"group\":\"thumb\",\"job_id\":11,\"proof\":${mac_thumb}}]}")
-  set(run "{\"synthetic_control\":true,\"head_sha\":\"${source_head}\",\"id\":1,\"status\":\"completed\",\"conclusion\":\"success\"}")
+  set(hosted "{\"synthetic_control\":true,\"reviewed_head\":\"${reviewed_head}\",\"run_id\":1,\"hosts\":[{\"host\":\"linux-x64\",\"group\":\"arm\",\"job_id\":8,\"proof\":${x64_arm}},{\"host\":\"linux-x64\",\"group\":\"thumb\",\"job_id\":9,\"proof\":${x64_thumb}},{\"host\":\"darwin-arm64\",\"group\":\"arm\",\"job_id\":10,\"proof\":${mac_arm}},{\"host\":\"darwin-arm64\",\"group\":\"thumb\",\"job_id\":11,\"proof\":${mac_thumb}}]}")
+  set(run "{\"synthetic_control\":true,\"head_sha\":\"${reviewed_head}\",\"id\":1,\"status\":\"completed\",\"conclusion\":\"success\"}")
   set(names changes hygiene title asan "CI required"
     "build (ubuntu-26.04, gcc, GNU)" "build (macos-26, cc, AppleClang)"
     "diagnostics (linux-x64, arm)" "diagnostics (linux-x64, thumb)"
@@ -928,7 +1030,7 @@ if(CASE STREQUAL "final-proof-controls")
     if(NOT job_rows STREQUAL "")
       string(APPEND job_rows ",")
     endif()
-    string(APPEND job_rows "{\"id\":${id},\"name\":\"${name}\",\"run_id\":1,\"head_sha\":\"${source_head}\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-11-13T00:00:00Z\",\"completed_at\":\"2026-11-13T00:00:01Z\"}")
+    string(APPEND job_rows "{\"id\":${id},\"name\":\"${name}\",\"run_id\":1,\"head_sha\":\"${reviewed_head}\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-11-13T00:00:00Z\",\"completed_at\":\"2026-11-13T00:00:01Z\"}")
   endforeach()
   set(jobs "{\"synthetic_control\":true,\"jobs\":[${job_rows}]}")
   function(control label receipt job_doc run_doc expected)
@@ -943,6 +1045,8 @@ if(CASE STREQUAL "final-proof-controls")
     endif()
     file(WRITE "${root}/local.json" "${control_local}\n")
     execute_process(COMMAND /usr/bin/time -p "${CMAKE_COMMAND}" -DCASE=final-hosted-proof
+      -DSYNTHETIC_CONTROL=ON
+      "-DSYNTHETIC_PRODUCER_HEAD=${source_head}"
       "-DSRC=${source_root}" "-DBIN=${root}" "-DHOSTED_RECEIPT=${root}/hosted.json"
       "-DLIVE_RUN=${root}/run.json" "-DLIVE_JOBS=${root}/jobs.json"
       "-DLOCAL_RECEIPT=${root}/local.json" -P "${source_root}/tests/gates/toolchain_spike.cmake"
@@ -993,7 +1097,7 @@ if(CASE STREQUAL "final-proof-controls")
   control(overlapping-groups "${changed}" "${jobs}" "${run}" "host-output-name-set-mismatch")
   string(JSON changed REMOVE "${hosted}" hosts 1)
   control(incomplete-union "${changed}" "${jobs}" "${run}" "hosted-run-identity-mismatch")
-  set(old "{\"run_id\":1,\"hosts\":[{\"host\":\"linux-x64\",\"job_id\":8,\"proof\":${x64}},{\"host\":\"darwin-arm64\",\"job_id\":9,\"proof\":${mac}}]}")
+  set(old "{\"synthetic_control\":true,\"reviewed_head\":\"${reviewed_head}\",\"run_id\":1,\"hosts\":[{\"host\":\"linux-x64\",\"job_id\":8,\"proof\":${x64}},{\"host\":\"darwin-arm64\",\"job_id\":9,\"proof\":${mac}}]}")
   control(old-two-job-layout "${old}" "${jobs}" "${run}" "hosted-run-identity-mismatch")
   string(JSON changed REMOVE "${hosted}" hosts 0 proof output_names 0)
   control(missing-subset-output "${changed}" "${jobs}" "${run}" "host-output-name-set-mismatch")
@@ -1009,6 +1113,8 @@ if(CASE STREQUAL "final-proof-controls")
   control(changed-local-authority "${hosted}" "${jobs}" "${run}"
     "host-source-identity-mismatch" "${changed_local}")
   execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=final-proof-authority-control
+    -DSYNTHETIC_CONTROL=ON
+    "-DSYNTHETIC_PRODUCER_HEAD=${source_head}"
     "-DSRC=${source_root}" "-DBIN=${bin_root}/authority-change"
     -P "${source_root}/tests/gates/toolchain_spike.cmake"
     RESULT_VARIABLE authority_rc OUTPUT_VARIABLE authority_out ERROR_VARIABLE authority_err)

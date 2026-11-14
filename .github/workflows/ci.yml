@@ -90,6 +90,7 @@ jobs:
           sh scripts/check-title.sh "$TITLE"
 
   build:
+    name: build (${{ matrix.runner }}, ${{ matrix.cc }}, ${{ matrix.id }})
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     strategy:
@@ -99,11 +100,13 @@ jobs:
           - runner: ubuntu-26.04
             cc: gcc
             id: GNU
+            minutes: 3
           - runner: macos-26
             cc: cc
             id: AppleClang
+            minutes: 5
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 3  # 2 x slowest of runs 42737527955#1,42737527955#2 (36s)
+    timeout-minutes: ${{ matrix.minutes }}
     env:
       CC: ${{ matrix.cc }}
       GBL_EXPECT_C_ID: ${{ matrix.id }}
@@ -150,28 +153,33 @@ jobs:
             group: arm
             cc: gcc
             id: GNU
+            minutes: 3
           - runner: macos-26
             host: darwin-arm64
             group: arm
             cc: cc
             id: AppleClang
+            minutes: 5
           - runner: ubuntu-26.04
             host: linux-x64
             group: thumb
             cc: gcc
             id: GNU
+            minutes: 3
           - runner: macos-26
             host: darwin-arm64
             group: thumb
             cc: cc
             id: AppleClang
+            minutes: 3
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 3
+    timeout-minutes: ${{ matrix.minutes }}
     env:
       CC: ${{ matrix.cc }}
       GBL_EXPECT_C_ID: ${{ matrix.id }}
       GBL_TOOLCHAIN_HOST: ${{ matrix.host }}
       GBL_PROOF_RUN_ID: ${{ github.run_id }}
+      GBL_PRODUCER_HEAD: 85c361edfd6b56640e68e64c5e32527f85408836
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

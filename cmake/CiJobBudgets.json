@@ -1,0 +1,18 @@
+{
+  "format": "gamebloke.ci-job-budgets/1",
+  "producer_head": "85c361edfd6b56640e68e64c5e32527f85408836",
+  "producer_input_sha256": "95d1b9c7f8c580c37a0051efb54424d40d7c50a57d2774c33512001f31331d43",
+  "jobs": [
+    {"name":"changes","seconds":180},
+    {"name":"hygiene","seconds":180},
+    {"name":"title","seconds":180},
+    {"name":"asan","seconds":180},
+    {"name":"CI required","seconds":180},
+    {"name":"build (ubuntu-26.04, gcc, GNU)","seconds":180},
+    {"name":"build (macos-26, cc, AppleClang)","seconds":300},
+    {"name":"diagnostics (linux-x64, arm)","seconds":180},
+    {"name":"diagnostics (linux-x64, thumb)","seconds":180},
+    {"name":"diagnostics (darwin-arm64, arm)","seconds":300},
+    {"name":"diagnostics (darwin-arm64, thumb)","seconds":180}
+  ]
+}

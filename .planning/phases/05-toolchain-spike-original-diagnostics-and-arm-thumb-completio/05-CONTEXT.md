@@ -74,3 +74,18 @@ Use the three supporting NOTES files as source-grounded inputs and canonical 05-
 
 Phase 6 owns repeat/optimization/compiler/interleave equality and pinned third-party suites. BIOS/HLE, active IRQ/timers/DMA, device scheduling, Game Pak timing/prefetch, graphics/audio, physical qualification, broad compatibility, stable package/consumer API, project licensing and releases remain their existing later scopes/gates.
 </deferred>
+
+## Later explicit owner amendments: job budget and cheap checks
+
+The owner accepted the two-job budget proposal after measured full-matrix CI:
+macOS native build and macOSARM diagnostics may use300seconds; all other nine
+required jobs retain180seconds. Every check, job, upload/right restriction and
+new-red stop remains. One additional policy-repair hosted attempt is authorized,
+with its own ledger; earlier failures/counters are preserved. See D-23 and the
+[policy record](05-23-JOB-BUDGET-POLICY.md).
+
+The owner also explicitly requested cheap consistency checks before long
+processes/suites, continued bottleneck/low-hanging-fruit review, and stepping back
+rather than repeating an ineffective approach. Preserve valid proof when its
+inputs are unchanged, and separately bind the actual consumer revision. This is
+not permission to omit a changed boundary or claim skipped checks passed.

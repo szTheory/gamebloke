@@ -112,3 +112,44 @@ per child: the same15886member count used11.60seconds userCPU versus0.10 after
 counting CMake's serialized parsed tree. Independent structural counts and
 adversarial duplicate controls guard the equivalence. Producer-input changes
 still require a new freeze and fresh proof; no historical receipt is relabelled.
+
+## Renewed hosted result: budget policy is now the concrete decision
+
+Run43549814002 passed both Linux native/ARM paths, both Thumb paths, hygiene and
+sanitizers. macOS native completed its full workflow but job status was cancelled
+at the180-second limit; macOSARM cancelled during final coverage. The required
+aggregator correctly rejected them. Preserve this distinction and the active
+stop. The next recommendation is a targeted owner-approved five-minute budget
+for only those two jobs, with matching fail-closed validator policy and controls,
+not another generic optimization cycle or unapproved timeout edit. See
+[the exact proposal](05-23-RUNTIME-RENEWAL-STOP.md).
+
+## Owner correction: put cheap consistency gates first
+
+The owner explicitly requested cheap consistency checks before long suites,
+continuous bottleneck and low-hanging-fruit review, and stepping back rather
+than repeating an ineffective approach. Record this in AGENTS and apply it to
+planning and execution. For the approved two-job budget change, first reconcile
+exact job names, matrix rows, per-job limits, collector/validator policy and
+immutable producer ancestry/digest. Only then run heavier relevant controls.
+Keep already valid ROM proof when producer bytes/modes are unchanged; bind new
+reviewed consumer HEAD separately instead of regenerating identity evidence by
+habit. This is not permission to skip a changed boundary or weaken qualification.
+
+## Make disposable test copies prove their own freshness
+
+A new ancestor-scope control initially loaded the frozen older validator from
+its disposable source copy. Compare the exact changed consumer files with the
+working candidate before running copied tests. This cheap check avoids treating
+old code as current evidence. Keep test-expectation and fixture-copy mistakes
+separate from product failures. Shared policy readers should reject common
+format drift at preflight; the budget table now uses the existing strict loader
+before a later Python consumer is involved.
+
+## Check the final Git graph before an irreversible merge
+
+The cheap merge preflight found that squash would remove the producer commit
+from main ancestry even though all input bytes/modes remain identical. A merge
+commit preserves the required guard. Keep the owner merge-method decision at
+Phase5 acceptance and do not discover this by making main red. The disposable
+probe changed no real refs or settings; current PR work can continue.

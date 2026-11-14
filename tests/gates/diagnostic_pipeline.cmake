@@ -14,11 +14,9 @@ if(NOT binary_status STREQUAL "ok" OR BIN STREQUAL "${SRC}/build")
   message(FATAL_ERROR "diagnostic-pipeline: unsafe-binary-root")
 endif()
 gbl_diagnostic_tool("${SRC}" "${TOOLCHAIN_ROOT}" "${HOST}" ON available)
-execute_process(COMMAND git -C "${SRC}" rev-parse HEAD OUTPUT_VARIABLE authority
-  OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE rc)
-if(NOT rc STREQUAL "0")
-  message(FATAL_ERROR "diagnostic-pipeline: source-authority-unavailable")
-endif()
+include("${SRC}/cmake/CiJobBudgets.cmake")
+gbl_ci_policy("${SRC}")
+set(authority "${GBL_CI_PRODUCER_HEAD}")
 gbl_check_diagnostic_authority("${SRC}" "${authority}")
 # Reuse the real aggregate builder's validated parent identity, never manufacture
 # its receipt. This avoids repeating the full ledger audit for each instrumented

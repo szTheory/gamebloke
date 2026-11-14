@@ -24,6 +24,7 @@ if(NOT DEFINED CASE OR NOT DEFINED SRC)
 endif()
 
 function(check_diagnostic_groups text)
+  include("${SRC}/cmake/CiPreflight.cmake")
   string(REGEX MATCHALL "- runner: [^\n]+\n            host: [^\n]+\n            group: [^\n]+\n            cc: [^\n]+\n            id: [^\n]+" rows "${text}")
   list(SORT rows)
   set(expected "")
@@ -54,6 +55,15 @@ if(CASE STREQUAL "diagnostic-route-control")
 endif()
 
 function(check_diagnostics_route source_root)
+  include("${source_root}/cmake/CiPreflight.cmake")
+  gbl_ci_workflow("${source_root}" "${source_root}/.github/workflows/ci.yml")
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
+    "-DBIN=${source_root}/build/phase05-spike/ci-preflight-controls"
+    -P "${source_root}/tests/ci/preflight_cases.cmake"
+    RESULT_VARIABLE preflight_rc OUTPUT_VARIABLE preflight_out ERROR_VARIABLE preflight_err)
+  if(NOT preflight_rc STREQUAL "0")
+    message(FATAL_ERROR "ci-routing: budget-preflight-controls-failed:${preflight_out}${preflight_err}")
+  endif()
   set(workflow_file "${source_root}/.github/workflows/ci.yml")
   if(NOT EXISTS "${workflow_file}")
     message(FATAL_ERROR "ci-routing: ci-workflow-missing")
@@ -80,7 +90,7 @@ function(check_diagnostics_route source_root)
   foreach(expected IN ITEMS
       "runner: ubuntu-26.04" "host: linux-x64"
       "runner: macos-26" "host: darwin-arm64"
-      "timeout-minutes: 3" "fetch-depth: 0"
+      [=[timeout-minutes: ${{ matrix.minutes }}]=] "fetch-depth: 0"
       "persist-credentials: false"
       [=[ref: ${{ github.event.pull_request.head.sha || github.sha }}]=]
       "sh scripts/fetch-toolchain.sh"

@@ -73,6 +73,12 @@ approval requests.
   Maintain one canonical local command aligned with the fast required CI path.
   Give important gates a meaningful negative control; missing and skipped
   checks must be visible.
+- Put cheap, deterministic consistency and dependency checks before long suites
+  when they can reject a known failure early. Check final-scale bottlenecks,
+  shared policy fields, evidence bindings and actual changed inputs before
+  repeating expensive work. Step back when progress stalls, choose the least
+  disruptive measured remedy, and record the lesson. Preserve valid evidence
+  when its inputs are unchanged; do not repeat a whole matrix by habit.
 - Use deterministic, timed input and fresh machine state. Keep guest progress,
   emulated time, logical input, raw video, raw audio, and host presentation as
   separate observations. Assert semantic guest behavior alongside byte-level

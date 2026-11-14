@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
+# Reject cheap policy/input inconsistencies before compiler discovery or builds.
+include(cmake/CiPreflight.cmake)
+set(gbl_require_source_authority FALSE)
+if(GBL_LANE STREQUAL "diagnostics" OR GBL_REQUIRE_DIAGNOSTICS)
+  set(gbl_require_source_authority TRUE)
+endif()
+gbl_ci_preflight("${CMAKE_CURRENT_SOURCE_DIR}" "${gbl_require_source_authority}")
 project(gamebloke VERSION 0.0.0 LANGUAGES C)
 
 # Compiler identity guard. CI sets GBL_EXPECT_C_ID (GNU, Clang, AppleClang) so

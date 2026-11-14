@@ -20,7 +20,7 @@ Existing CTest/C17 assertion harness, strict CMake validators, POSIX controls, s
 | Full command | cmake --workflow --preset ci |
 | Sanitizers | Existing fresh AppleClang compiler override locally; canonical Linux clang-21 asan workflow in hosted CI. |
 | Measured baseline | Final Phase 4 main jobs: macOS140s, Linux129s, ASan119s, hygiene48s. These are not Phase 5 measurements. |
-| Resource limit | Existing hosted job timeouts remain180s; spike measures tool install/build separately before CI placement. |
+| Resource limit | Owner-amended job budgets:300s only for macOS native build and macOSARM diagnostics,180s for the other jobs; cheap policy/source preflight precedes long verification. Historical spike measurements remain historical. |
 
 ## Sampling Rate
 
@@ -89,7 +89,7 @@ All25 plans/50 tasks are mapped below. The extra sanitizer/GNU command rows belo
 
 Existing paths/targets were grounded through git ls-files and current CMake source: cmake, cpu_test, runner_test, gamebloke-run, canonical ci/asan workflows, runner/profile/manifest/result gates, inventory/JUnit and linux-lane. Prior configured verification commands are inherited; the obsolete raw early Phase4 compile that omitted inspect.c is deliberately not used. New files/flags/selectors are exact deliverables above, never assumed current pass evidence. All commands execute from repository root and each PLAN automated element has an immediately adjacent fails_when.
 
-Task01 real fetch is timed once and runs in background; verification then checks installed binaries/receipts. Task02/03 own initial actual architecture/map/scan/parity and measured CI placement. Task21 repeats exact final output-set comparisons and hosted output identity before final admission, reusing verified tools. Hosted x64 hash receipts and literal local macOS/Linux-arm64 cmp are labeled distinctly. Mismatched output uses the explicit logged Linux-owner/host-row fallback. Any hosted red stops before fixes/retry and all jobs retain180s.
+Task01 real fetch is timed once and runs in background; verification then checks installed binaries/receipts. Task02/03 own initial actual architecture/map/scan/parity and measured CI placement. Task21 repeats exact final output-set comparisons and hosted output identity before final admission, reusing verified tools. Hosted x64 hash receipts and literal local macOS/Linux-arm64 cmp are labeled distinctly. Mismatched output uses the explicit logged Linux-owner/host-row fallback. Any hosted red stops before fixes/retry and every job retains its exact owner-approved180/300s budget.
 
 CPU selectors are added inside their owning native tracer before use, then the complete selector set/semantic mutants reach canonical lanes through Plans22–23. Each positive semantic fixture and broken expected assertion is a real production PASS/GUEST_FAIL pair with exact ID. Guest SWI/UND/absent-coprocessor images are separately admitted named GUEST_STOP witnesses; IRQ-between-BL is a real unmasked CPU API witness. No absent BIOS handler continuation is claimed.
 

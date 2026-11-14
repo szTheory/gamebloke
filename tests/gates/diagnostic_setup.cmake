@@ -31,8 +31,15 @@ execute_process(COMMAND git -C "${SRC}" rev-parse HEAD
 if(NOT rc STREQUAL "0")
   message(FATAL_ERROR "diagnostic-setup: source-authority-unavailable")
 endif()
+set(reviewed_head "${authority}")
+if(STAGE STREQUAL "proof")
+  include("${SRC}/cmake/CiJobBudgets.cmake")
+  gbl_ci_policy("${SRC}")
+  set(authority "${GBL_CI_PRODUCER_HEAD}")
+endif()
 set(identity "{}")
 foreach(pair IN ITEMS "token|${TOKEN}" "stage|${STAGE}" "group|${GROUP}"
+    "reviewed_head|${reviewed_head}"
     "manifest_sha256|${manifest_sha}" "source_input_sha256|${inputs_sha}"
     "runner_sha256|${runner_sha}" "native_sha256|${native_sha}" "source_commit|${authority}")
   string(REPLACE "|" ";" pair "${pair}")
@@ -65,6 +72,7 @@ if(NOT STAGE MATCHES "^(proof|admitted)$")
 endif()
 
 if(TRACER)
+  gbl_check_diagnostic_authority("${SRC}" "${authority}")
   if(NOT STAGE STREQUAL "proof")
     message(FATAL_ERROR "diagnostic-setup: tracer-is-not-admitted-evidence")
   endif()
