@@ -18,7 +18,9 @@ Every canonical configure runs this check before compiler discovery. It reconcil
 the seven workflow definitions (11 expanded required jobs), their stable names,
 platform/group routing and exact budgets with `cmake/CiJobBudgets.json`. Only
 `build (macos-26, cc, AppleClang)` and `diagnostics (darwin-arm64, arm)` have
-300-second budgets; all other required jobs retain 180 seconds. The existing
+300-second budgets. `build (ubuntu-26.04, gcc, GNU)` has a 240-second budget;
+the other eight required jobs retain 180 seconds. These whole-job allowances
+include setup and cleanup; they are not emulator performance targets. The existing
 CI routing test includes missing/misbound-budget, renamed/duplicate-job and
 source-pin refusal controls. It also checks explicit admitted stages for all five
 required presets and full-history checkout configuration for build, ASan and

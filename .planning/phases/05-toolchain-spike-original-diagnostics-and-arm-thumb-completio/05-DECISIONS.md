@@ -56,3 +56,22 @@ producer pin and actual reviewed/tested consumer HEAD must remain distinct.
 ## D-25: Prepare one final local candidate before renewing hosted authority
 
 Routine execution sequencing under the owner's cheap-first/keep-moving instruction: after reviewed Plan24 local implementation, perform the independently runnable Plan25 local integration and audits before requesting the next exact-head hosted attempt. Plan24 and Plan25 keep their hosted completion gates pending; no summary or shared requirement becomes complete early. Do not publish an intermediate Plan24 revision merely to create a second avoidable final run. The one prior renewed hosted attempt is consumed successfully and grants no further attempt. Parent owns any later concrete authority request and the Phase5 acceptance/merge-provenance boundary. No producer, evidence, gate, scope or authority is weakened.
+
+
+## D-26: Owner-approved Linux native timing allowance
+
+After metadata-triggered run43620253799, the owner approved raising only
+`build (ubuntu-26.04, gcc, GNU)` from180 to240seconds and one corrective hosted
+run after reviewed local checks. The same source had finished that job in168s
+on the preceding green run; the new184s cancelled job had passed all tests and
+strict post inventory. This changes a maximum allowance, not emulator speed or
+a correctness gate. The two existing macOS300second exceptions remain; the
+other eight jobs retain180seconds. See05-FINAL-METADATA-STOP.md for the evidence.
+
+The renewed attempt is separate from exhausted historical ledgers. Only after
+new actual admitted green may the original unused final-records publication
+resume. No new PR metadata edit is needed. Any new hosted red stops before
+fixes/retry. Producer85c/input95, fixtures, actions, permissions and required
+checks remain unchanged. No merge, release, private content or Phase6 authority
+is added. Historical plan timing clauses remain records of their authored
+policy; D-26 governs remaining Phase5 execution.

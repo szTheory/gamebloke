@@ -72,7 +72,7 @@ function(gbl_ci_workflow source workflow)
     message(FATAL_ERROR "ci-preflight: workflow-job-set-mismatch")
   endif()
   set(expected_rows
-    "build|runner=ubuntu-26.04,cc=gcc,id=GNU,minutes=3"
+    "build|runner=ubuntu-26.04,cc=gcc,id=GNU,minutes=4"
     "build|runner=macos-26,cc=cc,id=AppleClang,minutes=5"
     "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=arm,cc=gcc,id=GNU,minutes=3"
     "diagnostics|runner=macos-26,host=darwin-arm64,group=arm,cc=cc,id=AppleClang,minutes=5"

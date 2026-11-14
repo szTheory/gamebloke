@@ -100,7 +100,7 @@ jobs:
           - runner: ubuntu-26.04
             cc: gcc
             id: GNU
-            minutes: 3
+            minutes: 4
           - runner: macos-26
             cc: cc
             id: AppleClang

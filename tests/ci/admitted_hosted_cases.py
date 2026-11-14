@@ -45,7 +45,8 @@ def main():
     pin = policy["producer_head"]
     source = out / "source"
     subprocess.run(["git", "clone", "--quiet", "--no-local", str(root), str(source)], check=True)
-    for path in ("CMakePresets.json", "cmake/CiPreflight.cmake", "scripts/collect-hosted-proof.py",
+    for path in ("CMakePresets.json", "cmake/CiPreflight.cmake",
+                 "cmake/CiJobBudgets.cmake", "cmake/CiJobBudgets.json", "scripts/collect-hosted-proof.py",
                  "tests/gates/final_diagnostic_proof.cmake", "tests/gates/admitted_hosted_proof.cmake",
                  ".github/workflows/ci.yml"):
         shutil.copy2(root / path, source / path)

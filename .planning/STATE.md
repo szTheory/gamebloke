@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Bounded consumer repair independently reviewed; preparing the single renewed hosted attempt
-stopped_at: Publish one frozen repair candidate under renewed approval; stop on any hosted red; remaining metadata/records events only after green
-last_updated: "2026-11-14T17:09:32.558Z"
+status: Owner approved Linux native240second cap and one corrective hosted run; local policy checks active
+stopped_at: Complete local policy verification/review, use one corrective run, resume unused records event only after green; stop again on red
+last_updated: "2026-11-14T17:30:12.539Z"
 last_activity: 2026-11-14
-last_activity_desc: Cold smoke dependency and duplicate index parse repaired; graph warning closed; temporary routing restored; hosted qualification pending
-state_head: 6211cb564e13a4501594071bdc31027841260c9d
+last_activity_desc: Exact one-job budget policy and mirrored controls updated; unchanged producer proof preserved; no hosted attempt used
+state_head: 2fb31ffbb36111d3b90e7b48bcc40779dd18f712
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 24 of 25
-Status: Bounded consumer repair independently reviewed; preparing the single renewed hosted attempt
-Last activity: 2026-11-14 — Cold smoke dependency and duplicate index parse repaired; graph warning closed; temporary routing restored; hosted qualification pending
+Status: Owner approved Linux native240second cap and one corrective hosted run; local policy checks active
+Last activity: 2026-11-14 — Exact one-job budget policy and mirrored controls updated; unchanged producer proof preserved; no hosted attempt used
 
 Progress: [███████░░░] 67%
 
@@ -303,5 +303,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Publish one frozen repair candidate under renewed approval; stop on any hosted red; remaining metadata/records events only after green
+Stopped at: Complete local policy verification/review, use one corrective run, resume unused records event only after green; stop again on red
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

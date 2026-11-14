@@ -27,6 +27,8 @@ function(gbl_ci_policy source)
     if(name STREQUAL "build (macos-26, cc, AppleClang)" OR
        name STREQUAL "diagnostics (darwin-arm64, arm)")
       set(approved 300)
+    elseif(name STREQUAL "build (ubuntu-26.04, gcc, GNU)")
+      set(approved 240)
     endif()
     if(NOT name IN_LIST expected OR name IN_LIST seen OR NOT seconds STREQUAL approved OR
        NOT seconds_type STREQUAL "NUMBER")

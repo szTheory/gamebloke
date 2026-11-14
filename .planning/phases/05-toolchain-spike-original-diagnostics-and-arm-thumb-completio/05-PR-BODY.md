@@ -12,9 +12,10 @@ The core keeps deterministic project policies and BIOS-none stops explicit. Host
 
 ## Evidence
 
-- **Before:** full corpus admission, installed semantic coverage and safe local source export were missing; admitted setup could capture a stale runner hash.
-  **After:** complete admitted execution and refusal controls pass, moved installed runners match exact JSON/trace, and a recurring offline regression checks source privacy, history, modes and signal cleanup.
+- **Before:** full corpus admission and installed semantic coverage were missing; warm outputs hid a broken cold smoke dependency, and admitted setup could capture a stale runner hash.
+  **After:** complete admitted execution and refusal controls pass, moved installed runners match exact JSON/trace, and cheap registration/build-graph checks reject bad smoke dependencies before corpus work. Index generation shares current validated rows while preserving all identity and refusal checks.
 - Fresh native CI, macOS ASan/UBSan, Linux GNU/Clang, zero-skip required diagnostics, map/signature checks and independent local reviews pass. Native optional-tool skips remain explicit.
+- [The reviewed consumer run](https://github.com/szTheory/gamebloke/actions/runs/43619661985) passed all required jobs within existing limits; the actual admitted guest/API sets and current source/output identities were validated from its logs and API records. This is evidence for that tested head, not a guarantee of future runtime.
 - Producer identity, local literal comparisons, hosted hash witnesses and actual execution receipts retain separate meanings. See the [verification guide](https://github.com/szTheory/gamebloke/blob/gsd/phase-05-toolchain-spike-original-diagnostics-and-arm-thumb-completion/docs/verify.md) and [evidence limits](https://github.com/szTheory/gamebloke/blob/gsd/phase-05-toolchain-spike-original-diagnostics-and-arm-thumb-completion/docs/evidence-contract.md).
 
 ## Merge Danger

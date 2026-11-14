@@ -53,6 +53,9 @@ def main():
     for label, change, reason in (
         ("raised-policy", lambda doc: doc["jobs"][0].update(seconds=300), "unauthorized-job-budget"),
         ("typed-policy", lambda doc: doc["jobs"][0].update(seconds="180"), "unauthorized-job-budget"),
+        ("raised-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=300), "unauthorized-job-budget"),
+        ("old-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=180), "unauthorized-job-budget"),
+        ("typed-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds="240"), "unauthorized-job-budget"),
         ("duplicate-policy", lambda doc: doc["jobs"][0].update(name="title"), "unauthorized-job-budget"),
         ("historical-policy", lambda doc: doc.update(producer_head="c3af6debd2f162c8eb91dc96906cf6f6a5ed5d16"), "policy-authority-mismatch")):
         changed = copy.deepcopy(policy)
