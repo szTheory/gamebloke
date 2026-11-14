@@ -187,7 +187,6 @@ endif()
 # dispute propagation; they do not approve any real input for redistribution.
 gbl_contract_read(V "${GBL_VOCAB}")
 gbl_registry_read(R "${GBL_REGISTRY}" V)
-gbl_manifest_read(M "${GBL_MANIFEST}" R V)
 gbl_manifest_read(C "${control_manifest_path}" R V)
 get_property(findings GLOBAL PROPERTY GBL_FINDINGS)
 if(findings GREATER 0)
@@ -229,6 +228,19 @@ foreach(control_check IN LISTS control_checks)
     endif()
   endif()
 endforeach()
+
+# A known invalid synthetic image cannot produce an index. Refuse it before
+# loading the large independent production authority; every successful path
+# still runs the identical canonical validator before any header write.
+get_property(findings GLOBAL PROPERTY GBL_FINDINGS)
+if(findings GREATER 0)
+  message(FATAL_ERROR "fixture-index: validation failed (${findings} findings)")
+endif()
+gbl_manifest_read(M "${GBL_MANIFEST}" R V)
+get_property(findings GLOBAL PROPERTY GBL_FINDINGS)
+if(findings GREATER 0)
+  message(FATAL_ERROR "fixture-index: validation failed (${findings} findings)")
+endif()
 
 # For canonical in-tree rows, verify that the manifest digest still identifies
 # bytes at its validated source path. For git artifacts, validate a present file

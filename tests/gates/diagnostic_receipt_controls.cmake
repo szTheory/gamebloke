@@ -168,4 +168,13 @@ if(GBL_DIAG_APIS)
   endif()
 endif()
 run_control(clean-after clean -DCASE=case "-DFIXTURE=${fid}")
+foreach(control IN ITEMS manifest registry vocab symlink)
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
+    "-DCONTROL=${control}" "-DCONTROL_ROOT=${BIN}/diagnostic-authority-controls/${control}"
+    -P "${SRC}/tests/gates/diagnostic_result_authority.cmake"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "diagnostic-authority: changed:")
+    message(FATAL_ERROR "diagnostic-receipt-control: changed-authority-not-refused:${control}:${output}${error}")
+  endif()
+endforeach()
 message(STATUS "diagnostic-receipt-control: real clean companions and exact ID/mailbox/source/token/byte/set/skip/stage/native refusals passed")

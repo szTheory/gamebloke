@@ -89,3 +89,14 @@ changes. The reviewer withdrew the warning; no snapshot redesign was needed.
 Check actual field definitions and reproduce the proposed failure before adding
 an abstraction or extra allocations in response to a review claim. Keep false
 findings distinct from defects that were fixed.
+
+## New hosted runtime stop after complete local proof
+
+The Plan23 source freeze passed ten local lanes and complete literal ROM parity,
+but fresh hosted native builds and ARM groups hit the180-second cap. Historical
+runner overhead plus local timing did not predict current hosted costs closely
+enough. Preserve the resulting stop, measure actual current hosted setup/build/
+test costs, and target proven duplicate verification work at final fixture scale.
+Local Linux ARM64 timing and Darwin portability lanes cannot qualify hosted
+Ubuntu-x64 budgets. Do not turn a timeout into another unchanged retry or larger
+cap. See [the concrete stop and recovery proposal](05-23-HOSTED-STOP.md).

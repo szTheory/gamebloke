@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan23 reviewed JSON refusal optimization; replacement source freeze and complete proof next
-stopped_at: Plan22 complete; continue Plan23 diagnostic inventories and dependency controls
-last_updated: "2026-11-13T23:50:04.364Z"
+status: Plan23 bounded verification-performance repair authorized; one hosted attempt remains
+stopped_at: Plan23 performance repair active; no readmission yet; parent owns one hosted attempt
+last_updated: "2026-11-14T01:03:33.823Z"
 last_activity: 2026-11-13
-last_activity_desc: Partial Darwin proof preserved; measured native budget risk addressed without changing accepted JSON or caps; new proof pending
-state_head: d128c4048f3ec5d399ef3c20eae03c8a0e2f3d3e
+last_activity_desc: Owner renewed one performance repair cycle and one hosted attempt; preserve every check and180-second caps
+state_head: 5b71c0ace49c2e91ea5d09ac076bf1c97b332663
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 23 of 25
-Status: Plan23 reviewed JSON refusal optimization; replacement source freeze and complete proof next
-Last activity: 2026-11-13 — Partial Darwin proof preserved; measured native budget risk addressed without changing accepted JSON or caps; new proof pending
+Status: Plan23 bounded verification-performance repair authorized; one hosted attempt remains
+Last activity: 2026-11-13 — Owner renewed one performance repair cycle and one hosted attempt; preserve every check and180-second caps
 
 Progress: [███████░░░] 67%
 
@@ -267,6 +267,8 @@ None yet.
 
 ### Blockers/Concerns
 
+- Phase5 Plan23 hosted run43537187982 timed out in both native builds and ARM groups. Owner renewed the proposed bounded performance repair and one fresh hosted attempt; that attempt remains unused. All checks and180-second caps stay fixed. Any new hosted red renews the stop; see [evidence and authorized recovery scope](phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-23-HOSTED-STOP.md). Agent continues; no owner action currently needed.
+
 - Phase 05 Plan 05's earlier hosted failure (run 43115640150) was fixed and superseded by fully green hosted run 43126123712 at source commit `4857ddc9c6ecaef61644fa4cf6286e7951e3bff4`. The measured smoke pair is admitted locally; root owns any future publication or hosted monitoring. A future new red hosted run renews the stop.
 
 - Phase 4 is accepted and squash-merged through PR #7. Final required CI and main CI passed. Phase 5 Plan 03's bounded hosted witness is green; remaining phase-wide diagnostics and admission criteria still apply before any ROM digest admission. No rights/qualification limit is waived.
@@ -296,5 +298,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Plan22 complete; continue Plan23 diagnostic inventories and dependency controls
+Stopped at: Plan23 performance repair active; no readmission yet; parent owns one hosted attempt
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

@@ -139,11 +139,8 @@ if(CASE MATCHES "^(arm|thumb)-pre-admission$")
   set(result_root "${binary_root}/diagnostics-results/${diagnostic_isa}-pre-admission")
   file(REMOVE_RECURSE "${result_root}")
   file(MAKE_DIRECTORY "${result_root}")
-  include("${source_root}/cmake/CheckResult.cmake")
-  gbl_contract_read(V "${source_root}/contracts/evidence.json")
-  gbl_registry_read(R "${source_root}/registry/disputes.json" V)
-  gbl_manifest_read(M "${source_root}/tests/fixtures/manifest.json" R V)
-  gbl_findings_finish(result "arm pre-admission authorities valid")
+  include("${source_root}/tests/gates/diagnostic_result_authority.cmake")
+  gbl_diagnostic_result_authority("${source_root}")
 
   # BL state is exposed by actual guest data reads after stores. Bus write
   # trace values describe bus return values and are never used as stored data.
@@ -840,6 +837,7 @@ if(CASE MATCHES "^(arm|thumb)-pre-admission$")
   endif()
   file(WRITE "${result_root}/summary.txt"
     "source.commit=${receipt_commit}\nsemantic.positive=${semantic_positive_count}\nsemantic.broken=${semantic_broken_count}\nstop.witnesses=${stop_witness_count}\nraw.status=GUEST_STOP\nsemantic.admission=unregistered-content\nresult.contract=unregistered-admission-refused\nraw.observation=checked\ntrace.context=checked\nvector.fetch=none\nobservation.controls=${control_count}\n")
+  gbl_diagnostic_result_authority("${source_root}")
   message("diagnostics-case: ok (${expected_semantics} raw ${diagnostic_isa} pass/fail pairs; ${expected_stops} named guest stops; all unregistered)")
   return()
 endif()
