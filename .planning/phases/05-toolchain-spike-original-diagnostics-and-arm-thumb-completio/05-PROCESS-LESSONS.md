@@ -153,3 +153,8 @@ from main ancestry even though all input bytes/modes remain identical. A merge
 commit preserves the required guard. Keep the owner merge-method decision at
 Phase5 acceptance and do not discover this by making main red. The disposable
 probe changed no real refs or settings; current PR work can continue.
+
+
+## Current hosted budget result
+
+The cheap policy/source preflight took a fraction of a second and accepted the reviewed consumer without rebuilding unchanged producer evidence. Actual hosted run43560267506 passed all11 jobs. macOS ARM remains the bottleneck at270/300seconds:243seconds workflow,153.69seconds CTest,37.29seconds final coverage. Linux ARM was92/180seconds. Use these measured stages to guide any later improvement; do not assume the timeout adjustment is a performance fix or transfer a single run into a guarantee. The readmission transaction first refused a smoke-output path mismatch before writing metadata; explicitly normalizing that existing smoke layout then verified all722 exact hashes and only permitted source/recipe fields. No expensive matrix rerun was needed for that check. See05-23-JOB-BUDGET-HOSTED.md.

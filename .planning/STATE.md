@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan23 exact job-budget policy reviewed; final cheap preflight, commit and one approved hosted attempt next
-stopped_at: Plan23 active; commit/publish targeted policy; producer-ancestry merge decision reserved for Phase5 boundary
-last_updated: "2026-11-14T05:02:21.216Z"
+status: Plan23 hosted source proof green; exact fixture metadata readmitted; production execution and review next
+stopped_at: Plan23 active; admitted integration and review next; further hosted attempt not authorized by exhausted budget renewal
+last_updated: "2026-11-14T05:18:35.257Z"
 last_activity: 2026-11-14
-last_activity_desc: Policy/source/context controls pass; independent review clean; unchanged85c producer proof retained; hosted attempt unused
-state_head: 85c361edfd6b56640e68e64c5e32527f85408836
+last_activity_desc: All11 hosted jobs green within exact budgets; final validator passed;722 metadata rows rebound with unchanged output hashes
+state_head: 56c22133f3697f6a78fed6c0e1a549659707056b
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 23 of 25
-Status: Plan23 exact job-budget policy reviewed; final cheap preflight, commit and one approved hosted attempt next
-Last activity: 2026-11-14 — Policy/source/context controls pass; independent review clean; unchanged85c producer proof retained; hosted attempt unused
+Status: Plan23 hosted source proof green; exact fixture metadata readmitted; production execution and review next
+Last activity: 2026-11-14 — All11 hosted jobs green within exact budgets; final validator passed;722 metadata rows rebound with unchanged output hashes
 
 Progress: [███████░░░] 67%
 
@@ -302,5 +302,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Plan23 active; commit/publish targeted policy; producer-ancestry merge decision reserved for Phase5 boundary
+Stopped at: Plan23 active; admitted integration and review next; further hosted attempt not authorized by exhausted budget renewal
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

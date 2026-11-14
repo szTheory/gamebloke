@@ -408,13 +408,23 @@ if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
       "-DPROOF_GROUP=${GBL_DIAGNOSTIC_GROUP}"
       "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
+else()
   gbl_add_test(
-    NAME diagnostics.final.budget
-    LABELS control diagnostics
-    COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-budget-controls
-      "-DBIN=${CMAKE_BINARY_DIR}/final-budget-controls"
-      -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
+    NAME diagnostics.final.outputs
+    LABELS diagnostics gate integration
+    COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=mandatory-final
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/diagnostic_dependency.cmake")
+  set_tests_properties(diagnostics.final.outputs PROPERTIES
+    FIXTURES_REQUIRED diagnostic_execution DEPENDS diagnostics.execution_set
+    RUN_SERIAL TRUE)
 endif()
+gbl_add_test(
+  NAME diagnostics.final.budget
+  LABELS control diagnostics
+  COMMAND ${GBL_TOOLCHAIN_DRIVER} -DCASE=final-budget-controls
+    "-DBIN=${CMAKE_BINARY_DIR}/final-budget-controls"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake")
 gbl_add_test(
   NAME diagnostics.presets
   LABELS diagnostics gate

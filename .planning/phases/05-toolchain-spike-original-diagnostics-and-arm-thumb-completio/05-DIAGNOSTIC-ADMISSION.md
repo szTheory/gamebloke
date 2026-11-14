@@ -1,8 +1,8 @@
 # Final original diagnostic admission
 
 The immutable fixture bindings use source-only authority
-`c3af6debd2f162c8eb91dc96906cf6f6a5ed5d16` and producer-input SHA-256
-`d9c844e91e92f36f8d07ca2cda14841954115674d39b7fa8efce8596bc7c0341`.
+`85c361edfd6b56640e68e64c5e32527f85408836` and producer-input SHA-256
+`95d1b9c7f8c580c37a0051efb54424d40d7c50a57d2774c33512001f31331d43`.
 Admission changes consumer metadata only. Every path in
 [`inputs.txt`](../../../diagnostics/armv4t/inputs.txt) still has its exact
 source-authority bytes and Git mode. A later admission or documentation commit
@@ -12,7 +12,7 @@ requires renewed builds, complete host proof and re-admission.
 ## Source and host evidence
 
 The final local proof at
-`build/phase05-ci-split/review-fix/preflight/local-proof.json` records actual
+`build/phase05-plan23-proof-r4/preflight/local-proof.json` records actual
 macOS arm64 and native Linux arm64 builds, equal sorted output-name sets, and
 literal comparison of all 722 corresponding ROM files. Each host has 367
 source-built case IDs. This is the final comparison count, not a sum of earlier
@@ -20,18 +20,20 @@ repeated runs. The pinned native Linux container is Ubuntu26.04 image
 `sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c`.
 Existing verified tool installations were reused; no package was substituted.
 
-The separate hosted hash witness is actual successful
-[run 43478622357](https://github.com/szTheory/gamebloke/actions/runs/43478622357).
-All eleven jobs are green, each at most128 seconds under the180-second limit.
-The four diagnostic groups bind Linux x64/macOS ARM/Thumb outputs to that exact
-source, host tool, numeric job ID and raw log. Their complete per-host unions
-equal the local output set and hashes. The validator accepted the real run/jobs
-API receipts and all four complete log-derived receipts; no synthetic parser
-control is hosted evidence. Raw logs and JSON remain ignored under
-`build/phase05-ci-split/hosted-attempt1/`. The
-[hosted report](05-21-HOSTED-GREEN.md) and
-[split review-fix report](05-21-CI-SPLIT-REVIEW-FIX.md) retain exact timing and
-renewal history. Hosted hashes are not hosted literal comparisons.
+The current hosted hash witness is actual successful
+[run 43560267506](https://github.com/szTheory/gamebloke/actions/runs/43560267506)
+at reviewed consumer `56c22133f3697f6a78fed6c0e1a549659707056b`.
+All eleven jobs passed within their exact approved budgets:300seconds only for
+macOS native build and ARM diagnostics;180seconds for the other nine jobs.
+The four diagnostic groups bind exact Linux x64/macOS ARM/Thumb outputs to the
+immutable producer, host tool, actual job/run IDs and raw logs. Their complete
+unions match the local output sets and hashes. The collector and committed
+final validator accepted actual raw API documents and logs, retained under
+`build/phase05-job-budgets/hosted-attempt1/`. See the
+[current hosted report](05-23-JOB-BUDGET-HOSTED.md). Hosted hashes are distinct
+from local literal comparisons. Historical run43478622357 and its c3 producer
+admission remain valid historical records in the Plan21 reports; they are not
+relabeled as the renewed proof.
 
 Every final build retains object/final-ELF ARMv4T attributes, executable-section
 disassembly, exact original object maps, unresolved-symbol/no-runtime checks,
@@ -105,6 +107,10 @@ before guest execution. The wrong-index production runner must return
 companions run before/after controls, and the original index is restored and
 rebuilt before the mutated observation is assessed.
 
-The [Plan21 summary](05-21-SUMMARY.md) records the actual current command results
-and limitations. Physical hardware, BIOS execution, broader game/device
+The [current admitted execution report](05-23-ADMITTED-EXECUTION.md) records
+actual full production results, native API assertions, inventory reconciliation,
+refusal controls and sanitizer boundaries. Independent targeted review is
+[clean](05-23-ADMITTED-REVIEW.md). The current consumer corrections are tested
+as the saved diff from56c; that diff is not attributed to the prior hosted run.
+Plan24 still owns the tracked required-admitted CI switch. Physical hardware, BIOS execution, broader game/device
 compatibility, release publication and Phase6 remain outside this admission.
