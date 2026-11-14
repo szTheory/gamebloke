@@ -1,3 +1,4 @@
+cmake_minimum_required(VERSION 3.25)
 # Production admission is derived from the source ledger, never from synthetic
 # runner controls. Keep each fixture ID distinct while retaining paired case IDs.
 get_filename_component(source_root "${SRC}" ABSOLUTE)
@@ -8,13 +9,13 @@ if(NOT binary_root_status STREQUAL "ok")
   message(FATAL_ERROR "diagnostics-case: binary-root-${binary_root_status}")
 endif()
 set(binary_root "${binary_root_real}")
-# A refusal must not leave an old production index available to a later build.
-# Check each output first so removal cannot follow a link outside the build root.
+# Check every output before reading, copying or writing. The calling gate
+# removes safe stale indexes after any child refusal.
 foreach(relative IN ITEMS
     generated/production/fixture_index.h
     generated/control/fixture_index.h
     generated/control/manifest.json)
-  gbl_remove_file_contained(remove_status "${binary_root}"
+  gbl_resolve_contained_path(output_real remove_status "${binary_root}"
     "${binary_root}/${relative}")
   if(NOT remove_status STREQUAL "ok")
     message(FATAL_ERROR "diagnostics-case: generated-output-${remove_status}:${relative}")
@@ -25,199 +26,31 @@ gbl_contract_read(V "${source_root}/contracts/evidence.json")
 gbl_registry_read(R "${source_root}/registry/disputes.json" V)
 gbl_manifest_read(M "${source_root}/tests/fixtures/manifest.json" R V)
 gbl_findings_finish(result "admission authorities valid")
-file(READ "${source_root}/diagnostics/armv4t/cases.json" matrix)
-string(JSON count LENGTH "${matrix}" cases)
-math(EXPR last "${count}-1")
-set(expected_ids smoke smoke-broken)
-foreach(i RANGE 0 ${last})
-  string(JSON row GET "${matrix}" cases ${i})
-  string(JSON kind ERROR_VARIABLE error GET "${row}" source_test kind)
-  if(NOT error STREQUAL "NOTFOUND" OR NOT kind MATCHES "^(semantic|guest-stop)$")
-    continue()
-  endif()
-  string(JSON id GET "${row}" id)
-  string(JSON isa GET "${row}" isa)
-  if(kind STREQUAL "semantic")
-    list(APPEND expected_ids "${isa}-${id}" "${isa}-${id}-broken")
-  else()
-    list(APPEND expected_ids "${isa}-stop-${id}")
-    string(JSON reason_${id} GET "${row}" source_test expected_reason)
-  endif()
-endforeach()
-foreach(id IN LISTS expected_ids)
-  if(NOT id IN_LIST M_IDS)
-    message(FATAL_ERROR "diagnostics-case: missing-production-fixture-row:${id}")
-  endif()
-endforeach()
-list(SORT expected_ids)
-set(actual_ids "${M_IDS}")
-list(SORT actual_ids)
-if(NOT actual_ids STREQUAL expected_ids)
-  message(FATAL_ERROR "diagnostics-case: production-fixture-set-mismatch")
-endif()
-set(authority "${M_ROW_smoke_COMMIT}")
-include("${source_root}/cmake/CheckDiagnosticAuthority.cmake")
-gbl_check_diagnostic_authority("${source_root}" "${authority}")
-file(STRINGS "${source_root}/toolchain/arm-none-eabi.lock" tool_line REGEX "^linux-x64 ")
-if(NOT tool_line MATCHES "^linux-x64 [0-9]+ ([0-9a-f]+) ")
-  message(FATAL_ERROR "diagnostics-case: canonical-tool-pin-missing")
-endif()
-set(canonical_tool_sha "${CMAKE_MATCH_1}")
-foreach(fid IN LISTS expected_ids)
-  set(row "${M_ROW_${fid}_JSON}")
-  string(JSON bios GET "${row}" bios_requirement)
-  string(JSON license GET "${row}" license spdx)
-  string(JSON notice GET "${row}" license notices 0)
-  string(JSON tool_sha GET "${row}" build toolchain sha256)
-  string(JSON tool_identity GET "${row}" build toolchain identity)
-  if(NOT "${M_ROW_${fid}_KIND}" STREQUAL "git" OR
-     NOT "${M_ROW_${fid}_URL}" STREQUAL "https://github.com/szTheory/gamebloke" OR
-     NOT "${M_ROW_${fid}_COMMIT}" STREQUAL authority OR
-     NOT "${M_ROW_${fid}_CLASS}" STREQUAL "project-authored" OR
-     NOT bios STREQUAL "none" OR
-     NOT license STREQUAL "LicenseRef-Gamebloke-ARMv4T-Diagnostic-Public-CI" OR
-     NOT notice STREQUAL "diagnostics/armv4t/NOTICE" OR
-     NOT tool_sha STREQUAL canonical_tool_sha OR
-     NOT tool_identity MATCHES "xPack GNU Arm Embedded GCC 15\\.2\\.1-1\\.1")
-    message(FATAL_ERROR "diagnostics-case: admitted-authority-mismatch:${fid}")
-  endif()
-endforeach()
-if(CASE STREQUAL "admitted-pair")
-  set(selected_ids arm-343721884 arm-343721884-broken)
-else()
-  set(selected_ids "${expected_ids}")
-endif()
-if(DEFINED GROUP AND NOT GROUP STREQUAL "all")
-  if(NOT GROUP MATCHES "^(arm|thumb)$")
-    message(FATAL_ERROR "diagnostics-case: invalid-admitted-group")
-  endif()
-  if(GROUP STREQUAL "arm")
-    list(FILTER selected_ids EXCLUDE REGEX "^thumb-")
-  else()
-    list(FILTER selected_ids INCLUDE REGEX "^thumb-")
-  endif()
-endif()
-
-# Rebuild stale/absent producer roots from their admitted authority; later
-# consumer commits do not replace the pinned source-only revision.
-foreach(group IN ITEMS smoke arm thumb)
-  if(DEFINED GROUP AND ((GROUP STREQUAL "thumb" AND NOT group STREQUAL "thumb") OR
-      (GROUP STREQUAL "arm" AND group STREQUAL "thumb")))
-    continue()
-  endif()
-  if(CASE STREQUAL "admitted-pair" AND NOT group STREQUAL "arm")
-    continue()
-  endif()
-  if(CASE STREQUAL "admitted-pair")
-    set(root "${source_root}/build/phase05-spike/admission-pair")
-    set(mode case)
-    set(extra -DCASE_ID=343721884)
-  elseif(group STREQUAL "smoke")
-    set(root "${source_root}/build/phase05-spike/admission-smoke")
-    set(mode smoke)
-    set(extra "")
-  else()
-    set(root "${source_root}/build/phase05-matrix/${group}")
-    set(mode all)
-    set(extra "-DISA=${group}")
-  endif()
-  set(receipt "${root}/proof/build-receipt.json")
-  set(receipt_commit "")
-  if(EXISTS "${receipt}")
-    file(READ "${receipt}" receipt_json)
-    string(JSON receipt_commit ERROR_VARIABLE receipt_error GET "${receipt_json}" source_commit)
-  endif()
-  if(NOT receipt_commit STREQUAL authority OR REBUILD STREQUAL "1")
-    execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${source_root}"
-      "-DOUT=${root}" "-DTOOLCHAIN_ROOT=${TOOLCHAIN_ROOT}"
-      "-DSOURCE_COMMIT=${authority}" "-DMODE=${mode}" ${extra}
-      -P "${source_root}/cmake/BuildArmDiagnostics.cmake"
-      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
-    gbl_ensure_directory_contained(directory_status "${binary_root}"
-      "${binary_root}/diagnostics-results")
-    if(NOT directory_status STREQUAL "ok")
-      message(FATAL_ERROR "diagnostics-case: result-directory-${directory_status}")
-    endif()
-    set(build_log "${binary_root}/diagnostics-results/build-${group}.log")
-    gbl_write_file_contained(write_status write_reason "${binary_root}"
-      "${build_log}" "${output}${error}")
-    if(NOT write_status STREQUAL "ok")
-      message(FATAL_ERROR "diagnostics-case: build-log-${write_reason}")
-    endif()
-    if(NOT rc STREQUAL "0")
-      message(FATAL_ERROR "diagnostics-case: admitted-source-build-failed:${group}:${output}${error}")
-    endif()
-  endif()
-  set(producer_${group} "${root}")
-endforeach()
-
-set(result_root "${binary_root}/diagnostics-results/${CASE}")
-foreach(fid IN LISTS selected_ids)
-  set(row "${M_ROW_${fid}_JSON}")
-  string(JSON path GET "${row}" build artifact path)
-  string(JSON revision GET "${row}" source commit)
-  if(NOT revision STREQUAL authority)
-    message(FATAL_ERROR "diagnostics-case: admitted-source-revisions-differ:${fid}")
-  endif()
-  if(fid MATCHES "^(arm|thumb)-")
-    set(group "${CMAKE_MATCH_1}")
-  else()
-    set(group smoke)
-  endif()
-  set(image "${producer_${group}}/roms/${fid}.gba")
-  if(NOT EXISTS "${image}" OR IS_SYMLINK "${image}" OR IS_DIRECTORY "${image}")
-    message(FATAL_ERROR "diagnostics-case: admitted-image-missing:${fid}")
-  endif()
-  file(SHA256 "${image}" sha)
-  if(NOT sha STREQUAL "${M_ROW_${fid}_SHA256}")
-    message(FATAL_ERROR "diagnostics-case: admitted-output-digest-mismatch:${fid}")
-  endif()
-  set(admitted_image_${fid} "${image}")
-  set(admitted_destination_${fid} "${binary_root}/${path}")
-  gbl_resolve_contained_path(destination_real destination_status
-    "${binary_root}" "${admitted_destination_${fid}}")
-  if(NOT destination_status STREQUAL "ok")
-    message(FATAL_ERROR
-      "diagnostics-case: admitted-output-${destination_status}:${fid}")
-  endif()
-endforeach()
-
-gbl_ensure_directory_contained(result_dir_status "${binary_root}" "${result_root}")
-if(NOT result_dir_status STREQUAL "ok")
-  message(FATAL_ERROR "diagnostics-case: result-directory-${result_dir_status}")
-endif()
-foreach(fid IN LISTS selected_ids)
-  gbl_copy_file_contained(copy_status copy_reason
-    "${admitted_image_${fid}}" "${binary_root}"
-    "${admitted_destination_${fid}}")
-  if(NOT copy_status STREQUAL "ok")
-    message(FATAL_ERROR "diagnostics-case: admitted-output-${copy_reason}:${fid}")
-  endif()
-endforeach()
+include("${source_root}/tests/gates/prepare_diagnostic_artifacts.cmake")
 
 if(PREPARE_ONLY)
   message(STATUS "diagnostics-case: exact source outputs prepared for ${GROUP}")
   return()
 endif()
 
-set(generated "${binary_root}/generated")
-execute_process(COMMAND "${CMAKE_COMMAND}"
-  "-DGBL_SOURCE_DIR=${source_root}" "-DGBL_ARTIFACT_ROOT=${binary_root}"
-  "-DGBL_OUTPUT_ROOT=${binary_root}"
-  "-DGBL_CONTROL_IMAGE=${generated}/fixtures/owned-arm-pass.gba"
-  "-DGBL_CONTROL_FAIL_IMAGE=${generated}/fixtures/owned-arm-fail.gba"
-  "-DGBL_CONTROL_SKIP_IMAGE=${generated}/fixtures/owned-arm-pass.gba"
-  "-DGBL_CONTROL_ZERO_CASE_IMAGE=${generated}/fixtures/owned-arm-pass-zero-case.gba"
-  "-DGBL_CONTROL_MANIFEST_OUTPUT=${generated}/control/manifest.json"
-  "-DGBL_MANIFEST=${source_root}/tests/fixtures/manifest.json"
-  "-DGBL_REGISTRY=${source_root}/registry/disputes.json"
-  "-DGBL_VOCAB=${source_root}/contracts/evidence.json"
-  "-DGBL_OUT_PRODUCTION=${generated}/production/fixture_index.h"
-  "-DGBL_OUT_CONTROL=${generated}/control/fixture_index.h"
-  -P "${source_root}/cmake/GenerateFixtureIndex.cmake"
-  RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
-if(NOT rc STREQUAL "0")
-  message(FATAL_ERROR "diagnostics-case: admitted-index-failed:${output}${error}")
+# Project the already canonical-validated current authority, not a cached
+# validation result. Exact bytes include qualification, every ID/digest and all
+# metadata fields. Preserve a matching header's timestamp and normal build
+# dependency checks; write changed/missing metadata before the runner build.
+include("${source_root}/cmake/FixtureIndexRender.cmake")
+set(GBL_PROOF_METADATA OFF)
+gbl_fixture_render_index(expected_index M)
+set(index "${binary_root}/generated/production/fixture_index.h")
+set(actual_index "")
+if(EXISTS "${index}" AND NOT IS_DIRECTORY "${index}")
+  file(READ "${index}" actual_index)
+endif()
+if(NOT actual_index STREQUAL expected_index)
+  gbl_write_file_contained(write_status write_reason "${binary_root}"
+    "${index}" "${expected_index}")
+  if(NOT write_status STREQUAL "ok")
+    message(FATAL_ERROR "diagnostics-case: admitted-index-${write_reason}")
+  endif()
 endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" --build "${binary_root}" --target gamebloke-run
   RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)

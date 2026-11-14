@@ -8,13 +8,25 @@
     "gsd-code-reviewer",
     "gsd-code-fixer"
   ],
-  "status": "restored-at-local-execution-review-readiness",
+  "status": "restored-at-final-consumer-repair-readiness",
   "activated_utc": "2026-11-13T04:38:51.457170+00:00",
   "recovery": "Original Luna agent lost on server restart; its completed492-output build was preserved and independently verified; no regeneration or duplicate build",
   "restore_after": "Phase5 execution/review readiness before required owner phase acceptance; no extension to Phase6",
-  "restore_rule": "If config matches build/phase05-through-phase5-model/config-applied.json, restore exact config-before.json dirty owner bytes. Otherwise restore only untouched owned fields while preserving newer owner edits. Never restore HEAD config.",
-  "restored_utc": "2026-11-14T08:49:39.080297+00:00",
+  "restore_rule": "If current config equals build/phase05-final-consumer-repair/config-applied.json restore exact config-before.json; otherwise restore only untouched owned executor model/effort fields preserving newer owner edits. Never restore HEAD.",
+  "restored_utc": "2026-11-14T17:08:58.618730+00:00",
   "restore_mode": "exact-owner-baseline-bytes",
   "config_after_sha256": "a9a92e050195ba7a3dab92d3490d4d2988fd2ab992bd5036bb7b4930a0b3b7fe",
-  "remaining": "Final hosted publication authority and Phase5 owner judgments pending; no Phase6 extension"
+  "remaining": "Hosted candidate qualification and remaining approved publication; no Phase6 extension",
+  "restore_history": [
+    {
+      "status": "restored-at-local-execution-review-readiness",
+      "restored_utc": "2026-11-14T08:49:39.080297+00:00",
+      "restore_mode": "exact-owner-baseline-bytes",
+      "config_after_sha256": "a9a92e050195ba7a3dab92d3490d4d2988fd2ab992bd5036bb7b4930a0b3b7fe",
+      "restore_rule": "If config matches build/phase05-through-phase5-model/config-applied.json, restore exact config-before.json dirty owner bytes. Otherwise restore only untouched owned fields while preserving newer owner edits. Never restore HEAD config."
+    }
+  ],
+  "reactivated_utc": "2026-11-14T15:29:28.557544+00:00",
+  "active_restore_before": "build/phase05-final-consumer-repair/config-before.json",
+  "active_restore_applied": "build/phase05-final-consumer-repair/config-applied.json"
 }

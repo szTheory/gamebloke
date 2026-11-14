@@ -5,8 +5,32 @@ foreach(required IN ITEMS SRC BIN CASE)
     message(FATAL_ERROR "diagnostics-case: missing-${required}")
   endif()
 endforeach()
-if(CASE MATCHES "^(all-admitted|admitted-pair)$")
-  include("${SRC}/tests/gates/diagnostic_admission.cmake")
+if(CASE MATCHES "^(all-admitted|admitted-pair|prepare-admitted-indexes)$")
+  if(NOT DEFINED GROUP OR GROUP STREQUAL "")
+    set(GROUP all)
+  endif()
+  # Validate in a child so every refusal can invalidate safe stale indexes,
+  # while successful validation can preserve identical headers and binaries.
+  set(admission_script diagnostic_admission)
+  if(CASE STREQUAL "prepare-admitted-indexes")
+    set(admission_script admitted_index_generation)
+  endif()
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}" "-DBIN=${BIN}"
+    "-DCASE=${CASE}" "-DGROUP=${GROUP}" "-DPREPARE_ONLY=${PREPARE_ONLY}"
+    "-DREBUILD=${REBUILD}" "-DTOOLCHAIN_ROOT=${TOOLCHAIN_ROOT}"
+    -P "${SRC}/tests/gates/${admission_script}.cmake"
+    RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT rc STREQUAL "0")
+    include("${SRC}/cmake/PathContainment.cmake")
+    get_filename_component(admission_bin "${BIN}" ABSOLUTE)
+    foreach(relative IN ITEMS generated/production/fixture_index.h
+        generated/control/fixture_index.h generated/control/manifest.json)
+      gbl_remove_file_contained(remove_status "${admission_bin}"
+        "${admission_bin}/${relative}")
+    endforeach()
+    message(FATAL_ERROR "diagnostics-case: admission-refused:${output}${error}")
+  endif()
+  message("${output}${error}")
   return()
 endif()
 if(CASE STREQUAL "thumb-boundary-tracer")

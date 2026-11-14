@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Phase5 local implementation and independent reviews ready; Plans24/25 wait final hosted publication authority
-stopped_at: Await owner authority for bounded final PR publication/CI cycle; no push, merge or Phase6 before appropriate gates
-last_updated: "2026-11-14T08:51:10.844Z"
+status: Bounded consumer repair independently reviewed; preparing the single renewed hosted attempt
+stopped_at: Publish one frozen repair candidate under renewed approval; stop on any hosted red; remaining metadata/records events only after green
+last_updated: "2026-11-14T17:09:32.558Z"
 last_activity: 2026-11-14
-last_activity_desc: All local coverage findings resolved; cheap recurring guards and required installed semantics pass; temporary executor routing restored; prepare reviewed commit and publication decision
-state_head: 8e21ef63017a4b4a98d7a585cf7bddc2a9628fdd
+last_activity_desc: Cold smoke dependency and duplicate index parse repaired; graph warning closed; temporary routing restored; hosted qualification pending
+state_head: 6211cb564e13a4501594071bdc31027841260c9d
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 24 of 25
-Status: Phase5 local implementation and independent reviews ready; Plans24/25 wait final hosted publication authority
-Last activity: 2026-11-14 — All local coverage findings resolved; cheap recurring guards and required installed semantics pass; temporary executor routing restored; prepare reviewed commit and publication decision
+Status: Bounded consumer repair independently reviewed; preparing the single renewed hosted attempt
+Last activity: 2026-11-14 — Cold smoke dependency and duplicate index parse repaired; graph warning closed; temporary routing restored; hosted qualification pending
 
 Progress: [███████░░░] 67%
 
@@ -303,5 +303,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Await owner authority for bounded final PR publication/CI cycle; no push, merge or Phase6 before appropriate gates
+Stopped at: Publish one frozen repair candidate under renewed approval; stop on any hosted red; remaining metadata/records events only after green
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
