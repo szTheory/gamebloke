@@ -940,6 +940,7 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+linux.snapshot control,linux
 loader.diagnostics core,loader,unit
 loader.integration core,integration,loader,unit
 loader.lengths core,loader,unit
@@ -1070,6 +1071,7 @@ runner.help runner,unit
 runner.metadata gate,runner
 runner.no_args runner,unit
 runner.relocation gate,integration,runner
+runner.relocation_admitted diagnostics,gate,integration,runner skip-ok
 runner.relocation_control control,runner
 runner.result_contract gate,integration,runner
 runner.tracer integration,runner

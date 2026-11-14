@@ -163,3 +163,12 @@ The cheap policy/source preflight took a fraction of a second and accepted the r
 ## Final admitted consumer sequencing
 
 Validate consumer evidence shape as a dependency of a stage switch: admitted execution no longer emits pre-admission markers, so adapt its actual receipt emitter and both consumers before spending a hosted attempt. Actual local logs plus isolated semantic negatives expose that mismatch cheaply. Independently reviewed preset/history/admitted controls passed; a synthetic alias finding was reproduced and fixed before publication, without rerunning unchanged producer or emulator matrices. Prepare remaining independently runnable local integration before one final reviewed-head host request; keep all hosted gates visibly pending. Scope clarification for required consumer followthrough is routine parent ownership, not another owner permission gate.
+
+
+## Final local review and publication lessons
+
+Keep inexpensive failure controls in source and canonical inventories: the two-second source-snapshot control covers ignored/private exclusions, multiple Git commits, working modes, signals and cleanup. Deliberate privacy/history/mode/signal/cleanup mutants establish that the guard can fail. Required installed semantics belong in the ARM/all diagnostic lane that owns their fixtures; optional native skips alone were insufficient recurring coverage. Use current actual logs for manual collector controls and label them manual.
+
+Bind the runner after every admitted rebuild before receipt emission; matching source alone cannot guarantee an unchanged Mach-O executable identity. Preserve the concrete sanitizer failure and post-fix exact identity check. Final profile evidence wording expresses a stable separate-host-proof requirement, avoiding a source edit solely because a CI status changes.
+
+Workflow publication has an explicit duplicate cost: pull_request edited reruns all lanes and documentation publication on this code PR is heavy. Prepare the final description and verification-record updates before asking for a bounded complete publication cycle. Do not discover another metadata-triggered run after spending a one-run budget, suppress required CI, or reuse a later reserved run as a retry after red. Model routing was restored exactly to the original dirty owner baseline at local readiness; implementation allowance does not leak into Phase6.

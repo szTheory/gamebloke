@@ -104,6 +104,12 @@ elseif(STAGE STREQUAL "admitted")
   string(REGEX REPLACE "^source[.]commit=" "" authority "${source_line}")
   string(JSON identity SET "${identity}" source_commit "\"${authority}\"")
   string(JSON run SET "${run}" source_commit "\"${authority}\"")
+  # Admission regenerates the immutable index and may relink this executable.
+  # Bind receipts to the actual runner that just produced the admitted results,
+  # rather than the executable captured before that build (Mach-O may differ).
+  file(SHA256 "${BIN}/gamebloke-run" runner_sha)
+  string(JSON identity SET "${identity}" runner_sha256 "\"${runner_sha}\"")
+  string(JSON run SET "${run}" runner_sha256 "\"${runner_sha}\"")
 else()
   # Exact source proof is produced once per group by the build target. Optional
   # ci/asan lanes build it here when a real pinned tool is present.

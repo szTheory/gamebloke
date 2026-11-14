@@ -90,11 +90,34 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 | `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, plus the Phase 2 evidence validators and their controls, with no compile of the product. |
 
 For a fresh local macOS ASan/UBSan run with the installed AppleClang, use
-`cmake --fresh --preset asan -DCMAKE_C_COMPILER=/usr/bin/clang && cmake --build --preset asan && ctest --preset asan && ctest --preset asan-post`.
+an unused build directory and write JUnit inside that actual directory:
+
+```sh
+cmake --preset asan -B build/phase05-asan-macos -DCMAKE_C_COMPILER=/usr/bin/clang && \
+  cmake --build build/phase05-asan-macos && \
+  cmake -E chdir build/phase05-asan-macos ctest --output-on-failure --output-junit junit.xml -LE '^post$' --no-tests=error && \
+  cmake -E chdir build/phase05-asan-macos ctest --output-on-failure -L '^post$' --no-tests=error
+```
+
+The override identifies an AppleClang host check; it does not change the Linux
+`clang-21` preset. Avoid an existing binary directory when fresh compilation is
+the intended evidence.
 
 `sh scripts/linux-lane.sh <preset> [gcc|clang]` runs any workflow preset on the
 host's native architecture. `sh scripts/hygiene.sh --tree` and
 `sh scripts/signature-scan.sh --tree` run the two repository scans directly.
+The Linux helper mounts a disposable full-history Git clone with tracked working
+edits/deletions and unignored new files overlaid. It never mounts the checkout or
+copies ignored build/private contents. Its native-architecture container keeps
+the existing four-CPU/eight-GiB limit. Without a verified ARM tool install, its
+optional guest skips remain explicit; use the mandatory diagnostic lane for
+guest evidence. Container setup time is separate from build/test time.
+`linux.snapshot` is a recurring offline CI/hygiene control for this boundary. It
+uses a two-commit synthetic repository and a shell Docker witness to check
+ancestor bytes, exclusions, working edits/deletions/modes and exact resource/
+invocation arguments. Success, failure and actual HUP/INT/TERM paths must remove
+the helper's snapshot and exit correctly. No real Docker, private input or
+network is used by that unit control.
 
 ## Phase 3 bus and loader checks
 
@@ -130,14 +153,14 @@ positive companions validate clean copies.
 
 The runner selectors registered in CI are `runner.hash`, `runner.version`,
 `runner.tracer`, `runner.unit`, `runner.result_contract`, `runner.relocation`,
-`runner.relocation_control`, `runner.help`, `runner.metadata`,
+`runner.relocation_admitted`, `runner.relocation_control`, `runner.help`, `runner.metadata`,
 `runner.usage_error`, and `runner.no_args`. Run the complete producer/metadata and
 installed-consumer slice after configure and build with:
 
 ```sh
 cmake --preset ci && cmake --build --preset ci && \
   ctest --test-dir build/ci \
-    -R '^runner\.(hash|version|tracer|unit|result_contract|relocation(_control)?|help|metadata|usage_error|no_args)$' \
+    -R '^runner\.(hash|version|tracer|unit|result_contract|relocation(_admitted|_control)?|help|metadata|usage_error|no_args)$' \
     --no-tests=error --output-on-failure
 ```
 
@@ -149,6 +172,25 @@ and ROM digests, and rejects source/build/prefix path leakage. Its control detec
 missing installed executable while the matching clean install succeeds. The image is
 unregistered in the canonical production manifest, so its expected result is a raw
 non-PASS diagnostic; the synthetic control index is not used for this relocation.
+
+`runner.relocation_admitted` additionally uses the actual production index after
+`diagnostics.execute`: an admitted ARM semantic positive, its real assertion-broken
+companion, and a no-BIOS SWI stop. The gate copies these original inputs to an
+explicit owned input directory, relocates the installed prefix, and compares
+plain and requested-trace result JSON plus trace bytes against the build runner.
+It checks exact case IDs, verdict/reason, actual and admitted digests, bounded
+nonzero guest progress and executable identity. Only `bin/gamebloke-run` is
+installed; no manifest, CMake script, source tree or index override is supplied
+to either runtime. Optional absent-tool skips are inventoried and visible.
+Required ARM/all diagnostic lanes register the same installed gate with skips
+disabled and the real diagnostic setup fixture. The Thumb split adds no ARM
+fixtures. Dependency controls separately require optional absence to be visible
+and mandatory relocation absence to fail, with no skip marker.
+After building required diagnostics, run the nonoptional gate explicitly:
+
+```sh
+cmake -DSRC=. -DBIN=build/diagnostics -DMODE=admitted -P tests/gates/runner_relocation.cmake
+```
 
 The phase-end verification commands are `cmake --workflow --preset ci`, then a fresh
 local ASan/UBSan configure with the host compiler explicitly selected, followed by the

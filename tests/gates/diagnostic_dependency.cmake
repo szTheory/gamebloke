@@ -65,6 +65,27 @@ if(CASE STREQUAL "all")
   endif()
   file(REMOVE_RECURSE "${root}")
   file(MAKE_DIRECTORY "${root}")
+  set(relocation_bin "${root}/relocation-absent")
+  file(MAKE_DIRECTORY "${relocation_bin}/diagnostic-execution")
+  file(WRITE "${relocation_bin}/diagnostic-execution/run.json" "{\"tools\":\"absent\"}\n")
+  foreach(required IN ITEMS OFF ON)
+    set(optional -DOPTIONAL=ON)
+    if(required)
+      set(optional "")
+    endif()
+    execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}" "-DBIN=${relocation_bin}"
+      -DMODE=admitted ${optional} "-DGBL_REQUIRE_DIAGNOSTICS=${required}"
+      -P "${SRC}/tests/gates/runner_relocation.cmake"
+      RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(required)
+      if(rc STREQUAL "0" OR "${output}${error}" MATCHES "SKIPPED:" OR
+          NOT "${output}${error}" MATCHES "runner-relocation: required-admitted-toolchain-absent")
+        message(FATAL_ERROR "diagnostic-dependency: required-relocation-absence-not-refused:${output}${error}")
+      endif()
+    elseif(NOT rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "SKIPPED: arm-toolchain-absent")
+      message(FATAL_ERROR "diagnostic-dependency: optional-relocation-absence-not-visible:${output}${error}")
+    endif()
+  endforeach()
   set(absent "${root}/absent-tools")
   function(tool_control label tool_root required expected)
     execute_process(COMMAND "${CMAKE_COMMAND}" -DCASE=tool-probe "-DSRC=${SRC}"

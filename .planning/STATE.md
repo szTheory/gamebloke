@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Plan24 local candidate reviewed clean; final hosted gate pending; remaining local Phase5 checks next
-stopped_at: Continue remaining authorized local Phase5 integration; Plan24/25 completion waits final exact-head hosted gate
-last_updated: "2026-11-14T06:35:01.543Z"
+status: Phase5 local implementation and independent reviews ready; Plans24/25 wait final hosted publication authority
+stopped_at: Await owner authority for bounded final PR publication/CI cycle; no push, merge or Phase6 before appropriate gates
+last_updated: "2026-11-14T08:51:10.844Z"
 last_activity: 2026-11-14
-last_activity_desc: Required admitted presets, full-history and actual hosted-receipt path pass local checks; alias review fix clean; prepare one final reviewed head before requesting hosted authority
-state_head: aabb1e247f7b44f202a41f7267730aa51d81eaf4
+last_activity_desc: All local coverage findings resolved; cheap recurring guards and required installed semantics pass; temporary executor routing restored; prepare reviewed commit and publication decision
+state_head: 8e21ef63017a4b4a98d7a585cf7bddc2a9628fdd
 progress:
   total_phases: 6
   completed_phases: 4
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
 Plan: 24 of 25
-Status: Plan24 local candidate reviewed clean; final hosted gate pending; remaining local Phase5 checks next
-Last activity: 2026-11-14 — Required admitted presets, full-history and actual hosted-receipt path pass local checks; alias review fix clean; prepare one final reviewed head before requesting hosted authority
+Status: Phase5 local implementation and independent reviews ready; Plans24/25 wait final hosted publication authority
+Last activity: 2026-11-14 — All local coverage findings resolved; cheap recurring guards and required installed semantics pass; temporary executor routing restored; prepare reviewed commit and publication decision
 
 Progress: [███████░░░] 67%
 
@@ -303,5 +303,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Continue remaining authorized local Phase5 integration; Plan24/25 completion waits final exact-head hosted gate
+Stopped at: Await owner authority for bounded final PR publication/CI cycle; no push, merge or Phase6 before appropriate gates
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

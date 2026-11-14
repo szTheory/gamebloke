@@ -1,5 +1,5 @@
-# Sorted (byte order) expected-test inventory for the hygiene lane.
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
+# Sorted (byte order) expected-test inventory for the hygiene lane.
 artifact.admission.controls control,manifest
 ci.actions.pinned ci,gate
 ci.yml.policy ci,gate
@@ -71,6 +71,7 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+linux.snapshot control,linux
 logo_digest.authority_cases control,loader
 manifest.lint gate,manifest
 manifest.nc.bad_bios_requirement control,manifest

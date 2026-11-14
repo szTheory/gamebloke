@@ -101,7 +101,7 @@ set(GBL_PROFILE_CPU_EXCLUDED
   "Unallocated exact-core encodings enter UND, while malformed allocated decode bits are unpredictable"
   "No attached coprocessor or BIOS handler executes, exception entry precedes named BIOS-none stop and vector bytes are never fetched"
   "Static B/BX and ALU-PC target alignment/refill extents retain checked unsupported refusal, not a missing legal instruction family"
-  "Original full diagnostic case execution and admission remain pending, no hardware, game, BIOS or release qualification is claimed")
+  "Original full diagnostic corpus executed locally with admitted fixtures, hosted qualification requires separate exact-head evidence, no hardware, game, BIOS or release qualification is claimed")
 
 # Validate a policy's source and citation as project-authored evidence. Hardware
 # claims are not inferred from these placeholders.

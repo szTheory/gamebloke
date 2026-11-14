@@ -1,20 +1,27 @@
 # Phase05 SPEC-less probe resolution record
 
-SPEC absent; EDGE_ABSENT=true, PROHIB_ABSENT=true; default-enabled fallback used the exact six texts in REQUIREMENTS.md. The installed deterministic engine was executed during planning and returned12 rows, three unclassified, all initially unresolved. The nine rows below now have explicit acceptance criteria lifted into plan must_haves.truths. Here resolved means acceptance-criterion resolution only; every actual implementation/test outcome remains PENDING. It is not a test pass or owner waiver.
+SPEC absent; EDGE_ABSENT=true, PROHIB_ABSENT=true; default-enabled fallback used the exact six texts in REQUIREMENTS.md. The installed deterministic engine was executed during planning and returned12 rows, three unclassified, all initially unresolved. The nine rows below have explicit acceptance criteria lifted into plan must_haves.truths. Here resolved means acceptance-criterion resolution only. The separate actual-evidence column now records observed local checks from the Plan25 candidate at actual HEAD8e21ef6 plus its saved consumer diff; final independent audits, hosted checks and owner judgment remain pending. Authored criteria are not tests or waivers.
 
 | Requirement | Category | Explicit acceptance criterion | Plan | Actual test status |
 | --- | --- | --- | --- | --- |
-| DIAG-03 | adjacency | A semantic positive and its assertion-broken variant keep the same fixed case ID, while distinct cases never merge or reuse an ID. | 05-21 | PENDING |
-| DIAG-03 | empty | A zero or missing case ID and an incomplete mailbox cannot validate as a completed diagnostic PASS/GUEST_FAIL; absence remains explicit. | 05-23 | PENDING |
-| DIAG-03 | ordering | Case IDs are unique stable allocations independent of table order; positive/broken fixture links round-trip to the same exact expected ID. | 05-05 | PENDING |
-| CPU-01 | adjacency | An exact-fit full ARM unit completes while one-short cycle/trace/sequence capacity refuses before every effect and preserves existing trace records. | 05-22 | PENDING |
-| CPU-01 | empty | ARM empty block lists execute the pinned PC-transfer/base-adjustment policy rather than silently doing zero work. | 05-13 | PENDING |
-| CPU-01 | ordering | ARM block effects follow ascending register/address order and captured original bank/SPSR views before status restore and refill. | 05-13 | PENDING |
-| CPU-02 | adjacency | Thumb BL prefix and suffix retire independently; a budget boundary and unmasked API IRQ can occur between them without fusion. | 05-17 | PENDING |
-| CPU-02 | empty | Thumb empty stack/multiple lists follow the explicitly sourced format-specific policy and never silently become an untested no-op. | 05-16 | PENDING |
-| CPU-02 | ordering | Thumb stack/multiple effects have explicit ascending transfer order; the BL instruction pair preserves separate architectural intermediate state. | 05-16 | PENDING |
+| DIAG-03 | adjacency | A semantic positive and its assertion-broken variant keep the same fixed case ID, while distinct cases never merge or reuse an ID. | 05-21 | Observed:355 actual PASS/broken pairs; every pair/ID/hash crosschecked in identity-coverage-audit.json. |
+| DIAG-03 | empty | A zero or missing case ID and an incomplete mailbox cannot validate as a completed diagnostic PASS/GUEST_FAIL; absence remains explicit. | 05-23 | Observed: actual required receipt corruption controls and runner/native mailbox checks pass; absence is not a verdict. |
+| DIAG-03 | ordering | Case IDs are unique stable allocations independent of table order; positive/broken fixture links round-trip to the same exact expected ID. | 05-05 | Observed: final coverage gate/control and full actual-result/API crosswalk; IDs are literal, not derived from row position. |
+| CPU-01 | adjacency | An exact-fit full ARM unit completes while one-short cycle/trace/sequence capacity refuses before every effect and preserves existing trace records. | 05-22 | Observed: current native unit-boundary selectors pass in required diagnostics; original Plan22 mutant/refusal evidence remains separate. |
+| CPU-01 | empty | ARM empty block lists execute the pinned PC-transfer/base-adjustment policy rather than silently doing zero work. | 05-13 | Observed: current native block-edge selectors and admitted policy cases pass; this remains deterministic policy. |
+| CPU-01 | ordering | ARM block effects follow ascending register/address order and captured original bank/SPSR views before status restore and refill. | 05-13 | Observed: native block/bank/return selectors and corresponding admitted semantic rows pass. |
+| CPU-02 | adjacency | Thumb BL prefix and suffix retire independently; a budget boundary and unmasked API IRQ can occur between them without fusion. | 05-17 | Observed: actual BL guest pair/trace and native thumb_bl/thumb_control evidence; IRQ injection is API-only. |
+| CPU-02 | empty | Thumb empty stack/multiple lists follow the explicitly sourced format-specific policy and never silently become an untested no-op. | 05-16 | Observed: native stack/multiple checks and named unpredictable guest-stop rows; no fabricated semantic PASS. |
+| CPU-02 | ordering | Thumb stack/multiple effects have explicit ascending transfer order; the BL instruction pair preserves separate architectural intermediate state. | 05-16 | Observed: current native stack/multiple and separate-BL guest/API observations. |
 
 Three unclassified rows remain unresolved and are surfaced as flagged must_haves.assumptions in Plans01/02/23. No backstop auto-resolution and no auto-dismissal was used. Edge equality:12 surfaced =9 explicit truths +3 flagged assumptions. Historical Phase4 eleven rows were not edited.
+
+These observations are local executor evidence, linked through
+[05-FINAL-CHECKS.md](05-FINAL-CHECKS.md). They do not change the three
+unclassified DIAG-01/DIAG-02/VERIF-04 statuses in05-PROBE-STATUS.json, close
+descriptor-less prohibitions, provide an independent audit, or waive the
+historical Plan19 TDD sequence deviation. Parent verifier owns the next audit;
+owner judges clarity and retained bespoke judgments at the phase boundary.
 
 ## Prohibition recall and precision
 

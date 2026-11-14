@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 3
 waived_count: 0
-fixed_count: 13
-total_count: 16
-last_updated: 2026-11-14T06:35:00.984Z
+fixed_count: 16
+total_count: 19
+last_updated: 2026-11-14T08:51:10.323Z
 ---
 
 # Broken Windows Ledger
@@ -31,6 +31,9 @@ last_updated: 2026-11-14T06:35:00.984Z
 | 14 | 05 | deviation | scripts/collect-hosted-proof.py |  | Plan23 budget-policy review found mixed synthetic tags and incomplete marked-ancestor isolation at collector/final-gate boundaries. Focused fixes and source/collector controls pass; independent final re-review pending. No live qualification or hosted attempt occurred. See05-23-JOB-BUDGET-FIX.md. | fixed |  | 2026-11-14T04:43:08.633Z | 2026-11-14T05:02:20.575Z |
 | 15 | 05 | deviation | tests/toolchain.cmake, tests/gates/diagnostic_setup.cmake |  | Admitted integration exposed proof-only registration, ISA output path and API producer-receipt ordering defects. Corrected consumer-only; full admitted lane, canonical CI, focused sanitizer/refusal checks passed and independent review clean. Evidence:05-23-ADMITTED-EXECUTION.md. | fixed |  | 2026-11-14T05:47:21.776Z | 2026-11-14T05:47:31.286Z |
 | 16 | 05 | deviation | scripts/collect-hosted-proof.py |  | Plan24 review reproduced synthetic path alias outside disposable marked scope. Original normalized and resolved source/output/document/log paths now all required inside same scope before API reads. All9alias negatives, admitted and legacy controls pass; re-review clean. See05-24-REVIEW-FIX.md. | fixed |  | 2026-11-14T06:35:00.881Z | 2026-11-14T06:35:00.984Z |
+| 17 | 05 | deviation | tests/gates/diagnostic_setup.cmake |  | Plan25 actual full sanitizer exposed post-admission runner relink after receipt hash capture. Bound final executable after rebuild, retained stale-runner refusal and SDK RED/green. Fresh full sanitizer, current required diagnostics and independent code/security reviews pass. Safe Linux export privacy/mode/trap fixes verified; no producer change. See05-25-LOCAL-EXECUTION.md. | fixed |  | 2026-11-14T08:51:09.846Z | 2026-11-14T08:51:09.945Z |
+| 18 | 05 | deviation | tests/gates/linux_snapshot.cmake |  | Local Nyquist gap: ignored snapshot prototype was not recurring and required installed semantics absent in diagnostic CI. Added offline multi-commit privacy/history/mode/signal/cleanup regression and required ARM/all relocation; fresh Mac/Linux/current inventories pass, independent rereviews clear. See05-25-COVERAGE-FIX.md. | fixed |  | 2026-11-14T08:51:10.037Z | 2026-11-14T08:51:10.137Z |
+| 19 | 05 | deviation | 05-25-LOCAL-EXECUTION.md |  | Historical scheduling deviation: one isolated standalone ledger sweep briefly overlapped required diagnostics. Both completed in distinct roots; the overlap is recorded, not relabeled serial. All subsequent heavy work was serial. No resource cap changed, no throughput claim relies on that overlap, no persistent state failure remains. | fixed |  | 2026-11-14T08:51:10.231Z | 2026-11-14T08:51:10.323Z |
 
 ````json
 [
@@ -240,6 +243,45 @@ last_updated: 2026-11-14T06:35:00.984Z
     "reason": "",
     "recorded_at": "2026-11-14T06:35:00.881Z",
     "resolved_at": "2026-11-14T06:35:00.984Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 17,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "tests/gates/diagnostic_setup.cmake",
+    "line": null,
+    "description": "Plan25 actual full sanitizer exposed post-admission runner relink after receipt hash capture. Bound final executable after rebuild, retained stale-runner refusal and SDK RED/green. Fresh full sanitizer, current required diagnostics and independent code/security reviews pass. Safe Linux export privacy/mode/trap fixes verified; no producer change. See05-25-LOCAL-EXECUTION.md.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-14T08:51:09.846Z",
+    "resolved_at": "2026-11-14T08:51:09.945Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 18,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "tests/gates/linux_snapshot.cmake",
+    "line": null,
+    "description": "Local Nyquist gap: ignored snapshot prototype was not recurring and required installed semantics absent in diagnostic CI. Added offline multi-commit privacy/history/mode/signal/cleanup regression and required ARM/all relocation; fresh Mac/Linux/current inventories pass, independent rereviews clear. See05-25-COVERAGE-FIX.md.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-14T08:51:10.037Z",
+    "resolved_at": "2026-11-14T08:51:10.137Z",
+    "milestone": "v1.0"
+  },
+  {
+    "id": 19,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "05-25-LOCAL-EXECUTION.md",
+    "line": null,
+    "description": "Historical scheduling deviation: one isolated standalone ledger sweep briefly overlapped required diagnostics. Both completed in distinct roots; the overlap is recorded, not relabeled serial. All subsequent heavy work was serial. No resource cap changed, no throughput claim relies on that overlap, no persistent state failure remains.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-14T08:51:10.231Z",
+    "resolved_at": "2026-11-14T08:51:10.323Z",
     "milestone": "v1.0"
   }
 ]

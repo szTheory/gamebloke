@@ -183,8 +183,9 @@ region/state-specific BIOS open-bus behavior and Game Pak prefetch are not quali
 
 The interpreter implements the legal ARM7TDMI ARMv4T ARM families and all 19
 Thumb formats listed below. This is a source/implementation scope statement.
-The original full diagnostic corpus has not executed or been admitted yet, and
-this profile does not establish hardware accuracy or broad GBA compatibility.
+The complete original diagnostic corpus has executed locally with admitted
+fixtures. Hosted qualification requires separate exact-head evidence. This
+profile does not establish hardware accuracy or broad GBA compatibility.
 
 | Scope | Opcode / operand forms | Label | Citation |
 | ----- | --------------------- | ----- | -------- |
@@ -206,7 +207,7 @@ this profile does not establish hardware accuracy or broad GBA compatibility.
 | cpu_scope.excluded.3 | Unallocated exact-core encodings enter UND, while malformed allocated decode bits are unpredictable | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 | cpu_scope.excluded.4 | No attached coprocessor or BIOS handler executes, exception entry precedes named BIOS-none stop and vector bytes are never fetched | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 | cpu_scope.excluded.5 | Static B/BX and ALU-PC target alignment/refill extents retain checked unsupported refusal, not a missing legal instruction family | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
-| cpu_scope.excluded.6 | Original full diagnostic case execution and admission remain pending, no hardware, game, BIOS or release qualification is claimed | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
+| cpu_scope.excluded.6 | Original full diagnostic corpus executed locally with admitted fixtures, hosted qualification requires separate exact-head evidence, no hardware, game, BIOS or release qualification is claimed | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |
 
 ## CPU stop classifications
 

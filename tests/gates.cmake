@@ -177,6 +177,14 @@ gbl_add_test(
   LABELS positive traps
   COMMAND ${GBL_SIG_DRIVER} -DCASE=clean -P "${GBL_SIGNAL_CASE}")
 
+# No Docker, network, private files or runtime language dependency: exercise
+# the real helper against a multi-commit synthetic Git repo and shell witness.
+gbl_add_test(
+  NAME linux.snapshot
+  LABELS control linux
+  COMMAND "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/linux_snapshot.cmake")
+
 # ---- manifest lint (VERIF-01, EVID-02) --------------------------------------
 # The real manifest and pins file are linted against the real dispute registry and
 # vocabulary inside the canonical command. Controls for it follow in the evidence

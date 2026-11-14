@@ -43,6 +43,16 @@ gbl_add_test(
     -DMODE=clean
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
 gbl_add_test(
+  NAME runner.relocation_admitted
+  LABELS diagnostics gate integration runner
+  SKIPPABLE
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DMODE=admitted -DOPTIONAL=ON "-DGBL_REQUIRE_DIAGNOSTICS=${GBL_REQUIRE_DIAGNOSTICS}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
+set_tests_properties(runner.relocation_admitted PROPERTIES
+  FIXTURES_REQUIRED diagnostic_execution)
+gbl_add_test(
   NAME runner.relocation_control
   LABELS control runner
   COMMAND "${CMAKE_COMMAND}"

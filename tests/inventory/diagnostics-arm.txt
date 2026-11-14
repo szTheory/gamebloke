@@ -548,4 +548,5 @@ diagnostics.receipt.controls control,diagnostics
 diagnostics.spike diagnostics,gate,integration
 diagnostics.toolchain diagnostics,gate
 inventory.junit post
+runner.relocation_admitted diagnostics,gate,integration,runner
 toolchain.offline control,diagnostics

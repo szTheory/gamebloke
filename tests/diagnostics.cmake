@@ -73,6 +73,14 @@ set_tests_properties(diagnostics.execution_set PROPERTIES
   FIXTURES_REQUIRED diagnostic_execution DEPENDS "${case_tests}" RUN_SERIAL TRUE)
 gbl_diagnostic_skip(diagnostics.execution_set "${required}")
 if(GBL_LANE STREQUAL "diagnostics" AND NOT diag_group STREQUAL "thumb")
+  # The ARM/all groups already own these actual ARM semantic and stop inputs.
+  # This required gate has no skip property and consumes real setup evidence.
+  gbl_add_test(NAME runner.relocation_admitted LABELS diagnostics gate integration runner
+    COMMAND "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      -DMODE=admitted -DGBL_REQUIRE_DIAGNOSTICS=ON
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
+  set_tests_properties(runner.relocation_admitted PROPERTIES
+    FIXTURES_REQUIRED diagnostic_execution RUN_SERIAL TRUE)
   # This control includes the full clean final gate before its negative input.
   # A separate clean invocation duplicated measured whole-ledger work without
   # adding another failure class.

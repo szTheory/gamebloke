@@ -28,7 +28,12 @@ After each production tracer/change, run the exact new behavior plus a relevant 
 
 ## Per-Task Verification Map
 
-All25 plans/50 tasks are mapped below. The extra sanitizer/GNU command rows belong to the same final task. Every new selector/script is created before its owning command; none is represented as already existing or passing. No Phase5 tool download/build/test/hosted run has occurred. Required final diagnostic CI is admitted stage, not initial proof stage.
+All25 plans/50 tasks are mapped below. This is the original planning/creation map:
+its PENDING cells mean that planning asserted no execution result. Actual plan
+summaries and the local execution overlay below now supply observed evidence.
+The extra sanitizer/GNU rows belong to the same final task. Every new
+selector/script must exist before verification. Required final diagnostic CI is
+admitted stage, not initial proof stage.
 
 | Task | Wave | Requirements | Threat refs | Automated command (repo root) | Creation dependency / proof | Actual result |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -127,4 +132,40 @@ The installed spec-less edge protocol ran against the six exact requirement text
 - [ ] Final current inventories and meaningful negative controls pass
 - [ ] nyquist_compliant true only after actual audit
 
-**Approval:** pending implementation and audit; no Phase 5 test has run.
+**Approval:** final independent audits, exact-head hosted checks and owner phase
+boundary remain pending. No Nyquist approval is inferred from this executor's
+local evidence.
+
+## Plan25 local execution overlay (2026-11-14)
+
+Post-review supplement:05-25-COVERAGE-FIX.md retains the Linux snapshot regression
+in canonical CI/hygiene, makes installed admitted relocation mandatory in ARM/all
+with no Thumb expansion, and records current bounded checks. Latest all-diagnostics
+is794/794withzero skips; current CI is1108expected/382ran/726explicit optional
+skips; hygiene208expected/207ran/1owner-local skip. Current31profile tests pass
+for the parent's unchanged three profile paths. Expanded25-file binding is
+separate from the original13-file record. Independent rereview remains pending;
+this evidence does not change nyquist_compliant/wave_0_complete or any boundary.
+
+Actual checkout8e21ef6 plus the saved local consumer diff; this is not a future
+committed head. [05-FINAL-CHECKS.md](05-FINAL-CHECKS.md) and
+[05-25-LOCAL-EXECUTION.md](05-25-LOCAL-EXECUTION.md) record commands, source/consumer
+identity, actual failures, bounded retests and the remaining gate owners.
+
+| Check | Actual observed evidence | Completion limit |
+| --- | --- | --- |
+| Source, pins, modes, ancestry and R4 preservation | Cheap preflight and full local audit pass; unchanged722manifest rows/output hashes, producer85c/input95 and all retained R4 terminal artifact hashes. | Old source proof is preserved, not relabeled to the current consumer. |
+| Canonical current local CI | Corrected full workflow and strict1107expected/381ran/726explicit optional skips pass. Initial helper trap failure is retained. | These native optional-tool skips are not required guest passes. |
+| Mandatory current diagnostics |793main checks/zero skips and strict post pass; actual355PASS/355GUEST_FAIL/12stops plus19native API rows. | No final hosted or physical qualification. |
+| Exact all-row crosswalk |386ledger rows linked to actual results/native receipts and exact source/consumer/token/hash/progress fields. CPU-1..9 and all19Thumb forms retain explicit boundaries. | Independent source/goal/Nyquist audits pending. |
+| Final coverage and installed production relocation | Standalone final coverage and moved installed admitted positive/broken/SWI-stop check pass. Raw and missing-executable control pass. | No stable public ABI/package release claim. |
+| Full ledger negative suite | Draft/final/admission, ID/form/source/flags/policy/builder/output-boundary mutations with clean companion pass. | Historical projection is test authority only; canonical producer inputs unchanged. |
+| Fresh AppleClang sanitizer, Linux GNU/clang21, final maps/signature/hygiene/dependency | All terminal checks passed. Fresh AppleClang849main checks/zero skips; Linux inventories explicitly report optional guest skips. All722maps and2/476/244generated signature files pass. Final hygiene207expected/206ran/1owner-local skip; dependency controls pass. | These local executor observations do not close independent audit, exact-head hosted or owner boundaries. |
+
+Three unclassified Phase5 taxonomy rows, three descriptor-less prohibitions,
+all eleven historical Phase4 rows, and Plan19's historical TDD deviation remain
+unchanged. The nine explicit criteria now have separately linked local
+observations in05-PROBE-RESOLUTIONS.md, not invented independent sign-off or
+waivers. Source-audit rows remain planning coverage and have explicit actual
+evidence destinations in the final-check guide. Owner guide clarity and bespoke
+judgments remain the existing phase boundary. No Phase6 start is authorized.
