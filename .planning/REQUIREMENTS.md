@@ -74,7 +74,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 - [x] **DET-01**: The same profile, ROM, and input produce byte-identical results and trace hashes across repeated runs, both in-process and fresh-process.
 - [ ] **DET-02**: Builds at -O0 and -O2, and from two compilers (GCC and Clang), produce identical trace hashes for every owned diagnostic.
-- [ ] **DET-03**: Two instances run interleaved in one process produce the same results as each run alone (no global mutable state).
+- [x] **DET-03**: Two instances run interleaved in one process produce the same results as each run alone (no global mutable state).
 
 ## v2 Requirements (later rolling milestones)
 
@@ -191,7 +191,7 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | DIAG-04 | Phase 6 | Pending |
 | DET-01 | Phase 6 | Complete |
 | DET-02 | Phase 6 | Pending |
-| DET-03 | Phase 6 | Pending |
+| DET-03 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 39 total
