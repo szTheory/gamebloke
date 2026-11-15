@@ -338,7 +338,7 @@ Plans:
   3. The trace-hash gate fails, for a stated reason, on a negative-control handler that advances machine time without going through the bus API.
   4. In a local-only lane, jsmolka gba-tests `arm`, `thumb`, and `memory` run from pinned fetches whose source revision and ROM digests are recorded. At each pinned ROM's source-verified `eval` entry before its VBlank display wait, the result register is observed: R12 for ARM, R7 for Thumb, and R12 for memory. Verify each `m_exit`/`m_test_eval` path against the pinned source before a zero result can count as PASS. A nonzero result is GUEST_FAIL; a stop before observation is GUEST_STOP, never PASS. The fetched ROMs remain in ignored `.fixtures/`; they are not committed, uploaded, or run in public CI because the repository provides no redistribution grant for the embedded Nintendo logo bytes. `bios.gba` reports SKIPPED with a BIOS-requirement reason.
   5. At milestone exit, `cmake --workflow --preset ci` and `CI required` are green, every negative control fails for its stated reason, and the inventory shows the skipped BIOS fixtures with their reasons. The local-only third-party lane does not add fixture bytes to public CI.
-**Plans**: 3/8 plans executed (five dependency-ordered waves)
+**Plans**: 4/8 plans executed (five dependency-ordered waves)
 
 Plans:
 **Wave 1**
@@ -349,7 +349,7 @@ Plans:
 - [x] 06-05-PLAN.md — Source-bound register result-channel metadata
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 06-03-PLAN.md — Owned-diagnostic compiler and optimization matrix
+- [x] 06-03-PLAN.md — Owned-diagnostic compiler and optimization matrix
 - [ ] 06-06-PLAN.md — Pre-VBlank evaluator-register observation and result contract
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -429,7 +429,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 13/13 | Complete    | 2026-11-11 |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 25/25 | Complete    | 2026-11-14 |
-| 6. Determinism Gates and Third-Party CPU Fixtures | 3/8 | In Progress | - |
+| 6. Determinism Gates and Third-Party CPU Fixtures | 4/8 | In Progress | - |
 
 ---
 *Roadmap created: 2026-11-09 for milestone v1.0 Evidence Spine (a GSD milestone label, not a software version)*
