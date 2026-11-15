@@ -39,4 +39,15 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
         "-DCASE=${case}"
         -P "${CMAKE_SOURCE_DIR}/tests/gates/determinism_case.cmake")
   endforeach()
+elseif(GBL_LANE STREQUAL "diagnostics")
+  gbl_add_test(
+    NAME diagnostics.determinism
+    LABELS diagnostics gate determinism
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DMODE=${GBL_DETERMINISM_MODE}"
+      "-DGROUP=${GBL_DIAGNOSTIC_GROUP}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/RunDeterminismMatrix.cmake")
+  set_tests_properties(diagnostics.determinism PROPERTIES
+    FIXTURES_REQUIRED diagnostic_execution RUN_SERIAL TRUE)
 endif()

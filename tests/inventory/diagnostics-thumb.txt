@@ -244,6 +244,7 @@ diagnostics.case.thumb-stop-569802504 diagnostics,integration
 diagnostics.case.thumb-stop-638430992 diagnostics,integration
 diagnostics.case.thumb-stop-737278802 diagnostics,integration
 diagnostics.dependency.controls control,diagnostics
+diagnostics.determinism determinism,diagnostics,gate
 diagnostics.execute diagnostics,integration
 diagnostics.execution_set diagnostics,gate,integration
 diagnostics.final.budget control,diagnostics
