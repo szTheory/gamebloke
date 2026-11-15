@@ -90,6 +90,37 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 | `ci` | `cmake --workflow --preset ci` | Default lane: build, unit tests, gates, controls. |
 | `asan` | `sh scripts/linux-lane.sh asan` | AddressSanitizer and UBSan with clang-21. Linux only; the script runs it in a digest-pinned `ubuntu:26.04` container (needs Docker). |
 | `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, plus the Phase 2 evidence validators and their controls, with no compile of the product. |
+| `local CPU fixtures` | `sh scripts/run-local-cpu-suites.sh --fetch --build-dir build/ci` | Local-only jsmolka ARM, Thumb, and memory suites; never run in hosted CI. |
+
+## Local jsmolka CPU suites
+
+The local command fetches only the three reviewed raw ROM pins from upstream
+revision `a7113b67e63f83a9b321696ddd7042ccfad6c881`, verifies each digest before
+placement, then rechecks source binding and ignored/untracked fixture storage.
+Without `--fetch`, it uses only existing `.fixtures/jsmolka/` files and reports
+each missing suite as `MISSING`. Hosted CI is refused before fetch or guest
+launch.
+
+Each suite has a 50,000,000 emulated master-cycle budget and a 30-second process
+timeout. The runner observes the source-bound result register at its exact
+`eval` entry, before the display-only `m_vsync` wait. ARM and memory use R12;
+the Thumb suite uses R7 but enters its `eval` label in ARM state. A qualified
+PASS requires an observed zero. GUEST_FAIL, GUEST_STOP, TIMEOUT, and harness
+failures remain in their result documents and make the command fail.
+
+The command writes one result document per suite plus
+`build/ci/jsmolka/inventory.json`. `jsmolka-bios` is invoked through its
+metadata skip path without reading content and must report `SKIPPED`,
+`ran=false`, and `official-bios-required`. No BIOS ROM or official BIOS bytes
+are fetched.
+
+See [the source and binary audit](jsmolka-source-audit.md) and
+[the fixture rights notice](../tests/fixtures/jsmolka-NOTICE.md). The upstream
+source declares MIT, but no separate redistribution grant was identified for
+the Nintendo logo bytes embedded in the prebuilt ROMs. Keep these ROMs in the
+ignored local fixture directory; do not commit, upload, or run them in public
+CI. These CPU results do not establish VBlank timing, PPU/graphics behavior,
+audio, physical-hardware behavior, or broad compatibility.
 
 For a fresh local macOS ASan/UBSan run with the installed AppleClang, use
 an unused build directory and write JUnit inside that actual directory:
