@@ -125,6 +125,7 @@ cpu.trace core,cpu,unit
 cpu.trace_capacity core,cpu,unit
 cpu.tracer core,cpu,unit
 cpu.unit_boundaries core,cpu,unit
+determinism.repeat.in_process determinism,gate,integration
 diagnostics.api.1028106793 cpu,diagnostics,integration
 diagnostics.api.1129470292 cpu,diagnostics,integration
 diagnostics.api.1147774326 cpu,diagnostics,integration

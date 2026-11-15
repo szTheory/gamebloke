@@ -420,6 +420,7 @@ endif()
 #                      hygiene lanes
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   include(tests/core.cmake)
+  include(tests/determinism.cmake)
 endif()
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)
