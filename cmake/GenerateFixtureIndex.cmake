@@ -117,7 +117,8 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
   # do not grant rights to any external content.
   set(control_rows "")
   set(control_ids synthetic-control-pass synthetic-control-fail
-    synthetic-control-bios-required)
+    synthetic-control-bios-required synthetic-control-register-arm
+    synthetic-control-register-thumb)
   if(DEFINED GBL_CONTROL_ZERO_CASE_IMAGE AND
       NOT "${GBL_CONTROL_ZERO_CASE_IMAGE}" STREQUAL "")
     list(APPEND control_ids synthetic-control-pass-zero-case)
@@ -143,6 +144,14 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       set(control_image "${GBL_CONTROL_SKIP_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass.gba")
       set(control_bios "project-stub")
+    elseif(control_id STREQUAL "synthetic-control-register-arm")
+      set(control_image "${GBL_CONTROL_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-arm-pass.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-thumb")
+      set(control_image "${GBL_CONTROL_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-arm-pass.gba")
+      set(control_bios "none")
     else()
       set(control_image "${GBL_CONTROL_ZERO_CASE_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass-zero-case.gba")
@@ -153,18 +162,85 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
     endif()
     # This CMake digest is independent of the generator's byte recipe.
     file(SHA256 "${control_image}" control_digest)
+    if(control_id STREQUAL "synthetic-control-register-arm" OR
+        control_id STREQUAL "synthetic-control-register-thumb")
+      set(control_source "{}")
+      string(JSON control_source SET "${control_source}" kind "\"git\"")
+      string(JSON control_source SET "${control_source}" url
+        "\"https://github.com/jsmolka/gba-tests\"")
+      string(JSON control_source SET "${control_source}" commit
+        "\"a7113b67e63f83a9b321696ddd7042ccfad6c881\"")
+
+      set(control_toolchain "{}")
+      string(JSON control_toolchain SET "${control_toolchain}" identity
+        "\"native C17 synthetic-control generator\"")
+      string(JSON control_toolchain SET "${control_toolchain}" sha256 null)
+      set(control_build "{}")
+      string(JSON control_build SET "${control_build}" recipe
+        "\"owned synthetic register-channel control bytes\"")
+      string(JSON control_build SET "${control_build}" toolchain
+        "${control_toolchain}")
+      set(control_artifact "{}")
+      string(JSON control_artifact SET "${control_artifact}" path
+        "\"generated/fixtures/owned-arm-pass.gba\"")
+      string(JSON control_artifact SET "${control_artifact}" sha256
+        "\"${control_digest}\"")
+      string(JSON control_build SET "${control_build}" artifact
+        "${control_artifact}")
+
+      set(control_channel "{}")
+      string(JSON control_channel SET "${control_channel}" kind
+        "\"register-eval\"")
+      string(JSON control_channel SET "${control_channel}" source_commit
+        "\"a7113b67e63f83a9b321696ddd7042ccfad6c881\"")
+      if(control_id STREQUAL "synthetic-control-register-arm")
+        string(JSON control_channel SET "${control_channel}" source_path
+          "\"arm/arm.asm\"")
+        string(JSON control_channel SET "${control_channel}" entry_address
+          "\"0x08001D4C\"")
+        string(JSON control_channel SET "${control_channel}" instruction_set
+          "\"arm\"")
+        string(JSON control_channel SET "${control_channel}" register_index 12)
+      else()
+        string(JSON control_channel SET "${control_channel}" source_path
+          "\"thumb/thumb.asm\"")
+        string(JSON control_channel SET "${control_channel}" entry_address
+          "\"0x08000934\"")
+        string(JSON control_channel SET "${control_channel}" instruction_set
+          "\"thumb\"")
+        string(JSON control_channel SET "${control_channel}" register_index 7)
+      endif()
+      set(control_channel_member ",\n      \"result_channel\": ${control_channel}")
+    else()
+      set(control_source "{}")
+      string(JSON control_source SET "${control_source}" kind "\"in-tree\"")
+      string(JSON control_source SET "${control_source}" path
+        "\"${control_source_path}\"")
+      string(JSON control_source SET "${control_source}" sha256
+        "\"${control_digest}\"")
+      set(control_toolchain "{}")
+      string(JSON control_toolchain SET "${control_toolchain}" identity
+        "\"native C17 test generator\"")
+      string(JSON control_toolchain SET "${control_toolchain}" sha256 null)
+      set(control_build "{}")
+      string(JSON control_build SET "${control_build}" recipe
+        "\"original Gamebloke instruction image generator\"")
+      string(JSON control_build SET "${control_build}" toolchain
+        "${control_toolchain}")
+      set(control_channel_member "")
+    endif()
     if(NOT "${control_rows}" STREQUAL "")
       string(APPEND control_rows ",\n")
     endif()
     string(APPEND control_rows
       "    {\n"
       "      \"id\": \"${control_id}\",\n"
-      "      \"source\": {\"kind\": \"in-tree\", \"path\": \"${control_source_path}\", \"sha256\": \"${control_digest}\"},\n"
+      "      \"source\": ${control_source},\n"
       "      \"license\": {\"spdx\": \"LicenseRef-Gamebloke-Synthetic-Control\", \"notices\": [\"Artificial validator input for generated test bytes; no redistribution grant.\"], \"redistributable\": \"unknown\"},\n"
-      "      \"build\": {\"recipe\": \"original Gamebloke instruction image generator\", \"toolchain\": {\"identity\": \"native C17 test generator\", \"sha256\": null}},\n"
+      "      \"build\": ${control_build},\n"
       "      \"bios_requirement\": \"${control_bios}\",\n"
       "      \"expected\": {\"provenance_class\": \"disputed\", \"dispute\": \"disp-gbatek-errata\"},\n"
-      "      \"permitted_use\": [\"local-only\"]\n"
+      "      \"permitted_use\": [\"local-only\"]${control_channel_member}\n"
       "    }")
   endforeach()
   string(CONCAT control_manifest
@@ -210,6 +286,9 @@ if(DEFINED GBL_CONTROL_ZERO_CASE_IMAGE AND
   list(APPEND control_checks
     "synthetic-control-pass-zero-case|${GBL_CONTROL_ZERO_CASE_IMAGE}")
 endif()
+list(APPEND control_checks
+  "synthetic-control-register-arm|${GBL_CONTROL_IMAGE}"
+  "synthetic-control-register-thumb|${GBL_CONTROL_IMAGE}")
 foreach(control_check IN LISTS control_checks)
   string(REPLACE "|" ";" control_pair "${control_check}")
   list(GET control_pair 0 control_id)

@@ -86,6 +86,64 @@ function(expect_pass manifest expected_rows)
   endif()
 endfunction()
 
+function(make_source out revision)
+  set(source "{}")
+  string(JSON source SET "${source}" kind "\"git\"")
+  string(JSON source SET "${source}" url "\"https://github.com/jsmolka/gba-tests\"")
+  string(JSON source SET "${source}" commit "\"${revision}\"")
+  set(${out} "${source}" PARENT_SCOPE)
+endfunction()
+
+function(append_register_row manifest id source artifact channel)
+  file(READ "${manifest}" doc)
+  string(JSON row GET "${doc}" fixtures 0)
+  string(JSON row SET "${row}" id "\"${id}\"")
+  string(JSON row SET "${row}" source "${source}")
+  string(JSON row SET "${row}" build artifact "${artifact}")
+  string(JSON row SET "${row}" result_channel "${channel}")
+  string(JSON count LENGTH "${doc}" fixtures)
+  gbl_json_mutate_set("${manifest}" "${row}" fixtures ${count})
+endfunction()
+
+function(run_generator out_result out_report manifest artifact_root
+    production_index control_index control_manifest control_image)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}"
+      "-DGBL_SOURCE_DIR=${SRC}"
+      "-DGBL_OUTPUT_ROOT=${dir}"
+      "-DGBL_ARTIFACT_ROOT=${artifact_root}"
+      "-DGBL_CONTROL_IMAGE=${control_image}"
+      "-DGBL_CONTROL_MANIFEST_OUTPUT=${control_manifest}"
+      "-DGBL_MANIFEST=${manifest}"
+      "-DGBL_REGISTRY=${SRC}/registry/disputes.json"
+      "-DGBL_VOCAB=${SRC}/contracts/evidence.json"
+      "-DGBL_OUT_PRODUCTION=${production_index}"
+      "-DGBL_OUT_CONTROL=${control_index}"
+      -P "${SRC}/cmake/GenerateFixtureIndex.cmake"
+    RESULT_VARIABLE result OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr)
+  set(${out_result} "${result}" PARENT_SCOPE)
+  set(${out_report} "${stdout}${stderr}" PARENT_SCOPE)
+endfunction()
+
+function(compile_and_run name include_dir source_file)
+  set(executable "${dir}/${name}")
+  execute_process(
+    COMMAND "${C_COMPILER}" -std=c17 -Wall -Wextra -Werror
+      "-I${include_dir}" "${source_file}" -o "${executable}"
+    RESULT_VARIABLE compile_result OUTPUT_VARIABLE compile_out
+    ERROR_VARIABLE compile_error)
+  if(NOT "${compile_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "result-channel: ${name} compile failed\n${compile_out}${compile_error}")
+  endif()
+  execute_process(COMMAND "${executable}"
+    RESULT_VARIABLE run_result OUTPUT_VARIABLE run_out ERROR_VARIABLE run_error)
+  if(NOT "${run_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "result-channel: ${name} probe failed (${run_result})\n${run_out}${run_error}")
+  endif()
+endfunction()
+
 if(CASE STREQUAL "metadata")
   # Both legacy rows and complete source-bound register rows use the same
   # canonical manifest reader and retain local-only rights metadata.
@@ -197,4 +255,95 @@ if(CASE STREQUAL "metadata")
   return()
 endif()
 
-message("result-channel: roundtrip implementation pending")
+find_program(C_COMPILER NAMES clang gcc cc)
+if(NOT C_COMPILER)
+  message(FATAL_ERROR "result-channel: no C17 compiler found for generated-header probe")
+endif()
+
+# Build-only synthetic bytes large enough to contain all three metadata entry
+# offsets. They are locally created, never fetched, committed, or executed.
+set(artifact_root "${dir}/artifacts")
+file(MAKE_DIRECTORY "${artifact_root}/generated/fixtures")
+string(REPEAT "S" 16384 synthetic_rom)
+set(rom_path "generated/fixtures/owned-register-control.gba")
+set(rom_file "${artifact_root}/${rom_path}")
+file(WRITE "${rom_file}" "${synthetic_rom}")
+file(SHA256 "${rom_file}" rom_digest)
+string(JSON rom_artifact SET "{}" path "\"${rom_path}\"")
+string(JSON rom_artifact SET "${rom_artifact}" sha256 "\"${rom_digest}\"")
+make_source(source "${commit}")
+set(manifest "${dir}/roundtrip-manifest.json")
+file(COPY_FILE "${base}" "${manifest}")
+gbl_json_mutate_set("${manifest}" "\"synthetic-legacy\"" fixtures 0 id)
+gbl_json_mutate_set("${manifest}" "${source}" fixtures 0 source)
+
+make_channel(arm_channel register-eval "${commit}" "arm/arm.asm"
+  "0x08001D4C" arm 12)
+append_register_row("${manifest}" synthetic-arm "${source}"
+  "${rom_artifact}" "${arm_channel}")
+make_channel(thumb_channel register-eval "${commit}" "thumb/thumb.asm"
+  "0x08000934" thumb 7)
+append_register_row("${manifest}" synthetic-thumb "${source}"
+  "${rom_artifact}" "${thumb_channel}")
+make_channel(memory_channel register-eval "${commit}" "memory/memory.asm"
+  "0x08000350" arm 12)
+append_register_row("${manifest}" synthetic-memory "${source}"
+  "${rom_artifact}" "${memory_channel}")
+
+set(control_image "${artifact_root}/generated/fixtures/owned-arm-pass.gba")
+file(WRITE "${control_image}" "owned synthetic register control image\n")
+set(production_index "${dir}/generated/production/fixture_index.h")
+set(control_index "${dir}/generated/control/fixture_index.h")
+set(control_manifest "${dir}/generated/control/manifest.json")
+run_generator(generator_result generator_report "${manifest}" "${artifact_root}"
+  "${production_index}" "${control_index}" "${control_manifest}"
+  "${control_image}")
+if(NOT "${generator_result}" STREQUAL "0" OR
+    NOT EXISTS "${production_index}" OR NOT EXISTS "${control_index}")
+  message(FATAL_ERROR
+    "result-channel: initial index generation failed\n${generator_report}")
+endif()
+
+set(production_probe "${dir}/production_probe.c")
+file(WRITE "${production_probe}" "#include <string.h>\n#include \"fixture_index.h\"\n"
+  "int main(void) {\n"
+  "  if (gbl_fixture_metadata_count != 4u) return 1;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[0].expected_mailbox_convention, \"five-word-v1-final-marker\") != 0) return 2;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[0].result_channel_kind, \"mailbox\") != 0) return 3;\n"
+  "  if (gbl_fixture_metadata_rows[0].result_entry_address != 0u) return 4;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[1].result_channel_kind, \"register-eval\") != 0) return 5;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[1].result_source_commit, \"${commit}\") != 0) return 6;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[1].result_source_path, \"arm/arm.asm\") != 0) return 7;\n"
+  "  if (gbl_fixture_metadata_rows[1].result_entry_address != 0x08001D4Cu) return 8;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[1].result_instruction_set, \"arm\") != 0) return 9;\n"
+  "  if (gbl_fixture_metadata_rows[1].result_register_index != 12u) return 10;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[2].result_source_path, \"thumb/thumb.asm\") != 0 || gbl_fixture_metadata_rows[2].result_entry_address != 0x08000934u || gbl_fixture_metadata_rows[2].result_register_index != 7u) return 11;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[3].result_source_path, \"memory/memory.asm\") != 0 || gbl_fixture_metadata_rows[3].result_entry_address != 0x08000350u || gbl_fixture_metadata_rows[3].result_register_index != 12u) return 12;\n"
+  "  return 0;\n}\n")
+compile_and_run(production-probe "${dir}/generated/production" "${production_probe}")
+
+set(control_probe "${dir}/control_probe.c")
+file(WRITE "${control_probe}" "#include <string.h>\n#include \"fixture_index.h\"\n"
+  "int main(void) {\n"
+  "  if (gbl_fixture_metadata_count != 3u) return 1;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[1].id, \"synthetic-control-register-arm\") != 0 || gbl_fixture_metadata_rows[1].result_register_index != 12u || gbl_fixture_metadata_rows[1].result_entry_address != 0x08001D4Cu) return 2;\n"
+  "  if (strcmp(gbl_fixture_metadata_rows[2].id, \"synthetic-control-register-thumb\") != 0 || gbl_fixture_metadata_rows[2].result_register_index != 7u || gbl_fixture_metadata_rows[2].result_entry_address != 0x08000934u) return 3;\n"
+  "  return 0;\n}\n")
+compile_and_run(control-probe "${dir}/generated/control" "${control_probe}")
+
+# The generator clears safe stale headers before validating current metadata.
+set(invalid_manifest "${dir}/invalid-manifest.json")
+file(COPY_FILE "${manifest}" "${invalid_manifest}")
+gbl_json_mutate_set("${invalid_manifest}"
+  "\"0123456789abcdef0123456789abcdef01234567\""
+  fixtures 1 result_channel source_commit)
+run_generator(invalid_result invalid_report "${invalid_manifest}"
+  "${artifact_root}" "${production_index}" "${control_index}"
+  "${control_manifest}" "${control_image}")
+if("${invalid_result}" STREQUAL "0" OR
+    NOT "${invalid_report}" MATCHES "result-channel-source-revision-mismatch" OR
+    EXISTS "${production_index}" OR EXISTS "${control_index}")
+  message(FATAL_ERROR
+    "result-channel: invalid regeneration accepted or left stale usable indexes\n${invalid_report}")
+endif()
+message("result-channel: manifest-to-C-header roundtrip and stale-index refusal passed")
