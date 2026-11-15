@@ -181,3 +181,28 @@ Final hosted run43608603097 exposed a required legacy smoke receipt at a path th
 The repair's independent review caught a weak command-substring guard. Query the actual build edges and exact producer arguments, then mutate the real graph with a full-corpus dependency and extra preparation command. These negative controls plus clean companions take about half a second and run before corpus work. A controlled same-input experiment removed one duplicate manifest parse and about twelve seconds of preparation/index work while preserving exact output bytes; variable cold whole-job times do not establish an overall speedup. Keep cross-host measurements separate: a test's execution time is not provisioning time, and local ARM64 results do not predict hosted x64 budget compliance.
 
 The repaired hosted candidate passed every required job, but its metadata-triggered same-source repeat exposed Linux native timing margin:168seconds green versus184seconds cancelled at the180second limit, even though all tests and strict post inventory passed. A first green is not a stability guarantee. Inspect whole-job allowance, not only main tests; preserve the authoritative cancellation and stop before another fix or retry. Prefer an evidence-supported one-job policy decision over a speculative broad optimization. The unused final-records event is not retry authority. See05-FINAL-METADATA-STOP.md for the bounded240second recommendation, which remains unapproved.
+
+
+## Run workflow and policy format checks before expensive review
+
+The240second policy review found the recurring budget test's old180/300second
+assumption. Run the actual registered diagnostics.final.budget control before
+a long native suite or review; it takes about three seconds and covers the
+policy's exact boundary and plus-one refusal. Searching only the policy table
+and collector controls missed this separate recurring consumer.
+
+Formal verification later found the roadmap MVP story lacked the validator's
+required “I want to” phrase, while all existing phase plans already used the
+canonical equivalent story. Validate the roadmap story before artifact/link
+audits; correct equivalent formatting from existing accepted planning context
+without reopening product scope or converting an active phase through a new
+MVP/replanning workflow. Preserve completed checks and resume at the gate.
+
+
+Persist independent findings incrementally. The formal verifier completed the
+artifact/link checks and returned a clear human-needed verdict but remained in
+prolonged report finalization without writing its report. The parent stopped
+only that agent, preserved its returned findings with explicit authorship,
+rechecked the cheap artifact/schema gates, and persisted the report without
+repeating a runtime matrix or inventing an agent completion. This is a measured
+workflow bottleneck; a report handoff should be smaller than the audit itself.

@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Evidence Spine
 current_phase: 05
 current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Owner approved Linux native240second cap and one corrective hosted run; local policy checks active
-stopped_at: Complete local policy verification/review, use one corrective run, resume unused records event only after green; stop again on red
-last_updated: "2026-11-14T17:30:12.539Z"
+status: Phase5 implementation and technical verification complete; final records CI then owner guide/merge boundary
+stopped_at: Publish only the original final records event, validate its exact head, then wait for owner guide and one-time merge-method decision; no Phase6
+last_updated: "2026-11-15T00:54:44.689Z"
 last_activity: 2026-11-14
-last_activity_desc: Exact one-job budget policy and mirrored controls updated; unchanged producer proof preserved; no hosted attempt used
-state_head: 2fb31ffbb36111d3b90e7b48bcc40779dd18f712
+last_activity_desc: All25 execution summaries and human-needed verification recorded; actual35c hosted evidence validated; unresolved judgments retained
+state_head: 35c7513b3437d0a402021b4b5117c5d8898535b7
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 63
-  completed_plans: 61
+  completed_plans: 63
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 ## Current Position
 
 Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 24 of 25
-Status: Owner approved Linux native240second cap and one corrective hosted run; local policy checks active
-Last activity: 2026-11-14 — Exact one-job budget policy and mirrored controls updated; unchanged producer proof preserved; no hosted attempt used
+Plan: 25 of 25
+Status: Phase5 implementation and technical verification complete; final records CI then owner guide/merge boundary
+Last activity: 2026-11-14 — All25 execution summaries and human-needed verification recorded; actual35c hosted evidence validated; unresolved judgments retained
 
 Progress: [███████░░░] 67%
 
@@ -303,5 +303,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Complete local policy verification/review, use one corrective run, resume unused records event only after green; stop again on red
+Stopped at: Publish only the original final records event, validate its exact head, then wait for owner guide and one-time merge-method decision; no Phase6
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

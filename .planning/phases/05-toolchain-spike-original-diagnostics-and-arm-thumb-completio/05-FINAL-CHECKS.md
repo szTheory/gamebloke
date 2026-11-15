@@ -1,5 +1,35 @@
 # Phase 5 final local checks and claim guide
 
+## Current technical evidence supplement — 2026-11-14
+
+Implementation consumer35c7513 passed all required hosted jobs and actual
+admitted validation in [run43623595995](https://github.com/szTheory/gamebloke/actions/runs/43623595995).
+See [current hosted checks](05-HOSTED-CHECKS.md), [consumer repair](05-FINAL-CONSUMER-REPAIR.md)
+and [one-job allowance](05-LINUX-NATIVE-BUDGET240.md). Producer85c/input95,
+all722 output pins and runtime C are unchanged. Current policy is240s for Linux
+native,300s for the two existing macOS exceptions,180s for the other eight jobs.
+
+Independent code/security, goal and Nyquist reviews and focused follow-ups have
+closed the implementation/recurring-coverage findings. Current consumer repair
+has canonical CI1108/382run/726explicit optional skips, required diagnostics
+794/794zero skips, current focused sanitizer boundaries and cold functional
+lanes. The later budget-only change has canonical native CI218.60s, current
+actual setup/output evidence and both collector controls. Its test-only boundary
+correction has a passing actual registered eleven-job exact/+1 control; no full
+unchanged matrix is relabeled as rerun after that correction.
+
+The following earlier local candidate observations retain their original
+identities, timings and historical pending statements; this supplement and
+05-HOSTED-CHECKS.md supersede those pending-status statements. No old receipt is
+relabeled to35c. Final record-descendant CI, owner guide/bespoke judgment and
+merge remain pending. Requirements stay Pending until the phase boundary.
+Historical Plan19 test-first evidence, three unclassified Phase5 probes, three
+descriptor-less prohibitions and eleven Phase4 rows remain unknown. Formal
+Nyquist compliance is not asserted; no test repairs historical chronology or
+waives rights/physical qualification. No Phase6 work is authorized.
+
+## Historical local candidate record
+
 This is a local candidate record, not Plan24/25 completion or phase acceptance.
 The expanded current candidate and recurring-coverage correction are recorded in
 [05-25-COVERAGE-FIX.md](05-25-COVERAGE-FIX.md), with a separate snapshot under

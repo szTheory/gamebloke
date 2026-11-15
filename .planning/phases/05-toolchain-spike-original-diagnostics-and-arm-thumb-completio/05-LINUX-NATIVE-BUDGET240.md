@@ -71,3 +71,12 @@ budget checks cover the correction without repeating an unchanged corpus,
 sanitizer matrix or full native suite. Independent focused rereview closed the blocker, retaining its history and
 confirming the correction changes only the test branch. No hosted attempt has
 been consumed.
+
+## Actual hosted result
+
+Corrective run43623595995 at35c7513 passed all eleven jobs within exact budgets.
+Actual grouped admitted guest/API outputs, source/tool/output identities and
+job outcomes passed the collector and committed CMake validator. Linux native
+finished142/240s; this single observation is not a future-runtime guarantee.
+The original final-records event can now resume; the corrective allowance is
+consumed. No additional metadata edit or retry is authorized.

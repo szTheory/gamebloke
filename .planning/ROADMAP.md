@@ -236,7 +236,7 @@ Plans:
 **Owner gates**: None blocking. G1 reuse rule as in Phase 3.
 
 ### Phase 5: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-**Goal**: As a core developer, I want reproducibly built original ARM/Thumb diagnostics to exercise the full ARM7TDMI ARMv4T instruction set and report precise positive and deliberately failing case IDs, so that CPU coverage is inspectable and every result is tied to reviewed source, toolchain and output bytes.
+**Goal**: As a core developer, I want to exercise the full ARM7TDMI ARMv4T instruction set with reproducibly built original ARM/Thumb diagnostics and precise positive and deliberately failing case IDs, so that CPU coverage is inspectable and every result is tied to reviewed source, toolchain and output bytes.
 **Technical boundary (unchanged):** Project-authored ARM and Thumb diagnostics are built from source with a pinned toolchain whose output is proven to be ARMv4T and reproducible. The diagnostics drive the CPU to full ARMv4T ARM and Thumb coverage, and every quirk is pinned by a case ID with a deliberately broken variant as its negative control.
 **Mode:** mvp
 **Depends on**: Phase 4 (the runner and mailbox read diagnostic verdicts) and Phase 2 (manifest rows for owned fixtures). The toolchain-spike plan does not depend on the core and may start first within the phase.
@@ -247,7 +247,7 @@ Plans:
   3. When the toolchain is absent, or when a fixture's declared BIOS requirement cannot be met, the affected tests report SKIPPED with a reason in the inventory. They are never PASS and never fall back silently.
   4. Each diagnostic run through the runner yields PASS from its mailbox verdict. Its deliberately broken variant yields GUEST_FAIL and names the failing case ID.
   5. Diagnostic case IDs cover barrel-shifter carry, LDM/STM with an empty list, base in list, and user-bank transfer, misaligned-load rotation, multiply flags, PSR transfers, and the Thumb BL prefix and suffix executed as two separate instructions. All of them pass.
-**Plans**: 23/25 plans executed. Plan21 completed final local/hosted proof and admitted all722 production images:355 positive/broken pairs and12 named guest stops. Plan22 added eight actual CPU fault controls and63 maximum-unit boundary witnesses; review and canonical local CI pass. Producer ledger closure, mandatory execution wiring and final compiler/hosted/owner gates remain in Plans23–25.
+**Plans**: 25/25 implementation plans executed. All automated implementation and current hosted gates pass; final records-descendant CI and owner guide/merge boundary remain pending. Shared requirements and phase completion await that boundary.
 
 Plans:
 **Wave 1**
@@ -320,10 +320,10 @@ Plans:
 - [x] 05-23-PLAN.md — Inventoried diagnostics, visible skips and mandatory execution
 
 **Wave 24** *(blocked on Wave 23 completion)*
-- [ ] 05-24-PLAN.md — Required final diagnostic CI and measured critical path
+- [x] 05-24-PLAN.md — Required final diagnostic CI and measured critical path
 
 **Wave 25** *(blocked on Wave 24 completion)*
-- [ ] 05-25-PLAN.md — Final verification, installed consumer and claim review
+- [x] 05-25-PLAN.md — Final verification, installed consumer and claim review
 **Research flag**: Needs research plus a gating spike. The xPack toolchain identity (ARMv4T output, libgcc division resolution, identical bytes across hosts) is [UNK]. The fallback is Ubuntu apt binutils for CI, with digest ownership on Linux. The CPU quirk list (PITFALLS CPU-1 to CPU-9) needs a test pin for each case.
 **Owner gates**: None blocking. G2 default (no logo bytes in owned fixtures) is enforced by the scan; it is reversible. The license of the owned diagnostics follows G1, which is surfaced but not blocking. Do not use devkitARM, libgba, or gbafix for owned fixtures.
 
@@ -409,7 +409,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Profile, Fixture Manifest, and Result Contract | 7/7 | Complete    | 2026-11-10 |
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 13/13 | Complete    | 2026-11-11 |
-| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 23/25 | In Progress | - |
+| 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 25/25 | In Progress | - |
 | 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
 
 ---
