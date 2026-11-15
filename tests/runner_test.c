@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 enum {
-    GBL_RUNNER_TEST_COUNT = 24u,
+    GBL_RUNNER_TEST_COUNT = 25u,
     GBL_RUNNER_TEST_PATH_CAPACITY = 1024u,
     GBL_RUNNER_TEST_WATCHDOG_TICKS = 300u
 };
@@ -650,6 +650,17 @@ static bool gbl_test_execute_all(const char *fixture_directory,
                       path, "synthetic-control-fail", GBL_RUNNER_GUEST_FAIL,
                       GBL_MAILBOX_FAIL),
                   "registered synthetic mailbox failure remains GUEST_FAIL");
+
+    memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(path, "synthetic-control-register-arm",
+                            UINT64_C(1000), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) !=
+               GBL_RUNNER_PASS &&
+           result.status != GBL_RUNNER_PASS &&
+           result.semantic.status == GBL_MAILBOX_PASS;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "register channel cannot use a mailbox PASS away from eval");
 
     if (!gbl_test_path(path, sizeof path, fixture_directory,
                        "owned-arm-pass.gba")) {
