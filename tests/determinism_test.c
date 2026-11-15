@@ -2218,8 +2218,370 @@ static int gbl_test_matrix_controls_main(void)
     return 0;
 }
 
+static void gbl_test_write_word(uint8_t *bytes, size_t offset, uint32_t word)
+{
+    bytes[offset] = (uint8_t)(word & UINT32_C(0xFF));
+    bytes[offset + 1u] = (uint8_t)((word >> 8u) & UINT32_C(0xFF));
+    bytes[offset + 2u] = (uint8_t)((word >> 16u) & UINT32_C(0xFF));
+    bytes[offset + 3u] = (uint8_t)((word >> 24u) & UINT32_C(0xFF));
+}
+
+static bool gbl_test_time_authority_has_instruction(
+    const gbl_trace_buffer *trace, uint32_t address, uint32_t opcode)
+{
+    size_t index;
+
+    for (index = 0u; index < trace->count; ++index) {
+        const gbl_trace_record *record = &trace->records[index];
+
+        if (record->category == GBL_TRACE_INSTRUCTION &&
+            record->instruction_address == address &&
+            record->opcode == opcode) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool gbl_test_time_authority_has_bus_write(
+    const gbl_trace_buffer *trace)
+{
+    size_t index;
+
+    for (index = 0u; index < trace->count; ++index) {
+        const gbl_trace_record *record = &trace->records[index];
+
+        if (record->category == GBL_TRACE_BUS &&
+            record->instruction_address == UINT32_C(0x08000008) &&
+            record->opcode == UINT32_C(0xE5801000) &&
+            record->address == UINT32_C(0x03000000) &&
+            record->width == 4u &&
+            record->bus_outcome == GBL_BUS_OUTCOME_RAM) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void *gbl_test_time_authority_allocate(void *context, size_t size)
+{
+    (void)context;
+    return malloc(size);
+}
+
+static void gbl_test_time_authority_release(void *context, void *pointer,
+                                             size_t size)
+{
+    (void)context;
+    (void)size;
+    free(pointer);
+}
+
+static bool gbl_test_time_authority_observe(const char *mode,
+                                            const char *output_path,
+                                            const char **failure)
+{
+    uint8_t image[0xC0u] = { 0 };
+    gbl_trace_record trace_records[GBL_DETERMINISM_TRACE_CAPACITY] = { { 0 } };
+    gbl_trace_buffer trace = {
+        trace_records, GBL_DETERMINISM_TRACE_CAPACITY, 0u, 0u
+    };
+    gbl_run_result total = { GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT,
+                             0u, 0u };
+    gbl_run_result part = { GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT,
+                            0u, 0u };
+    gbl_run_options options = {
+        UINT64_C(1000), UINT64_C(1), GBL_TRACE_CATEGORY_MASK, &trace
+    };
+    const gbl_allocator allocator = {
+        NULL, gbl_test_time_authority_allocate,
+        gbl_test_time_authority_release
+    };
+    gbl_runner_result trace_result = { 0 };
+    gbl_machine machine;
+    gbl_machine machine_before;
+    gbl_load_result load_result;
+    gbl_test_bytes trace_bytes = { 0 };
+    gbl_test_bytes canonical = { 0 };
+    gbl_test_bytes alternate_canonical = { 0 };
+    char work[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char trace_path[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char header[256];
+    char alternate_header[256];
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    char alternate_digest[GBL_SHA256_HEX_CAPACITY];
+    uint8_t *rom_before = NULL;
+    size_t rom_length = 0u;
+    size_t steps = 0u;
+    size_t index;
+    uint32_t categories = 0u;
+    int header_length;
+    int alternate_header_length;
+    bool initialized = false;
+    bool final_mode = strcmp(mode, "final") == 0;
+    bool reached_boundary = false;
+    bool okay = false;
+    FILE *output = NULL;
+
+    if (strcmp(mode, "full") != 0 && !final_mode) {
+        *failure = "invalid-observation-mode";
+        return false;
+    }
+    if (output_path == NULL || output_path[0] == '\0') {
+        *failure = "observation-output-path-invalid";
+        return false;
+    }
+
+    gbl_test_write_word(image, 0x00u, UINT32_C(0xE3A00403)); /* MOV r0,#IWRAM */
+    gbl_test_write_word(image, 0x04u, UINT32_C(0xE3A0105A)); /* MOV r1,#0x5A */
+    gbl_test_write_word(image, 0x08u, UINT32_C(0xE5801000)); /* STR r1,[r0] */
+    gbl_test_write_word(image, 0x0Cu, UINT32_C(0xE3A03001)); /* MOV r3,#1 */
+    gbl_test_write_word(image, 0x10u, UINT32_C(0xE1A02311)); /* MOV r2,r1,LSL r3 */
+    gbl_test_write_word(image, 0x14u, UINT32_C(0xEA000000)); /* B 0x0800001C */
+    gbl_test_write_word(image, 0x18u, UINT32_C(0xE1A05005)); /* skipped NOP */
+    gbl_test_write_word(image, 0x1Cu, UINT32_C(0xE1A04002)); /* MOV r4,r2 */
+    gbl_test_write_word(image, 0x20u, UINT32_C(0xEF000000)); /* SWI, no BIOS */
+
+    if (!gbl_test_create_directory(work, sizeof work) ||
+        !gbl_test_path(trace_path, sizeof trace_path, work,
+                       "time-authority.trace.jsonl")) {
+        *failure = "time-authority-scratch-path-invalid";
+        goto cleanup;
+    }
+    if (gbl_machine_init(&machine, &allocator) != GBL_BUS_STATUS_OK) {
+        *failure = "machine-initialization-failed";
+        goto cleanup;
+    }
+    initialized = true;
+    load_result = gbl_load_rom(&machine, image, sizeof image);
+    if (load_result.status != GBL_LOAD_STATUS_OK ||
+        load_result.reason != GBL_LOAD_REASON_NONE) {
+        *failure = "owned-sequence-load-failed";
+        goto cleanup;
+    }
+
+    while (steps < 32u) {
+        if (final_mode && machine.cpu.retired_instructions == UINT64_C(7) &&
+            machine.cpu.execution_address == UINT32_C(0x08000020)) {
+            reached_boundary = true;
+            break;
+        }
+        if (gbl_cpu_run(&machine, &options, &part) !=
+            GBL_RUN_STATUS_OK) {
+            *failure = "canonical-cpu-run-failed";
+            goto cleanup;
+        }
+        if (UINT64_MAX - total.cycles < part.cycles ||
+            UINT64_MAX - total.instructions < part.instructions) {
+            *failure = "observation-progress-overflow";
+            goto cleanup;
+        }
+        total.cycles += part.cycles;
+        total.instructions += part.instructions;
+        total.termination = part.termination;
+        total.reason = part.reason;
+        steps++;
+        if (part.termination == GBL_RUN_STOPPED) {
+            reached_boundary = !final_mode;
+            break;
+        }
+        if (part.termination != GBL_RUN_PROGRESS ||
+            part.reason != GBL_RUN_REASON_UNIT_LIMIT) {
+            *failure = "canonical-cpu-run-did-not-complete-unit";
+            goto cleanup;
+        }
+    }
+    if (!reached_boundary || total.instructions < UINT64_C(7) ||
+        total.cycles == 0u || machine.master_cycles == 0u ||
+        trace.count == 0u || trace.count > trace.capacity) {
+        *failure = "owned-sequence-did-not-reach-a-complete-boundary";
+        goto cleanup;
+    }
+    if (machine.iwram[0] != UINT8_C(0x5A) || machine.iwram[1] != 0u ||
+        machine.iwram[2] != 0u || machine.iwram[3] != 0u) {
+        *failure = "owned-transfer-did-not-write-expected-iwram-value";
+        goto cleanup;
+    }
+    if (!gbl_test_time_authority_has_instruction(
+            &trace, UINT32_C(0x08000000), UINT32_C(0xE3A00403)) ||
+        !gbl_test_time_authority_has_instruction(
+            &trace, UINT32_C(0x08000008), UINT32_C(0xE5801000)) ||
+        !gbl_test_time_authority_has_instruction(
+            &trace, UINT32_C(0x08000010), UINT32_C(0xE1A02311)) ||
+        !gbl_test_time_authority_has_instruction(
+            &trace, UINT32_C(0x08000014), UINT32_C(0xEA000000)) ||
+        !gbl_test_time_authority_has_instruction(
+            &trace, UINT32_C(0x0800001C), UINT32_C(0xE1A04002))) {
+        *failure = "required-alu-transfer-internal-or-branch-record-missing";
+        goto cleanup;
+    }
+    if (!gbl_test_time_authority_has_bus_write(&trace)) {
+        *failure = "expected-iwram-bus-write-record-missing";
+        goto cleanup;
+    }
+    if ((!final_mode &&
+         (total.termination != GBL_RUN_STOPPED ||
+          total.reason != GBL_RUN_REASON_GUEST_STOP ||
+          !gbl_test_time_authority_has_instruction(
+              &trace, UINT32_C(0x08000020), UINT32_C(0xEF000000)))) ||
+        (final_mode &&
+         (total.termination != GBL_RUN_PROGRESS ||
+          total.reason != GBL_RUN_REASON_UNIT_LIMIT || machine.cpu.stopped))) {
+        *failure = "terminal-status-or-final-boundary-invalid";
+        goto cleanup;
+    }
+
+    for (index = 0u; index < trace.count; ++index) {
+        const gbl_trace_record *record = &trace.records[index];
+
+        if (record->sequence != (uint64_t)index ||
+            (index != 0u && record->guest_cycle <
+                                trace.records[index - 1u].guest_cycle)) {
+            *failure = "trace-order-or-time-invalid";
+            goto cleanup;
+        }
+        categories |= (uint32_t)record->category;
+    }
+    if ((categories & (uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS)) !=
+        (uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS) ||
+        (!final_mode &&
+         (categories & (uint32_t)GBL_TRACE_EXCEPTION) == 0u)) {
+        *failure = "trace-categories-incomplete";
+        goto cleanup;
+    }
+
+    trace_result.trace_mask = GBL_TRACE_CATEGORY_MASK;
+    trace_result.trace_capacity = trace.capacity;
+    trace_result.trace_count = trace.count;
+    trace_result.trace_complete = true;
+    trace_result.trace_emitted = true;
+    trace_result.trace_records = trace.records;
+    if (!gbl_runner_write_trace(trace_path, &trace_result) ||
+        !gbl_test_read_file(trace_path, &trace_bytes) ||
+        trace_bytes.length == 0u ||
+        trace_bytes.data[trace_bytes.length - 1u] != (uint8_t)'\n' ||
+        gbl_test_newline_count(&trace_bytes) != trace.count) {
+        *failure = "canonical-trace-serialization-failed";
+        goto cleanup;
+    }
+
+    memcpy(&machine_before, &machine, sizeof machine);
+    rom_length = machine.rom_length;
+    rom_before = malloc(rom_length);
+    if (rom_before == NULL || machine.rom == NULL ||
+        rom_length > SIZE_MAX - trace_bytes.length - sizeof header) {
+        *failure = "state-snapshot-or-canonical-size-failed";
+        goto cleanup;
+    }
+    memcpy(rom_before, machine.rom, rom_length);
+    header_length = snprintf(
+        header, sizeof header,
+        "{\"schema\":\"gamebloke.time-authority/1\",\"termination\":%u,\"reason\":%u,\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\",\"master_cycles\":\"%" PRIu64 "\",\"trace_count\":%zu}\n",
+        (unsigned int)total.termination, (unsigned int)total.reason,
+        total.cycles, total.instructions, machine.master_cycles, trace.count);
+    if (header_length < 0 || (size_t)header_length >= sizeof header) {
+        *failure = "canonical-header-failed";
+        goto cleanup;
+    }
+    canonical.length = (size_t)header_length + trace_bytes.length;
+    canonical.data = malloc(canonical.length);
+    if (canonical.data == NULL) {
+        *failure = "canonical-observation-allocation-failed";
+        goto cleanup;
+    }
+    memcpy(canonical.data, header, (size_t)header_length);
+    memcpy(canonical.data + (size_t)header_length, trace_bytes.data,
+           trace_bytes.length);
+    if (!gbl_test_hash(&canonical, digest)) {
+        *failure = "time-authority-hash-failed";
+        goto cleanup;
+    }
+    if (machine.master_cycles == UINT64_MAX) {
+        *failure = "final-cycle-boundary-overflow";
+        goto cleanup;
+    }
+    alternate_header_length = snprintf(
+        alternate_header, sizeof alternate_header,
+        "{\"schema\":\"gamebloke.time-authority/1\",\"termination\":%u,\"reason\":%u,\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\",\"master_cycles\":\"%" PRIu64 "\",\"trace_count\":%zu}\n",
+        (unsigned int)total.termination, (unsigned int)total.reason,
+        total.cycles, total.instructions, machine.master_cycles + UINT64_C(1),
+        trace.count);
+    if (alternate_header_length < 0 ||
+        (size_t)alternate_header_length >= sizeof alternate_header ||
+        (size_t)alternate_header_length >
+            SIZE_MAX - trace_bytes.length) {
+        *failure = "alternate-final-cycle-header-failed";
+        goto cleanup;
+    }
+    alternate_canonical.length =
+        (size_t)alternate_header_length + trace_bytes.length;
+    alternate_canonical.data = malloc(alternate_canonical.length);
+    if (alternate_canonical.data == NULL) {
+        *failure = "alternate-final-cycle-allocation-failed";
+        goto cleanup;
+    }
+    memcpy(alternate_canonical.data, alternate_header,
+           (size_t)alternate_header_length);
+    memcpy(alternate_canonical.data + (size_t)alternate_header_length,
+           trace_bytes.data, trace_bytes.length);
+    if (!gbl_test_hash(&alternate_canonical, alternate_digest) ||
+        strcmp(digest, alternate_digest) == 0) {
+        *failure = "final-master-cycles-not-bound-to-digest";
+        goto cleanup;
+    }
+
+    if (memcmp(&machine, &machine_before, sizeof machine) != 0 ||
+        memcmp(machine.rom, rom_before, rom_length) != 0) {
+        *failure = "observation-mutated-machine-state-or-time";
+        goto cleanup;
+    }
+    output = fopen(output_path, "wbx");
+    if (output == NULL ||
+        fwrite(canonical.data, 1u, canonical.length, output) !=
+            canonical.length ||
+        fclose(output) != 0) {
+        output = NULL;
+        *failure = "canonical-observation-write-failed";
+        goto cleanup;
+    }
+    output = NULL;
+    okay = true;
+
+cleanup:
+    if (output != NULL) (void)fclose(output);
+    free(rom_before);
+    free(trace_bytes.data);
+    free(canonical.data);
+    free(alternate_canonical.data);
+    if (trace_path[0] != '\0') (void)unlink(trace_path);
+    if (work[0] != '\0') (void)rmdir(work);
+    if (initialized) gbl_machine_dispose(&machine);
+    if (okay) {
+        printf("PASS determinism.time_authority: mode=%s termination=%u reason=%u cycles=%" PRIu64 " instructions=%" PRIu64 " master_cycles=%" PRIu64 " trace_count=%zu digest=%s\n",
+               mode, (unsigned int)total.termination,
+               (unsigned int)total.reason, total.cycles, total.instructions,
+               machine_before.master_cycles, trace.count, digest);
+    }
+    return okay;
+}
+
+static int gbl_test_time_authority_main(const char *mode,
+                                        const char *output_path)
+{
+    const char *failure = "unknown";
+
+    if (gbl_test_time_authority_observe(mode, output_path, &failure)) {
+        return 0;
+    }
+    fprintf(stderr, "FAIL determinism.time_authority: %s\n", failure);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 4 && strcmp(argv[1], "time-authority") == 0) {
+        return gbl_test_time_authority_main(argv[2], argv[3]);
+    }
     if (argc == 2 && strcmp(argv[1], "interleave") == 0) {
         return gbl_test_interleave_main();
     }
@@ -2239,7 +2601,7 @@ int main(int argc, char **argv)
         return gbl_test_matrix_main(argv[2], argv[3], argv[4]);
     }
     if (argc != 1) {
-        fputs("usage: determinism_test [interleave|interleave-controls|matrix-controls|matrix-variants|matrix-compare|matrix]\n",
+        fputs("usage: determinism_test [time-authority <full|final> <output>|interleave|interleave-controls|matrix-controls|matrix-variants|matrix-compare|matrix]\n",
               stderr);
         return 2;
     }
