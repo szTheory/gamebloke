@@ -2536,10 +2536,18 @@ static bool gbl_test_time_authority_observe(const char *mode,
         goto cleanup;
     }
     output = fopen(output_path, "wbx");
-    if (output == NULL ||
-        fwrite(canonical.data, 1u, canonical.length, output) !=
-            canonical.length ||
-        fclose(output) != 0) {
+    if (output == NULL) {
+        *failure = "canonical-observation-write-failed";
+        goto cleanup;
+    }
+    if (fwrite(canonical.data, 1u, canonical.length, output) !=
+        canonical.length) {
+        (void)fclose(output);
+        output = NULL;
+        *failure = "canonical-observation-write-failed";
+        goto cleanup;
+    }
+    if (fclose(output) != 0) {
         output = NULL;
         *failure = "canonical-observation-write-failed";
         goto cleanup;

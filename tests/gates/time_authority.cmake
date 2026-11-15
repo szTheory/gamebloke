@@ -7,19 +7,24 @@ foreach(required IN ITEMS SRC BIN CASE)
     message(FATAL_ERROR "time-authority: missing required argument ${required}")
   endif()
 endforeach()
-if(NOT CASE STREQUAL "clean")
+if(NOT CASE MATCHES "^(clean|control)$")
   message(FATAL_ERROR "time-authority: unsupported case '${CASE}'")
 endif()
 
 function(gbl__cache_value key output)
   file(STRINGS "${BIN}/CMakeCache.txt" matching_lines
-    REGEX "^${key}:[^=]*=")
+    REGEX "^${key}:")
   list(LENGTH matching_lines line_count)
   if(NOT line_count EQUAL 1)
     message(FATAL_ERROR "time-authority: cache value '${key}' is missing or ambiguous")
   endif()
   list(GET matching_lines 0 matching_line)
-  string(REGEX REPLACE "^[^=]*=" "" value "${matching_line}")
+  string(FIND "${matching_line}" "=" delimiter_position)
+  if(delimiter_position EQUAL -1)
+    message(FATAL_ERROR "time-authority: cache value '${key}' has no delimiter")
+  endif()
+  math(EXPR value_position "${delimiter_position} + 1")
+  string(SUBSTRING "${matching_line}" ${value_position} -1 value)
   set(${output} "${value}" PARENT_SCOPE)
 endfunction()
 
@@ -35,6 +40,89 @@ function(gbl__compile_source source object output)
       "time-authority: compile failed for ${source}; not semantic evidence\n${compile_out}${compile_err}")
   endif()
   set(${output} "${object}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__link_helper cpu_object executable)
+  execute_process(
+    COMMAND "${compiler}" ${base_flags} ${config_flags} ${common_objects}
+      "${cpu_object}" -o "${executable}" ${link_flags}
+      ${link_config_flags}
+    RESULT_VARIABLE link_result OUTPUT_VARIABLE link_out ERROR_VARIABLE link_err)
+  if(NOT "${link_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "time-authority: link failed for ${executable}; not semantic evidence\n${link_out}${link_err}")
+  endif()
+endfunction()
+
+function(gbl__mutate_cpu cpu_source opcode)
+  set(anchor [=[        gbl_cpu_trace_commit(run_options.trace_buffer, trace_records,
+                             trace_record_count);]=])
+  file(READ "${cpu_source}" cpu_text)
+  string(FIND "${cpu_text}" "${anchor}" anchor_position)
+  if(anchor_position EQUAL -1)
+    message(FATAL_ERROR
+      "time-authority: verified non-bus CPU handler anchor is missing")
+  endif()
+  string(SUBSTRING "${cpu_text}" ${anchor_position} -1 after_anchor)
+  string(LENGTH "${anchor}" anchor_length)
+  string(SUBSTRING "${after_anchor}" ${anchor_length} -1 after_first_anchor)
+  string(FIND "${after_first_anchor}" "${anchor}" duplicate_position)
+  if(NOT duplicate_position EQUAL -1)
+    message(FATAL_ERROR
+      "time-authority: non-bus CPU handler anchor is ambiguous")
+  endif()
+
+  set(increment
+    "\n        /* disposable time-authority mutation */\n        if (unit.kind == GBL_CPU_UNIT_DATA_PROCESSING &&\n            unit.opcode == UINT32_C(${opcode})) {\n            machine->master_cycles += UINT64_C(1);\n        }")
+  string(REPLACE "${anchor}" "${anchor}${increment}" mutated_text
+    "${cpu_text}")
+  string(REGEX MATCHALL "disposable time-authority mutation"
+    increment_sites "${mutated_text}")
+  list(LENGTH increment_sites increment_count)
+  if(NOT increment_count EQUAL 1)
+    message(FATAL_ERROR
+      "time-authority: expected exactly one disposable time increment, found ${increment_count}")
+  endif()
+  file(WRITE "${cpu_source}" "${mutated_text}")
+endfunction()
+
+function(gbl__require_hash_mismatch clean_path mutant_path label trace_expectation)
+  file(SHA256 "${clean_path}" clean_hash)
+  file(SHA256 "${mutant_path}" mutant_hash)
+  if("${clean_hash}" STREQUAL "${mutant_hash}")
+    message(FATAL_ERROR
+      "time-authority: successfully executed ${label} mutant was accepted")
+  endif()
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E compare_files
+    "${clean_path}" "${mutant_path}" RESULT_VARIABLE exact_compare)
+  if(NOT "${exact_compare}" STREQUAL "1")
+    message(FATAL_ERROR
+      "time-authority: ${label} observation comparison failed generically (${exact_compare})")
+  endif()
+  file(READ "${clean_path}" clean_bytes)
+  file(READ "${mutant_path}" mutant_bytes)
+  string(FIND "${clean_bytes}" "\n" clean_header_end)
+  string(FIND "${mutant_bytes}" "\n" mutant_header_end)
+  if(clean_header_end EQUAL -1 OR mutant_header_end EQUAL -1)
+    message(FATAL_ERROR
+      "time-authority: ${label} canonical result header is missing")
+  endif()
+  math(EXPR clean_trace_start "${clean_header_end} + 1")
+  math(EXPR mutant_trace_start "${mutant_header_end} + 1")
+  string(SUBSTRING "${clean_bytes}" ${clean_trace_start} -1 clean_trace)
+  string(SUBSTRING "${mutant_bytes}" ${mutant_trace_start} -1 mutant_trace)
+  if(trace_expectation STREQUAL "same" AND
+     NOT "${clean_trace}" STREQUAL "${mutant_trace}")
+    message(FATAL_ERROR
+      "time-authority: final-only mutant changed trace records; final-cycle binding was not isolated")
+  endif()
+  if(trace_expectation STREQUAL "different" AND
+     "${clean_trace}" STREQUAL "${mutant_trace}")
+    message(FATAL_ERROR
+      "time-authority: executed non-bus mutation did not alter trace timestamps")
+  endif()
+  message(STATUS
+    "EXPECTED time-authority-trace-hash-mismatch: ${label} mutant hash ${mutant_hash} differs from clean ${clean_hash}")
 endfunction()
 
 function(gbl__run_observation executable mode output_path expected_status)
@@ -91,6 +179,8 @@ set(warning_flags
   -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes
   -Wmissing-prototypes -Wundef -Wcast-qual -Werror)
 set(core_flags -fno-stack-protector -U_FORTIFY_SOURCE)
+message(STATUS
+  "time-authority: compiler=${compiler}; compile-flags=${base_flags} ${config_flags} ${warning_flags} ${core_flags}; link-flags=${link_flags} ${link_config_flags}")
 
 string(RANDOM LENGTH 12 ALPHABET 0123456789abcdef run_id)
 set(root "${BIN}/nc/time_authority/${CASE}-${run_id}")
@@ -143,18 +233,11 @@ foreach(source IN LISTS common_sources)
   list(APPEND common_objects "${object_path}")
 endforeach()
 
+file(SHA256 "${SRC}/src/cpu.c" source_cpu_hash_before)
 gbl__compile_source("${input_root}/src/cpu.c" "${object_root}/cpu-clean.o"
   clean_cpu_object)
 set(clean_executable "${root}/determinism_test-clean")
-execute_process(
-  COMMAND "${compiler}" ${base_flags} ${config_flags} ${common_objects}
-    "${clean_cpu_object}" -o "${clean_executable}" ${link_flags}
-    ${link_config_flags}
-  RESULT_VARIABLE link_result OUTPUT_VARIABLE link_out ERROR_VARIABLE link_err)
-if(NOT "${link_result}" STREQUAL "0")
-  message(FATAL_ERROR
-    "time-authority: clean link failed; not semantic evidence\n${link_out}${link_err}")
-endif()
+gbl__link_helper("${clean_cpu_object}" "${clean_executable}")
 
 if(DEFINED CANDIDATE AND NOT "${CANDIDATE}" STREQUAL "")
   set(candidate "${CANDIDATE}")
@@ -183,5 +266,60 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E compare_files
 if(NOT "${exact_compare}" STREQUAL "0")
   message(FATAL_ERROR "time-authority: clean observations are not byte-identical")
 endif()
+if(CASE STREQUAL "clean")
+  message(STATUS
+    "PASS bus.time_authority.clean: candidate and fresh clean compilation match; ${clean_line}")
+  return()
+endif()
+
+set(clean_final_output "${root}/clean-final.jsonl")
+gbl__run_observation("${clean_executable}" final "${clean_final_output}" 0)
+
+foreach(label IN ITEMS midpath final)
+  set(mutant_root "${root}/mutants/${label}")
+  file(MAKE_DIRECTORY "${mutant_root}/src")
+  set(mutant_cpu_source "${mutant_root}/src/cpu.c")
+  file(COPY_FILE "${input_root}/src/cpu.c" "${mutant_cpu_source}")
+  file(COPY_FILE "${input_root}/src/cpu_helpers.h"
+    "${mutant_root}/src/cpu_helpers.h")
+  if(label STREQUAL "midpath")
+    set(target_opcode "0xE3A00403")
+    set(observation_mode full)
+    set(expected_status 2)
+    set(trace_expectation different)
+  else()
+    set(target_opcode "0xE1A04002")
+    set(observation_mode final)
+    set(expected_status 0)
+    set(trace_expectation same)
+  endif()
+  gbl__mutate_cpu("${mutant_cpu_source}" "${target_opcode}")
+  file(SHA256 "${input_root}/src/cpu.c" clean_cpu_hash)
+  file(SHA256 "${mutant_cpu_source}" mutant_cpu_hash)
+  if("${clean_cpu_hash}" STREQUAL "${mutant_cpu_hash}")
+    message(FATAL_ERROR "time-authority: disposable CPU mutation changed no bytes")
+  endif()
+  set(mutant_cpu_object "${object_root}/cpu-${label}.o")
+  gbl__compile_source("${mutant_cpu_source}" "${mutant_cpu_object}"
+    mutant_cpu_object)
+  set(mutant_executable "${mutant_root}/determinism_test-${label}")
+  gbl__link_helper("${mutant_cpu_object}" "${mutant_executable}")
+  set(mutant_output "${root}/${label}.jsonl")
+  if(observation_mode STREQUAL "full")
+    set(clean_reference "${clean_output}")
+  else()
+    set(clean_reference "${clean_final_output}")
+  endif()
+  gbl__run_observation("${mutant_executable}" "${observation_mode}"
+    "${mutant_output}" "${expected_status}")
+  gbl__require_hash_mismatch("${clean_reference}" "${mutant_output}"
+    "${label}" "${trace_expectation}")
+endforeach()
+
+file(SHA256 "${SRC}/src/cpu.c" source_cpu_hash_after)
+if(NOT "${source_cpu_hash_before}" STREQUAL "${source_cpu_hash_after}")
+  message(FATAL_ERROR
+    "time-authority: production src/cpu.c changed during disposable mutation")
+endif()
 message(STATUS
-  "PASS bus.time_authority.clean: candidate and fresh clean compilation match; ${clean_line}")
+  "PASS bus.time_authority.control: clean companion passes; midpath trace and final-only cycle mutants are rejected with the named reason")

@@ -12,6 +12,18 @@ target_link_libraries(determinism_test PRIVATE gamebloke_core gbl_warnings)
 add_dependencies(determinism_test gbl_fixture_indexes)
 
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  foreach(case IN ITEMS clean control)
+    gbl_add_test(
+      NAME "bus.time_authority.${case}"
+      LABELS bus determinism gate integration
+      COMMAND "${CMAKE_COMMAND}"
+        "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+        "-DCASE=${case}" "-DCANDIDATE=$<TARGET_FILE:determinism_test>"
+        -P "${CMAKE_SOURCE_DIR}/tests/gates/time_authority.cmake")
+  endforeach()
+  set_tests_properties(bus.time_authority.clean bus.time_authority.control
+    PROPERTIES RUN_SERIAL TRUE)
+
   gbl_add_test(
     NAME determinism.repeat.in_process
     LABELS determinism gate integration
