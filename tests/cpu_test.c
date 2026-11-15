@@ -1798,23 +1798,35 @@ static void test_arm_register_shifted_pc_operand_uses_plus_twelve(void)
     gbl_machine machine = { 0 };
     gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
     bool loaded;
-    bool ran = false;
+    bool shifted_rm_plus_twelve = false;
+    bool shifted_rn_plus_twelve = false;
 
     make_program(image);
     loaded = machine_load(&machine, image);
     if (loaded) {
         machine.cpu.r0_7[1] = 0u;
         machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
-        ran = run_arm_instruction(&machine, UINT32_C(0xE1B0211F),
-                                  TEST_CPSR_C | TEST_CPSR_V, 2u, &result);
+        shifted_rm_plus_twelve = run_arm_instruction(
+            &machine, UINT32_C(0xE1B0211F), TEST_CPSR_C | TEST_CPSR_V,
+            2u, &result) &&
+            result.termination == GBL_RUN_PROGRESS &&
+            result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+            result.instructions == 1u && result.cycles == 2u &&
+            machine.cpu.r0_7[2] == UINT32_C(0x0800000C) &&
+            (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
+                                 TEST_CPSR_C | TEST_CPSR_V)) ==
+                (TEST_CPSR_C | TEST_CPSR_V);
+
+        machine.cpu.r0_7[0] = 0u;
+        shifted_rn_plus_twelve = run_arm_instruction(
+            &machine, UINT32_C(0xE08F0010), 0u, 2u, &result) &&
+            result.termination == GBL_RUN_PROGRESS &&
+            result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+            result.instructions == 1u && result.cycles == 2u &&
+            machine.cpu.r0_7[0] == UINT32_C(0x0800000C);
     }
-    test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
-                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                  result.instructions == 1u && result.cycles == 2u &&
-                  machine.cpu.r0_7[2] == UINT32_C(0x0800000C) &&
-                  (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
-                                       TEST_CPSR_C | TEST_CPSR_V)) ==
-                      (TEST_CPSR_C | TEST_CPSR_V),
+    test_case(loaded && shifted_rm_plus_twelve &&
+                  shifted_rn_plus_twelve,
               "register-shifted Operand2 reads PC as instruction address plus twelve");
     gbl_machine_dispose(&machine);
 }

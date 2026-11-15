@@ -84,7 +84,7 @@ typedef struct gbl_cpu_status_effect {
 
 typedef enum gbl_cpu_pc_read_context {
     GBL_CPU_PC_READ_NORMAL = 0,
-    GBL_CPU_PC_READ_REGISTER_SHIFT_OPERAND = 1,
+    GBL_CPU_PC_READ_REGISTER_SHIFT = 1,
     GBL_CPU_PC_READ_STORE_SOURCE = 2,
     GBL_CPU_PC_READ_THUMB_ALIGNED_ADDRESS = 3
 } gbl_cpu_pc_read_context;
@@ -798,7 +798,7 @@ static uint32_t gbl_cpu_read_register_in_bank(
         }
         return instruction_address +
                (thumb ? UINT32_C(4)
-                      : context == GBL_CPU_PC_READ_REGISTER_SHIFT_OPERAND ||
+                      : context == GBL_CPU_PC_READ_REGISTER_SHIFT ||
                                 context == GBL_CPU_PC_READ_STORE_SOURCE
                             ? UINT32_C(12)
                             : UINT32_C(8));
@@ -1091,6 +1091,8 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
 {
     const uint32_t opcode = unit->opcode;
     const bool immediate = (opcode & UINT32_C(0x02000000)) != 0u;
+    const bool register_shift = !immediate &&
+        (opcode & UINT32_C(0x00000010)) != 0u;
     const uint8_t operation = (uint8_t)((opcode >> 21u) & UINT32_C(0x0F));
     const bool set_flags = (opcode & UINT32_C(0x00100000)) != 0u;
     const uint8_t rn = (uint8_t)((opcode >> 16u) & UINT32_C(0x0F));
@@ -1194,9 +1196,12 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
                                                  false);
     }
 
+    /* ARM7DI Data Sheet §4.4.5: a register-controlled shift observes R15 as
+     * instruction address + 12, for either source operand (Rn or Rm). */
     if (operation != 13u) {
         left = gbl_cpu_read_register(cpu, rn, unit->instruction_address,
-                                    GBL_CPU_PC_READ_NORMAL);
+            register_shift ? GBL_CPU_PC_READ_REGISTER_SHIFT
+                           : GBL_CPU_PC_READ_NORMAL);
     }
     if (immediate) {
         const uint8_t rotate =
@@ -1213,8 +1218,6 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
             shifted.carry = (cpu->cpsr & GBL_CPU_CPSR_C) != 0u;
         }
     } else {
-        const bool register_shift =
-            (opcode & UINT32_C(0x00000010)) != 0u;
         const uint8_t form = (uint8_t)(register_shift ? 1u : 0u);
         uint8_t amount;
         const gbl_shift_kind shift_kind =
@@ -1222,7 +1225,7 @@ static bool gbl_cpu_decode_data_processing(const gbl_cpu_state *cpu,
 
         operand = gbl_cpu_read_register(
             cpu, rm, unit->instruction_address,
-            register_shift ? GBL_CPU_PC_READ_REGISTER_SHIFT_OPERAND
+            register_shift ? GBL_CPU_PC_READ_REGISTER_SHIFT
                            : GBL_CPU_PC_READ_NORMAL);
         if (register_shift) {
             const uint8_t rs = (uint8_t)((opcode >> 8u) & UINT32_C(0x0F));
