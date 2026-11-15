@@ -196,6 +196,11 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     owned-arm-swi.gba
     owned-arm-undefined.gba
     owned-arm-coprocessor.gba
+    owned-register-arm-zero.gba
+    owned-register-arm-fail.gba
+    owned-register-arm-stop.gba
+    owned-register-thumb-zero.gba
+    owned-register-thumb-fail.gba
     owned-arm-thumb-bx-pass.gba
     owned-arm-pass-mutated.gba)
   set(GBL_OWNED_FIXTURE_FILES "")
@@ -331,6 +336,11 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "-DGBL_CONTROL_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-fail.gba"
       "-DGBL_CONTROL_SKIP_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
       "-DGBL_CONTROL_ZERO_CASE_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass-zero-case.gba"
+      "-DGBL_CONTROL_REGISTER_ARM_ZERO_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-zero.gba"
+      "-DGBL_CONTROL_REGISTER_ARM_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-fail.gba"
+      "-DGBL_CONTROL_REGISTER_ARM_STOP_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-stop.gba"
+      "-DGBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-zero.gba"
+      "-DGBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-fail.gba"
       "-DGBL_CONTROL_MANIFEST_OUTPUT=${GBL_CONTROL_MANIFEST}"
       "-DGBL_MANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "-DGBL_REGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"

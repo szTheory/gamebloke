@@ -124,6 +124,35 @@ static void make_exception_image(uint8_t image[IMAGE_SIZE], uint32_t opcode)
     put_u32(image, ARM_CODE_OFFSET, opcode);
 }
 
+static void make_register_arm_image(uint8_t image[IMAGE_SIZE], uint32_t value)
+{
+    memset(image, 0, IMAGE_SIZE);
+    put_direct_start_branch(image);
+    put_u32(image, ARM_CODE_OFFSET, UINT32_C(0xE3A0C000) | (value & 0xFFu));
+    put_u32(image, ARM_CODE_OFFSET + 4u, UINT32_C(0xEAFFFFFE)); /* B . */
+}
+
+static void make_register_arm_stop_image(uint8_t image[IMAGE_SIZE])
+{
+    memset(image, 0, IMAGE_SIZE);
+    put_direct_start_branch(image);
+    put_u32(image, ARM_CODE_OFFSET, UINT32_C(0xEE000010)); /* coprocessor */
+}
+
+static void make_register_thumb_image(uint8_t image[IMAGE_SIZE], uint16_t value)
+{
+    const size_t thumb_entry_offset = 0xD0u;
+
+    memset(image, 0, IMAGE_SIZE);
+    put_direct_start_branch(image);
+    put_u32(image, ARM_CODE_OFFSET, UINT32_C(0xE59F0000)); /* LDR r0,[pc] */
+    put_u32(image, ARM_CODE_OFFSET + 4u, UINT32_C(0xE12FFF10)); /* BX r0 */
+    put_u32(image, ARM_CODE_OFFSET + 8u,
+            UINT32_C(0x08000000) + (uint32_t)thumb_entry_offset + 1u);
+    put_u16(image, thumb_entry_offset, (uint16_t)(UINT16_C(0x2700) | value));
+    put_u16(image, thumb_entry_offset + 2u, UINT16_C(0xE7FE)); /* B . */
+}
+
 static void make_thumb_bx_image(uint8_t image[IMAGE_SIZE])
 {
     memset(image, 0, IMAGE_SIZE);
@@ -174,6 +203,22 @@ static bool generate_all(const char *directory)
 
     make_exception_image(image, UINT32_C(0xEE000010)); /* coprocessor */
     okay = write_image(directory, "owned-arm-coprocessor.gba", image) && okay;
+
+    make_register_arm_image(image, 0u);
+    okay = write_image(directory, "owned-register-arm-zero.gba", image) &&
+           okay;
+    make_register_arm_image(image, 1u);
+    okay = write_image(directory, "owned-register-arm-fail.gba", image) &&
+           okay;
+    make_register_arm_stop_image(image);
+    okay = write_image(directory, "owned-register-arm-stop.gba", image) &&
+           okay;
+    make_register_thumb_image(image, 0u);
+    okay = write_image(directory, "owned-register-thumb-zero.gba", image) &&
+           okay;
+    make_register_thumb_image(image, 1u);
+    okay = write_image(directory, "owned-register-thumb-fail.gba", image) &&
+           okay;
 
     make_thumb_bx_image(image);
     okay = write_image(directory, "owned-arm-thumb-bx-pass.gba", image) &&

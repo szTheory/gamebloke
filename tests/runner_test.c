@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 enum {
-    GBL_RUNNER_TEST_COUNT = 25u,
+    GBL_RUNNER_TEST_COUNT = 30u,
     GBL_RUNNER_TEST_PATH_CAPACITY = 1024u,
     GBL_RUNNER_TEST_WATCHDOG_TICKS = 300u
 };
@@ -29,6 +29,9 @@ typedef struct gbl_test_allocator_state {
     size_t successes;
     size_t releases;
     size_t fail_at;
+    gbl_machine *tracked_machine;
+    gbl_machine *machine_snapshot;
+    bool machine_snapshot_available;
 } gbl_test_allocator_state;
 
 typedef struct gbl_test_cancel_state {
@@ -267,6 +270,9 @@ static void *gbl_test_allocate(void *context, size_t size)
     pointer = malloc(size);
     if (pointer != NULL) {
         state->successes++;
+        if (size == sizeof(gbl_machine) && state->machine_snapshot != NULL) {
+            state->tracked_machine = pointer;
+        }
     }
     return pointer;
 }
@@ -277,6 +283,11 @@ static void gbl_test_release(void *context, void *pointer, size_t size)
 
     (void)size;
     if (pointer != NULL) {
+        if (pointer == state->tracked_machine &&
+            state->machine_snapshot != NULL) {
+            memcpy(state->machine_snapshot, pointer, sizeof(gbl_machine));
+            state->machine_snapshot_available = true;
+        }
         state->releases++;
         free(pointer);
     }
@@ -309,6 +320,234 @@ static gbl_runner_status gbl_test_execute(
     options.cancel_context = cancel_context;
     options.allocator = allocator;
     return gbl_runner_execute(&options, result);
+}
+
+static bool gbl_test_register_result_is(const gbl_runner_result *result,
+                                        gbl_runner_status expected_status,
+                                        uint32_t expected_value)
+{
+    return result->status == expected_status && result->ran &&
+           result->register_observation.present &&
+           result->register_observation.observed &&
+           result->register_observation.has_value &&
+           result->register_observation.value == expected_value &&
+           strcmp(result->termination, "register-eval-complete") == 0 &&
+           result->semantic.status == GBL_MAILBOX_ABSENT;
+}
+
+static bool gbl_test_machine_state_equal(const gbl_machine *left,
+                                         const gbl_machine *right)
+{
+    return left->master_cycles == right->master_cycles &&
+           left->open_bus == right->open_bus &&
+           left->dispcnt == right->dispcnt &&
+           left->initialized == right->initialized &&
+           memcmp(&left->header_diagnostics, &right->header_diagnostics,
+                  sizeof left->header_diagnostics) == 0 &&
+           memcmp(&left->cpu, &right->cpu, sizeof left->cpu) == 0 &&
+           memcmp(left->ewram, right->ewram, sizeof left->ewram) == 0 &&
+           memcmp(left->iwram, right->iwram, sizeof left->iwram) == 0 &&
+           memcmp(left->pram, right->pram, sizeof left->pram) == 0 &&
+           memcmp(left->vram, right->vram, sizeof left->vram) == 0 &&
+           memcmp(left->oam, right->oam, sizeof left->oam) == 0;
+}
+
+static bool gbl_test_register_fixture(
+    const char *fixture_directory, const char *rom_name,
+    const char *fixture_id, gbl_runner_status expected_status,
+    uint32_t expected_value)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_result discovered;
+    gbl_runner_result exact;
+    gbl_runner_result one_short;
+    gbl_runner_result baseline;
+    gbl_test_allocator_state exact_allocator_state = { 0 };
+    gbl_test_allocator_state baseline_allocator_state = { 0 };
+    uint64_t boundary_cycles;
+    bool okay;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory, rom_name)) {
+        return false;
+    }
+    memset(&discovered, 0, sizeof discovered);
+    if (gbl_test_execute(path, fixture_id, UINT64_C(100), 0u, 0u, NULL,
+                        NULL, NULL, (gbl_runner_allocator){ 0 },
+                        &discovered) != expected_status ||
+        !gbl_test_register_result_is(&discovered, expected_status,
+                                     expected_value)) {
+        gbl_runner_result_dispose(&discovered);
+        return false;
+    }
+    boundary_cycles = discovered.cycles;
+    gbl_runner_result_dispose(&discovered);
+    if (boundary_cycles == 0u) {
+        return false;
+    }
+
+    exact_allocator_state.machine_snapshot =
+        calloc(1u, sizeof *exact_allocator_state.machine_snapshot);
+    baseline_allocator_state.machine_snapshot =
+        calloc(1u, sizeof *baseline_allocator_state.machine_snapshot);
+    if (exact_allocator_state.machine_snapshot == NULL ||
+        baseline_allocator_state.machine_snapshot == NULL) {
+        free(exact_allocator_state.machine_snapshot);
+        free(baseline_allocator_state.machine_snapshot);
+        return false;
+    }
+    memset(&exact, 0, sizeof exact);
+    okay = gbl_test_execute(
+               path, fixture_id, boundary_cycles, 0u, 0u, NULL, NULL, NULL,
+               (gbl_runner_allocator){ &exact_allocator_state,
+                                       gbl_test_allocate, gbl_test_release },
+               &exact) == expected_status &&
+           gbl_test_register_result_is(&exact, expected_status,
+                                       expected_value) &&
+           exact.cycles == boundary_cycles &&
+           exact.budget_cycles == boundary_cycles &&
+           exact_allocator_state.machine_snapshot_available;
+    gbl_runner_result_dispose(&exact);
+
+    memset(&baseline, 0, sizeof baseline);
+    okay = okay &&
+           gbl_test_execute(
+               path, NULL, boundary_cycles, 0u, 0u, NULL, NULL, NULL,
+               (gbl_runner_allocator){ &baseline_allocator_state,
+                                       gbl_test_allocate, gbl_test_release },
+               &baseline) == GBL_RUNNER_TIMEOUT &&
+           baseline.status == GBL_RUNNER_TIMEOUT &&
+           baseline.cycles == boundary_cycles &&
+           baseline.semantic.status == GBL_MAILBOX_ABSENT &&
+           baseline_allocator_state.machine_snapshot_available &&
+           gbl_test_machine_state_equal(
+               exact_allocator_state.machine_snapshot,
+               baseline_allocator_state.machine_snapshot);
+    gbl_runner_result_dispose(&baseline);
+
+    memset(&one_short, 0, sizeof one_short);
+    okay = okay && boundary_cycles > 1u &&
+           gbl_test_execute(path, fixture_id, boundary_cycles - 1u, 0u, 0u,
+                            NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &one_short) ==
+               GBL_RUNNER_TIMEOUT &&
+           one_short.status == GBL_RUNNER_TIMEOUT &&
+           !one_short.register_observation.observed &&
+           !one_short.register_observation.has_value &&
+           one_short.cycles <= one_short.budget_cycles &&
+           one_short.semantic.status == GBL_MAILBOX_ABSENT;
+    gbl_runner_result_dispose(&one_short);
+    free(exact_allocator_state.machine_snapshot);
+    free(baseline_allocator_state.machine_snapshot);
+    return okay;
+}
+
+static bool gbl_test_register_rejection_controls(
+    const char *fixture_directory)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_result result;
+    bool okay = true;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-arm-pass.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(path, "synthetic-control-register-arm",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_REFUSED &&
+           strcmp(result.reason, "fixture-result-entry-out-of-range") == 0 &&
+           !result.ran && !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-register-arm-zero.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_REFUSED &&
+           strcmp(result.reason, "fixture-digest-mismatch") == 0 &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path,
+                            "synthetic-control-register-thumb-wrong-state",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           !result.register_observation.observed &&
+           !result.register_observation.has_value;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path,
+                            "synthetic-control-register-arm-never-entry",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           !result.register_observation.observed &&
+           !result.register_observation.has_value;
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static bool gbl_test_register_terminal_precedence(
+    const char *fixture_directory)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_result result;
+    gbl_test_cancel_state cancel_state = { 0u, 5u };
+    bool okay;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-register-arm-stop.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(path, "synthetic-control-register-arm-stop",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_GUEST_STOP &&
+           result.status == GBL_RUNNER_GUEST_STOP &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-register-arm-zero.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm-zero",
+                            UINT64_C(100), 0u, 0u, NULL,
+                            gbl_test_cancel_at_boundary, &cancel_state,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_CANCELLED &&
+           result.status == GBL_RUNNER_CANCELLED && result.cycles > 0u &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm-zero",
+                            UINT64_C(100), UINT32_C(1), 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           result.status == GBL_RUNNER_HARNESS_FAIL &&
+           !result.trace_complete &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+    return okay;
 }
 
 static bool gbl_test_read_file(const char *path, char *output, size_t capacity)
@@ -662,6 +901,32 @@ static bool gbl_test_execute_all(const char *fixture_directory,
     gbl_test_case(okay,
                   "register channel cannot use a mailbox PASS away from eval");
 
+    okay = gbl_test_register_fixture(
+               fixture_directory, "owned-register-arm-zero.gba",
+               "synthetic-control-register-arm-zero", GBL_RUNNER_PASS, 0u) &&
+           gbl_test_register_fixture(
+               fixture_directory, "owned-register-arm-fail.gba",
+               "synthetic-control-register-arm-fail",
+               GBL_RUNNER_GUEST_FAIL, 1u);
+    gbl_test_case(okay,
+                  "ARM/R12 observes zero and nonzero only at exact eval entry");
+
+    okay = gbl_test_register_fixture(
+               fixture_directory, "owned-register-thumb-zero.gba",
+               "synthetic-control-register-thumb-zero", GBL_RUNNER_PASS,
+               0u) &&
+           gbl_test_register_fixture(
+               fixture_directory, "owned-register-thumb-fail.gba",
+               "synthetic-control-register-thumb-fail",
+               GBL_RUNNER_GUEST_FAIL, 1u);
+    gbl_test_case(okay,
+                  "Thumb/R7 observes zero and nonzero in Thumb pipeline state");
+
+    gbl_test_case(gbl_test_register_rejection_controls(fixture_directory),
+                  "digest, extent, state, and unreached-entry controls cannot PASS");
+    gbl_test_case(gbl_test_register_terminal_precedence(fixture_directory),
+                  "stop, cancellation, and trace failure precede register PASS");
+
     if (!gbl_test_path(path, sizeof path, fixture_directory,
                        "owned-arm-pass.gba")) {
         return false;
@@ -676,6 +941,30 @@ static bool gbl_test_execute_all(const char *fixture_directory,
            strcmp(result.reason, "required-bios-unavailable") == 0;
     gbl_runner_result_dispose(&result);
     gbl_test_case(okay, "required BIOS metadata yields SKIPPED before execution");
+
+    if (!gbl_test_path(scratch, sizeof scratch, scratch_directory,
+                       "official-bios-not-present.gba")) {
+        return false;
+    }
+    (void)remove(scratch);
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(
+               scratch, "synthetic-control-official-bios", UINT64_C(100),
+               0u, 0u, NULL, NULL, NULL, allocator, &result) ==
+               GBL_RUNNER_SKIPPED &&
+           result.status == GBL_RUNNER_SKIPPED && !result.ran &&
+           strcmp(result.reason, "official-bios-required") == 0 &&
+           strcmp(result.termination, "skipped-before-run") == 0 &&
+           result.has_fixture_id &&
+           !result.has_rom_sha256 && !result.has_expected_sha256 &&
+           result.semantic.status == GBL_MAILBOX_ABSENT &&
+           result.cycles == 0u && allocator_state.calls == 0u;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "official BIOS row skips before opening absent content or claiming a digest");
 
     memset(&result, 0, sizeof result);
     okay = gbl_test_execute(path, NULL, UINT64_C(1000), 0u, 0u, NULL, NULL,

@@ -13,6 +13,7 @@
 #define GBL_RUNNER_MAX_ROM_BYTES ((size_t)UINT32_C(0x02000000))
 #define GBL_RUNNER_MAX_TRACE_RECORDS ((size_t)65536u)
 #define GBL_RUNNER_FIXTURE_ID_CAPACITY 128u
+#define GBL_RUNNER_SOURCE_COMMIT_CAPACITY 41u
 #define GBL_RUNNER_FRAME_CYCLES UINT64_C(280896)
 
 typedef void *(*gbl_runner_allocate_fn)(void *context, size_t size);
@@ -38,6 +39,17 @@ typedef struct gbl_runner_options {
     /* Both callbacks must be supplied together. Both NULL selects malloc/free. */
     gbl_runner_allocator allocator;
 } gbl_runner_options;
+
+typedef struct gbl_runner_register_observation {
+    bool present;
+    bool observed;
+    char source_commit[GBL_RUNNER_SOURCE_COMMIT_CAPACITY];
+    uint32_t entry_address;
+    char instruction_set[6];
+    unsigned register_index;
+    bool has_value;
+    uint32_t value;
+} gbl_runner_register_observation;
 
 typedef enum gbl_runner_status {
     GBL_RUNNER_PASS = 0,
@@ -68,6 +80,7 @@ typedef struct gbl_runner_result {
     char expected_sha256[GBL_SHA256_HEX_CAPACITY];
 
     gbl_mailbox_result semantic;
+    gbl_runner_register_observation register_observation;
     uint64_t cycles;
     uint64_t instructions;
     uint64_t budget_cycles;

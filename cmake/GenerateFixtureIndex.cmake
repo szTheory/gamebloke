@@ -56,6 +56,13 @@ if(DEFINED GBL_CONTROL_ZERO_CASE_IMAGE AND
   get_filename_component(GBL_CONTROL_ZERO_CASE_IMAGE
     "${GBL_CONTROL_ZERO_CASE_IMAGE}" ABSOLUTE)
 endif()
+foreach(register_image IN ITEMS GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE
+    GBL_CONTROL_REGISTER_ARM_FAIL_IMAGE GBL_CONTROL_REGISTER_ARM_STOP_IMAGE
+    GBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE GBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE)
+  if(DEFINED ${register_image} AND NOT "${${register_image}}" STREQUAL "")
+    get_filename_component(${register_image} "${${register_image}}" ABSOLUTE)
+  endif()
+endforeach()
 get_filename_component(GBL_MANIFEST "${GBL_MANIFEST}" ABSOLUTE)
 get_filename_component(GBL_REGISTRY "${GBL_REGISTRY}" ABSOLUTE)
 get_filename_component(GBL_VOCAB "${GBL_VOCAB}" ABSOLUTE)
@@ -119,6 +126,24 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
   set(control_ids synthetic-control-pass synthetic-control-fail
     synthetic-control-bios-required synthetic-control-register-arm
     synthetic-control-register-thumb)
+  if(DEFINED GBL_CONTROL_SKIP_IMAGE AND
+      NOT "${GBL_CONTROL_SKIP_IMAGE}" STREQUAL "")
+    list(APPEND control_ids synthetic-control-official-bios)
+  endif()
+  if(DEFINED GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE AND
+      DEFINED GBL_CONTROL_REGISTER_ARM_FAIL_IMAGE AND
+      DEFINED GBL_CONTROL_REGISTER_ARM_STOP_IMAGE AND
+      DEFINED GBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE AND
+      DEFINED GBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE)
+    list(APPEND control_ids
+      synthetic-control-register-arm-zero
+      synthetic-control-register-arm-fail
+      synthetic-control-register-arm-stop
+      synthetic-control-register-arm-never-entry
+      synthetic-control-register-thumb-zero
+      synthetic-control-register-thumb-fail
+      synthetic-control-register-thumb-wrong-state)
+  endif()
   if(DEFINED GBL_CONTROL_ZERO_CASE_IMAGE AND
       NOT "${GBL_CONTROL_ZERO_CASE_IMAGE}" STREQUAL "")
     list(APPEND control_ids synthetic-control-pass-zero-case)
@@ -144,6 +169,10 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       set(control_image "${GBL_CONTROL_SKIP_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass.gba")
       set(control_bios "project-stub")
+    elseif(control_id STREQUAL "synthetic-control-official-bios")
+      set(control_image "${GBL_CONTROL_SKIP_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-arm-pass.gba")
+      set(control_bios "user-official")
     elseif(control_id STREQUAL "synthetic-control-register-arm")
       set(control_image "${GBL_CONTROL_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass.gba")
@@ -151,6 +180,31 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
     elseif(control_id STREQUAL "synthetic-control-register-thumb")
       set(control_image "${GBL_CONTROL_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-arm-zero" OR
+        control_id STREQUAL "synthetic-control-register-arm-never-entry")
+      set(control_image "${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-register-arm-zero.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-arm-fail")
+      set(control_image "${GBL_CONTROL_REGISTER_ARM_FAIL_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-register-arm-fail.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-arm-stop")
+      set(control_image "${GBL_CONTROL_REGISTER_ARM_STOP_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-register-arm-stop.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-thumb-zero")
+      set(control_image "${GBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-register-thumb-zero.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-thumb-fail")
+      set(control_image "${GBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-register-thumb-fail.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-thumb-wrong-state")
+      set(control_image "${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-register-arm-zero.gba")
       set(control_bios "none")
     else()
       set(control_image "${GBL_CONTROL_ZERO_CASE_IMAGE}")
@@ -162,8 +216,7 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
     endif()
     # This CMake digest is independent of the generator's byte recipe.
     file(SHA256 "${control_image}" control_digest)
-    if(control_id STREQUAL "synthetic-control-register-arm" OR
-        control_id STREQUAL "synthetic-control-register-thumb")
+    if(control_id MATCHES "^synthetic-control-register-")
       set(control_source "{}")
       string(JSON control_source SET "${control_source}" kind "\"git\"")
       string(JSON control_source SET "${control_source}" url
@@ -182,7 +235,7 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
         "${control_toolchain}")
       set(control_artifact "{}")
       string(JSON control_artifact SET "${control_artifact}" path
-        "\"generated/fixtures/owned-arm-pass.gba\"")
+        "\"${control_source_path}\"")
       string(JSON control_artifact SET "${control_artifact}" sha256
         "\"${control_digest}\"")
       string(JSON control_build SET "${control_build}" artifact
@@ -193,23 +246,35 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
         "\"register-eval\"")
       string(JSON control_channel SET "${control_channel}" source_commit
         "\"a7113b67e63f83a9b321696ddd7042ccfad6c881\"")
-      if(control_id STREQUAL "synthetic-control-register-arm")
+      if(control_id MATCHES "register-arm")
         string(JSON control_channel SET "${control_channel}" source_path
           "\"arm/arm.asm\"")
-        string(JSON control_channel SET "${control_channel}" entry_address
-          "\"0x08001D4C\"")
+        string(JSON control_channel SET "${control_channel}" register_index 12)
         string(JSON control_channel SET "${control_channel}" instruction_set
           "\"arm\"")
-        string(JSON control_channel SET "${control_channel}" register_index 12)
+        if(control_id STREQUAL "synthetic-control-register-arm")
+          set(entry_address "0x08001D4C")
+        elseif(control_id STREQUAL "synthetic-control-register-arm-never-entry")
+          set(entry_address "0x080000C8")
+        else()
+          set(entry_address "0x080000C4")
+        endif()
       else()
         string(JSON control_channel SET "${control_channel}" source_path
           "\"thumb/thumb.asm\"")
-        string(JSON control_channel SET "${control_channel}" entry_address
-          "\"0x08000934\"")
+        string(JSON control_channel SET "${control_channel}" register_index 7)
+        if(control_id STREQUAL "synthetic-control-register-thumb")
+          set(entry_address "0x08000934")
+        elseif(control_id STREQUAL "synthetic-control-register-thumb-wrong-state")
+          set(entry_address "0x080000C4")
+        else()
+          set(entry_address "0x080000D2")
+        endif()
         string(JSON control_channel SET "${control_channel}" instruction_set
           "\"thumb\"")
-        string(JSON control_channel SET "${control_channel}" register_index 7)
       endif()
+      string(JSON control_channel SET "${control_channel}" entry_address
+        "\"${entry_address}\"")
       set(control_channel_member ",\n      \"result_channel\": ${control_channel}")
     else()
       set(control_source "{}")
@@ -289,6 +354,17 @@ endif()
 list(APPEND control_checks
   "synthetic-control-register-arm|${GBL_CONTROL_IMAGE}"
   "synthetic-control-register-thumb|${GBL_CONTROL_IMAGE}")
+if(DEFINED GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE AND
+    NOT "${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}" STREQUAL "")
+  list(APPEND control_checks
+    "synthetic-control-register-arm-zero|${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}"
+    "synthetic-control-register-arm-fail|${GBL_CONTROL_REGISTER_ARM_FAIL_IMAGE}"
+    "synthetic-control-register-arm-stop|${GBL_CONTROL_REGISTER_ARM_STOP_IMAGE}"
+    "synthetic-control-register-arm-never-entry|${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}"
+    "synthetic-control-register-thumb-zero|${GBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE}"
+    "synthetic-control-register-thumb-fail|${GBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE}"
+    "synthetic-control-register-thumb-wrong-state|${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}")
+endif()
 foreach(control_check IN LISTS control_checks)
   string(REPLACE "|" ";" control_pair "${control_check}")
   list(GET control_pair 0 control_id)
