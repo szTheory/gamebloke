@@ -197,3 +197,12 @@ observations in05-PROBE-RESOLUTIONS.md, not invented independent sign-off or
 waivers. Source-audit rows remain planning coverage and have explicit actual
 evidence destinations in the final-check guide. Owner guide clarity and bespoke
 judgments remain the existing phase boundary. No Phase6 start is authorized.
+
+## Owner acceptance recorded
+
+The owner explicitly accepted guide clarity with these limits retained and
+approved the one-time protected merge commit plus bounded acceptance/main CI.
+This resolves the subjective phase checkpoint only. Historical probes,
+prohibitions, chronology and physical/rights qualification limits are unchanged;
+Nyquist compliance remains false. Final-records headab24 passed all actual
+admitted validation; acceptance-head CI and main merge proof follow separately.

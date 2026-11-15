@@ -43,7 +43,10 @@ coverage:
     human_judgment: false
   - id: D3
     description: Owner finds the evidence guide clear and understands remaining bespoke judgments
-    verification: []
+    verification:
+      - kind: manual_procedural
+        ref: "05-UAT.md; owner yes to05-ACCEPTANCE-PROPOSAL.md"
+        status: pass
     human_judgment: true
     rationale: "Guide clarity and retained unknowns require owner judgment at the existing phase boundary; automation cannot supply it."
 ---
@@ -107,3 +110,11 @@ unchanged producer85c/input95, all722 output pins and preserved R4 artifacts are
 checked. The final records descendant still needs its own hosted result. Owner
 action follows technical publication; no redundant acknowledgment is needed
 for the currently approved records work.
+
+## Owner acceptance supplement
+
+The owner explicitly accepted the guide clarity and retained evidence limits,
+and approved the one-time protected merge commit with the bounded acceptance/
+main CI cycle. CoverageD3 is accepted; historical unknowns and prohibitions
+remain unchanged. Current final-records headab24 passed actual admitted CI
+validation; the new acceptance-records descendant still needs its own green.

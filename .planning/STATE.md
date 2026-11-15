@@ -2,19 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 05
-current_phase_name: Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
-status: Phase5 implementation and technical verification complete; final records CI then owner guide/merge boundary
-stopped_at: Publish only the original final records event, validate its exact head, then wait for owner guide and one-time merge-method decision; no Phase6
-last_updated: "2026-11-15T00:54:44.689Z"
+current_phase: 6
+current_phase_name: Determinism Gates and Third-Party CPU Fixtures
+status: Phase5 accepted; approved acceptance CI and protected merge/main verification active; Phase6 NOT STARTED
+stopped_at: Finish only acceptance-records CI, protected merge commit and main CI; stop on red and stop before any Phase6 work
+last_updated: "2026-11-15T01:22:19.904Z"
 last_activity: 2026-11-14
-last_activity_desc: All25 execution summaries and human-needed verification recorded; actual35c hosted evidence validated; unresolved judgments retained
-state_head: 35c7513b3437d0a402021b4b5117c5d8898535b7
+last_activity_desc: Owner accepted guide limits and one-time merge commit; six Phase5 requirements complete; all historical unknowns retained
+state_head: ab24e0138802133f2f4183f4107791a6eadfb1ac
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 63
   completed_plans: 63
+  percent: 83
 ---
 
 # Project State
@@ -29,17 +30,17 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 ## Current Position
 
-Phase: 05 (Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion) — EXECUTING
-Plan: 25 of 25
-Status: Phase5 implementation and technical verification complete; final records CI then owner guide/merge boundary
-Last activity: 2026-11-14 — All25 execution summaries and human-needed verification recorded; actual35c hosted evidence validated; unresolved judgments retained
+Phase: 6 — Determinism Gates and Third-Party CPU Fixtures
+Plan: Not started
+Status: Phase5 accepted; approved acceptance CI and protected merge/main verification active; Phase6 NOT STARTED
+Last activity: 2026-11-14 — Owner accepted guide limits and one-time merge commit; six Phase5 requirements complete; all historical unknowns retained
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 41
+- Total plans completed: 63
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -51,7 +52,7 @@ Progress: [███████░░░] 67%
 | 2 | 7 | - | - |
 | 3 | 7 | - | - |
 | 4 | 13 | - | - |
-| 5 | 3 | not measured | not measured |
+| 05 | 25 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -303,5 +304,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Publish only the original final records event, validate its exact head, then wait for owner guide and one-time merge-method decision; no Phase6
+Stopped at: Finish only acceptance-records CI, protected merge commit and main CI; stop on red and stop before any Phase6 work
 Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md

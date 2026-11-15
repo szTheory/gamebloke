@@ -67,3 +67,18 @@ build/phase05-linux-native-budget240/hosted-attempt1/. Historical ledgers stay
 separate. Only the original unused final-records event remains to publish;
 any new red stops before fixes/retry. Owner guide judgment and the one-time
 ancestry-preserving merge-method choice follow that technical gate.
+
+## Final records descendant validated
+
+Published records headab24e0138802133f2f4183f4107791a6eadfb1ac passed
+[run43660784949](https://github.com/szTheory/gamebloke/actions/runs/43660784949).
+All eleven jobs succeeded; current actual admitted collector and CMake validator
+checked the four guest/API sets and exact source/tool/output/job identities.
+Linux native139/240s, macOS native192/300s and macOSARM231/300s fit their caps;
+the other jobs also fit180s. The full raw documents/logs/validated receipt remain
+under ignored build/phase05-final-publication/event3/. This supplement is local
+bookkeeping after the tested records head and is not another publication event.
+
+All original publication events and the explicit corrective allowance are now
+consumed. No new retry or merge is authorized. The parent waits for the existing
+owner guide/merge boundary; prior failed runs and unknowns remain preserved.

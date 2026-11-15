@@ -27,3 +27,12 @@ fixture admission work after a real hosted green, or remaining Phase5 local
 gates. No user action is required now; surface the concrete choice with Phase5
 acceptance when the implementation is ready. This is the cheap-check-first
 lesson applied before an irreversible operation could leave main red.
+
+## Owner-authorized exception
+
+The owner explicitly approved the one-time merge commit forPR8 in response to
+05-ACCEPTANCE-PROPOSAL.md. Apply it only after the acceptance-records head passes
+required CI; preserve source ancestry and verify main. Later phases return to
+the standing squash policy. No bypass, repository setting change or Phase6
+authority is included. Historical proposal wording above is superseded by this
+actual approval.

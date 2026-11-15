@@ -75,3 +75,14 @@ fixes/retry. Producer85c/input95, fixtures, actions, permissions and required
 checks remain unchanged. No merge, release, private content or Phase6 authority
 is added. Historical plan timing clauses remain records of their authored
 policy; D-26 governs remaining Phase5 execution.
+
+
+## D-27: Phase5 acceptance and one-time protected merge commit
+
+The owner accepted the evidence guide with historical unknowns and qualification
+limits retained, and authorized the concrete05-ACCEPTANCE-PROPOSAL.md. Use one
+acceptance-records CI run, then mergePR8 with methodmerge through the protections
+and verify one main CI run. Squash would remove the pinned producer ancestor;
+this exception preserves it without settings/bypass. The existing stop on any
+red remains; there is no retry allowance or Phase6 authority. Future phases
+return to the standing squash policy once the producer is on main.

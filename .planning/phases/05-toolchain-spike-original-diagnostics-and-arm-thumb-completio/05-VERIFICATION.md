@@ -1,9 +1,12 @@
 ---
 phase: 05-toolchain-spike-original-diagnostics-and-arm-thumb-completio
-verified: 2026-11-15T00:54:16.430019+00:00
-status: human_needed
+verified: 2026-11-15T01:21:53.169682+00:00
+status: passed
 score: 5/5 roadmap technical criteria supported
+covered_digest: v4:sha256:e392583f419db24e0c3869c2330670ec9710abd2c99b905c6ea14429a101ac7a
 covered_files:
+  - .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-UAT.md
+  - .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-ACCEPTANCE-PROPOSAL.md
   - .planning/ROADMAP.md
   - .planning/REQUIREMENTS.md
   - .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-01-PLAN.md
@@ -80,11 +83,11 @@ covered_files:
 # Phase 5 verification
 
 The technical evidence supports all five roadmap criteria for implementation
-consumer35c7513. The actual hosted admitted validator passes. Phase acceptance
-is human-needed: guide clarity, retained bespoke judgments and the one-time
-merge-method exception remain owner decisions. Final verification-record
-publication is pending its separately authorized descendant CI run. Shared
-requirements remain Pending; no phase completion, merge or Phase6 is asserted.
+consumer35c7513. The actual hosted admitted validator passes. The owner has now accepted guide clarity with the retained limits and approved
+the one-time merge-method exception. Final records headab24 passed actual
+admitted validation inrun43660784949. This is technical/owner acceptance, not
+a claim that the pending acceptance-records descendant or main merge has run.
+Phase6 remains excluded.
 
 ## Independent verification and persistence
 
@@ -177,3 +180,21 @@ remove the required producer ancestor and make main preflight refuse. That
 exception is not approved. Parent completes the authorized records CI first,
 then presents the concrete guide/merge choice. No extra acknowledgment is needed
 for records work; the owner acts only at that phase boundary.
+
+## Owner boundary resolved
+
+The owner replied yes to05-ACCEPTANCE-PROPOSAL.md: guide clarity accepted with
+unknowns retained, one protected merge commit approved, one acceptance-records
+CI event then one main CI event, stop before Phase6 and on any hosted red.
+Historical human-needed findings above describe the prior gate and are now
+resolved only to that stated extent. No probe, prohibition, rights restriction
+or missing historical chronology was waived. Nyquist compliance stays false.
+The exact acceptance descendant and main CI remain publication gates.
+
+## Bounded acceptance-record refresh
+
+The parent rechecked the current producer preflight and the accepted guide/
+manual records. The diff from the validated ab24 head is planning documentation
+only; no tested implementation/policy changed. Owner acceptance is actual, not
+a fabricated test pass. The central verification fingerprint now binds these
+reviewed current records and retained technical evidence.

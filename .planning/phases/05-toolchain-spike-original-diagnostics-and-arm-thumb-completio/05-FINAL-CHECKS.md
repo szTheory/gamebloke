@@ -236,3 +236,12 @@ passing current checks, including a new Linux GNU run and latest-log manual
 collector/legacy controls. The full evidence and expanded hash/patch location
 are in05-25-COVERAGE-FIX.md. The earlier independent review reports are unchanged;
 parent owns their rereview against this expanded candidate.
+
+## Owner acceptance recorded
+
+The owner explicitly accepted guide clarity with these limits retained and
+approved the one-time protected merge commit plus bounded acceptance/main CI.
+This resolves the subjective phase checkpoint only. Historical probes,
+prohibitions, chronology and physical/rights qualification limits are unchanged;
+Nyquist compliance remains false. Final-records headab24 passed all actual
+admitted validation; acceptance-head CI and main merge proof follow separately.

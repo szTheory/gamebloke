@@ -30,15 +30,15 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 - [x] **VERIF-01**: Developer can run one canonical command (`cmake --workflow --preset ci`). It builds, tests, lints the manifest, scans signatures, and checks the test inventory locally, and it is identical to the required CI check.
 - [x] **VERIF-02**: Every gate has at least one negative control that must fail for a stated reason. The verify command fails if a negative control passes.
 - [x] **VERIF-03**: A test-inventory check (CTest + junit) fails if any expected test is missing or silently skipped. Skipped tests are reported with a reason.
-- [ ] **VERIF-04**: A missing toolchain or BIOS reports SKIPPED with a reason, never a silent fallback or PASS.
+- [x] **VERIF-04**: A missing toolchain or BIOS reports SKIPPED with a reason, never a silent fallback or PASS.
 - [x] **VERIF-05**: GitHub Actions runs a single required `CI required` check on PRs and `main`, on Linux (GCC) and macOS arm64, with SHA-pinned actions. `.planning/`-only changes skip heavy lanes.
 - [x] **VERIF-06**: CI runs ASan + UBSan builds of the core and runner.
 - [x] **VERIF-07**: A repository hygiene check fails on credentials, non-noreply email addresses, or absolute home-directory paths in tracked files.
 
 ### CPU
 
-- [ ] **CPU-01**: The core executes the ARM7TDMI ARM (ARMv4T) instruction set, including barrel-shifter carry, LDM/STM edge cases (empty list, base in list, user-bank transfer), misaligned load rotation, multiply flags, and PSR transfers. Each case is pinned by a diagnostic.
-- [ ] **CPU-02**: The core executes the Thumb instruction set, including the BL prefix/suffix pair as two separate instructions.
+- [x] **CPU-01**: The core executes the ARM7TDMI ARM (ARMv4T) instruction set, including barrel-shifter carry, LDM/STM edge cases (empty list, base in list, user-bank transfer), misaligned load rotation, multiply flags, and PSR transfers. Each case is pinned by a diagnostic.
+- [x] **CPU-02**: The core executes the Thumb instruction set, including the BL prefix/suffix pair as two separate instructions.
 - [x] **CPU-03**: The core models the two-stage-visible pipeline (PC reads +8/+4) and the open-bus latch as explicit state, with no decode cache or fused-instruction shortcuts.
 - [x] **CPU-04**: The core switches modes and banks registers correctly for all ARM7TDMI modes. Exception entry saves the correct return address and SPSR.
 - [x] **CPU-05**: CPU arithmetic is free of C undefined behavior (shift ≥32, `ROR #0`/RRX, signed overflow), enforced by shift helpers and the UBSan lane.
@@ -65,9 +65,9 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 
 ### Diagnostics and fixtures
 
-- [ ] **DIAG-01**: Original ARM and Thumb diagnostics build from source in CI with a pinned `arm-none-eabi` toolchain, a project crt0, linker script, and header fixer. The output has no logo bytes and no linked runtime library.
-- [ ] **DIAG-02**: A toolchain spike confirms ARMv4T output (`Tag_CPU_arch: v4T`) and identical ROM bytes on macOS arm64 and Linux before any ROM digest is committed. If it fails, digest ownership moves to Linux.
-- [ ] **DIAG-03**: Each original diagnostic reports a machine-readable verdict and failing case ID through the mailbox, and a deliberately broken variant serves as its negative control.
+- [x] **DIAG-01**: Original ARM and Thumb diagnostics build from source in CI with a pinned `arm-none-eabi` toolchain, a project crt0, linker script, and header fixer. The output has no logo bytes and no linked runtime library.
+- [x] **DIAG-02**: A toolchain spike confirms ARMv4T output (`Tag_CPU_arch: v4T`) and identical ROM bytes on macOS arm64 and Linux before any ROM digest is committed. If it fails, digest ownership moves to Linux.
+- [x] **DIAG-03**: Each original diagnostic reports a machine-readable verdict and failing case ID through the mailbox, and a deliberately broken variant serves as its negative control.
 - [ ] **DIAG-04**: jsmolka gba-tests `arm`, `thumb`, and `memory` run from a pinned fetch. Their result channel (r12 at the idle loop) is verified by reading `m_test_eval` at the pinned revision before results count as PASS (R6). `bios.gba` reports SKIPPED.
 
 ### Determinism
@@ -165,12 +165,12 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | VERIF-01 | Phase 1 (manifest-lint clause: Phase 2) | Complete (manifest.lint runs in the canonical command since Phase 2, PR #5) |
 | VERIF-02 | Phase 1 | Complete |
 | VERIF-03 | Phase 1 | Complete |
-| VERIF-04 | Phase 5 | Pending |
+| VERIF-04 | Phase 5 | Complete |
 | VERIF-05 | Phase 1 | Complete |
 | VERIF-06 | Phase 1 | Complete |
 | VERIF-07 | Phase 1 | Complete |
-| CPU-01 | Phase 5 | Pending |
-| CPU-02 | Phase 5 | Pending |
+| CPU-01 | Phase 5 | Complete |
+| CPU-02 | Phase 5 | Complete |
 | CPU-03 | Phase 4 | Complete |
 | CPU-04 | Phase 4 | Complete |
 | CPU-05 | Phase 4 | Complete |
@@ -185,9 +185,9 @@ Every v1 requirement maps to exactly one phase of milestone v1.0 (see `.planning
 | RUN-02 | Phase 4 | Complete |
 | RUN-03 | Phase 4 | Complete |
 | RUN-04 | Phase 4 | Complete |
-| DIAG-01 | Phase 5 | Pending |
-| DIAG-02 | Phase 5 | Pending |
-| DIAG-03 | Phase 5 | Pending |
+| DIAG-01 | Phase 5 | Complete |
+| DIAG-02 | Phase 5 | Complete |
+| DIAG-03 | Phase 5 | Complete |
 | DIAG-04 | Phase 6 | Pending |
 | DET-01 | Phase 6 | Pending |
 | DET-02 | Phase 6 | Pending |
