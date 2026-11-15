@@ -212,6 +212,82 @@ function(jsmolka_approved_destination out destination)
   endif()
 endfunction()
 
+function(jsmolka_startup_preflight runner output_root)
+  set(preflight_dir "${output_root}/preflight")
+  file(MAKE_DIRECTORY "${preflight_dir}")
+  set(blockers "")
+
+  foreach(index RANGE 0 2)
+    list(GET ids ${index} id)
+    list(GET destinations ${index} destination)
+    set(rom_path "${SRC}/.fixtures/${destination}")
+    set(result_file "${preflight_dir}/${id}.result.json")
+    set(trace_file "${preflight_dir}/${id}.bus.jsonl")
+    file(REMOVE "${result_file}" "${trace_file}")
+
+    execute_process(COMMAND "${runner}"
+        --rom "${rom_path}" --fixture "${id}" --cycles 50
+        --trace-mask 2 --trace-capacity 128 --trace-output "${trace_file}"
+      TIMEOUT 2 RESULT_VARIABLE preflight_result
+      OUTPUT_VARIABLE preflight_output ERROR_VARIABLE preflight_error)
+    if(NOT preflight_output STREQUAL "")
+      file(WRITE "${result_file}" "${preflight_output}")
+    endif()
+    if(preflight_result MATCHES "timeout" OR
+        NOT preflight_result STREQUAL "1" OR
+        NOT EXISTS "${result_file}" OR NOT EXISTS "${trace_file}")
+      message(FATAL_ERROR
+        "jsmolka: startup-preflight-incomplete:${id}:${preflight_result}:${preflight_error}")
+    endif()
+
+    file(READ "${result_file}" result_document)
+    string(JSON status ERROR_VARIABLE status_error GET "${result_document}" status)
+    string(JSON reason ERROR_VARIABLE reason_error GET "${result_document}" reason)
+    string(JSON trace_complete ERROR_VARIABLE trace_error
+      GET "${result_document}" trace complete)
+    if(NOT status_error STREQUAL "NOTFOUND" OR
+        NOT reason_error STREQUAL "NOTFOUND" OR
+        NOT trace_error STREQUAL "NOTFOUND" OR
+        NOT status STREQUAL "TIMEOUT" OR
+        NOT reason STREQUAL "cycle-budget" OR
+        NOT trace_complete)
+      message(FATAL_ERROR "jsmolka: startup-preflight-invalid:${id}")
+    endif()
+
+    file(STRINGS "${trace_file}" trace_lines)
+    set(refused_stack_address "")
+    foreach(trace_line IN LISTS trace_lines)
+      string(JSON opcode ERROR_VARIABLE opcode_error GET "${trace_line}" opcode)
+      string(JSON address ERROR_VARIABLE address_error GET "${trace_line}" address)
+      string(JSON width ERROR_VARIABLE width_error GET "${trace_line}" width)
+      string(JSON outcome ERROR_VARIABLE outcome_error GET "${trace_line}" bus_outcome)
+      if(opcode_error STREQUAL "NOTFOUND" AND
+          address_error STREQUAL "NOTFOUND" AND
+          width_error STREQUAL "NOTFOUND" AND
+          outcome_error STREQUAL "NOTFOUND" AND
+          opcode STREQUAL "0xe92d4003" AND width STREQUAL "4" AND
+          outcome STREQUAL "6" AND
+          address MATCHES "^0xffffff(f4|f8|fc)$")
+        set(refused_stack_address "${address}")
+        break()
+      endif()
+    endforeach()
+
+    if(NOT refused_stack_address STREQUAL "")
+      list(APPEND blockers "${id}@${refused_stack_address}")
+      message(STATUS
+        "jsmolka: startup-preflight:${id}:stack-push-to-unmapped:${refused_stack_address}")
+    endif()
+  endforeach()
+
+  if(blockers)
+    list(JOIN blockers "," blocker_list)
+    message(FATAL_ERROR
+      "jsmolka: startup-preflight-blocked:${blocker_list}; no full suite was launched")
+  endif()
+  message(STATUS "jsmolka: startup-preflight-ok")
+endfunction()
+
 if(CASE STREQUAL "source-binding")
   if(NOT DEFINED REQUIRE_BINARIES)
     set(REQUIRE_BINARIES ON)
@@ -341,6 +417,7 @@ elseif(CASE STREQUAL "run-local")
   endif()
   jsmolka_check_metadata(TRUE)
   file(MAKE_DIRECTORY "${OUTPUT_ROOT}")
+  jsmolka_startup_preflight("${RUNNER}" "${OUTPUT_ROOT}")
   set(cycle_limit 50000000)
   set(process_timeout 30)
   set(result_checker "${SRC}/cmake/CheckResult.cmake")

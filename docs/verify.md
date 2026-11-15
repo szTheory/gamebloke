@@ -102,7 +102,10 @@ each missing suite as `MISSING`. Hosted CI is refused before fetch or guest
 launch.
 
 Each suite has a 50,000,000 emulated master-cycle budget and a 30-second process
-timeout. The runner observes the source-bound result register at its exact
+timeout. Before those budgets are used, the local command runs a 50-cycle bus
+trace for each ROM and stops if its initial stack push lands in unmapped memory.
+Preflight results are stored under `<build-dir>/jsmolka/preflight/`. The runner
+observes the source-bound result register at its exact
 `eval` entry, before the display-only `m_vsync` wait. ARM and memory use R12;
 the Thumb suite uses R7 but enters its `eval` label in ARM state. A qualified
 PASS requires an observed zero. GUEST_FAIL, GUEST_STOP, TIMEOUT, and harness
