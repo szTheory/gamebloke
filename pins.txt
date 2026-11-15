@@ -13,4 +13,6 @@
 # The URL must be the direct one: scripts/fetch-pin.sh does not follow redirects (a 3xx
 # answer is refused as bad-status), so a URL that redirects cannot be pinned.
 #
-# No rows yet: Phase 5 and 6 add the first fixtures.
+77ee88662552bdc885c1080c0172ff119d54db791bd73b21808cf1ff1fe5b40e https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/arm/arm.gba jsmolka/arm.gba
+b5cb2291df4ab314b31c598acd9bff2ccfa0b38efff29daadfe97422ce369b67 https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/thumb/thumb.gba jsmolka/thumb.gba
+21024fb6aae6343f5f0466dd54e3149de1fbeb23f78e7d85a015c983684d2f87 https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/memory/memory.gba jsmolka/memory.gba
