@@ -5,7 +5,7 @@ foreach(required IN ITEMS CASE SRC BIN)
     message(FATAL_ERROR "result-channel: usage: -D${required}= is required")
   endif()
 endforeach()
-if(NOT "${CASE}" MATCHES "^(metadata|roundtrip)$")
+if(NOT "${CASE}" MATCHES "^(metadata|roundtrip|results)$")
   message(FATAL_ERROR "result-channel: unknown CASE=${CASE}")
 endif()
 
@@ -143,6 +143,231 @@ function(compile_and_run name include_dir source_file)
       "result-channel: ${name} probe failed (${run_result})\n${run_out}${run_error}")
   endif()
 endfunction()
+
+function(run_result_checker out_result out_report result_file manifest)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "-DRESULT=${result_file}"
+      "-DMANIFEST=${manifest}" "-DREGISTRY=${SRC}/registry/disputes.json"
+      "-DVOCAB=${SRC}/contracts/evidence.json"
+      -P "${SRC}/cmake/CheckResult.cmake"
+    RESULT_VARIABLE result OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr)
+  set(${out_result} "${result}" PARENT_SCOPE)
+  set(${out_report} "${stdout}${stderr}" PARENT_SCOPE)
+endfunction()
+
+function(expect_result_pass result_file manifest)
+  run_result_checker(result report "${result_file}" "${manifest}")
+  if(NOT "${result}" STREQUAL "0" OR
+      NOT "${report}" MATCHES "result: ok ")
+    message(FATAL_ERROR
+      "result-channel: valid result rejected: ${result_file}\n${report}")
+  endif()
+endfunction()
+
+function(expect_result_reason reason result_file manifest)
+  run_result_checker(result report "${result_file}" "${manifest}")
+  if("${result}" STREQUAL "0" OR
+      NOT "${report}" MATCHES "result: ${reason}:")
+    message(FATAL_ERROR
+      "result-channel: expected ${reason} refusal: ${result_file}\n${report}")
+  endif()
+endfunction()
+
+function(run_control_result out_file out_status fixture image)
+  set(path "${dir}/${out_file}.json")
+  execute_process(
+    COMMAND "${BIN}/gamebloke-run-control" --rom "${image}"
+      --fixture "${fixture}" --cycles 100
+    RESULT_VARIABLE status OUTPUT_VARIABLE result_json ERROR_VARIABLE stderr)
+  if(NOT "${status}" STREQUAL "0" AND NOT "${status}" STREQUAL "1")
+    message(FATAL_ERROR
+      "result-channel: synthetic runner failed (${status}) for ${fixture}\n${result_json}${stderr}")
+  endif()
+  file(WRITE "${path}" "${result_json}")
+  set(${out_file}_PATH "${path}" PARENT_SCOPE)
+  set(${out_status} "${status}" PARENT_SCOPE)
+endfunction()
+
+function(assert_json_scalar file expected_type expected_value)
+  file(READ "${file}" document)
+  string(JSON actual_type ERROR_VARIABLE type_error TYPE "${document}" ${ARGN})
+  if(NOT "${type_error}" STREQUAL "NOTFOUND" OR
+      NOT "${actual_type}" STREQUAL "${expected_type}")
+    message(FATAL_ERROR
+      "result-channel: ${file} has the wrong JSON type at ${ARGN}: ${actual_type}")
+  endif()
+  string(JSON actual_value ERROR_VARIABLE value_error GET "${document}" ${ARGN})
+  if(NOT "${value_error}" STREQUAL "NOTFOUND" OR
+      NOT "${actual_value}" STREQUAL "${expected_value}")
+    message(FATAL_ERROR
+      "result-channel: ${file} has the wrong JSON value at ${ARGN}: ${actual_value}")
+  endif()
+endfunction()
+
+function(assert_no_root_member file key)
+  file(READ "${file}" document)
+  string(JSON key_count LENGTH "${document}")
+  if(key_count GREATER 0)
+    math(EXPR key_last "${key_count}-1")
+    foreach(key_index RANGE ${key_last})
+      string(JSON actual_key MEMBER "${document}" ${key_index})
+      if("${actual_key}" STREQUAL "${key}")
+        message(FATAL_ERROR
+          "result-channel: ${file} unexpectedly contains ${key}")
+      endif()
+    endforeach()
+  endif()
+endfunction()
+
+if(CASE STREQUAL "results")
+  set(manifest "${BIN}/generated/control/manifest.json")
+  if(NOT EXISTS "${manifest}" OR
+      NOT EXISTS "${BIN}/gamebloke-run-control")
+    message(FATAL_ERROR
+      "result-channel: build the ci preset before the results contract")
+  endif()
+
+  # Exercise real JSON from the local generated runner controls. The generated
+  # bytes are artificial, build-only input; this gate never fetches upstream ROMs.
+  run_control_result(arm_zero arm_zero_status
+    synthetic-control-register-arm-zero
+    "${BIN}/generated/fixtures/owned-register-arm-zero.gba")
+  run_control_result(arm_fail arm_fail_status
+    synthetic-control-register-arm-fail
+    "${BIN}/generated/fixtures/owned-register-arm-fail.gba")
+  run_control_result(thumb_zero thumb_zero_status
+    synthetic-control-register-thumb-zero
+    "${BIN}/generated/fixtures/owned-register-thumb-zero.gba")
+  run_control_result(thumb_fail thumb_fail_status
+    synthetic-control-register-thumb-fail
+    "${BIN}/generated/fixtures/owned-register-thumb-fail.gba")
+  run_control_result(never_entry never_entry_status
+    synthetic-control-register-arm-never-entry
+    "${BIN}/generated/fixtures/owned-register-arm-zero.gba")
+  run_control_result(mailbox mailbox_status synthetic-control-pass
+    "${BIN}/generated/fixtures/owned-arm-pass.gba")
+  if(NOT "${arm_zero_status}" STREQUAL "0" OR
+      NOT "${thumb_zero_status}" STREQUAL "0" OR
+      NOT "${arm_fail_status}" STREQUAL "1" OR
+      NOT "${thumb_fail_status}" STREQUAL "1" OR
+      NOT "${never_entry_status}" STREQUAL "1" OR
+      NOT "${mailbox_status}" STREQUAL "0")
+    message(FATAL_ERROR "result-channel: synthetic control status mismatch")
+  endif()
+
+  foreach(pair IN ITEMS
+      "${arm_zero_PATH}|arm|12|0|0x080000C4"
+      "${arm_fail_PATH}|arm|12|1|0x080000C4"
+      "${thumb_zero_PATH}|thumb|7|0|0x080000D2"
+      "${thumb_fail_PATH}|thumb|7|1|0x080000D2")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 result_file)
+    list(GET fields 1 instruction_set)
+    list(GET fields 2 register_index)
+    list(GET fields 3 raw_value)
+    list(GET fields 4 entry_address)
+    assert_json_scalar("${result_file}" STRING "register-eval" observation kind)
+    assert_json_scalar("${result_file}" BOOLEAN ON observation observed)
+    assert_json_scalar("${result_file}" STRING
+      "a7113b67e63f83a9b321696ddd7042ccfad6c881" observation source_commit)
+    assert_json_scalar("${result_file}" STRING "${entry_address}"
+      observation entry_address)
+    assert_json_scalar("${result_file}" STRING "${instruction_set}"
+      observation instruction_set)
+    assert_json_scalar("${result_file}" NUMBER "${register_index}"
+      observation register_index)
+    assert_json_scalar("${result_file}" NUMBER "${raw_value}" observation value)
+    assert_json_scalar("${result_file}" STRING absent semantic state)
+  endforeach()
+  assert_json_scalar("${never_entry_PATH}" BOOLEAN OFF observation observed)
+  assert_json_scalar("${never_entry_PATH}" NULL "" observation value)
+  assert_json_scalar("${never_entry_PATH}" STRING absent semantic state)
+  assert_no_root_member("${mailbox_PATH}" observation)
+  assert_json_scalar("${mailbox_PATH}" STRING pass semantic state)
+  assert_json_scalar("${mailbox_PATH}" STRING 36865 semantic case_id)
+
+  foreach(result_file IN ITEMS "${arm_zero_PATH}" "${arm_fail_PATH}"
+      "${thumb_zero_PATH}" "${thumb_fail_PATH}" "${never_entry_PATH}"
+      "${mailbox_PATH}")
+    expect_result_pass("${result_file}" "${manifest}")
+  endforeach()
+
+  # A register outcome is bound to every canonical channel field, the exact
+  # runtime ROM digest, its raw value, and the named observation termination.
+  set(tamper_base "${arm_zero_PATH}")
+  function(copy_result out name)
+    set(path "${dir}/${name}.json")
+    file(COPY_FILE "${tamper_base}" "${path}")
+    set(${out} "${path}" PARENT_SCOPE)
+  endfunction()
+  copy_result(tampered "missing-observation")
+  gbl_json_mutate_set("${tampered}" null observation)
+  expect_result_reason(bad-observation "${tampered}" "${manifest}")
+
+  foreach(field IN ITEMS kind source_commit entry_address instruction_set
+      register_index observed value)
+    copy_result(tampered "wrong-${field}")
+    if(field STREQUAL "kind")
+      gbl_json_mutate_set("${tampered}" "\"mailbox\"" observation kind)
+    elseif(field STREQUAL "source_commit")
+      gbl_json_mutate_set("${tampered}"
+        "\"0123456789abcdef0123456789abcdef01234567\""
+        observation source_commit)
+    elseif(field STREQUAL "entry_address")
+      gbl_json_mutate_set("${tampered}" "\"0x080000C8\""
+        observation entry_address)
+    elseif(field STREQUAL "instruction_set")
+      gbl_json_mutate_set("${tampered}" "\"thumb\""
+        observation instruction_set)
+    elseif(field STREQUAL "register_index")
+      gbl_json_mutate_set("${tampered}" 11 observation register_index)
+    elseif(field STREQUAL "observed")
+      gbl_json_mutate_set("${tampered}" false observation observed)
+    elseif(field STREQUAL "value")
+      gbl_json_mutate_set("${tampered}" 1 observation value)
+    endif()
+    expect_result_reason(bad-observation "${tampered}" "${manifest}")
+
+    copy_result(missing "missing-${field}")
+    gbl_json_mutate_remove("${missing}" observation "${field}")
+    expect_result_reason(bad-observation "${missing}" "${manifest}")
+  endforeach()
+
+  copy_result(tampered "bad-status")
+  gbl_json_mutate_set("${tampered}" "\"GUEST_FAIL\"" status)
+  expect_result_reason(bad-observation "${tampered}" "${manifest}")
+  copy_result(tampered "wrong-digest")
+  gbl_json_mutate_set("${tampered}"
+    "\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\""
+    fixture rom_sha256)
+  expect_result_reason(claim-mismatch "${tampered}" "${manifest}")
+  copy_result(tampered "wrong-termination")
+  gbl_json_mutate_set("${tampered}" "\"mailbox-complete\"" termination)
+  expect_result_reason(bad-observation "${tampered}" "${manifest}")
+  copy_result(tampered "incomplete-trace")
+  gbl_json_mutate_set("${tampered}" "{\"complete\":false}" trace)
+  expect_result_reason(incomplete-trace "${tampered}" "${manifest}")
+
+  # Pending is valid evidence for an interrupted register-channel run, but it
+  # cannot be promoted to a completed PASS. The mailbox route retains its old
+  # completed nonzero-case-id requirement and rejects any unbound observation.
+  copy_result(tampered "pending-pass")
+  gbl_json_mutate_set("${tampered}" false observation observed)
+  gbl_json_mutate_set("${tampered}" null observation value)
+  expect_result_reason(bad-observation "${tampered}" "${manifest}")
+  copy_result(tampered "mailbox-with-observation")
+  file(COPY_FILE "${mailbox_PATH}" "${tampered}")
+  gbl_json_mutate_set("${tampered}" "{\"kind\":\"register-eval\"}" observation)
+  expect_result_reason(bad-observation "${tampered}" "${manifest}")
+
+  # A legacy mailbox result still requires the actual complete mailbox, and is
+  # checked through its unchanged PASS rule.
+  file(COPY_FILE "${mailbox_PATH}" "${dir}/mailbox-no-case.json")
+  gbl_json_mutate_set("${dir}/mailbox-no-case.json" "\"0\"" semantic case_id)
+  expect_result_reason(bad-semantic "${dir}/mailbox-no-case.json" "${manifest}")
+  message("result-channel: actual register/mailbox results and tamper controls passed")
+  return()
+endif()
 
 if(CASE STREQUAL "metadata")
   # Both legacy rows and complete source-bound register rows use the same
