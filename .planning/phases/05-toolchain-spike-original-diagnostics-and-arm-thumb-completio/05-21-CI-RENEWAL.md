@@ -1,0 +1,5 @@
+# Bounded CI repair renewal
+
+The owner answered yes to the proposed repair after run43411613601. Authority covers the missing hygiene inventory entry, measured duplicate CI work, local builds/tests/review and one hosted retry. Preserve every check and fixed180-second limits. Do not add dependencies, caches or concurrency by default. A new hosted red renews the stop. This does not admit fixtures, accept a rights/hardware gate, or authorize Phase6. Raw failures remain preserved in05-21-HOSTED-STOP.md and build/phase05-plan21/hosted-*. The historical stop is superseded only by this bounded renewal.
+
+The parent owns publication and the single-attempt counter at build/phase05-ci-renewal/approval.json. Required preflight includes actual hygiene configure and affected complete workflows, tracked-only source and measured setup/cleanup margin. Independent review precedes publication. No acknowledgement is needed for routine local steps. Stronger executor approval through Phase5 remains active; lightweight reviews/fixes retain configured routing.

@@ -1,4 +1,22 @@
 # Gate tests (ci and hygiene lanes). Included from the top-level CMakeLists.txt.
+if(GBL_LANE STREQUAL "hygiene")
+  gbl_add_test(
+    NAME diagnostics.final.controls
+    LABELS control diagnostics
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}/final-proof-controls"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/synthetic_diagnostic_controls.cmake")
+
+  # hygiene-safe: admission controls use synthetic bytes, clone locally, and
+  # build no target. They cover path containment and tracked mode drift.
+  gbl_add_test(
+    NAME artifact.admission.controls
+    LABELS control manifest
+    COMMAND "${CMAKE_COMMAND}"
+      "-DCASE=compatibility-and-controls" "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/artifact_case.cmake")
+endif()
 # Each gate has a negative control that must fail for its stated reason, and a
 # positive control on otherwise identical clean input (D-03).
 set(GBL_HYGIENE_DRIVER
@@ -158,6 +176,14 @@ gbl_add_test(
   NAME traps.pos.clean
   LABELS positive traps
   COMMAND ${GBL_SIG_DRIVER} -DCASE=clean -P "${GBL_SIGNAL_CASE}")
+
+# No Docker, network, private files or runtime language dependency: exercise
+# the real helper against a multi-commit synthetic Git repo and shell witness.
+gbl_add_test(
+  NAME linux.snapshot
+  LABELS control linux
+  COMMAND "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/linux_snapshot.cmake")
 
 # ---- manifest lint (VERIF-01, EVID-02) --------------------------------------
 # The real manifest and pins file are linted against the real dispute registry and
@@ -370,7 +396,7 @@ foreach(case IN ITEMS
 endforeach()
 
 foreach(case IN ITEMS
-    all_states bios_provider_forms disputed)
+    all_states bios_provider_forms disputed instruction_reasons)
   gbl_add_test(
     NAME result.pos.${case}
     LABELS positive result

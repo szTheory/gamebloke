@@ -123,28 +123,56 @@ function(expect_usage name cli)
   endif()
 endfunction()
 
+function(result_request_json_string out value)
+  string(REPLACE "\\" "\\\\" encoded "${value}")
+  string(REPLACE "\"" "\\\"" encoded "${encoded}")
+  set(hex "0123456789abcdef")
+  foreach(code RANGE 1 31)
+    string(ASCII ${code} character)
+    math(EXPR high "${code}/16")
+    math(EXPR low "${code}%16")
+    string(SUBSTRING "${hex}" ${high} 1 high)
+    string(SUBSTRING "${hex}" ${low} 1 low)
+    string(REPLACE "${character}" "\\u00${high}${low}" encoded "${encoded}")
+  endforeach()
+  set(${out} "\"${encoded}\"" PARENT_SCOPE)
+endfunction()
+
 function(check_result_json name document manifest expected)
   set(path "${scratch}/${name}.json")
+  if(ARGC GREATER 4)
+    set(path "${ARGV4}")
+  endif()
   file(WRITE "${path}" "${document}\n")
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" "-DRESULT=${path}" "-DMANIFEST=${manifest}"
-      "-DREGISTRY=${SRC}/registry/disputes.json"
-      "-DVOCAB=${SRC}/contracts/evidence.json"
-      -P "${SRC}/cmake/CheckResult.cmake"
-    RESULT_VARIABLE result
-    OUTPUT_VARIABLE output
-    ERROR_VARIABLE error)
-  set(report "${output}\n${error}")
+  get_property(requests GLOBAL PROPERTY GBL_RUNNER_RESULT_REQUESTS)
+  if(NOT requests)
+    set(requests "[]")
+  endif()
+  string(JSON count LENGTH "${requests}")
+  set(row "{}")
+  foreach(key IN ITEMS name path manifest expected)
+    result_request_json_string(encoded "${${key}}")
+    string(JSON row SET "${row}" "${key}" "${encoded}")
+  endforeach()
+  string(JSON requests SET "${requests}" ${count} "${row}")
+  set_property(GLOBAL PROPERTY GBL_RUNNER_RESULT_REQUESTS "${requests}")
+endfunction()
+
+function(check_result_report name report expected)
+  string(REGEX MATCH "runner-result-batch: end:${name}:([0-9]+)" ending "${report}")
+  if(NOT ending)
+    message(FATAL_ERROR "runner-case: missing result check: ${name}")
+  endif()
+  set(findings "${CMAKE_MATCH_1}")
   if(expected STREQUAL "ok")
-    if(NOT "${result}" STREQUAL "0" OR
-        NOT "${report}" MATCHES "result: ok ")
+    if(NOT findings EQUAL 0)
       message(FATAL_ERROR
-        "runner-case: ${name} should validate; exit=${result}; output=${report}")
+        "runner-case: ${name} should validate; output=${report}")
     endif()
-  elseif("${result}" STREQUAL "0" OR
+  elseif(findings EQUAL 0 OR
       NOT "${report}" MATCHES "result: ${expected}(:|[ \n])")
     message(FATAL_ERROR
-      "runner-case: ${name} should fail with ${expected}; exit=${result}; output=${report}")
+      "runner-case: ${name} should fail with ${expected}; output=${report}")
   endif()
 endfunction()
 
@@ -197,6 +225,14 @@ if(NOT pass_dispute_count EQUAL 1 OR
     "runner-case: actual disputed producer output lost its exact dispute disclosure")
 endif()
 expect_result_acceptance("registered-disputed-pass" "${pass_json}")
+
+# Exercise the actual request/validator path with JSON-special filename bytes.
+# This is a local synthetic control, never a new fixture authority.
+set(special_root "${scratch}/quote-\"-tab-\t")
+file(MAKE_DIRECTORY "${special_root}")
+file(COPY_FILE "${BIN}/generated/control/manifest.json" "${special_root}/manifest.json")
+check_result_json("json-special-path" "${pass_json}"
+  "${special_root}/manifest.json" ok "${special_root}/result.json")
 
 # This generated control has a valid indexed identity and a completed PASS state,
 # but case ID zero is malformed. It must run through the guest path without ever
@@ -395,4 +431,44 @@ expect_usage(frames-product-overflow "${control}" --rom "${pass_rom}"
 expect_usage(trace-capacity-overflow "${control}" --rom "${pass_rom}"
   --cycles 1 --trace-capacity 65537)
 
+# The include API reports findings; the separate result.nc tests retain the
+# script-mode nonzero-exit contract. One child checks all actual producer
+# documents against each strictly validated, immutable authority just once.
+get_property(requests GLOBAL PROPERTY GBL_RUNNER_RESULT_REQUESTS)
+set(request_file "${scratch}/result-requests.json")
+file(WRITE "${request_file}" "${requests}\n")
+set(batch "${SRC}/tests/gates/runner_result_batch.cmake")
+execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
+  "-DREQUESTS=${request_file}" -P "${batch}"
+  RESULT_VARIABLE batch_rc OUTPUT_VARIABLE batch_output ERROR_VARIABLE batch_error)
+if(NOT batch_rc STREQUAL "0")
+  message(FATAL_ERROR "runner-case: result batch failed: ${batch_output}${batch_error}")
+endif()
+string(JSON request_count LENGTH "${requests}")
+math(EXPR request_last "${request_count}-1")
+foreach(index RANGE 0 ${request_last})
+  string(JSON name GET "${requests}" ${index} name)
+  string(JSON expected GET "${requests}" ${index} expected)
+  set(begin "runner-result-batch: begin:${name}\n")
+  string(FIND "${batch_error}" "${begin}" start)
+  string(FIND "${batch_error}" "runner-result-batch: end:${name}:" end)
+  if(start LESS 0 OR end LESS start)
+    message(FATAL_ERROR "runner-case: missing result report: ${name}")
+  endif()
+  string(LENGTH "${batch_error}" report_length)
+  math(EXPR remaining "${report_length}-${end}")
+  string(SUBSTRING "${batch_error}" ${end} ${remaining} tail)
+  string(FIND "${tail}" "\n" end_length)
+  math(EXPR length "${end}-${start}+${end_length}")
+  string(SUBSTRING "${batch_error}" ${start} ${length} report)
+  check_result_report("${name}" "${report}" "${expected}")
+endforeach()
+foreach(control IN ITEMS changed replaced-by-symlink)
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
+    "-DCONTROL=${control}" "-DCONTROL_ROOT=${scratch}/authority-${control}"
+    -P "${batch}" RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(rc STREQUAL "0" OR NOT "${output}${error}" MATCHES "runner-result-batch: authority-changed")
+    message(FATAL_ERROR "runner-case: immutable authority control failed: ${control}:${output}${error}")
+  endif()
+endforeach()
 message("runner-case: actual producer contract, CLI status, bounds, trace and refusal matrix passed")

@@ -1,0 +1,12 @@
+SPDX-License-Identifier: LicenseRef-Gamebloke-ARMv4T-Diagnostic-Public-CI
+
+Copyright (c) 2026 Gamebloke contributors.
+
+These original ARMv4T diagnostic sources are owned by the Gamebloke project.
+The owner authorizes their compilation and execution only in Gamebloke public
+CI when needed to verify these diagnostics. Generated ROM bytes must remain in
+the local build tree and must not be uploaded or redistributed.
+
+This fixture-specific notice does not grant rights to other project content or
+create a project-wide license. The diagnostic includes no Nintendo or other
+third-party game content, firmware, BIOS, SDK, runtime, logo, or font.

@@ -52,8 +52,8 @@
 #                         differs from the fixture's manifest row
 #   claim-mismatch        claim.cart.rom_sha256 differs from fixture.rom_sha256 (two nulls
 #                         are equal); no evidence item names fixture.id; fixture.rom_sha256
-#                         differs from the digest of a url or in-tree manifest row (a git
-#                         row pins a commit, so no digest tie exists for it yet)
+#                         differs from the runtime ROM digest declared by a url/in-tree
+#                         source.sha256 or an optional git build.artifact.sha256
 #   unknown-fixture       fixture.id or an evidence fixture is not a manifest row id
 #   unknown-dispute       a disputes item that is not a registry id
 #   undisclosed-dispute   a manifest row for fixture.id or an evidence fixture carries a
@@ -355,8 +355,9 @@ function(gbl_result_check file manifest registry vocab)
       if("${fix_kind}" STREQUAL "ABSENT" OR "${fix_kind}" STREQUAL "OTHER")
         gbl_finding(result missing-field "fixture.rom_sha256")
       endif()
-      # Tie the digest to the manifest row (WR-04): a digest the row pins must be the one
-      # the result reports. A git row pins a commit, not a digest, so nothing ties there.
+      # Tie the runtime ROM identity to the manifest row (WR-04): URL/in-tree rows
+      # use source.sha256; source-built git rows use optional build.artifact.sha256.
+      # Legacy git rows have no output pin and intentionally retain no digest tie.
       if("${fix_kind}" STREQUAL "HEX" AND NOT "${fixture_id}" STREQUAL ""
           AND "${fixture_id}" IN_LIST m_ids)
         set(row_digest "${${manifest}_ROW_${fixture_id}_SHA256}")

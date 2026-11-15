@@ -7,6 +7,42 @@ foreach(required IN ITEMS SRC BIN)
     message(FATAL_ERROR "logo-digest-case: missing ${required}")
   endif()
 endforeach()
+get_filename_component(BIN "${BIN}" ABSOLUTE)
+set(parent_cache "${BIN}/CMakeCache.txt")
+if(NOT EXISTS "${parent_cache}" OR IS_DIRECTORY "${parent_cache}")
+  message(FATAL_ERROR "logo-digest-case: parent-cache-missing")
+endif()
+
+function(gbl__read_cache_entry cache_path key output_type output_value)
+  file(STRINGS "${cache_path}" entries REGEX "^${key}:[^=]+=")
+  list(LENGTH entries entry_count)
+  if(NOT entry_count EQUAL 1)
+    message(FATAL_ERROR "logo-digest-case: parent-cache-entry-missing: ${key}")
+  endif()
+  list(GET entries 0 entry)
+  if(NOT entry MATCHES "^[^:]+:([^=]+)=(.*)$")
+    message(FATAL_ERROR "logo-digest-case: parent-cache-entry-invalid: ${key}")
+  endif()
+  set(${output_type} "${CMAKE_MATCH_1}" PARENT_SCOPE)
+  set(${output_value} "${CMAKE_MATCH_2}" PARENT_SCOPE)
+endfunction()
+
+gbl__read_cache_entry("${parent_cache}" CMAKE_GENERATOR
+  parent_CMAKE_GENERATOR_type parent_CMAKE_GENERATOR)
+gbl__read_cache_entry("${parent_cache}" CMAKE_MAKE_PROGRAM
+  parent_CMAKE_MAKE_PROGRAM_type parent_CMAKE_MAKE_PROGRAM)
+
+function(gbl__verify_generator cache_path case_name)
+  foreach(key IN ITEMS CMAKE_GENERATOR CMAKE_MAKE_PROGRAM)
+    gbl__read_cache_entry("${cache_path}" "${key}" "case_${key}_type"
+      "case_${key}")
+    if(NOT "${case_${key}}" STREQUAL "${parent_${key}}" OR
+        NOT "${case_${key}_type}" STREQUAL "${parent_${key}_type}")
+      message(FATAL_ERROR
+        "logo-digest-case: ${case_name}: isolated-generator-not-inherited: ${key}")
+    endif()
+  endforeach()
+endfunction()
 
 string(RANDOM LENGTH 10 ALPHABET 0123456789abcdef run_id)
 set(root "${BIN}/nc/logo_digest_case/${run_id}")
@@ -44,10 +80,13 @@ function(gbl__run_case name mode content expected forbidden)
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${project_dir}" -B "${case_root}/build"
+      -G "${parent_CMAKE_GENERATOR}"
+      "-DCMAKE_MAKE_PROGRAM:${parent_CMAKE_MAKE_PROGRAM_type}=${parent_CMAKE_MAKE_PROGRAM}"
       "-DPARSER=${real_parser}" "-DAUTHORITY=${authority}"
       "-DEXPECTED=${expected}" -DEXPECT_REJECT=FALSE
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
   set(combined "${output}${error}")
+  gbl__verify_generator("${case_root}/build/CMakeCache.txt" "${name}")
 
   if(mode STREQUAL "accept")
     if(NOT result EQUAL 0 OR NOT combined MATCHES "logo-digest-case: accepted")
@@ -112,11 +151,14 @@ set(disabled_project "${disabled_root}/project")
 gbl__write_project("${disabled_project}")
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -S "${disabled_project}" -B "${disabled_root}/build"
+    -G "${parent_CMAKE_GENERATOR}"
+    "-DCMAKE_MAKE_PROGRAM:${parent_CMAKE_MAKE_PROGRAM_type}=${parent_CMAKE_MAKE_PROGRAM}"
     "-DPARSER=${disabled_parser}" "-DAUTHORITY=${disabled_authority}"
     -DEXPECTED= -DEXPECT_REJECT=TRUE
   RESULT_VARIABLE disabled_result OUTPUT_VARIABLE disabled_output
   ERROR_VARIABLE disabled_error)
 set(disabled_combined "${disabled_output}${disabled_error}")
+gbl__verify_generator("${disabled_root}/build/CMakeCache.txt" "disabled_parser")
 if(disabled_result EQUAL 0 OR
     NOT disabled_combined MATCHES "logo-digest-case: invalid-row-control-failed")
   message(FATAL_ERROR "logo-digest-case: disabled parser did not make invalid-row control red")

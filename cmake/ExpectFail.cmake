@@ -3,7 +3,7 @@
 # for the wrong reason, or that passes, makes the control fail.
 #
 #   include(cmake/ExpectFail.cmake)
-#   gbl_expect_fail(COMMAND <cmd>... REGEX <re> [EXIT <n>] [WORKING_DIRECTORY <dir>])
+#   gbl_expect_fail(COMMAND <cmd>... REGEX <re> [EXIT <n>] [WORKING_DIRECTORY <dir>] [NO_ECHO <marker>])
 #   gbl_expect_pass(COMMAND <cmd>... [REGEX <re>] [WORKING_DIRECTORY <dir>])
 #
 # Script mode (a ';' inside one add_test argument would be split, so the
@@ -41,9 +41,12 @@ function(gbl__expect_env)
 endfunction()
 
 function(gbl_expect_fail)
-  cmake_parse_arguments(PARSE_ARGV 0 X "" "REGEX;EXIT;WORKING_DIRECTORY" "COMMAND")
+  cmake_parse_arguments(PARSE_ARGV 0 X "" "REGEX;EXIT;WORKING_DIRECTORY;NO_ECHO" "COMMAND")
   if(NOT X_COMMAND OR "${X_REGEX}" STREQUAL "")
     message(FATAL_ERROR "expect-fail: COMMAND and REGEX are required")
+  endif()
+  if("NO_ECHO" IN_LIST X_KEYWORDS_MISSING_VALUES)
+    message(FATAL_ERROR "no-echo: usage: marker is required")
   endif()
   gbl__expect_env()
   set(wd "")
@@ -52,6 +55,20 @@ function(gbl_expect_fail)
   endif()
   execute_process(COMMAND ${X_COMMAND} ${wd}
     RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE out)
+
+  # Judge both assertions on this one execution. Check for content leaks before
+  # any diagnostic can echo the child's output, including wrong-reason errors.
+  if(DEFINED X_NO_ECHO)
+    if("${X_NO_ECHO}" STREQUAL "")
+      message(FATAL_ERROR "no-echo: usage: marker is required")
+    endif()
+    string(FIND "${out}" "${X_NO_ECHO}" marker_at)
+    if(NOT marker_at EQUAL -1)
+      string(LENGTH "${X_NO_ECHO}" marker_length)
+      message(FATAL_ERROR "no-echo: leaked: ${marker_length} chars")
+    endif()
+    message("no-echo: ok")
+  endif()
 
   if("${rc}" STREQUAL "0")
     message(FATAL_ERROR

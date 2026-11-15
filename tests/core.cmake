@@ -43,6 +43,16 @@ gbl_add_test(
     -DMODE=clean
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
 gbl_add_test(
+  NAME runner.relocation_admitted
+  LABELS diagnostics gate integration runner
+  SKIPPABLE
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DMODE=admitted -DOPTIONAL=ON "-DGBL_REQUIRE_DIAGNOSTICS=${GBL_REQUIRE_DIAGNOSTICS}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_relocation.cmake")
+set_tests_properties(runner.relocation_admitted PROPERTIES
+  FIXTURES_REQUIRED diagnostic_execution)
+gbl_add_test(
   NAME runner.relocation_control
   LABELS control runner
   COMMAND "${CMAKE_COMMAND}"
@@ -86,8 +96,8 @@ gbl_add_test(
   NAME cpu.budget
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
-foreach(selector IN ITEMS arithmetic thumb decode alignment modes exceptions
-    no_bios peek mailbox trace_capacity trace)
+foreach(selector IN ITEMS arithmetic arm_alu arm_block arm_block_banks arm_block_bounds arm_block_edges arm_pc_return arm_shifts_conditions arm_transfer arm_subword arm_subword_alignment loaded_pc thumb thumb_alu thumb_bl thumb_control thumb_high thumb_multiple thumb_sp thumb_stack thumb_transfer decode alignment modes exceptions multiply_signed_timing multiply_unsigned
+    no_bios peek mailbox psr trace_capacity trace slots slots_bounds isa_classification unit_boundaries)
   gbl_add_test(
     NAME cpu.${selector}
     LABELS cpu core unit
@@ -104,6 +114,17 @@ set(GBL_MUTATION_LINK_FLAGS_CONFIG_VAR
   "CMAKE_EXE_LINKER_FLAGS_${GBL_MUTATION_BUILD_CONFIG}")
 set(GBL_MUTATION_LINK_FLAGS_CONFIG
   "${${GBL_MUTATION_LINK_FLAGS_CONFIG_VAR}}")
+add_custom_target(gbl_mutation_objects ALL
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=prepare -DSELECTOR=all
+    "-DCOMPILER=${CMAKE_C_COMPILER}" "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
+    "-DC_FLAGS=${CMAKE_C_FLAGS}" "-DC_FLAGS_CONFIG=${GBL_MUTATION_C_FLAGS_CONFIG}"
+    "-DLINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+    "-DLINKER_FLAGS_CONFIG=${GBL_MUTATION_LINK_FLAGS_CONFIG}"
+    "-DVERSION=${PROJECT_VERSION}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/core_mutation.cmake"
+  VERBATIM)
 function(gbl__add_bus_mutation_test test_name mutation selector)
   if(mutation STREQUAL "clean")
     set(labels bus positive)
@@ -116,6 +137,7 @@ function(gbl__add_bus_mutation_test test_name mutation selector)
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       "-DCASE=${mutation}" "-DSELECTOR=${selector}"
+      "-DPREPARED_ROOT=${CMAKE_BINARY_DIR}/mutation-objects"
       "-DCOMPILER=${CMAKE_C_COMPILER}"
       "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
       "-DC_FLAGS=${CMAKE_C_FLAGS}"
@@ -144,6 +166,7 @@ function(gbl__add_loader_mutation_test test_name mutation selector)
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       "-DCASE=loader_${mutation}" "-DSELECTOR=${selector}"
+      "-DPREPARED_ROOT=${CMAKE_BINARY_DIR}/mutation-objects"
       "-DCOMPILER=${CMAKE_C_COMPILER}"
       "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
       "-DC_FLAGS=${CMAKE_C_FLAGS}"
@@ -182,6 +205,7 @@ function(gbl__add_cpu_mutation_test test_name mutation selector)
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       "-DCASE=cpu_${mutation}" "-DSELECTOR=${selector}"
+      "-DPREPARED_ROOT=${CMAKE_BINARY_DIR}/mutation-objects"
       "-DCOMPILER=${CMAKE_C_COMPILER}"
       "-DCOMPILER_ID=${CMAKE_C_COMPILER_ID}"
       "-DC_FLAGS=${CMAKE_C_FLAGS}"
@@ -202,6 +226,12 @@ gbl__add_cpu_mutation_test(cpu.nc.trace_loss trace_loss trace)
 gbl__add_cpu_mutation_test(
   cpu.nc.budget_overshoot budget_overshoot trace)
 gbl__add_cpu_mutation_test(cpu.pos.clean clean all)
+gbl__add_cpu_mutation_test(cpu.nc.block_effect_order block_effect_order arm_block_banks)
+gbl__add_cpu_mutation_test(cpu.nc.loaded_pc loaded_pc loaded_pc)
+gbl__add_cpu_mutation_test(cpu.nc.maximum_trace maximum_trace arm_block_bounds)
+gbl__add_cpu_mutation_test(cpu.nc.multiply_flags multiply_flags multiply_unsigned)
+gbl__add_cpu_mutation_test(cpu.nc.bl_halves bl_halves thumb_bl)
+gbl__add_cpu_mutation_test(cpu.nc.late_refusal late_refusal unit_boundaries)
 
 gbl_add_test(
   NAME machine.state
@@ -257,6 +287,9 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}"
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     "-DHASH_TEST=$<TARGET_FILE:hash_test>"
+    "-DPARENT_C_STANDARD=${CMAKE_C_STANDARD}"
+    "-DPARENT_C_STANDARD_REQUIRED=${CMAKE_C_STANDARD_REQUIRED}"
+    "-DPARENT_C_EXTENSIONS=${CMAKE_C_EXTENSIONS}"
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_metadata.cmake")
 
 # The documented usage-error exit code is exactly 2 (unlike a sanitizer abort).

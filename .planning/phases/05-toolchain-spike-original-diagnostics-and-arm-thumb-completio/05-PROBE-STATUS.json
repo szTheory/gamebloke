@@ -1,0 +1,122 @@
+{
+  "items": [
+    {
+      "requirement_id": "DIAG-01",
+      "category": "unclassified",
+      "status": "unresolved",
+      "verification": null,
+      "resolution": null,
+      "reason": null,
+      "probe": "unclassified \u2014 review manually"
+    },
+    {
+      "requirement_id": "DIAG-02",
+      "category": "unclassified",
+      "status": "unresolved",
+      "verification": null,
+      "resolution": null,
+      "reason": null,
+      "probe": "unclassified \u2014 review manually"
+    },
+    {
+      "requirement_id": "DIAG-03",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "A semantic positive and its assertion-broken variant keep the same fixed case ID, while distinct cases never merge or reuse an ID.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "DIAG-03",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "A zero or missing case ID and an incomplete mailbox cannot validate as a completed diagnostic PASS/GUEST_FAIL; absence remains explicit.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "DIAG-03",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Case IDs are unique stable allocations independent of table order; positive/broken fixture links round-trip to the same exact expected ID.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "VERIF-04",
+      "category": "unclassified",
+      "status": "unresolved",
+      "verification": null,
+      "resolution": null,
+      "reason": null,
+      "probe": "unclassified \u2014 review manually"
+    },
+    {
+      "requirement_id": "CPU-01",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "An exact-fit full ARM unit completes while one-short cycle/trace/sequence capacity refuses before every effect and preserves existing trace records.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "CPU-01",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "ARM empty block lists execute the pinned PC-transfer/base-adjustment policy rather than silently doing zero work.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "CPU-01",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "ARM block effects follow ascending register/address order and captured original bank/SPSR views before status restore and refill.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    },
+    {
+      "requirement_id": "CPU-02",
+      "category": "adjacency",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Thumb BL prefix and suffix retire independently; a budget boundary and unmasked API IRQ can occur between them without fusion.",
+      "reason": null,
+      "probe": "When two things are exactly equal or just touch, do they merge, collide, or separate?"
+    },
+    {
+      "requirement_id": "CPU-02",
+      "category": "empty",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Thumb empty stack/multiple lists follow the explicitly sourced format-specific policy and never silently become an untested no-op.",
+      "reason": null,
+      "probe": "What is the result for empty, single-element, or null input?"
+    },
+    {
+      "requirement_id": "CPU-02",
+      "category": "ordering",
+      "status": "resolved",
+      "verification": "explicit",
+      "resolution": "Thumb stack/multiple effects have explicit ascending transfer order; the BL instruction pair preserves separate architectural intermediate state.",
+      "reason": null,
+      "probe": "When elements compare equal, is output order specified and stable?"
+    }
+  ],
+  "coverage": {
+    "applicable": 12,
+    "resolved": 9,
+    "unresolved": 3,
+    "unclassified": 3,
+    "byVerification": {
+      "explicit": 9,
+      "backstop": 0
+    }
+  }
+}

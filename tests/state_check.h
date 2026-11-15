@@ -174,6 +174,32 @@ static bool gbl_test_same_instance_identity_equal(
            before->allocator.release == after->allocator.release;
 }
 
+/* Trace records contain padding on some ABIs. Compare their public fields,
+ * including caller prefix/guard records, rather than their object bytes. */
+static inline bool gbl_test_trace_equal(const gbl_trace_record *left,
+                                        const gbl_trace_record *right,
+                                        size_t count)
+{
+    size_t index;
+
+    for (index = 0u; index < count; ++index) {
+        const gbl_trace_record *a = &left[index];
+        const gbl_trace_record *b = &right[index];
+
+        if (a->sequence != b->sequence || a->guest_cycle != b->guest_cycle ||
+            a->category != b->category ||
+            a->instruction_address != b->instruction_address ||
+            a->opcode != b->opcode || a->address != b->address ||
+            a->value != b->value || a->width != b->width ||
+            a->access_class != b->access_class ||
+            a->bus_outcome != b->bus_outcome ||
+            a->exception_kind != b->exception_kind) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static uint64_t gbl_test_digest_byte(uint64_t digest, uint8_t byte)
 {
     return (digest ^ (uint64_t)byte) * UINT64_C(1099511628211);

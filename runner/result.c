@@ -142,8 +142,8 @@ static bool gbl_runner_write_limits(FILE *output,
                                     const gbl_runner_result *result)
 {
     static const char *const base_limits[] = {
-        "profile version 4 direct-start defaults are project policy, not a BIOS handoff",
-        "partial ARM7TDMI instruction subset; unsupported instructions stop",
+        "profile version 5 direct-start defaults are project policy, not a BIOS handoff",
+        "ARM7TDMI ARMv4T instruction families implemented with explicit project policies; full original diagnostics pending",
         "bus costs use project placeholder timing policy",
         "BIOS provider none; timers, DMA, active display and audio, physical input, and host presentation are not modeled",
         "result does not establish hardware accuracy or broad game compatibility",

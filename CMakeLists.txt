@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
+# Reject cheap policy/input inconsistencies before compiler discovery or builds.
+include(cmake/CiPreflight.cmake)
+set(gbl_require_source_authority FALSE)
+if(GBL_LANE STREQUAL "diagnostics" OR GBL_REQUIRE_DIAGNOSTICS)
+  set(gbl_require_source_authority TRUE)
+endif()
+gbl_ci_preflight("${CMAKE_CURRENT_SOURCE_DIR}" "${gbl_require_source_authority}")
 project(gamebloke VERSION 0.0.0 LANGUAGES C)
 
 # Compiler identity guard. CI sets GBL_EXPECT_C_ID (GNU, Clang, AppleClang) so
@@ -16,10 +23,70 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 # Lane selection. Each lane has its own sorted test inventory under
 # tests/inventory/<lane>.txt. Later plans add each lane's content.
-set(GBL_LANE "ci" CACHE STRING "Verification lane: ci | asan | hygiene")
-set_property(CACHE GBL_LANE PROPERTY STRINGS ci asan hygiene)
-if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene)$")
-  message(FATAL_ERROR "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, or hygiene)")
+set(GBL_LANE "ci" CACHE STRING
+  "Verification lane: ci | asan | hygiene | diagnostics")
+set_property(CACHE GBL_LANE PROPERTY STRINGS ci asan hygiene diagnostics)
+if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics)$")
+  message(FATAL_ERROR
+    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, or diagnostics)")
+endif()
+
+set(GBL_DIAGNOSTIC_STAGE "admitted" CACHE STRING
+  "Diagnostic fixture authority stage: proof | admitted")
+set_property(CACHE GBL_DIAGNOSTIC_STAGE PROPERTY STRINGS proof admitted)
+if(NOT GBL_DIAGNOSTIC_STAGE MATCHES "^(proof|admitted)$")
+  message(FATAL_ERROR
+    "gamebloke: unknown-diagnostic-stage: '${GBL_DIAGNOSTIC_STAGE}'")
+endif()
+set(GBL_TOOLCHAIN_ROOT "${CMAKE_SOURCE_DIR}/build/toolchains" CACHE PATH
+  "Ignored cache root for the pinned ARM diagnostics toolchain")
+set(GBL_DIAGNOSTIC_GROUP "all" CACHE STRING "Diagnostic output ownership: all | arm | thumb")
+if(NOT GBL_DIAGNOSTIC_GROUP MATCHES "^(all|arm|thumb)$")
+  message(FATAL_ERROR "gamebloke: invalid-diagnostic-group")
+endif()
+option(GBL_REQUIRE_DIAGNOSTICS
+  "Require a verified host ARM diagnostics toolchain during configure" OFF)
+
+if(GBL_LANE MATCHES "^(ci|asan|diagnostics)$" OR GBL_REQUIRE_DIAGNOSTICS)
+  execute_process(COMMAND uname -s RESULT_VARIABLE gbl_uname_system_rc
+    OUTPUT_VARIABLE gbl_uname_system OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process(COMMAND uname -m RESULT_VARIABLE gbl_uname_machine_rc
+    OUTPUT_VARIABLE gbl_uname_machine OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT "${gbl_uname_system_rc}" STREQUAL "0" OR
+     NOT "${gbl_uname_machine_rc}" STREQUAL "0")
+    message(FATAL_ERROR "gamebloke: diagnostics-host-detection-failed")
+  endif()
+  if(gbl_uname_system STREQUAL "Darwin" AND
+     gbl_uname_machine MATCHES "^(arm64|aarch64)$")
+    set(GBL_DIAGNOSTIC_HOST darwin-arm64)
+    set(GBL_DIAGNOSTIC_OUTPUT_LEAF native)
+  elseif(gbl_uname_system STREQUAL "Linux" AND
+     gbl_uname_machine MATCHES "^(x86_64|amd64)$")
+    set(GBL_DIAGNOSTIC_HOST linux-x64)
+    set(GBL_DIAGNOSTIC_OUTPUT_LEAF hosted-linux-x64)
+  elseif(gbl_uname_system STREQUAL "Linux" AND
+     gbl_uname_machine MATCHES "^(aarch64|arm64)$")
+    set(GBL_DIAGNOSTIC_HOST linux-arm64)
+    set(GBL_DIAGNOSTIC_OUTPUT_LEAF linux-arm64)
+  else()
+    message(FATAL_ERROR
+      "gamebloke: unsupported-diagnostics-host: ${gbl_uname_system}/${gbl_uname_machine}")
+  endif()
+  cmake_path(ABSOLUTE_PATH GBL_TOOLCHAIN_ROOT BASE_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    NORMALIZE OUTPUT_VARIABLE GBL_TOOLCHAIN_ROOT_ABSOLUTE)
+  if(GBL_REQUIRE_DIAGNOSTICS)
+    execute_process(
+      COMMAND sh "${CMAKE_SOURCE_DIR}/scripts/fetch-toolchain.sh" --check
+        --host "${GBL_DIAGNOSTIC_HOST}" --root "${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      RESULT_VARIABLE gbl_toolchain_check_rc
+      OUTPUT_VARIABLE gbl_toolchain_check_out
+      ERROR_VARIABLE gbl_toolchain_check_error)
+    if(NOT "${gbl_toolchain_check_rc}" STREQUAL "0")
+      message(FATAL_ERROR
+        "gamebloke: required-diagnostics-toolchain-invalid: ${gbl_toolchain_check_error}${gbl_toolchain_check_out}")
+    endif()
+  endif()
 endif()
 
 # Warning set (Pitfall 11). Warnings become errors through the preset cache
@@ -40,7 +107,8 @@ file(REMOVE "${CMAKE_BINARY_DIR}/junit.xml")
 
 include(cmake/GblTests.cmake)
 
-if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
+   GBL_LANE STREQUAL "diagnostics")
   include(cmake/ReadLogoDigest.cmake)
   set(GBL_LOGO_AUTHORITY "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -127,11 +195,121 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   add_custom_target(gbl_owned_instruction_images
     DEPENDS ${GBL_OWNED_FIXTURE_FILES})
 
-  add_custom_command(
-    OUTPUT "${GBL_PRODUCTION_INDEX}" "${GBL_CONTROL_INDEX}"
-      "${GBL_CONTROL_MANIFEST}"
-    COMMAND "${CMAKE_COMMAND}"
+  set(GBL_DIAGNOSTIC_INDEX_DEPENDS "")
+  set(GBL_DIAGNOSTIC_INDEX_EXTRA_OUTPUTS "")
+  if(GBL_LANE STREQUAL "diagnostics")
+    set(GBL_DIAGNOSTIC_OUTPUT_ROOT
+      "${CMAKE_SOURCE_DIR}/build/phase05-spike/${GBL_DIAGNOSTIC_OUTPUT_LEAF}")
+    if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
+      set(GBL_DIAGNOSTIC_OUTPUT_ROOT
+        "${CMAKE_SOURCE_DIR}/build/phase05-spike/final-smoke")
+    else()
+      set(GBL_DIAGNOSTIC_OUTPUT_ROOT
+        "${CMAKE_SOURCE_DIR}/build/phase05-spike/admission-smoke")
+    endif()
+    set(GBL_DIAGNOSTIC_RAW_ROMS
+      "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke.gba"
+      "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/roms/smoke-broken.gba")
+    set(GBL_DIAGNOSTIC_SOURCE_DEPENDS
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/startup.S"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/smoke.S"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/linker.ld"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
+      "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/NOTICE"
+      "${CMAKE_SOURCE_DIR}/cmake/BuildArmDiagnostics.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/FixGbaHeader.cmake"
+      "${CMAKE_SOURCE_DIR}/scripts/fetch-toolchain.sh"
+      "${CMAKE_SOURCE_DIR}/scripts/signature-scan.sh"
+      "${CMAKE_SOURCE_DIR}/scripts/lib/signature-common.sh"
+      "${CMAKE_SOURCE_DIR}/tests/signatures/allowlist.txt"
+      "${CMAKE_SOURCE_DIR}/tests/signatures/bios.sha256"
+      "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256"
+      "${CMAKE_SOURCE_DIR}/toolchain/arm-none-eabi.lock")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/cases.json")
+      list(APPEND GBL_DIAGNOSTIC_SOURCE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/cases.json")
+    endif()
+    if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof")
+      file(STRINGS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
+        GBL_FINAL_PRODUCER_INPUTS REGEX "^[A-Za-z0-9]")
+      list(TRANSFORM GBL_FINAL_PRODUCER_INPUTS PREPEND "${CMAKE_SOURCE_DIR}/")
+      set(GBL_FINAL_PROOF_ROOT "${CMAKE_SOURCE_DIR}/build/final-proof")
+      if(NOT GBL_DIAGNOSTIC_GROUP STREQUAL "all")
+        set(GBL_FINAL_PROOF_ROOT "${CMAKE_SOURCE_DIR}/build/final-proof-${GBL_DIAGNOSTIC_GROUP}")
+      endif()
+      set(GBL_FINAL_PROOF_RECEIPT "${GBL_FINAL_PROOF_ROOT}/complete-host.json")
+      add_custom_command(
+        OUTPUT "${GBL_FINAL_PROOF_RECEIPT}"
+        COMMAND "${CMAKE_COMMAND}" -DCASE=final-host-build
+          "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${GBL_FINAL_PROOF_ROOT}"
+          "-DPROOF_GROUP=${GBL_DIAGNOSTIC_GROUP}"
+          "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+          -P "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake"
+        DEPENDS ${GBL_FINAL_PRODUCER_INPUTS}
+          "${CMAKE_SOURCE_DIR}/tests/gates/toolchain_spike.cmake"
+          "${CMAKE_SOURCE_DIR}/tests/gates/final_diagnostic_proof.cmake"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Proving every final original diagnostic output before admission"
+        VERBATIM)
+      add_custom_target(gbl_diagnostics ALL DEPENDS "${GBL_FINAL_PROOF_RECEIPT}")
+    else()
+      file(STRINGS "${CMAKE_SOURCE_DIR}/diagnostics/armv4t/inputs.txt"
+        GBL_ADMITTED_PRODUCER_INPUTS REGEX "^[A-Za-z0-9]")
+      list(TRANSFORM GBL_ADMITTED_PRODUCER_INPUTS PREPEND "${CMAKE_SOURCE_DIR}/")
+      gbl_ci_policy("${CMAKE_SOURCE_DIR}")
+      set(GBL_ADMITTED_SMOKE_DEPENDS "")
+      if(NOT GBL_DIAGNOSTIC_GROUP STREQUAL "thumb")
+        set(GBL_ADMITTED_SMOKE_DEPENDS
+          "${GBL_DIAGNOSTIC_OUTPUT_ROOT}/proof/build-receipt.json")
+        add_custom_command(
+          OUTPUT "${GBL_ADMITTED_SMOKE_DEPENDS}"
+          COMMAND "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}"
+            "-DOUT=${GBL_DIAGNOSTIC_OUTPUT_ROOT}"
+            "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+            "-DSOURCE_COMMIT=${GBL_CI_PRODUCER_HEAD}" -DMODE=smoke
+            -P "${CMAKE_SOURCE_DIR}/cmake/BuildArmDiagnostics.cmake"
+          DEPENDS ${GBL_ADMITTED_PRODUCER_INPUTS}
+          COMMENT "Building the required admitted smoke prerequisite"
+          VERBATIM)
+        add_custom_target(gbl_diagnostic_smoke
+          DEPENDS "${GBL_ADMITTED_SMOKE_DEPENDS}")
+        set(GBL_SMOKE_PREREQUISITE_CHECK
+          "${CMAKE_BINARY_DIR}/generated/diagnostics/smoke-prerequisite.stamp")
+        add_custom_command(
+          OUTPUT "${GBL_SMOKE_PREREQUISITE_CHECK}"
+          COMMAND "${CMAKE_COMMAND}" -DCASE=preset-contract
+            "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+            -DSTAGE=admitted -DWRITE_PREREQUISITE_STAMP=ON
+            -P "${CMAKE_SOURCE_DIR}/tests/toolchain.cmake"
+          DEPENDS "${CMAKE_SOURCE_DIR}/tests/toolchain.cmake"
+            "${CMAKE_SOURCE_DIR}/CMakeLists.txt"
+            "${CMAKE_BINARY_DIR}/CTestTestfile.cmake"
+          COMMENT "Checking the exact smoke dependency before the full corpus"
+          VERBATIM)
+        add_custom_target(gbl_diagnostic_prerequisite_check
+          DEPENDS "${GBL_SMOKE_PREREQUISITE_CHECK}")
+        # Recheck current registration first without making a fresh execution
+        # token force an otherwise unchanged immutable index to be regenerated.
+        list(APPEND GBL_DIAGNOSTIC_INDEX_DEPENDS gbl_diagnostic_prerequisite_check)
+      endif()
+      set(GBL_DIAGNOSTIC_PREPARED
+        "${CMAKE_BINARY_DIR}/generated/diagnostics/prepared-${GBL_DIAGNOSTIC_GROUP}.stamp")
+      set(GBL_DIAGNOSTIC_INDEX_EXTRA_OUTPUTS "${GBL_DIAGNOSTIC_PREPARED}")
+      list(APPEND GBL_DIAGNOSTIC_INDEX_DEPENDS
+        ${GBL_ADMITTED_PRODUCER_INPUTS} ${GBL_ADMITTED_SMOKE_DEPENDS}
+        "${CMAKE_SOURCE_DIR}/tests/gates/prepare_diagnostic_artifacts.cmake"
+        "${CMAKE_SOURCE_DIR}/tests/gates/admitted_index_generation.cmake"
+        "${CMAKE_SOURCE_DIR}/tests/gates/diagnostic_admission.cmake"
+        "${CMAKE_SOURCE_DIR}/tests/gates/diagnostics_case.cmake")
+      add_custom_target(gbl_diagnostics ALL DEPENDS "${GBL_DIAGNOSTIC_PREPARED}")
+    endif()
+  endif()
+
+  set(GBL_FIXTURE_INDEX_COMMAND "${CMAKE_COMMAND}"
       "-DGBL_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+      "-DGBL_PROOF_METADATA=$<IF:$<STREQUAL:${GBL_DIAGNOSTIC_STAGE},proof>,ON,OFF>"
+      "-DGBL_OUTPUT_ROOT=${CMAKE_BINARY_DIR}"
+      "-DGBL_ARTIFACT_ROOT=${CMAKE_BINARY_DIR}"
       "-DGBL_CONTROL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
       "-DGBL_CONTROL_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-fail.gba"
       "-DGBL_CONTROL_SKIP_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
@@ -142,16 +320,31 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
       "-DGBL_VOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
       "-DGBL_OUT_PRODUCTION=${GBL_PRODUCTION_INDEX}"
       "-DGBL_OUT_CONTROL=${GBL_CONTROL_INDEX}"
-      -P "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake"
-    DEPENDS ${GBL_OWNED_FIXTURE_FILES}
+      -P "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake")
+  if(GBL_LANE STREQUAL "diagnostics" AND GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
+    set(GBL_FIXTURE_INDEX_COMMAND "${CMAKE_COMMAND}"
+      -DCASE=prepare-admitted-indexes "-DSRC=${CMAKE_SOURCE_DIR}"
+      "-DBIN=${CMAKE_BINARY_DIR}" "-DGROUP=${GBL_DIAGNOSTIC_GROUP}"
+      "-DTOOLCHAIN_ROOT=${GBL_TOOLCHAIN_ROOT_ABSOLUTE}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/diagnostics_case.cmake")
+  endif()
+  add_custom_command(
+    OUTPUT "${GBL_PRODUCTION_INDEX}" "${GBL_CONTROL_INDEX}"
+      "${GBL_CONTROL_MANIFEST}" ${GBL_DIAGNOSTIC_INDEX_EXTRA_OUTPUTS}
+    COMMAND ${GBL_FIXTURE_INDEX_COMMAND}
+    DEPENDS ${GBL_OWNED_FIXTURE_FILES} ${GBL_DIAGNOSTIC_INDEX_DEPENDS}
       "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      "${CMAKE_SOURCE_DIR}/cmake/CheckDiagnosticAuthority.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/PathContainment.cmake"
       "${CMAKE_SOURCE_DIR}/registry/disputes.json"
       "${CMAKE_SOURCE_DIR}/contracts/evidence.json"
       "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake"
+      "${CMAKE_SOURCE_DIR}/cmake/FixtureIndexRender.cmake"
       "${CMAKE_SOURCE_DIR}/cmake/CheckManifest.cmake"
       "${CMAKE_SOURCE_DIR}/cmake/CheckRegistry.cmake"
       "${CMAKE_SOURCE_DIR}/cmake/CheckContract.cmake"
       "${CMAKE_SOURCE_DIR}/cmake/GblJson.cmake"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "Validating fixture manifests and generating immutable build indexes"
     VERBATIM)
   add_custom_target(gbl_fixture_indexes
@@ -237,4 +430,13 @@ endif()
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "hygiene")
   include(tests/gates.cmake)
   include(tests/ci_gates.cmake)
+endif()
+if(GBL_LANE STREQUAL "diagnostics")
+  if(GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
+    add_dependencies(gbl_fixture_indexes gbl_diagnostics)
+  endif()
+  include(tests/toolchain.cmake)
+endif()
+if(GBL_LANE MATCHES "^(ci|asan|diagnostics)$")
+  include(tests/diagnostics.cmake)
 endif()

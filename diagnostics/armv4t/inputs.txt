@@ -1,0 +1,29 @@
+# ROM production and admission inputs; every path is checked against the selected
+# Git revision before output builds. Any listed change, including a ledger or
+# witness-state update, requires a rebuild and output re-admission. Adding the
+# canonical fixture manifest rows alone does not change producer inputs.
+# Top-level CMakeLists.txt is intentionally omitted: it wires consumers and
+# future CPU test targets. The authoritative ROM command and byte-affecting
+# flags live in cmake/BuildArmDiagnostics.cmake.
+# Add every future case-specific assembly source here before enabling that case.
+cmake/BuildArmDiagnostics.cmake
+cmake/CheckArmCoverage.cmake
+cmake/FixGbaHeader.cmake
+cmake/GblJson.cmake
+diagnostics/armv4t/NOTICE
+diagnostics/armv4t/assertions.inc
+diagnostics/armv4t/cases-arm.S
+diagnostics/armv4t/cases-thumb.S
+diagnostics/armv4t/cases.json
+diagnostics/armv4t/inputs.txt
+diagnostics/armv4t/linker.ld
+diagnostics/armv4t/smoke.S
+diagnostics/armv4t/startup.S
+scripts/fetch-toolchain.sh
+scripts/lib/signature-common.sh
+scripts/signature-scan.sh
+tests/gates/diagnostic_linkmap.cmake
+tests/signatures/allowlist.txt
+tests/signatures/bios.sha256
+tests/signatures/logo.sha256
+toolchain/arm-none-eabi.lock

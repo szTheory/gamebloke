@@ -14,7 +14,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
-        "GBL_LANE": "ci"
+        "GBL_LANE": "ci",
+        "GBL_DIAGNOSTIC_STAGE": "admitted"
       }
     },
     {
@@ -33,16 +34,55 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "GBL_LANE": "asan",
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
         "CMAKE_C_COMPILER": "clang-21",
         "CMAKE_C_FLAGS": "-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    },
+    {
+      "name": "diagnostics",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "diagnostics",
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
+        "GBL_DIAGNOSTIC_GROUP": "all",
+        "GBL_REQUIRE_DIAGNOSTICS": "ON",
+        "GBL_TOOLCHAIN_ROOT": "${sourceDir}/build/toolchains"
+      }
+    },
+    {
+      "name": "diagnostics-arm",
+      "inherits": "diagnostics",
+      "cacheVariables": {
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
+        "GBL_DIAGNOSTIC_GROUP": "arm"
+      }
+    },
+    {
+      "name": "diagnostics-thumb",
+      "inherits": "diagnostics",
+      "cacheVariables": {
+        "GBL_DIAGNOSTIC_STAGE": "admitted",
+        "GBL_DIAGNOSTIC_GROUP": "thumb"
       }
     }
   ],
   "buildPresets": [
     { "name": "ci", "configurePreset": "ci" },
     { "name": "hygiene", "configurePreset": "hygiene" },
-    { "name": "asan", "configurePreset": "asan" }
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "diagnostics", "configurePreset": "diagnostics" },
+    {
+      "name": "diagnostics-arm",
+      "configurePreset": "diagnostics-arm"
+    },
+    {
+      "name": "diagnostics-thumb",
+      "configurePreset": "diagnostics-thumb"
+    }
   ],
   "testPresets": [
     {
@@ -96,6 +136,88 @@
       "output": { "verbosity": "verbose" },
       "filter": { "include": { "label": "^post$" } },
       "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "diagnostics",
+      "configurePreset": "diagnostics",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/diagnostics/junit.xml",
+        "verbosity": "verbose"
+      },
+      "filter": { "exclude": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "diagnostics-post",
+      "configurePreset": "diagnostics",
+      "output": { "verbosity": "verbose" },
+      "filter": { "include": { "label": "^post$" } },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "diagnostics-arm",
+      "configurePreset": "diagnostics-arm",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/diagnostics-arm/junit.xml",
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "exclude": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "diagnostics-arm-post",
+      "configurePreset": "diagnostics-arm",
+      "output": {
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "include": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "diagnostics-thumb",
+      "configurePreset": "diagnostics-thumb",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "${sourceDir}/build/diagnostics-thumb/junit.xml",
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "exclude": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "diagnostics-thumb-post",
+      "configurePreset": "diagnostics-thumb",
+      "output": {
+        "verbosity": "verbose"
+      },
+      "filter": {
+        "include": {
+          "label": "^post$"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ],
   "workflowPresets": [
@@ -124,6 +246,57 @@
         { "type": "build", "name": "asan" },
         { "type": "test", "name": "asan" },
         { "type": "test", "name": "asan-post" }
+      ]
+    },
+    {
+      "name": "diagnostics",
+      "steps": [
+        { "type": "configure", "name": "diagnostics" },
+        { "type": "build", "name": "diagnostics" },
+        { "type": "test", "name": "diagnostics" },
+        { "type": "test", "name": "diagnostics-post" }
+      ]
+    },
+    {
+      "name": "diagnostics-arm",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "diagnostics-arm"
+        },
+        {
+          "type": "build",
+          "name": "diagnostics-arm"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-arm"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-arm-post"
+        }
+      ]
+    },
+    {
+      "name": "diagnostics-thumb",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "diagnostics-thumb"
+        },
+        {
+          "type": "build",
+          "name": "diagnostics-thumb"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-thumb"
+        },
+        {
+          "type": "test",
+          "name": "diagnostics-thumb-post"
+        }
       ]
     }
   ]

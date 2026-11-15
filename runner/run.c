@@ -123,7 +123,7 @@ static const gbl_fixture_metadata *gbl_runner_find_metadata(
 {
     size_t index;
 
-    if (fixture_id == NULL) {
+    if (fixture_id == NULL || !gbl_fixture_index_qualified) {
         return NULL;
     }
     for (index = 0u; index < gbl_fixture_metadata_count; ++index) {
@@ -263,6 +263,10 @@ void gbl_runner_classify_guest_stop(gbl_runner_result *result,
 
     if (reason == GBL_RUN_REASON_UNSUPPORTED_INSTRUCTION) {
         name = "unsupported-instruction";
+    } else if (reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION) {
+        name = "unpredictable-instruction";
+    } else if (reason == GBL_RUN_REASON_LATER_ARCHITECTURE_INSTRUCTION) {
+        name = "later-architecture-instruction";
     } else if (reason == GBL_RUN_REASON_UNDEFINED_INSTRUCTION) {
         name = "undefined-instruction";
     } else if (reason == GBL_RUN_REASON_BUS_ERROR) {
@@ -285,6 +289,12 @@ void gbl_runner_classify_guest_stop(gbl_runner_result *result,
             break;
         case GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION:
             name = "unsupported-instruction";
+            break;
+        case GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION:
+            name = "unpredictable-instruction";
+            break;
+        case GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION:
+            name = "later-architecture-instruction";
             break;
         case GBL_CPU_STOP_BUS_ERROR: name = "bus-error"; break;
         case GBL_CPU_STOP_COUNTER_OVERFLOW: name = "counter-overflow"; break;

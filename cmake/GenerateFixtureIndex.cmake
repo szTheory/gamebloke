@@ -4,16 +4,46 @@ cmake_minimum_required(VERSION 3.25)
 # canonical manifest. The separate control index is derived from a generated
 # synthetic manifest and never grants real fixture rights.
 include("${CMAKE_CURRENT_LIST_DIR}/CheckManifest.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckDiagnosticAuthority.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/PathContainment.cmake")
 
-foreach(required IN ITEMS GBL_SOURCE_DIR GBL_CONTROL_IMAGE
+# Explicit pre-admission projection preserves historical immutable metadata for
+# host builds, but never grants runtime fixture authority. Default generation
+# continues to require the current producer inputs to match every source pin.
+if(NOT DEFINED GBL_PROOF_METADATA)
+  set(GBL_PROOF_METADATA OFF)
+endif()
+if(NOT "${GBL_PROOF_METADATA}" MATCHES "^(ON|OFF)$")
+  message(FATAL_ERROR "fixture-index: invalid-proof-metadata-mode")
+endif()
+
+foreach(required IN ITEMS GBL_SOURCE_DIR GBL_OUTPUT_ROOT GBL_CONTROL_IMAGE
     GBL_CONTROL_MANIFEST_OUTPUT GBL_MANIFEST GBL_REGISTRY GBL_VOCAB
     GBL_OUT_PRODUCTION GBL_OUT_CONTROL)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "fixture-index: usage: -D${required}= is required")
   endif()
 endforeach()
+if(NOT IS_ABSOLUTE "${GBL_OUTPUT_ROOT}")
+  message(FATAL_ERROR "fixture-index: output-root-not-absolute")
+endif()
+get_filename_component(GBL_OUTPUT_ROOT "${GBL_OUTPUT_ROOT}" ABSOLUTE)
 
 get_filename_component(GBL_SOURCE_DIR "${GBL_SOURCE_DIR}" ABSOLUTE)
+gbl_resolve_path(source_root_real source_root_status "${GBL_SOURCE_DIR}")
+if(NOT source_root_status STREQUAL "ok" OR NOT IS_DIRECTORY "${source_root_real}")
+  message(FATAL_ERROR "fixture-index: source-root-${source_root_status}")
+endif()
+set(GBL_SOURCE_DIR "${source_root_real}")
+if(DEFINED GBL_ARTIFACT_ROOT AND NOT "${GBL_ARTIFACT_ROOT}" STREQUAL "")
+  if(NOT IS_ABSOLUTE "${GBL_ARTIFACT_ROOT}")
+    message(FATAL_ERROR "fixture-index: artifact-root-not-absolute")
+  endif()
+  get_filename_component(GBL_ARTIFACT_ROOT "${GBL_ARTIFACT_ROOT}" ABSOLUTE)
+  if(EXISTS "${GBL_ARTIFACT_ROOT}" AND NOT IS_DIRECTORY "${GBL_ARTIFACT_ROOT}")
+    message(FATAL_ERROR "fixture-index: artifact-root-not-directory")
+  endif()
+endif()
 get_filename_component(GBL_CONTROL_IMAGE "${GBL_CONTROL_IMAGE}" ABSOLUTE)
 if(DEFINED GBL_CONTROL_FAIL_IMAGE AND NOT "${GBL_CONTROL_FAIL_IMAGE}" STREQUAL "")
   get_filename_component(GBL_CONTROL_FAIL_IMAGE "${GBL_CONTROL_FAIL_IMAGE}" ABSOLUTE)
@@ -34,14 +64,49 @@ get_filename_component(GBL_OUT_CONTROL "${GBL_OUT_CONTROL}" ABSOLUTE)
 get_filename_component(GBL_CONTROL_MANIFEST_OUTPUT
   "${GBL_CONTROL_MANIFEST_OUTPUT}" ABSOLUTE)
 
-# A failed rerun must not leave a stale index that looks current.
-file(REMOVE "${GBL_OUT_PRODUCTION}" "${GBL_OUT_CONTROL}")
+# Check every output before any removal, directory creation, or write. The
+# caller supplies this root independently of output paths and ROM identities.
+set(output_error "")
+foreach(output IN ITEMS GBL_OUT_PRODUCTION GBL_OUT_CONTROL GBL_CONTROL_MANIFEST_OUTPUT)
+  gbl_resolve_contained_path(output_real output_status_${output}
+    "${GBL_OUTPUT_ROOT}" "${${output}}")
+  if(NOT output_status_${output} STREQUAL "ok")
+    set(output_error "fixture-index: output-${output_status_${output}}:${output}")
+  elseif(EXISTS "${${output}}" AND IS_DIRECTORY "${${output}}")
+    set(output_status_${output} "not-file")
+    set(output_error "fixture-index: output-not-file:${output}")
+  endif()
+endforeach()
+# A failed rerun clears safe stale headers; an escaping target stays untouched.
+foreach(output IN ITEMS GBL_OUT_PRODUCTION GBL_OUT_CONTROL)
+  if(output_status_${output} STREQUAL "ok")
+    gbl_remove_file_contained(remove_status "${GBL_OUTPUT_ROOT}" "${${output}}")
+    if(NOT remove_status STREQUAL "ok")
+      set(output_error "fixture-index: output-${remove_status}:${output}")
+    endif()
+  endif()
+endforeach()
+if(NOT output_error STREQUAL "")
+  message(FATAL_ERROR "${output_error}")
+endif()
 get_filename_component(production_dir "${GBL_OUT_PRODUCTION}" DIRECTORY)
 get_filename_component(control_dir "${GBL_OUT_CONTROL}" DIRECTORY)
 get_filename_component(control_manifest_dir
   "${GBL_CONTROL_MANIFEST_OUTPUT}" DIRECTORY)
-file(MAKE_DIRECTORY "${production_dir}" "${control_dir}"
-  "${control_manifest_dir}")
+foreach(directory IN ITEMS "${production_dir}" "${control_dir}" "${control_manifest_dir}")
+  gbl_ensure_directory_contained(directory_status "${GBL_OUTPUT_ROOT}" "${directory}")
+  if(NOT directory_status STREQUAL "ok")
+    message(FATAL_ERROR "fixture-index: output-directory-${directory_status}")
+  endif()
+endforeach()
+
+function(gbl_fixture_write_output output contents)
+  gbl_write_file_contained(write_status write_reason
+    "${GBL_OUTPUT_ROOT}" "${output}" "${contents}")
+  if(NOT write_status STREQUAL "ok")
+    message(FATAL_ERROR "fixture-index: output-${write_reason}")
+  endif()
+endfunction()
 
 if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
   if(NOT EXISTS "${GBL_CONTROL_IMAGE}" OR IS_DIRECTORY "${GBL_CONTROL_IMAGE}")
@@ -110,7 +175,7 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
     "${control_rows}\n"
     "  ]\n"
     "}\n")
-  file(WRITE "${GBL_CONTROL_MANIFEST_OUTPUT}" "${control_manifest}")
+  gbl_fixture_write_output("${GBL_CONTROL_MANIFEST_OUTPUT}" "${control_manifest}")
   set(control_manifest_path "${GBL_CONTROL_MANIFEST_OUTPUT}")
 else()
   get_filename_component(control_manifest_path "${GBL_CONTROL_MANIFEST}" ABSOLUTE)
@@ -122,7 +187,6 @@ endif()
 # dispute propagation; they do not approve any real input for redistribution.
 gbl_contract_read(V "${GBL_VOCAB}")
 gbl_registry_read(R "${GBL_REGISTRY}" V)
-gbl_manifest_read(M "${GBL_MANIFEST}" R V)
 gbl_manifest_read(C "${control_manifest_path}" R V)
 get_property(findings GLOBAL PROPERTY GBL_FINDINGS)
 if(findings GREATER 0)
@@ -165,27 +229,123 @@ foreach(control_check IN LISTS control_checks)
   endif()
 endforeach()
 
+# A known invalid synthetic image cannot produce an index. Refuse it before
+# loading the large independent production authority; every successful path
+# still runs the identical canonical validator before any header write.
+get_property(findings GLOBAL PROPERTY GBL_FINDINGS)
+if(findings GREATER 0)
+  message(FATAL_ERROR "fixture-index: validation failed (${findings} findings)")
+endif()
+gbl_manifest_read(M "${GBL_MANIFEST}" R V)
+get_property(findings GLOBAL PROPERTY GBL_FINDINGS)
+if(findings GREATER 0)
+  message(FATAL_ERROR "fixture-index: validation failed (${findings} findings)")
+endif()
+
+# Admitted builds may prepare their exact artifacts from these current parsed
+# rows before the existing artifact/source identity checks below. The hook
+# cannot replace any reader, validation or render step and is never serialized.
+if(COMMAND gbl_fixture_prepare_admitted_artifacts)
+  gbl_fixture_prepare_admitted_artifacts()
+endif()
+
 # For canonical in-tree rows, verify that the manifest digest still identifies
-# the bytes at its validated relative path. URL rows carry the upstream digest;
-# git rows have no byte digest in this schema and therefore remain non-matchable.
+# bytes at its validated source path. For git artifacts, validate a present file
+# against the committed output pin when this lane supplies its explicit build root.
+# A missing root/output is allowed for metadata-only lanes; the runtime runner
+# still compares every executed ROM against the immutable digest in the index.
+function(gbl_fixture_resolve_path out path)
+  # REAL_PATH warns on absent outputs in newer CMake. Resolve the closest
+  # existing ancestor, retaining symlink containment checks for missing leaves.
+  set(ancestor "${path}")
+  while(NOT EXISTS "${ancestor}" AND NOT IS_SYMLINK "${ancestor}")
+    get_filename_component(parent "${ancestor}" DIRECTORY)
+    if(parent STREQUAL ancestor)
+      message(FATAL_ERROR "fixture-index: artifact-path-unresolvable")
+    endif()
+    set(ancestor "${parent}")
+  endwhile()
+  if(IS_SYMLINK "${ancestor}" AND NOT EXISTS "${ancestor}")
+    message(FATAL_ERROR "fixture-index: artifact-path-escape: dangling symlink")
+  endif()
+  file(REAL_PATH "${ancestor}" resolved_ancestor)
+  file(RELATIVE_PATH suffix "${ancestor}" "${path}")
+  if(suffix STREQUAL "")
+    set(resolved "${resolved_ancestor}")
+  else()
+    set(resolved "${resolved_ancestor}/${suffix}")
+  endif()
+  cmake_path(NORMAL_PATH resolved)
+  set(${out} "${resolved}" PARENT_SCOPE)
+endfunction()
 if(M_COUNT GREATER 0)
-  gbl_json_load(production_doc "${GBL_MANIFEST}")
   math(EXPR production_last "${M_COUNT}-1")
   foreach(index RANGE ${production_last})
-    gbl_json_string(row_id "${production_doc}" fixtures ${index} id)
-    gbl_json_string(source_kind "${production_doc}" fixtures ${index} source kind)
+    list(GET M_IDS ${index} row_id)
+    set(row_doc "${M_ROW_${row_id}_JSON}")
+    if("${M_ROW_${row_id}_URL}" STREQUAL "https://github.com/szTheory/gamebloke" AND
+       "${M_ROW_${row_id}_ARTIFACT_PATH}" MATCHES "^generated/diagnostics/armv4t/")
+      set(revision "${M_ROW_${row_id}_COMMIT}")
+      if(NOT revision IN_LIST checked_diagnostic_revisions)
+        if(NOT GBL_PROOF_METADATA)
+          gbl_check_diagnostic_authority("${GBL_SOURCE_DIR}" "${revision}")
+        endif()
+        list(APPEND checked_diagnostic_revisions "${revision}")
+      endif()
+    endif()
+    gbl_json_string(source_kind "${row_doc}" source kind)
     if("${source_kind}" STREQUAL "in-tree")
-      gbl_json_string(relative_path "${production_doc}" fixtures ${index}
+      gbl_json_string(relative_path "${row_doc}"
         source path)
-      gbl_json_string(expected_digest "${production_doc}" fixtures ${index}
+      gbl_json_string(expected_digest "${row_doc}"
         source sha256)
-      set(source_path "${GBL_SOURCE_DIR}/${relative_path}")
-      if(NOT EXISTS "${source_path}" OR IS_DIRECTORY "${source_path}")
+      gbl__manifest_path_ok(source_path_ok "${relative_path}")
+      if(NOT source_path_ok)
+        # CheckManifest.cmake already recorded the malformed manifest path.
+        # Do not resolve it or let it influence a filesystem read.
+      else()
+        set(source_path "${GBL_SOURCE_DIR}/${relative_path}")
+        gbl_resolve_contained_path(source_real source_status
+          "${GBL_SOURCE_DIR}" "${source_path}")
+      endif()
+      if(NOT source_path_ok)
+        # The manifest finding is authoritative for spelling errors.
+      elseif(source_status STREQUAL "path-escape")
+        gbl_finding(fixture-index in-tree-path-escape "${row_id}")
+      elseif(source_status STREQUAL "dangling-symlink")
+        gbl_finding(fixture-index in-tree-path-dangling-symlink "${row_id}")
+      elseif(NOT source_status STREQUAL "ok")
+        gbl_finding(fixture-index in-tree-path-unresolvable "${row_id}")
+      elseif(NOT EXISTS "${source_real}" OR IS_DIRECTORY "${source_real}")
         gbl_finding(fixture-index in-tree-file-missing "${row_id}")
       else()
-        file(SHA256 "${source_path}" actual_digest)
+        file(SHA256 "${source_real}" actual_digest)
         if(NOT "${expected_digest}" STREQUAL "${actual_digest}")
           gbl_finding(fixture-index digest-mismatch "${row_id}")
+        endif()
+      endif()
+    elseif("${source_kind}" STREQUAL "git" AND
+        "${M_ROW_${row_id}_ARTIFACT_OK}" STREQUAL "TRUE" AND
+        DEFINED GBL_ARTIFACT_ROOT AND NOT "${GBL_ARTIFACT_ROOT}" STREQUAL "")
+      set(relative_artifact "${M_ROW_${row_id}_ARTIFACT_PATH}")
+      set(expected_artifact_digest "${M_ROW_${row_id}_ARTIFACT_SHA256}")
+      set(artifact_path "${GBL_ARTIFACT_ROOT}/${relative_artifact}")
+      gbl_fixture_resolve_path(artifact_root_real "${GBL_ARTIFACT_ROOT}")
+      gbl_fixture_resolve_path(artifact_real "${artifact_path}")
+      if("${artifact_root_real}" STREQUAL "/")
+        set(artifact_root_prefix "/")
+      else()
+        set(artifact_root_prefix "${artifact_root_real}/")
+      endif()
+      string(FIND "${artifact_real}" "${artifact_root_prefix}" artifact_root_at)
+      if(NOT artifact_root_at EQUAL 0)
+        gbl_finding(fixture-index artifact-path-escape "${row_id}")
+      elseif(EXISTS "${artifact_path}" AND IS_DIRECTORY "${artifact_path}")
+        gbl_finding(fixture-index artifact-output-not-file "${row_id}")
+      elseif(EXISTS "${artifact_path}")
+        file(SHA256 "${artifact_path}" actual_artifact_digest)
+        if(NOT "${expected_artifact_digest}" STREQUAL "${actual_artifact_digest}")
+          gbl_finding(fixture-index artifact-digest-mismatch "${row_id}")
         endif()
       endif()
     endif()
@@ -197,109 +357,13 @@ if(findings GREATER 0)
   message(FATAL_ERROR "fixture-index: identity validation failed (${findings} findings)")
 endif()
 
-function(gbl_fixture_c_string out value where)
-  # All emitted fields come from closed vocabularies or stricter manifest
-  # grammars. Reject any character that would need C escaping instead of trying
-  # to interpolate untrusted metadata into source text.
-  if(NOT "${value}" MATCHES "^[A-Za-z0-9._,-]*$")
-    message(FATAL_ERROR "fixture-index: unsafe-c-string: ${where}")
-  endif()
-  set(${out} "${value}" PARENT_SCOPE)
+include("${CMAKE_CURRENT_LIST_DIR}/FixtureIndexRender.cmake")
+function(gbl_fixture_emit_index output prefix)
+  gbl_fixture_render_index(contents "${prefix}")
+  gbl_fixture_write_output("${output}" "${contents}")
 endfunction()
 
-function(gbl_fixture_emit_index output doc prefix)
-  string(CONCAT contents
-    "/* Generated from fatal-validated fixture metadata. Do not edit. */\n"
-    "#ifndef GBL_GENERATED_FIXTURE_INDEX_H\n"
-    "#define GBL_GENERATED_FIXTURE_INDEX_H\n"
-    "#include <stddef.h>\n\n"
-    "typedef struct gbl_fixture_metadata {\n"
-    "    const char *id;\n"
-    "    const char *rom_sha256;\n"
-    "    const char *provenance_class;\n"
-    "    const char *const *dispute_ids;\n"
-    "    size_t dispute_count;\n"
-    "    const char *bios_requirement;\n"
-    "    const char *const *permitted_use;\n"
-    "    size_t permitted_use_count;\n"
-    "    const char *expected_mailbox_convention;\n"
-    "} gbl_fixture_metadata;\n\n")
-
-  set(ids "${${prefix}_IDS}")
-  list(LENGTH ids row_count)
-  set(row_index 0)
-  foreach(id IN LISTS ids)
-    gbl_fixture_c_string(c_id "${id}" "id")
-    gbl_json_string(provenance "${doc}" fixtures ${row_index}
-      expected provenance_class)
-    gbl_fixture_c_string(c_provenance "${provenance}" "provenance_class")
-    gbl_json_string(bios "${doc}" fixtures ${row_index} bios_requirement)
-    gbl_fixture_c_string(c_bios "${bios}" "bios_requirement")
-    set(digest "${${prefix}_ROW_${id}_SHA256}")
-    gbl_fixture_c_string(c_digest "${digest}" "rom_sha256")
-
-    gbl_json_type(dispute_type "${doc}" fixtures ${row_index} expected dispute)
-    set(dispute "")
-    if("${dispute_type}" STREQUAL "STRING")
-      gbl_json_string(dispute "${doc}" fixtures ${row_index} expected dispute)
-    endif()
-    set(dispute_count 0)
-    set(dispute_expr NULL)
-    if(NOT "${dispute}" STREQUAL "")
-      gbl_fixture_c_string(c_dispute "${dispute}" "dispute id")
-      string(APPEND contents
-        "static const char *const gbl_fixture_disputes_${row_index}[] = {\"${c_dispute}\"};\n")
-      set(dispute_count 1)
-      set(dispute_expr "gbl_fixture_disputes_${row_index}")
-    endif()
-
-    gbl_json_length(use_count "${doc}" fixtures ${row_index} permitted_use)
-    string(APPEND contents
-      "static const char *const gbl_fixture_uses_${row_index}[] = {\n")
-    if(use_count GREATER 0)
-      math(EXPR use_last "${use_count}-1")
-      foreach(use_index RANGE ${use_last})
-        gbl_json_string(use "${doc}" fixtures ${row_index} permitted_use
-          ${use_index})
-        gbl_fixture_c_string(c_use "${use}" "permitted_use")
-        string(APPEND contents "    \"${c_use}\",\n")
-      endforeach()
-    endif()
-    string(APPEND contents "};\n")
-
-    string(APPEND contents
-      "static const gbl_fixture_metadata gbl_fixture_row_${row_index} = {\n"
-      "    \"${c_id}\", \"${c_digest}\", \"${c_provenance}\",\n"
-      "    ${dispute_expr}, ${dispute_count}u, \"${c_bios}\",\n"
-      "    gbl_fixture_uses_${row_index}, ${use_count}u,\n"
-      "    \"five-word-v1-final-marker\"\n"
-      "};\n")
-    math(EXPR row_index "${row_index}+1")
-  endforeach()
-
-  if(row_count EQUAL 0)
-    string(APPEND contents
-      "static const gbl_fixture_metadata gbl_fixture_metadata_rows[1] = {{0}};\n")
-  else()
-    string(APPEND contents
-      "static const gbl_fixture_metadata gbl_fixture_metadata_rows[] = {\n")
-    math(EXPR row_last "${row_count}-1")
-    foreach(index RANGE ${row_last})
-      string(APPEND contents "    gbl_fixture_row_${index},\n")
-    endforeach()
-    string(APPEND contents "};\n")
-  endif()
-  string(APPEND contents
-    "static const size_t gbl_fixture_metadata_count = ${row_count}u;\n"
-    "#endif\n")
-  file(WRITE "${output}" "${contents}")
-endfunction()
-
-# Re-read the now-valid documents for extraction. The validators above and this
-# projection use the same authoritative files; no second schema or alternate
-# metadata source is introduced.
-gbl_json_load(production_doc "${GBL_MANIFEST}")
-gbl_json_load(control_doc "${control_manifest_path}")
-gbl_fixture_emit_index("${GBL_OUT_PRODUCTION}" "${production_doc}" M)
-gbl_fixture_emit_index("${GBL_OUT_CONTROL}" "${control_doc}" C)
+# Project the exact row objects parsed by the canonical validator above.
+gbl_fixture_emit_index("${GBL_OUT_PRODUCTION}" M)
+gbl_fixture_emit_index("${GBL_OUT_CONTROL}" C)
 message("fixture-index: ok (production ${M_COUNT} rows; synthetic control ${C_COUNT} rows)")

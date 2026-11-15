@@ -168,7 +168,8 @@ static bool generate_all(const char *directory)
     make_exception_image(image, UINT32_C(0xEF000042)); /* SWI #0x42 */
     okay = write_image(directory, "owned-arm-swi.gba", image) && okay;
 
-    make_exception_image(image, UINT32_C(0xF1A00000)); /* undefined */
+    make_exception_image(image, UINT32_C(0xE7F000F0));
+    /* ARM ARM DDI0100I A3.16.5: architecturally undefined encoding. */
     okay = write_image(directory, "owned-arm-undefined.gba", image) && okay;
 
     make_exception_image(image, UINT32_C(0xEE000010)); /* coprocessor */

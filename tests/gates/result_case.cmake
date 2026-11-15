@@ -96,7 +96,19 @@ function(hex out fragment times)
   set(${out} "${value}" PARENT_SCOPE)
 endfunction()
 
-if(CASE STREQUAL "pass_without_run")
+if(CASE STREQUAL "instruction_reasons")
+  # Descriptive GUEST_STOP tokens were already permitted by result/1. No
+  # vocabulary/schema expansion is needed for the append-only CPU reasons.
+  foreach(reason IN ITEMS unpredictable-instruction later-architecture-instruction)
+    result_copy(r ${reason})
+    gbl_json_mutate_set("${r}" "\"GUEST_STOP\"" status)
+    gbl_json_mutate_set("${r}" "\"pending\"" semantic state)
+    gbl_json_mutate_set("${r}" "\"${reason}\"" reason)
+    gbl_json_mutate_set("${r}" "\"${reason}\"" termination)
+    expect_ok(GUEST_STOP "${r}")
+  endforeach()
+
+elseif(CASE STREQUAL "pass_without_run")
   # The fixture did not run, but the digest and everything else say PASS.
   result_copy(r no_run)
   gbl_json_mutate_set("${r}" "false" fixture ran)
@@ -475,6 +487,32 @@ elseif(CASE STREQUAL "manifest_digest")
     fixtures 0 source)
   expect_detail(claim-mismatch "fixture.rom_sha256 differs from the manifest digest"
     "${dir}/result.json" "${m}")
+
+elseif(CASE STREQUAL "artifact_digest")
+  # The git source commit and toolchain stay provenance fields; the optional
+  # artifact SHA is the single runtime ROM identity projected into result/1.
+  hex(artifact_digest "ab" 32)
+  hex(changed_digest "cd" 32)
+  manifest_copy(m artifact)
+  string(JSON artifact SET "{}" path "\"diagnostics/original.gba\"")
+  string(JSON artifact SET "${artifact}" sha256 "\"${artifact_digest}\"")
+  gbl_json_mutate_set("${m}" "${artifact}" fixtures 0 build artifact)
+
+  result_copy(r artifact_match)
+  gbl_json_mutate_set("${r}" "\"${artifact_digest}\"" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "\"${artifact_digest}\"" claim cart rom_sha256)
+  expect_ok(PASS "${r}" "${m}")
+
+  result_copy(r stale_artifact_result)
+  gbl_json_mutate_set("${r}" "\"${changed_digest}\"" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "\"${changed_digest}\"" claim cart rom_sha256)
+  expect_detail(claim-mismatch
+    "fixture.rom_sha256 differs from the manifest digest for example-row"
+    "${r}" "${m}")
+
+  # Legacy git metadata still has no output digest tie in result/1.
+  result_copy(r legacy_git)
+  expect_ok(PASS "${r}")
 
 elseif(CASE STREQUAL "empty_limits")
   set(i 0)

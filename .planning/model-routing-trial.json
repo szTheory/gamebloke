@@ -1,0 +1,35 @@
+{
+  "scope": [
+    "05-14"
+  ],
+  "batch": "Thumb ALU and high-register/PC operations",
+  "runtime": "codex",
+  "status": "complete_routing_restored",
+  "approved": "Owner selected Try one stronger-model batch",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "previous_model": "gpt-6-luna",
+  "previous_effort": "xhigh",
+  "unchanged_roles": [
+    "gsd-code-reviewer",
+    "gsd-code-fixer"
+  ],
+  "restore_after": "05-14 reviewed and focused verification complete; do not extend without authority",
+  "restore_rule": "If config bytes still match build/phase05-model-trial/config-applied.json, restore exact config-before.json bytes; otherwise restore only untouched trial fields, preserving newer owner edits. Never restore Git HEAD config.",
+  "measurement": "Record UTC epoch at dispatch and completion; compare observed elapsed/review rework with caveat that scope, cadence and context differ. No controlled speedup claim.",
+  "dispatch_epoch": 1794521577.548775,
+  "dispatch_utc": "2026-11-12T22:12:57.548777+00:00",
+  "dispatch_monotonic_ns": 1897155808050083,
+  "head_before": "946e4ec8561d832cf1bcd865d775efd03bdbb43e",
+  "implementation_return_epoch": 1794522524.999115,
+  "implementation_return_utc": "2026-11-12T22:28:44.999121+00:00",
+  "implementation_return_head": "8f0bdc4883dd5b122bceef8a930de140683ceecb",
+  "implementation_elapsed_seconds": 947.4503400325775,
+  "review_complete_epoch": 1794523390.7592618,
+  "review_complete_utc": "2026-11-12T22:43:10.759264+00:00",
+  "reviewed_elapsed_seconds": 1813.2104868888855,
+  "restored_exact_pretrial_dirty_config": true,
+  "review_rework": "One adjacent pre-existing ARM multiply evidence-label warning; comment/test-label/CPU-notes correction, no executable behavior or test-condition change.",
+  "result": "Plan14 implemented and reviewed clean with focused native/AppleClang sanitizer controls and early/finalGNU compilation; full Thumb/phase integration remains pending.",
+  "limitation": "Single unequal-scope observation; no controlled model speedup, billing-cost or total efficiency claim."
+}
