@@ -5,16 +5,21 @@
 set -eu
 
 usage() {
-  printf '%s\n' 'usage: sh scripts/run-local-cpu-suites.sh [--fetch] [--build-dir DIR]' >&2
+  printf '%s\n' 'usage: sh scripts/run-local-cpu-suites.sh [--fetch] [--preflight-only] [--build-dir DIR]' >&2
   exit 2
 }
 
 fetch=0
+preflight_only=0
 build_dir='build/local-cpu-suites'
 while [ "$#" -gt 0 ]; do
   case $1 in
     --fetch)
       fetch=1
+      shift
+      ;;
+    --preflight-only)
+      preflight_only=1
       shift
       ;;
     --build-dir)
@@ -77,11 +82,21 @@ if [ "$missing" -ne 0 ]; then
 fi
 
 cmake "-DROOT=$script_root" -P "$script_root/cmake/CheckFixtureDir.cmake"
+python3 "$script_root/scripts/derive-local-jsmolka.py" \
+  --input-dir "$script_root/.fixtures/jsmolka" \
+  --output-dir "$build_dir/generated/local-cpu-suites"
 cmake "-DSRC=$script_root" "-DBIN=$build_dir" \
   -DCASE=source-binding -DREQUIRE_BINARIES=ON \
   -P "$script_root/tests/gates/jsmolka_case.cmake"
 cmake "-DSRC=$script_root" "-DBIN=$build_dir" \
   -DCASE=local-controls -P "$script_root/tests/gates/jsmolka_case.cmake"
+if [ "$preflight_only" -eq 1 ]; then
+  cmake "-DSRC=$script_root" "-DBIN=$build_dir" \
+    "-DRUNNER=$build_dir/gamebloke-run" \
+    "-DOUTPUT_ROOT=$build_dir/jsmolka" \
+    -DCASE=startup-preflight -P "$script_root/tests/gates/jsmolka_case.cmake"
+  exit 0
+fi
 cmake "-DSRC=$script_root" "-DBIN=$build_dir" \
   "-DRUNNER=$build_dir/gamebloke-run" \
   "-DOUTPUT_ROOT=$build_dir/jsmolka" \

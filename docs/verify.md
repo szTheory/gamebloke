@@ -97,19 +97,34 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 The local command fetches only the three reviewed raw ROM pins from upstream
 revision `a7113b67e63f83a9b321696ddd7042ccfad6c881`, verifies each digest before
 placement, then rechecks source binding and ignored/untracked fixture storage.
+It creates a deterministic guest-bootstrap derivative under the build tree;
+the result records the executed derivative digest and the pinned upstream input
+digest separately. The original `.fixtures/jsmolka/` files are never modified.
 Without `--fetch`, it uses only existing `.fixtures/jsmolka/` files and reports
 each missing suite as `MISSING`. Hosted CI is refused before fetch or guest
 launch.
 
 Each suite has a 50,000,000 emulated master-cycle budget and a 30-second process
-timeout. Before those budgets are used, the local command runs a 50-cycle bus
-trace for each ROM and stops if its initial stack push lands in unmapped memory.
+timeout. Before considering those budgets, the local command runs a 50-cycle bus
+trace for each ROM and requires its initial stack push to write all three words
+to valid IWRAM. It then runs a 2,000-cycle compatibility probe per suite. Only
+a `TIMEOUT` with reason `cycle-budget` proceeds to the longer budget; terminal
+PASS/failure/stop results are validated, recorded and reused without repeating
+the guest run. Both preflights run before a 50,000,000-cycle suite launch.
 Preflight results are stored under `<build-dir>/jsmolka/preflight/`. The runner
 observes the source-bound result register at its exact
 `eval` entry, before the display-only `m_vsync` wait. ARM and memory use R12;
 the Thumb suite uses R7 but enters its `eval` label in ARM state. A qualified
 PASS requires an observed zero. GUEST_FAIL, GUEST_STOP, TIMEOUT, and harness
 failures remain in their result documents and make the command fail.
+
+To run the startup and compatibility preflights without launching a 50,000,000-
+cycle suite, run `sh scripts/run-local-cpu-suites.sh --preflight-only --build-dir build/ci`.
+This command exits successfully when the bounded probes complete; it does not
+mean the three suites passed. Under the current profile, ARM stops at test 234's
+malformed `CMP` and Thumb stops at test 227's empty `LDM` list. The memory suite
+reaches its zero evaluator. See the [source audit](jsmolka-source-audit.md) for
+the exact pinned source and opcode evidence.
 
 The command writes one result document per suite plus
 `build/ci/jsmolka/inventory.json`. `jsmolka-bios` is invoked through its
