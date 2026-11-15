@@ -13,6 +13,16 @@ enum {
 };
 
 #define GBL_RUNNER_MAILBOX_CONVENTION "five-word-v1-final-marker"
+#define GBL_RUNNER_CPSR_T UINT32_C(0x00000020)
+#define GBL_RUNNER_CPSR_MODE_MASK UINT32_C(0x0000001F)
+#define GBL_RUNNER_MODE_USER UINT32_C(0x00000010)
+#define GBL_RUNNER_MODE_FIQ UINT32_C(0x00000011)
+#define GBL_RUNNER_MODE_IRQ UINT32_C(0x00000012)
+#define GBL_RUNNER_MODE_SVC UINT32_C(0x00000013)
+#define GBL_RUNNER_MODE_ABT UINT32_C(0x00000017)
+#define GBL_RUNNER_MODE_UND UINT32_C(0x0000001B)
+#define GBL_RUNNER_MODE_SYS UINT32_C(0x0000001F)
+#define GBL_RUNNER_ROM_BASE UINT32_C(0x08000000)
 
 typedef enum gbl_runner_read_status {
     GBL_RUNNER_READ_OK = 0,
@@ -255,6 +265,207 @@ static bool gbl_runner_semantic_terminal(gbl_mailbox_result mailbox)
            mailbox.status == GBL_MAILBOX_FAIL;
 }
 
+static bool gbl_runner_source_commit_valid(const char *source_commit)
+{
+    size_t index;
+
+    if (source_commit == NULL || strlen(source_commit) != 40u) {
+        return false;
+    }
+    for (index = 0u; index < 40u; ++index) {
+        const char character = source_commit[index];
+
+        if (!((character >= '0' && character <= '9') ||
+              (character >= 'a' && character <= 'f'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_runner_source_path_valid(const char *source_path)
+{
+    size_t index;
+
+    if (source_path == NULL || source_path[0] == '\0' ||
+        source_path[0] == '/' || strstr(source_path, "..") != NULL) {
+        return false;
+    }
+    for (index = 0u; source_path[index] != '\0'; ++index) {
+        const char character = source_path[index];
+        const bool allowed =
+            (character >= 'a' && character <= 'z') ||
+            (character >= 'A' && character <= 'Z') ||
+            (character >= '0' && character <= '9') || character == '/' ||
+            character == '_' || character == '-' || character == '.';
+
+        if (!allowed) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static const char *gbl_runner_register_metadata_error(
+    const gbl_fixture_metadata *metadata, size_t rom_length)
+{
+    const char *instruction_set;
+    uint32_t alignment;
+    uint64_t offset;
+
+    if (metadata == NULL || metadata->result_channel_kind == NULL ||
+        strcmp(metadata->result_channel_kind, "register-eval") != 0) {
+        return "fixture-result-channel-unsupported";
+    }
+    if (!gbl_runner_source_commit_valid(metadata->result_source_commit) ||
+        !gbl_runner_source_path_valid(metadata->result_source_path)) {
+        return "fixture-result-source-invalid";
+    }
+    instruction_set = metadata->result_instruction_set;
+    if (instruction_set == NULL ||
+        (strcmp(instruction_set, "arm") != 0 &&
+         strcmp(instruction_set, "thumb") != 0)) {
+        return "fixture-result-state-invalid";
+    }
+    alignment = strcmp(instruction_set, "arm") == 0 ? 4u : 2u;
+    if (metadata->result_register_index >= 15u) {
+        return "fixture-result-register-invalid";
+    }
+    if (metadata->result_entry_address < GBL_RUNNER_ROM_BASE ||
+        metadata->result_entry_address % alignment != 0u) {
+        return "fixture-result-entry-misaligned";
+    }
+    offset = (uint64_t)metadata->result_entry_address -
+             (uint64_t)GBL_RUNNER_ROM_BASE;
+    if (offset >= (uint64_t)rom_length ||
+        (uint64_t)alignment > (uint64_t)rom_length - offset) {
+        return "fixture-result-entry-out-of-range";
+    }
+    return NULL;
+}
+
+static bool gbl_runner_register_observation_prepare(
+    gbl_runner_result *result, const gbl_fixture_metadata *metadata,
+    size_t rom_length)
+{
+    const char *error = gbl_runner_register_metadata_error(metadata, rom_length);
+
+    if (error != NULL) {
+        result->status = GBL_RUNNER_REFUSED;
+        gbl_runner_set_reason(result, error);
+        gbl_runner_set_refusal(result, error, "guest-not-executed");
+        gbl_runner_set_termination(result, "refused-before-run");
+        return false;
+    }
+    result->register_observation.present = true;
+    result->register_observation.observed = false;
+    result->register_observation.has_value = false;
+    result->register_observation.entry_address =
+        metadata->result_entry_address;
+    result->register_observation.register_index =
+        metadata->result_register_index;
+    if (!gbl_runner_copy_text(
+            result->register_observation.source_commit,
+            sizeof result->register_observation.source_commit,
+            metadata->result_source_commit) ||
+        !gbl_runner_copy_text(result->register_observation.instruction_set,
+                              sizeof result->register_observation.instruction_set,
+                              metadata->result_instruction_set)) {
+        result->register_observation = (gbl_runner_register_observation){ 0 };
+        result->status = GBL_RUNNER_REFUSED;
+        gbl_runner_set_reason(result, "fixture-result-metadata-invalid");
+        gbl_runner_set_refusal(result, "fixture-result-metadata-invalid",
+                               "guest-not-executed");
+        gbl_runner_set_termination(result, "refused-before-run");
+        return false;
+    }
+    return true;
+}
+
+static uint32_t gbl_runner_register_value(const gbl_cpu_state *cpu,
+                                          unsigned register_index)
+{
+    const uint32_t mode = cpu->cpsr & GBL_RUNNER_CPSR_MODE_MASK;
+    const unsigned bank_index = register_index - 8u;
+
+    if (register_index < 8u) {
+        return cpu->r0_7[register_index];
+    }
+    if (mode == GBL_RUNNER_MODE_FIQ) {
+        return cpu->fiq_r8_14[bank_index];
+    }
+    if (register_index < 13u) {
+        return cpu->usr_r8_14[bank_index];
+    }
+    switch (mode) {
+    case GBL_RUNNER_MODE_IRQ:
+        return cpu->irq_r13_14[register_index - 13u];
+    case GBL_RUNNER_MODE_SVC:
+        return cpu->svc_r13_14[register_index - 13u];
+    case GBL_RUNNER_MODE_ABT:
+        return cpu->abt_r13_14[register_index - 13u];
+    case GBL_RUNNER_MODE_UND:
+        return cpu->und_r13_14[register_index - 13u];
+    case GBL_RUNNER_MODE_USER:
+    case GBL_RUNNER_MODE_SYS:
+    default:
+        return cpu->usr_r8_14[bank_index];
+    }
+}
+
+static bool gbl_runner_next_instruction(const gbl_machine *machine,
+                                        uint32_t *address_out,
+                                        bool *thumb_out)
+{
+    const gbl_cpu_state *cpu;
+    const bool thumb = machine != NULL &&
+                       (machine->cpu.cpsr & GBL_RUNNER_CPSR_T) != 0u;
+    const uint8_t width = (uint8_t)(thumb ? 2u : 4u);
+
+    if (machine == NULL || address_out == NULL || thumb_out == NULL ||
+        machine->cpu.stopped) {
+        return false;
+    }
+    cpu = &machine->cpu;
+    if (!cpu->pipeline[0].valid || !cpu->pipeline[1].valid ||
+        cpu->pipeline[0].width != width || cpu->pipeline[1].width != width ||
+        cpu->execution_address != cpu->pipeline[0].address ||
+        cpu->pipeline[0].address % width != 0u) {
+        return false;
+    }
+    *address_out = cpu->pipeline[0].address;
+    *thumb_out = thumb;
+    return true;
+}
+
+static bool gbl_runner_observe_register(gbl_runner_result *result,
+                                        const gbl_machine *machine)
+{
+    uint32_t address;
+    bool thumb;
+    uint32_t value;
+    const bool expected_thumb =
+        strcmp(result->register_observation.instruction_set, "thumb") == 0;
+
+    if (!result->register_observation.present ||
+        result->register_observation.observed ||
+        !gbl_runner_next_instruction(machine, &address, &thumb) ||
+        thumb != expected_thumb ||
+        address != result->register_observation.entry_address) {
+        return false;
+    }
+    value = gbl_runner_register_value(
+        &machine->cpu, result->register_observation.register_index);
+    result->register_observation.observed = true;
+    result->register_observation.has_value = true;
+    result->register_observation.value = value;
+    result->status = value == 0u ? GBL_RUNNER_PASS : GBL_RUNNER_GUEST_FAIL;
+    gbl_runner_set_reason(result, value == 0u ? "register-eval-pass"
+                                              : "register-eval-fail");
+    gbl_runner_set_termination(result, "register-eval-complete");
+    return true;
+}
+
 void gbl_runner_classify_guest_stop(gbl_runner_result *result,
                                     const gbl_machine *machine,
                                     gbl_run_reason reason)
@@ -389,6 +600,32 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         return result->status;
     }
 
+    if (has_fixture_argument) {
+        const gbl_fixture_metadata *selected_metadata =
+            gbl_runner_find_metadata(requested_fixture_id);
+
+        if (selected_metadata != NULL &&
+            selected_metadata->bios_requirement != NULL &&
+            strcmp(selected_metadata->bios_requirement, "user-official") ==
+                0) {
+            result->metadata = selected_metadata;
+            if (!gbl_runner_copy_fixture_id(result,
+                                            selected_metadata->id)) {
+                result->metadata = NULL;
+                result->status = GBL_RUNNER_REFUSED;
+                gbl_runner_set_reason(result, "fixture-id-too-long");
+                gbl_runner_set_refusal(result, "fixture-id-too-long",
+                                       "guest-not-executed");
+                gbl_runner_set_termination(result, "refused-before-run");
+                return result->status;
+            }
+            result->status = GBL_RUNNER_SKIPPED;
+            gbl_runner_set_reason(result, "official-bios-required");
+            gbl_runner_set_termination(result, "skipped-before-run");
+            return result->status;
+        }
+    }
+
     read_status = gbl_runner_read_rom(options, result, &rom_bytes,
                                       &rom_length);
     if (read_status != GBL_RUNNER_READ_OK) {
@@ -479,6 +716,32 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
             result->allocator.release(result->allocator.context, rom_bytes,
                                       GBL_RUNNER_MAX_ROM_BYTES +
                                           (size_t)GBL_RUNNER_ROM_SENTINEL_BYTES);
+            return result->status;
+        }
+        if (result->metadata->result_channel_kind == NULL ||
+            strcmp(result->metadata->result_channel_kind, "mailbox") == 0) {
+            /* Legacy mailbox fixtures retain the original result path. */
+        } else if (strcmp(result->metadata->result_channel_kind,
+                          "register-eval") == 0) {
+            if (!gbl_runner_register_observation_prepare(
+                    result, result->metadata, rom_length)) {
+                result->allocator.release(
+                    result->allocator.context, rom_bytes,
+                    GBL_RUNNER_MAX_ROM_BYTES +
+                        (size_t)GBL_RUNNER_ROM_SENTINEL_BYTES);
+                return result->status;
+            }
+        } else {
+            result->status = GBL_RUNNER_REFUSED;
+            gbl_runner_set_reason(result, "fixture-result-channel-unsupported");
+            gbl_runner_set_refusal(result,
+                                   "fixture-result-channel-unsupported",
+                                   "guest-not-executed");
+            gbl_runner_set_termination(result, "refused-before-run");
+            result->allocator.release(
+                result->allocator.context, rom_bytes,
+                GBL_RUNNER_MAX_ROM_BYTES +
+                    (size_t)GBL_RUNNER_ROM_SENTINEL_BYTES);
             return result->status;
         }
     }
@@ -585,7 +848,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_run_status run_status;
 
         result->semantic = gbl_mailbox_read(machine);
-        if (gbl_runner_semantic_terminal(result->semantic)) {
+        if (!result->register_observation.present &&
+            gbl_runner_semantic_terminal(result->semantic)) {
             gbl_runner_classify_terminal(result);
             break;
         }
@@ -654,10 +918,6 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
             gbl_runner_set_termination(result, "cancelled");
             break;
         }
-        if (gbl_runner_semantic_terminal(result->semantic)) {
-            gbl_runner_classify_terminal(result);
-            break;
-        }
         if (run_result.termination == GBL_RUN_STOPPED) {
             if (run_result.reason == GBL_RUN_REASON_INVALID_CPU_STATE ||
                 run_result.reason == GBL_RUN_REASON_COUNTER_OVERFLOW) {
@@ -670,16 +930,25 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
             }
             break;
         }
+        if (run_result.termination != GBL_RUN_PROGRESS &&
+            run_result.termination != GBL_RUN_TIMEOUT) {
+            result->status = GBL_RUNNER_HARNESS_FAIL;
+            gbl_runner_set_reason(result, "cpu-run-termination-invalid");
+            gbl_runner_set_termination(result, "harness-failure");
+            break;
+        }
+        if (!result->register_observation.present &&
+            gbl_runner_semantic_terminal(result->semantic)) {
+            gbl_runner_classify_terminal(result);
+            break;
+        }
+        if (gbl_runner_observe_register(result, machine)) {
+            break;
+        }
         if (run_result.termination == GBL_RUN_TIMEOUT) {
             result->status = GBL_RUNNER_TIMEOUT;
             gbl_runner_set_reason(result, "cycle-budget");
             gbl_runner_set_termination(result, "timeout");
-            break;
-        }
-        if (run_result.termination != GBL_RUN_PROGRESS) {
-            result->status = GBL_RUNNER_HARNESS_FAIL;
-            gbl_runner_set_reason(result, "cpu-run-termination-invalid");
-            gbl_runner_set_termination(result, "harness-failure");
             break;
         }
     }

@@ -125,7 +125,8 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
   set(control_rows "")
   set(control_ids synthetic-control-pass synthetic-control-fail
     synthetic-control-bios-required synthetic-control-register-arm
-    synthetic-control-register-thumb)
+    synthetic-control-register-thumb
+    synthetic-control-register-mailbox-pass)
   if(DEFINED GBL_CONTROL_SKIP_IMAGE AND
       NOT "${GBL_CONTROL_SKIP_IMAGE}" STREQUAL "")
     list(APPEND control_ids synthetic-control-official-bios)
@@ -178,6 +179,10 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       set(control_source_path "generated/fixtures/owned-arm-pass.gba")
       set(control_bios "none")
     elseif(control_id STREQUAL "synthetic-control-register-thumb")
+      set(control_image "${GBL_CONTROL_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-arm-pass.gba")
+      set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-register-mailbox-pass")
       set(control_image "${GBL_CONTROL_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass.gba")
       set(control_bios "none")
@@ -256,6 +261,8 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
           set(entry_address "0x08001D4C")
         elseif(control_id STREQUAL "synthetic-control-register-arm-never-entry")
           set(entry_address "0x080000C8")
+        elseif(control_id STREQUAL "synthetic-control-register-mailbox-pass")
+          set(entry_address "0x08000100")
         else()
           set(entry_address "0x080000C4")
         endif()
@@ -353,7 +360,8 @@ if(DEFINED GBL_CONTROL_ZERO_CASE_IMAGE AND
 endif()
 list(APPEND control_checks
   "synthetic-control-register-arm|${GBL_CONTROL_IMAGE}"
-  "synthetic-control-register-thumb|${GBL_CONTROL_IMAGE}")
+  "synthetic-control-register-thumb|${GBL_CONTROL_IMAGE}"
+  "synthetic-control-register-mailbox-pass|${GBL_CONTROL_IMAGE}")
 if(DEFINED GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE AND
     NOT "${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}" STREQUAL "")
   list(APPEND control_checks

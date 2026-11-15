@@ -507,6 +507,8 @@ static bool gbl_test_register_terminal_precedence(
     char path[GBL_RUNNER_TEST_PATH_CAPACITY];
     gbl_runner_result result;
     gbl_test_cancel_state cancel_state = { 0u, 5u };
+    gbl_test_allocator_state allocator_state = { 0 };
+    gbl_runner_allocator allocator;
     bool okay;
 
     if (!gbl_test_path(path, sizeof path, fixture_directory,
@@ -535,6 +537,19 @@ static bool gbl_test_register_terminal_precedence(
                GBL_RUNNER_CANCELLED &&
            result.status == GBL_RUNNER_CANCELLED && result.cycles > 0u &&
            !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    allocator_state.fail_at = 2u;
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm-zero",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            allocator, &result) == GBL_RUNNER_HARNESS_FAIL &&
+           result.status == GBL_RUNNER_HARNESS_FAIL && !result.ran &&
+           !result.register_observation.observed &&
+           !result.register_observation.has_value;
     gbl_runner_result_dispose(&result);
 
     memset(&result, 0, sizeof result);
@@ -890,12 +905,17 @@ static bool gbl_test_execute_all(const char *fixture_directory,
                       GBL_MAILBOX_FAIL),
                   "registered synthetic mailbox failure remains GUEST_FAIL");
 
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-arm-pass.gba")) {
+        return false;
+    }
     memset(&result, 0, sizeof result);
-    okay = gbl_test_execute(path, "synthetic-control-register-arm",
+    okay = gbl_test_execute(path,
+                            "synthetic-control-register-mailbox-pass",
                             UINT64_C(1000), 0u, 0u, NULL, NULL, NULL,
-                            (gbl_runner_allocator){ 0 }, &result) !=
-               GBL_RUNNER_PASS &&
-           result.status != GBL_RUNNER_PASS &&
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
            result.semantic.status == GBL_MAILBOX_PASS;
     gbl_runner_result_dispose(&result);
     gbl_test_case(okay,
