@@ -68,7 +68,7 @@ These are the decisions that are expensive to reverse: timing API, pipeline stat
 - [x] **DIAG-01**: Original ARM and Thumb diagnostics build from source in CI with a pinned `arm-none-eabi` toolchain, a project crt0, linker script, and header fixer. The output has no logo bytes and no linked runtime library.
 - [x] **DIAG-02**: A toolchain spike confirms ARMv4T output (`Tag_CPU_arch: v4T`) and identical ROM bytes on macOS arm64 and Linux before any ROM digest is committed. If it fails, digest ownership moves to Linux.
 - [x] **DIAG-03**: Each original diagnostic reports a machine-readable verdict and failing case ID through the mailbox, and a deliberately broken variant serves as its negative control.
-- [ ] **DIAG-04**: jsmolka gba-tests `arm`, `thumb`, and `memory` run from a pinned fetch. Their result channel (r12 at the idle loop) is verified by reading `m_test_eval` at the pinned revision before results count as PASS (R6). `bios.gba` reports SKIPPED.
+- [ ] **DIAG-04**: In a local-only lane, jsmolka gba-tests `arm`, `thumb`, and `memory` run from pinned fetches whose source revision and ROM digests are recorded. At each pinned ROM's source-verified `eval` entry before its VBlank display wait, the result register is observed: R12 for ARM, R7 for Thumb, and R12 for memory. Verify each `m_exit`/`m_test_eval` path against the pinned source before a zero result can count as PASS. A nonzero result is GUEST_FAIL; a stop before observation is GUEST_STOP, never PASS. The fetched ROMs remain in ignored `.fixtures/`; they are not committed, uploaded, or run in public CI because the repository provides no redistribution grant for the embedded Nintendo logo bytes. `bios.gba` reports SKIPPED with a BIOS-requirement reason.
 
 ### Determinism
 
