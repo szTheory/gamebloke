@@ -337,13 +337,20 @@ static bool gbl_interleave_load(gbl_interleave_instance *instance,
     return true;
 }
 
-static void gbl_interleave_dispose(gbl_interleave_instance *instance)
+static bool gbl_interleave_dispose(gbl_interleave_instance *instance)
 {
-    if (instance == NULL) return;
+    bool disposed;
+
+    if (instance == NULL) return false;
     if (instance->initialized) gbl_machine_dispose(&instance->machine);
+    disposed = !instance->machine.initialized && instance->machine.rom == NULL &&
+               instance->machine.rom_length == 0u &&
+               instance->machine.allocator.allocate == NULL &&
+               instance->machine.allocator.release == NULL;
     free(instance->records);
     free(instance->serialized_trace);
     memset(instance, 0, sizeof *instance);
+    return disposed;
 }
 
 static bool gbl_interleave_step(gbl_interleave_instance *instance,
@@ -439,7 +446,11 @@ static bool gbl_interleave_serialize_trace(
     size_t index;
     size_t offset = 0u;
 
-    if (instance == NULL || instance->trace.count == 0u ||
+    if (instance == NULL) return false;
+    free(instance->serialized_trace);
+    instance->serialized_trace = NULL;
+    instance->serialized_trace_length = 0u;
+    if (instance->trace.count == 0u ||
         instance->trace.count > instance->trace.capacity ||
         instance->trace.records == NULL ||
         instance->trace.count >
@@ -629,6 +640,152 @@ static const char *gbl_interleave_compare(
     return "ok";
 }
 
+typedef struct gbl_interleave_pair {
+    gbl_interleave_instance isolated_first;
+    gbl_interleave_instance isolated_second;
+    gbl_interleave_instance alternating_first;
+    gbl_interleave_instance alternating_second;
+} gbl_interleave_pair;
+
+static bool gbl_interleave_pair_prepare(
+    gbl_interleave_pair *pair, const uint8_t *first_image,
+    size_t first_length, uint64_t first_budget, const uint8_t *second_image,
+    size_t second_length, uint64_t second_budget, const char **failure)
+{
+    if (!gbl_interleave_load(&pair->isolated_first, first_image, first_length,
+                             first_budget)) {
+        *failure = "isolated-first-machine-load-failed";
+        return false;
+    }
+    if (!gbl_interleave_load(&pair->isolated_second, second_image,
+                             second_length, second_budget)) {
+        *failure = "isolated-second-machine-load-failed";
+        return false;
+    }
+    if (!gbl_interleave_run_isolated(&pair->isolated_first, failure) ||
+        !gbl_interleave_run_isolated(&pair->isolated_second, failure) ||
+        !gbl_interleave_serialize_trace(&pair->isolated_first) ||
+        !gbl_interleave_serialize_trace(&pair->isolated_second)) {
+        if (*failure == NULL) *failure = "isolated-run-or-trace-failed";
+        return false;
+    }
+    if (!gbl_interleave_load(&pair->alternating_first, first_image,
+                             first_length, first_budget)) {
+        *failure = "alternating-first-machine-load-failed";
+        return false;
+    }
+    if (!gbl_interleave_load(&pair->alternating_second, second_image,
+                             second_length, second_budget)) {
+        *failure = "alternating-second-machine-load-failed";
+        return false;
+    }
+    if (!gbl_interleave_run_alternating(&pair->alternating_first,
+                                        &pair->alternating_second, failure) ||
+        !gbl_interleave_serialize_trace(&pair->alternating_first) ||
+        !gbl_interleave_serialize_trace(&pair->alternating_second)) {
+        if (*failure == NULL) *failure = "alternating-run-or-trace-failed";
+        return false;
+    }
+    if (strcmp(gbl_interleave_compare(&pair->isolated_first,
+                                      &pair->alternating_first), "ok") != 0 ||
+        strcmp(gbl_interleave_compare(&pair->isolated_second,
+                                      &pair->alternating_second), "ok") != 0) {
+        *failure = "isolated-and-alternating-pair-differed";
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_interleave_isolated_prepare(
+    gbl_interleave_instance *instance, const uint8_t *image, size_t length,
+    uint64_t budget, const char **failure)
+{
+    if (!gbl_interleave_load(instance, image, length, budget)) {
+        *failure = "isolated-machine-load-failed";
+        return false;
+    }
+    if (!gbl_interleave_run_isolated(instance, failure) ||
+        !gbl_interleave_serialize_trace(instance)) {
+        if (*failure == NULL) *failure = "isolated-run-or-trace-failed";
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_interleave_pair_dispose(gbl_interleave_pair *pair)
+{
+    bool disposed = true;
+
+    disposed = gbl_interleave_dispose(&pair->isolated_first) && disposed;
+    disposed = gbl_interleave_dispose(&pair->isolated_second) && disposed;
+    disposed = gbl_interleave_dispose(&pair->alternating_first) && disposed;
+    disposed = gbl_interleave_dispose(&pair->alternating_second) && disposed;
+    return disposed;
+}
+
+static bool gbl_interleave_pair_totals_equal(const gbl_interleave_pair *pair)
+{
+    return pair->isolated_first.cycles + pair->isolated_second.cycles ==
+               pair->alternating_first.cycles +
+                   pair->alternating_second.cycles &&
+           pair->isolated_first.instructions +
+                   pair->isolated_second.instructions ==
+               pair->alternating_first.instructions +
+                   pair->alternating_second.instructions;
+}
+
+static bool gbl_interleave_reset_reload(gbl_interleave_instance *instance,
+                                        const uint8_t *image,
+                                        size_t image_length,
+                                        uint64_t budget)
+{
+    gbl_load_result loaded;
+
+    if (instance == NULL || !instance->initialized || image == NULL ||
+        image_length == 0u || budget == 0u) {
+        return false;
+    }
+    gbl_machine_reset(&instance->machine);
+    loaded = gbl_load_rom(&instance->machine, image, image_length);
+    if (loaded.status != GBL_LOAD_STATUS_OK ||
+        loaded.reason != GBL_LOAD_REASON_NONE) {
+        return false;
+    }
+    free(instance->serialized_trace);
+    instance->serialized_trace = NULL;
+    instance->serialized_trace_length = 0u;
+    instance->trace.count = 0u;
+    instance->trace.next_sequence = 0u;
+    instance->mailbox = gbl_mailbox_read(&instance->machine);
+    instance->termination = GBL_RUN_PROGRESS;
+    instance->reason = GBL_RUN_REASON_NONE;
+    instance->budget = budget;
+    instance->cycles = 0u;
+    instance->instructions = 0u;
+    instance->complete = false;
+    return true;
+}
+
+static bool gbl_interleave_trace_has_difference(
+    const gbl_interleave_instance *first,
+    const gbl_interleave_instance *second, size_t *index_out)
+{
+    const size_t limit = first->trace.count < second->trace.count
+                             ? first->trace.count
+                             : second->trace.count;
+    size_t index;
+
+    for (index = 0u; index < limit; ++index) {
+        if (!gbl_interleave_trace_fields_equal(&first->trace.records[index],
+                                              &second->trace.records[index],
+                                              1u)) {
+            *index_out = index;
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool gbl_interleave_fixture(gbl_test_bytes *bytes, const char *name)
 {
     char path[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
@@ -727,10 +884,18 @@ static int gbl_test_interleave_main(void)
     passed = true;
 
 done:
-    gbl_interleave_dispose(&isolated_arm);
-    gbl_interleave_dispose(&isolated_thumb);
-    gbl_interleave_dispose(&interleaved_arm);
-    gbl_interleave_dispose(&interleaved_thumb);
+    {
+        bool disposed = true;
+
+        disposed = gbl_interleave_dispose(&isolated_arm) && disposed;
+        disposed = gbl_interleave_dispose(&isolated_thumb) && disposed;
+        disposed = gbl_interleave_dispose(&interleaved_arm) && disposed;
+        disposed = gbl_interleave_dispose(&interleaved_thumb) && disposed;
+        if (!disposed) {
+            failure = "machine-disposal-postcondition-failed";
+            passed = false;
+        }
+    }
     free(arm_image.data);
     free(thumb_image.data);
     if (passed) {
@@ -738,6 +903,252 @@ done:
         return 0;
     }
     fprintf(stderr, "FAIL determinism.interleave: %s\n", failure);
+    return 1;
+}
+
+static int gbl_test_interleave_controls_main(void)
+{
+    gbl_test_bytes pass_image = { 0 };
+    gbl_test_bytes thumb_image = { 0 };
+    gbl_test_bytes loop_image = { 0 };
+    gbl_test_bytes stop_image = { 0 };
+    gbl_interleave_pair pair = { 0 };
+    const char *failure = "interleave-control-fixture-load-failed";
+    bool passed = false;
+    bool pair_disposed;
+
+    if (!gbl_interleave_fixture(&pass_image, "owned-arm-pass.gba") ||
+        !gbl_interleave_fixture(&thumb_image,
+                                "owned-arm-thumb-bx-pass.gba") ||
+        !gbl_interleave_fixture(&loop_image, "owned-arm-loop.gba") ||
+        !gbl_interleave_fixture(&stop_image, "owned-arm-swi.gba")) {
+        goto done;
+    }
+    if (thumb_image.length <= 0x17Fu ||
+        thumb_image.data[0x17Cu] != UINT8_C(2) ||
+        thumb_image.data[0x17Du] != 0u || thumb_image.data[0x17Eu] != 0u ||
+        thumb_image.data[0x17Fu] != 0u) {
+        failure = "owned-thumb-fixture-result-literal-changed";
+        goto done;
+    }
+    thumb_image.data[0x17Cu] = UINT8_C(3);
+
+    /* Clean pass/fail companion pair, followed by a trace copied from the
+     * other instance. The pair totals stay fixed while per-instance evidence
+     * changes, and the comparator must report the trace-specific mismatch. */
+    if (!gbl_interleave_pair_prepare(&pair, pass_image.data,
+                                     pass_image.length, UINT64_C(1000),
+                                     thumb_image.data, thumb_image.length,
+                                     UINT64_C(1000), &failure)) {
+        goto done;
+    }
+    if (pair.isolated_first.mailbox.status != GBL_MAILBOX_PASS ||
+        pair.isolated_second.mailbox.status != GBL_MAILBOX_FAIL ||
+        !gbl_interleave_pair_totals_equal(&pair)) {
+        failure = "pass-fail-pair-or-aggregate-totals-invalid";
+        goto done;
+    }
+    {
+        size_t different_record = 0u;
+        gbl_trace_record original;
+        bool copied_trace_rejected;
+        bool clean_companion_restored;
+
+        if (!gbl_interleave_trace_has_difference(&pair.alternating_first,
+                                                 &pair.alternating_second,
+                                                 &different_record)) {
+            failure = "pass-fail-traces-have-no-contamination-witness";
+            goto done;
+        }
+        original = pair.alternating_second.records[different_record];
+        pair.alternating_second.records[different_record] =
+            pair.alternating_first.records[different_record];
+        if (!gbl_interleave_pair_totals_equal(&pair) ||
+            !gbl_interleave_serialize_trace(&pair.alternating_second)) {
+            failure = "trace-contamination-control-setup-failed";
+            goto done;
+        }
+        copied_trace_rejected = strcmp(
+            gbl_interleave_compare(&pair.isolated_second,
+                                   &pair.alternating_second),
+            "interleave-trace-mismatch") == 0;
+        pair.alternating_second.records[different_record] = original;
+        if (!gbl_interleave_serialize_trace(&pair.alternating_second)) {
+            failure = "trace-contamination-companion-restore-failed";
+            goto done;
+        }
+        clean_companion_restored =
+            strcmp(gbl_interleave_compare(&pair.isolated_first,
+                                          &pair.alternating_first), "ok") == 0 &&
+            strcmp(gbl_interleave_compare(&pair.isolated_second,
+                                          &pair.alternating_second), "ok") ==
+                0;
+        if (!copied_trace_rejected || !clean_companion_restored ||
+            !gbl_interleave_pair_totals_equal(&pair)) {
+            failure = "trace-contamination-not-specific-or-clean-control-failed";
+            goto done;
+        }
+    }
+    if (!gbl_interleave_pair_dispose(&pair)) {
+        failure = "pass-fail-pair-disposal-failed";
+        goto done;
+    }
+
+    /* Different per-instance budgets end as a stopped guest and a still-
+     * running guest whose own cycle budget expires. */
+    if (!gbl_interleave_pair_prepare(&pair, stop_image.data,
+                                     stop_image.length, UINT64_C(1000),
+                                     loop_image.data, loop_image.length,
+                                     UINT64_C(31), &failure)) {
+        goto done;
+    }
+    if (pair.isolated_first.budget == pair.isolated_second.budget ||
+        pair.isolated_first.termination != GBL_RUN_STOPPED ||
+        !pair.isolated_first.machine.cpu.stopped ||
+        pair.isolated_second.termination != GBL_RUN_TIMEOUT ||
+        pair.isolated_second.machine.cpu.stopped ||
+        pair.alternating_first.termination != GBL_RUN_STOPPED ||
+        pair.alternating_second.termination != GBL_RUN_TIMEOUT) {
+        failure = "stopped-running-unequal-budget-pair-invalid";
+        goto done;
+    }
+    if (!gbl_interleave_pair_dispose(&pair)) {
+        failure = "stopped-running-pair-disposal-failed";
+        goto done;
+    }
+
+    /* One machine starts a loop, then resets and reloads the pass image while
+     * its partner is partway through the Thumb-bearing failure stream. */
+    if (!gbl_interleave_isolated_prepare(&pair.isolated_first,
+                                         pass_image.data, pass_image.length,
+                                         UINT64_C(1000), &failure) ||
+        !gbl_interleave_isolated_prepare(&pair.isolated_second,
+                                         thumb_image.data, thumb_image.length,
+                                         UINT64_C(1000), &failure) ||
+        !gbl_interleave_load(&pair.alternating_first, loop_image.data,
+                             loop_image.length, UINT64_C(31)) ||
+        !gbl_interleave_load(&pair.alternating_second, thumb_image.data,
+                             thumb_image.length, UINT64_C(1000))) {
+        failure = "reset-reload-pair-initialization-failed";
+        goto done;
+    }
+    if (!gbl_interleave_step(&pair.alternating_first, &failure) ||
+        !gbl_interleave_step(&pair.alternating_second, &failure)) {
+        goto done;
+    }
+    {
+        const gbl_machine partner_before_reset =
+            pair.alternating_second.machine;
+        const size_t partner_trace_count =
+            pair.alternating_second.trace.count;
+        const uint64_t partner_cycles = pair.alternating_second.cycles;
+        const uint64_t partner_instructions =
+            pair.alternating_second.instructions;
+
+        if (partner_cycles == 0u ||
+            !gbl_interleave_reset_reload(&pair.alternating_first,
+                                         pass_image.data, pass_image.length,
+                                         UINT64_C(1000))) {
+            failure = "reset-reload-action-failed";
+            goto done;
+        }
+        if (!gbl_interleave_machine_equal(&partner_before_reset,
+                                          &pair.alternating_second.machine) ||
+            pair.alternating_second.trace.count != partner_trace_count ||
+            pair.alternating_second.cycles != partner_cycles ||
+            pair.alternating_second.instructions != partner_instructions) {
+            failure = "reset-reload-changed-partner-observation";
+            goto done;
+        }
+    }
+    if (!gbl_interleave_run_alternating(&pair.alternating_first,
+                                        &pair.alternating_second, &failure) ||
+        !gbl_interleave_serialize_trace(&pair.alternating_first) ||
+        !gbl_interleave_serialize_trace(&pair.alternating_second)) {
+        goto done;
+    }
+    if (strcmp(gbl_interleave_compare(&pair.isolated_first,
+                                      &pair.alternating_first), "ok") != 0 ||
+        strcmp(gbl_interleave_compare(&pair.isolated_second,
+                                      &pair.alternating_second), "ok") != 0 ||
+        pair.alternating_first.budget != UINT64_C(1000)) {
+        failure = "reset-reload-isolation-comparison-failed";
+        goto done;
+    }
+    if (!gbl_interleave_pair_dispose(&pair)) {
+        failure = "reset-reload-pair-disposal-failed";
+        goto done;
+    }
+
+    /* The short-lived stopped instance is compared, disposed, and then the
+     * surviving pass guest continues alone to its isolated terminal result. */
+    if (!gbl_interleave_isolated_prepare(&pair.isolated_first,
+                                         pass_image.data, pass_image.length,
+                                         UINT64_C(1000), &failure) ||
+        !gbl_interleave_isolated_prepare(&pair.isolated_second,
+                                         stop_image.data, stop_image.length,
+                                         UINT64_C(1000), &failure) ||
+        !gbl_interleave_load(&pair.alternating_first, pass_image.data,
+                             pass_image.length, UINT64_C(1000)) ||
+        !gbl_interleave_load(&pair.alternating_second, stop_image.data,
+                             stop_image.length, UINT64_C(1000))) {
+        failure = "dispose-continue-pair-initialization-failed";
+        goto done;
+    }
+    {
+        unsigned int unit;
+
+        for (unit = 0u; unit < GBL_INTERLEAVE_MAX_UNITS &&
+                        !pair.alternating_second.complete;
+             ++unit) {
+            if (!gbl_interleave_step(&pair.alternating_first, &failure) ||
+                !gbl_interleave_step(&pair.alternating_second, &failure)) {
+                goto done;
+            }
+        }
+        if (!pair.alternating_second.complete ||
+            pair.alternating_first.complete ||
+            pair.alternating_second.termination != GBL_RUN_STOPPED ||
+            !gbl_interleave_serialize_trace(&pair.alternating_second) ||
+            strcmp(gbl_interleave_compare(&pair.isolated_second,
+                                          &pair.alternating_second), "ok") !=
+                0) {
+            failure = "disposed-partner-did-not-stop-before-survivor";
+            goto done;
+        }
+    }
+    if (!gbl_interleave_dispose(&pair.alternating_second)) {
+        failure = "disposed-partner-postcondition-failed";
+        goto done;
+    }
+    if (!gbl_interleave_run_isolated(&pair.alternating_first, &failure) ||
+        !gbl_interleave_serialize_trace(&pair.alternating_first) ||
+        strcmp(gbl_interleave_compare(&pair.isolated_first,
+                                      &pair.alternating_first), "ok") != 0) {
+        failure = "survivor-changed-after-partner-disposal";
+        goto done;
+    }
+    if (!gbl_interleave_pair_dispose(&pair)) {
+        failure = "dispose-continue-pair-disposal-failed";
+        goto done;
+    }
+    passed = true;
+
+done:
+    pair_disposed = gbl_interleave_pair_dispose(&pair);
+    free(pass_image.data);
+    free(thumb_image.data);
+    free(loop_image.data);
+    free(stop_image.data);
+    if (!pair_disposed) {
+        failure = "machine-disposal-postcondition-failed";
+        passed = false;
+    }
+    if (passed) {
+        puts("PASS determinism.interleave.controls: pass/fail, stopped/running, unequal budgets, reset/reload, dispose/continue and copied-trace mismatch preserve per-instance isolation");
+        return 0;
+    }
+    fprintf(stderr, "FAIL determinism.interleave.controls: %s\n", failure);
     return 1;
 }
 
@@ -802,8 +1213,12 @@ int main(int argc, char **argv)
     if (argc == 2 && strcmp(argv[1], "interleave") == 0) {
         return gbl_test_interleave_main();
     }
+    if (argc == 2 && strcmp(argv[1], "interleave-controls") == 0) {
+        return gbl_test_interleave_controls_main();
+    }
     if (argc != 1) {
-        fputs("usage: determinism_test [interleave]\n", stderr);
+        fputs("usage: determinism_test [interleave|interleave-controls]\n",
+              stderr);
         return 2;
     }
     return gbl_test_repeat_main();

@@ -19,6 +19,10 @@ gbl_add_test(
   NAME determinism.interleave
   LABELS determinism gate integration
   COMMAND $<TARGET_FILE:determinism_test> interleave)
+gbl_add_test(
+  NAME determinism.interleave.controls
+  LABELS determinism gate integration
+  COMMAND $<TARGET_FILE:determinism_test> interleave-controls)
 
 foreach(case IN ITEMS repeat-process controls)
   if(case STREQUAL "controls")
