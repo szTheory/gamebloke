@@ -55,11 +55,20 @@ endfunction()
 
 if(CASE STREQUAL "rows")
   # The header, two good rows, a blank line, and a comment.
+  file(STRINGS "${SRC}/pins.txt" base_pin_lines)
+  set(base_pin_count 0)
+  foreach(pin_line IN LISTS base_pin_lines)
+    string(STRIP "${pin_line}" pin_line_stripped)
+    if(NOT pin_line_stripped STREQUAL "" AND NOT pin_line_stripped MATCHES "^#")
+      math(EXPR base_pin_count "${base_pin_count}+1")
+    endif()
+  endforeach()
+  math(EXPR expected_pin_count "${base_pin_count}+2")
   pins_copy(p rows)
   file(APPEND "${p}" "\n# a trailing comment\n")
   gbl_expect_pass(
     COMMAND "${CMAKE_COMMAND}" -DMODE=pins "-DPINS=${p}" -P "${CHECK}"
-    REGEX "pins: ok \\(2 rows\\)")
+    REGEX "pins: ok \\(${expected_pin_count} rows\\)")
 
 elseif(CASE STREQUAL "missing_file")
   expect_code(missing-file "${dir}/absent.txt")

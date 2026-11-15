@@ -2,8 +2,8 @@
 #
 #   cmake -DCASE=<name> -DSRC=<source dir> -DBIN=<build dir> -P tests/gates/manifest_case.cmake
 #
-# Every mutation starts from a COPY of contracts/examples/manifest.json (with copies
-# of pins.txt, registry/disputes.json, and contracts/evidence.json) under
+# Every mutation starts from a COPY of contracts/examples/manifest.json (with an
+# isolated pins header, registry/disputes.json, and contracts/evidence.json) under
 # BIN/nc/manifest_<case>; the committed files are never modified and no bad example is
 # committed (D-04). `empty.json` is a separate fixed zero-row fixture so the positive
 # empty-manifest case remains independent of the live canonical manifest. Each negative
@@ -34,7 +34,7 @@ set(CHECK "${SRC}/cmake/CheckManifest.cmake")
 file(COPY_FILE "${SRC}/contracts/examples/manifest.json" "${dir}/manifest.json")
 file(WRITE "${dir}/empty.json"
   "{\n  \"schema\": \"gamebloke.manifest/1\",\n  \"fixtures\": []\n}\n")
-file(COPY_FILE "${SRC}/pins.txt" "${dir}/pins.txt")
+file(WRITE "${dir}/pins.txt" "# gamebloke.pins/1 <sha256> <url> <dest>\n")
 file(COPY_FILE "${SRC}/registry/disputes.json" "${dir}/disputes.json")
 file(COPY_FILE "${SRC}/contracts/evidence.json" "${dir}/evidence.json")
 set(VOCAB_COPY "${dir}/evidence.json")
