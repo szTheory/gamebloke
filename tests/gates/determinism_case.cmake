@@ -5,7 +5,8 @@ foreach(required IN ITEMS SRC BIN CASE)
     message(FATAL_ERROR "determinism-case: usage: -D${required}= is required")
   endif()
 endforeach()
-if(NOT CASE STREQUAL "repeat-process" AND NOT CASE STREQUAL "controls")
+if(NOT CASE STREQUAL "repeat-process" AND NOT CASE STREQUAL "controls" AND
+   NOT CASE STREQUAL "matrix-controls")
   message(FATAL_ERROR "determinism-case: unknown CASE=${CASE}")
 endif()
 
@@ -27,6 +28,11 @@ foreach(path IN ITEMS "${runner}" "${fixtures}/owned-arm-pass.gba"
     message(FATAL_ERROR "determinism-case: required input is missing: ${path}")
   endif()
 endforeach()
+set(matrix_helper "${BIN}/determinism_test")
+if(CASE STREQUAL "matrix-controls" AND
+   (NOT EXISTS "${matrix_helper}" OR IS_DIRECTORY "${matrix_helper}"))
+  message(FATAL_ERROR "determinism-case: matrix-helper-missing")
+endif()
 
 file(MAKE_DIRECTORY "${work_root}")
 string(RANDOM LENGTH 20 ALPHABET 0123456789abcdef run_id)
@@ -35,6 +41,82 @@ if(EXISTS "${work}")
   message(FATAL_ERROR "determinism-case: exclusive scratch path already exists")
 endif()
 file(MAKE_DIRECTORY "${work}")
+
+if(CASE STREQUAL "matrix-controls")
+  set(corpus "${work}/small-corpus.tsv")
+  set(records "${work}/small-records.tsv")
+  set(corpus_rows "")
+  foreach(entry IN ITEMS
+      "synthetic-control-fail|owned-arm-fail.gba"
+      "synthetic-control-pass|owned-arm-pass.gba")
+    string(REPLACE "|" ";" fields "${entry}")
+    list(GET fields 0 fixture_id)
+    list(GET fields 1 fixture_name)
+    set(rom "${fixtures}/${fixture_name}")
+    set(trace "${work}/${fixture_id}.trace.jsonl")
+    if(fixture_id STREQUAL "synthetic-control-pass")
+      set(expected_exit 0)
+    else()
+      set(expected_exit 1)
+    endif()
+    execute_process(
+      COMMAND "${runner}" --rom "${rom}" --fixture "${fixture_id}"
+        --cycles 1000 --trace-mask 7 --trace-capacity 4096
+        --trace-output "${trace}"
+      RESULT_VARIABLE runner_result OUTPUT_VARIABLE baseline
+      ERROR_VARIABLE runner_error)
+    if(NOT "${runner_result}" STREQUAL "${expected_exit}" OR
+       "${baseline}" STREQUAL "")
+      message(FATAL_ERROR
+        "determinism-case: matrix-control-baseline-failed:${fixture_id}:${runner_error}${baseline}")
+    endif()
+    file(SHA256 "${rom}" digest)
+    string(JSON status ERROR_VARIABLE status_error GET "${baseline}" status)
+    string(JSON reason ERROR_VARIABLE reason_error GET "${baseline}" reason)
+    string(JSON semantic ERROR_VARIABLE semantic_error GET "${baseline}" semantic state)
+    string(JSON case_id ERROR_VARIABLE case_error GET "${baseline}" semantic case_id)
+    string(JSON cycles ERROR_VARIABLE cycles_error GET "${baseline}" time cycles)
+    string(JSON instructions ERROR_VARIABLE instructions_error GET "${baseline}" time instructions)
+    foreach(error IN ITEMS status_error reason_error semantic_error case_error
+        cycles_error instructions_error)
+      if(NOT "${${error}}" STREQUAL "NOTFOUND")
+        message(FATAL_ERROR
+          "determinism-case: matrix-control-baseline-json-invalid:${fixture_id}:${error}")
+      endif()
+    endforeach()
+    string(APPEND corpus_rows
+      "${fixture_id}\tgenerated/fixtures/${fixture_name}\tsmoke\t${digest}\t${status}\t${reason}\t${semantic}\t${case_id}\t${cycles}\t${instructions}\n")
+  endforeach()
+  file(WRITE "${corpus}" "gamebloke.determinism-corpus/1\t2\n${corpus_rows}")
+  execute_process(COMMAND "${matrix_helper}" matrix "${corpus}" "${BIN}"
+      "${records}"
+    RESULT_VARIABLE matrix_result OUTPUT_VARIABLE matrix_output
+    ERROR_VARIABLE matrix_error)
+  if(NOT "${matrix_result}" STREQUAL "0" OR
+     NOT matrix_output MATCHES "PASS determinism[.]matrix: 2 sorted rows" OR
+     NOT EXISTS "${records}")
+    message(FATAL_ERROR
+      "determinism-case: clean matrix batch failed: ${matrix_output}${matrix_error}")
+  endif()
+  file(STRINGS "${records}" matrix_lines)
+  list(LENGTH matrix_lines matrix_line_count)
+  list(GET matrix_lines 0 matrix_header)
+  if(NOT matrix_line_count EQUAL 3 OR
+     NOT matrix_header STREQUAL "gamebloke.determinism-records/1")
+    message(FATAL_ERROR "determinism-case: clean matrix record set is incomplete")
+  endif()
+  execute_process(COMMAND "${matrix_helper}" matrix-controls
+    RESULT_VARIABLE controls_result OUTPUT_VARIABLE controls_output
+    ERROR_VARIABLE controls_error)
+  if(NOT "${controls_result}" STREQUAL "0" OR
+     NOT controls_output MATCHES "missing-row.*duplicate-row.*stale-digest.*wrong-outcome.*incomplete-trace.*changed-record.*omitted-variant")
+    message(FATAL_ERROR
+      "determinism-case: matrix controls failed or missed a refusal: ${controls_output}${controls_error}")
+  endif()
+  message("determinism-case: matrix controls reject missing/duplicate rows, stale digest, wrong outcome, incomplete trace, changed record and omitted variant; clean companion passes")
+  file(REMOVE_RECURSE "${work}")
+  return()
+endif()
 
 function(run_process json_out trace_out cycles_out instructions_out semantic_out
     image fixture_id budget expected_exit expected_status expected_reason

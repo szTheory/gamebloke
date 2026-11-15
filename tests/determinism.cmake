@@ -11,30 +11,32 @@ target_compile_definitions(determinism_test PRIVATE
 target_link_libraries(determinism_test PRIVATE gamebloke_core gbl_warnings)
 add_dependencies(determinism_test gbl_fixture_indexes)
 
-gbl_add_test(
-  NAME determinism.repeat.in_process
-  LABELS determinism gate integration
-  COMMAND $<TARGET_FILE:determinism_test>)
-gbl_add_test(
-  NAME determinism.interleave
-  LABELS determinism gate integration
-  COMMAND $<TARGET_FILE:determinism_test> interleave)
-gbl_add_test(
-  NAME determinism.interleave.controls
-  LABELS determinism gate integration
-  COMMAND $<TARGET_FILE:determinism_test> interleave-controls)
-
-foreach(case IN ITEMS repeat-process controls)
-  if(case STREQUAL "controls")
-    set(test_name determinism.repeat.controls)
-  else()
-    set(test_name determinism.repeat.process)
-  endif()
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   gbl_add_test(
-    NAME "${test_name}"
+    NAME determinism.repeat.in_process
     LABELS determinism gate integration
-    COMMAND "${CMAKE_COMMAND}"
-      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
-      "-DCASE=${case}"
-      -P "${CMAKE_SOURCE_DIR}/tests/gates/determinism_case.cmake")
-endforeach()
+    COMMAND $<TARGET_FILE:determinism_test>)
+  gbl_add_test(
+    NAME determinism.interleave
+    LABELS determinism gate integration
+    COMMAND $<TARGET_FILE:determinism_test> interleave)
+  gbl_add_test(
+    NAME determinism.interleave.controls
+    LABELS determinism gate integration
+    COMMAND $<TARGET_FILE:determinism_test> interleave-controls)
+
+  foreach(case IN ITEMS repeat-process controls)
+    if(case STREQUAL "controls")
+      set(test_name determinism.repeat.controls)
+    else()
+      set(test_name determinism.repeat.process)
+    endif()
+    gbl_add_test(
+      NAME "${test_name}"
+      LABELS determinism gate integration
+      COMMAND "${CMAKE_COMMAND}"
+        "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+        "-DCASE=${case}"
+        -P "${CMAKE_SOURCE_DIR}/tests/gates/determinism_case.cmake")
+  endforeach()
+endif()

@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 enum {
@@ -1208,6 +1209,1015 @@ done:
     return 1;
 }
 
+enum {
+    GBL_MATRIX_MAX_ROWS = 1024u,
+    GBL_MATRIX_LINE_CAPACITY = 4096u,
+    GBL_MATRIX_RECORD_CAPACITY = 2048u,
+    GBL_MATRIX_CYCLE_BUDGET = 1000u,
+    GBL_MATRIX_TRACE_CAPACITY = 4096u
+};
+
+typedef struct gbl_matrix_row {
+    char id[GBL_RUNNER_FIXTURE_ID_CAPACITY];
+    char relative_path[GBL_DETERMINISM_PATH_CAPACITY];
+    char group[16];
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    char expected_status[24];
+    char expected_reason[96];
+    char expected_semantic[16];
+    uint32_t expected_case_id;
+    uint64_t expected_cycles;
+    uint64_t expected_instructions;
+} gbl_matrix_row;
+
+static bool gbl_matrix_copy(char *output, size_t capacity, const char *input)
+{
+    int written;
+
+    if (input == NULL) return false;
+    written = snprintf(output, capacity, "%s", input);
+    return written >= 0 && (size_t)written < capacity;
+}
+
+static bool gbl_matrix_parse_u64(const char *text, uint64_t *output)
+{
+    char *end = NULL;
+    unsigned long long value;
+
+    if (text == NULL || text[0] == '\0' || output == NULL) return false;
+    errno = 0;
+    value = strtoull(text, &end, 10);
+    if (errno != 0 || end == text || *end != '\0') return false;
+    *output = (uint64_t)value;
+    return (unsigned long long)*output == value;
+}
+
+static bool gbl_matrix_sha256_text(const char *value)
+{
+    size_t index;
+
+    if (value == NULL || strlen(value) != 64u) return false;
+    for (index = 0u; index < 64u; ++index) {
+        const char character = value[index];
+        if (!((character >= '0' && character <= '9') ||
+              (character >= 'a' && character <= 'f'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_matrix_safe_relative_path(const char *path)
+{
+    const char *cursor;
+    const char *component = path;
+
+    if (path == NULL || path[0] == '\0' || path[0] == '/') return false;
+    for (cursor = path; ; ++cursor) {
+        const unsigned char character = (unsigned char)*cursor;
+        if (character == '\0' || character == '/') {
+            const size_t length = (size_t)(cursor - component);
+            if (length == 0u ||
+                (length == 1u && component[0] == '.') ||
+                (length == 2u && component[0] == '.' &&
+                 component[1] == '.')) {
+                return false;
+            }
+            if (character == '\0') break;
+            component = cursor + 1;
+        } else if (!((character >= 'a' && character <= 'z') ||
+                     (character >= 'A' && character <= 'Z') ||
+                     (character >= '0' && character <= '9') ||
+                     character == '.' || character == '_' ||
+                     character == '-')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static const char *gbl_matrix_validate_rows(const gbl_matrix_row *rows,
+                                           size_t count,
+                                           size_t declared_count)
+{
+    size_t index;
+    size_t arm_count = 0u;
+    size_t thumb_count = 0u;
+    size_t smoke_count = 0u;
+
+    if (count < declared_count) return "missing-row";
+    if (count > declared_count) return "unexpected-row";
+    if (count == 0u || rows == NULL) return "empty-corpus";
+    for (index = 0u; index < count; ++index) {
+        const gbl_matrix_row *row = &rows[index];
+        size_t prior;
+
+        if (row->id[0] == '\0' || !gbl_matrix_safe_relative_path(
+                                       row->relative_path) ||
+            !gbl_matrix_sha256_text(row->digest) ||
+            row->expected_case_id == 0u || row->expected_cycles == 0u ||
+            row->expected_instructions == 0u ||
+            row->expected_cycles > GBL_MATRIX_CYCLE_BUDGET) {
+            return "invalid-row";
+        }
+        if ((strcmp(row->expected_status, "PASS") == 0 &&
+             (strcmp(row->expected_semantic, "pass") != 0 ||
+              strcmp(row->expected_reason, "guest-mailbox-pass") != 0)) ||
+            (strcmp(row->expected_status, "GUEST_FAIL") == 0 &&
+             (strcmp(row->expected_semantic, "fail") != 0 ||
+              strcmp(row->expected_reason, "guest-mailbox-fail") != 0)) ||
+            (strcmp(row->expected_status, "GUEST_STOP") == 0 &&
+             (strcmp(row->expected_semantic, "pending") != 0 ||
+              row->expected_reason[0] == '\0')) ||
+            (strcmp(row->expected_status, "PASS") != 0 &&
+             strcmp(row->expected_status, "GUEST_FAIL") != 0 &&
+             strcmp(row->expected_status, "GUEST_STOP") != 0)) {
+            return "wrong-outcome";
+        }
+        if (strcmp(row->group, "arm") == 0) {
+            arm_count++;
+        } else if (strcmp(row->group, "thumb") == 0) {
+            thumb_count++;
+        } else if (strcmp(row->group, "smoke") == 0) {
+            smoke_count++;
+        } else {
+            return "invalid-group";
+        }
+        if (index != 0u && strcmp(rows[index - 1u].id, row->id) >= 0) {
+            for (prior = 0u; prior < index; ++prior) {
+                if (strcmp(rows[prior].id, row->id) == 0) {
+                    return "duplicate-row";
+                }
+            }
+            return "unsorted-rows";
+        }
+    }
+    if ((arm_count & 1u) != 0u || (thumb_count & 1u) != 0u ||
+        (smoke_count & 1u) != 0u) {
+        return "incomplete-interleave-pair";
+    }
+    return "ok";
+}
+
+static const char *gbl_matrix_validate_digest(const char *expected,
+                                              const char *actual)
+{
+    if (!gbl_matrix_sha256_text(expected) ||
+        !gbl_matrix_sha256_text(actual) || strcmp(expected, actual) != 0) {
+        return "stale-digest";
+    }
+    return "ok";
+}
+
+static const char *gbl_matrix_semantic_name(gbl_mailbox_status status)
+{
+    switch (status) {
+    case GBL_MAILBOX_ABSENT: return "absent";
+    case GBL_MAILBOX_PENDING: return "pending";
+    case GBL_MAILBOX_PASS: return "pass";
+    case GBL_MAILBOX_FAIL: return "fail";
+    case GBL_MAILBOX_MALFORMED: return "malformed";
+    }
+    return "invalid";
+}
+
+static const char *gbl_matrix_guest_status(gbl_mailbox_status status)
+{
+    if (status == GBL_MAILBOX_PASS) return "PASS";
+    if (status == GBL_MAILBOX_FAIL) return "GUEST_FAIL";
+    return "GUEST_STOP";
+}
+
+static const char *gbl_matrix_guest_reason(const gbl_runner_result *result)
+{
+    if (result->semantic.status == GBL_MAILBOX_PASS) {
+        return "guest-mailbox-pass";
+    }
+    if (result->semantic.status == GBL_MAILBOX_FAIL) {
+        return "guest-mailbox-fail";
+    }
+    return result->reason;
+}
+
+static const char *gbl_matrix_validate_observation(
+    const gbl_matrix_row *row, const gbl_runner_result *result)
+{
+    const char *status;
+    const char *reason;
+
+    if (result == NULL || !result->ran || !result->has_rom_sha256 ||
+        result->has_fixture_id || result->metadata != NULL) {
+        return "outcome-mismatch";
+    }
+    {
+        const char *digest_finding =
+            gbl_matrix_validate_digest(row->digest, result->rom_sha256);
+        if (strcmp(digest_finding, "ok") != 0) return digest_finding;
+    }
+    status = gbl_matrix_guest_status(result->semantic.status);
+    reason = gbl_matrix_guest_reason(result);
+    if (strcmp(status, row->expected_status) != 0 ||
+        strcmp(reason, row->expected_reason) != 0 ||
+        strcmp(gbl_matrix_semantic_name(result->semantic.status),
+               row->expected_semantic) != 0 ||
+        result->semantic.case_id != row->expected_case_id ||
+        result->cycles != row->expected_cycles ||
+        result->instructions != row->expected_instructions) {
+        return "wrong-outcome";
+    }
+    if (result->semantic.status == GBL_MAILBOX_PASS ||
+        result->semantic.status == GBL_MAILBOX_FAIL) {
+        if (result->status != GBL_RUNNER_GUEST_STOP ||
+            strcmp(result->reason, "unregistered-content") != 0 ||
+            strcmp(result->termination, "unregistered-content") != 0) {
+            return "wrong-outcome";
+        }
+    } else if (result->status != GBL_RUNNER_GUEST_STOP ||
+               strcmp(result->termination, row->expected_reason) != 0) {
+        return "wrong-outcome";
+    }
+    return "ok";
+}
+
+static const char *gbl_matrix_validate_trace(
+    const gbl_runner_result *result, const gbl_test_observation *observation)
+{
+    if (result == NULL || observation == NULL || !result->trace_complete ||
+        !result->trace_emitted || result->trace_mask != GBL_TRACE_CATEGORY_MASK ||
+        result->trace_capacity != GBL_MATRIX_TRACE_CAPACITY ||
+        result->trace_count == 0u ||
+        result->trace_count > result->trace_capacity ||
+        result->trace_records == NULL || observation->trace.length == 0u ||
+        observation->execution_trace.length != observation->trace.length ||
+        memcmp(observation->trace.data, observation->execution_trace.data,
+               observation->trace.length) != 0 ||
+        observation->trace.data[observation->trace.length - 1u] !=
+            (uint8_t)'\n' ||
+        gbl_test_newline_count(&observation->trace) != result->trace_count) {
+        return "incomplete-trace";
+    }
+    return "ok";
+}
+
+static const char *gbl_matrix_record_equal(const char *first,
+                                           const char *second)
+{
+    return first != NULL && second != NULL && strcmp(first, second) == 0
+               ? "ok"
+               : "changed-record";
+}
+
+static unsigned int gbl_matrix_variant_mask(const char *csv, bool *valid)
+{
+    char copy[256];
+    char *save = NULL;
+    char *variant;
+    unsigned int mask = 0u;
+
+    *valid = false;
+    if (!gbl_matrix_copy(copy, sizeof copy, csv)) return 0u;
+    variant = strtok_r(copy, ",", &save);
+    if (variant == NULL) return 0u;
+    while (variant != NULL) {
+        unsigned int bit;
+
+        if (strcmp(variant, "host-O0") == 0) bit = 1u;
+        else if (strcmp(variant, "host-O2") == 0) bit = 2u;
+        else if (strcmp(variant, "gnu-O0") == 0) bit = 4u;
+        else if (strcmp(variant, "gnu-O2") == 0) bit = 8u;
+        else if (strcmp(variant, "clang-O0") == 0) bit = 16u;
+        else if (strcmp(variant, "clang-O2") == 0) bit = 32u;
+        else return 0u;
+        if ((mask & bit) != 0u) return 0u;
+        mask |= bit;
+        variant = strtok_r(NULL, ",", &save);
+    }
+    *valid = true;
+    return mask;
+}
+
+static const char *gbl_matrix_validate_variants(const char *expected,
+                                                const char *actual)
+{
+    bool expected_valid;
+    bool actual_valid;
+    const unsigned int expected_mask =
+        gbl_matrix_variant_mask(expected, &expected_valid);
+    const unsigned int actual_mask =
+        gbl_matrix_variant_mask(actual, &actual_valid);
+
+    if (!expected_valid || !actual_valid || expected_mask != actual_mask) {
+        return "omitted-variant";
+    }
+    return "ok";
+}
+
+static const char *gbl_matrix_read_corpus(const char *path,
+                                          gbl_matrix_row *rows,
+                                          size_t *row_count)
+{
+    FILE *file;
+    char line[GBL_MATRIX_LINE_CAPACITY];
+    size_t declared_count;
+    size_t count = 0u;
+    bool header = false;
+
+    if (path == NULL || rows == NULL || row_count == NULL) {
+        return "invalid-corpus-path";
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) return "corpus-missing";
+    while (fgets(line, sizeof line, file) != NULL) {
+        size_t length = strlen(line);
+        char *fields[10];
+        char *save = NULL;
+        char *field;
+        size_t field_count = 0u;
+        uint64_t parsed;
+
+        if (length == 0u || line[length - 1u] != '\n') {
+            if (!feof(file)) {
+                (void)fclose(file);
+                return "corpus-line-too-long";
+            }
+        } else {
+            line[--length] = '\0';
+        }
+        if (length != 0u && line[length - 1u] == '\r') {
+            line[--length] = '\0';
+        }
+        if (!header) {
+            int parsed_length = 0;
+            if (sscanf(line, "gamebloke.determinism-corpus/1\t%zu%n",
+                       &declared_count, &parsed_length) != 1 ||
+                line[parsed_length] != '\0' ||
+                declared_count == 0u || declared_count > GBL_MATRIX_MAX_ROWS) {
+                (void)fclose(file);
+                return "invalid-corpus-header";
+            }
+            header = true;
+            continue;
+        }
+        if (line[0] == '\0' || count >= GBL_MATRIX_MAX_ROWS) {
+            (void)fclose(file);
+            return "invalid-row-count";
+        }
+        field = strtok_r(line, "\t", &save);
+        while (field != NULL && field_count < 10u) {
+            fields[field_count++] = field;
+            field = strtok_r(NULL, "\t", &save);
+        }
+        if (field != NULL || field_count != 10u) {
+            (void)fclose(file);
+            return "invalid-row-fields";
+        }
+        memset(&rows[count], 0, sizeof rows[count]);
+        if (!gbl_matrix_copy(rows[count].id, sizeof rows[count].id,
+                             fields[0]) ||
+            !gbl_matrix_copy(rows[count].relative_path,
+                             sizeof rows[count].relative_path, fields[1]) ||
+            !gbl_matrix_copy(rows[count].group, sizeof rows[count].group,
+                             fields[2]) ||
+            !gbl_matrix_copy(rows[count].digest, sizeof rows[count].digest,
+                             fields[3]) ||
+            !gbl_matrix_copy(rows[count].expected_status,
+                             sizeof rows[count].expected_status, fields[4]) ||
+            !gbl_matrix_copy(rows[count].expected_reason,
+                             sizeof rows[count].expected_reason, fields[5]) ||
+            !gbl_matrix_copy(rows[count].expected_semantic,
+                             sizeof rows[count].expected_semantic, fields[6]) ||
+        !gbl_matrix_parse_u64(fields[7], &parsed) ||
+            parsed > UINT32_MAX) {
+            (void)fclose(file);
+            return "invalid-row-fields";
+        }
+        rows[count].expected_case_id = (uint32_t)parsed;
+        if (!gbl_matrix_parse_u64(fields[8],
+                                  &rows[count].expected_cycles) ||
+            !gbl_matrix_parse_u64(fields[9],
+                                  &rows[count].expected_instructions)) {
+            (void)fclose(file);
+            return "invalid-row-fields";
+        }
+        count++;
+    }
+    if (ferror(file) != 0) {
+        (void)fclose(file);
+        return "corpus-read-failed";
+    }
+    if (fclose(file) != 0) return "corpus-read-failed";
+    if (!header) return "invalid-corpus-header";
+    *row_count = count;
+    return gbl_matrix_validate_rows(rows, count, declared_count);
+}
+
+static bool gbl_matrix_path(char *output, size_t capacity,
+                            const char *root, const char *relative)
+{
+    if (!gbl_matrix_safe_relative_path(relative)) return false;
+    return gbl_test_path(output, capacity, root, relative);
+}
+
+static const char *gbl_matrix_write_record(
+    char *output, size_t capacity, const gbl_matrix_row *row,
+    const gbl_test_observation *observation)
+{
+    char trace_hash[GBL_SHA256_HEX_CAPACITY];
+    const gbl_runner_result *result = &observation->result;
+    int written;
+
+    if (!gbl_test_hash(&observation->trace, trace_hash)) {
+        return "trace-hash-failed";
+    }
+    written = snprintf(
+        output, capacity,
+        "%s\tgamebloke.profile/1\tagb\tdirect-start\tnone\tnone\t%s\t%s\t%s\t%" PRIu32 "\t%" PRIu64 "\t%" PRIu64 "\t%zu\t%s\n",
+        row->id, row->expected_status, row->expected_reason,
+        gbl_matrix_semantic_name(result->semantic.status),
+        result->semantic.case_id, result->cycles, result->instructions,
+        result->trace_count, trace_hash);
+    if (written < 0 || (size_t)written >= capacity) return "record-too-long";
+    return "ok";
+}
+
+static bool gbl_matrix_observe(const gbl_matrix_row *row,
+                               const char *artifact_root,
+                               const char *trace_path,
+                               gbl_test_observation *observation,
+                               const char **failure)
+{
+    char rom_path[GBL_DETERMINISM_PATH_CAPACITY];
+    char execution_trace_path[GBL_DETERMINISM_PATH_CAPACITY];
+    gbl_runner_options options = { 0 };
+    gbl_runner_status status;
+
+    if (!gbl_matrix_path(rom_path, sizeof rom_path, artifact_root,
+                         row->relative_path) ||
+        !gbl_matrix_copy(execution_trace_path,
+                         sizeof execution_trace_path, trace_path)) {
+        *failure = "artifact-path-invalid";
+        return false;
+    }
+    options.rom_path = rom_path;
+    options.cycle_budget = GBL_MATRIX_CYCLE_BUDGET;
+    options.trace_mask = GBL_TRACE_CATEGORY_MASK;
+    options.trace_capacity = GBL_MATRIX_TRACE_CAPACITY;
+    options.trace_output_path = execution_trace_path;
+    status = gbl_runner_execute(&options, &observation->result);
+    if (status == GBL_RUNNER_MISSING) {
+        *failure = "artifact-missing";
+        return false;
+    }
+    {
+        const char *finding =
+            gbl_matrix_validate_observation(row, &observation->result);
+        if (strcmp(finding, "ok") != 0) {
+            *failure = finding;
+            return false;
+        }
+    }
+    if (!gbl_test_read_file(execution_trace_path, &observation->trace) ||
+        !gbl_test_read_file(execution_trace_path,
+                            &observation->execution_trace) ||
+        !gbl_test_json(&observation->result, &observation->json)) {
+        *failure = "observation-serialization-failed";
+        return false;
+    }
+    {
+        const char *finding =
+            gbl_matrix_validate_trace(&observation->result, observation);
+        if (strcmp(finding, "ok") != 0) {
+            *failure = finding;
+            return false;
+        }
+    }
+    return true;
+}
+
+static const char *gbl_matrix_instance_matches_runner(
+    const gbl_interleave_instance *instance,
+    const gbl_test_observation *observation)
+{
+    const gbl_runner_result *result = &observation->result;
+
+    if (instance->mailbox.status != result->semantic.status ||
+        instance->mailbox.case_id != result->semantic.case_id) {
+        return "interleave-outcome-mismatch";
+    }
+    if (instance->cycles != result->cycles ||
+        instance->instructions != result->instructions) {
+        return "interleave-progress-mismatch";
+    }
+    if (instance->trace.count != result->trace_count ||
+        !gbl_interleave_trace_fields_equal(instance->trace.records,
+                                           result->trace_records,
+                                           result->trace_count) ||
+        instance->serialized_trace_length != observation->trace.length ||
+        memcmp(instance->serialized_trace, observation->trace.data,
+               observation->trace.length) != 0) {
+        return "interleave-trace-mismatch";
+    }
+    return "ok";
+}
+
+static const char *gbl_matrix_compare_records(const char *first_path,
+                                             const char *second_path,
+                                             size_t expected_count)
+{
+    FILE *first = fopen(first_path, "rb");
+    FILE *second = fopen(second_path, "rb");
+    char first_line[GBL_MATRIX_RECORD_CAPACITY];
+    char second_line[GBL_MATRIX_RECORD_CAPACITY];
+    char previous_id[GBL_RUNNER_FIXTURE_ID_CAPACITY] = { 0 };
+    size_t count = 0u;
+    const char *finding = "ok";
+    bool first_close_ok;
+    bool second_close_ok;
+
+    if (first == NULL || second == NULL) {
+        if (first != NULL) (void)fclose(first);
+        if (second != NULL) (void)fclose(second);
+        return "missing-artifact";
+    }
+    if (fgets(first_line, sizeof first_line, first) == NULL ||
+        fgets(second_line, sizeof second_line, second) == NULL ||
+        strcmp(first_line, "gamebloke.determinism-records/1\n") != 0 ||
+        strcmp(second_line, "gamebloke.determinism-records/1\n") != 0) {
+        finding = "invalid-record-header";
+        goto done;
+    }
+    for (;;) {
+        char first_id[GBL_RUNNER_FIXTURE_ID_CAPACITY];
+        char second_id[GBL_RUNNER_FIXTURE_ID_CAPACITY];
+        char *first_sep;
+        char *second_sep;
+        char *first_end;
+        char *second_end;
+
+        if (fgets(first_line, sizeof first_line, first) == NULL) {
+            if (fgets(second_line, sizeof second_line, second) != NULL) {
+                finding = "missing-row";
+            }
+            break;
+        }
+        if (fgets(second_line, sizeof second_line, second) == NULL) {
+            finding = "missing-row";
+            break;
+        }
+        {
+            const size_t first_length = strlen(first_line);
+            const size_t second_length = strlen(second_line);
+            if (first_length == 0u || second_length == 0u ||
+                first_line[first_length - 1u] != '\n' ||
+                second_line[second_length - 1u] != '\n') {
+                finding = "invalid-record";
+                break;
+            }
+            first_line[first_length - 1u] = '\0';
+            second_line[second_length - 1u] = '\0';
+        }
+        if (strcmp(first_line, second_line) != 0) {
+            finding = "changed-record";
+            break;
+        }
+        first_sep = strchr(first_line, '\t');
+        second_sep = strchr(second_line, '\t');
+        if (first_sep == NULL || second_sep == NULL) {
+            finding = "invalid-record";
+            break;
+        }
+        *first_sep = '\0';
+        *second_sep = '\0';
+        if (!gbl_matrix_copy(first_id, sizeof first_id, first_line) ||
+            !gbl_matrix_copy(second_id, sizeof second_id, second_line)) {
+            finding = "invalid-record";
+            break;
+        }
+        first_end = strpbrk(first_id, "\r\n");
+        second_end = strpbrk(second_id, "\r\n");
+        if (first_end != NULL) *first_end = '\0';
+        if (second_end != NULL) *second_end = '\0';
+        if (strcmp(first_id, second_id) != 0) {
+            finding = "missing-row";
+            break;
+        }
+        if (count != 0u && strcmp(previous_id, first_id) >= 0) {
+            finding = strcmp(previous_id, first_id) == 0 ? "duplicate-row"
+                                                         : "unsorted-rows";
+            break;
+        }
+        if (!gbl_matrix_copy(previous_id, sizeof previous_id, first_id)) {
+            finding = "invalid-record";
+            break;
+        }
+        count++;
+    }
+    if (strcmp(finding, "ok") == 0 && count != expected_count) {
+        finding = "missing-row";
+    }
+done:
+    if (ferror(first) != 0 || ferror(second) != 0) {
+        if (strcmp(finding, "ok") == 0) finding = "record-read-failed";
+    }
+    first_close_ok = fclose(first) == 0;
+    second_close_ok = fclose(second) == 0;
+    if ((!first_close_ok || !second_close_ok) &&
+        strcmp(finding, "ok") == 0) {
+        finding = "record-close-failed";
+    }
+    return finding;
+}
+
+static bool gbl_matrix_compare_pair(const gbl_matrix_row *first_row,
+                                    const gbl_matrix_row *second_row,
+                                    const char *artifact_root,
+                                    const char *work,
+                                    char *first_record,
+                                    size_t first_record_capacity,
+                                    char *second_record,
+                                    size_t second_record_capacity,
+                                    const char **failure)
+{
+    char first_path[GBL_DETERMINISM_PATH_CAPACITY];
+    char second_path[GBL_DETERMINISM_PATH_CAPACITY];
+    char first_trace[GBL_DETERMINISM_PATH_CAPACITY];
+    char second_trace[GBL_DETERMINISM_PATH_CAPACITY];
+    gbl_test_bytes first_image = { 0 };
+    gbl_test_bytes second_image = { 0 };
+    gbl_interleave_pair pair = { 0 };
+    gbl_test_observation first_observation = { 0 };
+    gbl_test_observation second_observation = { 0 };
+    bool okay = false;
+
+    if (!gbl_matrix_path(first_path, sizeof first_path, artifact_root,
+                         first_row->relative_path) ||
+        !gbl_matrix_path(second_path, sizeof second_path, artifact_root,
+                         second_row->relative_path) ||
+        !gbl_test_path(first_trace, sizeof first_trace, work,
+                       "interleave-first.trace.jsonl") ||
+        !gbl_test_path(second_trace, sizeof second_trace, work,
+                       "interleave-second.trace.jsonl") ||
+        !gbl_test_read_file(first_path, &first_image) ||
+        !gbl_test_read_file(second_path, &second_image)) {
+        *failure = "interleave-artifact-missing";
+        goto done;
+    }
+    if (!gbl_interleave_pair_prepare(
+            &pair, first_image.data, first_image.length,
+            GBL_MATRIX_CYCLE_BUDGET, second_image.data, second_image.length,
+            GBL_MATRIX_CYCLE_BUDGET, failure)) {
+        goto done;
+    }
+    if (!gbl_matrix_observe(first_row, artifact_root, first_trace,
+                            &first_observation, failure) ||
+        !gbl_matrix_observe(second_row, artifact_root, second_trace,
+                            &second_observation, failure)) {
+        goto done;
+    }
+    if (strcmp(gbl_matrix_instance_matches_runner(
+                   &pair.isolated_first, &first_observation), "ok") != 0 ||
+        strcmp(gbl_matrix_instance_matches_runner(
+                   &pair.alternating_first, &first_observation), "ok") != 0 ||
+        strcmp(gbl_matrix_instance_matches_runner(
+                   &pair.isolated_second, &second_observation), "ok") != 0 ||
+        strcmp(gbl_matrix_instance_matches_runner(
+                   &pair.alternating_second, &second_observation), "ok") != 0) {
+        *failure = "interleave-observation-mismatch";
+        goto done;
+    }
+    if (strcmp(gbl_matrix_write_record(first_record, first_record_capacity,
+                                       first_row, &first_observation),
+               "ok") != 0 ||
+        strcmp(gbl_matrix_write_record(second_record, second_record_capacity,
+                                       second_row, &second_observation),
+               "ok") != 0) {
+        *failure = "record-generation-failed";
+        goto done;
+    }
+    okay = true;
+
+done:
+    if (!gbl_interleave_pair_dispose(&pair)) {
+        *failure = "interleave-dispose-failed";
+        okay = false;
+    }
+    gbl_test_dispose(&first_observation);
+    gbl_test_dispose(&second_observation);
+    free(first_image.data);
+    free(second_image.data);
+    (void)unlink(first_trace);
+    (void)unlink(second_trace);
+    return okay;
+}
+
+static int gbl_test_matrix_main(const char *corpus_path,
+                                const char *artifact_root,
+                                const char *record_path)
+{
+    gbl_matrix_row *rows = NULL;
+    char (*records)[GBL_MATRIX_RECORD_CAPACITY] = NULL;
+    int pending[3] = { -1, -1, -1 };
+    FILE *records_file = NULL;
+    char work[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    size_t row_count = 0u;
+    size_t index;
+    struct timespec start = { 0 };
+    struct timespec finish = { 0 };
+    const char *failure = "matrix-observation-failed";
+    bool work_created = false;
+    int exit_code = 1;
+
+    rows = calloc(GBL_MATRIX_MAX_ROWS, sizeof *rows);
+    records = calloc(GBL_MATRIX_MAX_ROWS, sizeof *records);
+    if (rows == NULL || records == NULL) {
+        failure = "matrix-allocation-failed";
+        goto done;
+    }
+    failure = gbl_matrix_read_corpus(corpus_path, rows, &row_count);
+    if (strcmp(failure, "ok") != 0) goto done;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) != 0 ||
+        !gbl_test_create_directory(work, sizeof work)) {
+        failure = "matrix-work-root-create-failed";
+        goto done;
+    }
+    work_created = true;
+
+    for (index = 0u; index < row_count; ++index) {
+        char first_trace[GBL_DETERMINISM_PATH_CAPACITY];
+        char second_trace[GBL_DETERMINISM_PATH_CAPACITY];
+        gbl_test_observation first = { 0 };
+        gbl_test_observation second = { 0 };
+
+        if (snprintf(first_trace, sizeof first_trace,
+                     "%s/repeat-%zu-first.trace.jsonl", work, index) < 0 ||
+            snprintf(second_trace, sizeof second_trace,
+                     "%s/repeat-%zu-second.trace.jsonl", work, index) < 0 ||
+            !gbl_matrix_observe(&rows[index], artifact_root, first_trace,
+                                &first, &failure) ||
+            !gbl_matrix_observe(&rows[index], artifact_root, second_trace,
+                                &second, &failure) ||
+            !gbl_test_equal(&first, &second, &failure)) {
+            gbl_test_dispose(&first);
+            gbl_test_dispose(&second);
+            (void)unlink(first_trace);
+            (void)unlink(second_trace);
+            goto done;
+        }
+        if (strcmp(gbl_matrix_write_record(records[index],
+                                           GBL_MATRIX_RECORD_CAPACITY,
+                                           &rows[index], &first),
+                   "ok") != 0) {
+            failure = "record-generation-failed";
+            gbl_test_dispose(&first);
+            gbl_test_dispose(&second);
+            (void)unlink(first_trace);
+            (void)unlink(second_trace);
+            goto done;
+        }
+        gbl_test_dispose(&first);
+        gbl_test_dispose(&second);
+        (void)unlink(first_trace);
+        (void)unlink(second_trace);
+    }
+
+    for (index = 0u; index < row_count; ++index) {
+        unsigned int group_index;
+        char first_record[GBL_MATRIX_RECORD_CAPACITY];
+        char second_record[GBL_MATRIX_RECORD_CAPACITY];
+
+        if (strcmp(rows[index].group, "arm") == 0) group_index = 0u;
+        else if (strcmp(rows[index].group, "thumb") == 0) group_index = 1u;
+        else group_index = 2u;
+        if (pending[group_index] < 0) {
+            pending[group_index] = (int)index;
+            continue;
+        }
+        if (!gbl_matrix_compare_pair(
+                &rows[(size_t)pending[group_index]], &rows[index],
+                artifact_root, work, first_record, sizeof first_record,
+                second_record, sizeof second_record, &failure)) {
+            goto done;
+        }
+        if (strcmp(gbl_matrix_record_equal(
+                       records[(size_t)pending[group_index]], first_record),
+                   "ok") != 0 ||
+            strcmp(gbl_matrix_record_equal(records[index], second_record),
+                   "ok") != 0) {
+            failure = "changed-record";
+            goto done;
+        }
+        pending[group_index] = -1;
+    }
+    if (pending[0] >= 0 || pending[1] >= 0 || pending[2] >= 0) {
+        failure = "incomplete-interleave-pair";
+        goto done;
+    }
+    records_file = fopen(record_path, "wx");
+    if (records_file == NULL ||
+        fputs("gamebloke.determinism-records/1\n", records_file) == EOF) {
+        failure = "record-output-create-failed";
+        goto done;
+    }
+    for (index = 0u; index < row_count; ++index) {
+        if (fputs(records[index], records_file) == EOF) {
+            failure = "record-output-write-failed";
+            goto done;
+        }
+    }
+    if (fclose(records_file) != 0) {
+        records_file = NULL;
+        failure = "record-output-close-failed";
+        goto done;
+    }
+    records_file = NULL;
+    if (clock_gettime(CLOCK_MONOTONIC, &finish) != 0) {
+        failure = "matrix-clock-failed";
+        goto done;
+    }
+    {
+        const double elapsed =
+            (double)(finish.tv_sec - start.tv_sec) +
+            ((double)finish.tv_nsec - (double)start.tv_nsec) / 1000000000.0;
+        printf("PASS determinism.matrix: %zu sorted rows; same-process repeat and isolated/interleaved equality\n",
+               row_count);
+        printf("HOST guest-observation-seconds=%.6f rows=%zu trace-mask=%u budget=%u\n",
+               elapsed, row_count, (unsigned int)GBL_TRACE_CATEGORY_MASK,
+               (unsigned int)GBL_MATRIX_CYCLE_BUDGET);
+    }
+    failure = "ok";
+    exit_code = 0;
+
+done:
+    if (records_file != NULL) (void)fclose(records_file);
+    if (work_created) {
+        (void)rmdir(work);
+    }
+    if (exit_code != 0) {
+        fprintf(stderr, "FAIL determinism.matrix: %s\n", failure);
+    }
+    free(rows);
+    free(records);
+    return exit_code;
+}
+
+static int gbl_test_matrix_compare_main(const char *first_path,
+                                        const char *second_path,
+                                        const char *expected_count_text)
+{
+    uint64_t expected_count;
+    const char *finding;
+
+    if (!gbl_matrix_parse_u64(expected_count_text, &expected_count) ||
+        expected_count > GBL_MATRIX_MAX_ROWS) {
+        fputs("FAIL determinism.matrix.compare: invalid-row-count\n", stderr);
+        return 2;
+    }
+    finding = gbl_matrix_compare_records(first_path, second_path,
+                                         (size_t)expected_count);
+    if (strcmp(finding, "ok") != 0) {
+        fprintf(stderr, "FAIL determinism.matrix.compare: %s\n", finding);
+        return 1;
+    }
+    printf("PASS determinism.matrix.compare: %" PRIu64 " sorted fixture records match\n",
+           expected_count);
+    return 0;
+}
+
+static int gbl_test_matrix_variants_main(const char *expected,
+                                         const char *actual)
+{
+    const char *finding = gbl_matrix_validate_variants(expected, actual);
+
+    if (strcmp(finding, "ok") != 0) {
+        fprintf(stderr, "FAIL determinism.matrix.variants: %s\n", finding);
+        return 1;
+    }
+    printf("PASS determinism.matrix.variants: %s\n", actual);
+    return 0;
+}
+
+static bool gbl_matrix_write_control_records(const char *path, bool changed)
+{
+    FILE *file = fopen(path, "wb");
+    bool okay;
+
+    if (file == NULL) return false;
+    okay = fputs("gamebloke.determinism-records/1\n"
+                 "arm-0001\tsemantic-a\n", file) != EOF;
+    okay = okay && fputs(changed
+                    ? "arm-0002\tsemantic-changed\n"
+                    : "arm-0002\tsemantic-b\n", file) != EOF;
+    if (fclose(file) != 0) okay = false;
+    return okay;
+}
+
+static int gbl_test_matrix_controls_main(void)
+{
+    gbl_matrix_row rows[2] = { 0 };
+    gbl_runner_result wrong_result = { 0 };
+    gbl_runner_result incomplete_result = { 0 };
+    gbl_test_observation incomplete_observation = { 0 };
+    char control_directory[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char first_records_path[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char second_records_path[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    const char *missing;
+    const char *duplicate;
+    const char *stale_digest;
+    const char *wrong_outcome;
+    const char *incomplete_trace;
+    const char *changed_record;
+    const char *omitted_variant;
+    bool clean = true;
+
+    (void)gbl_matrix_copy(rows[0].id, sizeof rows[0].id, "arm-0001");
+    (void)gbl_matrix_copy(rows[0].relative_path,
+                          sizeof rows[0].relative_path,
+                          "generated/arm/one.gba");
+    (void)gbl_matrix_copy(rows[0].group, sizeof rows[0].group, "arm");
+    (void)gbl_matrix_copy(rows[0].digest, sizeof rows[0].digest,
+                          "0000000000000000000000000000000000000000000000000000000000000001");
+    (void)gbl_matrix_copy(rows[0].expected_status,
+                          sizeof rows[0].expected_status, "PASS");
+    (void)gbl_matrix_copy(rows[0].expected_reason,
+                          sizeof rows[0].expected_reason,
+                          "guest-mailbox-pass");
+    (void)gbl_matrix_copy(rows[0].expected_semantic,
+                          sizeof rows[0].expected_semantic, "pass");
+    rows[0].expected_case_id = 1u;
+    rows[0].expected_cycles = 10u;
+    rows[0].expected_instructions = 5u;
+    rows[1] = rows[0];
+    (void)gbl_matrix_copy(rows[1].id, sizeof rows[1].id, "arm-0002");
+    (void)gbl_matrix_copy(rows[1].relative_path,
+                          sizeof rows[1].relative_path,
+                          "generated/arm/two.gba");
+    rows[1].expected_case_id = 2u;
+
+    missing = gbl_matrix_validate_rows(rows, 1u, 2u);
+    duplicate = gbl_matrix_validate_rows((gbl_matrix_row[2]){ rows[0], rows[0] },
+                                        2u, 2u);
+    stale_digest = gbl_matrix_validate_digest(rows[0].digest,
+        "0000000000000000000000000000000000000000000000000000000000000002");
+    wrong_result.ran = true;
+    wrong_result.has_rom_sha256 = true;
+    (void)gbl_matrix_copy(wrong_result.rom_sha256,
+                          sizeof wrong_result.rom_sha256, rows[0].digest);
+    wrong_result.semantic.status = GBL_MAILBOX_FAIL;
+    wrong_result.semantic.case_id = rows[0].expected_case_id;
+    wrong_result.status = GBL_RUNNER_GUEST_STOP;
+    (void)gbl_matrix_copy(wrong_result.reason, sizeof wrong_result.reason,
+                          "unregistered-content");
+    (void)gbl_matrix_copy(wrong_result.termination,
+                          sizeof wrong_result.termination,
+                          "unregistered-content");
+    wrong_result.cycles = rows[0].expected_cycles;
+    wrong_result.instructions = rows[0].expected_instructions;
+    wrong_outcome = gbl_matrix_validate_observation(&rows[0], &wrong_result);
+    incomplete_trace = gbl_matrix_validate_trace(&incomplete_result,
+                                                  &incomplete_observation);
+    if (!gbl_test_create_directory(control_directory,
+                                   sizeof control_directory) ||
+        !gbl_test_path(first_records_path, sizeof first_records_path,
+                       control_directory, "first.records") ||
+        !gbl_test_path(second_records_path, sizeof second_records_path,
+                       control_directory, "second.records")) {
+        clean = false;
+    }
+    if (clean) {
+        clean = gbl_matrix_write_control_records(first_records_path, false) &&
+                gbl_matrix_write_control_records(second_records_path, true);
+    }
+    changed_record = clean
+        ? gbl_matrix_compare_records(first_records_path, second_records_path,
+                                     2u)
+        : "record-control-setup-failed";
+    omitted_variant = gbl_matrix_validate_variants(
+        "gnu-O0,gnu-O2,clang-O0,clang-O2",
+        "gnu-O0,gnu-O2,clang-O0");
+    if (strcmp(gbl_matrix_validate_rows(rows, 2u, 2u), "ok") != 0 ||
+        strcmp(missing, "missing-row") != 0 ||
+        strcmp(duplicate, "duplicate-row") != 0 ||
+        strcmp(stale_digest, "stale-digest") != 0 ||
+        strcmp(wrong_outcome, "wrong-outcome") != 0 ||
+        strcmp(incomplete_trace, "incomplete-trace") != 0 ||
+        strcmp(changed_record, "changed-record") != 0 ||
+        strcmp(omitted_variant, "omitted-variant") != 0) {
+        clean = false;
+    }
+    (void)unlink(first_records_path);
+    (void)unlink(second_records_path);
+    if (control_directory[0] != '\0') (void)rmdir(control_directory);
+    if (!clean) {
+        fprintf(stderr,
+                "FAIL determinism.matrix.controls: missing=%s duplicate=%s digest=%s outcome=%s trace=%s changed=%s variant=%s\n",
+                missing, duplicate, stale_digest, wrong_outcome,
+                incomplete_trace, changed_record, omitted_variant);
+        return 1;
+    }
+    puts("PASS determinism.matrix.controls: missing-row duplicate-row stale-digest wrong-outcome incomplete-trace changed-record omitted-variant are rejected; clean corpus and complete variant set pass");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "interleave") == 0) {
@@ -1216,8 +2226,20 @@ int main(int argc, char **argv)
     if (argc == 2 && strcmp(argv[1], "interleave-controls") == 0) {
         return gbl_test_interleave_controls_main();
     }
+    if (argc == 2 && strcmp(argv[1], "matrix-controls") == 0) {
+        return gbl_test_matrix_controls_main();
+    }
+    if (argc == 4 && strcmp(argv[1], "matrix-variants") == 0) {
+        return gbl_test_matrix_variants_main(argv[2], argv[3]);
+    }
+    if (argc == 5 && strcmp(argv[1], "matrix-compare") == 0) {
+        return gbl_test_matrix_compare_main(argv[2], argv[3], argv[4]);
+    }
+    if (argc == 5 && strcmp(argv[1], "matrix") == 0) {
+        return gbl_test_matrix_main(argv[2], argv[3], argv[4]);
+    }
     if (argc != 1) {
-        fputs("usage: determinism_test [interleave|interleave-controls]\n",
+        fputs("usage: determinism_test [interleave|interleave-controls|matrix-controls|matrix-variants|matrix-compare|matrix]\n",
               stderr);
         return 2;
     }

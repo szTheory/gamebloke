@@ -31,6 +31,23 @@ if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics)$")
     "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, or diagnostics)")
 endif()
 
+# Host-only determinism is the reversible local default. A nonempty environment
+# value seeds a fresh cache; once cached, the explicit CMake cache value wins.
+if(NOT DEFINED CACHE{GBL_DETERMINISM_MODE})
+  if(NOT "$ENV{GBL_DETERMINISM_MODE}" STREQUAL "")
+    set(GBL_DETERMINISM_MODE "$ENV{GBL_DETERMINISM_MODE}" CACHE STRING
+      "Determinism compiler coverage: host | two-compilers")
+  else()
+    set(GBL_DETERMINISM_MODE "host" CACHE STRING
+      "Determinism compiler coverage: host | two-compilers")
+  endif()
+endif()
+set_property(CACHE GBL_DETERMINISM_MODE PROPERTY STRINGS host two-compilers)
+if(NOT GBL_DETERMINISM_MODE MATCHES "^(host|two-compilers)$")
+  message(FATAL_ERROR
+    "gamebloke: invalid-determinism-mode: '${GBL_DETERMINISM_MODE}' (expected host or two-compilers)")
+endif()
+
 set(GBL_DIAGNOSTIC_STAGE "admitted" CACHE STRING
   "Diagnostic fixture authority stage: proof | admitted")
 set_property(CACHE GBL_DIAGNOSTIC_STAGE PROPERTY STRINGS proof admitted)
@@ -420,6 +437,8 @@ endif()
 #                      hygiene lanes
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   include(tests/core.cmake)
+  include(tests/determinism.cmake)
+elseif(GBL_LANE STREQUAL "diagnostics")
   include(tests/determinism.cmake)
 endif()
 if(GBL_LANE STREQUAL "ci")
