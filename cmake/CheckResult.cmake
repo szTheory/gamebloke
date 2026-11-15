@@ -72,6 +72,8 @@
 #   bad-termination       termination is missing, unnamed, or inconsistent with status
 #   bad-trace             trace is not null or lacks a boolean complete field
 #   incomplete-trace      a PASS or trace-output-full result claims an incomplete trace
+#   bad-observation       register observation is missing, malformed, unbound, or disagrees
+#                         with the manifest channel, runtime digest, status, value, or time
 # The json:, contract:, registry:, and manifest: codes come from the loader and the readers
 # this file calls. On success the script prints `result: ok (<STATUS>)`.
 
@@ -377,6 +379,175 @@ function(gbl_result_check file manifest registry vocab)
       set(status "")
     endif()
   endif()
+
+  # ---- manifest-selected result channel ---------------------------------------
+  # A result cannot opt into the more permissive register branch by adding JSON.
+  # Only the canonical fixture row selects that channel; all legacy rows keep
+  # the original mailbox status contract below.
+  set(register_channel FALSE)
+  set(row_channel_kind "mailbox")
+  set(row_channel_source_commit "")
+  set(row_channel_entry_address "")
+  set(row_channel_instruction_set "")
+  set(row_channel_register_index "")
+  set(row_channel_digest "")
+  if(NOT "${fixture_id}" STREQUAL "" AND "${fixture_id}" IN_LIST m_ids)
+    set(row_channel_kind "${${manifest}_ROW_${fixture_id}_CHANNEL_KIND}")
+    set(row_channel_source_commit
+      "${${manifest}_ROW_${fixture_id}_CHANNEL_SOURCE_COMMIT}")
+    set(row_channel_entry_address
+      "${${manifest}_ROW_${fixture_id}_CHANNEL_ENTRY_ADDRESS}")
+    set(row_channel_instruction_set
+      "${${manifest}_ROW_${fixture_id}_CHANNEL_INSTRUCTION_SET}")
+    set(row_channel_register_index
+      "${${manifest}_ROW_${fixture_id}_CHANNEL_REGISTER_INDEX}")
+    set(row_channel_digest "${${manifest}_ROW_${fixture_id}_SHA256}")
+    if("${row_channel_kind}" STREQUAL "register-eval")
+      set(register_channel TRUE)
+    endif()
+  endif()
+
+  gbl_json_type(observation_type "${doc}" observation)
+  set(observation_observed OFF)
+  set(observation_value "")
+  set(observation_value_valid FALSE)
+  if(NOT register_channel)
+    if(NOT "${observation_type}" STREQUAL "MISSING" AND
+        NOT "${observation_type}" STREQUAL "NULL")
+      gbl_finding(result bad-observation
+        "mailbox fixture cannot carry an unbound register observation")
+    endif()
+  elseif(NOT "${observation_type}" STREQUAL "OBJECT")
+    if(NOT "${observation_type}" STREQUAL "MISSING" AND
+        NOT "${observation_type}" STREQUAL "NULL")
+      gbl_finding(result bad-observation "observation must be an object")
+    elseif("${status}" MATCHES "^(PASS|GUEST_FAIL)$" OR
+        ("${ran}" STREQUAL "ON" AND "${fix_kind}" STREQUAL "HEX" AND
+         NOT "${row_channel_digest}" STREQUAL "" AND
+         "${fix_value}" STREQUAL "${row_channel_digest}"))
+      gbl_finding(result bad-observation
+        "a run with the bound register channel needs its observation object")
+    endif()
+  else()
+    if(NOT "${ran}" STREQUAL "ON" OR NOT "${fix_kind}" STREQUAL "HEX" OR
+        "${row_channel_digest}" STREQUAL "" OR
+        NOT "${fix_value}" STREQUAL "${row_channel_digest}")
+      gbl_finding(result bad-observation
+        "register observation needs a run with the exact manifest ROM digest")
+    endif()
+
+    string(JSON observation_key_count LENGTH "${doc}" observation)
+    if(NOT observation_key_count EQUAL 7)
+      gbl_finding(result bad-observation
+        "observation must contain exactly its seven contract fields")
+    endif()
+    if(observation_key_count GREATER 0)
+      math(EXPR observation_key_last "${observation_key_count}-1")
+      foreach(observation_key_index RANGE ${observation_key_last})
+        string(JSON observation_key MEMBER "${doc}" observation
+          ${observation_key_index})
+        if(NOT "${observation_key}" MATCHES
+            "^(kind|observed|source_commit|entry_address|instruction_set|register_index|value)$")
+          gbl_finding(result bad-observation
+            "observation has unknown field ${observation_key}")
+        endif()
+      endforeach()
+    endif()
+
+    gbl_json_type(observation_kind_type "${doc}" observation kind)
+    if(NOT "${observation_kind_type}" STREQUAL "STRING")
+      gbl_finding(result bad-observation "observation.kind must be a string")
+    else()
+      string(JSON observation_kind GET "${doc}" observation kind)
+      if(NOT "${observation_kind}" STREQUAL "register-eval")
+        gbl_finding(result bad-observation "observation.kind differs from the manifest channel")
+      endif()
+    endif()
+    gbl_json_type(observation_observed_type "${doc}" observation observed)
+    if(NOT "${observation_observed_type}" STREQUAL "BOOLEAN")
+      gbl_finding(result bad-observation "observation.observed must be a boolean")
+    else()
+      string(JSON observation_observed GET "${doc}" observation observed)
+    endif()
+
+    foreach(field IN ITEMS source_commit entry_address instruction_set)
+      gbl_json_type(observation_${field}_type "${doc}" observation ${field})
+      if(NOT "${observation_${field}_type}" STREQUAL "STRING")
+        gbl_finding(result bad-observation "observation.${field} must be a string")
+      else()
+        string(JSON observation_${field} GET "${doc}" observation ${field})
+        if(NOT "${observation_${field}}" STREQUAL "${row_channel_${field}}")
+          gbl_finding(result bad-observation
+            "observation.${field} differs from the canonical manifest")
+        endif()
+      endif()
+    endforeach()
+
+    gbl_json_type(observation_register_type "${doc}" observation register_index)
+    if(NOT "${observation_register_type}" STREQUAL "NUMBER")
+      gbl_finding(result bad-observation "observation.register_index must be an integer")
+    else()
+      string(JSON observation_register GET "${doc}" observation register_index)
+      if(NOT "${observation_register}" MATCHES "^(0|[1-9][0-9]*)$" OR
+          NOT "${observation_register}" STREQUAL "${row_channel_register_index}")
+        gbl_finding(result bad-observation
+          "observation.register_index differs from the canonical manifest")
+      endif()
+    endif()
+
+    gbl_json_type(observation_value_type "${doc}" observation value)
+    if("${observation_observed}" STREQUAL "ON")
+      if(NOT "${observation_value_type}" STREQUAL "NUMBER")
+        gbl_finding(result bad-observation
+          "an observed register value must be a uint32 JSON number")
+      else()
+        string(JSON observation_value GET "${doc}" observation value)
+        if(NOT "${observation_value}" MATCHES "^(0|[1-9][0-9]*)$")
+          gbl_finding(result bad-observation
+            "observation.value is not a canonical uint32")
+        else()
+          string(LENGTH "${observation_value}" observation_value_digits)
+          if(observation_value_digits GREATER 10 OR
+              (observation_value_digits EQUAL 10 AND
+               "${observation_value}" STRGREATER "4294967295"))
+            gbl_finding(result bad-observation "observation.value exceeds uint32")
+          else()
+            set(observation_value_valid TRUE)
+          endif()
+        endif()
+      endif()
+    elseif(NOT "${observation_value_type}" STREQUAL "NULL")
+      gbl_finding(result bad-observation
+        "an unobserved register value must be null")
+    endif()
+
+    if("${observation_observed}" STREQUAL "ON" AND
+        observation_value_valid)
+      if(NOT "${termination}" STREQUAL "register-eval-complete")
+        gbl_finding(result bad-observation
+          "an observed register requires register-eval-complete termination")
+      endif()
+      if("${observation_value}" STREQUAL "0")
+        if(NOT "${status}" STREQUAL "PASS")
+          gbl_finding(result bad-observation
+            "zero register result requires PASS")
+        endif()
+      elseif(NOT "${status}" STREQUAL "GUEST_FAIL")
+        gbl_finding(result bad-observation
+          "nonzero register result requires GUEST_FAIL")
+      endif()
+      if(NOT time_valid OR "${time_cycles}" STREQUAL "0" OR
+          "${time_instructions}" STREQUAL "0")
+        gbl_finding(result bad-observation
+          "register result requires executed guest progress")
+      endif()
+    elseif("${observation_observed}" STREQUAL "OFF" AND
+        "${status}" MATCHES "^(PASS|GUEST_FAIL)$")
+      gbl_finding(result bad-observation
+        "pending register observation cannot produce PASS or GUEST_FAIL")
+    endif()
+  endif()
+
   if(NOT "${status}" STREQUAL "")
     set(ran_rule "${${vocab}_STATE_${status}_RAN}")
     set(digest_rule "${${vocab}_STATE_${status}_DIGEST}")
@@ -423,31 +594,37 @@ function(gbl_result_check file manifest registry vocab)
     endif()
   endif()
 
-  # Bind evidence status to the actual guest mailbox and the bounded run's termination.
+  # Bind mailbox rows to the actual mailbox, or register rows to the observation
+  # bound above. The two routes stay separate so adding JSON cannot relax the
+  # historical mailbox contract.
   gbl_json_string(result_reason "${doc}" reason)
   if("${status}" STREQUAL "PASS")
-    if(NOT "${semantic_state}" STREQUAL "pass")
-      gbl_finding(result status-semantic-mismatch "PASS requires semantic.state pass")
-    endif()
-    if("${semantic_case_kind}" STREQUAL "STRING" AND
-        "${semantic_case_id}" STREQUAL "0")
-      gbl_finding(result status-semantic-mismatch
-        "PASS requires a nonzero semantic.case_id")
-    endif()
-    if(NOT "${termination}" STREQUAL "mailbox-complete")
-      gbl_finding(result bad-termination "PASS requires mailbox-complete")
+    if(NOT register_channel)
+      if(NOT "${semantic_state}" STREQUAL "pass")
+        gbl_finding(result status-semantic-mismatch "PASS requires semantic.state pass")
+      endif()
+      if("${semantic_case_kind}" STREQUAL "STRING" AND
+          "${semantic_case_id}" STREQUAL "0")
+        gbl_finding(result status-semantic-mismatch
+          "PASS requires a nonzero semantic.case_id")
+      endif()
+      if(NOT "${termination}" STREQUAL "mailbox-complete")
+        gbl_finding(result bad-termination "PASS requires mailbox-complete")
+      endif()
     endif()
     if(time_valid AND ("${time_cycles}" STREQUAL "0" OR
         "${time_instructions}" STREQUAL "0"))
       gbl_finding(result status-semantic-mismatch "PASS requires executed guest progress")
     endif()
   elseif("${status}" STREQUAL "GUEST_FAIL")
-    if(NOT "${semantic_state}" STREQUAL "fail")
-      gbl_finding(result status-semantic-mismatch
-        "GUEST_FAIL requires semantic.state fail")
-    endif()
-    if(NOT "${termination}" STREQUAL "mailbox-complete")
-      gbl_finding(result bad-termination "GUEST_FAIL requires mailbox-complete")
+    if(NOT register_channel)
+      if(NOT "${semantic_state}" STREQUAL "fail")
+        gbl_finding(result status-semantic-mismatch
+          "GUEST_FAIL requires semantic.state fail")
+      endif()
+      if(NOT "${termination}" STREQUAL "mailbox-complete")
+        gbl_finding(result bad-termination "GUEST_FAIL requires mailbox-complete")
+      endif()
     endif()
   elseif("${status}" STREQUAL "GUEST_STOP")
     if("${result_reason}" MATCHES "^no-bios-" OR

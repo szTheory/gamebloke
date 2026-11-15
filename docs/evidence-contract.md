@@ -102,6 +102,12 @@ these fields:
   `absent`, `pending`, `pass`, `fail`, or `malformed`. `case_id` is a canonical decimal
   string in uint32 range, or null when no case id is available. An absent observation may
   serialize its zero case id as `"0"`. Completed pass/fail mailboxes need a nonzero case id.
+- `observation`: present only when the fixture's manifest row selects `register-eval`.
+  It has exactly `kind` (`register-eval`), `observed` (boolean), `source_commit`, canonical
+  `entry_address`, `instruction_set`, `register_index`, and `value`. The checker binds the
+  identity fields to that manifest row and the result's exact runtime ROM digest. Before the
+  evaluator entry is observed, `value` is null; afterward it is a raw uint32 JSON number.
+  This is separate from `semantic`, which always reports the actual mailbox observation.
 - `time`: `{cycles, instructions, budget_cycles}`. All three are canonical decimal strings
   in uint64 range (`"0"` or a nonzero digit followed by digits). They are strings so JSON
   consumers do not round values above their exact integer range. The observed cycles must
@@ -130,15 +136,20 @@ carries a dispute id, the result's `disputes` list must contain it, and a non-em
 is rejected. Every id in `disputes` must exist in the registry. `disputed` is the only
 label; a new label would arrive with its own rule and a `gamebloke.result/2` bump.
 
-The result validator also requires semantic, time, termination, and trace fields. A PASS
-requires `semantic.state` to be `pass`, a nonzero decimal-string `semantic.case_id`, positive
-guest progress, `termination: "mailbox-complete"`, and cycles within budget. A GUEST_FAIL
-requires `semantic.state: "fail"` and the same complete-mailbox termination. These checks
-bind status to the producer's observed semantic result; a raw diagnostic cannot become PASS
-by changing only its `status`. For `GUEST_STOP` no-BIOS exceptions, `reason` and `termination`
-must name the same stop. `HARNESS_FAIL` with `reason: "trace-output-full"` must use the same
-termination and report `trace.complete: false`. An incomplete trace cannot be PASS. Other
-optional top-level notes remain informational.
+The result validator also requires semantic, time, termination, and trace fields. For a
+mailbox fixture, PASS still requires `semantic.state: "pass"`, a nonzero decimal-string
+`semantic.case_id`, positive guest progress, `termination: "mailbox-complete"`, and cycles
+within budget. GUEST_FAIL still requires `semantic.state: "fail"` and the same
+complete-mailbox termination. A register fixture instead requires an observed register
+result bound to its manifest source revision, exact runtime digest, entry address, instruction
+set, and register index. Zero with positive guest progress and
+`termination: "register-eval-complete"` is PASS; a nonzero uint32 value with the same
+termination and progress is GUEST_FAIL. An unobserved value is pending and cannot produce
+either verdict. The manifest selects the route, so adding an observation object cannot relax
+the legacy mailbox rules. For both routes, `GUEST_STOP` no-BIOS exceptions require `reason`
+and `termination` to name the same stop. `HARNESS_FAIL` with `reason: "trace-output-full"`
+must use the same termination and report `trace.complete: false`. An incomplete trace cannot
+be PASS. Other optional top-level notes remain informational.
 
 The semantic/time/termination findings are:
 
@@ -147,8 +158,11 @@ The semantic/time/termination findings are:
   and the documented no-case-id forms).
 - `bad-semantic`: semantic object/state/case id has the wrong type, unknown value, or an
   invalid uint32 decimal representation.
-- `status-semantic-mismatch`: PASS lacks a completed PASS mailbox and positive guest
-  progress, or GUEST_FAIL does not carry a completed FAIL mailbox.
+- `status-semantic-mismatch`: a mailbox PASS lacks a completed PASS mailbox and positive
+  guest progress, or mailbox GUEST_FAIL does not carry a completed FAIL mailbox.
+- `bad-observation`: register observation is missing, malformed, unbound to the manifest
+  channel or exact ROM digest, or contradicts the observed value, status, progress, or
+  termination; mailbox rows cannot carry a register observation.
 - `bad-time`: a counter is not a canonical decimal string or `time` is not an object.
 - `time-overflow`: a canonical decimal time counter is greater than
   `18446744073709551615`.

@@ -275,7 +275,39 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
     }
     if (fputs(",\"limits\":", output) == EOF ||
         !gbl_runner_write_limits(output, result) ||
-        fputs(",\"semantic\":{\"state\":", output) == EOF ||
+        ferror(output) != 0) {
+        return false;
+    }
+    if (result->register_observation.present) {
+        const gbl_runner_register_observation *observation =
+            &result->register_observation;
+
+        if (fputs(",\"observation\":{\"kind\":\"register-eval\","
+                  "\"observed\":",
+                  output) == EOF ||
+            fputs(observation->observed ? "true" : "false", output) == EOF ||
+            fputs(",\"source_commit\":", output) == EOF ||
+            !gbl_runner_json_string(output, observation->source_commit) ||
+            fprintf(output, ",\"entry_address\":\"0x%08" PRIX32
+                            "\",\"instruction_set\":",
+                    observation->entry_address) < 0 ||
+            !gbl_runner_json_string(output, observation->instruction_set) ||
+            fprintf(output, ",\"register_index\":%u,\"value\":",
+                    (unsigned int)observation->register_index) < 0) {
+            return false;
+        }
+        if (observation->has_value) {
+            if (fprintf(output, "%" PRIu32, observation->value) < 0) {
+                return false;
+            }
+        } else if (fputs("null", output) == EOF) {
+            return false;
+        }
+        if (fputc('}', output) == EOF) {
+            return false;
+        }
+    }
+    if (fputs(",\"semantic\":{\"state\":", output) == EOF ||
         !gbl_runner_json_string(
             output, gbl_runner_mailbox_name(result->semantic.status)) ||
         fprintf(output, ",\"case_id\":\"%" PRIu32 "\"},\"time\":{"
