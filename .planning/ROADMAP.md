@@ -328,7 +328,7 @@ Plans:
 **Owner gates**: None blocking. G2 default (no logo bytes in owned fixtures) is enforced by the scan; it is reversible. The license of the owned diagnostics follows G1, which is surfaced but not blocking. Do not use devkitARM, libgba, or gbafix for owned fixtures.
 
 ### Phase 6: Determinism Gates and Third-Party CPU Fixtures
-**Goal**: The evidence spine is closed. Repeatability is proven across runs, processes, optimization levels, compilers, and interleaved instances. Machine time cannot advance outside the bus API. jsmolka's CPU suites count as evidence only through a result channel verified against their source.
+**Goal**: As a Gamebloke maintainer, I want to get deterministic results across runs, compilers, and interleaved instances plus source-verified CPU-suite outcomes, so that I can trust the evidence while keeping fixture rights and unsupported video behavior explicit.
 **Mode:** mvp
 **Depends on**: Phase 5
 **Requirements**: DET-01, DET-02, DET-03, BUS-04, DIAG-04
@@ -338,7 +338,26 @@ Plans:
   3. The trace-hash gate fails, for a stated reason, on a negative-control handler that advances machine time without going through the bus API.
   4. In a local-only lane, jsmolka gba-tests `arm`, `thumb`, and `memory` run from pinned fetches whose source revision and ROM digests are recorded. At each pinned ROM's source-verified `eval` entry before its VBlank display wait, the result register is observed: R12 for ARM, R7 for Thumb, and R12 for memory. Verify each `m_exit`/`m_test_eval` path against the pinned source before a zero result can count as PASS. A nonzero result is GUEST_FAIL; a stop before observation is GUEST_STOP, never PASS. The fetched ROMs remain in ignored `.fixtures/`; they are not committed, uploaded, or run in public CI because the repository provides no redistribution grant for the embedded Nintendo logo bytes. `bios.gba` reports SKIPPED with a BIOS-requirement reason.
   5. At milestone exit, `cmake --workflow --preset ci` and `CI required` are green, every negative control fails for its stated reason, and the inventory shows the skipped BIOS fixtures with their reasons. The local-only third-party lane does not add fixture bytes to public CI.
-**Plans**: TBD
+**Plans**: 0/8 plans executed (five dependency-ordered waves)
+
+Plans:
+**Wave 1**
+- [ ] 06-01-PLAN.md — Runnable in-process and fresh-process repeatability tracer
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 06-02-PLAN.md — Interleaved machine-instance isolation
+- [ ] 06-05-PLAN.md — Source-bound register result-channel metadata
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 06-03-PLAN.md — Owned-diagnostic compiler and optimization matrix
+- [ ] 06-06-PLAN.md — Pre-VBlank evaluator-register observation and result contract
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 06-04-PLAN.md — Bus-only machine-time mutation gate
+- [ ] 06-07-PLAN.md — Local-only pinned jsmolka CPU suites
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 06-08-PLAN.md — Final CI policy, inventory, and acceptance evidence
 **Research flag**: Standard patterns for sanitizers, two-compiler trace equality, and interleave tests. One targeted source audit: jsmolka `m_exit`, `m_test_eval`, and the `eval` entry before `m_vsync` at the pinned commit (R6).
 **Owner gates**: None blocking. G3 default (pinned fetch; jsmolka is never committed) and G2 (jsmolka's `lib/header.asm` embeds the logo, so fetched ROMs stay untracked and outside the scanned tree) are reversible defaults. G7 is untouched: no official BIOS is used, and `bios.gba` is SKIPPED.
 
@@ -410,7 +429,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Bus API, Memory Map, and ROM Loading | 7/7 | Complete    | 2026-11-10 |
 | 4. CPU Execution Core and Headless Runner | 13/13 | Complete    | 2026-11-11 |
 | 5. Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion | 25/25 | Complete    | 2026-11-14 |
-| 6. Determinism Gates and Third-Party CPU Fixtures | 0/TBD | Not started | - |
+| 6. Determinism Gates and Third-Party CPU Fixtures | 0/8 | Planned     | - |
 
 ---
 *Roadmap created: 2026-11-09 for milestone v1.0 Evidence Spine (a GSD milestone label, not a software version)*
