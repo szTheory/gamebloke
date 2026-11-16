@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v1.0
-milestone_name: Evidence Spine
-status: Archived with carried evidence gaps
-stopped_at: v1.0 archived with DIAG-04 and DET-02 carried as open verification gaps; Phase 6 remains incomplete
-last_updated: "2026-11-16T01:51:31.408Z"
+milestone: v2.0
+milestone_name: Time, Interrupts, DMA, First Pixels
+status: planning
+last_updated: "2026-11-16T02:03:09.634Z"
 last_activity: 2026-11-15
-last_activity_desc: v1.0 archived; DIAG-04 and DET-02 remain open
-state_head: 309bead7d8477101fa6ebdb3055e042b7abd1aa1
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 71
-  completed_plans: 68
-current_phase: 6
-current_phase_name: Determinism Gates and Third-Party CPU Fixtures
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,11 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 ## Current Position
 
-Phase: Milestone v1.0 archived; Phase 6 incomplete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Completed with carried evidence gaps; ready to define v2.0
-Last activity: 2026-11-15 — Milestone v1.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-11-15 — Milestone v2.0 started
+
 
 ## Performance Metrics
 
