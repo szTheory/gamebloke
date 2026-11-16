@@ -14237,25 +14237,51 @@ static void test_irq_refusal_contract(void)
 
     {
         gbl_machine split_machine = { 0 };
+        gbl_machine unsplit_machine = { 0 };
         gbl_run_result split_result = { 0 };
+        gbl_run_result unsplit_result = { 0 };
+        gbl_bus_result split_timer = { 0 };
+        gbl_bus_result unsplit_timer = { 0 };
         bool split = prepare_irq_boundary_machine(&split_machine, false) &&
-            run_units(&split_machine, 1u, 0u, &split_result) &&
+            prepare_irq_boundary_machine(&unsplit_machine, false);
+        if (split) {
+            split_timer = gbl_bus_write(&split_machine,
+                UINT32_C(0x04000100), 4u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                UINT32_C(0x00C0FFFF));
+            unsplit_timer = gbl_bus_write(&unsplit_machine,
+                UINT32_C(0x04000100), 4u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                UINT32_C(0x00C0FFFF));
+            split = split_timer.status == GBL_BUS_STATUS_OK &&
+                    unsplit_timer.status == GBL_BUS_STATUS_OK;
+        }
+        if (split) {
+            split_machine.interrupt_enable = 8u;
+            split_machine.interrupt_master_enable = 1u;
+            unsplit_machine.interrupt_enable = 8u;
+            unsplit_machine.interrupt_master_enable = 1u;
+        }
+        split = split && run_units(&split_machine, 1u, 0u, &split_result) &&
             split_result.termination == GBL_RUN_TIMEOUT &&
             split_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
             split_result.instructions == 1u;
         if (split) {
-            split_machine.interrupt_flags = 8u;
-            split_machine.interrupt_enable = 8u;
-            split_machine.interrupt_master_enable = 1u;
             split = run_units(&split_machine, 1u, 0u, &split_result) &&
                 split_result.reason == GBL_RUN_REASON_GUEST_STOP &&
                 split_result.instructions == 0u &&
                 split_machine.cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
                 split_machine.cpu.irq_observation.entered;
         }
+        if (split) {
+            split = run_units(&unsplit_machine, 2u, 0u, &unsplit_result) &&
+                unsplit_result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                unsplit_result.instructions == 1u &&
+                unsplit_machine.cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
+                gbl_test_canonical_equal(&split_machine, &unsplit_machine);
+        }
         test_case(split,
-                  "pending IRQ boundary resumes after the preceding run exhausts its one-cycle budget");
+                  "timer IRQ split-run resumes the same pending boundary as an unsplit run");
         gbl_machine_dispose(&split_machine);
+        gbl_machine_dispose(&unsplit_machine);
     }
     gbl_machine_dispose(&machine);
 }
