@@ -46,7 +46,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 - [x] 07-01-PLAN.md — Scheduler and Timer 0 guest tracer; exact fast selection
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 07-02-PLAN.md — Four timer boundaries and atomic refusal
+- [x] 07-02-PLAN.md — Four timer boundaries and atomic refusal
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 07-03-PLAN.md — CPU bus/internal cycle attribution
@@ -114,7 +114,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. Time Authority and Timer 0 Polling Proof | 1/7 | In Progress | - |
+| 7. Time Authority and Timer 0 Polling Proof | 2/7 | In Progress | - |
 | 8. IRQ, HALT, and Timestamped Input | 0/TBD | Not started | - |
 | 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |

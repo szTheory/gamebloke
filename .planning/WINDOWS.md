@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 3
 waived_count: 0
-fixed_count: 16
-total_count: 19
-last_updated: 2026-11-14T08:51:10.323Z
+fixed_count: 20
+total_count: 23
+last_updated: 2026-11-16T06:18:16.334Z
 ---
 
 # Broken Windows Ledger
@@ -34,6 +34,10 @@ last_updated: 2026-11-14T08:51:10.323Z
 | 17 | 05 | deviation | tests/gates/diagnostic_setup.cmake |  | Plan25 actual full sanitizer exposed post-admission runner relink after receipt hash capture. Bound final executable after rebuild, retained stale-runner refusal and SDK RED/green. Fresh full sanitizer, current required diagnostics and independent code/security reviews pass. Safe Linux export privacy/mode/trap fixes verified; no producer change. See05-25-LOCAL-EXECUTION.md. | fixed |  | 2026-11-14T08:51:09.846Z | 2026-11-14T08:51:09.945Z |
 | 18 | 05 | deviation | tests/gates/linux_snapshot.cmake |  | Local Nyquist gap: ignored snapshot prototype was not recurring and required installed semantics absent in diagnostic CI. Added offline multi-commit privacy/history/mode/signal/cleanup regression and required ARM/all relocation; fresh Mac/Linux/current inventories pass, independent rereviews clear. See05-25-COVERAGE-FIX.md. | fixed |  | 2026-11-14T08:51:10.037Z | 2026-11-14T08:51:10.137Z |
 | 19 | 05 | deviation | 05-25-LOCAL-EXECUTION.md |  | Historical scheduling deviation: one isolated standalone ledger sweep briefly overlapped required diagnostics. Both completed in distinct roots; the overlap is recorded, not relabeled serial. All subsequent heavy work was serial. No resource cap changed, no throughput claim relies on that overlap, no persistent state failure remains. | fixed |  | 2026-11-14T08:51:10.231Z | 2026-11-14T08:51:10.323Z |
+| 20 | 07 | deviation | runner/run.c |  | Added runner handling for the new internal-error and time-refusal CPU outcomes; strict build and workflow pass. | fixed |  | 2026-11-16T06:17:27.450Z | 2026-11-16T06:17:36.546Z |
+| 21 | 07 | deviation | tests/gates/core_mutation.cmake |  | Moved the clock-overflow mutation to the checked addition in machine.c; its negative control passes. | fixed |  | 2026-11-16T06:18:15.494Z | 2026-11-16T06:18:15.660Z |
+| 22 | 07 | deviation | tests/state_check.h |  | Made the new shared time-preview comparison inline to satisfy strict unused-function warnings. | fixed |  | 2026-11-16T06:18:15.825Z | 2026-11-16T06:18:16.003Z |
+| 23 | 07 | deviation | .planning/phases/07-time-authority-and-timer-0-polling-proof/07-02-01-red-evidence.json |  | Replaced absolute JUnit report locations in both RED evidence commands with repository-relative paths. | fixed |  | 2026-11-16T06:18:16.167Z | 2026-11-16T06:18:16.334Z |
 
 ````json
 [
@@ -283,6 +287,58 @@ last_updated: 2026-11-14T08:51:10.323Z
     "recorded_at": "2026-11-14T08:51:10.231Z",
     "resolved_at": "2026-11-14T08:51:10.323Z",
     "milestone": "v1.0"
+  },
+  {
+    "id": 20,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "runner/run.c",
+    "line": null,
+    "description": "Added runner handling for the new internal-error and time-refusal CPU outcomes; strict build and workflow pass.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-16T06:17:27.450Z",
+    "resolved_at": "2026-11-16T06:17:36.546Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 21,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "tests/gates/core_mutation.cmake",
+    "line": null,
+    "description": "Moved the clock-overflow mutation to the checked addition in machine.c; its negative control passes.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-16T06:18:15.494Z",
+    "resolved_at": "2026-11-16T06:18:15.660Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 22,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "tests/state_check.h",
+    "line": null,
+    "description": "Made the new shared time-preview comparison inline to satisfy strict unused-function warnings.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-16T06:18:15.825Z",
+    "resolved_at": "2026-11-16T06:18:16.003Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 23,
+    "kind": "deviation",
+    "phase": "07",
+    "file": ".planning/phases/07-time-authority-and-timer-0-polling-proof/07-02-01-red-evidence.json",
+    "line": null,
+    "description": "Replaced absolute JUnit report locations in both RED evidence commands with repository-relative paths.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-16T06:18:16.167Z",
+    "resolved_at": "2026-11-16T06:18:16.334Z",
+    "milestone": "v2.0"
   }
 ]
 ````
