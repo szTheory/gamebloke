@@ -70,6 +70,44 @@ function(expect_json_boolean json expected)
   endif()
 endfunction()
 
+function(expect_json_type json expected)
+  string(JSON actual ERROR_VARIABLE json_error TYPE "${json}" ${ARGN})
+  if(NOT "${json_error}" STREQUAL "NOTFOUND" OR
+      NOT "${actual}" STREQUAL "${expected}")
+    message(FATAL_ERROR
+      "runner-case: expected JSON type ${ARGN}=${expected}; got ${actual}; ${json_error}")
+  endif()
+endfunction()
+
+function(expect_active_result_extension json)
+  expect_json_type("${json}" OBJECT timer0)
+  expect_json_type("${json}" STRING time model)
+  expect_json_field("${json}" gamebloke-timer-model-1 time model)
+  expect_json_type("${json}" STRING time qualification)
+  expect_json_field("${json}" project-model-only time qualification)
+  foreach(field IN ITEMS cycles instructions budget_cycles bus_cycles internal_cycles)
+    expect_json_type("${json}" STRING time ${field})
+  endforeach()
+  string(JSON ran GET "${json}" fixture ran)
+  string(JSON cycles GET "${json}" time cycles)
+  string(JSON instructions GET "${json}" time instructions)
+  string(JSON request_type ERROR_VARIABLE request_error TYPE
+    "${json}" timer0 if_request)
+  if(NOT "${request_error}" STREQUAL "NOTFOUND")
+    message(FATAL_ERROR
+      "runner-case: active producer omitted timer0.if_request: ${request_error}")
+  endif()
+  if(NOT ran OR (cycles STREQUAL "0" AND instructions STREQUAL "0"))
+    if(NOT request_type STREQUAL "NULL")
+      message(FATAL_ERROR
+        "runner-case: not-run result requires timer0.if_request null; got ${request_type}")
+    endif()
+  elseif(NOT request_type STREQUAL "BOOLEAN")
+    message(FATAL_ERROR
+      "runner-case: executed result requires boolean timer0.if_request; got ${request_type}")
+  endif()
+endfunction()
+
 function(run_json output_variable name cli expected_exit expected_status
     expected_reason)
   execute_process(
@@ -102,6 +140,7 @@ function(run_json output_variable name cli expected_exit expected_status
   if(NOT "${one_json_line}" STREQUAL "${output}")
     message(FATAL_ERROR "runner-case: ${name} did not write exactly one JSON line")
   endif()
+  expect_active_result_extension("${output}")
   string(FIND "${output}" "${SRC}" source_path_offset)
   string(FIND "${output}" "${BIN}" build_path_offset)
   if(NOT source_path_offset EQUAL -1 OR NOT build_path_offset EQUAL -1)
