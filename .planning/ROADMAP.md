@@ -75,7 +75,27 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   2. HALT wakes at the declared event boundary independently of IRQ acceptance. Timers and other enabled devices continue while the CPU waits; STOP and deadlock have distinct `GUEST_STOP` causes.
   3. The same timestamped logical keypad timeline produces the same active-low key state, KEYCNT condition results, and request transitions, including event-boundary cases. No host device discovery or host clock participates in the machine result.
   4. Guest progress, elapsed machine time, device request state, CPU acceptance/entry, and wake cause remain separately inspectable, so a wake or request alone cannot be reported as handler execution.
-**Plans**: TBD
+**Plans**: 0/7 plans executed
+**Wave 1**
+- [ ] 08-01-PLAN.md
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 08-02-PLAN.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 08-03-PLAN.md
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 08-04-PLAN.md
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 08-05-PLAN.md
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 08-06-PLAN.md
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 08-07-PLAN.md
 **Research flag**: Resolve ARM7TDMI exception-entry timing from the exact-core reference; qualify GBA interrupt and HALT conditions and keypad edges separately. Upstream test expectations are differential evidence unless independently qualified.
 **Owner gates**: G4 still blocks BIOS-stub authoring. This phase uses the selected no-BIOS classified-stop policy and does not introduce `BIOS-01` or an IRQ-driven playable variant.
 
@@ -115,7 +135,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
-| 8. IRQ, HALT, and Timestamped Input | 0/TBD | Not started | - |
+| 8. IRQ, HALT, and Timestamped Input | 0/7 | Planned     | - |
 | 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
 
