@@ -33,6 +33,12 @@
 
 static unsigned int test_number;
 static unsigned int test_failures;
+static bool phase8_observation_ready;
+static gbl_cpu_irq_observation phase8_observation;
+static uint16_t phase8_mask_if;
+static uint16_t phase8_mask_ie;
+static uint16_t phase8_mask_ime;
+static bool phase8_mask_cpsr_i;
 
 typedef struct cpu_test_allocator_state {
     bool fail_next_allocation;
@@ -14137,20 +14143,12 @@ static void test_irq_boundary_contract(void)
     }
 
     if (ready && machine.cpu.irq_observation.entered) {
-        printf("{\"type\":\"phase8-observation\",\"if\":%u,\"ie\":%u,\"ime\":%u,\"cpsr\":%u,\"sample_cycle\":%llu,\"entry_cycle\":%llu,\"next_address\":%llu,\"following_address\":%llu,\"internal_cycles\":%llu,\"mask_if_clear\":%u,\"mask_ie_clear\":%u,\"mask_ime_clear\":%u,\"mask_cpsr_i\":%u}\n",
-               (unsigned int)machine.cpu.irq_observation.interrupt_flags,
-               (unsigned int)machine.cpu.irq_observation.interrupt_enable,
-               (unsigned int)machine.cpu.irq_observation.interrupt_master_enable,
-               (unsigned int)machine.cpu.irq_observation.cpsr,
-               (unsigned long long)machine.cpu.irq_observation.sample_cycle,
-               (unsigned long long)machine.cpu.irq_observation.entry_cycle,
-               (unsigned long long)machine.cpu.irq_observation.next_instruction_address,
-               (unsigned long long)machine.cpu.irq_observation.following_instruction_address,
-               (unsigned long long)machine.cpu.irq_observation.entry_internal_cycles,
-               (unsigned int)masks[0].interrupt_flags,
-               (unsigned int)masks[1].interrupt_enable,
-               (unsigned int)masks[2].interrupt_master_enable,
-               masks[3].cpu_masked ? 1u : 0u);
+        phase8_observation = machine.cpu.irq_observation;
+        phase8_mask_if = masks[0].interrupt_flags;
+        phase8_mask_ie = masks[1].interrupt_enable;
+        phase8_mask_ime = masks[2].interrupt_master_enable;
+        phase8_mask_cpsr_i = masks[3].cpu_masked;
+        phase8_observation_ready = true;
     }
     gbl_machine_dispose(&machine);
 }
@@ -14757,6 +14755,23 @@ int main(int argc, char **argv)
     for (function_index = 0u; function_index < selected->function_count;
          ++function_index) {
         selected->functions[function_index]();
+    }
+    if (strcmp(selected->selector, "irq.boundary") == 0 &&
+        phase8_observation_ready) {
+        printf("{\"type\":\"phase8-observation\",\"if\":%u,\"ie\":%u,\"ime\":%u,\"cpsr\":%u,\"sample_cycle\":%llu,\"entry_cycle\":%llu,\"next_address\":%llu,\"following_address\":%llu,\"internal_cycles\":%llu,\"mask_if_clear\":%u,\"mask_ie_clear\":%u,\"mask_ime_clear\":%u,\"mask_cpsr_i\":%u}\n",
+               (unsigned int)phase8_observation.interrupt_flags,
+               (unsigned int)phase8_observation.interrupt_enable,
+               (unsigned int)phase8_observation.interrupt_master_enable,
+               (unsigned int)phase8_observation.cpsr,
+               (unsigned long long)phase8_observation.sample_cycle,
+               (unsigned long long)phase8_observation.entry_cycle,
+               (unsigned long long)phase8_observation.next_instruction_address,
+               (unsigned long long)phase8_observation.following_instruction_address,
+               (unsigned long long)phase8_observation.entry_internal_cycles,
+               (unsigned int)phase8_mask_if,
+               (unsigned int)phase8_mask_ie,
+               (unsigned int)phase8_mask_ime,
+               phase8_mask_cpsr_i ? 1u : 0u);
     }
     if (test_number != selected->assertion_count) {
         fprintf(stderr, "native selector assertion count mismatch: %s\n",
