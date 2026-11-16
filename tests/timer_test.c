@@ -1093,6 +1093,57 @@ static int run_timer_devices(void)
     return 1;
 }
 
+static int run_keypad_timeline(void)
+{
+    gbl_machine *machine = new_empty_machine();
+    gbl_bus_result result;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.value == UINT32_C(0x03FF));
+    free_machine(machine);
+    {
+        int status = CHECK_DONE();
+        puts("TAP version 13");
+        puts(status == 0 ? "ok 1 - keypad.timeline"
+                         : "not ok 1 - keypad.timeline");
+        puts("1..1");
+        return status;
+    }
+}
+
+static int run_keypad_condition(void)
+{
+    gbl_machine *machine = new_empty_machine();
+    gbl_bus_result result;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+
+    result = gbl_bus_read(machine, UINT32_C(0x04000132), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome != GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
+    CHECK(result.value == 0u);
+    free_machine(machine);
+    {
+        int status = CHECK_DONE();
+        puts("TAP version 13");
+        puts(status == 0 ? "ok 1 - keypad.condition"
+                         : "not ok 1 - keypad.condition");
+        puts("1..1");
+        return status;
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -1120,6 +1171,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "timer.devices") == 0) {
         return run_timer_devices();
+    }
+    if (strcmp(argv[1], "keypad.timeline") == 0) {
+        return run_keypad_timeline();
+    }
+    if (strcmp(argv[1], "keypad.condition") == 0) {
+        return run_keypad_condition();
     }
     fprintf(stderr, "timer_test: unknown selector: %s\n", argv[1]);
     return 2;
