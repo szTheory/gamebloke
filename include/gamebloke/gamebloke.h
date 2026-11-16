@@ -95,6 +95,14 @@ typedef struct gbl_timer_state {
     bool cascade;
 } gbl_timer_state;
 
+/* Internal machine power policy. This is not a stable guest or host embedding
+ * ABI; STOP remains terminal in the guest-cycle-only profile. */
+typedef enum gbl_machine_power_state {
+    GBL_MACHINE_POWER_RUNNING = 0,
+    GBL_MACHINE_POWER_HALTED = 1,
+    GBL_MACHINE_POWER_STOPPED = 2
+} gbl_machine_power_state;
+
 /* A small transactional copy used to preflight time and timer I/O before a
  * bus transaction mutates open bus, memory, or device state. */
 typedef struct gbl_machine_time_preview {
@@ -285,8 +293,19 @@ typedef enum gbl_cpu_stop_reason {
     GBL_CPU_STOP_COPROCESSOR_NO_BIOS = 11,
     GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION = 12,
     GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION = 13,
-    GBL_CPU_STOP_INTERNAL_ERROR = 14
+    GBL_CPU_STOP_INTERNAL_ERROR = 14,
+    GBL_CPU_STOP_STOP_REQUESTED = 15,
+    GBL_CPU_STOP_HALT_DEADLOCK = 16
 } gbl_cpu_stop_reason;
+
+typedef enum gbl_cpu_power_cause {
+    GBL_CPU_POWER_CAUSE_NONE = 0,
+    GBL_CPU_POWER_CAUSE_WAKE_PENDING = 1,
+    GBL_CPU_POWER_CAUSE_WAKE_EVENT = 2,
+    GBL_CPU_POWER_CAUSE_STOP_REQUESTED = 3,
+    GBL_CPU_POWER_CAUSE_HALT_DEADLOCK = 4,
+    GBL_CPU_POWER_CAUSE_WAIT_TIMEOUT = 5
+} gbl_cpu_power_cause;
 
 typedef enum gbl_cpu_status {
     GBL_CPU_STATUS_OK = 0,
@@ -468,11 +487,16 @@ typedef struct gbl_run_result {
     uint64_t instructions;
     uint64_t bus_cycles;
     uint64_t internal_cycles;
+    uint64_t wait_cycles;
+    uint64_t wake_cycle;
+    uint16_t wake_source_mask;
+    gbl_cpu_power_cause power_cause;
 } gbl_run_result;
 
 typedef struct gbl_machine {
     uint64_t master_cycles;
     uint64_t next_event_sequence;
+    gbl_machine_power_state power_state;
     uint32_t open_bus;
     uint16_t dispcnt;
     uint16_t interrupt_flags;
@@ -545,6 +569,10 @@ gbl_bus_status gbl_machine_init(gbl_machine *machine,
                                 const gbl_allocator *allocator);
 void gbl_machine_reset(gbl_machine *machine);
 void gbl_machine_dispose(gbl_machine *machine);
+/* Internal power-state seam for core integration. Rejects invalid machines or
+ * states without mutation; this does not add a guest instruction/register. */
+gbl_time_status gbl_machine_set_power_state(
+    gbl_machine *machine, gbl_machine_power_state state);
 
 /* Install a copied, ordered logical keypad timeline. A zero-length timeline
  * accepts NULL and cancels pending input while preserving current key state. */
