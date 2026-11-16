@@ -901,7 +901,7 @@ static void gbl_interleave_seed_live_timer(gbl_machine *machine)
     machine->next_event_sequence = UINT64_C(1);
     machine->events[0] = (gbl_event){
         machine->master_cycles + UINT64_C(1), UINT64_C(1), UINT64_C(1),
-        0u, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true
+        0u, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true, 0u
     };
 }
 

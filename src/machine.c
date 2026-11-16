@@ -1,5 +1,10 @@
 #include "gamebloke/gamebloke.h"
 
+#define GBL_KEYPAD_INPUT_MASK UINT16_C(0x03FF)
+#define GBL_KEYPAD_CONTROL_MASK UINT16_C(0xC3FF)
+#define GBL_KEYPAD_IRQ_BIT UINT16_C(0x1000)
+#define GBL_KEYPAD_EVENT_PRIORITY 4u
+
 static bool gbl_event_precedes(const gbl_event *left,
                                const gbl_event *right)
 {
@@ -43,6 +48,21 @@ static void gbl_preview_remove_timer_event(
     }
 }
 
+static void gbl_preview_remove_input_event(
+    gbl_machine_time_preview *preview)
+{
+    size_t index = 0u;
+
+    while (index < preview->event_count) {
+        if (preview->events[index].kind ==
+            (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
+            gbl_preview_remove_event(preview, index);
+        } else {
+            ++index;
+        }
+    }
+}
+
 static gbl_time_status gbl_preview_insert_timer_event(
     gbl_machine_time_preview *preview, uint8_t timer_index, uint64_t cycle)
 {
@@ -61,6 +81,7 @@ static gbl_time_status gbl_preview_insert_timer_event(
     event.priority = timer_index;
     event.kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW;
     event.timer_index = timer_index;
+    event.input_index = 0u;
     event.live = true;
     ++preview->next_event_sequence;
 
@@ -73,6 +94,52 @@ static gbl_time_status gbl_preview_insert_timer_event(
     preview->events[position] = event;
     ++preview->event_count;
     return GBL_TIME_STATUS_OK;
+}
+
+static gbl_time_status gbl_preview_insert_input_event(
+    gbl_machine_time_preview *preview, size_t input_index)
+{
+    gbl_event event = { 0 };
+    size_t position;
+
+    if (preview->event_count >= GBL_EVENT_CAPACITY) {
+        return GBL_TIME_STATUS_EVENT_CAPACITY;
+    }
+    if (preview->next_event_sequence == UINT64_MAX) {
+        return GBL_TIME_STATUS_SEQUENCE_EXHAUSTED;
+    }
+    if (input_index >= preview->input_event_count ||
+        input_index > UINT16_MAX) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    event.cycle = preview->input_events[input_index].cycle;
+    event.sequence = preview->next_event_sequence;
+    event.generation = preview->input_generation;
+    event.priority = GBL_KEYPAD_EVENT_PRIORITY;
+    event.kind = (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT;
+    event.input_index = (uint16_t)input_index;
+    event.live = true;
+    ++preview->next_event_sequence;
+
+    position = preview->event_count;
+    while (position > 0u &&
+           gbl_event_precedes(&event, &preview->events[position - 1u])) {
+        preview->events[position] = preview->events[position - 1u];
+        --position;
+    }
+    preview->events[position] = event;
+    ++preview->event_count;
+    return GBL_TIME_STATUS_OK;
+}
+
+static gbl_time_status gbl_preview_schedule_next_input(
+    gbl_machine_time_preview *preview)
+{
+    if (preview->input_event_cursor >= preview->input_event_count) {
+        return GBL_TIME_STATUS_OK;
+    }
+    return gbl_preview_insert_input_event(preview,
+                                          preview->input_event_cursor);
 }
 
 static gbl_time_status gbl_timer_counter_at(
@@ -184,12 +251,56 @@ static gbl_time_status gbl_preview_increment_cascade(
     return GBL_TIME_STATUS_OK;
 }
 
+static void gbl_preview_evaluate_keypad(gbl_machine_time_preview *preview)
+{
+    uint16_t selected;
+    uint16_t selected_pressed;
+    bool condition;
+    bool effective;
+
+    selected = (uint16_t)(preview->key_control & GBL_KEYPAD_INPUT_MASK);
+    selected_pressed = (uint16_t)(preview->pressed_keys & selected);
+    if (selected == 0u) {
+        condition = false;
+    } else if ((preview->key_control & UINT16_C(0x8000)) != 0u) {
+        condition = selected_pressed == selected;
+    } else {
+        condition = selected_pressed != 0u;
+    }
+    effective =
+        (preview->key_control & UINT16_C(0x4000)) != 0u && condition;
+    if (!preview->key_irq_condition && effective) {
+        preview->interrupt_flags = (uint16_t)(
+            preview->interrupt_flags | GBL_KEYPAD_IRQ_BIT);
+    }
+    preview->key_condition = condition;
+    preview->key_irq_condition = effective;
+}
+
 static gbl_time_status gbl_preview_dispatch_event(
     gbl_machine_time_preview *preview, const gbl_event *event)
 {
     gbl_timer_state *timer;
     gbl_time_status status;
 
+    if (event->kind == (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
+        size_t input_index = event->input_index;
+
+        if (!event->live || event->generation != preview->input_generation) {
+            return GBL_TIME_STATUS_OK;
+        }
+        if (input_index >= preview->input_event_count ||
+            input_index != preview->input_event_cursor ||
+            preview->input_events[input_index].cycle != event->cycle) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        preview->pressed_keys = (uint16_t)(
+            preview->input_events[input_index].pressed_mask &
+            GBL_KEYPAD_INPUT_MASK);
+        gbl_preview_evaluate_keypad(preview);
+        ++preview->input_event_cursor;
+        return gbl_preview_schedule_next_input(preview);
+    }
     if (event->kind != (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW ||
         event->timer_index >= GBL_TIMER_COUNT) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
@@ -226,12 +337,22 @@ static void gbl_machine_time_copy_preview(
     preview->interrupt_flags = machine->interrupt_flags;
     preview->interrupt_enable = machine->interrupt_enable;
     preview->interrupt_master_enable = machine->interrupt_master_enable;
+    preview->pressed_keys = machine->pressed_keys;
+    preview->key_control = machine->key_control;
+    preview->key_condition = machine->key_condition;
+    preview->key_irq_condition = machine->key_irq_condition;
     preview->event_count = machine->event_count;
     for (index = 0u; index < machine->event_count; ++index) {
         preview->events[index] = machine->events[index];
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         preview->timers[index] = machine->timers[index];
+    }
+    preview->input_generation = machine->input_generation;
+    preview->input_event_count = machine->input_event_count;
+    preview->input_event_cursor = machine->input_event_cursor;
+    for (index = 0u; index < machine->input_event_count; ++index) {
+        preview->input_events[index] = machine->input_events[index];
     }
 }
 
@@ -243,7 +364,9 @@ static gbl_time_status gbl_preview_advance_to(
     size_t index;
 
     if (preview == NULL || dispatched == NULL ||
-        preview->event_count > GBL_EVENT_CAPACITY) {
+        preview->event_count > GBL_EVENT_CAPACITY ||
+        preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        preview->input_event_cursor > preview->input_event_count) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     if (target < preview->master_cycles) {
@@ -270,13 +393,22 @@ static gbl_time_status gbl_preview_advance_to(
         }
         event = candidate.events[next_index];
         gbl_preview_remove_event(&candidate, next_index);
-        if (event.timer_index >= GBL_TIMER_COUNT ||
-            event.kind != (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) {
+        if (event.kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) {
+            if (event.timer_index >= GBL_TIMER_COUNT) {
+                return GBL_TIME_STATUS_INVALID_ARGUMENT;
+            }
+        } else if (event.kind != (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
             return GBL_TIME_STATUS_INVALID_ARGUMENT;
         }
-        if (event.cycle < candidate.master_cycles &&
-            event.generation == candidate.timers[event.timer_index].generation) {
-            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        if (event.cycle < candidate.master_cycles) {
+            const uint64_t generation =
+                event.kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW
+                    ? candidate.timers[event.timer_index].generation
+                    : candidate.input_generation;
+
+            if (event.generation == generation) {
+                return GBL_TIME_STATUS_INVALID_ARGUMENT;
+            }
         }
         if (event.cycle > candidate.master_cycles) {
             candidate.master_cycles = event.cycle;
@@ -301,7 +433,9 @@ gbl_time_status gbl_machine_prepare_time(
     size_t dispatched = 0u;
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
-        machine->event_count > GBL_EVENT_CAPACITY) {
+        machine->event_count > GBL_EVENT_CAPACITY ||
+        machine->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        machine->input_event_cursor > machine->input_event_count) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     gbl_machine_time_copy_preview(machine, &candidate);
@@ -328,6 +462,8 @@ static gbl_time_status gbl_preview_bus_write(
     uint16_t if_clear_mask = 0u;
     uint16_t interrupt_enable = preview->interrupt_enable;
     uint16_t interrupt_master_enable = preview->interrupt_master_enable;
+    uint16_t key_control = preview->key_control;
+    bool key_control_written = false;
     uint32_t lane;
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
@@ -377,6 +513,14 @@ static gbl_time_status gbl_preview_bus_write(
             interrupt_master_enable = (uint16_t)(
                 (interrupt_master_enable & UINT16_C(0x00FF)) |
                 (uint16_t)((uint16_t)byte_value << 8u));
+        } else if (lane_address == UINT32_C(0x04000132)) {
+            key_control = (uint16_t)((key_control & UINT16_C(0xFF00)) |
+                                     byte_value);
+            key_control_written = true;
+        } else if (lane_address == UINT32_C(0x04000133)) {
+            key_control = (uint16_t)((key_control & UINT16_C(0x00FF)) |
+                                     (uint16_t)((uint16_t)byte_value << 8u));
+            key_control_written = true;
         }
     }
     for (lane = 0u; lane < GBL_TIMER_COUNT; ++lane) {
@@ -397,6 +541,11 @@ static gbl_time_status gbl_preview_bus_write(
         (uint16_t)(interrupt_enable & UINT16_C(0x3FFF));
     preview->interrupt_master_enable =
         (uint16_t)(interrupt_master_enable & UINT16_C(0x0001));
+    if (key_control_written) {
+        preview->key_control =
+            (uint16_t)(key_control & GBL_KEYPAD_CONTROL_MASK);
+        gbl_preview_evaluate_keypad(preview);
+    }
     return GBL_TIME_STATUS_OK;
 }
 
@@ -411,6 +560,8 @@ gbl_time_status gbl_machine_prepare_operations(
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
         machine->event_count > GBL_EVENT_CAPACITY ||
+        machine->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        machine->input_event_cursor > machine->input_event_count ||
         operation_count > GBL_TIME_OPERATION_MAX ||
         (operation_count != 0u && operations == NULL)) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
@@ -462,7 +613,9 @@ void gbl_machine_commit_time(gbl_machine *machine,
     size_t index;
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
-        preview->event_count > GBL_EVENT_CAPACITY) {
+        preview->event_count > GBL_EVENT_CAPACITY ||
+        preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        preview->input_event_cursor > preview->input_event_count) {
         return;
     }
     machine->master_cycles = preview->master_cycles;
@@ -470,12 +623,22 @@ void gbl_machine_commit_time(gbl_machine *machine,
     machine->interrupt_flags = preview->interrupt_flags;
     machine->interrupt_enable = preview->interrupt_enable;
     machine->interrupt_master_enable = preview->interrupt_master_enable;
+    machine->pressed_keys = preview->pressed_keys;
+    machine->key_control = preview->key_control;
+    machine->key_condition = preview->key_condition;
+    machine->key_irq_condition = preview->key_irq_condition;
     machine->event_count = preview->event_count;
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine->events[index] = preview->events[index];
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         machine->timers[index] = preview->timers[index];
+    }
+    machine->input_generation = preview->input_generation;
+    machine->input_event_count = preview->input_event_count;
+    machine->input_event_cursor = preview->input_event_cursor;
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
+        machine->input_events[index] = preview->input_events[index];
     }
 }
 
@@ -490,6 +653,93 @@ gbl_time_status gbl_machine_advance_to(gbl_machine *machine,
         gbl_machine_commit_time(machine, &preview);
     }
     return status;
+}
+
+gbl_time_status gbl_machine_set_input_timeline(
+    gbl_machine *machine, const gbl_input_event *events, size_t count)
+{
+    gbl_machine_time_preview candidate;
+    uintptr_t events_start;
+    uintptr_t events_end;
+    uintptr_t machine_start;
+    uintptr_t machine_end;
+    size_t span_size;
+    size_t index;
+    gbl_time_status status;
+
+    if (machine == NULL || !machine->initialized ||
+        machine->event_count > GBL_EVENT_CAPACITY ||
+        machine->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        machine->input_event_cursor > machine->input_event_count) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    if (count > GBL_INPUT_EVENT_CAPACITY) {
+        return GBL_TIME_STATUS_INPUT_CAPACITY;
+    }
+    if (count != 0u && events == NULL) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    if (machine->input_generation == UINT64_MAX) {
+        return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
+    }
+
+    if (count != 0u) {
+        span_size = count * sizeof(*events);
+        events_start = (uintptr_t)events;
+        if ((uintptr_t)span_size > UINTPTR_MAX - events_start) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        events_end = events_start + (uintptr_t)span_size;
+        machine_start = (uintptr_t)machine;
+        if ((uintptr_t)sizeof(*machine) > UINTPTR_MAX - machine_start) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        machine_end = machine_start + (uintptr_t)sizeof(*machine);
+        if (events_start < machine_end && machine_start < events_end) {
+            return GBL_TIME_STATUS_INPUT_OVERLAP;
+        }
+        if (machine->rom != NULL && machine->rom_length != 0u) {
+            uintptr_t rom_start = (uintptr_t)machine->rom;
+            uintptr_t rom_end;
+
+            if ((uintptr_t)machine->rom_length > UINTPTR_MAX - rom_start) {
+                return GBL_TIME_STATUS_INVALID_ARGUMENT;
+            }
+            rom_end = rom_start + (uintptr_t)machine->rom_length;
+            if (events_start < rom_end && rom_start < events_end) {
+                return GBL_TIME_STATUS_INPUT_OVERLAP;
+            }
+        }
+        for (index = 0u; index < count; ++index) {
+            if ((events[index].pressed_mask &
+                 (uint16_t)~GBL_KEYPAD_INPUT_MASK) != 0u) {
+                return GBL_TIME_STATUS_INPUT_MASK;
+            }
+            if (events[index].cycle < machine->master_cycles ||
+                (index != 0u &&
+                 events[index].cycle < events[index - 1u].cycle)) {
+                return GBL_TIME_STATUS_BACKWARD;
+            }
+        }
+    }
+
+    gbl_machine_time_copy_preview(machine, &candidate);
+    gbl_preview_remove_input_event(&candidate);
+    ++candidate.input_generation;
+    candidate.input_event_count = count;
+    candidate.input_event_cursor = 0u;
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
+        candidate.input_events[index] = (gbl_input_event){ 0 };
+    }
+    for (index = 0u; index < count; ++index) {
+        candidate.input_events[index] = events[index];
+    }
+    status = gbl_preview_schedule_next_input(&candidate);
+    if (status != GBL_TIME_STATUS_OK) {
+        return status;
+    }
+    gbl_machine_commit_time(machine, &candidate);
+    return GBL_TIME_STATUS_OK;
 }
 
 uint8_t gbl_timer_read(const gbl_machine_time_preview *preview,
@@ -635,6 +885,10 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->interrupt_flags = 0u;
     machine->interrupt_enable = 0u;
     machine->interrupt_master_enable = 0u;
+    machine->pressed_keys = 0u;
+    machine->key_control = 0u;
+    machine->key_condition = false;
+    machine->key_irq_condition = false;
     machine->event_count = 0u;
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine->events[index] = (gbl_event){ 0 };
@@ -642,6 +896,12 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         machine->timers[index] = (gbl_timer_state){ 0 };
         machine->timers[index].divisor = 1u;
+    }
+    machine->input_generation = 0u;
+    machine->input_event_count = 0u;
+    machine->input_event_cursor = 0u;
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
+        machine->input_events[index] = (gbl_input_event){ 0 };
     }
     machine->cpu = (gbl_cpu_state){ 0 };
     machine->cpu.cpsr = UINT32_C(0x000000DF);

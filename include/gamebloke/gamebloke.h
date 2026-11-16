@@ -38,6 +38,7 @@ typedef enum gbl_bus_status {
 
 #define GBL_TIMER_COUNT 4u
 #define GBL_EVENT_CAPACITY 16u
+#define GBL_INPUT_EVENT_CAPACITY 256u
 #define GBL_MACHINE_MAX_EVENT_DISPATCH 4096u
 #define GBL_CPU_FETCH_SLOT_MAX 2u
 #define GBL_CPU_DATA_SLOT_MAX 16u
@@ -53,12 +54,21 @@ typedef enum gbl_time_status {
     GBL_TIME_STATUS_SEQUENCE_EXHAUSTED = 4,
     GBL_TIME_STATUS_GENERATION_EXHAUSTED = 5,
     GBL_TIME_STATUS_EVENT_CAPACITY = 6,
-    GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT = 7
+    GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT = 7,
+    GBL_TIME_STATUS_INPUT_CAPACITY = 8,
+    GBL_TIME_STATUS_INPUT_OVERLAP = 9,
+    GBL_TIME_STATUS_INPUT_MASK = 10
 } gbl_time_status;
 
 typedef enum gbl_event_kind {
-    GBL_EVENT_KIND_TIMER_OVERFLOW = 1
+    GBL_EVENT_KIND_TIMER_OVERFLOW = 1,
+    GBL_EVENT_KIND_KEYPAD_INPUT = 2
 } gbl_event_kind;
+
+typedef struct gbl_input_event {
+    uint64_t cycle;
+    uint16_t pressed_mask;
+} gbl_input_event;
 
 /* Deterministic machine events contain no callbacks or host-owned pointers.
  * The scheduler orders live entries by cycle, priority, then sequence. */
@@ -70,6 +80,7 @@ typedef struct gbl_event {
     uint8_t kind;
     uint8_t timer_index;
     bool live;
+    uint16_t input_index;
 } gbl_event;
 
 typedef struct gbl_timer_state {
@@ -92,9 +103,17 @@ typedef struct gbl_machine_time_preview {
     uint16_t interrupt_flags;
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
+    uint16_t pressed_keys;
+    uint16_t key_control;
+    bool key_condition;
+    bool key_irq_condition;
     size_t event_count;
     gbl_event events[GBL_EVENT_CAPACITY];
     gbl_timer_state timers[GBL_TIMER_COUNT];
+    uint64_t input_generation;
+    size_t input_event_count;
+    size_t input_event_cursor;
+    gbl_input_event input_events[GBL_INPUT_EVENT_CAPACITY];
 } gbl_machine_time_preview;
 
 typedef enum gbl_time_operation_kind {
@@ -126,7 +145,8 @@ typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_IO_MODE_SUBSET = 7,
     GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY = 8,
     GBL_BUS_OUTCOME_IO_TIMER_SUBSET = 9,
-    GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET = 10
+    GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET = 10,
+    GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET = 11
 } gbl_bus_outcome;
 
 typedef enum gbl_bus_access_class {
@@ -458,9 +478,17 @@ typedef struct gbl_machine {
     uint16_t interrupt_flags;
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
+    uint16_t pressed_keys;
+    uint16_t key_control;
+    bool key_condition;
+    bool key_irq_condition;
     size_t event_count;
     gbl_event events[GBL_EVENT_CAPACITY];
     gbl_timer_state timers[GBL_TIMER_COUNT];
+    uint64_t input_generation;
+    size_t input_event_count;
+    size_t input_event_cursor;
+    gbl_input_event input_events[GBL_INPUT_EVENT_CAPACITY];
     bool initialized;
     uint8_t ewram[GBL_EWRAM_SIZE];
     uint8_t iwram[GBL_IWRAM_SIZE];
@@ -517,6 +545,11 @@ gbl_bus_status gbl_machine_init(gbl_machine *machine,
                                 const gbl_allocator *allocator);
 void gbl_machine_reset(gbl_machine *machine);
 void gbl_machine_dispose(gbl_machine *machine);
+
+/* Install a copied, ordered logical keypad timeline. A zero-length timeline
+ * accepts NULL and cancels pending input while preserving current key state. */
+gbl_time_status gbl_machine_set_input_timeline(
+    gbl_machine *machine, const gbl_input_event *events, size_t count);
 
 /* Checked machine-owned time authority. prepare_time simulates through target
  * and leaves preview unchanged on refusal. commit_time applies a successful

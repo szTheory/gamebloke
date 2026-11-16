@@ -227,6 +227,12 @@ static bool gbl_bus_is_timer_byte(uint32_t address)
            address <= UINT32_C(0x0400010F);
 }
 
+static bool gbl_bus_is_keypad_byte(uint32_t address)
+{
+    return address >= UINT32_C(0x04000130) &&
+           address <= UINT32_C(0x04000133);
+}
+
 static bool gbl_bus_is_interrupt_byte(uint32_t address)
 {
     return (address >= UINT32_C(0x04000200) &&
@@ -286,6 +292,21 @@ static bool gbl_bus_read_lane(
         if (gbl_bus_is_timer_byte(address)) {
             *outcome = GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
             *value = gbl_timer_read(time_preview, address);
+            return true;
+        }
+        if (gbl_bus_is_keypad_byte(address)) {
+            uint16_t register_value;
+
+            *outcome = GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET;
+            if (address <= UINT32_C(0x04000131)) {
+                register_value = (uint16_t)(
+                    (uint16_t)~time_preview->pressed_keys &
+                    UINT16_C(0x03FF));
+            } else {
+                register_value = time_preview->key_control;
+            }
+            *value = (uint8_t)(register_value >>
+                               ((address & UINT32_C(1)) * 8u));
             return true;
         }
         if (gbl_bus_is_interrupt_byte(address)) {
@@ -382,6 +403,9 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
         }
         if (gbl_bus_is_timer_byte(address)) {
             return GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
+        }
+        if (gbl_bus_is_keypad_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET;
         }
         if (gbl_bus_is_interrupt_byte(address)) {
             return GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET;

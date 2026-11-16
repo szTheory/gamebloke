@@ -350,7 +350,8 @@ static bool event_equal(const gbl_event *left, const gbl_event *right)
            left->generation == right->generation &&
            left->priority == right->priority && left->kind == right->kind &&
            left->timer_index == right->timer_index &&
-           left->live == right->live;
+           left->live == right->live &&
+           left->input_index == right->input_index;
 }
 
 static bool timer_equal(const gbl_timer_state *left,
@@ -620,7 +621,7 @@ static int run_event_refusal(void)
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine->events[index] = (gbl_event){
             UINT64_MAX, index, 0u, 1u,
-            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 1u, true
+            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 1u, true, 0u
         };
     }
     take_time_snapshot(machine, &snapshot);
@@ -1095,6 +1096,11 @@ static int run_timer_devices(void)
 
 static int run_keypad_timeline(void)
 {
+    gbl_input_event events[] = {
+        { UINT64_C(0), 0u },
+        { UINT64_C(2), UINT16_C(0x0001) },
+        { UINT64_C(3), 0u }
+    };
     gbl_machine *machine = new_empty_machine();
     gbl_bus_result result;
 
@@ -1102,11 +1108,36 @@ static int run_keypad_timeline(void)
     if (machine == NULL) {
         return 1;
     }
+    CHECK(gbl_machine_set_input_timeline(machine, events, 3u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->input_event_count == 3u &&
+          machine->input_event_cursor == 0u && machine->event_count == 1u &&
+          machine->events[0].priority == 4u &&
+          machine->events[0].kind ==
+              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT);
+    events[0].pressed_mask = UINT16_C(0x0001);
 
     result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
-    CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(result.value == UINT32_C(0x03FF));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET);
+    CHECK(result.value == UINT32_C(0x03FF) &&
+          machine->master_cycles == UINT64_C(1) &&
+          machine->pressed_keys == 0u && machine->input_event_cursor == 1u);
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.value == UINT32_C(0x03FE) &&
+          machine->master_cycles == UINT64_C(2) &&
+          machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->input_event_cursor == 2u);
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.value == UINT32_C(0x03FF) &&
+          machine->master_cycles == UINT64_C(3) &&
+          machine->pressed_keys == 0u && machine->event_count == 0u &&
+          machine->input_event_cursor == 3u);
     free_machine(machine);
     {
         int status = CHECK_DONE();
@@ -1120,6 +1151,18 @@ static int run_keypad_timeline(void)
 
 static int run_keypad_condition(void)
 {
+    static const gbl_input_event events[] = {
+        { UINT64_C(2), UINT16_C(0x0001) },
+        { UINT64_C(3), UINT16_C(0x0001) },
+        { UINT64_C(4), 0u },
+        { UINT64_C(5), UINT16_C(0x0001) },
+        { UINT64_C(6), UINT16_C(0x0001) },
+        { UINT64_C(7), UINT16_C(0x0003) },
+        { UINT64_C(8), UINT16_C(0x0001) },
+        { UINT64_C(9), UINT16_C(0x0003) },
+        { UINT64_C(10), UINT16_C(0x0003) },
+        { UINT64_C(13), UINT16_C(0x0003) }
+    };
     gbl_machine *machine = new_empty_machine();
     gbl_bus_result result;
 
@@ -1128,11 +1171,98 @@ static int run_keypad_condition(void)
         return 1;
     }
 
+    CHECK(gbl_machine_set_input_timeline(
+              machine, events, sizeof(events) / sizeof(events[0])) ==
+          GBL_TIME_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET &&
+          machine->key_control == UINT16_C(0x4001) &&
+          machine->interrupt_flags == 0u);
     result = gbl_bus_read(machine, UINT32_C(0x04000132), 2u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
-    CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(result.outcome != GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
-    CHECK(result.value == 0u);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET &&
+          result.value == UINT32_C(0x4001));
+
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(2)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->key_condition && machine->key_irq_condition &&
+          machine->interrupt_flags == UINT16_C(0x1000));
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1000));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(3) &&
+          machine->interrupt_flags == 0u && machine->key_irq_condition);
+
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(4)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->pressed_keys == 0u && !machine->key_condition &&
+          !machine->key_irq_condition && machine->interrupt_flags == 0u);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(5)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->key_condition && machine->key_irq_condition &&
+          machine->interrupt_flags == UINT16_C(0x1000));
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1000));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(6) &&
+          machine->interrupt_flags == 0u && machine->key_irq_condition);
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(7) &&
+          machine->pressed_keys == UINT16_C(0x0003) &&
+          !machine->key_irq_condition && machine->interrupt_flags == 0u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xC003));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(8) &&
+          machine->pressed_keys == UINT16_C(0x0001) &&
+          !machine->key_condition && !machine->key_irq_condition &&
+          machine->interrupt_flags == 0u);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(9)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->pressed_keys == UINT16_C(0x0003) &&
+          machine->key_condition && machine->key_irq_condition &&
+          machine->interrupt_flags == UINT16_C(0x1000));
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1000));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(10) &&
+          machine->interrupt_flags == 0u && machine->key_irq_condition);
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(11) &&
+          !machine->key_condition && !machine->key_irq_condition &&
+          machine->interrupt_flags == 0u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xC003));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(12) &&
+          machine->key_condition && machine->key_irq_condition &&
+          machine->interrupt_flags == UINT16_C(0x1000));
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1000));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(13) &&
+          machine->interrupt_flags == 0u && machine->key_irq_condition);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xC000));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          !machine->key_condition && !machine->key_irq_condition &&
+          machine->interrupt_flags == 0u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4000));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          !machine->key_condition && !machine->key_irq_condition &&
+          machine->interrupt_flags == 0u);
     free_machine(machine);
     {
         int status = CHECK_DONE();

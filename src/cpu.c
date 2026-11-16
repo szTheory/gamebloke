@@ -3874,6 +3874,13 @@ static bool gbl_cpu_time_preview_matches_machine(
         machine->interrupt_enable != preview->interrupt_enable ||
         machine->interrupt_master_enable !=
             preview->interrupt_master_enable ||
+        machine->pressed_keys != preview->pressed_keys ||
+        machine->key_control != preview->key_control ||
+        machine->key_condition != preview->key_condition ||
+        machine->key_irq_condition != preview->key_irq_condition ||
+        machine->input_generation != preview->input_generation ||
+        machine->input_event_count != preview->input_event_count ||
+        machine->input_event_cursor != preview->input_event_cursor ||
         machine->event_count != preview->event_count) {
         return false;
     }
@@ -3887,7 +3894,8 @@ static bool gbl_cpu_time_preview_matches_machine(
             actual->priority != expected->priority ||
             actual->kind != expected->kind ||
             actual->timer_index != expected->timer_index ||
-            actual->live != expected->live) {
+            actual->live != expected->live ||
+            actual->input_index != expected->input_index) {
             return false;
         }
     }
@@ -3904,6 +3912,15 @@ static bool gbl_cpu_time_preview_matches_machine(
             actual->enabled != expected->enabled ||
             actual->irq_enabled != expected->irq_enabled ||
             actual->cascade != expected->cascade) {
+            return false;
+        }
+    }
+    for (index = 0u; index < machine->input_event_count; ++index) {
+        const gbl_input_event *actual = &machine->input_events[index];
+        const gbl_input_event *expected = &preview->input_events[index];
+
+        if (actual->cycle != expected->cycle ||
+            actual->pressed_mask != expected->pressed_mask) {
             return false;
         }
     }
