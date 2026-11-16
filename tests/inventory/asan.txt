@@ -856,3 +856,4 @@ runner.usage_error runner,unit
 runner.version runner,unit
 sanitizer.asan.heap_overflow control,sanitizer
 sanitizer.ubsan.shift32 control,sanitizer
+timer0.guest.tracer core,integration,timer

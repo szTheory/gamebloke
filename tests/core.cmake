@@ -82,6 +82,13 @@ gbl_add_test(
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> video)
 
+add_executable(timer_test tests/timer_test.c)
+target_link_libraries(timer_test PRIVATE gamebloke_core gbl_warnings)
+gbl_add_test(
+  NAME timer0.guest.tracer
+  LABELS timer core integration
+  COMMAND $<TARGET_FILE:timer_test> tracer)
+
 add_executable(cpu_test tests/cpu_test.c)
 target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(

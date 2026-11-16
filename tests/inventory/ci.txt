@@ -1109,6 +1109,7 @@ signature.pos.digests_copy positive,signature
 signature.pos.owner_file_match positive,signature
 signature.signal signature,unit
 signature.tree gate,signature
+timer0.guest.tracer core,integration,timer
 traps.nc.exit_idiom control,traps
 traps.nc.no_files control,traps
 traps.nc.no_handler control,traps
