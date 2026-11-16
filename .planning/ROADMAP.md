@@ -23,7 +23,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 
 ## Phases
 
-- [ ] **Phase 7: Time Authority and Timer 0 Polling Proof** - One machine-time path, explicit cycle-accounting scope, four timers, and a BIOS-free polling guest with cheap boundary controls.
+- [x] **Phase 7: Time Authority and Timer 0 Polling Proof** - One machine-time path, explicit cycle-accounting scope, four timers, and a BIOS-free polling guest with cheap boundary controls. (completed 2026-11-16)
 - [ ] **Phase 8: IRQ, HALT, and Timestamped Input** - Device requests, CPU interrupt acceptance, HALT wake, and logical keypad events remain separately observable.
 - [ ] **Phase 9: Bus Timing, DMA, and Arbitration** - WAITCNT and declared prefetch scope feed timed DMA arbitration while the CPU pauses and devices continue.
 - [ ] **Phase 10: PPU Timing and First Pixels** - PPU status/trigger boundaries and raw mode-3 output support the original polling Playable 0 scenario.
@@ -114,7 +114,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. Time Authority and Timer 0 Polling Proof | 7/7 | In Progress | - |
+| 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
 | 8. IRQ, HALT, and Timestamped Input | 0/TBD | Not started | - |
 | 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
