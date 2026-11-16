@@ -188,6 +188,17 @@ static void seed_nondefault_cpu_state(gbl_cpu_state *cpu)
     };
 }
 
+static bool run_result_components_match(const gbl_machine *machine,
+                                        uint64_t start_cycle,
+                                        const gbl_run_result *result)
+{
+    return machine != NULL && result != NULL &&
+           machine->master_cycles >= start_cycle &&
+           result->bus_cycles <= UINT64_MAX - result->internal_cycles &&
+           result->cycles == result->bus_cycles + result->internal_cycles &&
+           result->cycles == machine->master_cycles - start_cycle;
+}
+
 static bool run_units(gbl_machine *machine, uint64_t cycles, uint64_t units,
                       gbl_run_result *result)
 {
@@ -198,7 +209,11 @@ static bool run_units(gbl_machine *machine, uint64_t cycles, uint64_t units,
         .trace_buffer = NULL
     };
 
-    return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
+    const uint64_t start_cycle = machine == NULL ? 0u : machine->master_cycles;
+    const gbl_run_status status = gbl_cpu_run(machine, &options, result);
+
+    return status == GBL_RUN_STATUS_OK &&
+           run_result_components_match(machine, start_cycle, result);
 }
 
 static bool run_traced_units(gbl_machine *machine, uint64_t cycles,
@@ -213,7 +228,11 @@ static bool run_traced_units(gbl_machine *machine, uint64_t cycles,
         .trace_buffer = trace
     };
 
-    return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
+    const uint64_t start_cycle = machine == NULL ? 0u : machine->master_cycles;
+    const gbl_run_status status = gbl_cpu_run(machine, &options, result);
+
+    return status == GBL_RUN_STATUS_OK &&
+           run_result_components_match(machine, start_cycle, result);
 }
 
 static void prepare_arm_instruction(gbl_machine *machine, uint32_t opcode,
@@ -246,15 +265,10 @@ static bool run_arm_instruction_with_trace(
     gbl_machine *machine, uint32_t opcode, uint32_t cpsr,
     uint64_t cycle_budget, gbl_trace_buffer *trace, gbl_run_result *result)
 {
-    const gbl_run_options options = {
-        .cycle_budget = cycle_budget,
-        .unit_limit = 1u,
-        .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
-        .trace_buffer = trace
-    };
-
     prepare_arm_instruction(machine, opcode, cpsr);
-    return gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
+    return run_traced_units(
+        machine, cycle_budget, 1u,
+        GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, trace, result);
 }
 
 static uint32_t encode_arm_transfer(bool register_offset, bool preindexed,
@@ -552,7 +566,7 @@ static void test_lifecycle(void)
     {
         const gbl_machine before = machine;
         const gbl_run_result output_before = {
-            GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u
+            GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u, 99u, 111u
         };
         const gbl_run_options options = {
             .cycle_budget = 1u,
@@ -620,7 +634,7 @@ static void test_lifecycle(void)
             .trace_buffer = NULL
         };
         const gbl_run_result output_before = {
-            GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u
+            GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT, 77u, 88u, 99u, 111u
         };
         const bool initialized = machine_initialize(&no_rom,
                                                     &no_rom_allocator_state);
@@ -652,7 +666,7 @@ static void test_lifecycle(void)
         gbl_machine first = { 0 };
         gbl_machine second = { 0 };
         gbl_run_result first_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool first_loaded;
         bool second_loaded;
@@ -682,7 +696,7 @@ static void test_tracer(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran;
 
@@ -1372,7 +1386,7 @@ static void test_budget(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
 
     make_program(image);
@@ -1543,7 +1557,7 @@ static void test_arm_adc_carry_in(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran = false;
 
@@ -1645,7 +1659,7 @@ static void test_arm_alu_vectors(void)
         const arm_alu_test_vector *vector = &vectors[index];
         const uint32_t sentinel = UINT32_C(0x13579BDF);
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool ran = false;
         bool registers_match;
@@ -1687,7 +1701,7 @@ static void test_arm_alu_without_s_preserves_flags(void)
                                    TEST_CPSR_V;
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran = false;
 
@@ -1766,7 +1780,7 @@ static void test_multiply_unsigned(void)
     for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
         const arm_multiply_unsigned_test_vector *vector = &vectors[index];
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool ran = false;
 
@@ -1782,6 +1796,8 @@ static void test_multiply_unsigned(void)
                       result.termination == GBL_RUN_PROGRESS &&
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                       result.instructions == 1u && result.cycles >= 1u &&
+                      result.bus_cycles == UINT64_C(1) &&
+                      result.internal_cycles + UINT64_C(1) == result.cycles &&
                       machine.cpu.r0_7[1] == vector->r1 &&
                       machine.cpu.r0_7[3] == vector->r3 &&
                       machine.cpu.r0_7[2] == vector->expected_r2 &&
@@ -1796,7 +1812,7 @@ static void test_arm_register_shifted_pc_operand_uses_plus_twelve(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool shifted_rm_plus_twelve = false;
     bool shifted_rn_plus_twelve = false;
@@ -1974,7 +1990,7 @@ static void test_arm_operand2_shift_vectors(void)
         const uint64_t cycles_before = machine.master_cycles;
         const uint64_t retired_before = machine.cpu.retired_instructions;
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool ran = false;
 
@@ -1991,6 +2007,8 @@ static void test_arm_operand2_shift_vectors(void)
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                       result.instructions == 1u &&
                       result.cycles == vector->expected_cycles &&
+                      result.bus_cycles == UINT64_C(1) &&
+                      result.internal_cycles == vector->expected_cycles - 1u &&
                       machine.master_cycles ==
                           cycles_before + vector->expected_cycles &&
                       machine.cpu.retired_instructions == retired_before + 1u &&
@@ -2025,7 +2043,7 @@ static void arm_condition_case(gbl_machine *machine, bool loaded,
     const uint64_t retired_before = machine->cpu.retired_instructions;
     const uint32_t opcode = ((uint32_t)condition << 28u) |
                             UINT32_C(0x01A02001);
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool ran = false;
 
     machine->cpu.r0_7[0] = UINT32_C(0x11223344);
@@ -2136,10 +2154,10 @@ static bool arm_condition_failed_decode_pair(uint32_t opcode)
         candidate_records, 3u, 1u, initial_sequence
     };
     gbl_run_result reference_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_run_result candidate_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     const uint32_t flags = TEST_CPSR_SYSTEM | TEST_CPSR_N | TEST_CPSR_C |
                            TEST_CPSR_V;
@@ -2274,7 +2292,7 @@ static bool arm_condition_passing_stop(uint32_t opcode, uint32_t flags,
     gbl_machine expected;
     gbl_trace_record records[3] = { { 0 } };
     gbl_trace_buffer trace = { records, 2u, 1u, UINT64_C(900) };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran = false;
     size_t index;
@@ -2369,7 +2387,7 @@ static void test_arm_condition_1111_is_unpredictable(void)
     gbl_trace_buffer trace;
     gbl_trace_buffer trace_before;
     gbl_run_options options;
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     gbl_run_status status = GBL_RUN_STATUS_INVALID_ARGUMENT;
 
@@ -2442,7 +2460,7 @@ static void test_arm_register_shift_cycle_preflight(void)
     gbl_trace_buffer trace;
     gbl_trace_buffer trace_before;
     gbl_run_options options;
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     gbl_run_status status = GBL_RUN_STATUS_INVALID_ARGUMENT;
 
@@ -2501,7 +2519,7 @@ static void test_arm_register_shift_cycle_preflight(void)
 
         options.cycle_budget = 2u;
         result = (gbl_run_result){
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         status = gbl_cpu_run(&machine, &options, &result);
         test_case(status == GBL_RUN_STATUS_OK &&
@@ -6147,6 +6165,8 @@ static bool arm_loaded_pc_uses_actual_bus_result(
               result.termination == GBL_RUN_PROGRESS &&
               result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
               result.instructions == 1u && result.cycles == UINT64_C(3) &&
+              result.bus_cycles == UINT64_C(3) &&
+              result.internal_cycles == 0u &&
               trace.count == 4u && records[2].address == target &&
               records[3].address == target + UINT32_C(4) &&
               machine.cpu.execution_address == target &&
@@ -6384,7 +6404,7 @@ static void test_arm_pc_operand_contexts(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran;
 
@@ -6439,7 +6459,7 @@ static void test_thumb_pc_operand_contexts(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool normal_pc;
     bool aligned_address;
@@ -6481,7 +6501,7 @@ static void test_pc_return_condition_and_refusal(void)
     gbl_machine machine = { 0 };
     gbl_machine before;
     gbl_machine expected;
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool condition_failed;
     bool absent_spsr;
@@ -6535,7 +6555,7 @@ static void test_arm_pc_return(void)
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
     gbl_machine before;
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     gbl_trace_record records[4];
     gbl_trace_record records_before[4];
     gbl_trace_buffer trace;
@@ -6677,7 +6697,7 @@ static uint32_t encode_arm_msr_immediate(bool saved, uint8_t fields,
 
 static bool prime_psr_program(gbl_machine *machine, uint8_t image[])
 {
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded = machine_load(machine, image);
 
     if (loaded) {
@@ -6700,7 +6720,7 @@ static void test_psr_mrs_forms(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_N | TEST_CPSR_C;
     const uint32_t saved_cpsr = TEST_CPSR_USER | UINT32_C(0x20) | TEST_CPSR_Z;
     bool primed;
@@ -6740,7 +6760,7 @@ static void test_psr_register_field_masks(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_V;
         const uint32_t write_mask = fields[index] == 1u
@@ -6787,7 +6807,7 @@ static void test_psr_immediate_field_masks(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         const uint32_t initial_cpsr = TEST_CPSR_SVC | TEST_CPSR_N;
         const uint32_t write_mask = fields[index] == 1u
@@ -6849,7 +6869,7 @@ static void test_psr_saved_register_and_immediate_effects(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         uint32_t other_banks[5];
         bool primed;
@@ -6928,7 +6948,7 @@ static void test_psr_zero_field_masks(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         const uint32_t active_cpsr = TEST_CPSR_SVC | TEST_CPSR_N |
                                      UINT32_C(0x00000080);
@@ -6993,7 +7013,7 @@ static void test_psr_composed_field_masks(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         uint32_t expected_saved[5];
         const bool saved_target = (index & 2u) != 0u;
@@ -7044,7 +7064,7 @@ static void test_psr_mode_reads_and_banks(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         const uint32_t status = modes[index] | TEST_CPSR_Z;
         bool loaded;
@@ -7065,7 +7085,7 @@ static void test_psr_mode_reads_and_banks(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         const uint32_t saved = modes[index] |
                                ((index & 1u) != 0u ? TEST_CPSR_N : 0u) |
@@ -7095,7 +7115,7 @@ static void test_psr_mode_reads_and_banks(void)
         uint8_t image[TEST_IMAGE_SIZE];
         gbl_machine machine = { 0 };
         cpu_test_allocator_state allocator_state = { 0 };
-        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
         bool allocation_was_live;
         bool failed_allocation_was_untracked = false;
         bool allocation_was_released;
@@ -7160,7 +7180,7 @@ static void test_psr_privilege_and_saved_state(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool user_flags;
     bool saved_t;
     bool condition_failed;
@@ -7266,7 +7286,7 @@ static void test_psr_unpredictable_refusals(void)
         gbl_machine machine = { 0 };
         gbl_machine before;
         gbl_machine expected;
-        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
         gbl_trace_record records[2];
         gbl_trace_record records_before[2];
         gbl_trace_buffer trace;
@@ -7323,7 +7343,7 @@ static void test_arithmetic(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran;
 
@@ -8083,7 +8103,7 @@ static void test_thumb(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran;
 
@@ -8188,7 +8208,7 @@ static void test_decode(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran;
 
@@ -10105,7 +10125,7 @@ static void test_alignment(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran;
 
@@ -10271,10 +10291,10 @@ static void test_alignment(void)
             .trace_buffer = NULL
         };
         gbl_run_result short_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         gbl_run_result exact_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         const bool one_short = gbl_cpu_run(&machine, &short_options,
                                            &short_result) ==
@@ -10337,10 +10357,10 @@ static void test_guest_mailbox_and_peek(void)
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
     gbl_run_result partial_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_run_result final_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_mailbox_result pending;
     gbl_mailbox_result passed;
@@ -10486,7 +10506,7 @@ static void test_guest_mailbox_and_peek(void)
     {
         gbl_machine failure = { 0 };
         gbl_run_result failure_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool failure_loaded;
         bool failure_ran;
@@ -10640,7 +10660,7 @@ static bool prepare_swp_machine(gbl_machine *machine, uint32_t opcode,
 {
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_run_result refill_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     size_t index;
 
@@ -10726,7 +10746,7 @@ static bool word_swp_refusal_unchanged(uint64_t cycle_budget,
     gbl_trace_record records[5];
     gbl_trace_record prior_records[5];
     gbl_trace_buffer trace = { records, trace_capacity, 1u, next_sequence };
-    gbl_run_result result = { GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u };
+    gbl_run_result result = { GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u, 0u, 0u };
     const gbl_run_options options = {
         .cycle_budget = cycle_budget,
         .unit_limit = 1u,
@@ -10790,7 +10810,7 @@ static void test_word_swp_read_write_trace(void)
     gbl_trace_buffer trace = {
         records, 5u, 1u, UINT64_MAX - UINT64_C(4)
     };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     size_t index;
     bool prepared;
     bool ran;
@@ -10886,10 +10906,10 @@ static bool swp_alias_parity_case(uint32_t opcode, uint32_t address,
     gbl_trace_record records[5] = { { 0 } };
     gbl_trace_buffer trace = { records, 5u, 0u, UINT64_C(100) };
     gbl_run_result traced_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_run_result plain_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     const bool traced_loaded = prepare_swp_machine(&traced, opcode, address);
     const bool plain_loaded = prepare_swp_machine(&plain, opcode, address);
@@ -10947,7 +10967,7 @@ static bool word_swp_lane_case(uint32_t address, uint32_t expected_rd)
     gbl_machine machine = { 0 };
     gbl_trace_record records[5] = { { 0 } };
     gbl_trace_buffer trace = { records, 5u, 0u, 0u };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     const bool prepared = prepare_word_swp_machine(&machine, address);
     const bool ran = prepared && run_traced_units(
         &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
@@ -11016,7 +11036,7 @@ static void test_swpb_read_write_trace(void)
     gbl_machine machine = { 0 };
     gbl_trace_record records[5] = { { 0 } };
     gbl_trace_buffer trace = { records, 5u, 1u, UINT64_C(70) };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     const bool prepared = prepare_swp_machine(
         &machine, UINT32_C(0xE1401092), TEST_SWP_ADDRESS);
     const bool ran = prepared && run_traced_units(
@@ -11070,7 +11090,7 @@ static bool swpb_alias_case(uint32_t opcode, uint32_t expected_r0,
     };
     const gbl_trace_record before_prefix = word_swp_trace_sentinel;
     gbl_trace_buffer trace = { records, 5u, 1u, UINT64_C(70) };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     const bool prepared = prepare_swp_machine(&machine, opcode,
                                                TEST_SWP_ADDRESS);
     const bool ran = prepared && run_traced_units(
@@ -11145,7 +11165,7 @@ static void test_swp_pc_restrictions(void)
     for (index = 0u; index < sizeof(opcodes) / sizeof(opcodes[0]); ++index) {
         gbl_machine machine = { 0 };
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool prepared = prepare_swp_machine(&machine, opcodes[index],
                                             TEST_SWP_ADDRESS);
@@ -11190,7 +11210,7 @@ static bool swp_refusal_unchanged(uint64_t cycle_budget,
     gbl_trace_record records[5];
     gbl_trace_record prior_records[5];
     gbl_trace_buffer trace = { records, trace_capacity, 1u, next_sequence };
-    gbl_run_result result = { GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u };
+    gbl_run_result result = { GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u, 0u, 0u };
     const gbl_run_options options = {
         .cycle_budget = cycle_budget,
         .unit_limit = 1u,
@@ -11244,10 +11264,10 @@ static void test_swp_selected_trace_boundaries(void)
         records, 4u, 1u, UINT64_MAX - UINT64_C(3)
     };
     gbl_run_result traced_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_run_result plain_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     const bool traced_loaded =
         prepare_word_swp_machine(&traced, TEST_SWP_ADDRESS);
@@ -11322,7 +11342,7 @@ static void test_swp_counter_headroom(void)
         word_swp_trace_sentinel, { 0 }, { 0 }, { 0 }
     };
     gbl_trace_buffer trace = { records, 4u, 1u, UINT64_C(30) };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     const bool prepared = prepare_word_swp_machine(&machine, TEST_SWP_ADDRESS);
     bool exact = false;
 
@@ -11341,6 +11361,7 @@ static void test_swp_counter_headroom(void)
                 result.termination == GBL_RUN_PROGRESS &&
                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                 result.cycles == 3u && result.instructions == 1u &&
+                result.bus_cycles == 3u && result.internal_cycles == 0u &&
                 machine.master_cycles == UINT64_MAX &&
                 machine.cpu.retired_instructions == UINT64_MAX &&
                 machine.cpu.r0_7[1] == UINT32_C(0x11443322) &&
@@ -11475,7 +11496,7 @@ static void test_multiply_signed_vectors(void)
     for (index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
         const arm_multiply_signed_test_vector *vector = &vectors[index];
         gbl_run_result result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool ran = false;
 
@@ -11487,14 +11508,24 @@ static void test_multiply_signed_vectors(void)
             ran = run_arm_instruction(&machine, vector->opcode,
                                       vector->initial_flags, 16u, &result);
         }
-        test_case(loaded && ran &&
-                      result.termination == GBL_RUN_PROGRESS &&
-                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                      result.instructions == 1u &&
-                      machine.cpu.r0_7[2] == vector->expected_low &&
-                      machine.cpu.r0_7[4] == vector->expected_high &&
-                      (machine.cpu.cpsr & nzcv) == vector->expected_flags,
-                  vector->description);
+        {
+            const uint64_t expected_internal =
+                (vector->opcode & (UINT32_C(1) << 21u)) != 0u
+                    ? UINT64_C(3)
+                    : UINT64_C(2);
+
+            test_case(loaded && ran &&
+                          result.termination == GBL_RUN_PROGRESS &&
+                          result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                          result.instructions == 1u &&
+                          result.bus_cycles == UINT64_C(1) &&
+                          result.internal_cycles == expected_internal &&
+                          result.cycles == UINT64_C(1) + expected_internal &&
+                          machine.cpu.r0_7[2] == vector->expected_low &&
+                          machine.cpu.r0_7[4] == vector->expected_high &&
+                          (machine.cpu.cpsr & nzcv) == vector->expected_flags,
+                      vector->description);
+        }
     }
     gbl_machine_dispose(&machine);
 }
@@ -11506,7 +11537,7 @@ static bool multiply_unpredictable_refused(uint32_t opcode)
     gbl_trace_record prior_records[3];
     gbl_trace_buffer trace = { records, 3u, 1u, UINT64_C(17) };
     gbl_run_result result = {
-        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u
+        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u, 0u, 0u
     };
     const gbl_run_options options = {
         .cycle_budget = UINT64_C(16),
@@ -11558,7 +11589,7 @@ static void test_multiply_operand_restrictions(void)
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
     gbl_run_result result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     bool loaded;
     bool ran = false;
@@ -11640,7 +11671,7 @@ static void test_multiply_timing_table(void)
             const uint64_t retired_before =
                 machine.cpu.retired_instructions;
             gbl_run_result result = {
-                GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+                GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
             };
             char description[112];
             bool ran = false;
@@ -11692,7 +11723,7 @@ static bool multiply_refusal_unchanged(uint64_t cycle_budget,
     gbl_trace_record prior_records[3];
     gbl_trace_buffer trace = { records, trace_capacity, 1u, next_sequence };
     gbl_run_result result = {
-        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u
+        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, 73u, 91u, 0u, 0u
     };
     const gbl_run_options options = {
         .cycle_budget = cycle_budget,
@@ -11746,7 +11777,7 @@ static bool multiply_exact_headroom(void)
         records, 3u, 1u, UINT64_MAX - UINT64_C(2)
     };
     gbl_run_result result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     const gbl_run_options options = {
         .cycle_budget = cost,
@@ -11973,10 +12004,11 @@ static void test_trace_store_capacity(void)
     gbl_machine short_machine = { 0 };
     gbl_machine exact_machine = { 0 };
     gbl_run_result short_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, UINT64_C(0xA5), UINT64_C(0x5A)
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, UINT64_C(0xA5),
+        UINT64_C(0x5A), UINT64_C(0xB6), UINT64_C(0xC7)
     };
     gbl_run_result exact_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     bool short_loaded;
     bool exact_loaded;
@@ -12097,7 +12129,8 @@ static void prime_trace_arm_instruction(gbl_machine *machine,
 static gbl_run_result trace_result_sentinel(void)
 {
     const gbl_run_result sentinel = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, UINT64_C(0xA5), UINT64_C(0x5A)
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, UINT64_C(0xA5),
+        UINT64_C(0x5A), UINT64_C(0xB6), UINT64_C(0xC7)
     };
 
     return sentinel;
@@ -12123,7 +12156,7 @@ static void test_trace_refill_capacity(void)
     gbl_trace_record records[2] = { prior, { 0 } };
     gbl_trace_buffer trace = { records, 1u, 0u, UINT64_C(91) };
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
 
     make_empty_image(image);
@@ -12220,7 +12253,7 @@ static void test_trace_category_masks(void)
         gbl_trace_record records[3] = { { 0 } };
         gbl_trace_buffer trace = { records, 3u, 0u, 0u };
         gbl_machine machine = { 0 };
-        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+        gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
         gbl_trace_buffer *trace_pointer =
             cases[case_index].mask == 0u ? NULL : &trace;
         bool loaded;
@@ -12272,7 +12305,7 @@ static void test_trace_control_flow(void)
     gbl_trace_buffer trace = { records, 3u, 0u, 0u };
     gbl_machine branch_machine = { 0 };
     gbl_run_result branch_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     bool branch_loaded;
     bool branch_ran;
@@ -12324,7 +12357,7 @@ static void test_trace_control_flow(void)
         gbl_trace_buffer bx_trace = { bx_records, 3u, 0u, 0u };
         gbl_machine bx_machine = { 0 };
         gbl_run_result bx_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool bx_loaded;
         bool bx_ran;
@@ -12378,7 +12411,7 @@ static void test_trace_control_flow(void)
         gbl_trace_buffer load_trace = { load_records, 3u, 0u, 0u };
         gbl_machine load_machine = { 0 };
         gbl_run_result load_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool load_loaded;
         bool load_ran;
@@ -12439,7 +12472,7 @@ static void test_trace_exception_order(void)
     gbl_trace_record records[2] = { { 0 } };
     gbl_trace_buffer trace = { records, 2u, 0u, 0u };
     gbl_machine machine = { 0 };
-    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u };
+    gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u };
     bool loaded;
     bool ran;
 
@@ -12478,11 +12511,11 @@ static void test_trace_after_mailbox_pass(void)
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
     gbl_run_result completed = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_trace_buffer trace = { NULL, 0u, 0u, 0u };
     gbl_run_result exhausted = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_mailbox_result mailbox;
     bool loaded;
@@ -12672,7 +12705,7 @@ static void test_trace_sequence_and_untraced_parity(void)
     gbl_trace_buffer trace = { records, 2u, 0u, UINT64_MAX };
     gbl_machine exhausted_machine = { 0 };
     gbl_run_result exhausted = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     bool loaded;
 
@@ -12708,10 +12741,10 @@ static void test_trace_sequence_and_untraced_parity(void)
         gbl_machine plain = { 0 };
         gbl_trace_buffer ignored = { NULL, 0u, 0u, UINT64_MAX };
         gbl_run_result traced_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         gbl_run_result plain_result = {
-            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+            GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
         };
         bool traced_loaded;
         bool plain_loaded;
@@ -12749,10 +12782,10 @@ static void test_trace_unit_limit(void)
     gbl_machine traced = { 0 };
     gbl_machine plain = { 0 };
     gbl_run_result traced_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     gbl_run_result plain_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u
+        GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u
     };
     bool traced_loaded;
     bool plain_loaded;
@@ -13406,7 +13439,7 @@ static bool unit_boundary_run(const unit_boundary_case *spec,
         gbl_run_result result;
         uint64_t right;
     } output = { UINT64_C(0x1020304050607080),
-        { GBL_RUN_STOPPED, GBL_RUN_REASON_NONE, 91u, 73u },
+        { GBL_RUN_STOPPED, GBL_RUN_REASON_NONE, 91u, 73u, 79u, 83u },
         UINT64_C(0x8877665544332211) };
     const bool exact = boundary == 0u || boundary == 6u;
     bool valid;
@@ -13501,7 +13534,9 @@ static bool unit_boundary_run(const unit_boundary_case *spec,
 
         valid = valid && output.result.reason == reason &&
             output.result.termination == termination && output.result.cycles == 0u &&
-            output.result.instructions == 0u && trace.count == 1u &&
+            output.result.instructions == 0u &&
+            output.result.bus_cycles == 0u &&
+            output.result.internal_cycles == 0u && trace.count == 1u &&
             trace.next_sequence == sequence &&
             gbl_test_trace_equal(records, prior, 23u) &&
             gbl_test_canonical_equal(before, &machine) &&
@@ -13517,6 +13552,12 @@ static bool unit_boundary_run(const unit_boundary_case *spec,
         valid = valid && output.result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
             output.result.termination == GBL_RUN_PROGRESS &&
             output.result.cycles == spec->cost && output.result.instructions == 1u &&
+            output.result.bus_cycles ==
+                (uint64_t)spec->transfers +
+                    (spec->swap ? UINT64_C(2) : UINT64_C(1)) +
+                    (pc_load ? UINT64_C(2) : UINT64_C(0)) &&
+            output.result.internal_cycles ==
+                (spec->load ? UINT64_C(1) : UINT64_C(0)) &&
             machine.master_cycles == start_cycles + spec->cost &&
             machine.cpu.retired_instructions == retired + 1u &&
             machine.cpu.execution_address == next &&
@@ -13614,7 +13655,8 @@ static bool cpu_timer_refusal_is_atomic(uint32_t opcode,
         records, trace_refusal ? 1u : 8u, 1u, UINT64_C(700)
     };
     gbl_run_result result = {
-        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, UINT64_C(71), UINT64_C(73)
+        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, UINT64_C(71), UINT64_C(73),
+        UINT64_C(79), UINT64_C(83)
     };
     uint64_t start_cycles = UINT64_MAX - UINT64_C(8);
     size_t index;
@@ -13842,11 +13884,19 @@ static void test_time_preflight_unit_boundaries(void)
 
 static void test_cycle_attribution_api(void)
 {
-#ifdef GBL_CYCLE_ATTRIBUTION_API
-    test_case(true, "CPU result exposes cycle attribution");
-#else
-    test_case(false, "CPU result exposes cycle attribution");
-#endif
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    const bool prepared = prepare_arm_multiply_machine(
+        &machine, UINT32_C(0xE0000293));
+    const bool ran = prepared && run_units(&machine, 2u, 1u, &result);
+    const bool valid = ran && result.termination == GBL_RUN_PROGRESS &&
+                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                       result.cycles == 2u && result.bus_cycles == 1u &&
+                       result.internal_cycles == 1u;
+
+    test_case(valid,
+              "CPU result separates one quoted fetch cycle from one internal multiply cycle");
+    gbl_machine_dispose(&machine);
 }
 
 static void test_timer_write_and_trace_refusals(void)

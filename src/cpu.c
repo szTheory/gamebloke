@@ -119,6 +119,9 @@ typedef struct gbl_cpu_unit {
     gbl_cpu_register_effect register_effects[GBL_CPU_REGISTER_EFFECT_MAX];
     gbl_cpu_status_effect status_effects[GBL_CPU_STATUS_EFFECT_MAX];
     uint64_t cycle_cost;
+    uint64_t bus_cycle_cost;
+    uint64_t internal_cycle_cost;
+    uint64_t post_data_pipeline_cost;
 } gbl_cpu_unit;
 
 _Static_assert(GBL_CPU_TRACE_UNIT_RECORD_MAX == 19u,
@@ -134,43 +137,112 @@ _Static_assert(GBL_TIME_OPERATION_MAX ==
                    GBL_CPU_FETCH_SLOT_MAX + GBL_CPU_DATA_SLOT_MAX + 2u,
                "time operation capacity covers all fetch, data, and internal slots");
 
-static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost)
+static bool gbl_cpu_add_bus_quote(uint64_t *total,
+                                  gbl_bus_direction direction,
+                                  gbl_bus_region region, uint8_t width,
+                                  gbl_bus_access_class sequence,
+                                  gbl_bus_access_role role)
 {
-    uint64_t total;
+    gbl_cycle_cost quote;
 
-    if (unit == NULL || cost == NULL ||
+    if (total == NULL ||
+        !gbl_bus_cost_for(direction, region, width, sequence, role, &quote) ||
+        quote.cycles > UINT64_MAX - *total) {
+        return false;
+    }
+    *total += quote.cycles;
+    return true;
+}
+
+static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost,
+                              uint64_t *bus_cycles,
+                              uint64_t *internal_cycles,
+                              uint64_t *pipeline_bus_cycles)
+{
+    uint64_t bus_total = 0u;
+    uint64_t pipeline_start;
+    uint64_t internal_total;
+    uint8_t index;
+
+    if (unit == NULL || cost == NULL || bus_cycles == NULL ||
+        internal_cycles == NULL || pipeline_bus_cycles == NULL ||
         unit->fetch_count > GBL_CPU_FETCH_SLOT_MAX ||
         unit->data_slot_count > GBL_CPU_DATA_SLOT_MAX) {
         return false;
     }
-    total = (uint64_t)unit->fetch_count;
-    if ((uint64_t)unit->internal_cycles > UINT64_MAX - total) {
+    for (index = 0u; index < unit->fetch_count; ++index) {
+        const uint32_t address = unit->fetch_address_from_result
+                                     ? 0u
+                                     : unit->fetch_address[index];
+        const gbl_bus_region region = unit->fetch_address_from_result
+                                          ? GBL_BUS_REGION_UNMAPPED
+                                          : gbl_bus_region_for_address(address);
+
+        if (!gbl_cpu_add_bus_quote(&bus_total, GBL_BUS_DIRECTION_READ,
+                                   region, unit->fetch_width,
+                                   unit->fetch_class[index],
+                                   GBL_BUS_ROLE_FETCH)) {
+            return false;
+        }
+    }
+    for (index = 0u; index < unit->data_slot_count; ++index) {
+        const gbl_cpu_data_slot *slot = &unit->data_slots[index];
+        const gbl_bus_direction direction =
+            slot->operation == GBL_CPU_DATA_WRITE
+                ? GBL_BUS_DIRECTION_WRITE
+                : GBL_BUS_DIRECTION_READ;
+
+        if (!gbl_cpu_add_bus_quote(
+                &bus_total, direction,
+                gbl_bus_region_for_address(slot->address), slot->width,
+                slot->access_class, GBL_BUS_ROLE_DATA)) {
+            return false;
+        }
+    }
+    /* This extra LDM-to-PC S cycle is modeled as fetch/bus work but has no
+     * resolved guest address or second memory transaction. Keep it explicit
+     * in the cost key instead of folding it into an ARM I-cycle interval. */
+    pipeline_start = bus_total;
+    for (index = 0u; index < unit->post_data_pipeline_cycles; ++index) {
+        if (!gbl_cpu_add_bus_quote(&bus_total, GBL_BUS_DIRECTION_READ,
+                                   GBL_BUS_REGION_UNMAPPED,
+                                   unit->fetch_width,
+                                   GBL_BUS_CLASS_SEQUENTIAL,
+                                   GBL_BUS_ROLE_FETCH)) {
+            return false;
+        }
+    }
+    internal_total = (uint64_t)unit->internal_cycles;
+    if ((uint64_t)unit->post_data_internal_cycles >
+        UINT64_MAX - internal_total) {
         return false;
     }
-    total += (uint64_t)unit->internal_cycles;
-    if ((uint64_t)unit->post_data_internal_cycles > UINT64_MAX - total) {
+    internal_total += (uint64_t)unit->post_data_internal_cycles;
+    if (internal_total > UINT64_MAX - bus_total) {
         return false;
     }
-    total += (uint64_t)unit->post_data_internal_cycles;
-    if ((uint64_t)unit->post_data_pipeline_cycles > UINT64_MAX - total) {
-        return false;
-    }
-    total += (uint64_t)unit->post_data_pipeline_cycles;
-    if ((uint64_t)unit->data_slot_count > UINT64_MAX - total) {
-        return false;
-    }
-    *cost = total + (uint64_t)unit->data_slot_count;
+    *bus_cycles = bus_total;
+    *internal_cycles = internal_total;
+    *pipeline_bus_cycles = bus_total - pipeline_start;
+    *cost = bus_total + internal_total;
     return true;
 }
 
 static bool gbl_cpu_refresh_cycle_cost(gbl_cpu_unit *unit)
 {
     uint64_t cost;
+    uint64_t bus_cycles;
+    uint64_t internal_cycles;
+    uint64_t pipeline_bus_cycles;
 
-    if (!gbl_cpu_unit_cost(unit, &cost)) {
+    if (!gbl_cpu_unit_cost(unit, &cost, &bus_cycles, &internal_cycles,
+                           &pipeline_bus_cycles)) {
         return false;
     }
     unit->cycle_cost = cost;
+    unit->bus_cycle_cost = bus_cycles;
+    unit->internal_cycle_cost = internal_cycles;
+    unit->post_data_pipeline_cost = pipeline_bus_cycles;
     return true;
 }
 
@@ -3144,6 +3216,9 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
     const bool has_data_access = unit->data_slot_count != 0u;
     const bool exception = unit->kind == GBL_CPU_UNIT_EXCEPTION;
     uint64_t expected_cost = 0u;
+    uint64_t expected_bus_cycles = 0u;
+    uint64_t expected_internal_cycles = 0u;
+    uint64_t expected_pipeline_bus_cycles = 0u;
     bool result_seen[GBL_CPU_RESULT_SLOT_MAX] = { false };
     uint8_t index;
 
@@ -3151,7 +3226,9 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         return false;
     }
     *reason = GBL_RUN_REASON_NONE;
-    if (!gbl_cpu_unit_cost(unit, &expected_cost) ||
+    if (!gbl_cpu_unit_cost(unit, &expected_cost, &expected_bus_cycles,
+                           &expected_internal_cycles,
+                           &expected_pipeline_bus_cycles) ||
         unit->result_count > GBL_CPU_RESULT_SLOT_MAX ||
         unit->register_effect_count > GBL_CPU_REGISTER_EFFECT_MAX ||
         unit->status_effect_count > GBL_CPU_STATUS_EFFECT_MAX) {
@@ -3172,6 +3249,9 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         return false;
     }
     if (unit->cycle_cost != expected_cost ||
+        unit->bus_cycle_cost != expected_bus_cycles ||
+        unit->internal_cycle_cost != expected_internal_cycles ||
+        unit->post_data_pipeline_cost != expected_pipeline_bus_cycles ||
         (unit->multiple_transfer &&
          ((unit->kind != GBL_CPU_UNIT_SEQUENTIAL &&
            unit->kind != GBL_CPU_UNIT_BRANCH) ||
@@ -3367,7 +3447,7 @@ static bool gbl_cpu_fetch_unit(gbl_machine *machine,
                 unit->branch_target = fetch_address;
             }
         }
-        const gbl_bus_result result = gbl_bus_read(
+        const gbl_bus_result result = gbl_bus_read_fetch(
             machine, fetch_address, unit->fetch_width,
             unit->fetch_class[index]);
 
@@ -3696,13 +3776,35 @@ static bool gbl_cpu_append_time_operation(
     return true;
 }
 
+static bool gbl_cpu_append_quoted_bus_operation(
+    gbl_time_operation operations[GBL_TIME_OPERATION_MAX], size_t *count,
+    gbl_time_operation_kind kind, uint32_t address, uint8_t width,
+    uint32_t value, gbl_bus_access_class sequence,
+    gbl_bus_access_role role, bool address_unresolved)
+{
+    const gbl_bus_direction direction =
+        kind == GBL_TIME_OPERATION_BUS_WRITE
+            ? GBL_BUS_DIRECTION_WRITE
+            : GBL_BUS_DIRECTION_READ;
+    const gbl_bus_region region =
+        address_unresolved ? GBL_BUS_REGION_UNMAPPED
+                           : gbl_bus_region_for_address(address);
+    gbl_cycle_cost quote;
+
+    if ((kind != GBL_TIME_OPERATION_BUS_READ &&
+         kind != GBL_TIME_OPERATION_BUS_WRITE) ||
+        !gbl_bus_cost_for(direction, region, width, sequence, role, &quote)) {
+        return false;
+    }
+    return gbl_cpu_append_time_operation(operations, count, kind, address,
+                                         width, value, quote.cycles);
+}
+
 static bool gbl_cpu_build_time_operations(
     const gbl_cpu_unit *unit,
     gbl_time_operation operations[GBL_TIME_OPERATION_MAX], size_t *count)
 {
     uint8_t index;
-    uint64_t post_data_cycles;
-
     if (unit == NULL || operations == NULL || count == NULL ||
         unit->fetch_count > GBL_CPU_FETCH_SLOT_MAX ||
         unit->data_slot_count > GBL_CPU_DATA_SLOT_MAX) {
@@ -3722,19 +3824,26 @@ static bool gbl_cpu_build_time_operations(
                 ? GBL_TIME_OPERATION_BUS_WRITE
                 : GBL_TIME_OPERATION_BUS_READ;
 
-        if (!gbl_cpu_append_time_operation(
+        if (!gbl_cpu_append_quoted_bus_operation(
                 operations, count, kind, slot->address, slot->width,
-                slot->write_value, UINT64_C(1))) {
+                slot->write_value, slot->access_class, GBL_BUS_ROLE_DATA,
+                false)) {
             return false;
         }
     }
-    post_data_cycles = (uint64_t)unit->post_data_internal_cycles +
-                       (uint64_t)unit->post_data_pipeline_cycles;
-    if (post_data_cycles != 0u &&
+    if (unit->post_data_internal_cycles != 0u &&
         !gbl_cpu_append_time_operation(
             operations, count, GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
-            post_data_cycles)) {
+            unit->post_data_internal_cycles)) {
         return false;
+    }
+    for (index = 0u; index < unit->post_data_pipeline_cycles; ++index) {
+        if (!gbl_cpu_append_quoted_bus_operation(
+                operations, count, GBL_TIME_OPERATION_BUS_READ, 0u,
+                unit->fetch_width, 0u, GBL_BUS_CLASS_SEQUENTIAL,
+                GBL_BUS_ROLE_FETCH, true)) {
+            return false;
+        }
     }
     for (index = 0u; index < unit->fetch_count; ++index) {
         /* A loaded-PC refill has a read-dependent address. Its operation is
@@ -3742,9 +3851,10 @@ static bool gbl_cpu_build_time_operations(
         const uint32_t address = unit->fetch_address_from_result
                                      ? 0u : unit->fetch_address[index];
 
-        if (!gbl_cpu_append_time_operation(
+        if (!gbl_cpu_append_quoted_bus_operation(
                 operations, count, GBL_TIME_OPERATION_BUS_READ, address,
-                unit->fetch_width, 0u, UINT64_C(1))) {
+                unit->fetch_width, 0u, unit->fetch_class[index],
+                GBL_BUS_ROLE_FETCH, unit->fetch_address_from_result)) {
             return false;
         }
     }
@@ -3815,7 +3925,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
 {
     gbl_run_options run_options;
     gbl_run_result run_result = {
-        GBL_RUN_TIMEOUT, GBL_RUN_REASON_CYCLE_BUDGET, 0u, 0u
+        .termination = GBL_RUN_TIMEOUT,
+        .reason = GBL_RUN_REASON_CYCLE_BUDGET
     };
     uint64_t completed_units = 0u;
 
@@ -3976,6 +4087,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             machine->cpu.retired_instructions++;
             run_result.instructions++;
             run_result.cycles += unit.cycle_cost;
+            run_result.bus_cycles += unit.bus_cycle_cost;
+            run_result.internal_cycles += unit.internal_cycle_cost;
             if (!gbl_cpu_time_preview_matches_machine(machine,
                                                       &prepared_time)) {
                 machine->cpu.stopped = true;
@@ -4086,19 +4199,30 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                 break;
             }
         }
-        if (unit.post_data_internal_cycles != 0u ||
-            unit.post_data_pipeline_cycles != 0u) {
-            /* DDI0029G charges LDM's final I cycle and, for LDM PC, an
-             * additional S pipeline cycle. Under the current uniform bus,
-             * the latter has no separate memory transaction/trace slot. */
-            const uint64_t post_data_cycles =
-                (uint64_t)unit.post_data_internal_cycles +
-                (uint64_t)unit.post_data_pipeline_cycles;
+        if (unit.post_data_internal_cycles != 0u) {
             const gbl_bus_result internal_result = gbl_bus_internal(
-                machine, post_data_cycles);
+                machine, (uint64_t)unit.post_data_internal_cycles);
 
             if (internal_result.status != GBL_BUS_STATUS_OK ||
-                internal_result.cycles != post_data_cycles) {
+                internal_result.cycles !=
+                    (uint64_t)unit.post_data_internal_cycles) {
+                run_result.termination = GBL_RUN_STOPPED;
+                run_result.reason = GBL_RUN_REASON_BUS_ERROR;
+                machine->cpu.stopped = true;
+                machine->cpu.stop_reason = GBL_CPU_STOP_BUS_ERROR;
+                break;
+            }
+        }
+        if (unit.post_data_pipeline_cycles != 0u) {
+            /* The selected LDM-to-PC S pipeline interval is bus/model work.
+             * The loaded target is already read by the refill path, so this
+             * advances time without duplicating a guest memory transaction. */
+            const gbl_bus_result pipeline_result = gbl_bus_internal(
+                machine, unit.post_data_pipeline_cost);
+
+            if (pipeline_result.status != GBL_BUS_STATUS_OK ||
+                pipeline_result.cycles !=
+                    unit.post_data_pipeline_cost) {
                 run_result.termination = GBL_RUN_STOPPED;
                 run_result.reason = GBL_RUN_REASON_BUS_ERROR;
                 machine->cpu.stopped = true;
@@ -4157,6 +4281,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         }
         completed_units++;
         run_result.cycles += unit.cycle_cost;
+        run_result.bus_cycles += unit.bus_cycle_cost;
+        run_result.internal_cycles += unit.internal_cycle_cost;
         gbl_cpu_trace_commit(run_options.trace_buffer, trace_records,
                              trace_record_count);
     }

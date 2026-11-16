@@ -13,6 +13,7 @@
 
 typedef struct guest_observation {
     gbl_run_result run;
+    uint64_t machine_cycle_delta;
     uint32_t marker;
     uint16_t interrupt_flags;
 } guest_observation;
@@ -75,6 +76,7 @@ static bool run_guest(bool enable_timer, guest_observation *observation)
     gbl_bus_result if_read;
     gbl_load_result load;
     uint8_t marker_bytes[sizeof(observation->marker)] = { 0u };
+    uint64_t start_cycle;
     size_t index;
 
     if (observation == NULL) {
@@ -97,12 +99,19 @@ static bool run_guest(bool enable_timer, guest_observation *observation)
         free(machine);
         return false;
     }
+    start_cycle = machine->master_cycles;
     if (gbl_cpu_run(machine, &options, &observation->run) !=
         GBL_RUN_STATUS_OK) {
         gbl_machine_dispose(machine);
         free(machine);
         return false;
     }
+    if (machine->master_cycles < start_cycle) {
+        gbl_machine_dispose(machine);
+        free(machine);
+        return false;
+    }
+    observation->machine_cycle_delta = machine->master_cycles - start_cycle;
     if (gbl_machine_peek(machine, TIMER0_MARKER_ADDRESS, marker_bytes,
                          sizeof(marker_bytes)) != GBL_PEEK_STATUS_OK) {
         gbl_machine_dispose(machine);
@@ -142,20 +151,163 @@ static int run_tracer(void)
     CHECK(first.marker == TIMER0_MARKER);
     CHECK((first.interrupt_flags & TIMER0_IF_BIT) != 0u);
     CHECK(first.run.cycles > 0u);
+    CHECK(first.run.bus_cycles <= UINT64_MAX - first.run.internal_cycles);
+    CHECK(first.run.cycles == first.run.bus_cycles +
+                                 first.run.internal_cycles);
+    CHECK(first.run.cycles == first.machine_cycle_delta);
     CHECK(second.marker == TIMER0_MARKER);
     CHECK((second.interrupt_flags & TIMER0_IF_BIT) != 0u);
     CHECK(first.run.cycles == second.run.cycles);
+    CHECK(second.run.cycles == second.run.bus_cycles +
+                                  second.run.internal_cycles);
+    CHECK(second.run.cycles == second.machine_cycle_delta);
     CHECK(first.marker == second.marker);
     CHECK(disabled.marker == 0u);
     CHECK(disabled.run.termination == GBL_RUN_TIMEOUT);
     CHECK(disabled.run.reason == GBL_RUN_REASON_CYCLE_BUDGET);
+    CHECK(disabled.run.cycles == disabled.run.bus_cycles +
+                                    disabled.run.internal_cycles);
+    CHECK(disabled.run.cycles == disabled.machine_cycle_delta);
     CHECK((disabled.interrupt_flags & TIMER0_IF_BIT) == 0u);
+    printf("timer0.costs: model=%s bus=%llu internal=%llu total=%llu delta=%llu\n",
+           GBL_TIMER_MODEL_NAME,
+           (unsigned long long)first.run.bus_cycles,
+           (unsigned long long)first.run.internal_cycles,
+           (unsigned long long)first.run.cycles,
+           (unsigned long long)first.machine_cycle_delta);
     if (disabled.marker == 0u &&
         disabled.run.reason == GBL_RUN_REASON_CYCLE_BUDGET) {
         puts("EXPECTED timer0-overflow-timeout");
     }
     if (CHECK_DONE() == 0) {
         puts("timer0.guest.tracer: semantic overflow and disabled control ok");
+        return 0;
+    }
+    return 1;
+}
+
+static const char *bus_region_name(gbl_bus_region region)
+{
+    switch (region) {
+    case GBL_BUS_REGION_BIOS: return "bios";
+    case GBL_BUS_REGION_EWRAM: return "ewram";
+    case GBL_BUS_REGION_IWRAM: return "iwram";
+    case GBL_BUS_REGION_IO: return "io";
+    case GBL_BUS_REGION_PRAM: return "pram";
+    case GBL_BUS_REGION_VRAM: return "vram";
+    case GBL_BUS_REGION_OAM: return "oam";
+    case GBL_BUS_REGION_ROM: return "rom";
+    case GBL_BUS_REGION_UNMAPPED: return "unmapped";
+    case GBL_BUS_REGION_COUNT: break;
+    }
+    return "invalid";
+}
+
+static int run_costs(void)
+{
+    static const uint8_t widths[] = { 1u, 2u, 4u };
+    static const gbl_bus_access_class sequences[] = {
+        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_CLASS_SEQUENTIAL
+    };
+    static const char *const sequence_names[] = { "n", "s" };
+    static const gbl_bus_direction directions[] = {
+        GBL_BUS_DIRECTION_READ, GBL_BUS_DIRECTION_WRITE
+    };
+    static const char *const direction_names[] = { "read", "write" };
+    static const gbl_bus_access_role roles[] = {
+        GBL_BUS_ROLE_FETCH, GBL_BUS_ROLE_DATA
+    };
+    static const char *const role_names[] = { "fetch", "data" };
+    size_t row_count = 0u;
+    size_t direction_index;
+    size_t region_index;
+    size_t width_index;
+    size_t sequence_index;
+    size_t role_index;
+    gbl_cycle_cost sentinel = {
+        UINT64_C(7), GBL_CYCLE_COST_PROJECT_SELECTED, "sentinel"
+    };
+    gbl_cycle_cost unchanged = sentinel;
+
+    CHECK(!gbl_bus_cost_for(GBL_BUS_DIRECTION_READ, GBL_BUS_REGION_EWRAM,
+                            3u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                            GBL_BUS_ROLE_DATA, &sentinel));
+    CHECK(sentinel.cycles == unchanged.cycles &&
+          sentinel.provenance == unchanged.provenance &&
+          sentinel.model == unchanged.model);
+    CHECK(!gbl_bus_cost_for(GBL_BUS_DIRECTION_WRITE, GBL_BUS_REGION_EWRAM,
+                            4u, GBL_BUS_CLASS_SEQUENTIAL,
+                            GBL_BUS_ROLE_FETCH, &sentinel));
+    CHECK(!gbl_bus_cost_for((gbl_bus_direction)99,
+                            GBL_BUS_REGION_EWRAM, 4u,
+                            GBL_BUS_CLASS_SEQUENTIAL,
+                            GBL_BUS_ROLE_DATA, &sentinel));
+    CHECK(!gbl_bus_cost_for(GBL_BUS_DIRECTION_READ,
+                            (gbl_bus_region)99, 4u,
+                            GBL_BUS_CLASS_SEQUENTIAL,
+                            GBL_BUS_ROLE_DATA, &sentinel));
+    CHECK(!gbl_bus_cost_for(GBL_BUS_DIRECTION_READ, GBL_BUS_REGION_EWRAM,
+                            4u, (gbl_bus_access_class)99,
+                            GBL_BUS_ROLE_DATA, &sentinel));
+    CHECK(!gbl_bus_cost_for(GBL_BUS_DIRECTION_READ, GBL_BUS_REGION_EWRAM,
+                            4u, GBL_BUS_CLASS_SEQUENTIAL,
+                            (gbl_bus_access_role)99, &sentinel));
+    CHECK(!gbl_bus_cost_for(GBL_BUS_DIRECTION_READ, GBL_BUS_REGION_EWRAM,
+                            4u, GBL_BUS_CLASS_SEQUENTIAL,
+                            GBL_BUS_ROLE_DATA, NULL));
+    CHECK(gbl_bus_region_for_address(UINT32_C(0x02000000)) ==
+          GBL_BUS_REGION_EWRAM);
+    CHECK(gbl_bus_region_for_address(UINT32_C(0x08000000)) ==
+          GBL_BUS_REGION_ROM);
+
+    puts("model=gamebloke-timer-model-1 provenance=project-selected rows=162");
+    puts("direction,region,width,sequence,role,cycles,provenance,model");
+    for (direction_index = 0u;
+         direction_index < sizeof(directions) / sizeof(directions[0]);
+         ++direction_index) {
+        for (region_index = 0u;
+             region_index < (size_t)GBL_BUS_REGION_COUNT; ++region_index) {
+            for (width_index = 0u;
+                 width_index < sizeof(widths) / sizeof(widths[0]);
+                 ++width_index) {
+                for (sequence_index = 0u;
+                     sequence_index <
+                         sizeof(sequences) / sizeof(sequences[0]);
+                     ++sequence_index) {
+                    for (role_index = 0u;
+                         role_index < sizeof(roles) / sizeof(roles[0]);
+                         ++role_index) {
+                        const gbl_bus_region region =
+                            (gbl_bus_region)region_index;
+                        gbl_cycle_cost cost = { 0u, 0, NULL };
+
+                        if (directions[direction_index] ==
+                                GBL_BUS_DIRECTION_WRITE &&
+                            roles[role_index] == GBL_BUS_ROLE_FETCH) {
+                            continue;
+                        }
+                        CHECK(gbl_bus_cost_for(
+                            directions[direction_index], region,
+                            widths[width_index], sequences[sequence_index],
+                            roles[role_index], &cost));
+                        CHECK(cost.cycles == UINT64_C(1));
+                        CHECK(cost.provenance ==
+                              GBL_CYCLE_COST_PROJECT_SELECTED);
+                        CHECK_STREQ(cost.model, GBL_TIMER_MODEL_NAME);
+                        printf("%s,%s,%u,%s,%s,%llu,project-selected,%s\n",
+                               direction_names[direction_index],
+                               bus_region_name(region), widths[width_index],
+                               sequence_names[sequence_index],
+                               role_names[role_index],
+                               (unsigned long long)cost.cycles, cost.model);
+                        ++row_count;
+                    }
+                }
+            }
+        }
+    }
+    CHECK(row_count == 162u);
+    if (CHECK_DONE() == 0) {
         return 0;
     }
     return 1;
@@ -936,6 +1088,10 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "tracer") == 0) {
         return run_tracer();
+    }
+    if (strcmp(argv[1], "costs") == 0 ||
+        strcmp(argv[1], "cost-dump") == 0) {
+        return run_costs();
     }
     if (strcmp(argv[1], "time.events.order") == 0) {
         return run_event_order();

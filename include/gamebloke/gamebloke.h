@@ -102,9 +102,9 @@ typedef enum gbl_time_operation_kind {
 } gbl_time_operation_kind;
 
 /* Bounded description of one ordered time contribution. Internal operations
- * carry an interval in cycles. Bus operations cost one project-model cycle;
- * writes retain their captured address, width, and value so timer/IF effects
- * can be previewed without reading guest memory or mutating the machine. */
+ * carry an interval in cycles. Bus operations carry the quoted positive cycle
+ * count; writes retain their captured address, width, and value so timer/IF
+ * effects can be previewed without reading guest memory or mutating state. */
 typedef struct gbl_time_operation {
     gbl_time_operation_kind kind;
     uint8_t width;
@@ -130,6 +130,47 @@ typedef enum gbl_bus_access_class {
     GBL_BUS_CLASS_NONSEQUENTIAL = 0,
     GBL_BUS_CLASS_SEQUENTIAL = 1
 } gbl_bus_access_class;
+
+typedef enum gbl_bus_region {
+    GBL_BUS_REGION_BIOS = 0,
+    GBL_BUS_REGION_EWRAM = 1,
+    GBL_BUS_REGION_IWRAM = 2,
+    GBL_BUS_REGION_IO = 3,
+    GBL_BUS_REGION_PRAM = 4,
+    GBL_BUS_REGION_VRAM = 5,
+    GBL_BUS_REGION_OAM = 6,
+    GBL_BUS_REGION_ROM = 7,
+    GBL_BUS_REGION_UNMAPPED = 8,
+    GBL_BUS_REGION_COUNT = 9
+} gbl_bus_region;
+
+typedef enum gbl_bus_direction {
+    GBL_BUS_DIRECTION_READ = 0,
+    GBL_BUS_DIRECTION_WRITE = 1
+} gbl_bus_direction;
+
+typedef enum gbl_bus_access_role {
+    GBL_BUS_ROLE_FETCH = 0,
+    GBL_BUS_ROLE_DATA = 1
+} gbl_bus_access_role;
+
+typedef enum gbl_cycle_cost_provenance {
+    GBL_CYCLE_COST_PROJECT_SELECTED = 0
+} gbl_cycle_cost_provenance;
+
+typedef struct gbl_cycle_cost {
+    uint64_t cycles;
+    gbl_cycle_cost_provenance provenance;
+    const char *model;
+} gbl_cycle_cost;
+
+/* Returns false and leaves cost_out unchanged for any unsupported key. All
+ * currently supported bus rows are one project-selected cycle in
+ * gamebloke-timer-model-1; this is model data, not hardware qualification. */
+bool gbl_bus_cost_for(gbl_bus_direction direction, gbl_bus_region region,
+                     uint8_t width, gbl_bus_access_class sequence,
+                     gbl_bus_access_role role, gbl_cycle_cost *cost_out);
+gbl_bus_region gbl_bus_region_for_address(uint32_t address);
 
 typedef struct gbl_bus_result {
     gbl_bus_status status;
@@ -379,6 +420,8 @@ typedef struct gbl_run_result {
     gbl_run_reason reason;
     uint64_t cycles;
     uint64_t instructions;
+    uint64_t bus_cycles;
+    uint64_t internal_cycles;
 } gbl_run_result;
 
 typedef struct gbl_machine {
@@ -457,7 +500,7 @@ gbl_time_status gbl_machine_prepare_time(
     gbl_machine_time_preview *preview);
 /* Preview an ordered bounded unit before any CPU effects. INTERNAL operations
  * may carry zero cycles and then do no work; reads/writes require widths 1, 2,
- * or 4 and each cost one model cycle. Only timer/IF write effects are modeled;
+ * or 4 and a positive quoted cost. Only timer/IF write effects are modeled;
  * bus reads are never performed. Invalid input or any time/event/timer
  * refusal leaves both machine and preview unchanged. */
 gbl_time_status gbl_machine_prepare_operations(
@@ -528,12 +571,15 @@ gbl_cpu_status gbl_cpu_enter_exception(
     gbl_machine *machine, gbl_exception_kind kind,
     const gbl_cpu_exception_context *context);
 
-/* Width is a byte count: 1, 2, or 4. Reads and writes report their requested
- * sequence class and cost exactly one project-selected placeholder master
- * cycle, independent of region/width/sequence; it is not hardware timing. */
+/* Width is a byte count: 1, 2, or 4. Ordinary bus operations use the DATA
+ * role. CPU instruction fetches use the same checked quote source with FETCH
+ * role through this internal entry point. */
 gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
                             uint8_t width,
                             gbl_bus_access_class access_class);
+gbl_bus_result gbl_bus_read_fetch(gbl_machine *machine, uint32_t address,
+                                  uint8_t width,
+                                  gbl_bus_access_class access_class);
 gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
                              uint8_t width,
                              gbl_bus_access_class access_class,

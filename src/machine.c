@@ -401,7 +401,7 @@ gbl_time_status gbl_machine_prepare_operations(
             }
         } else if (operation->kind == GBL_TIME_OPERATION_BUS_READ ||
                    operation->kind == GBL_TIME_OPERATION_BUS_WRITE) {
-            if (operation->cycles != UINT64_C(1) ||
+            if (operation->cycles == 0u ||
                 !gbl_preview_bus_span_valid(operation->address,
                                              operation->width)) {
                 return GBL_TIME_STATUS_INVALID_ARGUMENT;

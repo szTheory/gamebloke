@@ -5,18 +5,6 @@
 #define GBL_VRAM_MASK 0x1FFFFu
 #define GBL_ROM_MASK 0x1FFFFFFu
 
-typedef enum gbl_bus_region {
-    GBL_BUS_REGION_BIOS,
-    GBL_BUS_REGION_EWRAM,
-    GBL_BUS_REGION_IWRAM,
-    GBL_BUS_REGION_IO,
-    GBL_BUS_REGION_PRAM,
-    GBL_BUS_REGION_VRAM,
-    GBL_BUS_REGION_OAM,
-    GBL_BUS_REGION_ROM,
-    GBL_BUS_REGION_UNMAPPED
-} gbl_bus_region;
-
 static bool gbl_bus_width_is_valid(uint8_t width)
 {
     return width == 1u || width == 2u || width == 4u;
@@ -79,7 +67,7 @@ static bool gbl_bus_is_special_io(uint32_t address)
            low_address >= 0x0800u && low_address <= 0x0803u;
 }
 
-static gbl_bus_region gbl_bus_region_for(uint32_t address)
+gbl_bus_region gbl_bus_region_for_address(uint32_t address)
 {
     if (address <= 0x00003FFFu) {
         return GBL_BUS_REGION_BIOS;
@@ -107,6 +95,29 @@ static gbl_bus_region gbl_bus_region_for(uint32_t address)
         return GBL_BUS_REGION_ROM;
     }
     return GBL_BUS_REGION_UNMAPPED;
+}
+
+bool gbl_bus_cost_for(gbl_bus_direction direction, gbl_bus_region region,
+                      uint8_t width, gbl_bus_access_class sequence,
+                      gbl_bus_access_role role, gbl_cycle_cost *cost_out)
+{
+    gbl_cycle_cost cost;
+
+    if (cost_out == NULL ||
+        (direction != GBL_BUS_DIRECTION_READ &&
+         direction != GBL_BUS_DIRECTION_WRITE) ||
+        region < GBL_BUS_REGION_BIOS || region >= GBL_BUS_REGION_COUNT ||
+        !gbl_bus_width_is_valid(width) ||
+        !gbl_bus_class_is_valid(sequence) ||
+        (role != GBL_BUS_ROLE_FETCH && role != GBL_BUS_ROLE_DATA) ||
+        (direction == GBL_BUS_DIRECTION_WRITE && role == GBL_BUS_ROLE_FETCH)) {
+        return false;
+    }
+    cost = (gbl_cycle_cost){
+        UINT64_C(1), GBL_CYCLE_COST_PROJECT_SELECTED, GBL_TIMER_MODEL_NAME
+    };
+    *cost_out = cost;
+    return true;
 }
 
 static uint32_t gbl_bus_physical_vram_offset(uint32_t address)
@@ -138,6 +149,7 @@ static uint8_t *gbl_bus_memory_byte(gbl_machine *machine,
     case GBL_BUS_REGION_IO:
     case GBL_BUS_REGION_ROM:
     case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
         break;
     }
     return NULL;
@@ -198,6 +210,8 @@ static gbl_bus_outcome gbl_bus_region_outcome(gbl_bus_region region)
     case GBL_BUS_REGION_VRAM:
     case GBL_BUS_REGION_OAM:
         return GBL_BUS_OUTCOME_RAM;
+    case GBL_BUS_REGION_COUNT:
+        return GBL_BUS_OUTCOME_UNMAPPED;
     }
     return GBL_BUS_OUTCOME_UNMAPPED;
 }
@@ -237,7 +251,7 @@ static bool gbl_bus_read_lane(
     gbl_machine *machine, const gbl_machine_time_preview *time_preview,
     uint32_t address, uint8_t *value, gbl_bus_outcome *outcome)
 {
-    gbl_bus_region region = gbl_bus_region_for(address);
+    gbl_bus_region region = gbl_bus_region_for_address(address);
 
     *outcome = gbl_bus_region_outcome(region);
     switch (region) {
@@ -284,6 +298,7 @@ static bool gbl_bus_read_lane(
         return false;
     case GBL_BUS_REGION_BIOS:
     case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
         *value = 0u;
         return false;
     }
@@ -296,7 +311,7 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
                                           uint32_t address, uint8_t value,
                                           uint8_t request_width)
 {
-    gbl_bus_region region = gbl_bus_region_for(address);
+    gbl_bus_region region = gbl_bus_region_for_address(address);
     uint8_t *memory_byte;
 
     switch (region) {
@@ -360,22 +375,23 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
     case GBL_BUS_REGION_ROM:
         return GBL_BUS_OUTCOME_ROM;
     case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
         return GBL_BUS_OUTCOME_UNMAPPED;
     }
     return GBL_BUS_OUTCOME_UNMAPPED;
 }
 
-gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
-                            uint8_t width,
-                            gbl_bus_access_class access_class)
+static gbl_bus_result gbl_bus_read_role(gbl_machine *machine,
+                                        uint32_t address, uint8_t width,
+                                        gbl_bus_access_class access_class,
+                                        gbl_bus_access_role role)
 {
     gbl_bus_status status;
     gbl_bus_result result;
+    gbl_cycle_cost cost;
     gbl_machine_time_preview time_preview;
     gbl_time_status time_status;
-    const gbl_time_operation time_operation = {
-        GBL_TIME_OPERATION_BUS_READ, width, address, 0u, UINT64_C(1)
-    };
+    gbl_time_operation time_operation;
     uint32_t value = 0u;
     uint32_t lane;
     bool has_fallback = false;
@@ -386,6 +402,15 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
     if (status != GBL_BUS_STATUS_OK) {
         return gbl_bus_error(status, access_class);
     }
+    if (!gbl_bus_cost_for(
+            GBL_BUS_DIRECTION_READ, gbl_bus_region_for_address(address),
+            width, access_class, role, &cost)) {
+        return gbl_bus_error(GBL_BUS_STATUS_INVALID_ARGUMENT,
+                             access_class);
+    }
+    time_operation = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_READ, width, address, 0u, cost.cycles
+    };
     time_status = gbl_machine_prepare_operations(
         machine, &time_operation, 1u, &time_preview);
     if (time_status != GBL_TIME_STATUS_OK) {
@@ -418,8 +443,24 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
     gbl_machine_commit_time(machine, &time_preview);
     result = gbl_bus_make_result(GBL_BUS_STATUS_OK,
                                  has_fallback ? fallback_outcome : first_outcome,
-                                 value, 1u, access_class);
+                                 value, cost.cycles, access_class);
     return result;
+}
+
+gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
+                            uint8_t width,
+                            gbl_bus_access_class access_class)
+{
+    return gbl_bus_read_role(machine, address, width, access_class,
+                             GBL_BUS_ROLE_DATA);
+}
+
+gbl_bus_result gbl_bus_read_fetch(gbl_machine *machine, uint32_t address,
+                                  uint8_t width,
+                                  gbl_bus_access_class access_class)
+{
+    return gbl_bus_read_role(machine, address, width, access_class,
+                             GBL_BUS_ROLE_FETCH);
 }
 
 gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
@@ -429,11 +470,10 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
 {
     gbl_bus_status status;
     gbl_bus_result result;
+    gbl_cycle_cost cost;
     gbl_machine_time_preview time_preview;
     gbl_time_status time_status;
-    const gbl_time_operation time_operation = {
-        GBL_TIME_OPERATION_BUS_WRITE, width, address, value, UINT64_C(1)
-    };
+    gbl_time_operation time_operation;
     uint32_t lane;
     gbl_bus_outcome first_outcome = GBL_BUS_OUTCOME_NONE;
     gbl_bus_outcome fallback_outcome = GBL_BUS_OUTCOME_NONE;
@@ -442,6 +482,15 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
     if (status != GBL_BUS_STATUS_OK) {
         return gbl_bus_error(status, access_class);
     }
+    if (!gbl_bus_cost_for(
+            GBL_BUS_DIRECTION_WRITE, gbl_bus_region_for_address(address),
+            width, access_class, GBL_BUS_ROLE_DATA, &cost)) {
+        return gbl_bus_error(GBL_BUS_STATUS_INVALID_ARGUMENT,
+                             access_class);
+    }
+    time_operation = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_WRITE, width, address, value, cost.cycles
+    };
     time_status = gbl_machine_prepare_operations(
         machine, &time_operation, 1u, &time_preview);
     if (time_status != GBL_TIME_STATUS_OK) {
@@ -466,7 +515,7 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
         GBL_BUS_STATUS_OK,
         fallback_outcome != GBL_BUS_OUTCOME_NONE ? fallback_outcome
                                                  : first_outcome,
-        0u, 1u, access_class);
+        0u, cost.cycles, access_class);
     return result;
 }
 
