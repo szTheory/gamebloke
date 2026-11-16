@@ -18,6 +18,22 @@ behavior. That behavior covers guest progress, machine time, CPU/device
 effects, raw video, and raw audio, all observed separately, and every result
 says exactly what it proves and what it does not.
 
+## Current Milestone: v2.0 Time, Interrupts, DMA, First Pixels
+
+**Goal:** Establish a reliable deterministic time and event path, then build the
+first interrupt-driven machine behavior and visible raw pixels on that base.
+
+**Target features:**
+- Master-clock event ordering and a small Timer 0 polling guest, with cycle
+  accounting examined before timing claims depend on it.
+- IRQ requests, timers, HALT, and timestamped logical input, keeping device
+  requests distinct from CPU exception entry.
+- DMA, PPU timing, and a mode-3 raw frame path that supports Playable 0.
+
+BIOS-stub authoring remains behind G4 owner approval. The v1.0 `DIAG-04` and
+`DET-02` evidence gaps remain open carryovers and do not block this first
+no-BIOS scheduler work.
+
 ## Requirements
 
 ### Validated
@@ -74,6 +90,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
+- **Current implementation:** C17/CMake core and headless runner through Phase 6. The v1.0 milestone audit found Phase 6 incomplete: local Linux ARM64 runs passed, ARM and Thumb stopped before source-bound result evaluation (`DIAG-04`), and hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Both gaps remain open in `.planning/STATE.md` and the archived v1.0 audit.
 
 ## Constraints
 
@@ -105,10 +122,11 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | LibFuturo fit | Prove with a real core/consumer before adoption | — Pending (later phase) |
 | Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
 | Required check `CI required` on `ubuntu-26.04` + `macos-26` (arm64), actions SHA-pinned, `main` protected by a PR-only ruleset with no bypass actors (owner-authorized, 2026-11-10) | One command, same verdict locally and in CI; nothing reaches main except through a green PR | ✓ Good (Phase 1) |
-| Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | ✓ Exercised through Phase 3; Phase 4 final-head publication in progress |
+| Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | Remains the policy; Phase 6 is local and incomplete, with hosted evidence still open |
 | Owner-authorized logo authority (2026-11-10) | Owner supplied two existing local files and delegated ignored copies, hashing and checks; only the shared digest is published | Verified, owner-accepted and activated on main through PR #6. No rights/provenance inference. |
 | Canonical CPU/runner evidence boundary (Phase 4) | One bus-backed interpreter, whole-unit budget/trace preflight, distinct status/semantic/time/claim/limits, build-time fixture authority | Verified in local/hosted checks and independent reviews; full ISA remains Phase 5 |
 | Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
+| Carry v1.0 Phase 6 evidence gaps into v2.0 (owner, 2026-11-15) | Archive v1.0 while preserving ARM/Thumb source-bound evaluation (`DIAG-04`) and hosted Linux x64 GCC/Clang (`DET-02`) as open; do not relabel local results as passes for those claims | Recorded in `.planning/STATE.md` and the archived v1.0 audit; no hosted run or publication authorized |
 | Project license | Owner authority. The repo is public with no LICENSE file yet, so default copyright applies until the owner chooses one. | — Pending (owner gate) |
 
 ## Evolution
@@ -129,4 +147,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-11 after Phase 4 acceptance*
+*Last updated: 2026-11-15 after v1.0 milestone audit and archival*

@@ -1,0 +1,75 @@
+# Milestones
+
+## v1.0 Evidence Spine (Completed with evidence gaps: 2026-11-15)
+
+**Phase status:** 5 of 6 phases complete. Phase 6 remains incomplete; 68 of 71 plans are complete.
+
+**Carried verification gaps:** `DIAG-04` is still open because the local ARM and Thumb diagnostics stopped before source-bound result evaluation. `DET-02` is still open because hosted Linux x64 GCC and Clang evidence has not run. Local Linux ARM64 results passed; they do not close either gap. See [v1.0 audit](milestones/v1.0-MILESTONE-AUDIT.md) and [Phase 6 verification](milestones/v1.0-phases/06-determinism-gates-and-third-party-cpu-fixtures/06-VERIFICATION.md).
+
+**Key accomplishments:**
+- `cmake --workflow --preset ci` builds the C17 skeleton, runs CTest with junit, and a verbose post step proves every inventoried test ran (`inventory: expected 1, ran 1, skipped 0 (allowed 0)`), with configure-time refusal of malformed registrations and unsorted or mismatched inventories.
+- The ci workflow now fails on every way a test can silently not run (missing, extra, duplicate, failed, disabled, skipped without permission or reason, empty or absent junit), each shape proven by a control that must exit non-zero with its stated reason code, plus a meta-control that proves the wrapper fails when a gate passes; the core and runner contract is pinned by 24 tests (`inventory: expected 23, ran 23, skipped 0 (allowed 0)`).
+- `scripts/hygiene.sh` now fails the verify command on credential shapes, non-noreply addresses, and absolute home paths (never echoing the match), proven by 16 hygiene tests with fragment-built planted controls; a compile-free `hygiene` workflow (`inventory: expected 16, ran 16`) is ready for the always-on CI job, and an opt-in staged hook is available (`inventory: expected 39, ran 39` in the ci lane).
+- `scripts/signature-scan.sh` fails the verify command on a listed logo-window or BIOS digest, a ROM/save file name, or an unlisted binary, using committed digests only, with 19 synthesized-stand-in controls and a well-formedness check; the real logo digest is visibly owner-pending (`inventory: expected 62, ran 60, skipped 2 (allowed 2)` in the ci lane).
+- `cmake --workflow --preset asan` builds the core and runner with Clang 21 under `-fsanitize=address,undefined -fno-sanitize-recover=all`, passes the core and runner tests, catches both a shift-by-32 and a heap-buffer-overflow control by exit status plus sanitizer text (`inventory: expected 9, ran 9, skipped 0 (allowed 0)`), and `scripts/linux-lane.sh` proves it, and the GCC ci lane, in an ubuntu:26.04 container before any CI run.
+- A single `CI required` check now sits over a classifier, an aggregator, a live-title gate, and three preset-only lanes (Linux GCC, macOS arm64, Linux clang-21 sanitizers); the routing predicates are case-table tested, and the workflow is SHA-pinned with no expression inside any run block.
+- Two checked-in text gates now keep `.github/workflows/ci.yml` honest: every action is pinned to a 40-hex SHA with a version comment, and a twelve-rule policy gate guards labels, triggers, the `CI required` needs list, run-block expressions, preset-only heavy lanes, timeouts, credentials and permissions; each case has a control that mutates a copy of the real workflow.
+- The `main` ruleset is now a checked-in file (pull request plus the `CI required` status check, no bypass actors) held to the owner's authorization by an offline validator, and `scripts/apply-repo-settings.sh` applies or checks only that ruleset, refusing until a `CI required` run has succeeded on main, with a stub-`gh` control for every GitHub-facing branch.
+- The CMake 3.25.3 floor and both Linux lanes were proven locally (after a policy fix that the floor run exposed), PR B (#1) ran every lane green on GitHub, took measured 3-minute timeouts, and was squash-merged; main's push run reports `CI required` success.
+- A `.planning/`-only PR (#2) skipped every heavy lane while `CI required` passed, the `main` ruleset (id 26908822, `CI required`, no bypass) was applied last and PR A merged through it, GSD switched to per-phase branches, and the owner authorized one more close-out PR.
+- The owner kept the real Nintendo-logo digest pending, so the EVID-04 real-logo item is recorded as a visible human-needed gap (SKIPPED with reason, CI green), and the phase close-out reached main through one owner-authorized PR (#3) squash-merged through the ruleset.
+- Strict string(JSON) loader with a structural root walk, the nine-state evidence vocabulary as data, and an oracle validator, all wired into the canonical ci and hygiene workflows with 22 controls.
+- Six seeded open disputes in registry/disputes.json, checked by a CMake validator that pins the seed ids and resolves labels from the evidence vocabulary, with a control for every reason code.
+- A versioned `agb` profile whose eleven timing constants each carry one source label (HBlank flag edge is null and UNK, pointing at the dispute registry), nine honest unmodeled entries synced to a narrative doc, and a CMake validator with the R1 BIOS-provider grammar and a control for every reason code.
+- A manifest and pins linter (`cmake/CheckManifest.cmake`) with registry and pin cross-checks, an empty real manifest, a header-only `pins.txt`, one committed complete example row, and `manifest.lint` running in the canonical ci command with a control for every manifest and pins reason code.
+- A POSIX `scripts/fetch-pin.sh` that downloads by pins.txt row into a temporary directory inside `.fixtures/`, hashes with `cmake -E sha256sum`, and moves the file into place only when the SHA-256 matches, with a control for every reason code through synthesized `file://` fixtures, `.fixtures/` ignored, and a gate proving nothing under it is tracked.
+- A `cmake/CheckResult.cmake` validator for `gamebloke.result/1` documents that takes its per-state rules from `contracts/evidence.json`, checks the claim tuple with the R1 BIOS grammar, and refuses a result that points at a disputed manifest row without listing the dispute and carrying the `disputed` label, backed by 27 registered tests and an illustrative PASS example checked in the canonical command.
+- The Phase 2 contracts are documented in a new `docs/evidence-contract.md` and a reason-code section covering every validator family in `docs/verify.md`, and the finished phase is proven on a Kitware CMake 3.25.3 floor binary (SHA-256 `771548ed...234e`, verified against Kitware's list), in the Linux container, and on the default toolchain, with `02-VALIDATION.md` signed off for what was verified automatically.
+- Caller-owned machine lifecycle and a one-cycle EWRAM bus with failure-atomic clock overflow handling.
+- Version 2 of the agb profile now validates bus costs, deterministic initialization, and explicitly unverified read policy against the narrative.
+- Bounded synthetic ROM loads now own a copy, preserve all canonical state on refusal, and cold-reset before releasing replaced storage.
+- The timed bus now decodes bounded ROM aliases and mapped memory lanes, applies mode-sensitive video byte stores, and proves five fault families with scratch-only mutants.
+- The loader now reports bounded advisory header findings from its owned copy, while canonical logo verification stays owner-pending.
+- A linked consumer-style test now exercises the assembled loaded-machine lifecycle, with measured CI and sanitizer evidence that preserves the open logo and hardware gates.
+- Fresh machines now start in the declared direct-start state and execute a bounded ARM MOV/B slice through real bus fetches.
+- Both configured cores and scratch controls now compile the same CPU source, with field-wise lifecycle and hard-budget refusal evidence.
+- Defined ARM arithmetic and shifts, Thumb/BX control flow, and bus-backed word and byte transfers with focused semantic controls.
+- ARM/Thumb exception entry now preserves banked mode state, uses explicit LR address bases, and stops before an absent BIOS vector can execute.
+- AGB profile v4 now records the deterministic CPU start state and bounded ARM/Thumb scope, while keeping architecture facts and project timing policy visibly separate.
+- A real guest-written mailbox can be read without changing CPU, bus, memory, or ownership state, and incomplete writes never count as a verdict.
+- The canonical CPU path now emits selected guest-time trace records and refuses a whole unit explicitly when its caller-owned trace output cannot fit.
+- A dependency-free C17 helper now hashes arbitrary caller-owned spans with independent SHA-256 vectors and explicit no-write refusal behavior.
+- Original build-only ARM and Thumb images now feed separate validated production and synthetic indexes, with hash and metadata identity gates in CI and ASan.
+- The headless CLI now runs a fresh canonical machine with bounded input and time, and emits a metadata-bound JSON result or an explicitly diagnostic raw-input result.
+- The headless runner now has a real CLI failure matrix, bounded signal cancellation, explicit trace failure precedence, and CI/ASAN coverage.
+- The result checker now validates actual runner output against mailbox semantics, exact cycle bounds, termination, and trace completeness while preserving synthetic metadata limits.
+- The installed production runner now survives prefix relocation with byte-identical bounded output, while the final source, inventory, sanitizer, and claim-boundary evidence is documented.
+- Pinned xPack GNU Arm Embedded 15.2.1-1.1 to exact host assets and installed it through bounded download, validated extraction, and atomic promotion.
+- Project-owned ARM/Thumb smoke images now build with v4T evidence and byte-identical local macOS arm64/Linux arm64 outputs, with the real runner's mailbox result checked independently from its unregistered-content stop.
+- The bounded hosted witness now passes on Linux x64 and macOS arm64 within the unchanged 180-second jobs, with hosted SHA identity kept distinct from local literal byte comparisons.
+- Source-built Git fixtures can now carry a separately pinned output digest through the immutable runtime index and result validator without changing manifest/1 or result/1.
+- The source-pinned ARM/Thumb smoke pair now runs through the real production index and canonical result checker, with exact mailbox identity and local cross-host byte parity.
+- Word SWP and SWPB now execute through bounded ordered bus slots with lane-correct results and atomic whole-unit refusal.
+- All ARM data-processing operations now execute through the canonical CPU path with tested NZCV behavior, Operand2 shifters, condition handling, and bounded bus-charged internal work.
+- ARM7TDMI PC writes and MRS/MSR now preserve ARMv4T mode, bank, and pipeline semantics.
+- The canonical ARM CPU path now executes all six multiply forms with exact result bits and source-referenced internal-cycle costs.
+- ARMv4T byte/word transfers now use preflighted effects, and LDR PC refills from its actual loaded word result.
+- ARMv4T halfword and signed transfers use canonical CPU slots, with GBA-specific odd-address policies tested against actual bus results.
+- Normal ARM7TDMI STM/LDM transfers now cover IA/IB/DA/DB, with bounded 16-slot execution and actual-read PC refill.
+- Thumb formats 1–5 now execute their legal ARMv4T arithmetic/register forms through the existing decode, preflight and bus-owned execution path.
+- Thumb formats 6–13 now use the canonical bounded CPU path for transfers, address generation and stack adjustment.
+- Thumb PUSH/POP and STMIA/LDMIA now use bounded ordered slots, architectural base rules, and preflighted bus work.
+- Thumb BL halves now retire independently through the canonical CPU unit, with banked LR and a real API IRQ boundary between halves.
+- The CPU distinguishes unpredictable operands, recognized later encodings, UND and absent coprocessors; profile5 describes the implemented families and their explicit project policies.
+- 244 original ARM pass/fail pairs and four honest stop witnesses execute through the production runner, with pinned build outputs and independent trace controls.
+- 117 original Thumb pass/fail pairs and eight honest stop witnesses execute through the production runner, with separately observed BL halves and independently checked opcode forms.
+- All722 final original diagnostic images have actual cross-host evidence and immutable production bindings;355 semantic pairs and12 named guest stops pass their distinct contracts.
+- Actual CPU mutants fail independent semantic assertions, and maximum ARM/Thumb units preserve complete state on capacity refusal while exact-fit work completes.
+- Production runner JSON and complete traces now match across same-process and fresh-process runs, with explicit controls for changed and missing evidence.
+- Canonical ARM and Thumb-bearing machines now match their isolated results when alternated, including distinct pass/fail outcomes, lifecycle changes, and trace-contamination detection.
+- Batched observations now compare exact O0/O2 guest records and trace hashes across all 722 admitted owned diagnostics, with strict GNU/Clang qualification reserved for Linux.
+- A canonical CPU sequence now binds the complete trace, terminal status, guest progress, and final machine time; disposable ALU-path mutations fail the gate for the named time-authority mismatch.
+- Typed register-evaluation bindings now pass through the canonical manifest validator into immutable generated indexes, with legacy mailbox metadata preserved.
+- The runner and checker now bind pre-display ARM and Thumb results to exact fixture metadata while keeping mailbox observations independent.
+
+---

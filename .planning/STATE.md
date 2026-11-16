@@ -2,20 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Evidence Spine
-current_phase: 6
-current_phase_name: Determinism Gates and Third-Party CPU Fixtures
-status: Phase5 accepted; approved acceptance CI and protected merge/main verification active; Phase6 NOT STARTED
-stopped_at: Finish only acceptance-records CI, protected merge commit and main CI; stop on red and stop before any Phase6 work
-last_updated: "2026-11-15T01:22:19.904Z"
-last_activity: 2026-11-14
-last_activity_desc: Owner accepted guide limits and one-time merge commit; six Phase5 requirements complete; all historical unknowns retained
-state_head: ab24e0138802133f2f4183f4107791a6eadfb1ac
+status: Archived with carried evidence gaps
+stopped_at: v1.0 archived with DIAG-04 and DET-02 carried as open verification gaps; Phase 6 remains incomplete
+last_updated: "2026-11-16T01:51:31.408Z"
+last_activity: 2026-11-15
+last_activity_desc: v1.0 archived; DIAG-04 and DET-02 remain open
+state_head: 309bead7d8477101fa6ebdb3055e042b7abd1aa1
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 63
-  completed_plans: 63
-  percent: 83
+  total_plans: 71
+  completed_plans: 68
+current_phase: 6
+current_phase_name: Determinism Gates and Third-Party CPU Fixtures
 ---
 
 # Project State
@@ -26,16 +25,14 @@ See: .planning/PROJECT.md (updated 2026-11-11)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 05 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
+**Current focus:** Phase 6 — Determinism Gates and Third-Party CPU Fixtures
 
 ## Current Position
 
-Phase: 6 — Determinism Gates and Third-Party CPU Fixtures
-Plan: Not started
-Status: Phase5 accepted; approved acceptance CI and protected merge/main verification active; Phase6 NOT STARTED
-Last activity: 2026-11-14 — Owner accepted guide limits and one-time merge commit; six Phase5 requirements complete; all historical unknowns retained
-
-Progress: [████████░░] 83%
+Phase: Milestone v1.0 archived; Phase 6 incomplete
+Plan: —
+Status: Completed with carried evidence gaps; ready to define v2.0
+Last activity: 2026-11-15 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -121,6 +118,11 @@ Progress: [████████░░] 83%
 | Phase 05 P21 | multi-resume; Task2 RED-to-code 22m43s; review and integration separate | 2 tasks | 43 files |
 | Phase 05 P22 | 23m40s through Task2 commit including review | 2 tasks | 7 files |
 | Phase 05 P23 | multi-resume; final admitted119.88s, native workflow185.02s | 2 tasks | 10 files |
+| Phase 06 P01 | 21 min | 2 tasks | 6 files |
+| Phase 06 P02 | 22 min | 2 tasks | 4 files |
+| Phase 06 P05 | 13 min | 2 tasks | 4 files |
+| Phase 6 P03 | 24 min | 2 tasks | 8 files |
+| Phase 06 P06 | 39m44s | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -262,6 +264,24 @@ Recent decisions affecting current work:
 - [Phase 05]: Owner sanity check prompted focused-per-change/earlyGNU checks and family review before full integration, matching05-VALIDATION SamplingRate. Full gates remain at ARM13, Thumb completion, explicit diagnostic/hosted and final source. See05-PROCESS-LESSONS.md.
 - [Phase 05]: Owner approved one stronger-executor trial for next Thumb ALU batch (Plan14): configured codex opus mapping gpt-6.1-sol with heavy-tier high effort; reviewer/fixer remain Luna/xhigh. Temporary pins live in config; restore previous routing after the one batch, preserving owner edits. See model-routing-trial.json.
 - [Phase 05]: Use Git Unix timestamps/UTC epochs for elapsed measurements. Plan13 mixed timezone duration corrected to2389seconds39min49s first committedRED→initialsummary; precommit initialization/review/integration are outside that interval.
+- [Phase 06]: Same-process comparison uses the production runner with the owned mailbox-pass ROM, direct-start defaults, no input timeline, a 1000-cycle bound, and all trace categories.
+- [Phase 06]: Fresh-process checks compare complete JSON and trace hashes for PASS, GUEST_FAIL, GUEST_STOP, and TIMEOUT while checking exact guest status and progress.
+- [Phase 06]: Determinism outputs use exclusive task-owned scratch paths; host duration and temporary paths stay outside result documents.
+- [Phase 06]: Use the existing gbl_cpu_run path with unit_limit=1; the harness only schedules units and observes outcomes.
+- [Phase 06]: Compare each machine with its own isolated baseline for mailbox outcome, exact progress, named state, memory, and canonical trace bytes.
+- [Phase 06]: Mutate a test-local copy of the owned Thumb-bearing synthetic image result literal to exercise the failure outcome.
+- [Phase 06]: Register lifecycle and trace-contamination controls in both ci and asan inventories.
+- [Phase 06]: Missing result_channel retains the five-word-v1-final-marker mailbox; register-eval rows require a complete typed binding.
+- [Phase 06]: Git source revisions bind to source.commit; URL revisions must appear in source.url, and register channels require an exact runtime ROM digest.
+- [Phase 06]: Synthetic controls preserve the pinned ARM/R12, Thumb/R7, and memory/R12 tuples using owned bytes and local-only rights metadata.
+- [Phase 6]: Batch all admitted owned diagnostic rows once per compiler and optimization variant, preserving existing artifact authority and timing limits.
+- [Phase 6]: Compare exact sorted canonical guest records and trace hashes; keep compiler metadata and host timing separate from guest observations.
+- [Phase 6]: Keep DET-02 pending until strict GNU GCC plus Clang evidence passes on Linux; local AppleClang host evidence does not qualify it.
+- [Phase 06]: The canonical fixture row selects the result channel; observation JSON cannot relax mailbox validation.
+- [Phase 06]: Keep semantic as the actual mailbox observation, independent from the register verdict.
+- [Phase 06]: Official-BIOS fixtures return a reasoned SKIPPED result before content access.
+- [Phase 06]: DIAG-04 remains pending until the later local-only plan runs the pinned third-party suites.
+- [Phase 06]: Before a long workflow, run shell/workflow checks and cheap policy controls, and use `ctest -N -R` to prove a focused filter selects tests. Measure the resulting JUnit critical path and avoid repeating unchanged producer matrices.
 
 ### Pending Todos
 
@@ -289,6 +309,8 @@ None yet.
 
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
 
+- Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
+
 ## Deferred Items
 
 - Phase 4 completion scanner reports generated/production/fixture_index.h and generated/control/fixture_index.h as absent at repository-relative paths. They are generated build outputs under build/ci and build/asan; the production/control metadata tests and relocated runner passed. This is a path-reference warning, not missing implementation.
@@ -300,9 +322,19 @@ None yet.
   warning for the portable `~/.codex` runtime reference is a prose-path scanner
   limitation, not a missing shipped artifact.
 
+### Acknowledged at milestone close
+
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| verification_gaps | 06/06-VERIFICATION.md | gaps_found | 2026-11-15 | v1.0 |
+
 
 ## Session Continuity
 
-Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Finish only acceptance-records CI, protected merge commit and main CI; stop on red and stop before any Phase6 work
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-16T01:51:31.408Z
+Stopped at: v1.0 archived with DIAG-04 and DET-02 open; preparing v2.0 Phase 7.
+Resume file: None (the retained Phase 5 Plan 23 checkpoint is stale for the current Phase 6 handoff)
+
+## Operator Next Steps
+
+- Start the next milestone with $gsd-new-milestone
