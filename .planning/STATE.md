@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 8
 current_phase_name: IRQ, HALT, and Timestamped Input
-current_plan: 3
+current_plan: 4
 status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-11-16T22:13:09.552Z"
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-11-16T22:51:50.042Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: cecf6a2aee6fa1485e59add7cc6db7cc2ddec92f
+state_head: eab18bb625b4871fc6761dd1f72d5e0014238d1e
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 9
+  completed_plans: 10
   percent: 25
 ---
 
@@ -32,10 +32,10 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 8 (IRQ, HALT, and Timestamped Input) — IN PROGRESS
-Current Plan: 3
+Current Plan: 4
 Total Plans in Phase: 7
-Status: In progress; Plan 08-01 complete and Plan 08-02 next
-Last activity: 2026-11-16 — Plan 08-01 execution complete
+Status: In progress; Plans 08-01 through 08-03 complete and Plan 08-04 next
+Last activity: 2026-11-16 — Plan 08-03 execution complete
 
 Progress: [███░░░░░░░] 25%
 
@@ -139,6 +139,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 07 P07 | 56m 10s | 2 tasks | 7 files |
 | Phase 08 P01 | at least 30min; initial read time not captured | 2 tasks | 10 files |
 | Phase 08 P02 | 32min | 2 tasks | 11 files |
+| Phase 08 P03 | 19 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -328,6 +329,9 @@ Recent decisions affecting current work:
 - [Phase 08]: Keep the copied logical timeline bounded at 256 events and schedule only its next record, preserving the existing event queue limit.
 - [Phase 08]: Use timer priorities 0–3 followed by keypad priority 4 and completion-cycle bus effects; this is explicit project timing policy.
 - [Phase 08]: Treat active-low KEYINPUT, KEYCNT empty-selection behavior, and effective false-to-true request edges as model rules, not hardware qualification.
+- [Phase 08]: HALT wakes from IF & IE after same-cycle events settle, independently of IME and CPSR.I acceptance.
+- [Phase 08]: STOP is terminal in the guest-cycle-only, no-BIOS profile; no-live-event HALT is a distinct deadlock.
+- [Phase 08]: Wait cycles are reported separately from bus/internal cycles, and event advancement has deterministic budget/refusal bounds.
 
 ### Pending Todos
 
@@ -378,8 +382,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T22:13:09.503Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-11-16T22:51:49.991Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
