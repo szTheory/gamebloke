@@ -31,6 +31,45 @@ static const char *gbl_runner_mailbox_name(gbl_mailbox_status status)
     return "malformed";
 }
 
+static const char *gbl_runner_exception_name(gbl_exception_kind kind)
+{
+    switch (kind) {
+    case GBL_EXCEPTION_NONE: return "none";
+    case GBL_EXCEPTION_RESET: return "reset";
+    case GBL_EXCEPTION_UNDEFINED: return "undefined";
+    case GBL_EXCEPTION_SWI: return "swi";
+    case GBL_EXCEPTION_PREFETCH_ABORT: return "prefetch_abort";
+    case GBL_EXCEPTION_DATA_ABORT: return "data_abort";
+    case GBL_EXCEPTION_IRQ: return "irq";
+    case GBL_EXCEPTION_FIQ: return "fiq";
+    case GBL_EXCEPTION_COPROCESSOR: return "coprocessor";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_power_state_name(gbl_machine_power_state state)
+{
+    switch (state) {
+    case GBL_MACHINE_POWER_RUNNING: return "running";
+    case GBL_MACHINE_POWER_HALTED: return "halted";
+    case GBL_MACHINE_POWER_STOPPED: return "stopped";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_power_cause_name(gbl_cpu_power_cause cause)
+{
+    switch (cause) {
+    case GBL_CPU_POWER_CAUSE_NONE: return "none";
+    case GBL_CPU_POWER_CAUSE_WAKE_PENDING: return "wake_pending";
+    case GBL_CPU_POWER_CAUSE_WAKE_EVENT: return "wake_event";
+    case GBL_CPU_POWER_CAUSE_STOP_REQUESTED: return "stop_requested";
+    case GBL_CPU_POWER_CAUSE_HALT_DEADLOCK: return "halt_deadlock";
+    case GBL_CPU_POWER_CAUSE_WAIT_TIMEOUT: return "wait_timeout";
+    }
+    return NULL;
+}
+
 static bool gbl_runner_json_string(FILE *output, const char *value)
 {
     static const char hex[] = "0123456789abcdef";
@@ -145,7 +184,7 @@ static bool gbl_runner_write_limits(FILE *output,
         "profile version 6 direct-start defaults are project policy, not a BIOS handoff",
         "ARM7TDMI ARMv4T instruction families implemented with explicit project policies; full original diagnostics pending",
         "bus costs and Timer 0 behavior use project-selected model policy, not hardware-qualified timing",
-        "Timer 0 IF is a device request; CPU IRQ eligibility, exception entry, and handlers are not modeled",
+        "Timer 0 IF is a device request; CPU IRQ samples and entry are project-model observations, while BIOS handlers and exact GBA IRQ latency are unqualified",
         "BIOS provider none; DMA, active display and audio, physical input, and host presentation are not modeled",
         "result does not establish hardware accuracy or broad game compatibility",
         "SHA-256 establishes byte identity only, not permission or redistribution rights"
@@ -189,6 +228,118 @@ static bool gbl_runner_write_limits(FILE *output,
         }
     }
     return fputc(']', output) != EOF;
+}
+
+static bool gbl_runner_write_phase8(FILE *output,
+                                    const gbl_runner_phase8_observation *obs)
+{
+    const char *exception = obs->observed
+                                ? gbl_runner_exception_name(obs->last_exception)
+                                : NULL;
+    const char *power_state = obs->observed
+                                  ? gbl_runner_power_state_name(obs->power_state)
+                                  : NULL;
+    const char *power_cause = obs->observed
+                                  ? gbl_runner_power_cause_name(obs->power_cause)
+                                  : NULL;
+
+    if (obs->observed &&
+        (exception == NULL || power_state == NULL || power_cause == NULL)) {
+        return false;
+    }
+    if (fputs("{\"model\":\"gamebloke-irq-input-model-1\","
+              "\"qualification\":\"project-model-only\",\"observed\":",
+              output) == EOF ||
+        fputs(obs->observed ? "true" : "false", output) == EOF ||
+        fputs(",\"irq\":{\"if\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (fprintf(output, "%u,\"ie\":%u,\"ime\":%u,\"sample\":",
+                    (unsigned int)obs->interrupt_flags,
+                    (unsigned int)obs->interrupt_enable,
+                    (unsigned int)obs->interrupt_master_enable) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"ie\":null,\"ime\":null,\"sample\":",
+                     output) == EOF) {
+        return false;
+    }
+    if (obs->observed && obs->has_irq_sample) {
+        const gbl_cpu_irq_observation *sample = &obs->irq_sample;
+
+        if (fprintf(output,
+                    "{\"cycle\":\"%" PRIu64 "\",\"if\":%u,"
+                    "\"ie\":%u,\"ime\":%u,\"eligible_sources\":%u,"
+                    "\"eligible\":%s,\"cpsr_i_masked\":%s,"
+                    "\"accepted\":%s,\"entered\":%s}",
+                    sample->sample_cycle,
+                    (unsigned int)sample->interrupt_flags,
+                    (unsigned int)sample->interrupt_enable,
+                    (unsigned int)sample->interrupt_master_enable,
+                    (unsigned int)sample->eligible_sources,
+                    sample->eligible ? "true" : "false",
+                    sample->cpu_masked ? "true" : "false",
+                    sample->accepted ? "true" : "false",
+                    sample->entered ? "true" : "false") < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs("},\"last_exception\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (!gbl_runner_json_string(output, exception)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"power\":{\"state\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (!gbl_runner_json_string(output, power_state) ||
+            fputs(",\"cause\":", output) == EOF ||
+            !gbl_runner_json_string(output, power_cause)) {
+            return false;
+        }
+    } else if (fputs("null,\"cause\":null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"wake_source_mask\":", output) == EOF) return false;
+    if (obs->observed && obs->has_wake) {
+        if (fprintf(output, "%u,\"wake_cycle\":\"%" PRIu64 "\"",
+                    (unsigned int)obs->wake_source_mask,
+                    obs->wake_cycle) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"wake_cycle\":null", output) == EOF) {
+        return false;
+    }
+    if (fputs("},\"keypad\":{\"keyinput\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (fprintf(output, "%u,\"keycnt\":%u,\"condition\":%s,"
+                            "\"irq_condition\":%s,\"applied_events\":%zu,"
+                            "\"pending_events\":%zu},\"wait_cycles\":\"%"
+                            PRIu64 "\"}",
+                    (unsigned int)obs->keyinput,
+                    (unsigned int)obs->key_control,
+                    obs->key_condition ? "true" : "false",
+                    obs->key_irq_condition ? "true" : "false",
+                    obs->applied_input_events, obs->pending_input_events,
+                    obs->wait_cycles) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"keycnt\":null,\"condition\":null,"
+                     "\"irq_condition\":null,\"applied_events\":null,"
+                     "\"pending_events\":null},\"wait_cycles\":null}",
+                     output) == EOF) {
+        return false;
+    }
+    return true;
 }
 
 bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
@@ -253,8 +404,21 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
     } else if (fputs("null", output) == EOF) {
         return false;
     }
-    if (fputs("},\"input_timeline\":{\"kind\":\"none\"},\"evidence\":",
-              output) == EOF ||
+    if (fputs("},\"input_timeline\":", output) == EOF) {
+        return false;
+    }
+    if (result->input_timeline_present) {
+        if (!result->has_input_timeline_sha256 ||
+            fputs("{\"kind\":\"script\",\"sha256\":", output) == EOF ||
+            !gbl_runner_json_string(output,
+                                    result->input_timeline_sha256) ||
+            fputc('}', output) == EOF) {
+            return false;
+        }
+    } else if (fputs("{\"kind\":\"none\"}", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"evidence\":", output) == EOF ||
         !gbl_runner_write_evidence(output, result) ||
         fputs("},\"disputes\":[", output) == EOF) {
         return false;
@@ -333,7 +497,9 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
     } else if (fputs("null", output) == EOF) {
         return false;
     }
-    if (fputs("},\"termination\":", output) == EOF ||
+    if (fputs("},\"phase8\":", output) == EOF ||
+        !gbl_runner_write_phase8(output, &result->phase8) ||
+        fputs(",\"termination\":", output) == EOF ||
         !gbl_runner_json_string(output, result->termination)) {
         return false;
     }

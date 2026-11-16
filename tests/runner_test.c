@@ -844,6 +844,8 @@ static bool gbl_test_input_timeline_observations(
     if (okay) {
         memcpy(first_digest, result.input_timeline_sha256,
                sizeof first_digest);
+        okay = strcmp(first_digest,
+                      "c2cd3f19cdb7b22c37e53a6654b45c8a56f5dfb81040d984385e6e4ef2cdd328") == 0;
     }
     gbl_runner_result_dispose(&result);
     if (!okay) {

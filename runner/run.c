@@ -81,6 +81,115 @@ static bool gbl_runner_copy_text(char *destination, size_t capacity,
     return true;
 }
 
+static bool gbl_runner_span_end(const void *pointer, size_t length,
+                                uintptr_t *end)
+{
+    const uintptr_t start = (uintptr_t)pointer;
+
+    if (pointer == NULL || end == NULL || length == 0u ||
+        (uintmax_t)length > (uintmax_t)UINTPTR_MAX - (uintmax_t)start) {
+        return false;
+    }
+    *end = start + (uintptr_t)length;
+    return true;
+}
+
+static bool gbl_runner_spans_overlap(const void *first, size_t first_length,
+                                     const void *second,
+                                     size_t second_length)
+{
+    uintptr_t first_end;
+    uintptr_t second_end;
+    const uintptr_t first_start = (uintptr_t)first;
+    const uintptr_t second_start = (uintptr_t)second;
+
+    if (!gbl_runner_span_end(first, first_length, &first_end) ||
+        !gbl_runner_span_end(second, second_length, &second_end)) {
+        return true;
+    }
+    return first_start < second_end && second_start < first_end;
+}
+
+static bool gbl_runner_input_timeline_copy(
+    const gbl_runner_options *options, const gbl_runner_result *result,
+    gbl_input_event copied[GBL_INPUT_EVENT_CAPACITY], size_t *copied_count)
+{
+    size_t span_size;
+    size_t index;
+
+    if (options == NULL || copied == NULL || copied_count == NULL) {
+        return false;
+    }
+    *copied_count = 0u;
+    if (!options->input_timeline_present) {
+        return options->input_events == NULL &&
+               options->input_event_count == 0u;
+    }
+    if (options->input_event_count > GBL_INPUT_EVENT_CAPACITY) {
+        return false;
+    }
+    if (options->input_event_count == 0u) {
+        return true;
+    }
+    if (options->input_events == NULL ||
+        options->input_event_count > SIZE_MAX / sizeof(*copied)) {
+        return false;
+    }
+    span_size = options->input_event_count * sizeof(*copied);
+    {
+        uintptr_t input_end;
+
+        if (!gbl_runner_span_end(options->input_events, span_size,
+                                 &input_end) ||
+            gbl_runner_spans_overlap(options->input_events, span_size, result,
+                                     sizeof(*result))) {
+            return false;
+        }
+        (void)input_end;
+    }
+    memcpy(copied, options->input_events, span_size);
+    for (index = 0u; index < options->input_event_count; ++index) {
+        if ((copied[index].pressed_mask & (uint16_t)~UINT16_C(0x03FF)) !=
+                0u ||
+            (index != 0u &&
+             copied[index].cycle < copied[index - 1u].cycle)) {
+            return false;
+        }
+    }
+    *copied_count = options->input_event_count;
+    return true;
+}
+
+static bool gbl_runner_input_timeline_digest(
+    const gbl_input_event *events, size_t event_count,
+    char output[GBL_SHA256_HEX_CAPACITY])
+{
+    static const uint8_t domain[] = "gamebloke-input-timeline-1";
+    uint8_t canonical[sizeof domain - 1u +
+                      GBL_INPUT_EVENT_CAPACITY * 10u];
+    size_t offset = sizeof domain - 1u;
+    size_t index;
+
+    if (event_count > GBL_INPUT_EVENT_CAPACITY ||
+        (event_count != 0u && events == NULL)) {
+        return false;
+    }
+    memcpy(canonical, domain, sizeof domain - 1u);
+    for (index = 0u; index < event_count; ++index) {
+        unsigned int byte_index;
+        const uint64_t cycle = events[index].cycle;
+        const uint16_t pressed_mask = events[index].pressed_mask;
+
+        for (byte_index = 0u; byte_index < 8u; ++byte_index) {
+            canonical[offset++] =
+                (uint8_t)(cycle >> (byte_index * 8u));
+        }
+        canonical[offset++] = (uint8_t)pressed_mask;
+        canonical[offset++] = (uint8_t)(pressed_mask >> 8u);
+    }
+    return gbl_sha256_span(canonical, offset, output);
+}
+
 static void gbl_runner_set_reason(gbl_runner_result *result,
                                   const char *reason)
 {
@@ -466,6 +575,42 @@ static bool gbl_runner_observe_register(gbl_runner_result *result,
     return true;
 }
 
+static void gbl_runner_phase8_observe(gbl_runner_result *result,
+                                     const gbl_machine *machine,
+                                     const gbl_run_result *run_result)
+{
+    gbl_runner_phase8_observation *observation = &result->phase8;
+
+    observation->observed = true;
+    observation->interrupt_flags = machine->interrupt_flags;
+    observation->interrupt_enable = machine->interrupt_enable;
+    observation->interrupt_master_enable = machine->interrupt_master_enable;
+    observation->has_irq_sample = machine->cpu.irq_observation.sampled;
+    if (observation->has_irq_sample) {
+        observation->irq_sample = machine->cpu.irq_observation;
+    }
+    observation->last_exception = machine->cpu.last_exception.kind;
+    observation->power_state = machine->power_state;
+    if (run_result->power_cause != GBL_CPU_POWER_CAUSE_NONE) {
+        observation->power_cause = run_result->power_cause;
+    }
+    if (run_result->power_cause == GBL_CPU_POWER_CAUSE_WAKE_PENDING ||
+        run_result->power_cause == GBL_CPU_POWER_CAUSE_WAKE_EVENT) {
+        observation->has_wake = true;
+        observation->wake_source_mask = run_result->wake_source_mask;
+        observation->wake_cycle = run_result->wake_cycle;
+    }
+    observation->keyinput = (uint16_t)(~machine->pressed_keys &
+                                       UINT16_C(0x03FF));
+    observation->key_control = machine->key_control;
+    observation->key_condition = machine->key_condition;
+    observation->key_irq_condition = machine->key_irq_condition;
+    observation->applied_input_events = machine->input_event_cursor;
+    observation->pending_input_events =
+        machine->input_event_count - machine->input_event_cursor;
+    observation->wait_cycles = result->wait_cycles;
+}
+
 void gbl_runner_classify_guest_stop(gbl_runner_result *result,
                                     const gbl_machine *machine,
                                     gbl_run_reason reason)
@@ -559,8 +704,13 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     gbl_runner_allocator selected_allocator;
     gbl_machine *machine = NULL;
     gbl_allocator machine_allocator;
+    gbl_input_event copied_input_events[GBL_INPUT_EVENT_CAPACITY] = { 0 };
     char requested_fixture_id[GBL_RUNNER_FIXTURE_ID_CAPACITY] = { '\0' };
+    char input_timeline_sha256[GBL_SHA256_HEX_CAPACITY];
+    size_t copied_input_event_count = 0u;
     bool has_fixture_argument;
+    bool options_overlap_result;
+    bool input_timeline_valid = false;
     uint8_t *rom_bytes = NULL;
     size_t rom_length = 0u;
     char copied_digest[GBL_SHA256_HEX_CAPACITY];
@@ -570,6 +720,15 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     if (result == NULL) {
         return GBL_RUNNER_HARNESS_FAIL;
     }
+    options_overlap_result =
+        options != NULL &&
+        gbl_runner_spans_overlap(options, sizeof(*options), result,
+                                 sizeof(*result));
+    if (options != NULL && !options_overlap_result) {
+        input_timeline_valid = gbl_runner_input_timeline_copy(
+            options, result, copied_input_events,
+            &copied_input_event_count);
+    }
     memset(result, 0, sizeof *result);
     result->status = GBL_RUNNER_HARNESS_FAIL;
     result->semantic.status = GBL_MAILBOX_ABSENT;
@@ -577,7 +736,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     gbl_runner_set_reason(result, "runner-failed");
     gbl_runner_set_termination(result, "not-started");
 
-    if (options == NULL || options->rom_path == NULL ||
+    if (options == NULL || options_overlap_result ||
+        options->rom_path == NULL ||
         options->rom_path[0] == '\0' ||
         !gbl_runner_allocator_select(&options->allocator,
                                      &selected_allocator)) {
@@ -602,6 +762,28 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_runner_set_termination(result, "refused-before-run");
         result->status = GBL_RUNNER_REFUSED;
         return result->status;
+    }
+    if (!input_timeline_valid) {
+        result->status = GBL_RUNNER_REFUSED;
+        gbl_runner_set_reason(result, "invalid-input-timeline");
+        gbl_runner_set_refusal(result, "invalid-input-timeline",
+                               "guest-not-executed");
+        gbl_runner_set_termination(result, "refused-before-run");
+        return result->status;
+    }
+    if (options->input_timeline_present) {
+        if (!gbl_runner_input_timeline_digest(
+                copied_input_events, copied_input_event_count,
+                input_timeline_sha256)) {
+            result->status = GBL_RUNNER_HARNESS_FAIL;
+            gbl_runner_set_reason(result, "input-timeline-digest-failed");
+            gbl_runner_set_termination(result, "not-started");
+            return result->status;
+        }
+        result->input_timeline_present = true;
+        result->has_input_timeline_sha256 = true;
+        memcpy(result->input_timeline_sha256, input_timeline_sha256,
+               sizeof result->input_timeline_sha256);
     }
 
     if (has_fixture_argument) {
@@ -822,6 +1004,24 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         }
     }
 
+    if (options->input_timeline_present &&
+        gbl_machine_set_input_timeline(machine, copied_input_events,
+                                       copied_input_event_count) !=
+            GBL_TIME_STATUS_OK) {
+        result->status = GBL_RUNNER_REFUSED;
+        gbl_runner_set_reason(result, "input-timeline-install-refused");
+        gbl_runner_set_refusal(result, "input-timeline-install-refused",
+                               "guest-not-run");
+        gbl_runner_set_termination(result, "refused-before-run");
+        gbl_machine_dispose(machine);
+        result->allocator.release(result->allocator.context, machine,
+                                  sizeof *machine);
+        result->allocator.release(result->allocator.context, rom_bytes,
+                                  GBL_RUNNER_MAX_ROM_BYTES +
+                                      (size_t)GBL_RUNNER_ROM_SENTINEL_BYTES);
+        return result->status;
+    }
+
     if (gbl_rom_size(machine) != rom_length ||
         gbl_rom_data(machine) == NULL ||
         memcmp(gbl_rom_data(machine), rom_bytes, rom_length) != 0 ||
@@ -895,13 +1095,20 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
             run_result.cycles > UINT64_MAX - result->cycles ||
             run_result.instructions > UINT64_MAX - result->instructions ||
             run_result.bus_cycles > UINT64_MAX - run_result.internal_cycles ||
-            run_result.bus_cycles + run_result.internal_cycles !=
-                run_result.cycles ||
+            run_result.wait_cycles >
+                UINT64_MAX -
+                    (run_result.bus_cycles + run_result.internal_cycles) ||
+            run_result.bus_cycles + run_result.internal_cycles +
+                    run_result.wait_cycles != run_result.cycles ||
             run_result.bus_cycles > UINT64_MAX - result->bus_cycles ||
             run_result.internal_cycles >
                 UINT64_MAX - result->internal_cycles ||
+            run_result.wait_cycles > UINT64_MAX - result->wait_cycles ||
             (run_result.termination == GBL_RUN_PROGRESS &&
-             run_result.cycles == 0u && run_result.instructions == 0u)) {
+             run_result.cycles == 0u && run_result.instructions == 0u &&
+             run_result.wait_cycles == 0u &&
+             run_result.power_cause != GBL_CPU_POWER_CAUSE_WAKE_PENDING &&
+             run_result.power_cause != GBL_CPU_POWER_CAUSE_WAKE_EVENT)) {
             result->status = GBL_RUNNER_HARNESS_FAIL;
             gbl_runner_set_reason(result, "cpu-run-failed");
             gbl_runner_set_termination(result, "harness-failure");
@@ -911,7 +1118,10 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         result->instructions += run_result.instructions;
         result->bus_cycles += run_result.bus_cycles;
         result->internal_cycles += run_result.internal_cycles;
-        if (run_result.cycles != 0u || run_result.instructions != 0u) {
+        result->wait_cycles += run_result.wait_cycles;
+        gbl_runner_phase8_observe(result, machine, &run_result);
+        if (run_result.cycles != 0u || run_result.instructions != 0u ||
+            run_result.power_cause != GBL_CPU_POWER_CAUSE_NONE) {
             has_committed_unit = true;
         }
         if (result->trace_mask != 0u) {
