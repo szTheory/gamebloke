@@ -5,11 +5,11 @@ milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 8
 current_phase_name: IRQ, HALT, and Timestamped Input
 status: planning
-stopped_at: Phase 07 complete, ready to plan Phase 08
-last_updated: "2026-11-16T18:04:18.284Z"
+stopped_at: Phase 8 context gathered
+last_updated: "2026-11-16T18:16:38.202Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: 769f8016347b52e71176957d7678d78dbf345dfe
+state_head: 5fd4e54d421caf8ded3ee013242dadc42de49860
 progress:
   total_phases: 4
   completed_phases: 1
@@ -369,9 +369,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T18:04:18.256Z
-Stopped at: Phase 07 complete, ready to plan Phase 08
-Resume file: None
+Last session: 2026-11-16T18:16:38.172Z
+Stopped at: Phase 8 context gathered
+Resume file: .planning/phases/08-irq-halt-and-timestamped-input/08-CONTEXT.md
 
 ## Operator Next Steps
 
