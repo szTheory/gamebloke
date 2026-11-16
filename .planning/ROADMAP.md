@@ -55,7 +55,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 - [x] 07-04-PLAN.md — Timing profile provenance and validation
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 07-05-PLAN.md — Runner observations and result contract
+- [x] 07-05-PLAN.md — Runner observations and result contract
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 07-06-PLAN.md — Original generated guests and determinism
@@ -114,7 +114,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. Time Authority and Timer 0 Polling Proof | 4/7 | In Progress | - |
+| 7. Time Authority and Timer 0 Polling Proof | 5/7 | In Progress | - |
 | 8. IRQ, HALT, and Timestamped Input | 0/TBD | Not started | - |
 | 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
