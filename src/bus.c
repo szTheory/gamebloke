@@ -227,10 +227,12 @@ static bool gbl_bus_is_timer_byte(uint32_t address)
            address <= UINT32_C(0x0400010F);
 }
 
-static bool gbl_bus_is_if_byte(uint32_t address)
+static bool gbl_bus_is_interrupt_byte(uint32_t address)
 {
-    return address == UINT32_C(0x04000202) ||
-           address == UINT32_C(0x04000203);
+    return (address >= UINT32_C(0x04000200) &&
+            address <= UINT32_C(0x04000203)) ||
+           address == UINT32_C(0x04000208) ||
+           address == UINT32_C(0x04000209);
 }
 
 static gbl_bus_status gbl_bus_status_from_time(gbl_time_status status)
@@ -286,12 +288,22 @@ static bool gbl_bus_read_lane(
             *value = gbl_timer_read(time_preview, address);
             return true;
         }
-        if (gbl_bus_is_if_byte(address)) {
-            *outcome = GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
-            *value = address == UINT32_C(0x04000202)
-                         ? (uint8_t)(time_preview->interrupt_flags &
-                                     UINT16_C(0x00FF))
-                         : (uint8_t)(time_preview->interrupt_flags >> 8u);
+        if (gbl_bus_is_interrupt_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET;
+            if (address <= UINT32_C(0x04000201)) {
+                *value = (uint8_t)(
+                    (time_preview->interrupt_enable & UINT16_C(0x3FFF)) >>
+                    ((address & UINT32_C(1)) * 8u));
+            } else if (address <= UINT32_C(0x04000203)) {
+                *value = (uint8_t)(
+                    (time_preview->interrupt_flags & UINT16_C(0x3FFF)) >>
+                    ((address & UINT32_C(1)) * 8u));
+            } else {
+                *value = (uint8_t)(
+                    (time_preview->interrupt_master_enable &
+                     UINT16_C(0x0001)) >>
+                    ((address & UINT32_C(1)) * 8u));
+            }
             return true;
         }
         *value = 0u;
@@ -368,8 +380,11 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
             }
             return GBL_BUS_OUTCOME_IO_MODE_SUBSET;
         }
-        if (gbl_bus_is_timer_byte(address) || gbl_bus_is_if_byte(address)) {
+        if (gbl_bus_is_timer_byte(address)) {
             return GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
+        }
+        if (gbl_bus_is_interrupt_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET;
         }
         return GBL_BUS_OUTCOME_IO_UNIMPLEMENTED;
     case GBL_BUS_REGION_ROM:

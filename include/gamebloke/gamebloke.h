@@ -90,6 +90,8 @@ typedef struct gbl_machine_time_preview {
     uint64_t master_cycles;
     uint64_t next_event_sequence;
     uint16_t interrupt_flags;
+    uint16_t interrupt_enable;
+    uint16_t interrupt_master_enable;
     size_t event_count;
     gbl_event events[GBL_EVENT_CAPACITY];
     gbl_timer_state timers[GBL_TIMER_COUNT];
@@ -123,7 +125,8 @@ typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_UNMAPPED = 6,
     GBL_BUS_OUTCOME_IO_MODE_SUBSET = 7,
     GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY = 8,
-    GBL_BUS_OUTCOME_IO_TIMER_SUBSET = 9
+    GBL_BUS_OUTCOME_IO_TIMER_SUBSET = 9,
+    GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET = 10
 } gbl_bus_outcome;
 
 typedef enum gbl_bus_access_class {
@@ -307,6 +310,28 @@ typedef struct gbl_cpu_last_exception {
     bool thumb_state;
 } gbl_cpu_last_exception;
 
+/* Last completed instruction-boundary IRQ sample. This records project
+ * machine state and CPU eligibility separately from exception entry; its
+ * cycles use the selected model and do not qualify GBA interrupt latency. */
+typedef struct gbl_cpu_irq_observation {
+    uint64_t sample_cycle;
+    uint64_t entry_cycle;
+    uint64_t entry_internal_cycles;
+    uint32_t cpsr;
+    uint32_t next_instruction_address;
+    uint32_t following_instruction_address;
+    uint16_t interrupt_flags;
+    uint16_t interrupt_enable;
+    uint16_t eligible_sources;
+    uint16_t interrupt_master_enable;
+    bool sampled;
+    bool eligible;
+    bool master_enabled;
+    bool cpu_masked;
+    bool accepted;
+    bool entered;
+} gbl_cpu_irq_observation;
+
 typedef struct gbl_cpu_pipeline_entry {
     uint32_t address;
     uint32_t opcode;
@@ -333,6 +358,7 @@ typedef struct gbl_cpu_state {
     bool stopped;
     gbl_cpu_stop_reason stop_reason;
     gbl_cpu_last_exception last_exception;
+    gbl_cpu_irq_observation irq_observation;
 } gbl_cpu_state;
 
 typedef enum gbl_run_status {
@@ -430,6 +456,8 @@ typedef struct gbl_machine {
     uint32_t open_bus;
     uint16_t dispcnt;
     uint16_t interrupt_flags;
+    uint16_t interrupt_enable;
+    uint16_t interrupt_master_enable;
     size_t event_count;
     gbl_event events[GBL_EVENT_CAPACITY];
     gbl_timer_state timers[GBL_TIMER_COUNT];

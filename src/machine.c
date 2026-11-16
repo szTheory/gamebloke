@@ -224,6 +224,8 @@ static void gbl_machine_time_copy_preview(
     preview->master_cycles = machine->master_cycles;
     preview->next_event_sequence = machine->next_event_sequence;
     preview->interrupt_flags = machine->interrupt_flags;
+    preview->interrupt_enable = machine->interrupt_enable;
+    preview->interrupt_master_enable = machine->interrupt_master_enable;
     preview->event_count = machine->event_count;
     for (index = 0u; index < machine->event_count; ++index) {
         preview->events[index] = machine->events[index];
@@ -324,6 +326,8 @@ static gbl_time_status gbl_preview_bus_write(
     uint8_t timer_lane_masks[GBL_TIMER_COUNT] = { 0u };
     uint32_t timer_values[GBL_TIMER_COUNT] = { 0u };
     uint16_t if_clear_mask = 0u;
+    uint16_t interrupt_enable = preview->interrupt_enable;
+    uint16_t interrupt_master_enable = preview->interrupt_master_enable;
     uint32_t lane;
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
@@ -354,11 +358,25 @@ static gbl_time_status gbl_preview_bus_write(
                     (timer_values[timer_index] & UINT32_C(0xFF00FFFF)) |
                     ((uint32_t)byte_value << 16u);
             }
+        } else if (lane_address == UINT32_C(0x04000200)) {
+            interrupt_enable = (uint16_t)(
+                (interrupt_enable & UINT16_C(0xFF00)) | byte_value);
+        } else if (lane_address == UINT32_C(0x04000201)) {
+            interrupt_enable = (uint16_t)(
+                (interrupt_enable & UINT16_C(0x00FF)) |
+                (uint16_t)((uint16_t)byte_value << 8u));
         } else if (lane_address == UINT32_C(0x04000202)) {
             if_clear_mask = (uint16_t)(if_clear_mask | byte_value);
         } else if (lane_address == UINT32_C(0x04000203)) {
             if_clear_mask = (uint16_t)(
                 if_clear_mask | (uint16_t)((uint16_t)byte_value << 8u));
+        } else if (lane_address == UINT32_C(0x04000208)) {
+            interrupt_master_enable = (uint16_t)(
+                (interrupt_master_enable & UINT16_C(0xFF00)) | byte_value);
+        } else if (lane_address == UINT32_C(0x04000209)) {
+            interrupt_master_enable = (uint16_t)(
+                (interrupt_master_enable & UINT16_C(0x00FF)) |
+                (uint16_t)((uint16_t)byte_value << 8u));
         }
     }
     for (lane = 0u; lane < GBL_TIMER_COUNT; ++lane) {
@@ -373,7 +391,12 @@ static gbl_time_status gbl_preview_bus_write(
         }
     }
     preview->interrupt_flags = (uint16_t)(
-        preview->interrupt_flags & (uint16_t)~if_clear_mask);
+        preview->interrupt_flags &
+        (uint16_t)~(if_clear_mask & UINT16_C(0x3FFF)));
+    preview->interrupt_enable =
+        (uint16_t)(interrupt_enable & UINT16_C(0x3FFF));
+    preview->interrupt_master_enable =
+        (uint16_t)(interrupt_master_enable & UINT16_C(0x0001));
     return GBL_TIME_STATUS_OK;
 }
 
@@ -445,6 +468,8 @@ void gbl_machine_commit_time(gbl_machine *machine,
     machine->master_cycles = preview->master_cycles;
     machine->next_event_sequence = preview->next_event_sequence;
     machine->interrupt_flags = preview->interrupt_flags;
+    machine->interrupt_enable = preview->interrupt_enable;
+    machine->interrupt_master_enable = preview->interrupt_master_enable;
     machine->event_count = preview->event_count;
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine->events[index] = preview->events[index];
@@ -608,6 +633,8 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->open_bus = 0u;
     machine->dispcnt = 0u;
     machine->interrupt_flags = 0u;
+    machine->interrupt_enable = 0u;
+    machine->interrupt_master_enable = 0u;
     machine->event_count = 0u;
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine->events[index] = (gbl_event){ 0 };

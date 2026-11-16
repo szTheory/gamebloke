@@ -105,6 +105,7 @@ typedef struct gbl_cpu_unit {
     uint8_t status_effect_count;
     bool changes_state;
     bool thumb_state;
+    bool asynchronous;
     bool fetch_address_from_result;
     bool multiple_transfer;
     bool restore_cpsr_from_spsr;
@@ -3242,7 +3243,7 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         *reason = GBL_RUN_REASON_COUNTER_OVERFLOW;
         return false;
     }
-    if (unit->kind != GBL_CPU_UNIT_REFILL &&
+    if (unit->kind != GBL_CPU_UNIT_REFILL && !unit->asynchronous &&
         machine->cpu.retired_instructions == UINT64_MAX) {
         *reason = GBL_RUN_REASON_COUNTER_OVERFLOW;
         return false;
@@ -3557,7 +3558,7 @@ static size_t gbl_cpu_trace_required_records(const gbl_cpu_unit *unit,
 {
     size_t records = 0u;
 
-    if (unit->kind != GBL_CPU_UNIT_REFILL &&
+    if (unit->kind != GBL_CPU_UNIT_REFILL && !unit->asynchronous &&
         (category_mask & (uint32_t)GBL_TRACE_INSTRUCTION) != 0u) {
         records++;
     }
@@ -3870,6 +3871,9 @@ static bool gbl_cpu_time_preview_matches_machine(
         machine->master_cycles != preview->master_cycles ||
         machine->next_event_sequence != preview->next_event_sequence ||
         machine->interrupt_flags != preview->interrupt_flags ||
+        machine->interrupt_enable != preview->interrupt_enable ||
+        machine->interrupt_master_enable !=
+            preview->interrupt_master_enable ||
         machine->event_count != preview->event_count) {
         return false;
     }
@@ -3946,7 +3950,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
     run_options = *options;
 
     for (;;) {
-        gbl_cpu_unit unit;
+        gbl_cpu_unit unit = { 0 };
         gbl_run_reason preflight_reason;
         gbl_cpu_pipeline_entry fetched[2] = { { 0u, 0u, 0u, false },
                                               { 0u, 0u, 0u, false } };
@@ -3958,6 +3962,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         size_t time_operation_count = 0u;
         size_t trace_record_count = 0u;
         uint64_t unit_start_cycle;
+        gbl_cpu_irq_observation boundary_irq = { 0 };
+        bool asynchronous_irq = false;
         bool effects_committed_before_fetch = false;
         gbl_time_status time_status;
 
@@ -3966,7 +3972,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = gbl_cpu_stop_result(machine->cpu.stop_reason);
             break;
         }
-        if (run_options.cycle_budget == 0u) {
+        if (run_result.cycles >= run_options.cycle_budget) {
             break;
         }
         if (run_options.unit_limit != 0u &&
@@ -3975,7 +3981,47 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = GBL_RUN_REASON_UNIT_LIMIT;
             break;
         }
-        if (!gbl_cpu_decode(machine, &unit)) {
+        if (machine->cpu.pipeline[0].valid &&
+            machine->cpu.pipeline[1].valid) {
+            boundary_irq.sampled = true;
+            boundary_irq.sample_cycle = machine->master_cycles;
+            boundary_irq.interrupt_flags =
+                (uint16_t)(machine->interrupt_flags & UINT16_C(0x3FFF));
+            boundary_irq.interrupt_enable =
+                (uint16_t)(machine->interrupt_enable & UINT16_C(0x3FFF));
+            boundary_irq.interrupt_master_enable =
+                (uint16_t)(machine->interrupt_master_enable & UINT16_C(1));
+            boundary_irq.cpsr = machine->cpu.cpsr;
+            boundary_irq.next_instruction_address =
+                machine->cpu.pipeline[0].address;
+            boundary_irq.following_instruction_address =
+                machine->cpu.pipeline[1].address;
+            boundary_irq.eligible_sources = (uint16_t)(
+                boundary_irq.interrupt_flags &
+                boundary_irq.interrupt_enable);
+            boundary_irq.eligible = boundary_irq.eligible_sources != 0u;
+            boundary_irq.master_enabled =
+                boundary_irq.interrupt_master_enable != 0u;
+            boundary_irq.cpu_masked =
+                (machine->cpu.cpsr & GBL_CPU_CPSR_I) != 0u;
+            boundary_irq.accepted = boundary_irq.eligible &&
+                                    boundary_irq.master_enabled &&
+                                    !boundary_irq.cpu_masked;
+            if (boundary_irq.accepted) {
+                if (!gbl_cpu_schedule_exception(&unit, GBL_EXCEPTION_IRQ)) {
+                    run_result.termination = GBL_RUN_STOPPED;
+                    run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+                    break;
+                }
+                unit.asynchronous = true;
+                unit.instruction_address =
+                    boundary_irq.next_instruction_address;
+                unit.thumb_state =
+                    (machine->cpu.cpsr & GBL_CPU_CPSR_T) != 0u;
+                asynchronous_irq = true;
+            }
+        }
+        if (!asynchronous_irq && !gbl_cpu_decode(machine, &unit)) {
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             break;
@@ -4027,7 +4073,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = gbl_cpu_time_refusal_reason(time_status);
             break;
         }
-        if (unit.kind != GBL_CPU_UNIT_REFILL) {
+        if (unit.kind != GBL_CPU_UNIT_REFILL && !unit.asynchronous) {
             gbl_trace_record record = { 0 };
 
             record.guest_cycle = unit_start_cycle;
@@ -4049,12 +4095,20 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             break;
         }
         if (unit.kind == GBL_CPU_UNIT_EXCEPTION) {
-            const gbl_cpu_exception_context context = {
-                unit.instruction_address,
-                machine->cpu.pipeline[1].address,
-                unit.instruction_address,
-                (machine->cpu.cpsr & GBL_CPU_CPSR_T) != 0u
-            };
+            const uint32_t resume_address =
+                unit.asynchronous
+                    ? boundary_irq.next_instruction_address
+                    : unit.instruction_address;
+            const gbl_cpu_exception_context context =
+                unit.asynchronous
+                    ? (gbl_cpu_exception_context){
+                          resume_address, resume_address, resume_address,
+                          unit.thumb_state }
+                    : (gbl_cpu_exception_context){
+                          unit.instruction_address,
+                          machine->cpu.pipeline[1].address,
+                          unit.instruction_address,
+                          (machine->cpu.cpsr & GBL_CPU_CPSR_T) != 0u };
             const gbl_cpu_status exception_status = gbl_cpu_enter_exception(
                 machine, unit.exception_kind, &context);
 
@@ -4083,8 +4137,10 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                     break;
                 }
             }
-            machine->cpu.retired_instructions++;
-            run_result.instructions++;
+            if (!unit.asynchronous) {
+                machine->cpu.retired_instructions++;
+                run_result.instructions++;
+            }
             run_result.cycles += unit.cycle_cost;
             run_result.bus_cycles += unit.bus_cycle_cost;
             run_result.internal_cycles += unit.internal_cycle_cost;
@@ -4095,6 +4151,15 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                 run_result.termination = GBL_RUN_STOPPED;
                 run_result.reason = GBL_RUN_REASON_INTERNAL_ERROR;
                 break;
+            }
+            if (boundary_irq.sampled) {
+                if (unit.asynchronous) {
+                    boundary_irq.entered = true;
+                    boundary_irq.entry_cycle = machine->master_cycles;
+                    boundary_irq.entry_internal_cycles =
+                        unit.internal_cycle_cost;
+                }
+                machine->cpu.irq_observation = boundary_irq;
             }
             gbl_cpu_trace_commit(run_options.trace_buffer, trace_records,
                                  trace_record_count);
@@ -4277,6 +4342,9 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = GBL_RUN_REASON_INTERNAL_ERROR;
             break;
+        }
+        if (boundary_irq.sampled) {
+            machine->cpu.irq_observation = boundary_irq;
         }
         completed_units++;
         run_result.cycles += unit.cycle_cost;
