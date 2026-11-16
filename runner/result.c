@@ -142,10 +142,11 @@ static bool gbl_runner_write_limits(FILE *output,
                                     const gbl_runner_result *result)
 {
     static const char *const base_limits[] = {
-        "profile version 5 direct-start defaults are project policy, not a BIOS handoff",
+        "profile version 6 direct-start defaults are project policy, not a BIOS handoff",
         "ARM7TDMI ARMv4T instruction families implemented with explicit project policies; full original diagnostics pending",
-        "bus costs use project placeholder timing policy",
-        "BIOS provider none; timers, DMA, active display and audio, physical input, and host presentation are not modeled",
+        "bus costs and Timer 0 behavior use project-selected model policy, not hardware-qualified timing",
+        "Timer 0 IF is a device request; CPU IRQ eligibility, exception entry, and handlers are not modeled",
+        "BIOS provider none; DMA, active display and audio, physical input, and host presentation are not modeled",
         "result does not establish hardware accuracy or broad game compatibility",
         "SHA-256 establishes byte identity only, not permission or redistribution rights"
     };
@@ -312,9 +313,27 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
             output, gbl_runner_mailbox_name(result->semantic.status)) ||
         fprintf(output, ",\"case_id\":\"%" PRIu32 "\"},\"time\":{"
                        "\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64
-                       "\",\"budget_cycles\":\"%" PRIu64 "\"},\"termination\":",
+                       "\",\"budget_cycles\":\"%" PRIu64 "\",\"model\":",
                 result->semantic.case_id, result->cycles,
                 result->instructions, result->budget_cycles) < 0 ||
+        !gbl_runner_json_string(output, GBL_TIMER_MODEL_NAME) ||
+        fputs(",\"qualification\":", output) == EOF ||
+        !gbl_runner_json_string(output, "project-model-only") ||
+        fprintf(output, ",\"bus_cycles\":\"%" PRIu64
+                       "\",\"internal_cycles\":\"%" PRIu64
+                       "\"},\"timer0\":{\"if_request\":",
+                result->bus_cycles, result->internal_cycles) < 0) {
+        return false;
+    }
+    if (result->has_timer0_if_request) {
+        if (fputs(result->timer0_if_request ? "true" : "false", output) ==
+            EOF) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs("},\"termination\":", output) == EOF ||
         !gbl_runner_json_string(output, result->termination)) {
         return false;
     }

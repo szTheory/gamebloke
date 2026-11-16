@@ -247,7 +247,7 @@ static bool gbl_test_instruction_stop_json(const char *directory)
                 strstr(json, cases[index].reason) != NULL &&
                 strstr(json, time) != NULL &&
                 strstr(json, "\"machine\":\"agb\",\"boot\":\"direct-start\",\"bios_provider\":\"none\"") != NULL &&
-                strstr(json, "profile version 5 direct-start") != NULL &&
+                strstr(json, "profile version 6 direct-start") != NULL &&
                 strstr(json, "full original diagnostics pending") != NULL &&
                 strstr(json, "hardware accuracy or broad game compatibility") != NULL;
         }

@@ -108,12 +108,23 @@ these fields:
   identity fields to that manifest row and the result's exact runtime ROM digest. Before the
   evaluator entry is observed, `value` is null; afterward it is a raw uint32 JSON number.
   This is separate from `semantic`, which always reports the actual mailbox observation.
-- `time`: `{cycles, instructions, budget_cycles}`. All three are canonical decimal strings
-  in uint64 range (`"0"` or a nonzero digit followed by digits). They are strings so JSON
-  consumers do not round values above their exact integer range. The observed cycles must
-  be less than or equal to the requested cycle budget. A bounded run may stop short when its
+- `time`: `{cycles, instructions, budget_cycles, model, qualification, bus_cycles,
+  internal_cycles}`. The four counters are canonical decimal strings in uint64 range
+  (`"0"` or a nonzero digit followed by digits). They are strings so JSON consumers do not
+  round values above their exact integer range. `cycles` equals `bus_cycles` plus
+  `internal_cycles`, with checked uint64 arithmetic. `model` is the declared
+  `gamebloke-timer-model-1`; `qualification` is `project-model-only`. The cycle values are
+  observations from that model, not a hardware timing claim. The observed cycles must be
+  less than or equal to the requested cycle budget. A bounded run may stop short when its
   next whole instruction or refill unit cannot fit; equality with the budget is not required
   for TIMEOUT, and exact-boundary mailbox completion is valid.
+- `timer0`: `{if_request}` reports Timer 0's device interrupt-request bit independently from
+  the semantic mailbox and CPU state. It is a boolean after at least one committed CPU unit;
+  `false` means the executed machine was observed with the request bit clear. It is `null`
+  when no CPU unit committed or execution was skipped, refused, or stopped before a request
+  observation. A true IF request does not establish CPU interrupt eligibility, exception
+  entry, or handler execution. A raw unregistered guest can therefore carry a semantic
+  mailbox observation while retaining diagnostic `GUEST_STOP` status.
 - `termination`: a named lowercase token describing why bounded execution stopped.
 - `trace`: null when no trace is selected, or a trace object with a boolean `complete` field.
 
@@ -223,7 +234,7 @@ and incomplete trace are rejected for their named reasons. This proves the confi
 producer/checker path only; synthetic metadata remains an artificial validator input.
 
 Current evidence is limited to the direct-start profile and the implemented
-ARM7TDMI ARMv4T families in the version 5 scope/policy tables in
+ARM7TDMI ARMv4T families in the version 6 scope/policy tables in
 [profile-agb.md](profile-agb.md#cpu-instruction-scope). The original ARM/Thumb
 corpus has admitted production fixtures and actual local execution receipts;
 current-source verification, hosted qualification and owner acceptance are
@@ -232,9 +243,10 @@ and the current Phase 5 final-check record for their exact status. Unpredictable
 stops, recognized later extensions, reserved UND and absent-coprocessor UND have
 separate causes. Explicit executing project policies and static target refusals
 are listed in the profile. Public unsupported values remain compatible without
-inventing a legal unimplemented instruction. No BIOS execution/HLE, timers, DMA,
-active I/O, WAITCNT/prefetch, display/audio, physical input or host presentation
-is modeled. Bus timing and latch behavior remain unqualified.
+inventing a legal unimplemented instruction. No BIOS execution/HLE, DMA, active I/O,
+WAITCNT/prefetch, display/audio, physical input or host presentation is modeled. Timer 0
+and bus cycle observations use project-selected model behavior; region-specific hardware
+waits and timing remain unqualified.
 
 The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
 undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the

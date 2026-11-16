@@ -563,6 +563,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     size_t rom_length = 0u;
     char copied_digest[GBL_SHA256_HEX_CAPACITY];
     gbl_runner_read_status read_status;
+    bool has_committed_unit = false;
 
     if (result == NULL) {
         return GBL_RUNNER_HARNESS_FAIL;
@@ -891,6 +892,12 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
             run_result.cycles > remaining ||
             run_result.cycles > UINT64_MAX - result->cycles ||
             run_result.instructions > UINT64_MAX - result->instructions ||
+            run_result.bus_cycles > UINT64_MAX - run_result.internal_cycles ||
+            run_result.bus_cycles + run_result.internal_cycles !=
+                run_result.cycles ||
+            run_result.bus_cycles > UINT64_MAX - result->bus_cycles ||
+            run_result.internal_cycles >
+                UINT64_MAX - result->internal_cycles ||
             (run_result.termination == GBL_RUN_PROGRESS &&
              run_result.cycles == 0u && run_result.instructions == 0u)) {
             result->status = GBL_RUNNER_HARNESS_FAIL;
@@ -900,6 +907,11 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         }
         result->cycles += run_result.cycles;
         result->instructions += run_result.instructions;
+        result->bus_cycles += run_result.bus_cycles;
+        result->internal_cycles += run_result.internal_cycles;
+        if (run_result.cycles != 0u || run_result.instructions != 0u) {
+            has_committed_unit = true;
+        }
         if (result->trace_mask != 0u) {
             result->trace_count = trace_buffer.count;
         }
@@ -969,6 +981,11 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_runner_set_termination(result, "harness-failure");
     }
     (void)gbl_runner_write_trace_if_requested(options, result);
+    if (has_committed_unit) {
+        result->has_timer0_if_request = true;
+        result->timer0_if_request =
+            (machine->interrupt_flags & UINT16_C(0x0008)) != 0u;
+    }
     gbl_machine_dispose(machine);
     result->allocator.release(result->allocator.context, machine,
                               sizeof *machine);

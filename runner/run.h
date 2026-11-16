@@ -84,6 +84,10 @@ typedef struct gbl_runner_result {
     uint64_t cycles;
     uint64_t instructions;
     uint64_t budget_cycles;
+    uint64_t bus_cycles;
+    uint64_t internal_cycles;
+    bool has_timer0_if_request;
+    bool timer0_if_request;
     char termination[64];
 
     uint32_t trace_mask;
