@@ -330,6 +330,13 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
 
 gbl_add_test(
+  NAME runner.input.cli
+  LABELS runner integration gate
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_cli.cmake")
+
+gbl_add_test(
   NAME runner.metadata
   LABELS runner gate
   COMMAND "${CMAKE_COMMAND}"

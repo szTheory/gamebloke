@@ -1087,6 +1087,7 @@ result.pos.instruction_reasons positive,result
 result.pos.phase8 positive,result
 runner.hash runner,unit
 runner.help runner,unit
+runner.input.cli gate,integration,runner
 runner.metadata gate,runner
 runner.no_args runner,unit
 runner.relocation gate,integration,runner
