@@ -13840,6 +13840,15 @@ static void test_time_preflight_unit_boundaries(void)
               "loaded-PC read reserves refill time without reading before event refusal");
 }
 
+static void test_cycle_attribution_api(void)
+{
+#ifdef GBL_CYCLE_ATTRIBUTION_API
+    test_case(true, "CPU result exposes cycle attribution");
+#else
+    test_case(false, "CPU result exposes cycle attribution");
+#endif
+}
+
 static void test_timer_write_and_trace_refusals(void)
 {
     test_case(cpu_timer_refusal_is_atomic(
@@ -14206,11 +14215,12 @@ static const cpu_test_function slots_bounds_functions[] = {
 
 static const cpu_test_function unit_boundaries_functions[] = {
     test_unit_boundaries,
-    test_time_preflight_unit_boundaries
+    test_time_preflight_unit_boundaries,
+    test_cycle_attribution_api
 };
 
 static const cpu_test_group cpu_test_groups[] = {
-    CPU_TEST_GROUP("unit_boundaries", 65u, unit_boundaries_functions),
+    CPU_TEST_GROUP("unit_boundaries", 66u, unit_boundaries_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),
