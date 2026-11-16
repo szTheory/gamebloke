@@ -67,7 +67,12 @@
 #   status-semantic-mismatch PASS is not a completed PASS mailbox, or GUEST_FAIL is not a
 #                         completed FAIL mailbox
 #   bad-time              time object/field is not a canonical decimal string
+#   bad-time-model        the timing model is not gamebloke-timer-model-1
+#   bad-time-qualification the timing qualification is not project-model-only
 #   time-overflow         a time decimal string exceeds UINT64_MAX
+#   time-sum-overflow     bus/internal components sum above UINT64_MAX
+#   bad-time-components   time.cycles differs from the component sum
+#   bad-timer0-request    Timer 0 IF observation has an invalid type or run-state
 #   cycles-exceed-budget  reported cycles are greater than budget_cycles
 #   bad-termination       termination is missing, unnamed, or inconsistent with status
 #   bad-trace             trace is not null or lacks a boolean complete field
@@ -157,6 +162,43 @@ function(gbl__result_decimal_le out left right)
   else()
     set(${out} FALSE PARENT_SCOPE)
   endif()
+endfunction()
+
+# gbl__result_decimal_add(<out> <left> <right>): add canonical nonnegative decimal
+# strings a digit at a time. Each math expression stays below 20, so uint64 values
+# never pass through CMake's signed integer representation.
+function(gbl__result_decimal_add out left right)
+  string(LENGTH "${left}" left_digits)
+  string(LENGTH "${right}" right_digits)
+  if(left_digits GREATER right_digits)
+    set(digits "${left_digits}")
+  else()
+    set(digits "${right_digits}")
+  endif()
+  set(offset 0)
+  set(carry 0)
+  set(sum "")
+  while(offset LESS digits)
+    set(left_digit 0)
+    set(right_digit 0)
+    if(offset LESS left_digits)
+      math(EXPR left_index "${left_digits}-${offset}-1")
+      string(SUBSTRING "${left}" ${left_index} 1 left_digit)
+    endif()
+    if(offset LESS right_digits)
+      math(EXPR right_index "${right_digits}-${offset}-1")
+      string(SUBSTRING "${right}" ${right_index} 1 right_digit)
+    endif()
+    math(EXPR column "${left_digit}+${right_digit}+${carry}")
+    math(EXPR output_digit "${column}%10")
+    math(EXPR carry "${column}/10")
+    string(PREPEND sum "${output_digit}")
+    math(EXPR offset "${offset}+1")
+  endwhile()
+  if(carry GREATER 0)
+    string(PREPEND sum "${carry}")
+  endif()
+  set(${out} "${sum}" PARENT_SCOPE)
 endfunction()
 
 function(gbl_result_check file manifest registry vocab)
@@ -296,6 +338,133 @@ function(gbl_result_check file manifest registry vocab)
           gbl_finding(result cycles-exceed-budget
             "time.cycles exceeds time.budget_cycles")
         endif()
+      endif()
+    endif()
+  endif()
+
+  # Historical result/1 documents may omit the entire timing-model extension.
+  # Once any extension member appears, the complete model/component/IF tuple is
+  # required and is validated independently from guest semantic success.
+  set(time_extension_present FALSE)
+  foreach(field IN ITEMS model qualification bus_cycles internal_cycles)
+    gbl_json_type(extension_${field}_type "${doc}" time ${field})
+    if(NOT "${extension_${field}_type}" STREQUAL "MISSING")
+      set(time_extension_present TRUE)
+    endif()
+  endforeach()
+  gbl_json_type(timer0_type "${doc}" timer0)
+  if(NOT "${timer0_type}" STREQUAL "MISSING")
+    set(time_extension_present TRUE)
+  endif()
+
+  if(time_extension_present)
+    set(time_components_valid TRUE)
+
+    gbl_json_type(time_model_type "${doc}" time model)
+    if("${time_model_type}" STREQUAL "MISSING" OR
+        "${time_model_type}" STREQUAL "NULL")
+      gbl_finding(result missing-field "time.model")
+    elseif(NOT "${time_model_type}" STREQUAL "STRING")
+      gbl_finding(result bad-time-model "time.model must be a string")
+    else()
+      string(JSON time_model GET "${doc}" time model)
+      if(NOT "${time_model}" STREQUAL "gamebloke-timer-model-1")
+        gbl_finding(result bad-time-model "time.model")
+      endif()
+    endif()
+
+    gbl_json_type(time_qualification_type "${doc}" time qualification)
+    if("${time_qualification_type}" STREQUAL "MISSING" OR
+        "${time_qualification_type}" STREQUAL "NULL")
+      gbl_finding(result missing-field "time.qualification")
+    elseif(NOT "${time_qualification_type}" STREQUAL "STRING")
+      gbl_finding(result bad-time-qualification
+        "time.qualification must be a string")
+    else()
+      string(JSON time_qualification GET "${doc}" time qualification)
+      if(NOT "${time_qualification}" STREQUAL "project-model-only")
+        gbl_finding(result bad-time-qualification "time.qualification")
+      endif()
+    endif()
+
+    foreach(field IN ITEMS bus_cycles internal_cycles)
+      gbl_json_type(time_${field}_type "${doc}" time ${field})
+      if("${time_${field}_type}" STREQUAL "MISSING" OR
+          "${time_${field}_type}" STREQUAL "NULL")
+        gbl_finding(result missing-field "time.${field}")
+        set(time_components_valid FALSE)
+      else()
+        gbl__result_uint64(time_${field}_valid time_${field} "${doc}" time ${field})
+        if(NOT time_${field}_valid)
+          if("${time_${field}_type}" STREQUAL "STRING")
+            string(JSON invalid_component GET "${doc}" time ${field})
+            if("${invalid_component}" MATCHES "^(0|[1-9][0-9]*)$")
+              string(LENGTH "${invalid_component}" invalid_digits)
+              if(invalid_digits GREATER 20 OR
+                  (invalid_digits EQUAL 20 AND
+                   "${invalid_component}" STRGREATER "18446744073709551615"))
+                gbl_finding(result time-overflow "time.${field}")
+              else()
+                gbl_finding(result bad-time "time.${field}")
+              endif()
+            else()
+              gbl_finding(result bad-time "time.${field}")
+            endif()
+          else()
+            gbl_finding(result bad-time "time.${field} must be a decimal string")
+          endif()
+          set(time_components_valid FALSE)
+        endif()
+      endif()
+    endforeach()
+
+    gbl_json_type(timer0_type "${doc}" timer0)
+    if("${timer0_type}" STREQUAL "MISSING")
+      gbl_finding(result missing-field "timer0.if_request")
+    elseif(NOT "${timer0_type}" STREQUAL "OBJECT")
+      gbl_finding(result bad-timer0-request "timer0 must be an object")
+    else()
+      gbl_json_type(timer0_request_type "${doc}" timer0 if_request)
+      if("${timer0_request_type}" STREQUAL "MISSING")
+        gbl_finding(result missing-field "timer0.if_request")
+      elseif(NOT "${timer0_request_type}" STREQUAL "BOOLEAN" AND
+          NOT "${timer0_request_type}" STREQUAL "NULL")
+        gbl_finding(result bad-timer0-request
+          "timer0.if_request must be boolean or null")
+      else()
+        gbl_json_type(extension_ran_type "${doc}" fixture ran)
+        if("${extension_ran_type}" STREQUAL "BOOLEAN" AND time_valid)
+          string(JSON extension_ran GET "${doc}" fixture ran)
+          if(NOT extension_ran)
+            if(NOT "${timer0_request_type}" STREQUAL "NULL")
+              gbl_finding(result bad-timer0-request
+                "not-run results require null timer0.if_request")
+            endif()
+          elseif("${time_cycles}" STREQUAL "0" AND
+              "${time_instructions}" STREQUAL "0")
+            if(NOT "${timer0_request_type}" STREQUAL "NULL")
+              gbl_finding(result bad-timer0-request
+                "zero-budget results require null timer0.if_request")
+            endif()
+          elseif(NOT "${timer0_request_type}" STREQUAL "BOOLEAN")
+            gbl_finding(result bad-timer0-request
+              "executed results require boolean timer0.if_request")
+          endif()
+        endif()
+      endif()
+    endif()
+
+    if(time_valid AND time_components_valid)
+      gbl__result_decimal_add(time_component_sum "${time_bus_cycles}"
+        "${time_internal_cycles}")
+      gbl__result_decimal_le(time_component_sum_in_range "${time_component_sum}"
+        "18446744073709551615")
+      if(NOT time_component_sum_in_range)
+        gbl_finding(result time-sum-overflow
+          "time.bus_cycles + time.internal_cycles exceeds UINT64_MAX")
+      elseif(NOT "${time_component_sum}" STREQUAL "${time_cycles}")
+        gbl_finding(result bad-time-components
+          "time.cycles does not equal time.bus_cycles + time.internal_cycles")
       endif()
     endif()
   endif()
