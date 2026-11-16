@@ -572,6 +572,19 @@ static int run_event_refusal(void)
           GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT);
     CHECK(preview_equal(&preview, &sentinel));
     take_time_snapshot(machine, &snapshot);
+    {
+        const gbl_time_operation operations[2] = {
+            { .kind = GBL_TIME_OPERATION_INTERNAL,
+              .cycles = (uint64_t)GBL_MACHINE_MAX_EVENT_DISPATCH },
+            { .kind = GBL_TIME_OPERATION_INTERNAL, .cycles = UINT64_C(1) }
+        };
+
+        CHECK(gbl_machine_prepare_operations(machine, operations, 2u,
+                                            &preview) ==
+              GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT);
+        CHECK(preview_equal(&preview, &sentinel));
+        CHECK(time_matches_snapshot(machine, &snapshot));
+    }
     CHECK(gbl_machine_advance_to(machine, UINT64_C(6000)) ==
           GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT);
     CHECK(time_matches_snapshot(machine, &snapshot));

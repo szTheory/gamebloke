@@ -234,13 +234,14 @@ static void gbl_machine_time_copy_preview(
 }
 
 static gbl_time_status gbl_preview_advance_to(
-    gbl_machine_time_preview *preview, uint64_t target)
+    gbl_machine_time_preview *preview, uint64_t target,
+    size_t *dispatched)
 {
     gbl_machine_time_preview candidate;
-    size_t dispatched = 0u;
     size_t index;
 
-    if (preview == NULL || preview->event_count > GBL_EVENT_CAPACITY) {
+    if (preview == NULL || dispatched == NULL ||
+        preview->event_count > GBL_EVENT_CAPACITY) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     if (target < preview->master_cycles) {
@@ -262,7 +263,7 @@ static gbl_time_status gbl_preview_advance_to(
         if (candidate.events[next_index].cycle > target) {
             break;
         }
-        if (dispatched >= GBL_MACHINE_MAX_EVENT_DISPATCH) {
+        if (*dispatched >= GBL_MACHINE_MAX_EVENT_DISPATCH) {
             return GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT;
         }
         event = candidate.events[next_index];
@@ -282,7 +283,7 @@ static gbl_time_status gbl_preview_advance_to(
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
-        ++dispatched;
+        ++(*dispatched);
     }
     candidate.master_cycles = target;
     *preview = candidate;
@@ -295,13 +296,14 @@ gbl_time_status gbl_machine_prepare_time(
 {
     gbl_machine_time_preview candidate;
     gbl_time_status status;
+    size_t dispatched = 0u;
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
         machine->event_count > GBL_EVENT_CAPACITY) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     gbl_machine_time_copy_preview(machine, &candidate);
-    status = gbl_preview_advance_to(&candidate, target);
+    status = gbl_preview_advance_to(&candidate, target, &dispatched);
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
@@ -381,6 +383,7 @@ gbl_time_status gbl_machine_prepare_operations(
     size_t operation_count, gbl_machine_time_preview *preview)
 {
     gbl_machine_time_preview candidate;
+    size_t dispatched = 0u;
     size_t index;
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
@@ -413,7 +416,7 @@ gbl_time_status gbl_machine_prepare_operations(
             return GBL_TIME_STATUS_CYCLE_OVERFLOW;
         }
         target = candidate.master_cycles + operation->cycles;
-        status = gbl_preview_advance_to(&candidate, target);
+        status = gbl_preview_advance_to(&candidate, target, &dispatched);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
