@@ -88,6 +88,28 @@ gbl_add_test(
   NAME timer0.guest.tracer
   LABELS timer core integration
   COMMAND $<TARGET_FILE:timer_test> tracer)
+gbl_add_test(
+  NAME timer.costs
+  LABELS core time timer unit
+  COMMAND $<TARGET_FILE:timer_test> costs)
+gbl_add_test(
+  NAME timer.costs.contract
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_costs.cmake")
+gbl_add_test(
+  NAME timer0.guest.cli
+  LABELS core integration timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/timer0_guest.cmake")
+gbl_add_test(
+  NAME phase7.order
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_order.cmake")
 foreach(selector IN ITEMS time.events.order time.events.boundary
     time.events.refusal timer0.model.boundary timer.devices)
   gbl_add_test(

@@ -476,3 +476,34 @@ endif()
 if(GBL_LANE MATCHES "^(ci|asan|diagnostics)$")
   include(tests/diagnostics.cmake)
 endif()
+
+# A CTest fixture makes the exact cheap time boundary set a prerequisite of
+# every longer timer/guest and CPU/runner/determinism test. CTest still runs
+# those tests in parallel after all five setup checks succeed.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase7_fast_setup_tests
+    time.events.order
+    time.events.boundary
+    time.events.refusal
+    timer0.model.boundary
+    phase7.selection.control)
+  foreach(test_name IN LISTS gbl_phase7_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase7_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase7_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu|runner|determinism|timer|timer0)[.]"
+        OR test_name MATCHES "^time[.]events[.]"
+        OR test_name STREQUAL "bus.timing"
+        OR test_name MATCHES "^bus[.]time_authority[.]"
+        OR test_name STREQUAL "phase7.order")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase7_fast)
+    endif()
+  endforeach()
+endif()

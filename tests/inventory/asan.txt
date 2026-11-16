@@ -842,6 +842,7 @@ loader.pos.clean core,loader,positive
 loader.transaction core,loader,unit
 logo_digest.authority_cases control,loader
 machine.state core,machine,unit
+phase7.order gate,time,timer
 phase7.selection.control gate,time,timer
 runner.hash runner,unit
 runner.help runner,unit
@@ -860,6 +861,9 @@ sanitizer.ubsan.shift32 control,sanitizer
 time.events.boundary core,time,timer,unit
 time.events.order core,time,timer,unit
 time.events.refusal core,time,timer,unit
+timer.costs core,time,timer,unit
+timer.costs.contract gate,time,timer
 timer.devices core,time,timer,unit
+timer0.guest.cli core,integration,timer
 timer0.guest.tracer core,integration,timer
 timer0.model.boundary core,time,timer,unit
