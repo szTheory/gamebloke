@@ -95,7 +95,7 @@ static bool gbl_test_time_preview_equal(
     return true;
 }
 
-static bool gbl_test_time_preview_matches_machine(
+static inline bool gbl_test_time_preview_matches_machine(
     const gbl_machine_time_preview *preview, const gbl_machine *machine)
 {
     gbl_machine_time_preview machine_time = { 0 };

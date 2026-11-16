@@ -17,7 +17,7 @@ if(NOT COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
   message(FATAL_ERROR "mutation: unsupported compiler id '${COMPILER_ID}'")
 endif()
 
-function(gbl__mutate_bus bus_source mutation)
+function(gbl__mutate_bus bus_source machine_source mutation)
   if(mutation STREQUAL "ewram_mirror")
     gbl_text_mutate("${bus_source}" "#define GBL_EWRAM_MASK 0x3FFFFu"
       "#define GBL_EWRAM_MASK 0x3FFFDu")
@@ -43,9 +43,9 @@ function(gbl__mutate_bus bus_source mutation)
 ]=])
     gbl_text_mutate("${bus_source}" "${find}" "${replace}")
   elseif(mutation STREQUAL "clock_overflow")
-    gbl_text_mutate("${bus_source}"
-      "if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {"
-      "if (machine->master_cycles < UINT64_MAX && UINT64_C(1) > UINT64_MAX - machine->master_cycles) {")
+    gbl_text_mutate("${machine_source}"
+      "if (operation->cycles > UINT64_MAX - candidate.master_cycles) {"
+      "if (candidate.master_cycles < UINT64_MAX && operation->cycles > UINT64_MAX - candidate.master_cycles) {")
   else()
     message(FATAL_ERROR "mutation: unknown case '${mutation}'")
   endif()
@@ -70,8 +70,13 @@ endfunction()
 function(gbl__compile_bus sandbox mutation output_executable)
   gbl__copy_inputs("${sandbox}")
   if(NOT mutation STREQUAL "")
-    gbl__mutate_bus("${sandbox}/src/bus.c" "${mutation}")
-    set(changed_source src/bus.c)
+    gbl__mutate_bus("${sandbox}/src/bus.c" "${sandbox}/src/machine.c"
+      "${mutation}")
+    if(mutation STREQUAL "clock_overflow")
+      set(changed_source src/machine.c)
+    else()
+      set(changed_source src/bus.c)
+    endif()
   else()
     set(changed_source "")
   endif()
