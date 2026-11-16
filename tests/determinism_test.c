@@ -907,6 +907,23 @@ done:
     return 1;
 }
 
+static void gbl_interleave_seed_live_timer(gbl_machine *machine)
+{
+    gbl_timer_state *timer = &machine->timers[0];
+
+    *timer = (gbl_timer_state){
+        UINT16_MAX, UINT16_MAX, UINT16_C(1), 0u,
+        machine->master_cycles, UINT64_C(1), true, true, false
+    };
+    machine->interrupt_flags |= UINT16_C(1) << 3u;
+    machine->event_count = 1u;
+    machine->next_event_sequence = UINT64_C(1);
+    machine->events[0] = (gbl_event){
+        machine->master_cycles + UINT64_C(1), UINT64_C(1), UINT64_C(1),
+        0u, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true
+    };
+}
+
 static int gbl_test_interleave_controls_main(void)
 {
     gbl_test_bytes pass_image = { 0 };
@@ -947,6 +964,20 @@ static int gbl_test_interleave_controls_main(void)
         pair.isolated_second.mailbox.status != GBL_MAILBOX_FAIL ||
         !gbl_interleave_pair_totals_equal(&pair)) {
         failure = "pass-fail-pair-or-aggregate-totals-invalid";
+        goto done;
+    }
+    gbl_interleave_seed_live_timer(&pair.isolated_first.machine);
+    gbl_interleave_seed_live_timer(&pair.alternating_first.machine);
+    pair.alternating_first.machine.timers[0].generation = UINT64_C(2);
+    pair.alternating_first.machine.events[0].generation = UINT64_C(2);
+    if (!gbl_interleave_trace_fields_equal(
+            pair.isolated_first.trace.records,
+            pair.alternating_first.trace.records,
+            pair.isolated_first.trace.count) ||
+        strcmp(gbl_interleave_compare(&pair.isolated_first,
+                                      &pair.alternating_first),
+               "interleave-state-mismatch") != 0) {
+        failure = "live-timer-event-state-mutation-was-accepted";
         goto done;
     }
     {
