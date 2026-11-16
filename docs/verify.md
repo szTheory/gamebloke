@@ -90,6 +90,7 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 | `ci` | `cmake --workflow --preset ci` | Default lane: build, unit tests, gates, controls. |
 | `asan` | `sh scripts/linux-lane.sh asan` | AddressSanitizer and UBSan with clang-21. Linux only; the script runs it in a digest-pinned `ubuntu:26.04` container (needs Docker). |
 | `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, plus the Phase 2 evidence validators and their controls, with no compile of the product. |
+| `local-timer0` | See [the Timer 0 fixture notice](../tests/fixtures/timer0-NOTICE.md) | Local-only guest generation, indexing, and execution. Refuses to configure when `CI` is truthy; never use in hosted CI. |
 | `local CPU fixtures` | `sh scripts/run-local-cpu-suites.sh --fetch --build-dir build/ci` | Local-only jsmolka ARM, Thumb, and memory suites; never run in hosted CI. |
 
 ## Local jsmolka CPU suites
@@ -596,10 +597,13 @@ cmake --workflow --preset ci
 
 Run a long workflow in the background and retain its exit status and output;
 its configure and build time are separate from CTest's summed test runtime.
-The latest fast-script invocation took 8.79 seconds wall clock; the selector
-test itself took 8.02 seconds in the canonical workflow. The `phase7.order`
-structural and fixture-failure control took 2.29 seconds. These figures are
-separate from the full workflow and do not claim emulator throughput or
+After the code-review fixes, the fast-script invocation took 8.45 seconds
+wall clock; the selector test took 8.46 seconds in the full local workflow, and
+the `phase7.order` control took 2.51 seconds. The latest local CI workflow
+reported 1,131 tests, zero failures, 405 executed, and 726 allowed
+ARM/Thumb-toolchain skips; the JUnit case-time sum was 1,189 seconds. The
+rights-restricted Timer 0 CLI guest is excluded from CI/ASan and runs only in
+`local-timer0`. These measurements do not claim emulator throughput or
 hardware timing.
 
 The timer and bus cost evidence uses `gamebloke-timer-model-1`, classified as
@@ -611,7 +615,10 @@ Timer 0 polling guest is generated locally from project-owned test source,
 uses no BIOS, and reports mailbox semantic completion, machine cycles, and the
 Timer 0 request flag separately. Its generated images are build-local and
 covered by [the Timer 0 fixture notice](../tests/fixtures/timer0-NOTICE.md);
-redistribution remains unknown and permitted use is local-only. The disabled
+redistribution remains unknown and permitted use is local-only. The `ci` and
+`asan` lanes do not generate or index those images and do not register the
+guest execution test. Run the guest only in the guarded `local-timer0` lane as
+shown in the notice. The disabled
 timer control times out with `timer0-overflow-timeout`; neither result proves
 CPU IRQ exception entry or broad compatibility.
 
