@@ -24,11 +24,16 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Lane selection. Each lane has its own sorted test inventory under
 # tests/inventory/<lane>.txt. Later plans add each lane's content.
 set(GBL_LANE "ci" CACHE STRING
-  "Verification lane: ci | asan | hygiene | diagnostics")
-set_property(CACHE GBL_LANE PROPERTY STRINGS ci asan hygiene diagnostics)
-if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics)$")
+  "Verification lane: ci | asan | hygiene | diagnostics | local-timer0")
+set_property(CACHE GBL_LANE PROPERTY STRINGS
+  ci asan hygiene diagnostics local-timer0)
+if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics|local-timer0)$")
   message(FATAL_ERROR
-    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, or diagnostics)")
+    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, diagnostics, or local-timer0)")
+endif()
+if(GBL_LANE STREQUAL "local-timer0" AND "$ENV{CI}")
+  message(FATAL_ERROR
+    "gamebloke: local-timer0 lane is prohibited when CI=true")
 endif()
 
 # Host-only determinism is the reversible local default. A nonempty environment
@@ -125,7 +130,8 @@ file(REMOVE "${CMAKE_BINARY_DIR}/junit.xml")
 include(cmake/GblTests.cmake)
 
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
-   GBL_LANE STREQUAL "diagnostics")
+   GBL_LANE STREQUAL "diagnostics" OR
+   GBL_LANE STREQUAL "local-timer0")
   include(cmake/ReadLogoDigest.cmake)
   set(GBL_LOGO_AUTHORITY "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -202,9 +208,13 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     owned-register-thumb-zero.gba
     owned-register-thumb-fail.gba
     owned-arm-thumb-bx-pass.gba
-    owned-timer0-pass.gba
-    owned-timer0-disabled.gba
     owned-arm-pass-mutated.gba)
+  if(GBL_LANE STREQUAL "local-timer0")
+    list(APPEND GBL_OWNED_FIXTURE_NAMES
+      owned-timer0-pass.gba
+      owned-timer0-disabled.gba)
+    set(GBL_LOCAL_TIMER0_GENERATOR_ARGS --include-local-timer0)
+  endif()
   set(GBL_OWNED_FIXTURE_FILES "")
   foreach(fixture IN LISTS GBL_OWNED_FIXTURE_NAMES)
     list(APPEND GBL_OWNED_FIXTURE_FILES "${GBL_FIXTURE_DIR}/${fixture}")
@@ -213,6 +223,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     OUTPUT ${GBL_OWNED_FIXTURE_FILES}
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${GBL_FIXTURE_DIR}"
     COMMAND "$<TARGET_FILE:gbl_instruction_image>" "${GBL_FIXTURE_DIR}"
+      ${GBL_LOCAL_TIMER0_GENERATOR_ARGS}
     DEPENDS gbl_instruction_image
     COMMENT "Generating original owned instruction images under the build tree"
     VERBATIM)
@@ -329,6 +340,13 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     endif()
   endif()
 
+  set(GBL_LOCAL_TIMER0_INDEX_ARGS "")
+  if(GBL_LANE STREQUAL "local-timer0")
+    set(GBL_LOCAL_TIMER0_INDEX_ARGS
+      "-DGBL_CONTROL_TIMER0_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-pass.gba"
+      "-DGBL_CONTROL_TIMER0_DISABLED_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-disabled.gba"
+      "-DGBL_CONTROL_TIMER0_GENERATOR_COMPILER=${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
+  endif()
   set(GBL_FIXTURE_INDEX_COMMAND "${CMAKE_COMMAND}"
       "-DGBL_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
       "-DGBL_PROOF_METADATA=$<IF:$<STREQUAL:${GBL_DIAGNOSTIC_STAGE},proof>,ON,OFF>"
@@ -343,15 +361,13 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "-DGBL_CONTROL_REGISTER_ARM_STOP_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-stop.gba"
       "-DGBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-zero.gba"
       "-DGBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-fail.gba"
-      "-DGBL_CONTROL_TIMER0_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-pass.gba"
-      "-DGBL_CONTROL_TIMER0_DISABLED_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-disabled.gba"
-      "-DGBL_CONTROL_TIMER0_GENERATOR_COMPILER=${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}"
       "-DGBL_CONTROL_MANIFEST_OUTPUT=${GBL_CONTROL_MANIFEST}"
       "-DGBL_MANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "-DGBL_REGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
       "-DGBL_VOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
       "-DGBL_OUT_PRODUCTION=${GBL_PRODUCTION_INDEX}"
       "-DGBL_OUT_CONTROL=${GBL_CONTROL_INDEX}"
+      ${GBL_LOCAL_TIMER0_INDEX_ARGS}
       -P "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake")
   if(GBL_LANE STREQUAL "diagnostics" AND GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
     set(GBL_FIXTURE_INDEX_COMMAND "${CMAKE_COMMAND}"
@@ -456,6 +472,13 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   include(tests/determinism.cmake)
 elseif(GBL_LANE STREQUAL "diagnostics")
   include(tests/determinism.cmake)
+elseif(GBL_LANE STREQUAL "local-timer0")
+  gbl_add_test(
+    NAME timer0.guest.cli
+    LABELS core integration timer
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/timer0_guest.cmake")
 endif()
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)

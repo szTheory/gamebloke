@@ -13,12 +13,27 @@ CMake configuration. Those digests bind identities; they do not grant rights.
 ## Build and execution scope
 
 The `gbl_instruction_image` CMake target emits both 0x240-byte images only into
-the build tree. The bytes use a zero-filled header area and direct-start ARM
-instructions to set up Timer 0, enable its device request through IE and IME,
-poll its IF bit, and then write the project's existing mailbox completion
-record. The disabled control is generated from the same instruction layout and
-differs only in the Timer 0 enable bit. Both require no BIOS. CPU IRQ exception
-entry is unused by this guest.
+the build tree when configured with the `local-timer0` lane. The bytes use a
+zero-filled header area and direct-start ARM instructions to set up Timer 0,
+enable its device request through IE and IME, poll its IF bit, and then write
+the project's existing mailbox completion record. The disabled control is
+generated from the same instruction layout and differs only in the Timer 0
+enable bit. Both require no BIOS. CPU IRQ exception entry is unused by this
+guest. The `ci`, `asan`, `hygiene`, and `diagnostics` lanes do not generate the
+Timer 0 images, pass them to control-index generation, or register the guest
+execution test.
+
+To exercise the guest locally, configure and build the dedicated lane, then
+run its focused test:
+
+```sh
+cmake -S . -B build/local-timer0 -DGBL_LANE=local-timer0
+cmake --build build/local-timer0
+ctest --test-dir build/local-timer0 --output-on-failure -R '^timer0[.]guest[.]cli$'
+```
+
+The `local-timer0` lane refuses to configure when the `CI` environment variable
+is set to a truthy value.
 
 ## License and permitted use
 

@@ -218,7 +218,7 @@ static void make_thumb_bx_image(uint8_t image[IMAGE_SIZE])
     put_arm_mailbox(image, 0x120u, UINT32_C(2), UINT32_C(0x9005), true);
 }
 
-static bool generate_all(const char *directory)
+static bool generate_all(const char *directory, bool include_local_timer0)
 {
     uint8_t image[IMAGE_SIZE];
     bool okay = true;
@@ -269,11 +269,14 @@ static bool generate_all(const char *directory)
     okay = write_image(directory, "owned-arm-thumb-bx-pass.gba", image) &&
            okay;
 
-    make_timer0_polling_image(image, true);
-    okay = write_image(directory, "owned-timer0-pass.gba", image) && okay;
-    make_timer0_polling_image(image, false);
-    okay = write_image(directory, "owned-timer0-disabled.gba", image) &&
-           okay;
+    if (include_local_timer0) {
+        make_timer0_polling_image(image, true);
+        okay = write_image(directory, "owned-timer0-pass.gba", image) &&
+               okay;
+        make_timer0_polling_image(image, false);
+        okay = write_image(directory, "owned-timer0-disabled.gba", image) &&
+               okay;
+    }
 
     /* A generated one-byte mutation is a no-write identity negative control. */
     make_mailbox_image(image, UINT32_C(2), UINT32_C(0x9001), true);
@@ -285,11 +288,16 @@ static bool generate_all(const char *directory)
 
 int main(int argc, char **argv)
 {
-    if (argc != 2 || argv[1][0] == '\0') {
-        fputs("usage: instruction_image <build-output-directory>\n", stderr);
+    bool include_local_timer0 = false;
+
+    if (argc < 2 || argc > 3 || argv[1][0] == '\0' ||
+        (argc == 3 && strcmp(argv[2], "--include-local-timer0") != 0)) {
+        fputs("usage: instruction_image <build-output-directory> "
+              "[--include-local-timer0]\n", stderr);
         return 2;
     }
-    if (!generate_all(argv[1])) {
+    include_local_timer0 = argc == 3;
+    if (!generate_all(argv[1], include_local_timer0)) {
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

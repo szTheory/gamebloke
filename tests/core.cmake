@@ -99,12 +99,6 @@ gbl_add_test(
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_costs.cmake")
 gbl_add_test(
-  NAME timer0.guest.cli
-  LABELS core integration timer
-  COMMAND "${CMAKE_COMMAND}"
-    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
-    -P "${CMAKE_SOURCE_DIR}/tests/gates/timer0_guest.cmake")
-gbl_add_test(
   NAME phase7.order
   LABELS gate time timer
   COMMAND "${CMAKE_COMMAND}"

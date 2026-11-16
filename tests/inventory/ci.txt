@@ -1117,7 +1117,6 @@ time.events.refusal core,time,timer,unit
 timer.costs core,time,timer,unit
 timer.costs.contract gate,time,timer
 timer.devices core,time,timer,unit
-timer0.guest.cli core,integration,timer
 timer0.guest.tracer core,integration,timer
 timer0.model.boundary core,time,timer,unit
 traps.nc.exit_idiom control,traps

@@ -1,0 +1,2 @@
+inventory.junit post
+timer0.guest.cli core,integration,timer
