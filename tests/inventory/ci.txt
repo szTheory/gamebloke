@@ -992,6 +992,7 @@ manifest.pos.public_ci_ok manifest,positive
 manifest.pos.source_kinds manifest,positive
 nc.meta.pass_requires_exit_status control,meta
 nc.meta.passing_gate_fails_wrapper control,meta
+phase7.selection.control gate,time,timer
 pins.nc.bad_dest control,pins
 pins.nc.bad_digest control,pins
 pins.nc.bad_row control,pins

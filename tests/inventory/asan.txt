@@ -842,6 +842,7 @@ loader.pos.clean core,loader,positive
 loader.transaction core,loader,unit
 logo_digest.authority_cases control,loader
 machine.state core,machine,unit
+phase7.selection.control gate,time,timer
 runner.hash runner,unit
 runner.help runner,unit
 runner.metadata gate,runner
