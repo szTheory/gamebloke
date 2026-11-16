@@ -209,7 +209,7 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
   foreach(control_id IN LISTS control_ids)
     set(control_channel_member "")
     set(control_license
-      "{\"spdx\":\"LicenseRef-Gamebloke-Synthetic-Control\",\"notices\":[\"Artificial validator input for generated test bytes; no redistribution grant.\"],\"redistributable\":\"unknown\"}")
+      "{\"spdx\": \"LicenseRef-Gamebloke-Synthetic-Control\", \"notices\": [\"Artificial validator input for generated test bytes; no redistribution grant.\"], \"redistributable\": \"unknown\"}")
     set(control_expected
       "{\"provenance_class\":\"disputed\",\"dispute\":\"disp-gbatek-errata\"}")
     if(control_id STREQUAL "synthetic-control-pass")
@@ -278,7 +278,7 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       set(control_source_path "generated/fixtures/owned-timer0-pass.gba")
       set(control_bios "none")
       set(control_license
-        "{\"spdx\":\"LicenseRef-Gamebloke-Synthetic-Control\",\"notices\":[\"tests/fixtures/timer0-NOTICE.md\"],\"redistributable\":\"unknown\"}")
+        "{\"spdx\": \"LicenseRef-Gamebloke-Synthetic-Control\", \"notices\": [\"tests/fixtures/timer0-NOTICE.md\"], \"redistributable\": \"unknown\"}")
       set(control_expected
         "{\"provenance_class\":\"project-authored\",\"dispute\":null}")
     elseif(control_id STREQUAL "synthetic-control-timer0-disabled")
@@ -286,7 +286,7 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       set(control_source_path "generated/fixtures/owned-timer0-disabled.gba")
       set(control_bios "none")
       set(control_license
-        "{\"spdx\":\"LicenseRef-Gamebloke-Synthetic-Control\",\"notices\":[\"tests/fixtures/timer0-NOTICE.md\"],\"redistributable\":\"unknown\"}")
+        "{\"spdx\": \"LicenseRef-Gamebloke-Synthetic-Control\", \"notices\": [\"tests/fixtures/timer0-NOTICE.md\"], \"redistributable\": \"unknown\"}")
       set(control_expected
         "{\"provenance_class\":\"project-authored\",\"dispute\":null}")
     else()
