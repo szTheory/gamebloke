@@ -128,27 +128,16 @@ static void make_timer0_polling_image(uint8_t image[IMAGE_SIZE],
     put_u32(image, ARM_CODE_OFFSET + 0x04u, UINT32_C(0xE59F1038));
     put_u32(image, ARM_CODE_OFFSET + 0x08u, UINT32_C(0xE5801000));
 
-    /* Enable Timer 0's request in IE and the master request gate in IME. The
-     * CPU remains in direct-start state with IRQ entry masked. */
-    put_u32(image, ARM_CODE_OFFSET + 0x0Cu, UINT32_C(0xE59F2034));
-    put_u32(image, ARM_CODE_OFFSET + 0x10u, UINT32_C(0xE3A03008));
-    put_u32(image, ARM_CODE_OFFSET + 0x14u, UINT32_C(0xE1C230B0));
-    put_u32(image, ARM_CODE_OFFSET + 0x18u, UINT32_C(0xE59F202C));
-    put_u32(image, ARM_CODE_OFFSET + 0x1Cu, UINT32_C(0xE3A03001));
-    put_u32(image, ARM_CODE_OFFSET + 0x20u, UINT32_C(0xE1C230B0));
-
-    /* Poll only Timer 0's IF bit. A set device request takes the branch to
-     * the mailbox code; no exception or handler path is used by the guest. */
-    put_u32(image, ARM_CODE_OFFSET + 0x24u, UINT32_C(0xE59F3024));
-    put_u32(image, ARM_CODE_OFFSET + 0x28u, UINT32_C(0xE1D340B0));
-    put_u32(image, ARM_CODE_OFFSET + 0x2Cu, UINT32_C(0xE3140008));
-    put_u32(image, ARM_CODE_OFFSET + 0x30u, UINT32_C(0x0AFFFFFB));
-    put_u32(image, ARM_CODE_OFFSET + 0x34u, UINT32_C(0xEA000011));
+    /* Poll Timer 0's IF bit directly. IE and IME are not implemented by the
+     * current model and are not needed to observe the device request. */
+    put_u32(image, ARM_CODE_OFFSET + 0x0Cu, UINT32_C(0xE59F303C));
+    put_u32(image, ARM_CODE_OFFSET + 0x10u, UINT32_C(0xE1D340B0));
+    put_u32(image, ARM_CODE_OFFSET + 0x14u, UINT32_C(0xE3140008));
+    put_u32(image, ARM_CODE_OFFSET + 0x18u, UINT32_C(0x0AFFFFFC));
+    put_u32(image, ARM_CODE_OFFSET + 0x1Cu, UINT32_C(0xEA000017));
 
     put_u32(image, ARM_CODE_OFFSET + 0x40u, UINT32_C(0x04000100));
     put_u32(image, ARM_CODE_OFFSET + 0x44u, timer_reload_and_control);
-    put_u32(image, ARM_CODE_OFFSET + 0x48u, UINT32_C(0x04000200));
-    put_u32(image, ARM_CODE_OFFSET + 0x4Cu, UINT32_C(0x04000208));
     put_u32(image, ARM_CODE_OFFSET + 0x50u, UINT32_C(0x04000202));
 
     put_arm_mailbox(image, ARM_CODE_OFFSET + TIMER0_MAILBOX_OFFSET,
