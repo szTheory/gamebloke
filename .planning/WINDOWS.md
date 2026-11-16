@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 4
 waived_count: 0
 fixed_count: 22
-total_count: 25
-last_updated: 2026-11-16T07:56:39.863Z
+total_count: 26
+last_updated: 2026-11-16T13:37:35.583Z
 ---
 
 # Broken Windows Ledger
@@ -40,6 +40,7 @@ last_updated: 2026-11-16T07:56:39.863Z
 | 23 | 07 | deviation | .planning/phases/07-time-authority-and-timer-0-polling-proof/07-02-01-red-evidence.json |  | Replaced absolute JUnit report locations in both RED evidence commands with repository-relative paths. | fixed |  | 2026-11-16T06:18:16.167Z | 2026-11-16T06:18:16.334Z |
 | 24 | 07 | deviation | src/machine.c |  | Ordered time preparation now advances by the shared quoted bus-operation cycle count instead of an independent fixed-one-cycle literal; canonical workflow passes. | fixed |  | 2026-11-16T07:56:10.142Z | 2026-11-16T07:56:39.776Z |
 | 25 | 07 | deviation | src/cpu.c |  | Exception units now use the shared calculator for their internal-cycle attribution; determinism control and canonical workflow pass. | fixed |  | 2026-11-16T07:56:14.967Z | 2026-11-16T07:56:39.863Z |
+| 26 | 07 | skipped-test | tests/diagnostics.cmake | 37 | The local full workflow skipped 726 ARM/Thumb diagnostic cases because arm-toolchain-absent; DIAG-04 remains open. | open |  | 2026-11-16T13:37:35.583Z |  |
 
 ````json
 [
@@ -366,6 +367,19 @@ last_updated: 2026-11-16T07:56:39.863Z
     "reason": "",
     "recorded_at": "2026-11-16T07:56:14.967Z",
     "resolved_at": "2026-11-16T07:56:39.863Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 26,
+    "kind": "skipped-test",
+    "phase": "07",
+    "file": "tests/diagnostics.cmake",
+    "line": 37,
+    "description": "The local full workflow skipped 726 ARM/Thumb diagnostic cases because arm-toolchain-absent; DIAG-04 remains open.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-16T13:37:35.583Z",
+    "resolved_at": null,
     "milestone": "v2.0"
   }
 ]

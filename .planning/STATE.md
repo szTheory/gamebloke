@@ -5,16 +5,16 @@ milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 07
 current_phase_name: Time Authority and Timer 0 Polling Proof
 status: executing
-stopped_at: Completed 07-05-PLAN.md
-last_updated: "2026-11-16T11:20:50.379Z"
+stopped_at: Completed 07-06-PLAN.md
+last_updated: "2026-11-16T13:39:44.468Z"
 last_activity: 2026-11-15
 last_activity_desc: Phase 07 execution started
-state_head: 4e827b6c749414245ceb1a19a189415a1957286c
+state_head: 4665d2322ee2a9402a5f1583354ac00330e3b8b8
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 07 (Time Authority and Timer 0 Polling Proof) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Total Plans in Phase: 7
 Status: Ready to execute
 Last activity: 2026-11-15 — Phase 07 execution started
@@ -133,6 +133,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07 P03 | 86 min | 1 tasks | 9 files |
 | Phase 07 P04 | 103 min | 1 tasks | 6 files |
 | Phase 07 P05 | 80min | 2 tasks | 11 files |
+| Phase 07 P06 | 117min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -310,6 +311,9 @@ Recent decisions affecting current work:
 - [Phase 07]: Keep guest semantic completion, Timer 0 IF request, and model cycle costs as separate observations; IF does not imply CPU exception entry.
 - [Phase 07]: Preserve result/1 compatibility only when the complete additive timing extension is absent; require the full extension from current producers.
 - [Phase 07]: Label the selected cycle model project-model-only; it is not hardware timing qualification.
+- [Phase 07]: Keep gamebloke-timer-model-1 project-selected and label it project-model-only; passing tests do not establish hardware accuracy.
+- [Phase 07]: Keep device IF requests, guest semantic completion, model cycles, and CPU exception entry as separate observations.
+- [Phase 07]: Export a stable timer/event/IF time-state digest and retain full named canonical equality for in-process determinism comparisons.
 
 ### Pending Todos
 
@@ -360,8 +364,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T11:20:50.362Z
-Stopped at: Completed 07-05-PLAN.md
+Last session: 2026-11-16T13:39:44.451Z
+Stopped at: Completed 07-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
