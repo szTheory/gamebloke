@@ -483,6 +483,54 @@ static uint16_t timer_counter_from_preview(
     return (uint16_t)(low | (uint16_t)(high << 8u));
 }
 
+#define TIMER_CHECK(name, condition)                                        \
+    do {                                                                    \
+        if (!(condition)) {                                                 \
+            fprintf(stderr, "timer.devices[%s]: failed: %s\n", name,     \
+                    #condition);                                           \
+            gbl_check_failures++;                                           \
+        }                                                                   \
+    } while (0)
+
+static bool current_timer_counter(gbl_machine *machine, uint8_t timer_index,
+                                 uint16_t *counter)
+{
+    gbl_machine_time_preview preview = { 0 };
+
+    if (machine == NULL || counter == NULL || timer_index >= GBL_TIMER_COUNT ||
+        gbl_machine_prepare_time(machine, machine->master_cycles, &preview) !=
+            GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    *counter = timer_counter_from_preview(&preview, timer_index);
+    return true;
+}
+
+static bool time_snapshot_equal(const time_snapshot *left,
+                                const time_snapshot *right)
+{
+    size_t index;
+
+    if (left->master_cycles != right->master_cycles ||
+        left->next_event_sequence != right->next_event_sequence ||
+        left->interrupt_flags != right->interrupt_flags ||
+        left->open_bus != right->open_bus ||
+        left->event_count != right->event_count) {
+        return false;
+    }
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        if (!event_equal(&left->events[index], &right->events[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
+        if (!timer_equal(&left->timers[index], &right->timers[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int run_timer_model_boundary(void)
 {
     gbl_machine *machine = new_empty_machine();
@@ -539,36 +587,253 @@ static int run_timer_model_boundary(void)
 
 static int run_timer_devices(void)
 {
-    gbl_machine *machine = new_empty_machine();
+    static const uint16_t reloads[] = {
+        UINT16_C(0x0000), UINT16_C(0x0001), UINT16_C(0xFFFE),
+        UINT16_C(0xFFFF)
+    };
+    static const uint16_t divisors[] = { 1u, 64u, 256u, 1024u };
+    gbl_machine *machine;
     gbl_bus_result result;
-    uint8_t index;
+    size_t timer_index;
+    size_t reload_index;
+    size_t divisor_index;
 
-    CHECK(machine != NULL);
-    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
-        result = write_timer_word(machine, index, UINT16_C(0xFFFF),
-                                  UINT8_C(0xC0));
-        CHECK(result.status == GBL_BUS_STATUS_OK);
+    /* Exercise every reload/divisor pair through each timer's real register
+     * decode and the shared machine event queue. */
+    for (timer_index = 0u; timer_index < GBL_TIMER_COUNT; ++timer_index) {
+        for (reload_index = 0u;
+             reload_index < sizeof(reloads) / sizeof(reloads[0]);
+             ++reload_index) {
+            for (divisor_index = 0u;
+                 divisor_index < sizeof(divisors) / sizeof(divisors[0]);
+                 ++divisor_index) {
+                const uint8_t control = (uint8_t)(UINT8_C(0x80) |
+                                                   (uint8_t)divisor_index);
+                const uint64_t interval =
+                    (UINT64_C(0x10000) - reloads[reload_index]) *
+                    divisors[divisor_index];
+                const uint64_t deadline = UINT64_C(1) + interval;
+                uint16_t counter = 0u;
+
+                machine = new_empty_machine();
+                TIMER_CHECK("all-reload-divisor-setup", machine != NULL);
+                if (machine == NULL) {
+                    continue;
+                }
+                result = write_timer_word(machine, (uint8_t)timer_index,
+                                          reloads[reload_index], control);
+                TIMER_CHECK("all-reload-divisor-write",
+                            result.status == GBL_BUS_STATUS_OK);
+                TIMER_CHECK("one-next-overflow-event",
+                            machine->event_count == 1u &&
+                                machine->events[0].cycle == deadline);
+                TIMER_CHECK("pre-overflow-boundary",
+                            gbl_machine_advance_to(machine, deadline - 1u) ==
+                                GBL_TIME_STATUS_OK &&
+                                current_timer_counter(machine,
+                                    (uint8_t)timer_index, &counter) &&
+                                counter == UINT16_MAX);
+                TIMER_CHECK("overflow-reloads-counter",
+                            gbl_machine_advance_to(machine, deadline) ==
+                                GBL_TIME_STATUS_OK &&
+                                current_timer_counter(machine,
+                                    (uint8_t)timer_index, &counter) &&
+                                counter == reloads[reload_index]);
+                TIMER_CHECK("next-overflow-is-strictly-later",
+                            machine->event_count == 1u &&
+                                machine->events[0].cycle ==
+                                    deadline + interval);
+                free_machine(machine);
+            }
+        }
     }
-    CHECK(gbl_machine_advance_to(machine, UINT64_C(5)) ==
-          GBL_TIME_STATUS_OK);
-    CHECK((machine->interrupt_flags & UINT16_C(0x0078)) ==
-          UINT16_C(0x0078));
-    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
-                           GBL_BUS_CLASS_NONSEQUENTIAL,
-                           UINT32_C(0x0078));
-    CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK((machine->interrupt_flags & UINT16_C(0x0078)) == 0u);
-    result = gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
-                           GBL_BUS_CLASS_NONSEQUENTIAL,
-                           UINT32_C(0x84));
-    CHECK(result.status == GBL_BUS_STATUS_OK);
-    result = gbl_bus_read(machine, UINT32_C(0x04000102), 1u,
-                          GBL_BUS_CLASS_NONSEQUENTIAL);
-    CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(((uint8_t)result.value & UINT8_C(0x84)) == UINT8_C(0x80));
-    free_machine(machine);
+
+    machine = new_empty_machine();
+    TIMER_CHECK("live-policy-setup", machine != NULL);
+    if (machine != NULL) {
+        uint64_t generation;
+        uint16_t counter = 0u;
+
+        result = write_timer_word(machine, 0u, UINT16_MAX, UINT8_C(0x81));
+        TIMER_CHECK("prescaler-start", result.status == GBL_BUS_STATUS_OK);
+        generation = machine->timers[0].generation;
+        TIMER_CHECK("same-control-write", gbl_machine_advance_to(
+                        machine, UINT64_C(20)) == GBL_TIME_STATUS_OK &&
+                        gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      UINT32_C(0x81)).status ==
+                            GBL_BUS_STATUS_OK &&
+                        machine->timers[0].generation == generation &&
+                        machine->events[0].cycle == UINT64_C(65));
+        TIMER_CHECK("live-reload-only-next-overflow",
+                    gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  UINT32_C(0xFF00)).status ==
+                            GBL_BUS_STATUS_OK &&
+                        machine->events[0].cycle == UINT64_C(65) &&
+                        gbl_machine_advance_to(machine, UINT64_C(65)) ==
+                            GBL_TIME_STATUS_OK &&
+                        current_timer_counter(machine, 0u, &counter) &&
+                        counter == UINT16_C(0xFF00));
+        free_machine(machine);
+    }
+
+    machine = new_empty_machine();
+    TIMER_CHECK("disable-policy-setup", machine != NULL);
+    if (machine != NULL) {
+        uint16_t counter = 0u;
+
+        result = write_timer_word(machine, 0u, UINT16_C(0xFFFC),
+                                  UINT8_C(0x80));
+        TIMER_CHECK("disable-policy-start", result.status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("disable-retains-synchronized-count",
+                    gbl_machine_advance_to(machine, UINT64_C(3)) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL, 0u).status ==
+                            GBL_BUS_STATUS_OK &&
+                        current_timer_counter(machine, 0u, &counter) &&
+                        counter == UINT16_MAX && machine->event_count == 0u);
+        TIMER_CHECK("disabled-reload-does-not-replace-count",
+                    gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  UINT32_C(0xF000)).status ==
+                            GBL_BUS_STATUS_OK &&
+                        current_timer_counter(machine, 0u, &counter) &&
+                        counter == UINT16_MAX);
+        TIMER_CHECK("reenable-loads-latest-reload",
+                    gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  UINT32_C(0x80)).status ==
+                            GBL_BUS_STATUS_OK &&
+                        current_timer_counter(machine, 0u, &counter) &&
+                        counter == UINT16_C(0xF000));
+        free_machine(machine);
+    }
+
+    machine = new_empty_machine();
+    TIMER_CHECK("cascade-policy-setup", machine != NULL);
+    if (machine != NULL) {
+        const gbl_cpu_state cpu_before = machine->cpu;
+
+        TIMER_CHECK("cascade-timer3", write_timer_word(
+                        machine, 3u, UINT16_MAX, UINT8_C(0xC4)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("cascade-timer2", write_timer_word(
+                        machine, 2u, UINT16_MAX, UINT8_C(0xC4)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("cascade-timer1-irq-disabled", write_timer_word(
+                        machine, 1u, UINT16_MAX, UINT8_C(0x84)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("cascade-source", write_timer_word(
+                        machine, 0u, UINT16_C(0xFFFE), UINT8_C(0xC0)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("cascade-has-only-independent-event",
+                    machine->event_count == 1u &&
+                        machine->events[0].timer_index == 0u &&
+                        machine->next_event_sequence == 1u);
+        TIMER_CHECK("four-timer-synchronous-cascade",
+                    gbl_machine_advance_to(machine, UINT64_C(6)) ==
+                            GBL_TIME_STATUS_OK &&
+                        machine->interrupt_flags == UINT16_C(0x0068) &&
+                        machine->timers[1].counter == UINT16_MAX &&
+                        machine->timers[2].counter == UINT16_MAX &&
+                        machine->timers[3].counter == UINT16_MAX &&
+                        machine->event_count == 1u &&
+                        machine->events[0].timer_index == 0u &&
+                        machine->events[0].cycle == UINT64_C(8) &&
+                        machine->next_event_sequence == 2u);
+        TIMER_CHECK("device-request-does-not-enter-cpu",
+                    machine->cpu.cpsr == cpu_before.cpsr &&
+                        machine->cpu.execution_address ==
+                            cpu_before.execution_address &&
+                        machine->cpu.retired_instructions ==
+                            cpu_before.retired_instructions &&
+                        machine->cpu.last_exception.kind ==
+                            GBL_EXCEPTION_NONE && !machine->cpu.stopped);
+        free_machine(machine);
+    }
+
+    machine = new_empty_machine();
+    TIMER_CHECK("tie-policy-setup", machine != NULL);
+    if (machine != NULL) {
+        const gbl_cpu_state cpu_before = machine->cpu;
+
+        result = write_timer_word(machine, 0u, UINT16_MAX, UINT8_C(0xC0));
+        TIMER_CHECK("tie-policy-start", result.status == GBL_BUS_STATUS_OK);
+        result = gbl_bus_write(machine, TIMER0_IF_ADDRESS, 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               TIMER0_IF_BIT);
+        TIMER_CHECK("if-clear-follows-tied-overflow",
+                    result.status == GBL_BUS_STATUS_OK &&
+                        machine->master_cycles == UINT64_C(2) &&
+                        machine->interrupt_flags == 0u);
+        TIMER_CHECK("masked-cpu-keeps-device-request-separate",
+                    machine->cpu.cpsr == cpu_before.cpsr &&
+                        machine->cpu.execution_address ==
+                            cpu_before.execution_address &&
+                        machine->cpu.last_exception.kind ==
+                            GBL_EXCEPTION_NONE && !machine->cpu.stopped);
+        free_machine(machine);
+    }
+
+    machine = new_empty_machine();
+    TIMER_CHECK("crossing-policy-setup", machine != NULL);
+    if (machine != NULL) {
+        result = gbl_bus_write(machine, UINT32_C(0x04000103), 4u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0xC0FFFE00));
+        TIMER_CHECK("cross-timer-boundary-lanes",
+                    result.status == GBL_BUS_STATUS_OK &&
+                        machine->timers[1].reload == UINT16_C(0xFFFE) &&
+                        machine->timers[1].enabled &&
+                        machine->timers[1].irq_enabled &&
+                        machine->event_count == 1u &&
+                        machine->events[0].timer_index == 1u &&
+                        machine->events[0].cycle == UINT64_C(3));
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *first = new_empty_machine();
+        gbl_machine *second = new_empty_machine();
+        time_snapshot first_snapshot;
+        time_snapshot second_snapshot;
+
+        TIMER_CHECK("interleaved-policy-setup",
+                    first != NULL && second != NULL);
+        if (first != NULL && second != NULL) {
+            TIMER_CHECK("interleaved-first-start", write_timer_word(
+                            first, 0u, UINT16_C(0xFFFE), UINT8_C(0xC0)).status ==
+                            GBL_BUS_STATUS_OK);
+            TIMER_CHECK("interleaved-second-start", write_timer_word(
+                            second, 0u, UINT16_C(0xFFFE), UINT8_C(0xC0)).status ==
+                            GBL_BUS_STATUS_OK);
+            TIMER_CHECK("interleaved-advance-a",
+                        gbl_machine_advance_to(first, UINT64_C(3)) ==
+                            GBL_TIME_STATUS_OK);
+            TIMER_CHECK("interleaved-advance-b",
+                        gbl_machine_advance_to(second, UINT64_C(2)) ==
+                            GBL_TIME_STATUS_OK);
+            TIMER_CHECK("interleaved-advance-a-again",
+                        gbl_machine_advance_to(first, UINT64_C(8)) ==
+                            GBL_TIME_STATUS_OK);
+            TIMER_CHECK("interleaved-advance-b-again",
+                        gbl_machine_advance_to(second, UINT64_C(8)) ==
+                            GBL_TIME_STATUS_OK);
+            take_time_snapshot(first, &first_snapshot);
+            take_time_snapshot(second, &second_snapshot);
+            TIMER_CHECK("interleaved-machines-match-isolated-state",
+                        time_snapshot_equal(&first_snapshot,
+                                            &second_snapshot));
+        }
+        free_machine(first);
+        free_machine(second);
+    }
+
     if (CHECK_DONE() == 0) {
-        puts("timer.devices: four timer registers, IF requests, and W1C ok");
+        puts("timer.devices: four-timer event, cascade, IF and lane policies ok");
         return 0;
     }
     return 1;
