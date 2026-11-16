@@ -26,11 +26,14 @@ set(GBL_PHASE7_REQUIRED_NAMES
   timer.costs
   timer.costs.contract
   timer.devices
-  timer0.guest.cli
   timer0.guest.tracer
   bus.timing
   bus.time_authority.clean
   bus.time_authority.control)
+# This rights-restricted guest runs only in the explicit local-timer0 lane.
+# phase7.order runs in the hosted ci and asan lanes, where it must stay absent.
+set(GBL_PHASE7_LOCAL_ONLY_NAMES
+  timer0.guest.cli)
 
 function(gbl_phase7_json_has_value json test_index property wanted output_var)
   set(found FALSE)
@@ -107,6 +110,15 @@ function(gbl_phase7_graph_reason json output_reason)
     set(${output_reason} malformed PARENT_SCOPE)
     return()
   endif()
+
+  foreach(local_only_name IN LISTS GBL_PHASE7_LOCAL_ONLY_NAMES)
+    gbl_phase7_find_test("${json}" "${local_only_name}" ignored_index
+      local_only_found)
+    if(local_only_found)
+      set(${output_reason} local-only-registration PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
 
   set(actual_setup_names)
   if(test_count GREATER 0)
@@ -266,6 +278,21 @@ endif()
 gbl_phase7_graph_reason("${ctest_json}" graph_reason)
 if(NOT graph_reason STREQUAL "")
   message(FATAL_ERROR "phase7-order: ${graph_reason}")
+endif()
+
+# Negative control: prove the hosted graph gate rejects the local-only guest
+# if a future lane change accidentally registers it alongside CI/ASan tests.
+gbl_phase7_find_test("${ctest_json}" phase7.selection.control
+  local_only_control_index local_only_control_found)
+if(NOT local_only_control_found)
+  message(FATAL_ERROR "phase7-order: missing-local-only-control-anchor")
+endif()
+string(JSON local_only_control_json SET "${ctest_json}" tests
+  ${local_only_control_index} name "\"timer0.guest.cli\"")
+gbl_phase7_graph_reason("${local_only_control_json}" local_only_control_reason)
+if(NOT local_only_control_reason STREQUAL "local-only-registration")
+  message(FATAL_ERROR
+    "phase7-order: local-only-control-wrong-result: ${local_only_control_reason}")
 endif()
 
 set(scratch_root "${GBL_PHASE7_BIN}/phase7-order-controls")
