@@ -820,6 +820,72 @@ static void test_exceptions(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_irq_timer_tracer(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_bus_result ie_result;
+    gbl_bus_result ime_result;
+    gbl_bus_result reload_result;
+    gbl_bus_result control_result;
+    bool loaded;
+    bool configured;
+    bool ran;
+
+    make_empty_image(image);
+    write_word(image, 0x00u, UINT32_C(0xE3A0002A)); /* marked instruction */
+    write_word(image, 0x04u, UINT32_C(0xE3A01063)); /* must not execute */
+    write_word(image, 0x08u, UINT32_C(0xE3A02011));
+    loaded = machine_load(&machine, image);
+    test_case(loaded, "timer IRQ tracer loads a fresh ARM image");
+    if (!loaded) {
+        return;
+    }
+
+    ie_result = gbl_bus_write(&machine, UINT32_C(0x04000200), 2u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(1) << 3u);
+    ime_result = gbl_bus_write(&machine, UINT32_C(0x04000208), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+    reload_result = gbl_bus_write(&machine, UINT32_C(0x04000100), 2u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL,
+                                  UINT32_C(0xFFFD));
+    control_result = gbl_bus_write(&machine, UINT32_C(0x04000102), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x00C0));
+    configured = ie_result.status == GBL_BUS_STATUS_OK &&
+                 ime_result.status == GBL_BUS_STATUS_OK &&
+                 reload_result.status == GBL_BUS_STATUS_OK &&
+                 control_result.status == GBL_BUS_STATUS_OK &&
+                 gbl_cpu_set_cpsr(&machine, TEST_CPSR_SYSTEM) ==
+                     GBL_CPU_STATUS_OK;
+    test_case(configured,
+              "timer IRQ tracer configures Timer 0, IE, IME and CPSR through existing seams");
+    if (!configured) {
+        gbl_machine_dispose(&machine);
+        return;
+    }
+
+    ran = run_units(&machine, UINT64_C(8), 0u, &result);
+    test_case(ran &&
+                  (machine.interrupt_flags & UINT16_C(0x0008)) != 0u,
+              "Timer 0 overflow records its IF request through device dispatch");
+    test_case(ran && result.termination == GBL_RUN_STOPPED &&
+                  result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                  result.instructions == UINT64_C(1) &&
+                  machine.cpu.retired_instructions == UINT64_C(1) &&
+                  machine.cpu.stop_reason == GBL_CPU_STOP_IRQ_NO_BIOS &&
+                  machine.cpu.r0_7[0] == UINT32_C(0x2A) &&
+                  machine.cpu.r0_7[1] == 0u &&
+                  machine.cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
+                  machine.cpu.execution_address == UINT32_C(0x00000018) &&
+                  !machine.cpu.pipeline[0].valid &&
+                  !machine.cpu.pipeline[1].valid,
+              "timer request enters IRQ after the marked instruction and before the next marker");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_masked_requests(void)
 {
     gbl_machine machine = { 0 };
@@ -14062,6 +14128,7 @@ static const cpu_test_function psr_functions[] = {
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
+    test_irq_timer_tracer,
     test_masked_requests,
     test_exception_matrix,
     test_exception_refusals,
@@ -14290,7 +14357,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
-    CPU_TEST_GROUP("exceptions", 13u, exception_functions),
+    CPU_TEST_GROUP("exceptions", 17u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
     CPU_TEST_GROUP("no_bios", 2u, no_bios_functions),
     CPU_TEST_GROUP("peek", 5u, peek_functions),
