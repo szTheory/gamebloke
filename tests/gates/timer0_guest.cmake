@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.25)
+
+foreach(required IN ITEMS SRC BIN)
+  if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+    message(FATAL_ERROR "timer0-guest: missing required argument ${required}")
+  endif()
+endforeach()
+get_filename_component(SRC "${SRC}" ABSOLUTE)
+get_filename_component(BIN "${BIN}" ABSOLUTE)
+
+set(control "${BIN}/gamebloke-run-control")
+set(production "${BIN}/gamebloke-run")
+set(fixtures "${BIN}/generated/fixtures")
+set(scratch "${BIN}/nc/timer0_guest")
+file(MAKE_DIRECTORY "${scratch}")
+
+foreach(path IN ITEMS "${control}" "${production}")
+  if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+    message(FATAL_ERROR "timer0-guest: required runner is missing: ${path}")
+  endif()
+endforeach()
+
+foreach(name IN ITEMS owned-timer0-pass.gba owned-timer0-disabled.gba)
+  set(path "${fixtures}/${name}")
+  if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+    message(FATAL_ERROR "timer0-guest: generated-image-missing: ${name}")
+  endif()
+endforeach()
