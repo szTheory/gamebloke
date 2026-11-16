@@ -5,16 +5,16 @@ milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 07
 current_phase_name: Time Authority and Timer 0 Polling Proof
 status: executing
-stopped_at: Completed 07-03-PLAN.md
-last_updated: "2026-11-16T07:55:22.623Z"
+stopped_at: Completed 07-04-PLAN.md
+last_updated: "2026-11-16T09:53:44.622Z"
 last_activity: 2026-11-15
 last_activity_desc: Phase 07 execution started
-state_head: 32c4224ec9002c717306d0898311c3b381c14e08
+state_head: 8967eb8cfc8436d42dc37845f6367cab520ee00e
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 7
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 07 (Time Authority and Timer 0 Polling Proof) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Total Plans in Phase: 7
 Status: Ready to execute
 Last activity: 2026-11-15 — Phase 07 execution started
@@ -131,6 +131,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07 P01 | 46m | 2 tasks | 10 files |
 | Phase 07 P02 | 55 min | 2 tasks | 11 files |
 | Phase 07 P03 | 86 min | 1 tasks | 9 files |
+| Phase 07 P04 | 103 min | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -302,6 +303,9 @@ Recent decisions affecting current work:
 - [Phase 07]: Keep device IF requests distinct from CPU eligibility and exception entry.
 - [Phase 07]: Keep all supported bus rows one cycle and explicitly project-selected under gamebloke-timer-model-1; do not treat them as hardware qualification.
 - [Phase 07]: Report CPU bus and internal cycles separately, and keep device interrupt requests distinct from CPU exception entry.
+- [Phase 07]: All 162 runtime cost rows remain one-cycle project-selected placeholders; hardware costs are unmodeled and null.
+- [Phase 07]: ARM7TDMI CPU cycle composition is source-backed separately from the unmodeled GBA region and wait mapping.
+- [Phase 07]: Timer edge policies remain project-selected with hardware qualification UNKNOWN; WAITCNT and prefetch remain out of scope.
 
 ### Pending Todos
 
@@ -352,8 +356,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T07:55:22.606Z
-Stopped at: Completed 07-03-PLAN.md
+Last session: 2026-11-16T09:53:44.605Z
+Stopped at: Completed 07-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
