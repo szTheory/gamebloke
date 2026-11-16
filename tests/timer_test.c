@@ -1178,8 +1178,28 @@ static int run_keypad_timeline(void)
         { UINT64_C(2), UINT16_C(0x0001) },
         { UINT64_C(3), 0u }
     };
+    const gbl_input_event tie_press = { UINT64_C(2), UINT16_C(0x0001) };
+    const gbl_input_event held_events[] = {
+        { UINT64_C(2), UINT16_C(0x0001) },
+        { UINT64_C(3), UINT16_C(0x0001) },
+        { UINT64_C(4), 0u },
+        { UINT64_C(5), UINT16_C(0x0001) }
+    };
     gbl_machine *machine = new_empty_machine();
     gbl_bus_result result;
+    uint32_t keyinput_reads[3] = { 0u, 0u, 0u };
+    uint64_t input_read_cycles[3] = { 0u, 0u, 0u };
+    uint64_t tie_cycle = 0u;
+    uint64_t tie_write_start_cycle = 0u;
+    uint64_t tie_write_complete_cycle = 0u;
+    uint64_t acknowledgement_start_cycle = 0u;
+    uint64_t acknowledgement_complete_cycle = 0u;
+    uint16_t timer_keypad_if = 0u;
+    uint16_t held_if = 0u;
+    uint16_t acknowledged_held_if = 0u;
+    uint16_t reasserted_if = 0u;
+    bool empty_selection_false = false;
+    const char *tie_order = "invalid";
 
     CHECK(machine != NULL);
     if (machine == NULL) {
@@ -1198,11 +1218,15 @@ static int run_keypad_timeline(void)
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_OK &&
           result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET);
+    keyinput_reads[0] = result.value;
+    input_read_cycles[0] = machine->master_cycles;
     CHECK(result.value == UINT32_C(0x03FF) &&
           machine->master_cycles == UINT64_C(1) &&
           machine->pressed_keys == 0u && machine->input_event_cursor == 1u);
     result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
+    keyinput_reads[1] = result.value;
+    input_read_cycles[1] = machine->master_cycles;
     CHECK(result.status == GBL_BUS_STATUS_OK &&
           result.value == UINT32_C(0x03FE) &&
           machine->master_cycles == UINT64_C(2) &&
@@ -1210,11 +1234,87 @@ static int run_keypad_timeline(void)
           machine->input_event_cursor == 2u);
     result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
+    keyinput_reads[2] = result.value;
+    input_read_cycles[2] = machine->master_cycles;
     CHECK(result.status == GBL_BUS_STATUS_OK &&
           result.value == UINT32_C(0x03FF) &&
           machine->master_cycles == UINT64_C(3) &&
           machine->pressed_keys == 0u && machine->event_count == 0u &&
           machine->input_event_cursor == 3u);
+
+    gbl_machine_reset(machine);
+    result = gbl_bus_write(machine, UINT32_C(0x04000100), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x00C0FFFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(1) &&
+          machine->event_count == 1u &&
+          machine->events[0].cycle == UINT64_C(2));
+    tie_cycle = machine->events[0].cycle;
+    CHECK(gbl_machine_set_input_timeline(machine, &tie_press, 1u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->event_count == 2u &&
+          machine->events[0].kind ==
+              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
+          machine->events[0].priority == 0u &&
+          machine->events[1].kind ==
+              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
+          machine->events[1].priority == 4u);
+    if (machine->event_count == 2u &&
+        machine->events[0].kind ==
+            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
+        machine->events[1].kind ==
+            (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
+        tie_order = "timer0>keypad";
+    }
+    tie_write_start_cycle = machine->master_cycles;
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
+    tie_write_complete_cycle = machine->master_cycles;
+    timer_keypad_if = machine->interrupt_flags;
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          tie_write_start_cycle == UINT64_C(1) &&
+          tie_write_complete_cycle == tie_cycle &&
+          timer_keypad_if == UINT16_C(0x1008));
+
+    gbl_machine_reset(machine);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4000));
+    empty_selection_false = result.status == GBL_BUS_STATUS_OK &&
+                            !machine->key_condition &&
+                            !machine->key_irq_condition;
+    CHECK(empty_selection_false);
+
+    gbl_machine_reset(machine);
+    CHECK(gbl_machine_set_input_timeline(
+              machine, held_events,
+              sizeof(held_events) / sizeof(held_events[0])) ==
+          GBL_TIME_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(1));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK &&
+          machine->interrupt_flags == UINT16_C(0x1000));
+    held_if = machine->interrupt_flags;
+    acknowledgement_start_cycle = machine->master_cycles;
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1000));
+    acknowledgement_complete_cycle = machine->master_cycles;
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->interrupt_flags == 0u && machine->key_irq_condition);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(3)) ==
+              GBL_TIME_STATUS_OK &&
+          machine->interrupt_flags == 0u && machine->key_irq_condition);
+    acknowledged_held_if = machine->interrupt_flags;
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(4)) ==
+              GBL_TIME_STATUS_OK &&
+          machine->interrupt_flags == 0u && !machine->key_irq_condition);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(5)) ==
+              GBL_TIME_STATUS_OK &&
+          machine->interrupt_flags == UINT16_C(0x1000));
+    reasserted_if = machine->interrupt_flags;
     free_machine(machine);
     {
         int status = CHECK_DONE();
@@ -1222,6 +1322,27 @@ static int run_keypad_timeline(void)
         puts(status == 0 ? "ok 1 - keypad.timeline"
                          : "not ok 1 - keypad.timeline");
         puts("1..1");
+        if (status == 0) {
+            printf("phase8-observation {\"type\":\"keypad\",\"capacity\":%u,\"tie_cycle\":\"%llu\",\"tie_order\":\"%s\",\"input_event_cycles\":[\"%llu\",\"%llu\",\"%llu\"],\"input_read_complete_cycles\":[\"%llu\",\"%llu\",\"%llu\"],\"keyinput_reads\":[%u,%u,%u],\"tie_write_start_cycle\":\"%llu\",\"tie_write_complete_cycle\":\"%llu\",\"timer_keypad_if\":%u,\"empty_selection_false\":%s,\"held_if\":%u,\"acknowledgement_start_cycle\":\"%llu\",\"acknowledgement_complete_cycle\":\"%llu\",\"acknowledged_held_if\":%u,\"reasserted_if\":%u}\n",
+                   (unsigned)GBL_INPUT_EVENT_CAPACITY,
+                   (unsigned long long)tie_cycle, tie_order,
+                   (unsigned long long)events[0].cycle,
+                   (unsigned long long)events[1].cycle,
+                   (unsigned long long)events[2].cycle,
+                   (unsigned long long)input_read_cycles[0],
+                   (unsigned long long)input_read_cycles[1],
+                   (unsigned long long)input_read_cycles[2],
+                   keyinput_reads[0], keyinput_reads[1], keyinput_reads[2],
+                   (unsigned long long)tie_write_start_cycle,
+                   (unsigned long long)tie_write_complete_cycle,
+                   (unsigned)timer_keypad_if,
+                   empty_selection_false ? "true" : "false",
+                   (unsigned)held_if,
+                   (unsigned long long)acknowledgement_start_cycle,
+                   (unsigned long long)acknowledgement_complete_cycle,
+                   (unsigned)acknowledged_held_if,
+                   (unsigned)reasserted_if);
+        }
         return status;
     }
 }
