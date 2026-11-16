@@ -13599,6 +13599,134 @@ static bool unit_boundary_run(const unit_boundary_case *spec,
     return valid;
 }
 
+static bool cpu_timer_refusal_is_atomic(uint32_t opcode,
+                                        uint8_t exhausted_generation_timer,
+                                        bool timer_due,
+                                        bool trace_refusal,
+                                        bool loaded_pc)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine *before = NULL;
+    gbl_trace_record records[8];
+    gbl_trace_record prior_records[8];
+    gbl_trace_buffer trace = {
+        records, trace_refusal ? 1u : 8u, 1u, UINT64_C(700)
+    };
+    gbl_run_result result = {
+        GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, UINT64_C(71), UINT64_C(73)
+    };
+    uint64_t start_cycles = UINT64_MAX - UINT64_C(8);
+    size_t index;
+    bool valid;
+
+    make_empty_image(image);
+    for (index = 0u; index < TEST_IMAGE_SIZE; index += 4u) {
+        write_word(image, index, UINT32_C(0xE1A00000));
+    }
+    if (!machine_load(&machine, image)) {
+        return false;
+    }
+    for (index = 0u; index < 8u; ++index) {
+        records[index] = (gbl_trace_record){
+            .sequence = UINT64_C(900) + (uint64_t)index,
+            .guest_cycle = UINT64_C(1000) + (uint64_t)index,
+            .category = GBL_TRACE_INSTRUCTION,
+            .instruction_address = UINT32_C(0x08000040) +
+                                   (uint32_t)(index * 4u),
+            .opcode = UINT32_C(0xE1A00000)
+        };
+    }
+    memcpy(prior_records, records, sizeof(records));
+    machine.master_cycles = start_cycles;
+    if (loaded_pc) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000040);
+        write_word(machine.iwram, 0x40u, UINT32_C(0x08000080));
+    } else if (exhausted_generation_timer != UINT8_MAX) {
+        machine.cpu.r0_7[0] = UINT32_C(0x04000100);
+        machine.cpu.r0_7[1] = UINT32_C(0x00C0FFFE);
+        machine.cpu.r0_7[2] = UINT32_C(0x0080FFFF);
+        machine.timers[exhausted_generation_timer].generation = UINT64_MAX;
+        machine.next_event_sequence = UINT64_MAX - UINT64_C(1);
+    }
+    prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
+    machine.master_cycles = start_cycles;
+    if (timer_due) {
+        machine.timers[0] = (gbl_timer_state){
+            .reload = UINT16_MAX,
+            .counter = UINT16_MAX,
+            .divisor = 1u,
+            .anchor_cycle = start_cycles,
+            .generation = UINT64_C(7),
+            .enabled = true,
+            .irq_enabled = true,
+            .cascade = false
+        };
+        machine.events[0] = (gbl_event){
+            .cycle = start_cycles + UINT64_C(1),
+            .sequence = 0u,
+            .generation = UINT64_C(7),
+            .priority = 0u,
+            .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+            .timer_index = 0u,
+            .live = true
+        };
+        machine.event_count = 1u;
+        machine.next_event_sequence = UINT64_MAX;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    *before = machine;
+
+    valid = run_traced_units(&machine, UINT64_C(16), 1u,
+                             GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+                             &trace, &result) &&
+        result.cycles == 0u && result.instructions == 0u &&
+        gbl_test_canonical_equal(before, &machine) &&
+        gbl_test_canonical_digest(before) ==
+            gbl_test_canonical_digest(&machine) &&
+        trace.count == 1u && trace.next_sequence == UINT64_C(700) &&
+        gbl_test_trace_equal(records, prior_records, 8u);
+    if (trace_refusal) {
+        valid = valid && result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+    } else {
+        valid = valid && result.termination == GBL_RUN_STOPPED &&
+                result.reason != GBL_RUN_REASON_CYCLE_BUDGET &&
+                result.reason != GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+    }
+    free(before);
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_time_preflight_unit_boundaries(void)
+{
+    test_case(cpu_timer_refusal_is_atomic(TEST_MOV_R1_R0, UINT8_MAX, true,
+                                          false, false),
+              "normal instruction refuses a due timer event before register, trace, or clock effects");
+    test_case(cpu_timer_refusal_is_atomic(
+                  encode_arm_transfer(false, true, true, false, false, true,
+                                      0u, 15u, 0u),
+                  UINT8_MAX, true, false, true),
+              "loaded-PC read reserves refill time without reading before event refusal");
+}
+
+static void test_timer_write_and_trace_refusals(void)
+{
+    test_case(cpu_timer_refusal_is_atomic(
+                  encode_arm_block(false, true, true, false, 0u,
+                                   UINT16_C(0x0006)),
+                  1u, false, false, false),
+              "multi-transfer timer writes refuse before the first timer changes");
+    test_case(cpu_timer_refusal_is_atomic(TEST_MOV_R1_R0, UINT8_MAX, true,
+                                          true, false),
+              "trace refusal leaves a due timer event and every caller record untouched");
+}
+
 static void test_unit_boundaries(void)
 {
     static const unit_boundary_case cases[] = {
@@ -13943,15 +14071,17 @@ static const cpu_test_function slots_bounds_functions[] = {
     test_swp_pc_restrictions,
     test_swp_selected_trace_boundaries,
     test_swp_counter_headroom,
-    test_maximum_unit_reservations
+    test_maximum_unit_reservations,
+    test_timer_write_and_trace_refusals
 };
 
 static const cpu_test_function unit_boundaries_functions[] = {
-    test_unit_boundaries
+    test_unit_boundaries,
+    test_time_preflight_unit_boundaries
 };
 
 static const cpu_test_group cpu_test_groups[] = {
-    CPU_TEST_GROUP("unit_boundaries", 63u, unit_boundaries_functions),
+    CPU_TEST_GROUP("unit_boundaries", 65u, unit_boundaries_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),
@@ -13993,7 +14123,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("isa_classification", 39u, isa_classification_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
-    CPU_TEST_GROUP("slots_bounds", 27u, slots_bounds_functions)
+    CPU_TEST_GROUP("slots_bounds", 29u, slots_bounds_functions)
 };
 
 #undef CPU_TEST_GROUP
