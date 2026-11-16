@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 07
 current_phase_name: Time Authority and Timer 0 Polling Proof
-status: planning
-stopped_at: Phase 7 planning complete and independently checked; seven plans are ready for execution; v1.0 DIAG-04 and DET-02 remain open
-last_updated: "2026-11-16T04:07:41.181Z"
+status: executing
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-11-16T05:23:45.248Z"
 last_activity: 2026-11-15
-last_activity_desc: Phase 7 planning complete — seven plans ready; v1.0 DIAG-04 and DET-02 remain open
-state_head: e03816613e41a67e661baba3f2df05ca898e66dd
+last_activity_desc: Phase 07 execution started
+state_head: 199c2f8bf8f96371caa2520d217e6b247b71f166
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 7
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -26,15 +26,15 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v2.0 Time, Interrupts, DMA, First Pixels (a GSD milestone label, not a software version)
-**Current focus:** Phase 7 — Time Authority and Timer 0 Polling Proof
+**Current focus:** Phase 07 — Time Authority and Timer 0 Polling Proof
 
 ## Current Position
 
-Phase: 07 (Time Authority and Timer 0 Polling Proof) — READY TO EXECUTE
-Plan: 1 of 7 in current phase
+Phase: 07 (Time Authority and Timer 0 Polling Proof) — EXECUTING
+Plan: 2 of 7
 Total Plans in Phase: 7
 Status: Ready to execute
-Last Activity: 2026-11-15 — Phase 7 planning complete; seven plans passed independent review
+Last activity: 2026-11-15 — Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -128,6 +128,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P05 | 13 min | 2 tasks | 4 files |
 | Phase 6 P03 | 24 min | 2 tasks | 8 files |
 | Phase 06 P06 | 39m44s | 2 tasks | 10 files |
+| Phase 07 P01 | 46m | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -291,6 +292,9 @@ Recent decisions affecting current work:
 - [Phase 06]: Official-BIOS fixtures return a reasoned SKIPPED result before content access.
 - [Phase 06]: DIAG-04 remains pending until the later local-only plan runs the pinned third-party suites.
 - [Phase 06]: Before a long workflow, run shell/workflow checks and cheap policy controls, and use `ctest -N -R` to prove a focused filter selects tests. Measure the resulting JUnit critical path and avoid repeating unchanged producer matrices.
+- [Phase 07]: Keep gbl_machine as the single time authority and select gamebloke-timer-model-1 as project model evidence, not hardware qualification.
+- [Phase 07]: Keep device IF requests separate from CPU interrupt eligibility and exception entry; those remain later work.
+- [Phase 07]: Preserve the one-cycle successful bus-access rule as an explicitly project-selected placeholder.
 
 ### Pending Todos
 
@@ -319,6 +323,7 @@ None yet.
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
 
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
+- The full local workflow is blocked by hygiene.tree: absolute home-path references remain in 07-01-PLAN.md and 07-02-PLAN.md through 07-07-PLAN.md; clean those planning references before expecting the canonical workflow to pass.
 
 ## Deferred Items
 
@@ -340,9 +345,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T04:13:20Z
-Stopped at: Phase 7 planning complete and independently checked; execution is starting. DIAG-04 and DET-02 remain open v1.0 carryovers.
-Resume file: None (the retained archived Phase 5 Plan 23 checkpoint is historical and does not restart Phase 6)
+Last session: 2026-11-16T05:23:45.036Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

@@ -10,9 +10,9 @@
 
 ### Time and timers
 
-- [ ] **TIME-01**: A machine instance advances guest time through one deterministic scheduler. Events are plain data ordered by `(cycle, priority, sequence)`, and tests prove equal-cycle ordering, before/at/after boundaries, reset behavior, stale-event handling, and overflow refusal.
-- [ ] **TIME-03**: The four timers expose documented reload, prescaler, enable/start delay, overflow, and cascade behavior. Counter reads agree with scheduled event state at defined boundaries; timer overflow requests are observable independently from CPU exception entry.
-- [ ] **TIME-05**: An original BIOS-free Timer 0 polling guest reports its semantic overflow result separately from elapsed machine cycles and interrupt request state. Its result labels timing as model-only unless the required bus and internal-cycle costs are sourced and modeled.
+- [x] **TIME-01**: A machine instance advances guest time through one deterministic scheduler. Events are plain data ordered by `(cycle, priority, sequence)`, and tests prove equal-cycle ordering, before/at/after boundaries, reset behavior, stale-event handling, and overflow refusal.
+- [x] **TIME-03**: The four timers expose documented reload, prescaler, enable/start delay, overflow, and cascade behavior. Counter reads agree with scheduled event state at defined boundaries; timer overflow requests are observable independently from CPU exception entry.
+- [x] **TIME-05**: An original BIOS-free Timer 0 polling guest reports its semantic overflow result separately from elapsed machine cycles and interrupt request state. Its result labels timing as model-only unless the required bus and internal-cycle costs are sourced and modeled.
 
 ### Bus and cycle accounting
 
@@ -37,7 +37,7 @@
 
 ### Verification
 
-- [ ] **VERIF-08**: Cheap event-boundary checks run before longer device/guest suites. A focused test-selection check proves that the intended cases are selected and that a missing or empty selection fails visibly; a negative control proves the gate rejects the fault.
+- [x] **VERIF-08**: Cheap event-boundary checks run before longer device/guest suites. A focused test-selection check proves that the intended cases are selected and that a missing or empty selection fails visibly; a negative control proves the gate rejects the fault.
 
 ## Future Requirements
 
@@ -73,11 +73,11 @@ Every current v2.0 requirement maps to exactly one phase. Status changes only wh
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TIME-01 | Phase 7 | Pending |
+| TIME-01 | Phase 7 | Complete |
 | TIME-02 | Phase 8 | Pending |
-| TIME-03 | Phase 7 | Pending |
+| TIME-03 | Phase 7 | Complete |
 | TIME-04 | Phase 8 | Pending |
-| TIME-05 | Phase 7 | Pending |
+| TIME-05 | Phase 7 | Complete |
 | BUS-05 | Phase 9 | Pending |
 | BUS-06 | Phase 7 | Pending |
 | INPUT-01 | Phase 8 | Pending |
@@ -85,7 +85,7 @@ Every current v2.0 requirement maps to exactly one phase. Status changes only wh
 | PPU-01 | Phase 10 | Pending |
 | PPU-02 | Phase 10 | Pending |
 | PLAY-01 | Phase 10 | Pending |
-| VERIF-08 | Phase 7 | Pending |
+| VERIF-08 | Phase 7 | Complete |
 
 **Coverage:** 13 current requirements; 13 mapped to exactly one phase; 0 unmapped; 0 duplicate phase assignments. Deferred requirements and v1.0 evidence carryovers are excluded.
 

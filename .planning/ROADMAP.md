@@ -43,7 +43,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   5. The canonical local verification path runs the short event-boundary cases before longer device/guest suites, proves its focused selection includes the intended cases, and rejects missing/empty selection through a meaningful negative control.
 **Plans**:
 **Wave 1**
-- [ ] 07-01-PLAN.md — Scheduler and Timer 0 guest tracer; exact fast selection
+- [x] 07-01-PLAN.md — Scheduler and Timer 0 guest tracer; exact fast selection
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 07-02-PLAN.md — Four timer boundaries and atomic refusal
@@ -114,7 +114,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. Time Authority and Timer 0 Polling Proof | 0/TBD | Not started | - |
+| 7. Time Authority and Timer 0 Polling Proof | 1/7 | In Progress | - |
 | 8. IRQ, HALT, and Timestamped Input | 0/TBD | Not started | - |
 | 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
