@@ -1109,7 +1109,12 @@ signature.pos.digests_copy positive,signature
 signature.pos.owner_file_match positive,signature
 signature.signal signature,unit
 signature.tree gate,signature
+time.events.boundary core,time,timer,unit
+time.events.order core,time,timer,unit
+time.events.refusal core,time,timer,unit
+timer.devices core,time,timer,unit
 timer0.guest.tracer core,integration,timer
+timer0.model.boundary core,time,timer,unit
 traps.nc.exit_idiom control,traps
 traps.nc.no_files control,traps
 traps.nc.no_handler control,traps

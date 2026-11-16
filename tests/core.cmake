@@ -88,6 +88,13 @@ gbl_add_test(
   NAME timer0.guest.tracer
   LABELS timer core integration
   COMMAND $<TARGET_FILE:timer_test> tracer)
+foreach(selector IN ITEMS time.events.order time.events.boundary
+    time.events.refusal timer0.model.boundary timer.devices)
+  gbl_add_test(
+    NAME ${selector}
+    LABELS core time timer unit
+    COMMAND $<TARGET_FILE:timer_test> ${selector})
+endforeach()
 
 add_executable(cpu_test tests/cpu_test.c)
 target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)

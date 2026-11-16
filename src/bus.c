@@ -207,8 +207,77 @@ static bool gbl_bus_is_dispcnt_byte(uint32_t address)
     return address == 0x04000000u || address == 0x04000001u;
 }
 
-static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
-                              uint8_t *value, gbl_bus_outcome *outcome)
+static bool gbl_bus_is_timer_byte(uint32_t address)
+{
+    return address >= UINT32_C(0x04000100) &&
+           address <= UINT32_C(0x0400010F);
+}
+
+static bool gbl_bus_is_if_byte(uint32_t address)
+{
+    return address == UINT32_C(0x04000202) ||
+           address == UINT32_C(0x04000203);
+}
+
+static gbl_bus_status gbl_bus_status_from_time(gbl_time_status status)
+{
+    if (status == GBL_TIME_STATUS_OK) {
+        return GBL_BUS_STATUS_OK;
+    }
+    if (status == GBL_TIME_STATUS_CYCLE_OVERFLOW) {
+        return GBL_BUS_STATUS_TIME_OVERFLOW;
+    }
+    if (status == GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT) {
+        return GBL_BUS_STATUS_EVENT_DISPATCH_LIMIT;
+    }
+    return GBL_BUS_STATUS_TIME_REFUSAL;
+}
+
+static void gbl_bus_collect_timer_writes(
+    uint32_t address, uint8_t width, uint32_t value,
+    uint8_t lane_masks[GBL_TIMER_COUNT],
+    uint32_t timer_values[GBL_TIMER_COUNT], uint16_t *if_clear_mask)
+{
+    uint32_t lane;
+
+    for (lane = 0u; lane < (uint32_t)width; ++lane) {
+        uint32_t lane_address = address + lane;
+        uint8_t byte_value =
+            (uint8_t)((value >> (lane * 8u)) & UINT32_C(0xFF));
+
+        if (gbl_bus_is_timer_byte(lane_address)) {
+            uint32_t offset = lane_address - UINT32_C(0x04000100);
+            uint8_t timer_index = (uint8_t)(offset / 4u);
+            uint32_t timer_lane = offset % 4u;
+
+            if (timer_lane == 0u) {
+                lane_masks[timer_index] |= UINT8_C(0x01);
+                timer_values[timer_index] =
+                    (timer_values[timer_index] & UINT32_C(0xFFFFFF00)) |
+                    byte_value;
+            } else if (timer_lane == 1u) {
+                lane_masks[timer_index] |= UINT8_C(0x02);
+                timer_values[timer_index] =
+                    (timer_values[timer_index] & UINT32_C(0xFFFF00FF)) |
+                    ((uint32_t)byte_value << 8u);
+            } else if (timer_lane == 2u) {
+                lane_masks[timer_index] |= UINT8_C(0x04);
+                timer_values[timer_index] =
+                    (timer_values[timer_index] & UINT32_C(0xFF00FFFF)) |
+                    ((uint32_t)byte_value << 16u);
+            }
+        } else if (lane_address == UINT32_C(0x04000202)) {
+            *if_clear_mask = (uint16_t)(*if_clear_mask | byte_value);
+        } else if (lane_address == UINT32_C(0x04000203)) {
+            *if_clear_mask = (uint16_t)(
+                *if_clear_mask | (uint16_t)((uint16_t)byte_value << 8u));
+        }
+    }
+}
+
+static bool gbl_bus_read_lane(
+    gbl_machine *machine, const gbl_machine_time_preview *time_preview,
+    uint32_t address, uint8_t *value, gbl_bus_outcome *outcome)
 {
     gbl_bus_region region = gbl_bus_region_for(address);
 
@@ -238,6 +307,19 @@ static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
             *value = address == 0x04000000u
                          ? (uint8_t)(machine->dispcnt & 0x0007u)
                          : (uint8_t)(machine->dispcnt >> 8u);
+            return true;
+        }
+        if (gbl_bus_is_timer_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
+            *value = gbl_timer_read(time_preview, address);
+            return true;
+        }
+        if (gbl_bus_is_if_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
+            *value = address == UINT32_C(0x04000202)
+                         ? (uint8_t)(time_preview->interrupt_flags &
+                                     UINT16_C(0x00FF))
+                         : (uint8_t)(time_preview->interrupt_flags >> 8u);
             return true;
         }
         *value = 0u;
@@ -313,6 +395,9 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
             }
             return GBL_BUS_OUTCOME_IO_MODE_SUBSET;
         }
+        if (gbl_bus_is_timer_byte(address) || gbl_bus_is_if_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
+        }
         return GBL_BUS_OUTCOME_IO_UNIMPLEMENTED;
     case GBL_BUS_REGION_ROM:
         return GBL_BUS_OUTCOME_ROM;
@@ -328,7 +413,8 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
 {
     gbl_bus_status status;
     gbl_bus_result result;
-    uint64_t next_cycles;
+    gbl_machine_time_preview time_preview;
+    gbl_time_status time_status;
     uint32_t value = 0u;
     uint32_t lane;
     bool has_fallback = false;
@@ -342,13 +428,19 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
     if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {
         return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW, access_class);
     }
-    next_cycles = machine->master_cycles + UINT64_C(1);
+    time_status = gbl_machine_prepare_time(
+        machine, machine->master_cycles + UINT64_C(1), &time_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        return gbl_bus_error(gbl_bus_status_from_time(time_status),
+                             access_class);
+    }
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         uint8_t byte_value;
         gbl_bus_outcome lane_outcome;
-        bool has_data = gbl_bus_read_lane(machine, address + lane,
-                                         &byte_value, &lane_outcome);
+        bool has_data = gbl_bus_read_lane(machine, &time_preview,
+                                          address + lane, &byte_value,
+                                          &lane_outcome);
 
         if (lane == 0u) {
             first_outcome = lane_outcome;
@@ -365,7 +457,7 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
     if (!has_fallback) {
         machine->open_bus = gbl_bus_latch_replication(value, width);
     }
-    machine->master_cycles = next_cycles;
+    gbl_machine_commit_time(machine, &time_preview);
     result = gbl_bus_make_result(GBL_BUS_STATUS_OK,
                                  has_fallback ? fallback_outcome : first_outcome,
                                  value, 1u, access_class);
@@ -379,7 +471,11 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
 {
     gbl_bus_status status;
     gbl_bus_result result;
-    uint64_t next_cycles;
+    gbl_machine_time_preview time_preview;
+    gbl_time_status time_status;
+    uint8_t timer_lane_masks[GBL_TIMER_COUNT] = { 0u };
+    uint32_t timer_values[GBL_TIMER_COUNT] = { 0u };
+    uint16_t if_clear_mask = 0u;
     uint32_t lane;
     gbl_bus_outcome first_outcome = GBL_BUS_OUTCOME_NONE;
     gbl_bus_outcome fallback_outcome = GBL_BUS_OUTCOME_NONE;
@@ -391,7 +487,28 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
     if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {
         return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW, access_class);
     }
-    next_cycles = machine->master_cycles + UINT64_C(1);
+    time_status = gbl_machine_prepare_time(
+        machine, machine->master_cycles + UINT64_C(1), &time_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        return gbl_bus_error(gbl_bus_status_from_time(time_status),
+                             access_class);
+    }
+    gbl_bus_collect_timer_writes(address, width, value, timer_lane_masks,
+                                 timer_values, &if_clear_mask);
+    for (lane = 0u; lane < GBL_TIMER_COUNT; ++lane) {
+        if (timer_lane_masks[lane] != 0u) {
+            time_status = gbl_timer_write(&time_preview, (uint8_t)lane,
+                                          timer_lane_masks[lane],
+                                          timer_values[lane]);
+            if (time_status != GBL_TIME_STATUS_OK) {
+                return gbl_bus_error(gbl_bus_status_from_time(time_status),
+                                     access_class);
+            }
+        }
+    }
+    time_preview.interrupt_flags = (uint16_t)(
+        time_preview.interrupt_flags & (uint16_t)~if_clear_mask);
+    gbl_machine_commit_time(machine, &time_preview);
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         gbl_bus_outcome lane_outcome = gbl_bus_write_lane(
@@ -405,7 +522,6 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
                                                      lane_outcome);
     }
 
-    machine->master_cycles = next_cycles;
     result = gbl_bus_make_result(
         GBL_BUS_STATUS_OK,
         fallback_outcome != GBL_BUS_OUTCOME_NONE ? fallback_outcome
@@ -418,6 +534,8 @@ gbl_bus_result gbl_bus_internal(gbl_machine *machine, uint64_t cycles)
 {
     gbl_bus_result result;
     uint64_t next_cycles;
+    gbl_time_status time_status;
+    gbl_machine_time_preview time_preview;
 
     if (machine == NULL || !machine->initialized) {
         return gbl_bus_error(GBL_BUS_STATUS_INVALID_ARGUMENT,
@@ -428,9 +546,12 @@ gbl_bus_result gbl_bus_internal(gbl_machine *machine, uint64_t cycles)
                              GBL_BUS_CLASS_NONSEQUENTIAL);
     }
     next_cycles = machine->master_cycles + cycles;
-    if (cycles != 0u) {
-        machine->master_cycles = next_cycles;
+    time_status = gbl_machine_prepare_time(machine, next_cycles, &time_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        return gbl_bus_error(gbl_bus_status_from_time(time_status),
+                             GBL_BUS_CLASS_NONSEQUENTIAL);
     }
+    gbl_machine_commit_time(machine, &time_preview);
     result = gbl_bus_make_result(GBL_BUS_STATUS_OK, GBL_BUS_OUTCOME_NONE, 0u,
                                  cycles, GBL_BUS_CLASS_NONSEQUENTIAL);
     return result;

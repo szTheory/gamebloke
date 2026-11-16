@@ -31,8 +31,65 @@ typedef struct gbl_allocator {
 typedef enum gbl_bus_status {
     GBL_BUS_STATUS_OK = 0,
     GBL_BUS_STATUS_INVALID_ARGUMENT = 1,
-    GBL_BUS_STATUS_TIME_OVERFLOW = 2
+    GBL_BUS_STATUS_TIME_OVERFLOW = 2,
+    GBL_BUS_STATUS_TIME_REFUSAL = 3,
+    GBL_BUS_STATUS_EVENT_DISPATCH_LIMIT = 4
 } gbl_bus_status;
+
+#define GBL_TIMER_COUNT 4u
+#define GBL_EVENT_CAPACITY 16u
+#define GBL_MACHINE_MAX_EVENT_DISPATCH 4096u
+#define GBL_TIMER_MODEL_NAME "gamebloke-timer-model-1"
+
+typedef enum gbl_time_status {
+    GBL_TIME_STATUS_OK = 0,
+    GBL_TIME_STATUS_INVALID_ARGUMENT = 1,
+    GBL_TIME_STATUS_BACKWARD = 2,
+    GBL_TIME_STATUS_CYCLE_OVERFLOW = 3,
+    GBL_TIME_STATUS_SEQUENCE_EXHAUSTED = 4,
+    GBL_TIME_STATUS_GENERATION_EXHAUSTED = 5,
+    GBL_TIME_STATUS_EVENT_CAPACITY = 6,
+    GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT = 7
+} gbl_time_status;
+
+typedef enum gbl_event_kind {
+    GBL_EVENT_KIND_TIMER_OVERFLOW = 1
+} gbl_event_kind;
+
+/* Deterministic machine events contain no callbacks or host-owned pointers.
+ * The scheduler orders live entries by cycle, priority, then sequence. */
+typedef struct gbl_event {
+    uint64_t cycle;
+    uint64_t sequence;
+    uint64_t generation;
+    uint8_t priority;
+    uint8_t kind;
+    uint8_t timer_index;
+    bool live;
+} gbl_event;
+
+typedef struct gbl_timer_state {
+    uint16_t reload;
+    uint16_t counter;
+    uint16_t divisor;
+    uint16_t phase;
+    uint64_t anchor_cycle;
+    uint64_t generation;
+    bool enabled;
+    bool irq_enabled;
+    bool cascade;
+} gbl_timer_state;
+
+/* A small transactional copy used to preflight time and timer I/O before a
+ * bus transaction mutates open bus, memory, or device state. */
+typedef struct gbl_machine_time_preview {
+    uint64_t master_cycles;
+    uint64_t next_event_sequence;
+    uint16_t interrupt_flags;
+    size_t event_count;
+    gbl_event events[GBL_EVENT_CAPACITY];
+    gbl_timer_state timers[GBL_TIMER_COUNT];
+} gbl_machine_time_preview;
 
 typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_NONE = 0,
@@ -43,7 +100,8 @@ typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_ROM_TAIL = 5,
     GBL_BUS_OUTCOME_UNMAPPED = 6,
     GBL_BUS_OUTCOME_IO_MODE_SUBSET = 7,
-    GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY = 8
+    GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY = 8,
+    GBL_BUS_OUTCOME_IO_TIMER_SUBSET = 9
 } gbl_bus_outcome;
 
 typedef enum gbl_bus_access_class {
@@ -300,8 +358,13 @@ typedef struct gbl_run_result {
 
 typedef struct gbl_machine {
     uint64_t master_cycles;
+    uint64_t next_event_sequence;
     uint32_t open_bus;
     uint16_t dispcnt;
+    uint16_t interrupt_flags;
+    size_t event_count;
+    gbl_event events[GBL_EVENT_CAPACITY];
+    gbl_timer_state timers[GBL_TIMER_COUNT];
     bool initialized;
     uint8_t ewram[GBL_EWRAM_SIZE];
     uint8_t iwram[GBL_IWRAM_SIZE];
@@ -359,6 +422,38 @@ gbl_bus_status gbl_machine_init(gbl_machine *machine,
 void gbl_machine_reset(gbl_machine *machine);
 void gbl_machine_dispose(gbl_machine *machine);
 
+/* Checked machine-owned time authority. prepare_time simulates through target
+ * and leaves preview unchanged on refusal. commit_time applies a successful
+ * preview. advance_to is the prepare+commit convenience path. Each call
+ * dispatches at most GBL_MACHINE_MAX_EVENT_DISPATCH events; time and machine
+ * state remain unchanged on every refusal. */
+gbl_time_status gbl_machine_prepare_time(
+    const gbl_machine *machine, uint64_t target,
+    gbl_machine_time_preview *preview);
+void gbl_machine_commit_time(gbl_machine *machine,
+                            const gbl_machine_time_preview *preview);
+gbl_time_status gbl_machine_advance_to(gbl_machine *machine,
+                                       uint64_t target);
+
+/* Model gamebloke-timer-model-1 policy: drain events through a bus
+ * transaction's completion cycle before sampling reads or committing writes;
+ * disabled-to-enabled loads reload and resets divider phase; the first tick
+ * follows a complete divisor; running reload writes affect the next overflow;
+ * enabled control writes synchronize and reset divider phase; timer index
+ * orders equal-cycle overflows, then insertion sequence breaks remaining
+ * ties. Timer 0 ignores cascade. These are project choices, not hardware
+ * timing qualification. Timer register helpers operate on a time preview at
+ * its completion cycle.
+ * Timer reads return the modeled counter/control byte. A write's lane mask
+ * uses bit 0/1 for reload low/high and bit 2 for control; refusal leaves the
+ * preview unchanged. Timers raise IF request bits only; CPU eligibility and
+ * exception entry are intentionally separate. */
+uint8_t gbl_timer_read(const gbl_machine_time_preview *preview,
+                       uint32_t address);
+gbl_time_status gbl_timer_write(gbl_machine_time_preview *preview,
+                               uint8_t timer_index, uint8_t lane_mask,
+                               uint32_t value);
+
 /* Copies only a contiguous, byte-aligned-or-unaligned span from physical IWRAM
  * (0x03000000 through 0x03007FFF). Zero-length requests accept addresses
  * through one-past-end and do not access out. Invalid requests leave out and
@@ -400,7 +495,8 @@ gbl_cpu_status gbl_cpu_enter_exception(
     const gbl_cpu_exception_context *context);
 
 /* Width is a byte count: 1, 2, or 4. Reads and writes report their requested
- * sequence class and cost exactly one placeholder master cycle. */
+ * sequence class and cost exactly one project-selected placeholder master
+ * cycle, independent of region/width/sequence; it is not hardware timing. */
 gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
                             uint8_t width,
                             gbl_bus_access_class access_class);

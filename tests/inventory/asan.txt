@@ -856,4 +856,9 @@ runner.usage_error runner,unit
 runner.version runner,unit
 sanitizer.asan.heap_overflow control,sanitizer
 sanitizer.ubsan.shift32 control,sanitizer
+time.events.boundary core,time,timer,unit
+time.events.order core,time,timer,unit
+time.events.refusal core,time,timer,unit
+timer.devices core,time,timer,unit
 timer0.guest.tracer core,integration,timer
+timer0.model.boundary core,time,timer,unit
