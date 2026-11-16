@@ -4,17 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 8
 current_phase_name: IRQ, HALT, and Timestamped Input
+current_plan: 2
 status: executing
-stopped_at: Phase 8 plan verified; preparing execution
-last_updated: "2026-11-16T19:46:11.529Z"
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-11-16T21:31:04.523Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: 1d7cf1533c8ff49a2fa72fa410afb6199c0c63b5
+state_head: 53139c8445bf36cf3bdf5004fcd5b4cae57ad570
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 7
+  completed_plans: 8
   percent: 25
 ---
 
@@ -30,11 +31,11 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 
 ## Current Position
 
-Phase: 8 (IRQ, HALT, and Timestamped Input) — READY TO EXECUTE
-Plan: Not started
+Phase: 8 (IRQ, HALT, and Timestamped Input) — IN PROGRESS
+Current Plan: 2
 Total Plans in Phase: 7
-Status: Ready to execute
-Last activity: 2026-11-16 — Phase 07 complete, transitioned to Phase 8
+Status: In progress; Plan 08-01 complete and Plan 08-02 next
+Last activity: 2026-11-16 — Plan 08-01 execution complete
 
 Progress: [███░░░░░░░] 25%
 
@@ -136,6 +137,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 07 P05 | 80min | 2 tasks | 11 files |
 | Phase 07 P06 | 117min | 2 tasks | 10 files |
 | Phase 07 P07 | 56m 10s | 2 tasks | 7 files |
+| Phase 08 P01 | at least 30min; initial read time not captured | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -319,6 +321,9 @@ Recent decisions affecting current work:
 - [Phase 07]: Keep gamebloke-timer-model-1 project-model-only; tests establish selected model behavior, not hardware timing.
 - [Phase 07]: Keep the original Timer 0 images build-local, BIOS-free, local-only, and redistribution-unknown; distinguish guest completion, IF request, and CPU exception entry.
 - [Phase 07]: Require all five exact phase7_fast predecessors before dependent longer tests, with fixture-excluded selection and a causal failing-setup control.
+- [Phase 08]: Sample enabled requests at the completed instruction boundary and keep request, eligibility, acceptance, and exception entry separately observable.
+- [Phase 08]: Use the no-BIOS IRQ stop policy without vector fetch or a claim that a handler ran.
+- [Phase 08]: Keep the selected IRQ entry cycle as project-model evidence, not hardware timing qualification.
 
 ### Pending Todos
 
@@ -369,8 +374,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T19:46:11.501Z
-Stopped at: Phase 8 plan verified; preparing execution
+Last session: 2026-11-16T21:30:01.616Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

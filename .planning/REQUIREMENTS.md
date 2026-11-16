@@ -21,7 +21,7 @@
 
 ### Interrupts, HALT, and input
 
-- [ ] **TIME-02**: Device requests set IF independently of IE/IME and the CPU mask. The CPU samples eligible requests at a defined instruction boundary and either enters a modeled ARM7TDMI IRQ exception state under the selected BIOS profile or reports a classified `GUEST_STOP` when no handler is available; tests distinguish request, eligibility, acceptance, and entry.
+- [x] **TIME-02**: Device requests set IF independently of IE/IME and the CPU mask. The CPU samples eligible requests at a defined instruction boundary and either enters a modeled ARM7TDMI IRQ exception state under the selected BIOS profile or reports a classified `GUEST_STOP` when no handler is available; tests distinguish request, eligibility, acceptance, and entry.
 - [ ] **TIME-04**: HALT wake is a machine state transition at a defined event boundary, independent of whether the CPU accepts an IRQ. Timers and other enabled devices continue to advance; STOP and deadlock produce distinct `GUEST_STOP` causes.
 - [ ] **INPUT-01**: Timestamped logical keypad events update active-low key state at explicit machine cycles. KEYCNT condition evaluation and interrupt requests are observable, deterministic, and separate from host controller discovery.
 
@@ -74,7 +74,7 @@ Every current v2.0 requirement maps to exactly one phase. Status changes only wh
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | TIME-01 | Phase 7 | Complete |
-| TIME-02 | Phase 8 | Pending |
+| TIME-02 | Phase 8 | Complete |
 | TIME-03 | Phase 7 | Complete |
 | TIME-04 | Phase 8 | Pending |
 | TIME-05 | Phase 7 | Complete |
