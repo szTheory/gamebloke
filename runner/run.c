@@ -495,6 +495,8 @@ void gbl_runner_classify_guest_stop(gbl_runner_result *result,
             break;
         case GBL_CPU_STOP_IRQ_NO_BIOS: name = "no-bios-irq"; break;
         case GBL_CPU_STOP_FIQ_NO_BIOS: name = "no-bios-fiq"; break;
+        case GBL_CPU_STOP_STOP_REQUESTED: name = "stop-requested"; break;
+        case GBL_CPU_STOP_HALT_DEADLOCK: name = "halt-deadlock"; break;
         case GBL_CPU_STOP_COPROCESSOR_NO_BIOS:
             name = "no-bios-coprocessor";
             break;

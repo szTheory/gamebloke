@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 enum {
-    GBL_RUNNER_TEST_COUNT = 36u,
+    GBL_RUNNER_TEST_COUNT = 39u,
     GBL_RUNNER_TEST_PATH_CAPACITY = 1024u,
     GBL_RUNNER_TEST_WATCHDOG_TICKS = 300u
 };
@@ -102,20 +102,26 @@ static bool gbl_test_guest_stop_json_matrix(void)
         gbl_exception_kind kind;
         gbl_cpu_stop_reason stop_reason;
         const char *json_reason;
+        bool direct_stop;
     } cases[] = {
         { GBL_EXCEPTION_RESET, GBL_CPU_STOP_RESET_NO_BIOS,
-          "no-bios-reset" },
+          "no-bios-reset", false },
         { GBL_EXCEPTION_UNDEFINED, GBL_CPU_STOP_UNDEFINED_NO_BIOS,
-          "no-bios-undefined" },
-        { GBL_EXCEPTION_SWI, GBL_CPU_STOP_SWI_NO_BIOS, "no-bios-swi" },
+          "no-bios-undefined", false },
+        { GBL_EXCEPTION_SWI, GBL_CPU_STOP_SWI_NO_BIOS, "no-bios-swi", false },
         { GBL_EXCEPTION_PREFETCH_ABORT,
-          GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS, "no-bios-prefetch-abort" },
+          GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS, "no-bios-prefetch-abort",
+          false },
         { GBL_EXCEPTION_DATA_ABORT, GBL_CPU_STOP_DATA_ABORT_NO_BIOS,
-          "no-bios-data-abort" },
-        { GBL_EXCEPTION_IRQ, GBL_CPU_STOP_IRQ_NO_BIOS, "no-bios-irq" },
-        { GBL_EXCEPTION_FIQ, GBL_CPU_STOP_FIQ_NO_BIOS, "no-bios-fiq" },
+          "no-bios-data-abort", false },
+        { GBL_EXCEPTION_IRQ, GBL_CPU_STOP_IRQ_NO_BIOS, "no-bios-irq", false },
+        { GBL_EXCEPTION_FIQ, GBL_CPU_STOP_FIQ_NO_BIOS, "no-bios-fiq", false },
         { GBL_EXCEPTION_COPROCESSOR,
-          GBL_CPU_STOP_COPROCESSOR_NO_BIOS, "no-bios-coprocessor" }
+          GBL_CPU_STOP_COPROCESSOR_NO_BIOS, "no-bios-coprocessor", false },
+        { GBL_EXCEPTION_NONE, GBL_CPU_STOP_STOP_REQUESTED,
+          "stop-requested", true },
+        { GBL_EXCEPTION_NONE, GBL_CPU_STOP_HALT_DEADLOCK,
+          "halt-deadlock", true }
     };
     const gbl_cpu_exception_context context = {
         UINT32_C(0x08000100), UINT32_C(0x08000104), UINT32_C(0x08000200),
@@ -132,11 +138,17 @@ static bool gbl_test_guest_stop_json_matrix(void)
         bool okay = gbl_machine_init(&machine, NULL) == GBL_BUS_STATUS_OK;
 
         if (okay) {
-            okay = gbl_cpu_set_cpsr(&machine, UINT32_C(0x13)) ==
-                       GBL_CPU_STATUS_OK &&
-                   gbl_cpu_enter_exception(&machine, cases[index].kind,
-                                           &context) == GBL_CPU_STATUS_OK &&
-                   machine.cpu.stopped &&
+            if (cases[index].direct_stop) {
+                machine.cpu.stopped = true;
+                machine.cpu.stop_reason = cases[index].stop_reason;
+            } else {
+                okay = gbl_cpu_set_cpsr(&machine, UINT32_C(0x13)) ==
+                           GBL_CPU_STATUS_OK &&
+                       gbl_cpu_enter_exception(&machine, cases[index].kind,
+                                               &context) ==
+                           GBL_CPU_STATUS_OK;
+            }
+            okay = okay && machine.cpu.stopped &&
                    machine.cpu.stop_reason == cases[index].stop_reason;
         }
         output = okay ? tmpfile() : NULL;
@@ -316,6 +328,27 @@ static gbl_runner_status gbl_test_execute(
     options.trace_mask = trace_mask;
     options.trace_capacity = trace_capacity;
     options.trace_output_path = trace_path;
+    options.cancelled = cancelled;
+    options.cancel_context = cancel_context;
+    options.allocator = allocator;
+    return gbl_runner_execute(&options, result);
+}
+
+static gbl_runner_status gbl_test_execute_timeline(
+    const char *rom_path, const char *fixture_id, uint64_t budget,
+    bool timeline_present, const gbl_input_event *events, size_t event_count,
+    gbl_runner_cancelled_fn cancelled, void *cancel_context,
+    gbl_runner_allocator allocator, gbl_runner_result *result)
+{
+    gbl_runner_options options;
+
+    memset(&options, 0, sizeof options);
+    options.rom_path = rom_path;
+    options.fixture_id = fixture_id;
+    options.cycle_budget = budget;
+    options.input_timeline_present = timeline_present;
+    options.input_events = events;
+    options.input_event_count = event_count;
     options.cancelled = cancelled;
     options.cancel_context = cancel_context;
     options.allocator = allocator;
@@ -777,6 +810,169 @@ static bool gbl_test_register_terminal_precedence(
     return okay;
 }
 
+static bool gbl_test_input_timeline_observations(
+    const char *fixture_directory)
+{
+    char pass_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char loop_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char first_digest[GBL_SHA256_HEX_CAPACITY];
+    char repeated_digest[GBL_SHA256_HEX_CAPACITY];
+    char released_digest[GBL_SHA256_HEX_CAPACITY];
+    char empty_digest[GBL_SHA256_HEX_CAPACITY];
+    const gbl_input_event pressed = { UINT64_C(0), UINT16_C(1) };
+    const gbl_input_event released = { UINT64_C(0), UINT16_C(0) };
+    gbl_runner_result result = { 0 };
+    gbl_runner_status status;
+    bool okay;
+
+    if (!gbl_test_path(pass_path, sizeof pass_path, fixture_directory,
+                       "owned-arm-pass.gba") ||
+        !gbl_test_path(loop_path, sizeof loop_path, fixture_directory,
+                       "owned-arm-loop.gba")) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), true,
+        &pressed, 1u, NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FE) &&
+           result.phase8.applied_input_events == 1u &&
+           result.phase8.pending_input_events == 0u &&
+           result.input_timeline_present &&
+           result.has_input_timeline_sha256;
+    if (okay) {
+        memcpy(first_digest, result.input_timeline_sha256,
+               sizeof first_digest);
+    }
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        loop_path, NULL, UINT64_C(100), true, &pressed, 1u, NULL, NULL,
+        (gbl_runner_allocator){ 0 }, &result);
+    okay = status != GBL_RUNNER_MISSING && result.phase8.observed &&
+           result.has_input_timeline_sha256 &&
+           strcmp(first_digest, result.input_timeline_sha256) == 0;
+    if (okay) {
+        memcpy(repeated_digest, result.input_timeline_sha256,
+               sizeof repeated_digest);
+    }
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), true,
+        &released, 1u, NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FF) &&
+           result.has_input_timeline_sha256 &&
+           strcmp(first_digest, result.input_timeline_sha256) != 0;
+    if (okay) {
+        memcpy(released_digest, result.input_timeline_sha256,
+               sizeof released_digest);
+    }
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), false, NULL,
+        0u, NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FF) &&
+           !result.input_timeline_present &&
+           !result.has_input_timeline_sha256;
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), true, NULL, 0u,
+        NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FF) &&
+           result.input_timeline_present &&
+           result.has_input_timeline_sha256 &&
+           strcmp(released_digest, result.input_timeline_sha256) != 0 &&
+           strcmp(first_digest, result.input_timeline_sha256) != 0;
+    if (okay) {
+        memcpy(empty_digest, result.input_timeline_sha256,
+               sizeof empty_digest);
+    }
+    gbl_runner_result_dispose(&result);
+    return okay && strcmp(repeated_digest, first_digest) == 0 &&
+           strcmp(empty_digest, first_digest) != 0;
+}
+
+static bool gbl_test_input_timeline_preflight(void)
+{
+    const gbl_input_event reversed[2] = {
+        { UINT64_C(5), UINT16_C(0) },
+        { UINT64_C(4), UINT16_C(0) }
+    };
+    gbl_test_allocator_state allocator_state = { 0 };
+    const gbl_runner_allocator allocator = {
+        &allocator_state, gbl_test_allocate, gbl_test_release
+    };
+    gbl_runner_result result = { 0 };
+    gbl_runner_status status;
+    bool okay;
+
+    status = gbl_test_execute_timeline(
+        "/path/not-read/invalid-timeline.gba", NULL, UINT64_C(100), true,
+        reversed, 2u, NULL, NULL, allocator, &result);
+    okay = status == GBL_RUNNER_REFUSED && !result.ran &&
+           result.has_refusal &&
+           strcmp(result.refusal_code, "invalid-input-timeline") == 0 &&
+           allocator_state.calls == 0u;
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    status = gbl_test_execute_timeline(
+        "/path/not-read/absent-with-pointer.gba", NULL, UINT64_C(100), false,
+        reversed, 1u, NULL, NULL, allocator, &result);
+    okay = status == GBL_RUNNER_REFUSED && !result.ran &&
+           result.has_refusal &&
+           strcmp(result.refusal_code, "invalid-input-timeline") == 0 &&
+           allocator_state.calls == 0u;
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static bool gbl_test_input_timeline_cancellation(
+    const char *fixture_directory)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    const gbl_input_event pressed = { UINT64_C(0), UINT16_C(1) };
+    gbl_test_cancel_state cancel_state = { 0u, 2u };
+    gbl_runner_result result = { 0 };
+    bool okay;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-arm-pass.gba")) {
+        return false;
+    }
+    okay = gbl_test_execute_timeline(
+               path, "synthetic-control-pass", UINT64_C(1000), true,
+               &pressed, 1u, gbl_test_cancel_at_boundary, &cancel_state,
+               (gbl_runner_allocator){ 0 }, &result) == GBL_RUNNER_CANCELLED &&
+           result.status == GBL_RUNNER_CANCELLED && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FE) &&
+           result.phase8.applied_input_events == 1u;
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
 static bool gbl_test_read_file(const char *path, char *output, size_t capacity)
 {
     FILE *file = fopen(path, "rb");
@@ -1093,7 +1289,15 @@ static bool gbl_test_execute_all(const char *fixture_directory,
 
     gbl_test_case(
         gbl_test_guest_stop_json_matrix(),
-        "all CPU exception stops share the production GUEST_STOP JSON mapping");
+        "IRQ, STOP, and deadlock share distinct production GUEST_STOP reasons");
+    gbl_test_case(
+        gbl_test_input_timeline_observations(fixture_directory),
+        "timeline identity is canonical and cycle-zero A state differs from release and absence");
+    gbl_test_case(gbl_test_input_timeline_preflight(),
+                  "malformed and inconsistent timeline options refuse before allocation or file access");
+    gbl_test_case(
+        gbl_test_input_timeline_cancellation(fixture_directory),
+        "cancellation retains the committed logical input observation");
     gbl_test_case(gbl_test_instruction_stop_json(scratch_directory),
         "executed instruction causes reach the shared real JSON writer with claim and time");
     gbl_test_case(gbl_test_cli_cancel(runner_path, path, scratch_directory),

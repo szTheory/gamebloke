@@ -36,6 +36,11 @@ typedef struct gbl_runner_options {
     const char *trace_output_path;
     gbl_runner_cancelled_fn cancelled;
     void *cancel_context;
+    /* Logical keypad records are copied before any ROM I/O. When absent, the
+     * pointer and count must both be empty; a present empty script is valid. */
+    bool input_timeline_present;
+    const gbl_input_event *input_events;
+    size_t input_event_count;
     /* Both callbacks must be supplied together. Both NULL selects malloc/free. */
     gbl_runner_allocator allocator;
 } gbl_runner_options;
@@ -50,6 +55,28 @@ typedef struct gbl_runner_register_observation {
     bool has_value;
     uint32_t value;
 } gbl_runner_register_observation;
+
+typedef struct gbl_runner_phase8_observation {
+    bool observed;
+    uint16_t interrupt_flags;
+    uint16_t interrupt_enable;
+    uint16_t interrupt_master_enable;
+    bool has_irq_sample;
+    gbl_cpu_irq_observation irq_sample;
+    gbl_exception_kind last_exception;
+    gbl_machine_power_state power_state;
+    gbl_cpu_power_cause power_cause;
+    bool has_wake;
+    uint16_t wake_source_mask;
+    uint64_t wake_cycle;
+    uint16_t keyinput;
+    uint16_t key_control;
+    bool key_condition;
+    bool key_irq_condition;
+    size_t applied_input_events;
+    size_t pending_input_events;
+    uint64_t wait_cycles;
+} gbl_runner_phase8_observation;
 
 typedef enum gbl_runner_status {
     GBL_RUNNER_PASS = 0,
@@ -86,6 +113,11 @@ typedef struct gbl_runner_result {
     uint64_t budget_cycles;
     uint64_t bus_cycles;
     uint64_t internal_cycles;
+    uint64_t wait_cycles;
+    bool input_timeline_present;
+    bool has_input_timeline_sha256;
+    char input_timeline_sha256[GBL_SHA256_HEX_CAPACITY];
+    gbl_runner_phase8_observation phase8;
     bool has_timer0_if_request;
     bool timer0_if_request;
     char termination[64];
