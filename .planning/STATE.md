@@ -323,7 +323,7 @@ None yet.
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
 
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
-- The full local workflow is blocked by hygiene.tree: absolute home-path references remain in 07-01-PLAN.md and 07-02-PLAN.md through 07-07-PLAN.md; clean those planning references before expecting the canonical workflow to pass.
+- Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
 
 ## Deferred Items
 
