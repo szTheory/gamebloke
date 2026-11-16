@@ -61,7 +61,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 - [x] 07-06-PLAN.md — Original generated guests and determinism
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 07-07-PLAN.md — Cheap-before-long verification and phase-end judgments
+- [x] 07-07-PLAN.md — Cheap-before-long verification and phase-end judgments
 **Research flag**: Phase-specific research is complete for model planning. The plan defines project policies for timer start, live reload, and same-cycle ordering; exact GBA hardware edges remain UNKNOWN/unqualified. WAITCNT and prefetch qualification remain Phase 9.
 **Owner gates**: None for this BIOS-free slice. No stub code, external fixture fetch, hosted run, or publication is needed to establish its local evidence.
 
@@ -114,7 +114,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. Time Authority and Timer 0 Polling Proof | 6/7 | In Progress | - |
+| 7. Time Authority and Timer 0 Polling Proof | 7/7 | In Progress | - |
 | 8. IRQ, HALT, and Timestamped Input | 0/TBD | Not started | - |
 | 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
