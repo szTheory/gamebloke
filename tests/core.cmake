@@ -85,6 +85,10 @@ gbl_add_test(
   NAME bus.irq.registers
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> irq.registers)
+gbl_add_test(
+  NAME bus.keypad.registers
+  LABELS bus core unit
+  COMMAND $<TARGET_FILE:bus_test> keypad.registers)
 
 add_executable(timer_test tests/timer_test.c)
 target_link_libraries(timer_test PRIVATE gamebloke_core gbl_warnings)
@@ -108,8 +112,9 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}"
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_order.cmake")
-foreach(selector IN ITEMS time.events.order time.events.boundary
-    time.events.refusal timer0.model.boundary timer.devices)
+foreach(selector IN ITEMS keypad.condition keypad.refusal keypad.timeline
+    time.events.order time.events.boundary time.events.refusal
+    timer0.model.boundary timer.devices)
   gbl_add_test(
     NAME ${selector}
     LABELS core time timer unit

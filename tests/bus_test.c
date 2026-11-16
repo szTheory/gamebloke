@@ -978,10 +978,171 @@ static int run_irq_registers(void)
     return 1;
 }
 
+static int run_keypad_registers(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+    gbl_input_event pressed = { UINT64_C(2), UINT16_C(0x0001) };
+    gbl_cpu_state cpu_before;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET &&
+          result.value == UINT32_C(0x03FF));
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == UINT32_C(0xFF));
+    result = gbl_bus_read(machine, UINT32_C(0x04000131), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == UINT32_C(0x03));
+    result = gbl_bus_write(machine, UINT32_C(0x04000130), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+    CHECK(result.status == GBL_BUS_STATUS_OK && machine->pressed_keys == 0u);
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.value == UINT32_C(0x03FF));
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x01));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET);
+    result = gbl_bus_write(machine, UINT32_C(0x04000133), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x40));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->key_control == UINT16_C(0x4001));
+    result = gbl_bus_read(machine, UINT32_C(0x04000132), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == UINT32_C(0x01));
+    result = gbl_bus_read(machine, UINT32_C(0x04000133), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == UINT32_C(0x40));
+    result = gbl_bus_write(machine, UINT32_C(0x04000130), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0xFFFFC3FF));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET &&
+          machine->key_control == UINT16_C(0xC3FF) &&
+          machine->pressed_keys == 0u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000130), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK && machine->pressed_keys == 0u);
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET &&
+          result.value == UINT32_C(0xC3FF03FF));
+
+    gbl_machine_reset(machine);
+    result = gbl_bus_write(machine, UINT32_C(0x04000100), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x00C0FFFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK && machine->master_cycles == 1u &&
+          machine->event_count == 1u &&
+          machine->events[0].cycle == UINT64_C(2));
+    pressed.cycle = UINT64_C(2);
+    CHECK(gbl_machine_set_input_timeline(machine, &pressed, 1u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->event_count == 2u &&
+          machine->events[0].kind ==
+              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
+          machine->events[0].priority == 0u &&
+          machine->events[1].kind ==
+              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
+          machine->events[1].priority == 4u);
+    cpu_before = machine->cpu;
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(2) &&
+          machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->key_condition && machine->key_irq_condition &&
+          machine->interrupt_flags == UINT16_C(0x1008));
+    CHECK(machine->cpu.cpsr == cpu_before.cpsr &&
+          machine->cpu.execution_address == cpu_before.execution_address &&
+          machine->cpu.retired_instructions ==
+              cpu_before.retired_instructions &&
+          machine->cpu.last_exception.kind == GBL_EXCEPTION_NONE &&
+          !machine->cpu.stopped);
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET &&
+          result.value == UINT32_C(0x03FE) &&
+          machine->master_cycles == UINT64_C(3));
+
+    gbl_machine_reset(machine);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
+    CHECK(result.status == GBL_BUS_STATUS_OK && machine->master_cycles == 1u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000100), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x00C0FFFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK && machine->master_cycles == 2u);
+    pressed.cycle = UINT64_C(3);
+    CHECK(gbl_machine_set_input_timeline(machine, &pressed, 1u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->event_count == 2u &&
+          machine->events[0].kind ==
+              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
+          machine->events[0].priority == 0u &&
+          machine->events[1].kind ==
+              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
+          machine->events[1].priority == 4u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1000));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->master_cycles == UINT64_C(3) &&
+          machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->key_irq_condition &&
+          machine->interrupt_flags == UINT16_C(0x0008));
+    result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.value == UINT32_C(0x03FE));
+
+    gbl_machine_reset(machine);
+    result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    {
+        const gbl_input_event equal_cycle[] = {
+            { UINT64_C(2), 0u },
+            { UINT64_C(2), UINT16_C(0x0001) },
+            { UINT64_C(2), 0u },
+            { UINT64_C(2), UINT16_C(0x0001) }
+        };
+
+        CHECK(gbl_machine_set_input_timeline(
+                  machine, equal_cycle,
+                  sizeof(equal_cycle) / sizeof(equal_cycle[0])) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->input_event_cursor == 4u &&
+              machine->pressed_keys == UINT16_C(0x0001) &&
+              machine->key_condition && machine->key_irq_condition &&
+              machine->interrupt_flags == UINT16_C(0x1000));
+    }
+
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("bus.keypad.registers: register lanes, event ties and IF order ok");
+        return 0;
+    }
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|irq.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|irq.registers|keypad.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -998,6 +1159,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "irq.registers") == 0) {
         return run_irq_registers();
+    }
+    if (strcmp(argv[1], "keypad.registers") == 0) {
+        return run_keypad_registers();
     }
     fprintf(stderr, "bus_test: unknown selector: %s\n", argv[1]);
     return 2;

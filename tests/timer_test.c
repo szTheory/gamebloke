@@ -317,10 +317,20 @@ typedef struct time_snapshot {
     uint64_t master_cycles;
     uint64_t next_event_sequence;
     uint16_t interrupt_flags;
+    uint16_t interrupt_enable;
+    uint16_t interrupt_master_enable;
+    uint16_t pressed_keys;
+    uint16_t key_control;
+    bool key_condition;
+    bool key_irq_condition;
     uint32_t open_bus;
     size_t event_count;
     gbl_event events[GBL_EVENT_CAPACITY];
     gbl_timer_state timers[GBL_TIMER_COUNT];
+    uint64_t input_generation;
+    size_t input_event_count;
+    size_t input_event_cursor;
+    gbl_input_event input_events[GBL_INPUT_EVENT_CAPACITY];
 } time_snapshot;
 
 static gbl_machine *new_empty_machine(void)
@@ -354,6 +364,13 @@ static bool event_equal(const gbl_event *left, const gbl_event *right)
            left->input_index == right->input_index;
 }
 
+static bool input_event_equal(const gbl_input_event *left,
+                              const gbl_input_event *right)
+{
+    return left->cycle == right->cycle &&
+           left->pressed_mask == right->pressed_mask;
+}
+
 static bool timer_equal(const gbl_timer_state *left,
                         const gbl_timer_state *right)
 {
@@ -374,6 +391,12 @@ static void take_time_snapshot(const gbl_machine *machine,
     snapshot->master_cycles = machine->master_cycles;
     snapshot->next_event_sequence = machine->next_event_sequence;
     snapshot->interrupt_flags = machine->interrupt_flags;
+    snapshot->interrupt_enable = machine->interrupt_enable;
+    snapshot->interrupt_master_enable = machine->interrupt_master_enable;
+    snapshot->pressed_keys = machine->pressed_keys;
+    snapshot->key_control = machine->key_control;
+    snapshot->key_condition = machine->key_condition;
+    snapshot->key_irq_condition = machine->key_irq_condition;
     snapshot->open_bus = machine->open_bus;
     snapshot->event_count = machine->event_count;
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -381,6 +404,12 @@ static void take_time_snapshot(const gbl_machine *machine,
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         snapshot->timers[index] = machine->timers[index];
+    }
+    snapshot->input_generation = machine->input_generation;
+    snapshot->input_event_count = machine->input_event_count;
+    snapshot->input_event_cursor = machine->input_event_cursor;
+    for (index = 0u; index < machine->input_event_count; ++index) {
+        snapshot->input_events[index] = machine->input_events[index];
     }
 }
 
@@ -392,8 +421,18 @@ static bool time_matches_snapshot(const gbl_machine *machine,
     if (machine->master_cycles != snapshot->master_cycles ||
         machine->next_event_sequence != snapshot->next_event_sequence ||
         machine->interrupt_flags != snapshot->interrupt_flags ||
+        machine->interrupt_enable != snapshot->interrupt_enable ||
+        machine->interrupt_master_enable !=
+            snapshot->interrupt_master_enable ||
+        machine->pressed_keys != snapshot->pressed_keys ||
+        machine->key_control != snapshot->key_control ||
+        machine->key_condition != snapshot->key_condition ||
+        machine->key_irq_condition != snapshot->key_irq_condition ||
         machine->open_bus != snapshot->open_bus ||
-        machine->event_count != snapshot->event_count) {
+        machine->event_count != snapshot->event_count ||
+        machine->input_generation != snapshot->input_generation ||
+        machine->input_event_count != snapshot->input_event_count ||
+        machine->input_event_cursor != snapshot->input_event_cursor) {
         return false;
     }
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -403,6 +442,12 @@ static bool time_matches_snapshot(const gbl_machine *machine,
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         if (!timer_equal(&machine->timers[index], &snapshot->timers[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < machine->input_event_count; ++index) {
+        if (!input_event_equal(&machine->input_events[index],
+                                        &snapshot->input_events[index])) {
             return false;
         }
     }
@@ -417,6 +462,12 @@ static bool preview_equal(const gbl_machine_time_preview *left,
     if (left->master_cycles != right->master_cycles ||
         left->next_event_sequence != right->next_event_sequence ||
         left->interrupt_flags != right->interrupt_flags ||
+        left->interrupt_enable != right->interrupt_enable ||
+        left->interrupt_master_enable != right->interrupt_master_enable ||
+        left->pressed_keys != right->pressed_keys ||
+        left->key_control != right->key_control ||
+        left->key_condition != right->key_condition ||
+        left->key_irq_condition != right->key_irq_condition ||
         left->event_count != right->event_count) {
         return false;
     }
@@ -427,6 +478,17 @@ static bool preview_equal(const gbl_machine_time_preview *left,
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         if (!timer_equal(&left->timers[index], &right->timers[index])) {
+            return false;
+        }
+    }
+    if (left->input_generation != right->input_generation ||
+        left->input_event_count != right->input_event_count ||
+        left->input_event_cursor != right->input_event_cursor) {
+        return false;
+    }
+    for (index = 0u; index < left->input_event_count; ++index) {
+        if (!input_event_equal(&left->input_events[index],
+                                        &right->input_events[index])) {
             return false;
         }
     }
@@ -680,8 +742,17 @@ static bool time_snapshot_equal(const time_snapshot *left,
     if (left->master_cycles != right->master_cycles ||
         left->next_event_sequence != right->next_event_sequence ||
         left->interrupt_flags != right->interrupt_flags ||
+        left->interrupt_enable != right->interrupt_enable ||
+        left->interrupt_master_enable != right->interrupt_master_enable ||
+        left->pressed_keys != right->pressed_keys ||
+        left->key_control != right->key_control ||
+        left->key_condition != right->key_condition ||
+        left->key_irq_condition != right->key_irq_condition ||
         left->open_bus != right->open_bus ||
-        left->event_count != right->event_count) {
+        left->event_count != right->event_count ||
+        left->input_generation != right->input_generation ||
+        left->input_event_count != right->input_event_count ||
+        left->input_event_cursor != right->input_event_cursor) {
         return false;
     }
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -691,6 +762,12 @@ static bool time_snapshot_equal(const time_snapshot *left,
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         if (!timer_equal(&left->timers[index], &right->timers[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < left->input_event_count; ++index) {
+        if (!input_event_equal(&left->input_events[index],
+                                        &right->input_events[index])) {
             return false;
         }
     }
@@ -1263,12 +1340,265 @@ static int run_keypad_condition(void)
     CHECK(result.status == GBL_BUS_STATUS_OK &&
           !machine->key_condition && !machine->key_irq_condition &&
           machine->interrupt_flags == 0u);
+
+    {
+        static const gbl_input_event unchanged_held[] = {
+            { UINT64_C(2), UINT16_C(0x0001) },
+            { UINT64_C(3), UINT16_C(0x0001) }
+        };
+
+        gbl_machine_reset(machine);
+        CHECK(gbl_machine_set_input_timeline(
+                  machine, unchanged_held,
+                  sizeof(unchanged_held) / sizeof(unchanged_held[0])) ==
+              GBL_TIME_STATUS_OK);
+        result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x4001));
+        CHECK(result.status == GBL_BUS_STATUS_OK &&
+              machine->master_cycles == UINT64_C(1));
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK &&
+              machine->interrupt_flags == UINT16_C(0x1000));
+        result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x1000));
+        CHECK(result.status == GBL_BUS_STATUS_OK &&
+              machine->master_cycles == UINT64_C(3) &&
+              machine->interrupt_flags == 0u &&
+              machine->key_irq_condition);
+        result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x4001));
+        CHECK(result.status == GBL_BUS_STATUS_OK &&
+              machine->master_cycles == UINT64_C(4) &&
+              machine->key_irq_condition &&
+              machine->interrupt_flags == 0u);
+    }
     free_machine(machine);
     {
         int status = CHECK_DONE();
         puts("TAP version 13");
         puts(status == 0 ? "ok 1 - keypad.condition"
                          : "not ok 1 - keypad.condition");
+        puts("1..1");
+        return status;
+    }
+}
+
+static int run_keypad_refusal(void)
+{
+    gbl_input_event one = { UINT64_C(2), UINT16_C(0x0001) };
+    gbl_input_event decreasing[] = {
+        { UINT64_C(2), UINT16_C(0x0001) },
+        { UINT64_C(1), 0u }
+    };
+    gbl_input_event maximum[GBL_INPUT_EVENT_CAPACITY];
+    gbl_input_event excessive[GBL_INPUT_EVENT_CAPACITY + 1u];
+    gbl_input_event old_timeline[] = {
+        { UINT64_C(1), UINT16_C(0x0001) },
+        { UINT64_C(2), UINT16_C(0x0002) }
+    };
+    gbl_input_event replacement[] = {
+        { UINT64_C(3), UINT16_C(0x0004) }
+    };
+    gbl_input_event other_timeline[] = {
+        { UINT64_C(2), UINT16_C(0x0002) }
+    };
+    gbl_machine *machine = new_empty_machine();
+    gbl_machine *other = NULL;
+    time_snapshot snapshot;
+    gbl_machine_time_preview preview = { 0 };
+    gbl_machine_time_preview sentinel = { 0 };
+    gbl_time_operation operations[GBL_TIME_OPERATION_MAX] = { 0 };
+    uint8_t fake_rom[sizeof(gbl_input_event)] = { 0 };
+    size_t index;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+
+    CHECK(gbl_machine_set_input_timeline(machine, NULL, 0u) ==
+          GBL_TIME_STATUS_OK);
+    take_time_snapshot(machine, &snapshot);
+    CHECK(gbl_machine_set_input_timeline(machine, NULL, 1u) ==
+          GBL_TIME_STATUS_INVALID_ARGUMENT);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+    CHECK(gbl_machine_set_input_timeline(
+              machine, excessive, GBL_INPUT_EVENT_CAPACITY + 1u) ==
+          GBL_TIME_STATUS_INPUT_CAPACITY);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+    CHECK(gbl_machine_set_input_timeline(
+              machine, (const gbl_input_event *)(uintptr_t)UINTPTR_MAX, 1u) ==
+          GBL_TIME_STATUS_INVALID_ARGUMENT);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+    CHECK(gbl_machine_set_input_timeline(
+              machine, (const gbl_input_event *)machine, 1u) ==
+          GBL_TIME_STATUS_INPUT_OVERLAP);
+    CHECK(gbl_machine_set_input_timeline(
+              machine,
+              (const gbl_input_event *)&machine->allocator, 1u) ==
+          GBL_TIME_STATUS_INPUT_OVERLAP);
+    machine->rom = fake_rom;
+    machine->rom_length = sizeof(fake_rom);
+    CHECK(gbl_machine_set_input_timeline(
+              machine, (const gbl_input_event *)fake_rom, 1u) ==
+          GBL_TIME_STATUS_INPUT_OVERLAP);
+    machine->rom = NULL;
+    machine->rom_length = 0u;
+    CHECK(time_matches_snapshot(machine, &snapshot));
+
+    one.pressed_mask = UINT16_C(0x0400);
+    CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
+          GBL_TIME_STATUS_INPUT_MASK);
+    CHECK(one.pressed_mask == UINT16_C(0x0400));
+    CHECK(time_matches_snapshot(machine, &snapshot));
+    one.pressed_mask = UINT16_C(0x0001);
+    CHECK(gbl_machine_set_input_timeline(machine, decreasing, 2u) ==
+          GBL_TIME_STATUS_BACKWARD);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1)) ==
+          GBL_TIME_STATUS_OK);
+    take_time_snapshot(machine, &snapshot);
+    one.cycle = 0u;
+    CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
+          GBL_TIME_STATUS_BACKWARD);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+
+    one.cycle = UINT64_C(2);
+    machine->next_event_sequence = UINT64_MAX;
+    take_time_snapshot(machine, &snapshot);
+    CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
+          GBL_TIME_STATUS_SEQUENCE_EXHAUSTED);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+    machine->next_event_sequence = 0u;
+    machine->input_generation = UINT64_MAX;
+    take_time_snapshot(machine, &snapshot);
+    CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
+          GBL_TIME_STATUS_GENERATION_EXHAUSTED);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+
+    gbl_machine_reset(machine);
+    one.cycle = UINT64_MAX;
+    CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(machine, UINT64_MAX) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->master_cycles == UINT64_MAX &&
+          machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->input_event_cursor == 1u && machine->event_count == 0u);
+
+    gbl_machine_reset(machine);
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
+        maximum[index].cycle = UINT64_C(5);
+        maximum[index].pressed_mask =
+            (index & 1u) != 0u ? UINT16_C(0x0001) : 0u;
+    }
+    CHECK(gbl_machine_set_input_timeline(
+              machine, maximum, GBL_INPUT_EVENT_CAPACITY) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->event_count == 1u &&
+          machine->input_event_count == GBL_INPUT_EVENT_CAPACITY);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(5)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->input_event_cursor == GBL_INPUT_EVENT_CAPACITY &&
+          machine->event_count == 0u &&
+          machine->pressed_keys == UINT16_C(0x0001));
+    CHECK(gbl_machine_set_input_timeline(machine, NULL, 0u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->input_event_count == 0u && machine->event_count == 0u);
+
+    gbl_machine_reset(machine);
+    one.cycle = UINT64_C(1);
+    CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1)) ==
+          GBL_TIME_STATUS_OK);
+    replacement[0].cycle = UINT64_C(4);
+    CHECK(gbl_machine_set_input_timeline(machine, replacement, 1u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->event_count == 1u && machine->events[0].cycle == 4u);
+    CHECK(gbl_machine_set_input_timeline(machine, NULL, 0u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+          machine->event_count == 0u);
+
+    gbl_machine_reset(machine);
+    other = new_empty_machine();
+    CHECK(other != NULL);
+    if (other != NULL) {
+        CHECK(gbl_machine_set_input_timeline(
+                  machine, old_timeline,
+                  sizeof(old_timeline) / sizeof(old_timeline[0])) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_set_input_timeline(
+                  other, other_timeline,
+                  sizeof(other_timeline) / sizeof(other_timeline[0])) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(1)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_advance_to(other, UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+              other->pressed_keys == UINT16_C(0x0002));
+        replacement[0].cycle = UINT64_C(3);
+        CHECK(gbl_machine_set_input_timeline(machine, replacement, 1u) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+              other->pressed_keys == UINT16_C(0x0002));
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(3)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->pressed_keys == UINT16_C(0x0004) &&
+              other->pressed_keys == UINT16_C(0x0002));
+        gbl_machine_reset(machine);
+        CHECK(machine->pressed_keys == 0u &&
+              machine->input_event_count == 0u &&
+              machine->input_event_cursor == 0u && machine->event_count == 0u);
+        CHECK(other->pressed_keys == UINT16_C(0x0002));
+    }
+
+    gbl_machine_reset(machine);
+    one.cycle = UINT64_C(1);
+    CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
+          GBL_TIME_STATUS_OK);
+    take_time_snapshot(machine, &snapshot);
+    sentinel.master_cycles = UINT64_C(91);
+    sentinel.pressed_keys = UINT16_C(0x0008);
+    sentinel.input_event_count = 1u;
+    sentinel.input_events[0] = (gbl_input_event){
+        UINT64_C(99), UINT16_C(0x0008)
+    };
+    preview = sentinel;
+    operations[0] = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x04000102),
+        UINT32_C(0xC0), UINT64_C(1)
+    };
+    operations[1] = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x04000132),
+        UINT32_C(0x4001), UINT64_C(1)
+    };
+    operations[2] = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_READ, 3u, UINT32_C(0x04000130), 0u,
+        UINT64_C(1)
+    };
+    CHECK(gbl_machine_prepare_operations(machine, operations, 3u, &preview) ==
+          GBL_TIME_STATUS_INVALID_ARGUMENT);
+    CHECK(preview_equal(&preview, &sentinel));
+    CHECK(time_matches_snapshot(machine, &snapshot));
+
+    free_machine(other);
+    free_machine(machine);
+    {
+        int status = CHECK_DONE();
+        puts("TAP version 13");
+        puts(status == 0 ? "ok 1 - keypad.refusal"
+                         : "not ok 1 - keypad.refusal");
         puts("1..1");
         return status;
     }
@@ -1307,6 +1637,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "keypad.condition") == 0) {
         return run_keypad_condition();
+    }
+    if (strcmp(argv[1], "keypad.refusal") == 0) {
+        return run_keypad_refusal();
     }
     fprintf(stderr, "timer_test: unknown selector: %s\n", argv[1]);
     return 2;

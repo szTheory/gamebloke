@@ -1,6 +1,7 @@
 # Literal sorted snapshot of actual top-directory CTest registration.
 bus.decode bus,core,unit
 bus.irq.registers bus,core,unit
+bus.keypad.registers bus,core,unit
 bus.nc.clock_overflow bus,control
 bus.nc.ewram_mirror bus,control
 bus.nc.iwram_mirror bus,control
@@ -828,6 +829,9 @@ diagnostics.dependency.controls control,diagnostics
 diagnostics.execute diagnostics,integration skip-ok
 diagnostics.execution_set diagnostics,gate,integration skip-ok
 inventory.junit post
+keypad.condition core,time,timer,unit
+keypad.refusal core,time,timer,unit
+keypad.timeline core,time,timer,unit
 loader.diagnostics core,loader,unit
 loader.integration core,integration,loader,unit
 loader.lengths core,loader,unit

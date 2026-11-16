@@ -2,6 +2,7 @@
 build.nc.compiler_id_guard build,control
 bus.decode bus,core,unit
 bus.irq.registers bus,core,unit
+bus.keypad.registers bus,core,unit
 bus.nc.clock_overflow bus,control
 bus.nc.ewram_mirror bus,control
 bus.nc.iwram_mirror bus,control
@@ -950,6 +951,9 @@ json.nc.unreadable control,json
 json.nc.usage control,json
 json.pos.real_docs json,positive
 json.pos.strict_clean json,positive
+keypad.condition core,time,timer,unit
+keypad.refusal core,time,timer,unit
+keypad.timeline core,time,timer,unit
 linux.snapshot control,linux
 loader.diagnostics core,loader,unit
 loader.integration core,integration,loader,unit
