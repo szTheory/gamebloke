@@ -69,26 +69,26 @@ No hosted rerun or publication is authorized by carrying these items forward.
 
 ## Traceability
 
-The roadmap step assigns every current v2.0 requirement to exactly one phase and updates status as phases complete.
+Every current v2.0 requirement maps to exactly one phase. Status changes only when phase evidence satisfies the requirement.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TIME-01 | Pending | Pending |
-| TIME-02 | Pending | Pending |
-| TIME-03 | Pending | Pending |
-| TIME-04 | Pending | Pending |
-| TIME-05 | Pending | Pending |
-| BUS-05 | Pending | Pending |
-| BUS-06 | Pending | Pending |
-| INPUT-01 | Pending | Pending |
-| DMA-01 | Pending | Pending |
-| PPU-01 | Pending | Pending |
-| PPU-02 | Pending | Pending |
-| PLAY-01 | Pending | Pending |
-| VERIF-08 | Pending | Pending |
+| TIME-01 | Phase 7 | Pending |
+| TIME-02 | Phase 8 | Pending |
+| TIME-03 | Phase 7 | Pending |
+| TIME-04 | Phase 8 | Pending |
+| TIME-05 | Phase 7 | Pending |
+| BUS-05 | Phase 9 | Pending |
+| BUS-06 | Phase 7 | Pending |
+| INPUT-01 | Phase 8 | Pending |
+| DMA-01 | Phase 9 | Pending |
+| PPU-01 | Phase 10 | Pending |
+| PPU-02 | Phase 10 | Pending |
+| PLAY-01 | Phase 10 | Pending |
+| VERIF-08 | Phase 7 | Pending |
 
-**Coverage:** 13 current requirements; phase mapping pending.
+**Coverage:** 13 current requirements; 13 mapped to exactly one phase; 0 unmapped; 0 duplicate phase assignments. Deferred requirements and v1.0 evidence carryovers are excluded.
 
 ---
 *Requirements defined: 2026-11-15*
-*Last updated: 2026-11-15 after v2.0 scope and research synthesis*
+*Last updated: 2026-11-15 after v2.0 roadmap mapping*

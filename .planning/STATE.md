@@ -3,10 +3,14 @@ gsd_state_version: "1.0"
 milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 status: planning
-last_updated: "2026-11-16T02:03:09.634Z"
+stopped_at: v2.0 roadmap written; Phase 7 ready for discussion and planning; v1.0 DIAG-04 and DET-02 remain open
+last_updated: "2026-11-16T02:24:14Z"
 last_activity: 2026-11-15
+last_activity_desc: v2.0 roadmap written with 13 requirements mapped across Phases 7–10
+current_phase: 7
+current_phase_name: Time Authority and Timer 0 Polling Proof
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,18 +21,20 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-11)
+See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
-**Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 6 — Determinism Gates and Third-Party CPU Fixtures
+**Current milestone:** v2.0 Time, Interrupts, DMA, First Pixels (a GSD milestone label, not a software version)
+**Current focus:** Phase 7 — Time Authority and Timer 0 Polling Proof
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-11-15 — Milestone v2.0 started
+Phase: 7 — Time Authority and Timer 0 Polling Proof (1 of 4 in v2.0)
+Plan: Not started
+Status: Ready for discussion and planning
+Last activity: 2026-11-15 — v2.0 roadmap written; 13 requirements mapped to Phases 7–10
+
+Progress: [░░░░░░░░░░] 0%
 
 
 ## Performance Metrics
@@ -127,6 +133,10 @@ Last activity: 2026-11-15 — Milestone v2.0 started
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v2.0 Roadmap]: Phase 7 owns TIME-01, TIME-03, TIME-05, BUS-06, and VERIF-08: one machine time/event path, all four timers, explicit cycle-accounting scope, an original BIOS-free Timer 0 polling proof, and cheap event-boundary/test-selection checks. Model evidence must remain labeled until required timing costs are sourced and modeled.
+- [v2.0 Roadmap]: Phase 8 owns IRQ/HALT/timestamped input; Phase 9 owns WAITCNT/prefetch scope and DMA arbitration; Phase 10 owns PPU timing, raw mode-3 output, and polling Playable 0. Device requests remain distinct from CPU acceptance/entry and HALT wake.
+- [v2.0 Scope]: BIOS-01, CART-01/SRAM, and EVID-07 remain deferred. G4 approval is required before stub code; G6 belongs to the owner's Phase 10 judgment; G8 and fixture review precede any mGBA deep-lane promotion or fetch. The v1.0 DIAG-04 and DET-02 evidence gaps remain open and are not v2.0 passes or requirements.
 
 - [Phase 05]: Owner replied "yes" to the proposed isolated legacy-runner test compiler/flags/standard inheritance correction and bounded local/hosted verification on existing PR #8 after run 43115640150. Resume that correction without weakening sanitizers or other checks. A new red hosted result renews the stop; producer source and ROM admission remain independently gated.
 
@@ -302,7 +312,7 @@ None yet.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
 - Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
 - Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
-- Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
+- G4 still requires owner approval before BIOS-stub authoring. BIOS-01 and the IRQ-driven playable variant are deferred; the current BIOS-free Phase 7 scope can proceed. G6 playability judgment remains pending for Phase 10; G8 and per-fixture review gate the deferred mGBA deep lane.
 
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
 
@@ -328,10 +338,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T01:51:31.408Z
-Stopped at: v1.0 archived with DIAG-04 and DET-02 open; preparing v2.0 Phase 7.
-Resume file: None (the retained Phase 5 Plan 23 checkpoint is stale for the current Phase 6 handoff)
+Last session: 2026-11-16T02:24:14Z
+Stopped at: v2.0 roadmap written; Phase 7 ready for discussion and planning. DIAG-04 and DET-02 remain open v1.0 carryovers.
+Resume file: None (the retained archived Phase 5 Plan 23 checkpoint is historical and does not restart Phase 6)
 
 ## Operator Next Steps
 
-- Start the next milestone with $gsd-new-milestone
+- Continue the authorized v2.0 workflow with $gsd-autonomous --from 7; begin Phase 7 discussion and planning.
+- Preserve existing hosted/publication stops. No hosted rerun or publication follows from the roadmap or the two carried evidence gaps.
