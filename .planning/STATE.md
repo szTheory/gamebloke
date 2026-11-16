@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 8
 current_phase_name: IRQ, HALT, and Timestamped Input
-current_plan: 4
+current_plan: 5
 status: executing
-stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-11-16T22:51:50.042Z"
+stopped_at: Completed 08-04-PLAN.md
+last_updated: "2026-11-16T23:39:06.587Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: eab18bb625b4871fc6761dd1f72d5e0014238d1e
+state_head: f337de7f035712afaa882817cc42da9ac7d84df3
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 10
+  completed_plans: 11
   percent: 25
 ---
 
@@ -32,9 +32,9 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 8 (IRQ, HALT, and Timestamped Input) — IN PROGRESS
-Current Plan: 4
+Current Plan: 5
 Total Plans in Phase: 7
-Status: In progress; Plans 08-01 through 08-03 complete and Plan 08-04 next
+Status: In progress; Plans 08-01 through 08-04 complete and Plan 08-05 next
 Last activity: 2026-11-16 — Plan 08-03 execution complete
 
 Progress: [███░░░░░░░] 25%
@@ -140,6 +140,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 08 P01 | at least 30min; initial read time not captured | 2 tasks | 10 files |
 | Phase 08 P02 | 32min | 2 tasks | 11 files |
 | Phase 08 P03 | 19 min | 2 tasks | 8 files |
+| Phase 08 P04 | 45m | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -332,6 +333,9 @@ Recent decisions affecting current work:
 - [Phase 08]: HALT wakes from IF & IE after same-cycle events settle, independently of IME and CPSR.I acceptance.
 - [Phase 08]: STOP is terminal in the guest-cycle-only, no-BIOS profile; no-live-event HALT is a distinct deadlock.
 - [Phase 08]: Wait cycles are reported separately from bus/internal cycles, and event advancement has deterministic budget/refusal bounds.
+- [Phase 08]: The Phase 8 result tuple remains an optional gamebloke.result/1 extension so historical documents remain valid.
+- [Phase 08]: Sampled IF/IE/IME/CPSR eligibility, current IRQ registers, wake, entry, and handler success remain distinct observations.
+- [Phase 08]: IRQ and timestamped input evidence remains project-model-only; exact GBA IRQ latency and BIOS handler behavior are unqualified.
 
 ### Pending Todos
 
@@ -382,11 +386,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T22:51:49.991Z
-Stopped at: Completed 08-03-PLAN.md
+Last session: 2026-11-16T23:39:06.530Z
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Continue Phase 7 execution with $gsd-execute-phase 7; its seven sequential plans establish model-scoped machine time and a Timer 0 polling proof.
+- Continue Phase 8 execution with $gsd-execute-phase 8; Plan 08-05 is next for deterministic timeline and IRQ observation coverage.
 - Preserve existing hosted/publication stops. No hosted rerun or publication follows from the roadmap or the two carried evidence gaps.
