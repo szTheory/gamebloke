@@ -566,3 +566,57 @@ audits; it never manufactures a successful guest or hosted-proof receipt.
 `cmake --workflow --preset ci` with no preset change (VERIF-01 manifest clause,
 EVID-02). The other Phase 2 registrations, the validator gates and their controls, live
 in the evidence section of the same file.
+
+## Phase 7 time and Timer 0 checks
+
+After a `ci` build has been configured, run the short model-time gate before
+longer device and guest checks:
+
+```sh
+scripts/verify-phase7-fast.sh
+```
+
+The script builds `timer_test`, validates the selected test inventory, and
+requires exactly these five CTest cases to be discoverable and run:
+`time.events.order`, `time.events.boundary`, `time.events.refusal`,
+`timer0.model.boundary`, and `phase7.selection.control`. It rejects an empty,
+missing, extra, broad, duplicated, or malformed selection with a named control
+reason. CTest's `phase7_fast` fixture makes the longer CPU, runner,
+determinism, timer, Timer 0, time-event, and timing-authority tests wait for all
+five setup cases; a failed setup blocks dependent checks even under parallel
+execution. `phase7.order` checks the registered graph and a failing/succeeding
+fixture sentinel. The fast script needs an existing configured build directory;
+start a fresh tree with `cmake --preset ci`.
+
+The single canonical full local command remains:
+
+```sh
+cmake --workflow --preset ci
+```
+
+Run a long workflow in the background and retain its exit status and output;
+its configure and build time are separate from CTest's summed test runtime.
+The latest fast-script invocation took 8.79 seconds wall clock; the selector
+test itself took 8.02 seconds in the canonical workflow. The `phase7.order`
+structural and fixture-failure control took 2.29 seconds. These figures are
+separate from the full workflow and do not claim emulator throughput or
+hardware timing.
+
+The timer and bus cost evidence uses `gamebloke-timer-model-1`, classified as
+`project-model-only`. `project-selected` access costs and timer boundary rules
+are reproducible implementation policy; `hardware-sourced` rows carry only
+their cited scope, and `unmodeled` categories remain unknown. In particular,
+the uniform access-cycle choices do not qualify bus timing. The original
+Timer 0 polling guest is generated locally from project-owned test source,
+uses no BIOS, and reports mailbox semantic completion, machine cycles, and the
+Timer 0 request flag separately. Its generated images are build-local and
+covered by [the Timer 0 fixture notice](../tests/fixtures/timer0-NOTICE.md);
+redistribution remains unknown and permitted use is local-only. The disabled
+timer control times out with `timer0-overflow-timeout`; neither result proves
+CPU IRQ exception entry or broad compatibility.
+
+The full-workflow evidence, including actual totals and allowed skips, is
+recorded in [Phase 7 evidence](../.planning/phases/07-time-authority-and-timer-0-polling-proof/07-EVIDENCE.md).
+The `DIAG-04` ARM/Thumb evidence gap and `DET-02` hosted-x64 evidence gap remain
+open carryovers. Hardware timing edges `TIME-01` and `BUS-06` remain
+unclassified, and six owner judgments remain pending their separate review.
