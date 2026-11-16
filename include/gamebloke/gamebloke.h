@@ -39,6 +39,10 @@ typedef enum gbl_bus_status {
 #define GBL_TIMER_COUNT 4u
 #define GBL_EVENT_CAPACITY 16u
 #define GBL_MACHINE_MAX_EVENT_DISPATCH 4096u
+#define GBL_CPU_FETCH_SLOT_MAX 2u
+#define GBL_CPU_DATA_SLOT_MAX 16u
+#define GBL_TIME_OPERATION_MAX \
+    (GBL_CPU_FETCH_SLOT_MAX + GBL_CPU_DATA_SLOT_MAX + 2u)
 #define GBL_TIMER_MODEL_NAME "gamebloke-timer-model-1"
 
 typedef enum gbl_time_status {
@@ -90,6 +94,24 @@ typedef struct gbl_machine_time_preview {
     gbl_event events[GBL_EVENT_CAPACITY];
     gbl_timer_state timers[GBL_TIMER_COUNT];
 } gbl_machine_time_preview;
+
+typedef enum gbl_time_operation_kind {
+    GBL_TIME_OPERATION_INTERNAL = 0,
+    GBL_TIME_OPERATION_BUS_READ = 1,
+    GBL_TIME_OPERATION_BUS_WRITE = 2
+} gbl_time_operation_kind;
+
+/* Bounded description of one ordered time contribution. Internal operations
+ * carry an interval in cycles. Bus operations cost one project-model cycle;
+ * writes retain their captured address, width, and value so timer/IF effects
+ * can be previewed without reading guest memory or mutating the machine. */
+typedef struct gbl_time_operation {
+    gbl_time_operation_kind kind;
+    uint8_t width;
+    uint32_t address;
+    uint32_t value;
+    uint64_t cycles;
+} gbl_time_operation;
 
 typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_NONE = 0,
@@ -198,7 +220,8 @@ typedef enum gbl_cpu_stop_reason {
     GBL_CPU_STOP_FIQ_NO_BIOS = 10,
     GBL_CPU_STOP_COPROCESSOR_NO_BIOS = 11,
     GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION = 12,
-    GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION = 13
+    GBL_CPU_STOP_LATER_ARCHITECTURE_INSTRUCTION = 13,
+    GBL_CPU_STOP_INTERNAL_ERROR = 14
 } gbl_cpu_stop_reason;
 
 typedef enum gbl_cpu_status {
@@ -295,7 +318,9 @@ typedef enum gbl_run_reason {
     GBL_RUN_REASON_GUEST_STOP = 8,
     GBL_RUN_REASON_TRACE_OUTPUT_FULL = 9,
     GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION = 10,
-    GBL_RUN_REASON_LATER_ARCHITECTURE_INSTRUCTION = 11
+    GBL_RUN_REASON_LATER_ARCHITECTURE_INSTRUCTION = 11,
+    GBL_RUN_REASON_TIME_REFUSAL = 12,
+    GBL_RUN_REASON_INTERNAL_ERROR = 13
 } gbl_run_reason;
 
 typedef enum gbl_trace_category {
@@ -430,6 +455,15 @@ void gbl_machine_dispose(gbl_machine *machine);
 gbl_time_status gbl_machine_prepare_time(
     const gbl_machine *machine, uint64_t target,
     gbl_machine_time_preview *preview);
+/* Preview an ordered bounded unit before any CPU effects. INTERNAL operations
+ * may carry zero cycles and then do no work; reads/writes require widths 1, 2,
+ * or 4 and each cost one model cycle. Only timer/IF write effects are modeled;
+ * bus reads are never performed. Invalid input or any time/event/timer
+ * refusal leaves both machine and preview unchanged. */
+gbl_time_status gbl_machine_prepare_operations(
+    const gbl_machine *machine,
+    const gbl_time_operation operations[GBL_TIME_OPERATION_MAX],
+    size_t operation_count, gbl_machine_time_preview *preview);
 void gbl_machine_commit_time(gbl_machine *machine,
                             const gbl_machine_time_preview *preview);
 gbl_time_status gbl_machine_advance_to(gbl_machine *machine,

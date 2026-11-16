@@ -13695,9 +13695,134 @@ static bool cpu_timer_refusal_is_atomic(uint32_t opcode,
                 result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL;
     } else {
         valid = valid && result.termination == GBL_RUN_STOPPED &&
-                result.reason != GBL_RUN_REASON_CYCLE_BUDGET &&
-                result.reason != GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+                result.reason == GBL_RUN_REASON_TIME_REFUSAL;
     }
+    free(before);
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static bool cpu_time_operations_match_commit(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine *before = NULL;
+    gbl_machine_time_preview preview = { 0 };
+    gbl_time_operation operations[GBL_TIME_OPERATION_MAX] = {
+        { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x0400010C),
+          UINT32_C(0x00C4FFFF), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x04000108),
+          UINT32_C(0x00C4FFFF), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x04000104),
+          UINT32_C(0x00C4FFFF), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x04000100),
+          UINT32_C(0x00C0FFFE), UINT64_C(1) },
+        { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(2) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x04000202),
+          UINT32_C(0x0078), UINT64_C(1) }
+    };
+    bool valid;
+
+    make_empty_image(image);
+    if (!machine_load(&machine, image)) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    *before = machine;
+    valid = gbl_machine_prepare_operations(
+                &machine, operations, 6u, &preview) == GBL_TIME_STATUS_OK &&
+            gbl_test_canonical_equal(before, &machine);
+    if (valid) {
+        valid = gbl_bus_write(&machine, UINT32_C(0x0400010C), 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(0x00C4FFFF)).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_bus_write(&machine, UINT32_C(0x04000108), 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(0x00C4FFFF)).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_bus_write(&machine, UINT32_C(0x04000104), 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(0x00C4FFFF)).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_bus_write(&machine, UINT32_C(0x04000100), 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(0x00C0FFFE)).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_bus_internal(&machine, UINT64_C(2)).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_bus_write(&machine, UINT32_C(0x04000202), 2u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(0x0078)).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_test_time_preview_matches_machine(&preview, &machine);
+    }
+    free(before);
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static bool cpu_time_zero_and_invalid_operations_preserve_state(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine *before = NULL;
+    gbl_machine_time_preview preview = { 0 };
+    gbl_machine_time_preview sentinel = { 0 };
+    const gbl_time_operation zero_internal = {
+        GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, 0u
+    };
+    bool valid;
+
+    make_empty_image(image);
+    if (!machine_load(&machine, image)) {
+        return false;
+    }
+    machine.timers[0] = (gbl_timer_state){
+        .reload = UINT16_MAX,
+        .counter = UINT16_MAX,
+        .divisor = 1u,
+        .generation = 1u,
+        .enabled = true
+    };
+    machine.events[0] = (gbl_event){
+        .cycle = 0u,
+        .sequence = 0u,
+        .generation = 1u,
+        .priority = 0u,
+        .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+        .timer_index = 0u,
+        .live = true
+    };
+    machine.event_count = 1u;
+    machine.next_event_sequence = 1u;
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        gbl_machine_dispose(&machine);
+        return false;
+    }
+    *before = machine;
+    sentinel.master_cycles = UINT64_C(73);
+    sentinel.next_event_sequence = UINT64_C(91);
+    sentinel.interrupt_flags = UINT16_C(0x1234);
+    sentinel.event_count = 1u;
+    sentinel.events[0].cycle = UINT64_C(99);
+    sentinel.timers[0].reload = UINT16_C(0x4567);
+    valid = gbl_machine_prepare_operations(
+                &machine, &zero_internal, 1u, &preview) ==
+                GBL_TIME_STATUS_OK &&
+            gbl_test_time_preview_matches_machine(&preview, &machine) &&
+            gbl_test_canonical_equal(before, &machine);
+    preview = sentinel;
+    valid = valid && gbl_machine_prepare_operations(
+                         &machine, NULL, 1u, &preview) ==
+                         GBL_TIME_STATUS_INVALID_ARGUMENT &&
+                    gbl_test_time_preview_equal(&preview, &sentinel) &&
+                    gbl_test_canonical_equal(before, &machine);
     free(before);
     gbl_machine_dispose(&machine);
     return valid;
@@ -13725,6 +13850,10 @@ static void test_timer_write_and_trace_refusals(void)
     test_case(cpu_timer_refusal_is_atomic(TEST_MOV_R1_R0, UINT8_MAX, true,
                                           true, false),
               "trace refusal leaves a due timer event and every caller record untouched");
+    test_case(cpu_time_operations_match_commit(),
+              "prepared internal, timer, cascade, and IF operations match committed state");
+    test_case(cpu_time_zero_and_invalid_operations_preserve_state(),
+              "zero-cycle time operation is a no-op and invalid preparation preserves preview");
 }
 
 static void test_unit_boundaries(void)
@@ -14123,7 +14252,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("isa_classification", 39u, isa_classification_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
-    CPU_TEST_GROUP("slots_bounds", 29u, slots_bounds_functions)
+    CPU_TEST_GROUP("slots_bounds", 31u, slots_bounds_functions)
 };
 
 #undef CPU_TEST_GROUP

@@ -509,6 +509,7 @@ void gbl_runner_classify_guest_stop(gbl_runner_result *result,
             break;
         case GBL_CPU_STOP_BUS_ERROR: name = "bus-error"; break;
         case GBL_CPU_STOP_COUNTER_OVERFLOW: name = "counter-overflow"; break;
+        case GBL_CPU_STOP_INTERNAL_ERROR: name = "internal-error"; break;
         case GBL_CPU_STOP_NONE: name = "guest-stop"; break;
         }
     }
@@ -923,6 +924,14 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                 run_result.reason == GBL_RUN_REASON_COUNTER_OVERFLOW) {
                 result->status = GBL_RUNNER_HARNESS_FAIL;
                 gbl_runner_set_reason(result, "cpu-state-failed");
+                gbl_runner_set_termination(result, "harness-failure");
+            } else if (run_result.reason == GBL_RUN_REASON_TIME_REFUSAL) {
+                result->status = GBL_RUNNER_HARNESS_FAIL;
+                gbl_runner_set_reason(result, "cpu-time-refused");
+                gbl_runner_set_termination(result, "harness-failure");
+            } else if (run_result.reason == GBL_RUN_REASON_INTERNAL_ERROR) {
+                result->status = GBL_RUNNER_HARNESS_FAIL;
+                gbl_runner_set_reason(result, "cpu-internal-error");
                 gbl_runner_set_termination(result, "harness-failure");
             } else {
                 gbl_runner_classify_guest_stop(result, machine,

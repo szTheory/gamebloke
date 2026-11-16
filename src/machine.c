@@ -215,31 +215,38 @@ static gbl_time_status gbl_preview_dispatch_event(
     return gbl_preview_schedule_timer(preview, event->timer_index);
 }
 
-gbl_time_status gbl_machine_prepare_time(
-    const gbl_machine *machine, uint64_t target,
-    gbl_machine_time_preview *preview)
+static void gbl_machine_time_copy_preview(
+    const gbl_machine *machine, gbl_machine_time_preview *preview)
 {
-    gbl_machine_time_preview candidate = { 0 };
+    size_t index;
+
+    *preview = (gbl_machine_time_preview){ 0 };
+    preview->master_cycles = machine->master_cycles;
+    preview->next_event_sequence = machine->next_event_sequence;
+    preview->interrupt_flags = machine->interrupt_flags;
+    preview->event_count = machine->event_count;
+    for (index = 0u; index < machine->event_count; ++index) {
+        preview->events[index] = machine->events[index];
+    }
+    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
+        preview->timers[index] = machine->timers[index];
+    }
+}
+
+static gbl_time_status gbl_preview_advance_to(
+    gbl_machine_time_preview *preview, uint64_t target)
+{
+    gbl_machine_time_preview candidate;
     size_t dispatched = 0u;
     size_t index;
 
-    if (machine == NULL || !machine->initialized || preview == NULL ||
-        machine->event_count > GBL_EVENT_CAPACITY) {
+    if (preview == NULL || preview->event_count > GBL_EVENT_CAPACITY) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
-    if (target < machine->master_cycles) {
+    if (target < preview->master_cycles) {
         return GBL_TIME_STATUS_BACKWARD;
     }
-    candidate.master_cycles = machine->master_cycles;
-    candidate.next_event_sequence = machine->next_event_sequence;
-    candidate.interrupt_flags = machine->interrupt_flags;
-    candidate.event_count = machine->event_count;
-    for (index = 0u; index < machine->event_count; ++index) {
-        candidate.events[index] = machine->events[index];
-    }
-    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
-        candidate.timers[index] = machine->timers[index];
-    }
+    candidate = *preview;
 
     while (candidate.event_count > 0u) {
         size_t next_index = 0u;
@@ -278,6 +285,147 @@ gbl_time_status gbl_machine_prepare_time(
         ++dispatched;
     }
     candidate.master_cycles = target;
+    *preview = candidate;
+    return GBL_TIME_STATUS_OK;
+}
+
+gbl_time_status gbl_machine_prepare_time(
+    const gbl_machine *machine, uint64_t target,
+    gbl_machine_time_preview *preview)
+{
+    gbl_machine_time_preview candidate;
+    gbl_time_status status;
+
+    if (machine == NULL || !machine->initialized || preview == NULL ||
+        machine->event_count > GBL_EVENT_CAPACITY) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    gbl_machine_time_copy_preview(machine, &candidate);
+    status = gbl_preview_advance_to(&candidate, target);
+    if (status != GBL_TIME_STATUS_OK) {
+        return status;
+    }
+    *preview = candidate;
+    return GBL_TIME_STATUS_OK;
+}
+
+static bool gbl_preview_bus_span_valid(uint32_t address, uint8_t width)
+{
+    return (width == 1u || width == 2u || width == 4u) &&
+           address <= UINT32_MAX - ((uint32_t)width - 1u);
+}
+
+static gbl_time_status gbl_preview_bus_write(
+    gbl_machine_time_preview *preview, uint32_t address, uint8_t width,
+    uint32_t value)
+{
+    uint8_t timer_lane_masks[GBL_TIMER_COUNT] = { 0u };
+    uint32_t timer_values[GBL_TIMER_COUNT] = { 0u };
+    uint16_t if_clear_mask = 0u;
+    uint32_t lane;
+
+    for (lane = 0u; lane < (uint32_t)width; ++lane) {
+        const uint32_t lane_address = address + lane;
+        const uint8_t byte_value =
+            (uint8_t)((value >> (lane * 8u)) & UINT32_C(0xFF));
+
+        if (lane_address >= UINT32_C(0x04000100) &&
+            lane_address <= UINT32_C(0x0400010F)) {
+            const uint32_t offset =
+                lane_address - UINT32_C(0x04000100);
+            const uint8_t timer_index = (uint8_t)(offset / 4u);
+            const uint32_t timer_lane = offset % 4u;
+
+            if (timer_lane == 0u) {
+                timer_lane_masks[timer_index] |= UINT8_C(0x01);
+                timer_values[timer_index] =
+                    (timer_values[timer_index] & UINT32_C(0xFFFFFF00)) |
+                    byte_value;
+            } else if (timer_lane == 1u) {
+                timer_lane_masks[timer_index] |= UINT8_C(0x02);
+                timer_values[timer_index] =
+                    (timer_values[timer_index] & UINT32_C(0xFFFF00FF)) |
+                    ((uint32_t)byte_value << 8u);
+            } else if (timer_lane == 2u) {
+                timer_lane_masks[timer_index] |= UINT8_C(0x04);
+                timer_values[timer_index] =
+                    (timer_values[timer_index] & UINT32_C(0xFF00FFFF)) |
+                    ((uint32_t)byte_value << 16u);
+            }
+        } else if (lane_address == UINT32_C(0x04000202)) {
+            if_clear_mask = (uint16_t)(if_clear_mask | byte_value);
+        } else if (lane_address == UINT32_C(0x04000203)) {
+            if_clear_mask = (uint16_t)(
+                if_clear_mask | (uint16_t)((uint16_t)byte_value << 8u));
+        }
+    }
+    for (lane = 0u; lane < GBL_TIMER_COUNT; ++lane) {
+        if (timer_lane_masks[lane] != 0u) {
+            const gbl_time_status status = gbl_timer_write(
+                preview, (uint8_t)lane, timer_lane_masks[lane],
+                timer_values[lane]);
+
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+    preview->interrupt_flags = (uint16_t)(
+        preview->interrupt_flags & (uint16_t)~if_clear_mask);
+    return GBL_TIME_STATUS_OK;
+}
+
+gbl_time_status gbl_machine_prepare_operations(
+    const gbl_machine *machine,
+    const gbl_time_operation operations[GBL_TIME_OPERATION_MAX],
+    size_t operation_count, gbl_machine_time_preview *preview)
+{
+    gbl_machine_time_preview candidate;
+    size_t index;
+
+    if (machine == NULL || !machine->initialized || preview == NULL ||
+        machine->event_count > GBL_EVENT_CAPACITY ||
+        operation_count > GBL_TIME_OPERATION_MAX ||
+        (operation_count != 0u && operations == NULL)) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    gbl_machine_time_copy_preview(machine, &candidate);
+    for (index = 0u; index < operation_count; ++index) {
+        const gbl_time_operation *operation = &operations[index];
+        uint64_t target;
+        gbl_time_status status;
+
+        if (operation->kind == GBL_TIME_OPERATION_INTERNAL) {
+            if (operation->cycles == 0u) {
+                continue;
+            }
+        } else if (operation->kind == GBL_TIME_OPERATION_BUS_READ ||
+                   operation->kind == GBL_TIME_OPERATION_BUS_WRITE) {
+            if (operation->cycles != UINT64_C(1) ||
+                !gbl_preview_bus_span_valid(operation->address,
+                                             operation->width)) {
+                return GBL_TIME_STATUS_INVALID_ARGUMENT;
+            }
+        } else {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        if (operation->cycles > UINT64_MAX - candidate.master_cycles) {
+            return GBL_TIME_STATUS_CYCLE_OVERFLOW;
+        }
+        target = candidate.master_cycles + operation->cycles;
+        status = gbl_preview_advance_to(&candidate, target);
+        if (status != GBL_TIME_STATUS_OK) {
+            return status;
+        }
+        if (operation->kind == GBL_TIME_OPERATION_BUS_WRITE) {
+            status = gbl_preview_bus_write(&candidate, operation->address,
+                                           operation->width,
+                                           operation->value);
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
+        }
+    }
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }

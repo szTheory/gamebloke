@@ -44,6 +44,80 @@ static bool gbl_test_diagnostics_equal(const gbl_header_diagnostics *left,
            left->game_code == right->game_code;
 }
 
+static bool gbl_test_event_equal(const gbl_event *left,
+                                const gbl_event *right)
+{
+    return left->cycle == right->cycle &&
+           left->sequence == right->sequence &&
+           left->generation == right->generation &&
+           left->priority == right->priority && left->kind == right->kind &&
+           left->timer_index == right->timer_index &&
+           left->live == right->live;
+}
+
+static bool gbl_test_timer_equal(const gbl_timer_state *left,
+                                const gbl_timer_state *right)
+{
+    return left->reload == right->reload && left->counter == right->counter &&
+           left->divisor == right->divisor && left->phase == right->phase &&
+           left->anchor_cycle == right->anchor_cycle &&
+           left->generation == right->generation &&
+           left->enabled == right->enabled &&
+           left->irq_enabled == right->irq_enabled &&
+           left->cascade == right->cascade;
+}
+
+static bool gbl_test_time_preview_equal(
+    const gbl_machine_time_preview *left,
+    const gbl_machine_time_preview *right)
+{
+    size_t index;
+
+    if (left == NULL || right == NULL ||
+        left->master_cycles != right->master_cycles ||
+        left->next_event_sequence != right->next_event_sequence ||
+        left->interrupt_flags != right->interrupt_flags ||
+        left->event_count != right->event_count) {
+        return false;
+    }
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        if (!gbl_test_event_equal(&left->events[index],
+                                  &right->events[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
+        if (!gbl_test_timer_equal(&left->timers[index],
+                                  &right->timers[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_test_time_preview_matches_machine(
+    const gbl_machine_time_preview *preview, const gbl_machine *machine)
+{
+    gbl_machine_time_preview machine_time = { 0 };
+    size_t index;
+
+    if (preview == NULL || machine == NULL ||
+        machine->event_count > GBL_EVENT_CAPACITY) {
+        return false;
+    }
+    machine_time.master_cycles = machine->master_cycles;
+    machine_time.next_event_sequence = machine->next_event_sequence;
+    machine_time.interrupt_flags = machine->interrupt_flags;
+    machine_time.event_count = machine->event_count;
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        machine_time.events[index] = machine->events[index];
+    }
+    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
+        machine_time.timers[index] = machine->timers[index];
+    }
+    return gbl_test_time_preview_equal(preview, &machine_time);
+}
+
 static bool gbl_test_cpu_equal(const gbl_cpu_state *left,
                                const gbl_cpu_state *right)
 {
@@ -133,17 +207,34 @@ static inline bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
 static bool gbl_test_canonical_equal(const gbl_machine *left,
                                      const gbl_machine *right)
 {
+    size_t index;
+
     if (left == NULL || right == NULL ||
         left->initialized != right->initialized ||
         left->master_cycles != right->master_cycles ||
+        left->next_event_sequence != right->next_event_sequence ||
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
+        left->interrupt_flags != right->interrupt_flags ||
+        left->event_count != right->event_count ||
         !gbl_test_cpu_equal(&left->cpu, &right->cpu) ||
         !gbl_test_diagnostics_equal(&left->header_diagnostics,
                                     &right->header_diagnostics) ||
         left->rom_length != right->rom_length ||
         ((left->rom == NULL) != (right->rom == NULL))) {
         return false;
+    }
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        if (!gbl_test_event_equal(&left->events[index],
+                                  &right->events[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
+        if (!gbl_test_timer_equal(&left->timers[index],
+                                  &right->timers[index])) {
+            return false;
+        }
     }
     if (!gbl_test_bytes_equal(left->ewram, right->ewram, GBL_EWRAM_SIZE) ||
         !gbl_test_bytes_equal(left->iwram, right->iwram, GBL_IWRAM_SIZE) ||
@@ -282,14 +373,42 @@ static uint64_t gbl_test_digest_cpu(uint64_t digest,
 static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
 {
     uint64_t digest = UINT64_C(14695981039346656037);
+    size_t index;
 
     if (machine == NULL) {
         return gbl_test_digest_byte(digest, 0xFFu);
     }
     digest = gbl_test_digest_byte(digest, machine->initialized ? 1u : 0u);
     digest = gbl_test_digest_u64(digest, machine->master_cycles);
+    digest = gbl_test_digest_u64(digest, machine->next_event_sequence);
     digest = gbl_test_digest_u64(digest, machine->open_bus);
     digest = gbl_test_digest_u64(digest, machine->dispcnt);
+    digest = gbl_test_digest_u64(digest, machine->interrupt_flags);
+    digest = gbl_test_digest_u64(digest, (uint64_t)machine->event_count);
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        const gbl_event *event = &machine->events[index];
+
+        digest = gbl_test_digest_u64(digest, event->cycle);
+        digest = gbl_test_digest_u64(digest, event->sequence);
+        digest = gbl_test_digest_u64(digest, event->generation);
+        digest = gbl_test_digest_byte(digest, event->priority);
+        digest = gbl_test_digest_byte(digest, event->kind);
+        digest = gbl_test_digest_byte(digest, event->timer_index);
+        digest = gbl_test_digest_byte(digest, event->live ? 1u : 0u);
+    }
+    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
+        const gbl_timer_state *timer = &machine->timers[index];
+
+        digest = gbl_test_digest_u64(digest, timer->reload);
+        digest = gbl_test_digest_u64(digest, timer->counter);
+        digest = gbl_test_digest_u64(digest, timer->divisor);
+        digest = gbl_test_digest_u64(digest, timer->phase);
+        digest = gbl_test_digest_u64(digest, timer->anchor_cycle);
+        digest = gbl_test_digest_u64(digest, timer->generation);
+        digest = gbl_test_digest_byte(digest, timer->enabled ? 1u : 0u);
+        digest = gbl_test_digest_byte(digest, timer->irq_enabled ? 1u : 0u);
+        digest = gbl_test_digest_byte(digest, timer->cascade ? 1u : 0u);
+    }
     digest = gbl_test_digest_cpu(digest, &machine->cpu);
     digest = gbl_test_digest_byte(digest,
                                   machine->header_diagnostics.loaded ? 1u : 0u);
