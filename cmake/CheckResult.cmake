@@ -146,6 +146,28 @@ function(gbl__result_uint64 valid_out value_out doc)
   set(${value_out} "${value}" PARENT_SCOPE)
 endfunction()
 
+# gbl__result_uint16(<out-valid> <out-value> <doc> <maximum> <key>...): accepts a
+# canonical nonnegative JSON integer within the explicitly bounded hardware field.
+# These fields are small enough for CMake's signed integer math after lexical checks.
+function(gbl__result_uint16 valid_out value_out doc maximum)
+  gbl_json_type(ty "${doc}" ${ARGN})
+  set(valid FALSE)
+  set(value "")
+  if("${ty}" STREQUAL "NUMBER")
+    string(JSON value GET "${doc}" ${ARGN})
+    if("${value}" MATCHES "^(0|[1-9][0-9]*)$")
+      string(LENGTH "${value}" digits)
+      string(LENGTH "${maximum}" maximum_digits)
+      if(digits LESS maximum_digits OR
+          (digits EQUAL maximum_digits AND NOT "${value}" STRGREATER "${maximum}"))
+        set(valid TRUE)
+      endif()
+    endif()
+  endif()
+  set(${valid_out} "${valid}" PARENT_SCOPE)
+  set(${value_out} "${value}" PARENT_SCOPE)
+endfunction()
+
 # gbl__result_decimal_le(<out> <left> <right>): compare canonical nonnegative decimal
 # strings by length and then lexicographically, avoiding CMake's signed integer range.
 function(gbl__result_decimal_le out left right)
@@ -356,9 +378,17 @@ function(gbl_result_check file manifest registry vocab)
   if(NOT "${timer0_type}" STREQUAL "MISSING")
     set(time_extension_present TRUE)
   endif()
+  gbl_json_type(phase8_type "${doc}" phase8)
+  set(phase8_present FALSE)
+  if(NOT "${phase8_type}" STREQUAL "MISSING")
+    set(phase8_present TRUE)
+    set(time_extension_present TRUE)
+  endif()
 
   if(time_extension_present)
     set(time_components_valid TRUE)
+    set(phase8_wait_valid TRUE)
+    set(phase8_wait_for_sum "0")
 
     gbl_json_type(time_model_type "${doc}" time model)
     if("${time_model_type}" STREQUAL "MISSING" OR
@@ -454,17 +484,410 @@ function(gbl_result_check file manifest registry vocab)
       endif()
     endif()
 
+    # The phase 8 block is an additive result/1 extension. Historical documents
+    # without it keep the existing bus+internal timing contract. Its observations
+    # are model evidence, not hardware qualification or proof of a BIOS handler.
+    if(phase8_present)
+      if(NOT "${phase8_type}" STREQUAL "OBJECT")
+        gbl_finding(result bad-phase8-type "phase8 must be an object")
+        set(time_components_valid FALSE)
+      else()
+        foreach(field IN ITEMS model qualification observed irq last_exception power keypad wait_cycles)
+          gbl_json_type(phase8_${field}_type "${doc}" phase8 ${field})
+          if("${phase8_${field}_type}" STREQUAL "MISSING")
+            gbl_finding(result missing-field "phase8.${field}")
+            if(field STREQUAL "wait_cycles")
+              set(phase8_wait_valid FALSE)
+              set(time_components_valid FALSE)
+            endif()
+          endif()
+        endforeach()
+
+        gbl_json_type(phase8_model_type "${doc}" phase8 model)
+        if("${phase8_model_type}" STREQUAL "STRING")
+          string(JSON phase8_model GET "${doc}" phase8 model)
+          if(NOT "${phase8_model}" STREQUAL "gamebloke-irq-input-model-1")
+            gbl_finding(result bad-phase8-model "phase8.model")
+          endif()
+        elseif(NOT "${phase8_model_type}" STREQUAL "MISSING" AND
+            NOT "${phase8_model_type}" STREQUAL "NULL")
+          gbl_finding(result bad-phase8-type "phase8.model must be a string")
+        endif()
+
+        gbl_json_type(phase8_qualification_type "${doc}" phase8 qualification)
+        if("${phase8_qualification_type}" STREQUAL "STRING")
+          string(JSON phase8_qualification GET "${doc}" phase8 qualification)
+          if(NOT "${phase8_qualification}" STREQUAL "project-model-only")
+            gbl_finding(result bad-phase8-qualification "phase8.qualification")
+          endif()
+        elseif(NOT "${phase8_qualification_type}" STREQUAL "MISSING" AND
+            NOT "${phase8_qualification_type}" STREQUAL "NULL")
+          gbl_finding(result bad-phase8-type
+            "phase8.qualification must be a string")
+        endif()
+
+        set(phase8_observed_valid FALSE)
+        set(phase8_observed FALSE)
+        gbl_json_type(phase8_observed_type "${doc}" phase8 observed)
+        if("${phase8_observed_type}" STREQUAL "BOOLEAN")
+          set(phase8_observed_valid TRUE)
+          string(JSON phase8_observed GET "${doc}" phase8 observed)
+        elseif(NOT "${phase8_observed_type}" STREQUAL "MISSING" AND
+            NOT "${phase8_observed_type}" STREQUAL "NULL")
+          gbl_finding(result bad-phase8-type "phase8.observed must be a boolean")
+        endif()
+
+        if("${phase8_observed_type}" STREQUAL "BOOLEAN")
+          gbl_json_type(phase8_ran_type "${doc}" fixture ran)
+          set(phase8_not_run FALSE)
+          if("${phase8_ran_type}" STREQUAL "BOOLEAN")
+            string(JSON phase8_ran GET "${doc}" fixture ran)
+            if(NOT phase8_ran)
+              set(phase8_not_run TRUE)
+            endif()
+          endif()
+          if(time_valid AND "${time_budget_cycles}" STREQUAL "0")
+            set(phase8_not_run TRUE)
+          endif()
+
+          if(phase8_not_run AND phase8_observed)
+            gbl_finding(result bad-phase8-not-run
+              "not-run or zero-budget result cannot observe phase8")
+          endif()
+
+          if(NOT phase8_observed)
+            foreach(path IN ITEMS irq/if irq/ie irq/ime irq/sample last_exception
+                power/state power/cause power/wake_source_mask power/wake_cycle
+                keypad/keyinput keypad/keycnt keypad/condition keypad/irq_condition
+                keypad/applied_events keypad/pending_events wait_cycles)
+              string(REPLACE "/" ";" keys "${path}")
+              gbl_json_type(null_type "${doc}" phase8 ${keys})
+              if("${null_type}" STREQUAL "MISSING")
+                gbl_finding(result missing-field "phase8.${path}")
+              elseif(NOT "${null_type}" STREQUAL "NULL")
+                gbl_finding(result bad-phase8-not-run
+                  "unobserved phase8 requires null observations")
+              endif()
+            endforeach()
+            gbl_json_type(wait_type "${doc}" phase8 wait_cycles)
+            if("${wait_type}" STREQUAL "NULL")
+              set(phase8_wait_for_sum "0")
+              set(phase8_wait_valid TRUE)
+            else()
+              set(phase8_wait_valid FALSE)
+              set(time_components_valid FALSE)
+            endif()
+          else()
+            if(phase8_not_run)
+              gbl_finding(result bad-phase8-not-run
+                "not-run or zero-budget result cannot observe phase8")
+            endif()
+
+            # Current raw IRQ registers are deliberately independent of the
+            # historical boundary sample below.
+            foreach(field IN ITEMS if ie ime)
+              gbl_json_type(raw_${field}_type "${doc}" phase8 irq ${field})
+              if("${raw_${field}_type}" STREQUAL "MISSING" OR
+                  "${raw_${field}_type}" STREQUAL "NULL")
+                gbl_finding(result missing-field "phase8.irq.${field}")
+              else()
+                if(field STREQUAL "ime")
+                  set(raw_${field}_maximum "1")
+                else()
+                  set(raw_${field}_maximum "16383")
+                endif()
+                gbl__result_uint16(raw_${field}_valid raw_${field} "${doc}"
+                  "${raw_${field}_maximum}" phase8 irq ${field})
+                if(NOT raw_${field}_valid)
+                  gbl_finding(result bad-phase8-type
+                    "phase8.irq.${field} must be a bounded integer")
+                endif()
+              endif()
+            endforeach()
+
+            gbl_json_type(sample_type "${doc}" phase8 irq sample)
+            if("${sample_type}" STREQUAL "MISSING")
+              gbl_finding(result missing-field "phase8.irq.sample")
+            elseif(NOT "${sample_type}" STREQUAL "NULL" AND
+                NOT "${sample_type}" STREQUAL "OBJECT")
+              gbl_finding(result bad-phase8-type "phase8.irq.sample must be object or null")
+            elseif("${sample_type}" STREQUAL "OBJECT")
+              set(sample_valid TRUE)
+              foreach(field IN ITEMS cycle if ie ime eligible_sources)
+                gbl_json_type(sample_${field}_type "${doc}" phase8 irq sample ${field})
+                if("${sample_${field}_type}" STREQUAL "MISSING" OR
+                    "${sample_${field}_type}" STREQUAL "NULL")
+                  gbl_finding(result missing-field "phase8.irq.sample.${field}")
+                  set(sample_valid FALSE)
+                elseif(field STREQUAL "cycle")
+                  gbl__result_uint64(sample_cycle_valid sample_cycle "${doc}"
+                    phase8 irq sample cycle)
+                  if(NOT sample_cycle_valid)
+                    gbl_finding(result bad-phase8-type
+                      "phase8.irq.sample.cycle must be a uint64 decimal string")
+                    set(sample_valid FALSE)
+                  endif()
+                else()
+                  if(field STREQUAL "ime")
+                    set(sample_${field}_maximum "1")
+                  else()
+                    set(sample_${field}_maximum "16383")
+                  endif()
+                  gbl__result_uint16(sample_${field}_valid sample_${field} "${doc}"
+                    "${sample_${field}_maximum}" phase8 irq sample ${field})
+                  if(NOT sample_${field}_valid)
+                    gbl_finding(result bad-phase8-type
+                      "phase8.irq.sample.${field} must be a bounded integer")
+                    set(sample_valid FALSE)
+                  endif()
+                endif()
+              endforeach()
+              foreach(field IN ITEMS eligible cpsr_i_masked accepted entered)
+                gbl_json_type(sample_${field}_type "${doc}" phase8 irq sample ${field})
+                if("${sample_${field}_type}" STREQUAL "MISSING" OR
+                    "${sample_${field}_type}" STREQUAL "NULL")
+                  gbl_finding(result missing-field "phase8.irq.sample.${field}")
+                  set(sample_valid FALSE)
+                elseif(NOT "${sample_${field}_type}" STREQUAL "BOOLEAN")
+                  gbl_finding(result bad-phase8-type
+                    "phase8.irq.sample.${field} must be boolean")
+                  set(sample_valid FALSE)
+                else()
+                  string(JSON sample_${field} GET "${doc}" phase8 irq sample ${field})
+                endif()
+              endforeach()
+              if(sample_valid)
+                math(EXPR expected_sources "${sample_if} & ${sample_ie}")
+                if(NOT "${sample_eligible_sources}" STREQUAL "${expected_sources}" OR
+                    (expected_sources GREATER 0 AND NOT sample_eligible) OR
+                    (expected_sources EQUAL 0 AND sample_eligible))
+                  gbl_finding(result bad-phase8-eligibility
+                    "eligible_sources and eligible conflict with sampled IF/IE")
+                endif()
+                if(sample_eligible AND sample_ime EQUAL 1 AND
+                    NOT sample_cpsr_i_masked)
+                  set(sample_expected_accepted TRUE)
+                else()
+                  set(sample_expected_accepted FALSE)
+                endif()
+                if((sample_accepted AND NOT sample_expected_accepted) OR
+                    (NOT sample_accepted AND sample_expected_accepted))
+                  gbl_finding(result bad-phase8-eligibility
+                    "accepted conflicts with sampled IF/IE/IME/CPSR")
+                endif()
+                if(sample_entered AND NOT sample_accepted)
+                  gbl_finding(result bad-phase8-entry
+                    "entered requires accepted IRQ exception")
+                endif()
+              endif()
+            endif()
+
+            gbl_json_type(exception_type "${doc}" phase8 last_exception)
+            if("${exception_type}" STREQUAL "MISSING" OR
+                "${exception_type}" STREQUAL "NULL")
+              gbl_finding(result missing-field "phase8.last_exception")
+            elseif(NOT "${exception_type}" STREQUAL "STRING")
+              gbl_finding(result bad-phase8-type
+                "phase8.last_exception must be string")
+            else()
+              string(JSON phase8_exception GET "${doc}" phase8 last_exception)
+              if(NOT "${phase8_exception}" MATCHES
+                  "^(none|reset|undefined|swi|prefetch_abort|data_abort|irq|fiq|coprocessor)$")
+                gbl_finding(result bad-phase8-value "phase8.last_exception")
+              endif()
+              if("${sample_type}" STREQUAL "OBJECT" AND sample_valid AND
+                  sample_entered AND NOT "${phase8_exception}" STREQUAL "irq")
+                gbl_finding(result bad-phase8-entry
+                  "entered requires accepted IRQ exception")
+              endif()
+              if("${sample_type}" STREQUAL "OBJECT" AND sample_valid AND
+                  sample_entered AND "${phase8_exception}" STREQUAL "irq")
+                gbl_json_type(phase8_status_type "${doc}" status)
+                gbl_json_type(phase8_reason_type "${doc}" reason)
+                gbl_json_type(phase8_termination_type "${doc}" termination)
+                set(phase8_status "")
+                set(phase8_reason "")
+                set(phase8_termination "")
+                if("${phase8_status_type}" STREQUAL "STRING")
+                  string(JSON phase8_status GET "${doc}" status)
+                endif()
+                if("${phase8_reason_type}" STREQUAL "STRING")
+                  string(JSON phase8_reason GET "${doc}" reason)
+                endif()
+                if("${phase8_termination_type}" STREQUAL "STRING")
+                  string(JSON phase8_termination GET "${doc}" termination)
+                endif()
+                if(NOT "${phase8_status}" STREQUAL "GUEST_STOP" OR
+                    NOT "${phase8_reason}" STREQUAL "no-bios-irq" OR
+                    NOT "${phase8_termination}" STREQUAL "no-bios-irq")
+                  gbl_finding(result bad-phase8-handler-claim
+                    "entered IRQ must remain GUEST_STOP with no-bios-irq")
+                endif()
+              endif()
+            endif()
+
+            gbl_json_type(power_type "${doc}" phase8 power)
+            if("${power_type}" STREQUAL "MISSING")
+              gbl_finding(result missing-field "phase8.power")
+            elseif(NOT "${power_type}" STREQUAL "OBJECT")
+              gbl_finding(result bad-phase8-type "phase8.power must be object")
+            else()
+              gbl_json_type(power_state_type "${doc}" phase8 power state)
+              gbl_json_type(power_cause_type "${doc}" phase8 power cause)
+              foreach(field IN ITEMS state cause)
+                if("${power_${field}_type}" STREQUAL "MISSING" OR
+                    "${power_${field}_type}" STREQUAL "NULL")
+                  gbl_finding(result missing-field "phase8.power.${field}")
+                elseif(NOT "${power_${field}_type}" STREQUAL "STRING")
+                  gbl_finding(result bad-phase8-type
+                    "phase8.power.${field} must be a string")
+                endif()
+              endforeach()
+              if("${power_state_type}" STREQUAL "STRING")
+                string(JSON power_state GET "${doc}" phase8 power state)
+                if(NOT "${power_state}" MATCHES "^(running|halted|stopped)$")
+                  gbl_finding(result bad-phase8-value "phase8.power.state")
+                endif()
+              endif()
+              if("${power_cause_type}" STREQUAL "STRING")
+                string(JSON power_cause GET "${doc}" phase8 power cause)
+                if(NOT "${power_cause}" MATCHES
+                    "^(none|wake_pending|wake_event|stop_requested|halt_deadlock|wait_timeout)$")
+                  gbl_finding(result bad-phase8-value "phase8.power.cause")
+                endif()
+              endif()
+              gbl_json_type(wake_source_type "${doc}" phase8 power wake_source_mask)
+              gbl_json_type(wake_cycle_type "${doc}" phase8 power wake_cycle)
+              if("${power_cause_type}" STREQUAL "STRING" AND
+                  "${power_cause}" MATCHES "^(wake_pending|wake_event)$")
+                if(NOT "${wake_source_type}" STREQUAL "NUMBER" OR
+                    NOT "${wake_cycle_type}" STREQUAL "STRING")
+                  gbl_finding(result bad-phase8-wake
+                    "wake cause requires source and cycle")
+                else()
+                  gbl__result_uint16(wake_source_valid wake_source "${doc}" "16383"
+                    phase8 power wake_source_mask)
+                  gbl__result_uint64(wake_cycle_valid wake_cycle "${doc}"
+                    phase8 power wake_cycle)
+                  if(NOT wake_source_valid OR "${wake_source}" STREQUAL "0" OR
+                      NOT wake_cycle_valid)
+                    gbl_finding(result bad-phase8-wake
+                      "wake cause requires source and cycle")
+                  endif()
+                endif()
+              elseif(NOT "${wake_source_type}" STREQUAL "NULL" OR
+                  NOT "${wake_cycle_type}" STREQUAL "NULL")
+                gbl_finding(result bad-phase8-wake
+                  "non-wake cause requires null source and cycle")
+              endif()
+            endif()
+
+            gbl_json_type(keypad_type "${doc}" phase8 keypad)
+            if("${keypad_type}" STREQUAL "MISSING")
+              gbl_finding(result missing-field "phase8.keypad")
+            elseif(NOT "${keypad_type}" STREQUAL "OBJECT")
+              gbl_finding(result bad-phase8-type "phase8.keypad must be object")
+            else()
+              foreach(field IN ITEMS condition irq_condition)
+                gbl_json_type(keypad_${field}_type "${doc}" phase8 keypad ${field})
+                if("${keypad_${field}_type}" STREQUAL "MISSING" OR
+                    "${keypad_${field}_type}" STREQUAL "NULL")
+                  gbl_finding(result missing-field "phase8.keypad.${field}")
+                elseif(NOT "${keypad_${field}_type}" STREQUAL "BOOLEAN")
+                  gbl_finding(result bad-phase8-type
+                    "phase8.keypad.${field} must be boolean")
+                endif()
+              endforeach()
+              foreach(field IN ITEMS keyinput keycnt applied_events pending_events)
+                gbl_json_type(keypad_${field}_type "${doc}" phase8 keypad ${field})
+                if("${keypad_${field}_type}" STREQUAL "MISSING" OR
+                    "${keypad_${field}_type}" STREQUAL "NULL")
+                  gbl_finding(result missing-field "phase8.keypad.${field}")
+                else()
+                  if(field STREQUAL "keyinput")
+                    set(keypad_${field}_maximum "1023")
+                  elseif(field STREQUAL "keycnt")
+                    set(keypad_${field}_maximum "65535")
+                  else()
+                    set(keypad_${field}_maximum "256")
+                  endif()
+                  gbl__result_uint16(keypad_${field}_valid keypad_${field} "${doc}"
+                    "${keypad_${field}_maximum}" phase8 keypad ${field})
+                  if(NOT keypad_${field}_valid)
+                    gbl_finding(result bad-phase8-type
+                      "phase8.keypad.${field} must be a bounded integer")
+                  endif()
+                endif()
+              endforeach()
+            endif()
+
+            gbl_json_type(wait_type "${doc}" phase8 wait_cycles)
+            if("${wait_type}" STREQUAL "MISSING" OR
+                "${wait_type}" STREQUAL "NULL")
+              if("${wait_type}" STREQUAL "NULL")
+                gbl_finding(result bad-phase8-not-run
+                  "observed phase8 requires non-null wait_cycles")
+              endif()
+              set(phase8_wait_valid FALSE)
+              set(time_components_valid FALSE)
+            else()
+              gbl__result_uint64(phase8_wait_valid phase8_wait_for_sum "${doc}"
+                phase8 wait_cycles)
+              if(NOT phase8_wait_valid)
+                gbl_json_type(wait_type "${doc}" phase8 wait_cycles)
+                if("${wait_type}" STREQUAL "STRING")
+                  string(JSON invalid_wait GET "${doc}" phase8 wait_cycles)
+                  if("${invalid_wait}" MATCHES "^(0|[1-9][0-9]*)$")
+                    string(LENGTH "${invalid_wait}" wait_digits)
+                    if(wait_digits GREATER 20 OR
+                        (wait_digits EQUAL 20 AND
+                         "${invalid_wait}" STRGREATER "18446744073709551615"))
+                      gbl_finding(result time-overflow "phase8.wait_cycles")
+                    else()
+                      gbl_finding(result bad-phase8-type
+                        "phase8.wait_cycles must be a uint64 decimal string")
+                    endif()
+                  else()
+                    gbl_finding(result bad-phase8-type
+                      "phase8.wait_cycles must be a uint64 decimal string")
+                  endif()
+                else()
+                  gbl_finding(result bad-phase8-type
+                    "phase8.wait_cycles must be a uint64 decimal string")
+                endif()
+                set(time_components_valid FALSE)
+              endif()
+            endif()
+          endif()
+        endif()
+      endif()
+    endif()
+
     if(time_valid AND time_components_valid)
       gbl__result_decimal_add(time_component_sum "${time_bus_cycles}"
         "${time_internal_cycles}")
+      if(phase8_present)
+        gbl__result_decimal_add(time_component_sum "${time_component_sum}"
+          "${phase8_wait_for_sum}")
+      endif()
       gbl__result_decimal_le(time_component_sum_in_range "${time_component_sum}"
         "18446744073709551615")
       if(NOT time_component_sum_in_range)
-        gbl_finding(result time-sum-overflow
-          "time.bus_cycles + time.internal_cycles exceeds UINT64_MAX")
+        if(phase8_present)
+          gbl_finding(result time-sum-overflow
+            "time.bus_cycles + time.internal_cycles + phase8.wait_cycles exceeds UINT64_MAX")
+        else()
+          gbl_finding(result time-sum-overflow
+            "time.bus_cycles + time.internal_cycles exceeds UINT64_MAX")
+        endif()
       elseif(NOT "${time_component_sum}" STREQUAL "${time_cycles}")
-        gbl_finding(result bad-time-components
-          "time.cycles does not equal time.bus_cycles + time.internal_cycles")
+        if(phase8_present)
+          gbl_finding(result bad-time-components
+            "time.cycles does not equal time.bus_cycles + time.internal_cycles + phase8.wait_cycles")
+        else()
+          gbl_finding(result bad-time-components
+            "time.cycles does not equal time.bus_cycles + time.internal_cycles")
+        endif()
       endif()
     endif()
   endif()
