@@ -2287,9 +2287,9 @@ static bool gbl_test_time_authority_observe(const char *mode,
         trace_records, GBL_DETERMINISM_TRACE_CAPACITY, 0u, 0u
     };
     gbl_run_result total = { GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT,
-                             0u, 0u };
+                             0u, 0u, 0u, 0u };
     gbl_run_result part = { GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT,
-                            0u, 0u };
+                            0u, 0u, 0u, 0u };
     gbl_run_options options = {
         UINT64_C(1000), UINT64_C(1), GBL_TRACE_CATEGORY_MASK, &trace
     };

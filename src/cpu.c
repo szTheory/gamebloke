@@ -1608,13 +1608,13 @@ static bool gbl_cpu_decode_arm_psr_transfer(const gbl_cpu_state *cpu,
     return true;
 }
 
-static void gbl_cpu_schedule_exception(gbl_cpu_unit *unit,
+static bool gbl_cpu_schedule_exception(gbl_cpu_unit *unit,
                                       gbl_exception_kind kind)
 {
     unit->kind = GBL_CPU_UNIT_EXCEPTION;
     unit->exception_kind = kind;
     unit->internal_cycles = (uint8_t)1u;
-    unit->cycle_cost = UINT64_C(1);
+    return gbl_cpu_refresh_cycle_cost(unit);
 }
 
 static bool gbl_cpu_finalize_decoded(gbl_cpu_unit *unit, bool decoded)
@@ -1623,7 +1623,9 @@ static bool gbl_cpu_finalize_decoded(gbl_cpu_unit *unit, bool decoded)
         return false;
     }
     if (unit->kind == GBL_CPU_UNIT_UNDEFINED) {
-        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_UNDEFINED);
+        if (!gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_UNDEFINED)) {
+            return false;
+        }
     }
     return true;
 }
@@ -2400,8 +2402,7 @@ static bool gbl_cpu_decode_thumb(const gbl_cpu_state *cpu,
     }
 
     if ((opcode & UINT16_C(0xFF00)) == UINT16_C(0xDF00)) {
-        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
-        return true;
+        return gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
     }
 
     /* DDI0100I A7.1.17: BL supplies high and low offsets in two
@@ -3105,8 +3106,7 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
             }
             return true;
         }
-        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
-        return true;
+        return gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_SWI);
     }
     if ((opcode & UINT32_C(0x0E000000)) == UINT32_C(0x0C000000) ||
         (opcode & UINT32_C(0x0F000000)) == UINT32_C(0x0E000000)) {
@@ -3118,8 +3118,7 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
             }
             return true;
         }
-        gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_COPROCESSOR);
-        return true;
+        return gbl_cpu_schedule_exception(unit, GBL_EXCEPTION_COPROCESSOR);
     }
 
     if ((opcode & UINT32_C(0x0FFFFFF0)) == UINT32_C(0x012FFF10)) {
