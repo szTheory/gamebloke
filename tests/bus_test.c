@@ -881,10 +881,107 @@ static int run_state(void)
     return 1;
 }
 
+static int run_irq_registers(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000200), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x05));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          result.outcome == GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET);
+    result = gbl_bus_write(machine, UINT32_C(0x04000201), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK && machine->interrupt_enable ==
+          UINT16_C(0x3F05));
+    result = gbl_bus_read(machine, UINT32_C(0x04000200), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == UINT32_C(0x3F05));
+
+    machine->interrupt_flags = UINT16_C(0x000C);
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x04));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->interrupt_flags == UINT16_C(0x0008));
+    machine->interrupt_flags = UINT16_C(0x000C);
+    result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0004));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->interrupt_flags == UINT16_C(0x0008));
+    result = gbl_bus_read(machine, UINT32_C(0x04000202), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == 8u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000200), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0xFFFF0005));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->interrupt_enable == UINT16_C(0x0005) &&
+          machine->interrupt_flags == 0u);
+    result = gbl_bus_read(machine, UINT32_C(0x04000200), 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == 5u);
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000208), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFE));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->interrupt_master_enable == 0u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000209), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->interrupt_master_enable == 0u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000208), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(1));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->interrupt_master_enable == 1u);
+    result = gbl_bus_read(machine, UINT32_C(0x04000208), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == 1u);
+    CHECK((machine->interrupt_enable & UINT16_C(0xC000)) == 0u);
+    CHECK((machine->interrupt_flags & UINT16_C(0xC000)) == 0u);
+    gbl_machine_reset(machine);
+    CHECK(machine->interrupt_enable == 0u && machine->interrupt_flags == 0u &&
+          machine->interrupt_master_enable == 0u);
+
+    free_machine(machine);
+
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        result = gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFFFF));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        result = gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xC0));
+        CHECK(result.status == GBL_BUS_STATUS_OK && machine->event_count == 1u);
+        result = gbl_bus_write(machine, UINT32_C(0x04000202), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x08));
+        CHECK(result.status == GBL_BUS_STATUS_OK &&
+              machine->master_cycles == UINT64_C(3) &&
+              machine->interrupt_flags == 0u);
+        result = gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x80));
+        CHECK(result.status == GBL_BUS_STATUS_OK &&
+              (machine->interrupt_flags & UINT16_C(0x0008)) != 0u);
+        CHECK((machine->interrupt_enable & UINT16_C(0x0008)) == 0u);
+        free_machine(machine);
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("bus.irq.registers: IE/IF/IME lanes, masks and event ordering ok");
+        return 0;
+    }
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|irq.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -898,6 +995,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "video") == 0) {
         return run_video();
+    }
+    if (strcmp(argv[1], "irq.registers") == 0) {
+        return run_irq_registers();
     }
     fprintf(stderr, "bus_test: unknown selector: %s\n", argv[1]);
     return 2;

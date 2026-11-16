@@ -76,6 +76,8 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
         left->master_cycles != right->master_cycles ||
         left->next_event_sequence != right->next_event_sequence ||
         left->interrupt_flags != right->interrupt_flags ||
+        left->interrupt_enable != right->interrupt_enable ||
+        left->interrupt_master_enable != right->interrupt_master_enable ||
         left->event_count != right->event_count ||
         left->event_count > GBL_EVENT_CAPACITY) {
         return false;
@@ -105,6 +107,8 @@ static bool gbl_test_time_preview_equal(
         left->master_cycles != right->master_cycles ||
         left->next_event_sequence != right->next_event_sequence ||
         left->interrupt_flags != right->interrupt_flags ||
+        left->interrupt_enable != right->interrupt_enable ||
+        left->interrupt_master_enable != right->interrupt_master_enable ||
         left->event_count != right->event_count) {
         return false;
     }
@@ -136,6 +140,8 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.master_cycles = machine->master_cycles;
     machine_time.next_event_sequence = machine->next_event_sequence;
     machine_time.interrupt_flags = machine->interrupt_flags;
+    machine_time.interrupt_enable = machine->interrupt_enable;
+    machine_time.interrupt_master_enable = machine->interrupt_master_enable;
     machine_time.event_count = machine->event_count;
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine_time.events[index] = machine->events[index];
@@ -173,7 +179,38 @@ static bool gbl_test_cpu_equal(const gbl_cpu_state *left,
         left->last_exception.fault_address !=
             right->last_exception.fault_address ||
         left->last_exception.thumb_state !=
-            right->last_exception.thumb_state) {
+            right->last_exception.thumb_state ||
+        left->irq_observation.sample_cycle !=
+            right->irq_observation.sample_cycle ||
+        left->irq_observation.entry_cycle !=
+            right->irq_observation.entry_cycle ||
+        left->irq_observation.entry_internal_cycles !=
+            right->irq_observation.entry_internal_cycles ||
+        left->irq_observation.cpsr != right->irq_observation.cpsr ||
+        left->irq_observation.next_instruction_address !=
+            right->irq_observation.next_instruction_address ||
+        left->irq_observation.following_instruction_address !=
+            right->irq_observation.following_instruction_address ||
+        left->irq_observation.interrupt_flags !=
+            right->irq_observation.interrupt_flags ||
+        left->irq_observation.interrupt_enable !=
+            right->irq_observation.interrupt_enable ||
+        left->irq_observation.eligible_sources !=
+            right->irq_observation.eligible_sources ||
+        left->irq_observation.interrupt_master_enable !=
+            right->irq_observation.interrupt_master_enable ||
+        left->irq_observation.sampled !=
+            right->irq_observation.sampled ||
+        left->irq_observation.eligible !=
+            right->irq_observation.eligible ||
+        left->irq_observation.master_enabled !=
+            right->irq_observation.master_enabled ||
+        left->irq_observation.cpu_masked !=
+            right->irq_observation.cpu_masked ||
+        left->irq_observation.accepted !=
+            right->irq_observation.accepted ||
+        left->irq_observation.entered !=
+            right->irq_observation.entered) {
         return false;
     }
     for (index = 0u; index < 2u; ++index) {
@@ -203,7 +240,21 @@ static inline bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
         cpu->last_exception.current_address != 0u ||
         cpu->last_exception.next_address != 0u ||
         cpu->last_exception.fault_address != 0u ||
-        cpu->last_exception.thumb_state) {
+        cpu->last_exception.thumb_state ||
+        cpu->irq_observation.sample_cycle != 0u ||
+        cpu->irq_observation.entry_cycle != 0u ||
+        cpu->irq_observation.entry_internal_cycles != 0u ||
+        cpu->irq_observation.cpsr != 0u ||
+        cpu->irq_observation.next_instruction_address != 0u ||
+        cpu->irq_observation.following_instruction_address != 0u ||
+        cpu->irq_observation.interrupt_flags != 0u ||
+        cpu->irq_observation.interrupt_enable != 0u ||
+        cpu->irq_observation.eligible_sources != 0u ||
+        cpu->irq_observation.interrupt_master_enable != 0u ||
+        cpu->irq_observation.sampled || cpu->irq_observation.eligible ||
+        cpu->irq_observation.master_enabled ||
+        cpu->irq_observation.cpu_masked || cpu->irq_observation.accepted ||
+        cpu->irq_observation.entered) {
         return false;
     }
     for (index = 0u; index < 8u; ++index) {
@@ -377,6 +428,37 @@ static uint64_t gbl_test_digest_cpu(uint64_t digest,
     digest = gbl_test_digest_u64(digest, cpu->last_exception.fault_address);
     digest = gbl_test_digest_byte(
         digest, cpu->last_exception.thumb_state ? 1u : 0u);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.sample_cycle);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.entry_cycle);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.entry_internal_cycles);
+    digest = gbl_test_digest_u64(digest, cpu->irq_observation.cpsr);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.next_instruction_address);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.following_instruction_address);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.interrupt_flags);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.interrupt_enable);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.eligible_sources);
+    digest = gbl_test_digest_u64(
+        digest, cpu->irq_observation.interrupt_master_enable);
+    digest = gbl_test_digest_byte(
+        digest, cpu->irq_observation.sampled ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, cpu->irq_observation.eligible ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, cpu->irq_observation.master_enabled ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, cpu->irq_observation.cpu_masked ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, cpu->irq_observation.accepted ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, cpu->irq_observation.entered ? 1u : 0u);
     return digest;
 }
 
@@ -390,6 +472,8 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_u64(digest, master_cycles);
     digest = gbl_test_digest_u64(digest, machine->next_event_sequence);
     digest = gbl_test_digest_u64(digest, machine->interrupt_flags);
+    digest = gbl_test_digest_u64(digest, machine->interrupt_enable);
+    digest = gbl_test_digest_u64(digest, machine->interrupt_master_enable);
     digest = gbl_test_digest_u64(digest, (uint64_t)machine->event_count);
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         const gbl_event *event = &machine->events[index];

@@ -14018,6 +14018,317 @@ static void test_unit_boundaries(void)
     }
 }
 
+static bool prepare_irq_boundary_machine(gbl_machine *machine, bool thumb)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+
+    make_empty_image(image);
+    if (!machine_load(machine, image)) {
+        return false;
+    }
+    machine->cpu.execution_address = UINT32_C(0x08000000);
+    machine->cpu.cpsr = TEST_CPSR_SYSTEM | (thumb ? TEST_CPSR_T : 0u);
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), thumb ? 0u : UINT32_C(0xE1A00000),
+        (uint8_t)(thumb ? 2u : 4u), true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000) + (thumb ? 2u : 4u),
+        thumb ? 0u : UINT32_C(0xE1A00000),
+        (uint8_t)(thumb ? 2u : 4u), true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    return true;
+}
+
+static bool run_irq_mask_case(uint16_t flags, uint16_t enable, uint16_t ime,
+                              uint32_t cpsr, gbl_cpu_irq_observation *out)
+{
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    bool valid = prepare_irq_boundary_machine(&machine, false);
+
+    if (valid) {
+        machine.interrupt_flags = flags;
+        machine.interrupt_enable = enable;
+        machine.interrupt_master_enable = ime;
+        machine.cpu.cpsr = cpsr;
+        valid = run_units(&machine, 8u, 1u, &result) &&
+                result.instructions == 1u &&
+                result.termination == GBL_RUN_PROGRESS &&
+                machine.cpu.irq_observation.sampled &&
+                !machine.cpu.irq_observation.accepted &&
+                !machine.cpu.irq_observation.entered &&
+                machine.cpu.last_exception.kind == GBL_EXCEPTION_NONE;
+        if (valid && out != NULL) {
+            *out = machine.cpu.irq_observation;
+        }
+    }
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_irq_boundary_contract(void)
+{
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_cpu_irq_observation masks[4] = { { 0 } };
+    bool ready = prepare_irq_boundary_machine(&machine, false);
+    bool first_instruction = ready && run_units(&machine, 8u, 1u, &result) &&
+        result.instructions == 1u && machine.cpu.retired_instructions == 1u;
+
+    if (first_instruction) {
+        machine.interrupt_flags = UINT16_C(0x0008);
+        machine.interrupt_enable = UINT16_C(0x0008);
+        machine.interrupt_master_enable = 1u;
+        ready = run_units(&machine, 8u, 0u, &result);
+    } else {
+        ready = false;
+    }
+    test_case(ready && result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                  result.instructions == 0u && result.internal_cycles == 1u &&
+                  machine.cpu.retired_instructions == 1u &&
+                  machine.cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
+                  machine.cpu.stop_reason == GBL_CPU_STOP_IRQ_NO_BIOS &&
+                  machine.cpu.irq_observation.accepted &&
+                  machine.cpu.irq_observation.entered &&
+                  machine.cpu.irq_observation.sampled &&
+                  machine.cpu.irq_observation.interrupt_flags == 8u &&
+                  machine.cpu.irq_observation.interrupt_enable == 8u &&
+                  machine.cpu.irq_observation.interrupt_master_enable == 1u &&
+                  machine.cpu.irq_observation.eligible_sources == 8u &&
+                  machine.cpu.irq_observation.sample_cycle + 1u ==
+                      machine.cpu.irq_observation.entry_cycle &&
+                  machine.cpu.irq_observation.next_instruction_address ==
+                      UINT32_C(0x08000004) &&
+                  machine.cpu.irq_observation.following_instruction_address ==
+                      UINT32_C(0x08000008),
+              "eligible ARM IRQ enters at the next boundary without retiring a second instruction");
+
+    test_case(run_irq_mask_case(0u, 8u, 1u, TEST_CPSR_SYSTEM, &masks[0]) &&
+                  run_irq_mask_case(8u, 0u, 1u, TEST_CPSR_SYSTEM, &masks[1]) &&
+                  run_irq_mask_case(8u, 8u, 0u, TEST_CPSR_SYSTEM, &masks[2]) &&
+                  run_irq_mask_case(8u, 8u, 1u,
+                                    TEST_CPSR_SYSTEM | UINT32_C(0x80),
+                                    &masks[3]),
+              "IF, IE, IME and CPSR.I independently suppress IRQ entry");
+
+    {
+        gbl_machine thumb = { 0 };
+        gbl_run_result thumb_result = { 0 };
+        bool valid = prepare_irq_boundary_machine(&thumb, true) &&
+            run_units(&thumb, 8u, 1u, &thumb_result) &&
+            thumb_result.instructions == 1u;
+        if (valid) {
+            thumb.interrupt_flags = 8u;
+            thumb.interrupt_enable = 8u;
+            thumb.interrupt_master_enable = 1u;
+            valid = run_units(&thumb, 8u, 0u, &thumb_result) &&
+                thumb_result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                thumb_result.instructions == 0u &&
+                thumb.cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
+                thumb.cpu.last_exception.thumb_state &&
+                (thumb.cpu.spsr[1] & TEST_CPSR_T) != 0u &&
+                thumb.cpu.irq_r13_14[1] == UINT32_C(0x08000006);
+        }
+        test_case(valid,
+                  "Thumb IRQ preserves the interrupted state and return address");
+        gbl_machine_dispose(&thumb);
+    }
+
+    if (ready && machine.cpu.irq_observation.entered) {
+        printf("{\"type\":\"phase8-observation\",\"if\":%u,\"ie\":%u,\"ime\":%u,\"cpsr\":%u,\"sample_cycle\":%llu,\"entry_cycle\":%llu,\"next_address\":%llu,\"following_address\":%llu,\"internal_cycles\":%llu,\"mask_if_clear\":%u,\"mask_ie_clear\":%u,\"mask_ime_clear\":%u,\"mask_cpsr_i\":%u}\n",
+               (unsigned int)machine.cpu.irq_observation.interrupt_flags,
+               (unsigned int)machine.cpu.irq_observation.interrupt_enable,
+               (unsigned int)machine.cpu.irq_observation.interrupt_master_enable,
+               (unsigned int)machine.cpu.irq_observation.cpsr,
+               (unsigned long long)machine.cpu.irq_observation.sample_cycle,
+               (unsigned long long)machine.cpu.irq_observation.entry_cycle,
+               (unsigned long long)machine.cpu.irq_observation.next_instruction_address,
+               (unsigned long long)machine.cpu.irq_observation.following_instruction_address,
+               (unsigned long long)machine.cpu.irq_observation.entry_internal_cycles,
+               (unsigned int)masks[0].interrupt_flags,
+               (unsigned int)masks[1].interrupt_enable,
+               (unsigned int)masks[2].interrupt_master_enable,
+               masks[3].cpu_masked ? 1u : 0u);
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_irq_refusal_contract(void)
+{
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT,
+                              71u, 72u, 73u, 74u };
+    bool valid = prepare_irq_boundary_machine(&machine, false);
+    gbl_trace_record records[1] = { { 0 } };
+    gbl_trace_buffer trace = { records, 0u, 0u, UINT64_C(19) };
+
+    if (valid) {
+        machine.interrupt_flags = 8u;
+        machine.interrupt_enable = 8u;
+        machine.interrupt_master_enable = 1u;
+    }
+    if (valid) {
+        const gbl_machine before = machine;
+        const bool zero = run_units(&machine, 0u, 0u, &result);
+        test_case(zero && result.cycles == 0u &&
+                      gbl_test_canonical_equal(&before, &machine) &&
+                      !machine.cpu.irq_observation.sampled,
+                  "zero cycle budget leaves the pending IRQ boundary unsampled");
+    } else {
+        test_case(false, "zero cycle budget leaves the pending IRQ boundary unsampled");
+    }
+
+    if (valid) {
+        const gbl_machine before = machine;
+        const bool refused = run_traced_units(
+            &machine, 8u, 0u, GBL_TRACE_EXCEPTION, &trace, &result);
+        test_case(refused && result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                      result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                      gbl_test_canonical_equal(&before, &machine) &&
+                      trace.count == 0u && trace.next_sequence == 19u &&
+                      records[0].opcode == 0u,
+                  "trace-capacity refusal preserves machine, trace bytes and sequence");
+    } else {
+        test_case(false, "trace-capacity refusal preserves machine, trace bytes and sequence");
+    }
+
+    if (valid) {
+        gbl_trace_record sequence_record;
+        gbl_trace_record sequence_before;
+        gbl_trace_buffer sequence_trace = {
+            &sequence_record, 1u, 0u, UINT64_MAX
+        };
+        const gbl_machine before = machine;
+        gbl_run_result sequence_result = { 0 };
+        memset(&sequence_record, 0xA5, sizeof(sequence_record));
+        memcpy(&sequence_before, &sequence_record, sizeof(sequence_record));
+        {
+            const bool refused = run_traced_units(
+                &machine, 8u, 0u, GBL_TRACE_EXCEPTION, &sequence_trace,
+                &sequence_result);
+            test_case(refused &&
+                          sequence_result.reason ==
+                              GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                          gbl_test_canonical_equal(&before, &machine) &&
+                          sequence_trace.count == 0u &&
+                          sequence_trace.next_sequence == UINT64_MAX &&
+                          memcmp(&sequence_record, &sequence_before,
+                                 sizeof(sequence_record)) == 0,
+                      "trace-sequence overflow preserves entry and caller record bytes");
+        }
+    } else {
+        test_case(false, "trace-sequence overflow preserves entry and caller record bytes");
+    }
+
+    if (valid) {
+        machine.master_cycles = UINT64_MAX;
+        {
+            const gbl_machine before = machine;
+            const bool refused = run_units(&machine, 1u, 0u, &result);
+            test_case(refused && result.reason == GBL_RUN_REASON_COUNTER_OVERFLOW &&
+                          gbl_test_canonical_equal(&before, &machine),
+                      "IRQ cycle overflow refuses the whole asynchronous entry");
+        }
+    } else {
+        test_case(false, "IRQ cycle overflow refuses the whole asynchronous entry");
+    }
+
+    {
+        gbl_machine split_machine = { 0 };
+        gbl_run_result split_result = { 0 };
+        bool split = prepare_irq_boundary_machine(&split_machine, false) &&
+            run_units(&split_machine, 1u, 0u, &split_result) &&
+            split_result.termination == GBL_RUN_TIMEOUT &&
+            split_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+            split_result.instructions == 1u;
+        if (split) {
+            split_machine.interrupt_flags = 8u;
+            split_machine.interrupt_enable = 8u;
+            split_machine.interrupt_master_enable = 1u;
+            split = run_units(&split_machine, 1u, 0u, &split_result) &&
+                split_result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                split_result.instructions == 0u &&
+                split_machine.cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
+                split_machine.cpu.irq_observation.entered;
+        }
+        test_case(split,
+                  "pending IRQ boundary resumes after the preceding run exhausts its one-cycle budget");
+        gbl_machine_dispose(&split_machine);
+    }
+    gbl_machine_dispose(&machine);
+}
+
+static void test_irq_timer_boundary_adjacency(void)
+{
+    gbl_machine at_deadline = { 0 };
+    gbl_machine one_cycle_late = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_bus_result timer_write;
+    bool valid = prepare_irq_boundary_machine(&at_deadline, false) &&
+        prepare_irq_boundary_machine(&one_cycle_late, false);
+
+    if (valid) {
+        timer_write = gbl_bus_write(&at_deadline, UINT32_C(0x04000100), 4u,
+                                    GBL_BUS_CLASS_NONSEQUENTIAL,
+                                    UINT32_C(0x00C0FFFE));
+        valid = timer_write.status == GBL_BUS_STATUS_OK &&
+            at_deadline.master_cycles == 1u &&
+            at_deadline.events[0].cycle == 3u;
+    }
+    if (valid) {
+        timer_write = gbl_bus_write(&one_cycle_late, UINT32_C(0x04000100), 4u,
+                                    GBL_BUS_CLASS_NONSEQUENTIAL,
+                                    UINT32_C(0x00C0FFFD));
+        valid = timer_write.status == GBL_BUS_STATUS_OK &&
+            one_cycle_late.master_cycles == 1u &&
+            one_cycle_late.events[0].cycle == 4u;
+    }
+    if (valid) {
+        at_deadline.interrupt_enable = 8u;
+        at_deadline.interrupt_master_enable = 1u;
+        one_cycle_late.interrupt_enable = 8u;
+        one_cycle_late.interrupt_master_enable = 1u;
+
+        valid = run_units(&at_deadline, 1u, 1u, &result) &&
+                result.instructions == 1u &&
+                at_deadline.cpu.irq_observation.sample_cycle == 1u &&
+                at_deadline.cpu.irq_observation.interrupt_flags == 0u &&
+                run_units(&at_deadline, 1u, 1u, &result) &&
+                result.instructions == 1u &&
+                at_deadline.cpu.irq_observation.sample_cycle == 2u &&
+                at_deadline.cpu.irq_observation.interrupt_flags == 0u &&
+                at_deadline.interrupt_flags == 8u &&
+                run_units(&at_deadline, 1u, 0u, &result) &&
+                result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                at_deadline.cpu.irq_observation.sample_cycle == 3u &&
+                at_deadline.cpu.irq_observation.interrupt_flags == 8u &&
+                at_deadline.cpu.irq_observation.entered;
+    }
+    if (valid) {
+        valid = run_units(&one_cycle_late, 1u, 1u, &result) &&
+                one_cycle_late.cpu.irq_observation.sample_cycle == 1u &&
+                one_cycle_late.cpu.irq_observation.interrupt_flags == 0u &&
+                run_units(&one_cycle_late, 1u, 1u, &result) &&
+                one_cycle_late.cpu.irq_observation.sample_cycle == 2u &&
+                one_cycle_late.cpu.irq_observation.interrupt_flags == 0u &&
+                run_units(&one_cycle_late, 1u, 1u, &result) &&
+                one_cycle_late.cpu.irq_observation.sample_cycle == 3u &&
+                one_cycle_late.cpu.irq_observation.interrupt_flags == 0u &&
+                one_cycle_late.interrupt_flags == 8u &&
+                run_units(&one_cycle_late, 1u, 0u, &result) &&
+                result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                one_cycle_late.cpu.irq_observation.sample_cycle == 4u &&
+                one_cycle_late.cpu.irq_observation.interrupt_flags == 8u &&
+                one_cycle_late.cpu.irq_observation.entered;
+    }
+    test_case(valid,
+              "timer IF is sampled one cycle before, exactly at, and one cycle after adjacent boundaries");
+    gbl_machine_dispose(&at_deadline);
+    gbl_machine_dispose(&one_cycle_late);
+}
+
 typedef void (*cpu_test_function)(void);
 
 typedef struct cpu_test_group {
@@ -14335,6 +14646,13 @@ static const cpu_test_function unit_boundaries_functions[] = {
     test_time_preflight_unit_boundaries,
     test_cycle_attribution_api
 };
+static const cpu_test_function irq_boundary_functions[] = {
+    test_irq_boundary_contract,
+    test_irq_timer_boundary_adjacency
+};
+static const cpu_test_function irq_refusal_functions[] = {
+    test_irq_refusal_contract
+};
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("unit_boundaries", 66u, unit_boundaries_functions),
@@ -14379,7 +14697,9 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("isa_classification", 39u, isa_classification_functions),
     CPU_TEST_GROUP("alignment", 11u, alignment_functions),
     CPU_TEST_GROUP("slots", 5u, slots_functions),
-    CPU_TEST_GROUP("slots_bounds", 31u, slots_bounds_functions)
+    CPU_TEST_GROUP("slots_bounds", 31u, slots_bounds_functions),
+    CPU_TEST_GROUP("irq.boundary", 4u, irq_boundary_functions),
+    CPU_TEST_GROUP("irq.refusal", 5u, irq_refusal_functions)
 };
 
 #undef CPU_TEST_GROUP

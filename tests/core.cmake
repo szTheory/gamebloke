@@ -81,6 +81,10 @@ gbl_add_test(
   NAME bus.video
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> video)
+gbl_add_test(
+  NAME bus.irq.registers
+  LABELS bus core unit
+  COMMAND $<TARGET_FILE:bus_test> irq.registers)
 
 add_executable(timer_test tests/timer_test.c)
 target_link_libraries(timer_test PRIVATE gamebloke_core gbl_warnings)
@@ -133,7 +137,7 @@ gbl_add_test(
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
 foreach(selector IN ITEMS arithmetic arm_alu arm_block arm_block_banks arm_block_bounds arm_block_edges arm_pc_return arm_shifts_conditions arm_transfer arm_subword arm_subword_alignment loaded_pc thumb thumb_alu thumb_bl thumb_control thumb_high thumb_multiple thumb_sp thumb_stack thumb_transfer decode alignment modes exceptions multiply_signed_timing multiply_unsigned
-    no_bios peek mailbox psr trace_capacity trace slots slots_bounds isa_classification unit_boundaries)
+    no_bios peek mailbox psr trace_capacity trace slots slots_bounds isa_classification unit_boundaries irq.boundary irq.refusal)
   gbl_add_test(
     NAME cpu.${selector}
     LABELS cpu core unit

@@ -1,6 +1,7 @@
 # Literal sorted snapshot of actual top-directory CTest registration.
 build.nc.compiler_id_guard build,control
 bus.decode bus,core,unit
+bus.irq.registers bus,core,unit
 bus.nc.clock_overflow bus,control
 bus.nc.ewram_mirror bus,control
 bus.nc.iwram_mirror bus,control
@@ -87,6 +88,8 @@ cpu.arm_transfer core,cpu,unit
 cpu.budget core,cpu,unit
 cpu.decode core,cpu,unit
 cpu.exceptions core,cpu,unit
+cpu.irq.boundary core,cpu,unit
+cpu.irq.refusal core,cpu,unit
 cpu.isa_classification core,cpu,unit
 cpu.lifecycle core,cpu,unit
 cpu.loaded_pc core,cpu,unit
