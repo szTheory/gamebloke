@@ -161,16 +161,25 @@ static gbl_time_status gbl_preview_increment_cascade(
         gbl_timer_state *timer = &preview->timers[index];
 
         if (!timer->enabled || !timer->cascade) {
-            break;
+            return GBL_TIME_STATUS_OK;
         }
         if (timer->counter != UINT16_MAX) {
             ++timer->counter;
-            break;
+            timer->anchor_cycle = cycle;
+            timer->phase = 0u;
+            return GBL_TIME_STATUS_OK;
         }
         timer->counter = timer->reload;
         timer->anchor_cycle = cycle;
         timer->phase = 0u;
-        return gbl_preview_insert_timer_event(preview, index, cycle);
+        if (timer->irq_enabled) {
+            preview->interrupt_flags = (uint16_t)(
+                preview->interrupt_flags |
+                (uint16_t)(UINT16_C(1) << (3u + index)));
+        }
+        /* A cascade overflow is delivered synchronously as the same carry
+         * continues into the next enabled cascade timer. It is not a queued
+         * prescaler event and consumes no event sequence number. */
     }
     return GBL_TIME_STATUS_OK;
 }
@@ -362,8 +371,14 @@ gbl_time_status gbl_timer_write(gbl_machine_time_preview *preview,
     static const uint16_t divisors[4] = { 1u, 64u, 256u, 1024u };
     gbl_machine_time_preview candidate;
     gbl_timer_state *timer;
+    bool control_changed = false;
     bool was_enabled;
     uint8_t control;
+    uint8_t prescaler;
+    uint16_t next_divisor;
+    bool next_enabled;
+    bool next_irq_enabled;
+    bool next_cascade;
     gbl_time_status status;
 
     if (preview == NULL || timer_index >= GBL_TIMER_COUNT ||
@@ -374,18 +389,29 @@ gbl_time_status gbl_timer_write(gbl_machine_time_preview *preview,
     candidate = *preview;
     timer = &candidate.timers[timer_index];
     was_enabled = timer->enabled;
-    if (was_enabled) {
+    if ((lane_mask & UINT8_C(0x04)) != 0u) {
+        control = (uint8_t)((value >> 16u) & UINT32_C(0xFF));
+        prescaler = (uint8_t)(control & UINT8_C(0x03));
+        next_divisor = divisors[prescaler];
+        next_enabled = (control & UINT8_C(0x80)) != 0u;
+        next_irq_enabled = (control & UINT8_C(0x40)) != 0u;
+        next_cascade = timer_index != 0u &&
+                       (control & UINT8_C(0x04)) != 0u;
+        control_changed = timer->divisor != next_divisor ||
+                          timer->enabled != next_enabled ||
+                          timer->irq_enabled != next_irq_enabled ||
+                          timer->cascade != next_cascade;
+    }
+    if (was_enabled && control_changed) {
         status = gbl_preview_sync_timer(&candidate, timer_index);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
     }
-    if (timer->generation == UINT64_MAX) {
+    if (control_changed && timer->generation == UINT64_MAX) {
         return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
     }
 
-    gbl_preview_remove_timer_event(&candidate, timer_index);
-    ++timer->generation;
     if ((lane_mask & UINT8_C(0x01)) != 0u) {
         timer->reload = (uint16_t)((timer->reload & UINT16_C(0xFF00)) |
                                    (uint16_t)(value & UINT32_C(0xFF)));
@@ -394,33 +420,25 @@ gbl_time_status gbl_timer_write(gbl_machine_time_preview *preview,
         timer->reload = (uint16_t)((timer->reload & UINT16_C(0x00FF)) |
                                    (uint16_t)(value & UINT32_C(0xFF00)));
     }
-    if (!was_enabled && (lane_mask & UINT8_C(0x03)) != 0u) {
-        timer->counter = timer->reload;
-        timer->anchor_cycle = candidate.master_cycles;
-        timer->phase = 0u;
+    if (!control_changed) {
+        *preview = candidate;
+        return GBL_TIME_STATUS_OK;
     }
 
-    if ((lane_mask & UINT8_C(0x04)) != 0u) {
-        control = (uint8_t)((value >> 16u) & UINT32_C(0xFF));
-        timer->enabled = (control & UINT8_C(0x80)) != 0u;
-        timer->irq_enabled = (control & UINT8_C(0x40)) != 0u;
-        timer->cascade = timer_index != 0u &&
-                         (control & UINT8_C(0x04)) != 0u;
-        timer->divisor = divisors[control & UINT8_C(0x03)];
-        if (!was_enabled && timer->enabled) {
-            timer->counter = timer->reload;
-            timer->phase = 0u;
-            timer->anchor_cycle = candidate.master_cycles;
-        } else if (timer->enabled) {
-            /* Enabled control writes synchronize and restart divider phase. */
-            timer->phase = 0u;
-            timer->anchor_cycle = candidate.master_cycles;
-        } else {
-            timer->phase = 0u;
-            timer->anchor_cycle = candidate.master_cycles;
-        }
+    gbl_preview_remove_timer_event(&candidate, timer_index);
+    ++timer->generation;
+    timer->enabled = next_enabled;
+    timer->irq_enabled = next_irq_enabled;
+    timer->cascade = next_cascade;
+    timer->divisor = next_divisor;
+    if (!was_enabled && next_enabled) {
+        /* Start is the one control edge that loads the programmable reload.
+         * A disabled reload write alone leaves the retained count untouched. */
+        timer->counter = timer->reload;
     }
-    if (timer->enabled && !timer->cascade) {
+    timer->phase = 0u;
+    timer->anchor_cycle = candidate.master_cycles;
+    if (next_enabled && !next_cascade) {
         status = gbl_preview_schedule_timer(&candidate, timer_index);
         if (status != GBL_TIME_STATUS_OK) {
             return status;

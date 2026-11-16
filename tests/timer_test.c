@@ -558,7 +558,7 @@ static int run_timer_model_boundary(void)
     CHECK(machine->master_cycles == UINT64_C(33));
     CHECK(gbl_machine_prepare_time(machine, UINT64_C(96), &preview) ==
           GBL_TIME_STATUS_OK);
-    CHECK(timer_counter_from_preview(&preview, 0u) == UINT16_C(0xFFF0));
+    CHECK(timer_counter_from_preview(&preview, 0u) == UINT16_C(0xFFF1));
     CHECK(gbl_machine_prepare_time(machine, UINT64_C(97), &preview) ==
           GBL_TIME_STATUS_OK);
     CHECK(timer_counter_from_preview(&preview, 0u) == UINT16_C(0xFFF1));
@@ -579,7 +579,7 @@ static int run_timer_model_boundary(void)
     CHECK((uint16_t)read_result.value == UINT16_C(0xFFF0));
     free_machine(machine);
     if (CHECK_DONE() == 0) {
-        puts("timer0.model.boundary: start phase, control reset, reload policy ok");
+        puts("timer0.model.boundary: start phase, same-control, reload policy ok");
         return 0;
     }
     return 1;
@@ -713,6 +713,62 @@ static int run_timer_devices(void)
     }
 
     machine = new_empty_machine();
+    TIMER_CHECK("control-mask-setup", machine != NULL);
+    if (machine != NULL) {
+        uint64_t deadline;
+
+        result = write_timer_word(machine, 0u, UINT16_MAX, UINT8_C(0xFF));
+        deadline = machine->event_count == 1u ? machine->events[0].cycle : 0u;
+        TIMER_CHECK("timer0-cascade-and-reserved-bits-ignored",
+                    result.status == GBL_BUS_STATUS_OK &&
+                        !machine->timers[0].cascade &&
+                        machine->event_count == 1u &&
+                        deadline == UINT64_C(1025));
+        result = gbl_bus_read(machine, UINT32_C(0x04000102), 1u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL);
+        TIMER_CHECK("control-read-reserved-bits-zero",
+                    result.status == GBL_BUS_STATUS_OK &&
+                        (uint8_t)result.value == UINT8_C(0xC3));
+        {
+            const uint64_t generation = machine->timers[0].generation;
+            size_t repeat;
+
+            for (repeat = 0u; repeat < 20u; ++repeat) {
+                result = gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
+                                       GBL_BUS_CLASS_NONSEQUENTIAL,
+                                       UINT32_C(0xFF));
+                if (result.status != GBL_BUS_STATUS_OK) {
+                    break;
+                }
+            }
+            TIMER_CHECK("same-control-writes-stay-bounded",
+                        repeat == 20u && machine->event_count == 1u &&
+                            machine->timers[0].generation == generation &&
+                            machine->events[0].cycle == deadline);
+        }
+        free_machine(machine);
+    }
+
+    machine = new_empty_machine();
+    TIMER_CHECK("enabled-divider-change-setup", machine != NULL);
+    if (machine != NULL) {
+        result = write_timer_word(machine, 2u, UINT16_C(0xFFFE),
+                                  UINT8_C(0x81));
+        TIMER_CHECK("enabled-divider-change-start",
+                    result.status == GBL_BUS_STATUS_OK);
+        TIMER_CHECK("enabled-divider-change-restarts-phase",
+                    gbl_machine_advance_to(machine, UINT64_C(10)) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_bus_write(machine, UINT32_C(0x0400010A), 1u,
+                                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                                      UINT32_C(0x80)).status ==
+                            GBL_BUS_STATUS_OK &&
+                        machine->events[0].cycle == UINT64_C(13) &&
+                        machine->timers[2].phase == 0u);
+        free_machine(machine);
+    }
+
+    machine = new_empty_machine();
     TIMER_CHECK("cascade-policy-setup", machine != NULL);
     if (machine != NULL) {
         const gbl_cpu_state cpu_before = machine->cpu;
@@ -752,6 +808,39 @@ static int run_timer_devices(void)
                             cpu_before.retired_instructions &&
                         machine->cpu.last_exception.kind ==
                             GBL_EXCEPTION_NONE && !machine->cpu.stopped);
+        free_machine(machine);
+    }
+
+    machine = new_empty_machine();
+    TIMER_CHECK("simultaneous-independent-cascade-setup",
+                machine != NULL);
+    if (machine != NULL) {
+        TIMER_CHECK("simultaneous-timer1-cascade", write_timer_word(
+                        machine, 1u, UINT16_MAX, UINT8_C(0xC4)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("simultaneous-timer3-cascade", write_timer_word(
+                        machine, 3u, UINT16_MAX, UINT8_C(0xC4)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("simultaneous-timer0-independent", write_timer_word(
+                        machine, 0u, UINT16_C(0xFFFE), UINT8_C(0xC0)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("simultaneous-timer2-independent", write_timer_word(
+                        machine, 2u, UINT16_MAX, UINT8_C(0xC0)).status ==
+                        GBL_BUS_STATUS_OK);
+        TIMER_CHECK("simultaneous-events-sorted-before-dispatch",
+                    machine->event_count == 2u &&
+                        machine->events[0].timer_index == 0u &&
+                        machine->events[1].timer_index == 2u &&
+                        machine->events[0].cycle == UINT64_C(5) &&
+                        machine->events[1].cycle == UINT64_C(5));
+        TIMER_CHECK("simultaneous-independent-and-cascade-policy",
+                    gbl_machine_advance_to(machine, UINT64_C(5)) ==
+                            GBL_TIME_STATUS_OK &&
+                        machine->interrupt_flags == UINT16_C(0x0078) &&
+                        machine->event_count == 2u &&
+                        machine->next_event_sequence == 4u &&
+                        machine->events[0].timer_index == 2u &&
+                        machine->events[1].timer_index == 0u);
         free_machine(machine);
     }
 
