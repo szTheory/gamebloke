@@ -1,43 +1,33 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v1.0 — Evidence Spine",
+  "milestone": "v2.0 — Time, Interrupts, DMA, First Pixels",
   "phases": [
     {
-      "number": "1",
-      "name": "CI and Verification Foundation",
-      "status": "complete"
-    },
-    {
-      "number": "2",
-      "name": "Profile, Fixture Manifest, and Result Contract",
-      "status": "complete"
-    },
-    {
-      "number": "3",
-      "name": "Bus API, Memory Map, and ROM Loading",
+      "number": "7",
+      "name": "Time Authority and Timer 0 Polling Proof",
       "status": "pending"
     },
     {
-      "number": "4",
-      "name": "CPU Execution Core and Headless Runner",
+      "number": "8",
+      "name": "IRQ, HALT, and Timestamped Input",
       "status": "pending"
     },
     {
-      "number": "5",
-      "name": "Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion",
+      "number": "9",
+      "name": "Bus Timing, DMA, and Arbitration",
       "status": "pending"
     },
     {
-      "number": "6",
-      "name": "Determinism Gates and Third-Party CPU Fixtures",
+      "number": "10",
+      "name": "PPU Timing and First Pixels",
       "status": "pending"
     }
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 3 of 6 · executing"
+    "label": "Advance to the next step (plan phase 07)",
+    "reason": "Phase 1 of 4 — needs a plan"
   },
-  "updated_at": "2026-11-10T15:29:06.894Z"
+  "updated_at": "2026-11-16T04:07:41.196Z"
 }

@@ -41,8 +41,28 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   3. All four timers expose reload, prescaler, enable/start, overflow, and cascade behavior. Counter reads agree with scheduled state at defined boundaries, and timer overflow request state can be observed without causing CPU exception entry.
   4. The original Timer 0 polling guest reports its semantic overflow result separately from machine cycles and interrupt request state. A deliberately faulty guest/device control produces a named failure; any result using unqualified cycle costs is visibly labeled project-model evidence.
   5. The canonical local verification path runs the short event-boundary cases before longer device/guest suites, proves its focused selection includes the intended cases, and rejects missing/empty selection through a meaningful negative control.
-**Plans**: TBD
-**Research flag**: CPU/bus/internal-cycle components, timer enable/reload/start edges, transaction side-effect timing, and equal-cycle ordering require phase-specific primary-source research. Full WAITCNT and prefetch scope remains Phase 9.
+**Plans**:
+**Wave 1**
+- [ ] 07-01-PLAN.md — Scheduler and Timer 0 guest tracer; exact fast selection
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 07-02-PLAN.md — Four timer boundaries and atomic refusal
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 07-03-PLAN.md — CPU bus/internal cycle attribution
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 07-04-PLAN.md — Timing profile provenance and validation
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 07-05-PLAN.md — Runner observations and result contract
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 07-06-PLAN.md — Original generated guests and determinism
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 07-07-PLAN.md — Cheap-before-long verification and phase-end judgments
+**Research flag**: Phase-specific research is complete for model planning. The plan defines project policies for timer start, live reload, and same-cycle ordering; exact GBA hardware edges remain UNKNOWN/unqualified. WAITCNT and prefetch qualification remain Phase 9.
 **Owner gates**: None for this BIOS-free slice. No stub code, external fixture fetch, hosted run, or publication is needed to establish its local evidence.
 
 ### Phase 8: IRQ, HALT, and Timestamped Input
