@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 8
 current_phase_name: IRQ, HALT, and Timestamped Input
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-11-16T21:31:04.523Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-11-16T22:13:09.552Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: 53139c8445bf36cf3bdf5004fcd5b4cae57ad570
+state_head: cecf6a2aee6fa1485e59add7cc6db7cc2ddec92f
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 8
+  completed_plans: 9
   percent: 25
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 8 (IRQ, HALT, and Timestamped Input) — IN PROGRESS
-Current Plan: 2
+Current Plan: 3
 Total Plans in Phase: 7
 Status: In progress; Plan 08-01 complete and Plan 08-02 next
 Last activity: 2026-11-16 — Plan 08-01 execution complete
@@ -138,6 +138,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 07 P06 | 117min | 2 tasks | 10 files |
 | Phase 07 P07 | 56m 10s | 2 tasks | 7 files |
 | Phase 08 P01 | at least 30min; initial read time not captured | 2 tasks | 10 files |
+| Phase 08 P02 | 32min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -324,6 +325,9 @@ Recent decisions affecting current work:
 - [Phase 08]: Sample enabled requests at the completed instruction boundary and keep request, eligibility, acceptance, and exception entry separately observable.
 - [Phase 08]: Use the no-BIOS IRQ stop policy without vector fetch or a claim that a handler ran.
 - [Phase 08]: Keep the selected IRQ entry cycle as project-model evidence, not hardware timing qualification.
+- [Phase 08]: Keep the copied logical timeline bounded at 256 events and schedule only its next record, preserving the existing event queue limit.
+- [Phase 08]: Use timer priorities 0–3 followed by keypad priority 4 and completion-cycle bus effects; this is explicit project timing policy.
+- [Phase 08]: Treat active-low KEYINPUT, KEYCNT empty-selection behavior, and effective false-to-true request edges as model rules, not hardware qualification.
 
 ### Pending Todos
 
@@ -374,8 +378,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T21:30:01.616Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-11-16T22:13:09.503Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
