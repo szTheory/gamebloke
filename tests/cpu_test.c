@@ -14383,10 +14383,30 @@ static void test_power_boundary(void)
               "Timer 0 is scheduled at the exact cycle for a HALT wake");
 
     if (prepared) {
-        machine.power_state = GBL_MACHINE_POWER_HALTED;
+        prepared = gbl_machine_set_power_state(
+                       &machine, GBL_MACHINE_POWER_HALTED) ==
+                   GBL_TIME_STATUS_OK;
     }
     test_case(prepared && machine.power_state == GBL_MACHINE_POWER_HALTED,
-              "internal test state establishes HALT");
+              "internal power seam establishes HALT");
+    {
+        const gbl_machine_power_state before = machine.power_state;
+        const gbl_time_status invalid = gbl_machine_set_power_state(
+            &machine, (gbl_machine_power_state)99);
+        test_case(prepared && invalid == GBL_TIME_STATUS_INVALID_ARGUMENT &&
+                      machine.power_state == before,
+                  "invalid internal power state is refused atomically");
+    }
+    {
+        gbl_machine uninitialized = { 0 };
+        test_case(gbl_machine_set_power_state(
+                      &uninitialized, GBL_MACHINE_POWER_HALTED) ==
+                      GBL_TIME_STATUS_INVALID_ARGUMENT &&
+                      gbl_machine_set_power_state(
+                          NULL, GBL_MACHINE_POWER_HALTED) ==
+                          GBL_TIME_STATUS_INVALID_ARGUMENT,
+                  "power seam rejects null and uninitialized machines");
+    }
     if (prepared) {
         machine.interrupt_enable = UINT16_C(0x0008);
         machine.interrupt_master_enable = 0u;
@@ -14789,7 +14809,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("slots_bounds", 31u, slots_bounds_functions),
     CPU_TEST_GROUP("irq.boundary", 4u, irq_boundary_functions),
     CPU_TEST_GROUP("irq.refusal", 5u, irq_refusal_functions),
-    CPU_TEST_GROUP("power.boundary", 4u, power_boundary_functions)
+    CPU_TEST_GROUP("power.boundary", 6u, power_boundary_functions)
 };
 
 #undef CPU_TEST_GROUP

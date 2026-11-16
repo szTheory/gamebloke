@@ -880,6 +880,7 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
 
     machine->master_cycles = 0u;
     machine->next_event_sequence = 0u;
+    machine->power_state = GBL_MACHINE_POWER_RUNNING;
     machine->open_bus = 0u;
     machine->dispcnt = 0u;
     machine->interrupt_flags = 0u;
@@ -999,4 +1000,17 @@ void gbl_machine_dispose(gbl_machine *machine)
         detached_allocator.release(detached_allocator.context, detached_rom,
                                    detached_rom_length);
     }
+}
+
+gbl_time_status gbl_machine_set_power_state(
+    gbl_machine *machine, gbl_machine_power_state state)
+{
+    if (machine == NULL || !machine->initialized ||
+        (state != GBL_MACHINE_POWER_RUNNING &&
+         state != GBL_MACHINE_POWER_HALTED &&
+         state != GBL_MACHINE_POWER_STOPPED)) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    machine->power_state = state;
+    return GBL_TIME_STATUS_OK;
 }

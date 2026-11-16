@@ -3752,6 +3752,8 @@ static gbl_run_reason gbl_cpu_stop_result(gbl_cpu_stop_reason reason)
     case GBL_CPU_STOP_IRQ_NO_BIOS:
     case GBL_CPU_STOP_FIQ_NO_BIOS:
     case GBL_CPU_STOP_COPROCESSOR_NO_BIOS:
+    case GBL_CPU_STOP_STOP_REQUESTED:
+    case GBL_CPU_STOP_HALT_DEADLOCK:
         return GBL_RUN_REASON_GUEST_STOP;
     case GBL_CPU_STOP_NONE:
     case GBL_CPU_STOP_BUS_ERROR:
@@ -3939,6 +3941,161 @@ static gbl_run_reason gbl_cpu_time_refusal_reason(gbl_time_status status)
     return GBL_RUN_REASON_TIME_REFUSAL;
 }
 
+static bool gbl_cpu_scheduler_event_live(const gbl_machine *machine,
+                                         const gbl_event *event)
+{
+    if (!event->live) {
+        return false;
+    }
+    if (event->kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) {
+        const gbl_timer_state *timer;
+
+        if (event->timer_index >= GBL_TIMER_COUNT) {
+            return false;
+        }
+        timer = &machine->timers[event->timer_index];
+        return timer->enabled && !timer->cascade &&
+               event->generation == timer->generation;
+    }
+    if (event->kind == (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
+        return event->generation == machine->input_generation &&
+               event->input_index == machine->input_event_cursor &&
+               machine->input_event_cursor < machine->input_event_count &&
+               machine->input_events[machine->input_event_cursor].cycle ==
+                   event->cycle;
+    }
+    return false;
+}
+
+static bool gbl_cpu_next_live_event(const gbl_machine *machine,
+                                    uint64_t *cycle_out)
+{
+    bool found = false;
+    size_t index;
+
+    for (index = 0u; index < machine->event_count; ++index) {
+        const gbl_event *event = &machine->events[index];
+
+        if (gbl_cpu_scheduler_event_live(machine, event) &&
+            (!found || event->cycle < *cycle_out)) {
+            *cycle_out = event->cycle;
+            found = true;
+        }
+    }
+    return found;
+}
+
+static uint64_t gbl_cpu_wait_dispatch_count(const gbl_machine *machine,
+                                            uint64_t target)
+{
+    uint64_t dispatches = 0u;
+    size_t index;
+
+    /* Every pending logical input through target will be reinserted and
+     * dispatched in order, including multiple records at the same cycle. */
+    for (index = machine->input_event_cursor;
+         index < machine->input_event_count &&
+         machine->input_events[index].cycle <= target;
+         ++index) {
+        ++dispatches;
+    }
+    for (index = 0u; index < machine->event_count; ++index) {
+        const gbl_event *event = &machine->events[index];
+
+        if (event->cycle <= target &&
+            (event->kind != (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT ||
+             !gbl_cpu_scheduler_event_live(machine, event))) {
+            ++dispatches;
+        }
+    }
+    return dispatches;
+}
+
+/* One HALT wait unit preflights and commits only through the next live event
+ * or the remaining budget horizon. True means return to the CPU loop. */
+static bool gbl_cpu_wait_halted(gbl_machine *machine, uint64_t remaining,
+                                uint64_t *event_work,
+                                gbl_run_result *run_result)
+{
+    const uint16_t pending = (uint16_t)(machine->interrupt_flags &
+                                        machine->interrupt_enable &
+                                        UINT16_C(0x3FFF));
+    uint64_t next_cycle = 0u;
+    uint64_t horizon;
+    uint64_t target;
+    uint64_t dispatches;
+    uint64_t elapsed;
+    gbl_machine_time_preview preview = { 0 };
+    gbl_time_status time_status;
+
+    if (machine->event_count > GBL_EVENT_CAPACITY ||
+        machine->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        machine->input_event_cursor > machine->input_event_count) {
+        run_result->termination = GBL_RUN_STOPPED;
+        run_result->reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
+    if (pending != 0u) {
+        machine->power_state = GBL_MACHINE_POWER_RUNNING;
+        run_result->wake_cycle = machine->master_cycles;
+        run_result->wake_source_mask = pending;
+        run_result->power_cause = GBL_CPU_POWER_CAUSE_WAKE_PENDING;
+        return true;
+    }
+    if (!gbl_cpu_next_live_event(machine, &next_cycle)) {
+        machine->cpu.stopped = true;
+        machine->cpu.stop_reason = GBL_CPU_STOP_HALT_DEADLOCK;
+        run_result->termination = GBL_RUN_STOPPED;
+        run_result->reason = GBL_RUN_REASON_GUEST_STOP;
+        run_result->power_cause = GBL_CPU_POWER_CAUSE_HALT_DEADLOCK;
+        return false;
+    }
+
+    horizon = remaining > UINT64_MAX - machine->master_cycles
+                  ? UINT64_MAX
+                  : machine->master_cycles + remaining;
+    target = next_cycle <= horizon ? next_cycle : horizon;
+    dispatches = gbl_cpu_wait_dispatch_count(machine, target);
+    if (dispatches > (uint64_t)GBL_MACHINE_MAX_EVENT_DISPATCH -
+                          *event_work) {
+        run_result->termination = GBL_RUN_STOPPED;
+        run_result->reason = GBL_RUN_REASON_TIME_REFUSAL;
+        return false;
+    }
+    time_status = gbl_machine_prepare_time(machine, target, &preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        run_result->termination = GBL_RUN_STOPPED;
+        run_result->reason = gbl_cpu_time_refusal_reason(time_status);
+        return false;
+    }
+    elapsed = target - machine->master_cycles;
+    gbl_machine_commit_time(machine, &preview);
+    *event_work += dispatches;
+    run_result->cycles += elapsed;
+    run_result->wait_cycles += elapsed;
+
+    {
+        const uint16_t wake_sources = (uint16_t)(
+            machine->interrupt_flags & machine->interrupt_enable &
+            UINT16_C(0x3FFF));
+
+        if (wake_sources != 0u) {
+            machine->power_state = GBL_MACHINE_POWER_RUNNING;
+            run_result->wake_cycle = machine->master_cycles;
+            run_result->wake_source_mask = wake_sources;
+            run_result->power_cause = GBL_CPU_POWER_CAUSE_WAKE_EVENT;
+            return true;
+        }
+    }
+    if (target == horizon) {
+        run_result->termination = GBL_RUN_TIMEOUT;
+        run_result->reason = GBL_RUN_REASON_CYCLE_BUDGET;
+        run_result->power_cause = GBL_CPU_POWER_CAUSE_WAIT_TIMEOUT;
+        return false;
+    }
+    return true;
+}
+
 gbl_run_status gbl_cpu_run(gbl_machine *machine,
                            const gbl_run_options *options,
                            gbl_run_result *result)
@@ -3946,9 +4103,14 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
     gbl_run_options run_options;
     gbl_run_result run_result = {
         .termination = GBL_RUN_TIMEOUT,
-        .reason = GBL_RUN_REASON_CYCLE_BUDGET
+        .reason = GBL_RUN_REASON_CYCLE_BUDGET,
+        .wait_cycles = 0u,
+        .wake_cycle = 0u,
+        .wake_source_mask = 0u,
+        .power_cause = GBL_CPU_POWER_CAUSE_NONE
     };
     uint64_t completed_units = 0u;
+    uint64_t wait_event_work = 0u;
 
     if (machine == NULL || options == NULL || result == NULL ||
         !machine->initialized || machine->rom == NULL ||
@@ -3987,6 +4149,28 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         if (machine->cpu.stopped) {
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = gbl_cpu_stop_result(machine->cpu.stop_reason);
+            if (machine->cpu.stop_reason == GBL_CPU_STOP_STOP_REQUESTED) {
+                run_result.power_cause =
+                    GBL_CPU_POWER_CAUSE_STOP_REQUESTED;
+            } else if (machine->cpu.stop_reason ==
+                       GBL_CPU_STOP_HALT_DEADLOCK) {
+                run_result.power_cause =
+                    GBL_CPU_POWER_CAUSE_HALT_DEADLOCK;
+            }
+            break;
+        }
+        if (machine->power_state == GBL_MACHINE_POWER_STOPPED) {
+            machine->cpu.stopped = true;
+            machine->cpu.stop_reason = GBL_CPU_STOP_STOP_REQUESTED;
+            run_result.termination = GBL_RUN_STOPPED;
+            run_result.reason = GBL_RUN_REASON_GUEST_STOP;
+            run_result.power_cause = GBL_CPU_POWER_CAUSE_STOP_REQUESTED;
+            break;
+        }
+        if (machine->power_state != GBL_MACHINE_POWER_RUNNING &&
+            machine->power_state != GBL_MACHINE_POWER_HALTED) {
+            run_result.termination = GBL_RUN_STOPPED;
+            run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             break;
         }
         if (run_result.cycles >= run_options.cycle_budget) {
@@ -3996,6 +4180,16 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             completed_units >= run_options.unit_limit) {
             run_result.termination = GBL_RUN_PROGRESS;
             run_result.reason = GBL_RUN_REASON_UNIT_LIMIT;
+            break;
+        }
+        if (machine->power_state == GBL_MACHINE_POWER_HALTED) {
+            const uint64_t remaining =
+                run_options.cycle_budget - run_result.cycles;
+
+            if (gbl_cpu_wait_halted(machine, remaining, &wait_event_work,
+                                    &run_result)) {
+                continue;
+            }
             break;
         }
         if (machine->cpu.pipeline[0].valid &&
