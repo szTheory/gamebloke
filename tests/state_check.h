@@ -67,6 +67,34 @@ static bool gbl_test_timer_equal(const gbl_timer_state *left,
            left->cascade == right->cascade;
 }
 
+static inline bool gbl_test_time_state_equal(const gbl_machine *left,
+                                             const gbl_machine *right)
+{
+    size_t index;
+
+    if (left == NULL || right == NULL ||
+        left->master_cycles != right->master_cycles ||
+        left->next_event_sequence != right->next_event_sequence ||
+        left->interrupt_flags != right->interrupt_flags ||
+        left->event_count != right->event_count ||
+        left->event_count > GBL_EVENT_CAPACITY) {
+        return false;
+    }
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        if (!gbl_test_event_equal(&left->events[index],
+                                  &right->events[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
+        if (!gbl_test_timer_equal(&left->timers[index],
+                                  &right->timers[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool gbl_test_time_preview_equal(
     const gbl_machine_time_preview *left,
     const gbl_machine_time_preview *right)
@@ -207,34 +235,17 @@ static inline bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
 static bool gbl_test_canonical_equal(const gbl_machine *left,
                                      const gbl_machine *right)
 {
-    size_t index;
-
     if (left == NULL || right == NULL ||
         left->initialized != right->initialized ||
-        left->master_cycles != right->master_cycles ||
-        left->next_event_sequence != right->next_event_sequence ||
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
-        left->interrupt_flags != right->interrupt_flags ||
-        left->event_count != right->event_count ||
+        !gbl_test_time_state_equal(left, right) ||
         !gbl_test_cpu_equal(&left->cpu, &right->cpu) ||
         !gbl_test_diagnostics_equal(&left->header_diagnostics,
                                     &right->header_diagnostics) ||
         left->rom_length != right->rom_length ||
         ((left->rom == NULL) != (right->rom == NULL))) {
         return false;
-    }
-    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
-        if (!gbl_test_event_equal(&left->events[index],
-                                  &right->events[index])) {
-            return false;
-        }
-    }
-    for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
-        if (!gbl_test_timer_equal(&left->timers[index],
-                                  &right->timers[index])) {
-            return false;
-        }
     }
     if (!gbl_test_bytes_equal(left->ewram, right->ewram, GBL_EWRAM_SIZE) ||
         !gbl_test_bytes_equal(left->iwram, right->iwram, GBL_IWRAM_SIZE) ||
@@ -369,20 +380,15 @@ static uint64_t gbl_test_digest_cpu(uint64_t digest,
     return digest;
 }
 
-/* Test-only streaming FNV-1a over canonical fields in fixed byte order. */
-static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
+static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
+                                              uint64_t master_cycles)
 {
     uint64_t digest = UINT64_C(14695981039346656037);
     size_t index;
 
-    if (machine == NULL) {
-        return gbl_test_digest_byte(digest, 0xFFu);
-    }
-    digest = gbl_test_digest_byte(digest, machine->initialized ? 1u : 0u);
-    digest = gbl_test_digest_u64(digest, machine->master_cycles);
+    if (machine == NULL) return gbl_test_digest_byte(digest, 0xFFu);
+    digest = gbl_test_digest_u64(digest, master_cycles);
     digest = gbl_test_digest_u64(digest, machine->next_event_sequence);
-    digest = gbl_test_digest_u64(digest, machine->open_bus);
-    digest = gbl_test_digest_u64(digest, machine->dispcnt);
     digest = gbl_test_digest_u64(digest, machine->interrupt_flags);
     digest = gbl_test_digest_u64(digest, (uint64_t)machine->event_count);
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -409,6 +415,30 @@ static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
         digest = gbl_test_digest_byte(digest, timer->irq_enabled ? 1u : 0u);
         digest = gbl_test_digest_byte(digest, timer->cascade ? 1u : 0u);
     }
+    return digest;
+}
+
+static uint64_t gbl_test_time_state_digest(const gbl_machine *machine)
+{
+    return machine == NULL
+               ? gbl_test_time_state_digest_at(NULL, 0u)
+               : gbl_test_time_state_digest_at(machine,
+                                                machine->master_cycles);
+}
+
+/* Test-only streaming FNV-1a over canonical fields in fixed byte order. */
+static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
+{
+    uint64_t digest = UINT64_C(14695981039346656037);
+
+    if (machine == NULL) {
+        return gbl_test_digest_byte(digest, 0xFFu);
+    }
+    digest = gbl_test_digest_byte(digest, machine->initialized ? 1u : 0u);
+    digest = gbl_test_digest_u64(digest,
+                                 gbl_test_time_state_digest(machine));
+    digest = gbl_test_digest_u64(digest, machine->open_bus);
+    digest = gbl_test_digest_u64(digest, machine->dispcnt);
     digest = gbl_test_digest_cpu(digest, &machine->cpu);
     digest = gbl_test_digest_byte(digest,
                                   machine->header_diagnostics.loaded ? 1u : 0u);

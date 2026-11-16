@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "run.h"
+#include "state_check.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -486,83 +487,10 @@ static bool gbl_interleave_serialize_trace(
     return offset != 0u;
 }
 
-static bool gbl_interleave_cpu_equal(const gbl_cpu_state *first,
-                                    const gbl_cpu_state *second)
-{
-    size_t index;
-
-    if (memcmp(first->r0_7, second->r0_7, sizeof first->r0_7) != 0 ||
-        memcmp(first->usr_r8_14, second->usr_r8_14,
-               sizeof first->usr_r8_14) != 0 ||
-        memcmp(first->fiq_r8_14, second->fiq_r8_14,
-               sizeof first->fiq_r8_14) != 0 ||
-        memcmp(first->irq_r13_14, second->irq_r13_14,
-               sizeof first->irq_r13_14) != 0 ||
-        memcmp(first->svc_r13_14, second->svc_r13_14,
-               sizeof first->svc_r13_14) != 0 ||
-        memcmp(first->abt_r13_14, second->abt_r13_14,
-               sizeof first->abt_r13_14) != 0 ||
-        memcmp(first->und_r13_14, second->und_r13_14,
-               sizeof first->und_r13_14) != 0 ||
-        memcmp(first->spsr, second->spsr, sizeof first->spsr) != 0 ||
-        first->cpsr != second->cpsr ||
-        first->execution_address != second->execution_address ||
-        first->next_fetch_sequential != second->next_fetch_sequential ||
-        first->retired_instructions != second->retired_instructions ||
-        first->stopped != second->stopped ||
-        first->stop_reason != second->stop_reason ||
-        first->last_exception.kind != second->last_exception.kind ||
-        first->last_exception.current_address !=
-            second->last_exception.current_address ||
-        first->last_exception.next_address !=
-            second->last_exception.next_address ||
-        first->last_exception.fault_address !=
-            second->last_exception.fault_address ||
-        first->last_exception.thumb_state !=
-            second->last_exception.thumb_state) {
-        return false;
-    }
-    for (index = 0u; index < 2u; ++index) {
-        if (first->pipeline[index].address != second->pipeline[index].address ||
-            first->pipeline[index].opcode != second->pipeline[index].opcode ||
-            first->pipeline[index].width != second->pipeline[index].width ||
-            first->pipeline[index].valid != second->pipeline[index].valid) {
-            return false;
-        }
-    }
-    return true;
-}
-
 static bool gbl_interleave_machine_equal(const gbl_machine *first,
                                          const gbl_machine *second)
 {
-    return first->initialized == second->initialized &&
-           first->master_cycles == second->master_cycles &&
-           first->open_bus == second->open_bus &&
-           first->dispcnt == second->dispcnt &&
-           gbl_interleave_cpu_equal(&first->cpu, &second->cpu) &&
-           first->header_diagnostics.loaded ==
-               second->header_diagnostics.loaded &&
-           first->header_diagnostics.canonical_logo ==
-               second->header_diagnostics.canonical_logo &&
-           first->header_diagnostics.logo_reason ==
-               second->header_diagnostics.logo_reason &&
-           first->header_diagnostics.logo_window ==
-               second->header_diagnostics.logo_window &&
-           first->header_diagnostics.checksum ==
-               second->header_diagnostics.checksum &&
-           first->header_diagnostics.game_code ==
-               second->header_diagnostics.game_code &&
-           first->rom_length == second->rom_length &&
-           ((first->rom == NULL) == (second->rom == NULL)) &&
-           memcmp(first->ewram, second->ewram, sizeof first->ewram) == 0 &&
-           memcmp(first->iwram, second->iwram, sizeof first->iwram) == 0 &&
-           memcmp(first->pram, second->pram, sizeof first->pram) == 0 &&
-           memcmp(first->vram, second->vram, sizeof first->vram) == 0 &&
-           memcmp(first->oam, second->oam, sizeof first->oam) == 0 &&
-           (first->rom_length == 0u ||
-            (first->rom != NULL && second->rom != NULL &&
-             memcmp(first->rom, second->rom, first->rom_length) == 0));
+    return gbl_test_canonical_equal(first, second);
 }
 
 static bool gbl_interleave_trace_fields_equal(
@@ -713,6 +641,36 @@ static bool gbl_interleave_isolated_prepare(
     return true;
 }
 
+static bool gbl_interleave_timer0_complete(
+    const gbl_interleave_instance *instance)
+{
+    size_t index;
+    bool live_timer0_event = false;
+
+    if (instance == NULL || instance->mailbox.status != GBL_MAILBOX_PASS ||
+        instance->mailbox.case_id != UINT32_C(7001) ||
+        instance->cycles == 0u || instance->cycles > UINT64_C(10000) ||
+        instance->machine.master_cycles != instance->cycles ||
+        (instance->machine.interrupt_flags & (UINT16_C(1) << 3u)) == 0u ||
+        !instance->machine.timers[0].enabled ||
+        !instance->machine.timers[0].irq_enabled ||
+        instance->machine.event_count > GBL_EVENT_CAPACITY) {
+        return false;
+    }
+    for (index = 0u; index < instance->machine.event_count; ++index) {
+        const gbl_event *event = &instance->machine.events[index];
+
+        if (event->live &&
+            event->kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
+            event->timer_index == 0u &&
+            event->generation == instance->machine.timers[0].generation &&
+            event->cycle > instance->machine.master_cycles) {
+            live_timer0_event = true;
+        }
+    }
+    return live_timer0_event;
+}
+
 static bool gbl_interleave_pair_dispose(gbl_interleave_pair *pair)
 {
     bool disposed = true;
@@ -809,10 +767,12 @@ static int gbl_test_interleave_main(void)
 {
     gbl_test_bytes arm_image = { 0 };
     gbl_test_bytes thumb_image = { 0 };
+    gbl_test_bytes timer0_image = { 0 };
     gbl_interleave_instance isolated_arm = { 0 };
     gbl_interleave_instance isolated_thumb = { 0 };
     gbl_interleave_instance interleaved_arm = { 0 };
     gbl_interleave_instance interleaved_thumb = { 0 };
+    gbl_interleave_pair timer0_pair = { 0 };
     const char *failure = "interleave-fixture-load-failed";
     bool passed = false;
 
@@ -882,6 +842,25 @@ static int gbl_test_interleave_main(void)
         failure = "isolated-and-alternating-observations-differ";
         goto done;
     }
+    if (!gbl_interleave_fixture(&timer0_image, "owned-timer0-pass.gba") ||
+        !gbl_interleave_pair_prepare(
+            &timer0_pair, timer0_image.data, timer0_image.length,
+            UINT64_C(10000), arm_image.data, arm_image.length,
+            UINT64_C(1000), &failure) ||
+        !gbl_interleave_timer0_complete(&timer0_pair.isolated_first) ||
+        !gbl_interleave_timer0_complete(&timer0_pair.alternating_first) ||
+        !gbl_test_time_state_equal(&timer0_pair.isolated_first.machine,
+                                   &timer0_pair.alternating_first.machine) ||
+        strcmp(gbl_interleave_compare(&timer0_pair.isolated_first,
+                                      &timer0_pair.alternating_first),
+               "ok") != 0) {
+        failure = "timer0-isolated-and-alternating-observations-differ";
+        goto done;
+    }
+    if (!gbl_interleave_pair_dispose(&timer0_pair)) {
+        failure = "timer0-interleave-pair-disposal-failed";
+        goto done;
+    }
     passed = true;
 
 done:
@@ -892,6 +871,7 @@ done:
         disposed = gbl_interleave_dispose(&isolated_thumb) && disposed;
         disposed = gbl_interleave_dispose(&interleaved_arm) && disposed;
         disposed = gbl_interleave_dispose(&interleaved_thumb) && disposed;
+        disposed = gbl_interleave_pair_dispose(&timer0_pair) && disposed;
         if (!disposed) {
             failure = "machine-disposal-postcondition-failed";
             passed = false;
@@ -899,8 +879,9 @@ done:
     }
     free(arm_image.data);
     free(thumb_image.data);
+    free(timer0_image.data);
     if (passed) {
-        puts("PASS determinism.interleave: isolated and alternating ARM pass / ARM-Thumb fail executions match per-instance state and canonical traces");
+        puts("PASS determinism.interleave: isolated and alternating ARM, ARM-Thumb and Timer 0 guests match canonical machine state and traces");
         return 0;
     }
     fprintf(stderr, "FAIL determinism.interleave: %s\n", failure);
@@ -966,20 +947,6 @@ static int gbl_test_interleave_controls_main(void)
         failure = "pass-fail-pair-or-aggregate-totals-invalid";
         goto done;
     }
-    gbl_interleave_seed_live_timer(&pair.isolated_first.machine);
-    gbl_interleave_seed_live_timer(&pair.alternating_first.machine);
-    pair.alternating_first.machine.timers[0].generation = UINT64_C(2);
-    pair.alternating_first.machine.events[0].generation = UINT64_C(2);
-    if (!gbl_interleave_trace_fields_equal(
-            pair.isolated_first.trace.records,
-            pair.alternating_first.trace.records,
-            pair.isolated_first.trace.count) ||
-        strcmp(gbl_interleave_compare(&pair.isolated_first,
-                                      &pair.alternating_first),
-               "interleave-state-mismatch") != 0) {
-        failure = "live-timer-event-state-mutation-was-accepted";
-        goto done;
-    }
     {
         size_t different_record = 0u;
         gbl_trace_record original;
@@ -1020,6 +987,20 @@ static int gbl_test_interleave_controls_main(void)
             failure = "trace-contamination-not-specific-or-clean-control-failed";
             goto done;
         }
+    }
+    gbl_interleave_seed_live_timer(&pair.isolated_first.machine);
+    gbl_interleave_seed_live_timer(&pair.alternating_first.machine);
+    pair.alternating_first.machine.timers[0].generation = UINT64_C(2);
+    pair.alternating_first.machine.events[0].generation = UINT64_C(2);
+    if (!gbl_interleave_trace_fields_equal(
+            pair.isolated_first.trace.records,
+            pair.alternating_first.trace.records,
+            pair.isolated_first.trace.count) ||
+        strcmp(gbl_interleave_compare(&pair.isolated_first,
+                                      &pair.alternating_first),
+               "interleave-state-mismatch") != 0) {
+        failure = "live-timer-event-state-mutation-was-accepted";
+        goto done;
     }
     if (!gbl_interleave_pair_dispose(&pair)) {
         failure = "pass-fail-pair-disposal-failed";
@@ -1184,6 +1165,162 @@ done:
     return 1;
 }
 
+static bool gbl_test_timer_cascade_setup(gbl_machine *machine)
+{
+    static const struct {
+        uint8_t timer_index;
+        uint16_t reload;
+        uint8_t control;
+    } writes[] = {
+        { 3u, UINT16_MAX, UINT8_C(0xC4) },
+        { 2u, UINT16_MAX, UINT8_C(0xC4) },
+        { 1u, UINT16_MAX, UINT8_C(0x84) },
+        { 0u, UINT16_C(0xFFFE), UINT8_C(0xC0) }
+    };
+    size_t index;
+
+    if (machine == NULL) return false;
+    for (index = 0u; index < sizeof writes / sizeof writes[0]; ++index) {
+        const uint32_t address =
+            UINT32_C(0x04000100) +
+            (uint32_t)writes[index].timer_index * UINT32_C(4);
+        const uint32_t value =
+            ((uint32_t)writes[index].control << 16u) |
+            writes[index].reload;
+        const gbl_bus_result result = gbl_bus_write(
+            machine, address, 4u, GBL_BUS_CLASS_NONSEQUENTIAL, value);
+
+        if (result.status != GBL_BUS_STATUS_OK) return false;
+    }
+    return gbl_machine_advance_to(machine, UINT64_C(6)) ==
+               GBL_TIME_STATUS_OK &&
+           machine->master_cycles == UINT64_C(6) &&
+           machine->interrupt_flags == UINT16_C(0x0068) &&
+           machine->timers[1].cascade && machine->timers[2].cascade &&
+           machine->timers[3].cascade &&
+           machine->timers[1].counter == UINT16_MAX &&
+           machine->timers[2].counter == UINT16_MAX &&
+           machine->timers[3].counter == UINT16_MAX &&
+           machine->event_count == 1u && machine->events[0].live &&
+           machine->events[0].timer_index == 0u &&
+           machine->cpu.last_exception.kind == GBL_EXCEPTION_NONE &&
+           !machine->cpu.stopped;
+}
+
+static bool gbl_test_timer_repeat_and_cascade(const char **failure)
+{
+    gbl_test_bytes timer0_image = { 0 };
+    gbl_interleave_pair timer0_pair = { 0 };
+    gbl_interleave_instance fresh_machine = { 0 };
+    gbl_machine cascade_first = { 0 };
+    gbl_machine cascade_second = { 0 };
+    gbl_machine cascade_initial = { 0 };
+    const gbl_allocator allocator = {
+        NULL, gbl_interleave_allocate, gbl_interleave_release
+    };
+    bool cascade_first_initialized = false;
+    bool cascade_second_initialized = false;
+    bool cascade_initial_initialized = false;
+    bool passed = false;
+
+    *failure = "timer0-repeat-or-cascade-failed";
+    if (!gbl_interleave_fixture(&timer0_image, "owned-timer0-pass.gba")) {
+        *failure = "timer0-repeat-fixture-load-failed";
+        goto cleanup;
+    }
+    if (!gbl_interleave_pair_prepare(
+            &timer0_pair, timer0_image.data, timer0_image.length,
+            UINT64_C(10000), timer0_image.data, timer0_image.length,
+            UINT64_C(10000), failure)) {
+        goto cleanup;
+    }
+    if (!gbl_interleave_timer0_complete(&timer0_pair.isolated_first) ||
+        !gbl_interleave_timer0_complete(&timer0_pair.isolated_second) ||
+        !gbl_interleave_timer0_complete(&timer0_pair.alternating_first) ||
+        !gbl_test_time_state_equal(&timer0_pair.isolated_first.machine,
+                                   &timer0_pair.isolated_second.machine) ||
+        strcmp(gbl_interleave_compare(&timer0_pair.isolated_first,
+                                      &timer0_pair.isolated_second),
+               "ok") != 0) {
+        *failure = "timer0-fresh-observations-differ";
+        goto cleanup;
+    }
+    if (!gbl_interleave_load(&fresh_machine, timer0_image.data,
+                             timer0_image.length, UINT64_C(10000))) {
+        *failure = "timer0-fresh-reset-companion-load-failed";
+        goto cleanup;
+    }
+    if (!gbl_interleave_reset_reload(&timer0_pair.alternating_first,
+                                     timer0_image.data, timer0_image.length,
+                                     UINT64_C(10000)) ||
+        !gbl_test_canonical_equal(&fresh_machine.machine,
+                                  &timer0_pair.alternating_first.machine) ||
+        !gbl_test_time_state_equal(&fresh_machine.machine,
+                                   &timer0_pair.alternating_first.machine) ||
+        !gbl_interleave_run_isolated(&timer0_pair.alternating_first,
+                                     failure) ||
+        !gbl_interleave_serialize_trace(&timer0_pair.alternating_first) ||
+        strcmp(gbl_interleave_compare(&timer0_pair.isolated_first,
+                                      &timer0_pair.alternating_first),
+               "ok") != 0) {
+        *failure = "timer0-reset-rerun-differs-from-fresh";
+        goto cleanup;
+    }
+
+    if (gbl_machine_init(&cascade_first, &allocator) != GBL_BUS_STATUS_OK) {
+        *failure = "cascade-first-machine-init-failed";
+        goto cleanup;
+    }
+    cascade_first_initialized = true;
+    if (gbl_machine_init(&cascade_second, &allocator) != GBL_BUS_STATUS_OK) {
+        *failure = "cascade-second-machine-init-failed";
+        goto cleanup;
+    }
+    cascade_second_initialized = true;
+    if (gbl_machine_init(&cascade_initial, &allocator) != GBL_BUS_STATUS_OK) {
+        *failure = "cascade-initial-machine-init-failed";
+        goto cleanup;
+    }
+    cascade_initial_initialized = true;
+    if (!gbl_test_timer_cascade_setup(&cascade_first) ||
+        !gbl_test_timer_cascade_setup(&cascade_second) ||
+        !gbl_test_time_state_equal(&cascade_first, &cascade_second) ||
+        !gbl_test_canonical_equal(&cascade_first, &cascade_second) ||
+        gbl_test_canonical_digest(&cascade_first) !=
+            gbl_test_canonical_digest(&cascade_second)) {
+        *failure = "cascade-fresh-observations-differ";
+        goto cleanup;
+    }
+    gbl_machine_reset(&cascade_second);
+    if (!gbl_test_canonical_equal(&cascade_initial, &cascade_second) ||
+        !gbl_test_time_state_equal(&cascade_initial, &cascade_second) ||
+        !gbl_test_timer_cascade_setup(&cascade_second) ||
+        !gbl_test_canonical_equal(&cascade_first, &cascade_second) ||
+        gbl_test_canonical_digest(&cascade_first) !=
+            gbl_test_canonical_digest(&cascade_second)) {
+        *failure = "cascade-reset-rerun-differs-from-fresh";
+        goto cleanup;
+    }
+    passed = true;
+
+cleanup:
+    if (!gbl_interleave_dispose(&fresh_machine)) {
+        *failure = "timer0-fresh-machine-disposal-failed";
+        passed = false;
+    }
+    if (!gbl_interleave_pair_dispose(&timer0_pair)) {
+        *failure = "timer0-pair-disposal-failed";
+        passed = false;
+    }
+    if (cascade_first_initialized) gbl_machine_dispose(&cascade_first);
+    if (cascade_second_initialized) gbl_machine_dispose(&cascade_second);
+    if (cascade_initial_initialized) gbl_machine_dispose(&cascade_initial);
+    free(timer0_image.data);
+    if (passed) return true;
+    if (*failure == NULL) *failure = "timer0-repeat-or-cascade-failed";
+    return false;
+}
+
 static int gbl_test_repeat_main(void)
 {
     char directory_template[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
@@ -1196,6 +1333,8 @@ static int gbl_test_repeat_main(void)
     const char *failure = "temporary-directory-create-failed";
     bool directory_created = false;
     bool okay = false;
+
+    if (!gbl_test_timer_repeat_and_cascade(&failure)) goto done;
 
     if (!gbl_test_create_directory(directory_template,
                                    sizeof directory_template)) {
@@ -2308,6 +2447,219 @@ static void gbl_test_time_authority_release(void *context, void *pointer,
     free(pointer);
 }
 
+static bool gbl_test_time_authority_timer_observe(const char *mode,
+                                                  const char *output_path,
+                                                  const char **failure)
+{
+    enum { GBL_TIMER_OBSERVATION_CYCLE_BUDGET = 10000u };
+    gbl_test_bytes image = { 0 };
+    gbl_test_bytes trace_bytes = { 0 };
+    gbl_trace_record trace_records[GBL_DETERMINISM_TRACE_CAPACITY] = { { 0 } };
+    gbl_trace_buffer trace = {
+        trace_records, GBL_DETERMINISM_TRACE_CAPACITY, 0u, 0u
+    };
+    gbl_run_options options = {
+        GBL_TIMER_OBSERVATION_CYCLE_BUDGET, UINT64_C(1),
+        GBL_TRACE_CATEGORY_MASK, &trace
+    };
+    gbl_runner_result trace_result = { 0 };
+    const gbl_allocator allocator = {
+        NULL, gbl_test_time_authority_allocate,
+        gbl_test_time_authority_release
+    };
+    gbl_machine machine = { 0 };
+    gbl_machine clean_machine = { 0 };
+    gbl_load_result load_result;
+    gbl_mailbox_result mailbox = { 0 };
+    char image_path[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char work[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char trace_path[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char header[768];
+    char *canonical = NULL;
+    uint64_t cycles = 0u;
+    uint64_t instructions = 0u;
+    uint64_t clean_time_digest;
+    uint64_t time_digest;
+    size_t steps = 0u;
+    int header_length;
+    bool initialized = false;
+    bool inject_mutation = strcmp(mode, "timer-mutant") == 0;
+    bool timer_mode = strcmp(mode, "timer") == 0;
+    bool okay = false;
+    FILE *output = NULL;
+
+    if ((!timer_mode && !inject_mutation) || output_path == NULL ||
+        output_path[0] == '\0') {
+        *failure = "timer-observation-arguments-invalid";
+        return false;
+    }
+    if (!gbl_test_path(image_path, sizeof image_path,
+                       GBL_DETERMINISM_FIXTURE_DIR,
+                       "owned-timer0-pass.gba") ||
+        !gbl_test_read_file(image_path, &image)) {
+        *failure = "timer0-guest-fixture-read-failed";
+        goto cleanup;
+    }
+    if (!gbl_test_create_directory(work, sizeof work) ||
+        !gbl_test_path(trace_path, sizeof trace_path, work,
+                       "timer0-observation.trace.jsonl")) {
+        *failure = "timer-observation-scratch-path-invalid";
+        goto cleanup;
+    }
+    if (gbl_machine_init(&machine, &allocator) != GBL_BUS_STATUS_OK) {
+        *failure = "timer-observation-machine-initialization-failed";
+        goto cleanup;
+    }
+    initialized = true;
+    load_result = gbl_load_rom(&machine, image.data, image.length);
+    if (load_result.status != GBL_LOAD_STATUS_OK ||
+        load_result.reason != GBL_LOAD_REASON_NONE) {
+        *failure = "timer0-guest-load-failed";
+        goto cleanup;
+    }
+
+    while (steps < GBL_TIMER_OBSERVATION_CYCLE_BUDGET &&
+           cycles < GBL_TIMER_OBSERVATION_CYCLE_BUDGET) {
+        gbl_run_result part = { 0 };
+        const uint64_t remaining =
+            GBL_TIMER_OBSERVATION_CYCLE_BUDGET - cycles;
+
+        options.cycle_budget = remaining;
+        if (gbl_cpu_run(&machine, &options, &part) != GBL_RUN_STATUS_OK ||
+            UINT64_MAX - cycles < part.cycles ||
+            UINT64_MAX - instructions < part.instructions) {
+            *failure = "timer-observation-canonical-run-failed";
+            goto cleanup;
+        }
+        cycles += part.cycles;
+        instructions += part.instructions;
+        steps++;
+        if (part.termination == GBL_RUN_TRACE_OUTPUT_FULL ||
+            (part.termination != GBL_RUN_PROGRESS &&
+             part.termination != GBL_RUN_STOPPED)) {
+            *failure = "timer-observation-did-not-complete-whole-unit";
+            goto cleanup;
+        }
+        mailbox = gbl_mailbox_read(&machine);
+        if (mailbox.status == GBL_MAILBOX_PASS ||
+            mailbox.status == GBL_MAILBOX_FAIL) {
+            break;
+        }
+    }
+    if (mailbox.status != GBL_MAILBOX_PASS ||
+        mailbox.case_id != UINT32_C(7001) || cycles == 0u ||
+        cycles > GBL_TIMER_OBSERVATION_CYCLE_BUDGET || instructions == 0u ||
+        machine.master_cycles != cycles ||
+        (machine.interrupt_flags & (UINT16_C(1) << 3u)) == 0u ||
+        !machine.timers[0].enabled || !machine.timers[0].irq_enabled ||
+        machine.event_count == 0u ||
+        machine.event_count > GBL_EVENT_CAPACITY ||
+        !machine.events[0].live ||
+        machine.events[0].kind !=
+            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW ||
+        machine.events[0].timer_index != 0u ||
+        machine.events[0].generation != machine.timers[0].generation) {
+        *failure = "timer0-guest-semantic-or-live-event-observation-invalid";
+        goto cleanup;
+    }
+
+    trace_result.trace_mask = GBL_TRACE_CATEGORY_MASK;
+    trace_result.trace_capacity = trace.capacity;
+    trace_result.trace_count = trace.count;
+    trace_result.trace_complete = true;
+    trace_result.trace_emitted = true;
+    trace_result.trace_records = trace.records;
+    if (trace.count == 0u || trace.count > trace.capacity ||
+        !gbl_runner_write_trace(trace_path, &trace_result) ||
+        !gbl_test_read_file(trace_path, &trace_bytes) ||
+        trace_bytes.data[trace_bytes.length - 1u] != (uint8_t)'\n' ||
+        gbl_test_newline_count(&trace_bytes) != trace.count) {
+        *failure = "timer-observation-trace-serialization-failed";
+        goto cleanup;
+    }
+
+    clean_machine = machine;
+    clean_time_digest = gbl_test_time_state_digest(&clean_machine);
+    if (inject_mutation) {
+        machine.timers[0].generation++;
+        machine.interrupt_flags &= (uint16_t)~(UINT16_C(1) << 3u);
+        if (gbl_test_time_state_equal(&clean_machine, &machine) ||
+            gbl_test_canonical_equal(&clean_machine, &machine)) {
+            *failure = "time-authority-timer-state-mutation-not-detected";
+            goto cleanup;
+        }
+        puts("EXPECTED time-authority-timer-state-mismatch: Timer 0 generation and IF request changed after the clean guest while trace records stayed fixed");
+    } else if (!gbl_test_canonical_equal(&clean_machine, &machine)) {
+        *failure = "clean-timer-observation-state-changed";
+        goto cleanup;
+    }
+    time_digest = gbl_test_time_state_digest(&machine);
+    if (inject_mutation && time_digest == clean_time_digest) {
+        *failure = "time-authority-timer-state-digest-did-not-change";
+        goto cleanup;
+    }
+    header_length = snprintf(
+        header, sizeof header,
+        "{\"schema\":\"gamebloke.time-authority/1\",\"model\":\"gamebloke-timer-model-1\",\"qualification\":\"project-model-only\",\"termination\":\"mailbox-complete\",\"semantic_state\":\"pass\",\"case_id\":\"7001\",\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\",\"master_cycles\":\"%" PRIu64 "\",\"interrupt_flags\":\"%u\",\"if_request\":%s,\"timer0_generation\":\"%" PRIu64 "\",\"timer0_counter\":\"%u\",\"timer0_enabled\":%s,\"timer0_irq_enabled\":%s,\"event_count\":\"%zu\",\"event0_live\":%s,\"event0_generation\":\"%" PRIu64 "\",\"time_state_digest\":\"%016" PRIx64 "\",\"trace_count\":%zu}\n",
+        cycles, instructions, machine.master_cycles,
+        (unsigned int)machine.interrupt_flags,
+        (machine.interrupt_flags & (UINT16_C(1) << 3u)) != 0u ? "true" :
+                                                                  "false",
+        machine.timers[0].generation,
+        (unsigned int)machine.timers[0].counter,
+        machine.timers[0].enabled ? "true" : "false",
+        machine.timers[0].irq_enabled ? "true" : "false",
+        machine.event_count, machine.events[0].live ? "true" : "false",
+        machine.events[0].generation, time_digest, trace.count);
+    if (header_length < 0 || (size_t)header_length >= sizeof header ||
+        (size_t)header_length > SIZE_MAX - trace_bytes.length) {
+        *failure = "timer-observation-header-failed";
+        goto cleanup;
+    }
+    canonical = malloc((size_t)header_length + trace_bytes.length);
+    if (canonical == NULL) {
+        *failure = "timer-observation-allocation-failed";
+        goto cleanup;
+    }
+    memcpy(canonical, header, (size_t)header_length);
+    memcpy(canonical + (size_t)header_length, trace_bytes.data,
+           trace_bytes.length);
+    output = fopen(output_path, "wbx");
+    if (output == NULL) {
+        *failure = "timer-observation-write-failed";
+        goto cleanup;
+    }
+    if (fwrite(canonical, 1u, (size_t)header_length + trace_bytes.length,
+               output) != (size_t)header_length + trace_bytes.length) {
+        (void)fclose(output);
+        output = NULL;
+        *failure = "timer-observation-write-failed";
+        goto cleanup;
+    }
+    if (fclose(output) != 0) {
+        output = NULL;
+        *failure = "timer-observation-write-failed";
+        goto cleanup;
+    }
+    output = NULL;
+    okay = true;
+
+cleanup:
+    if (output != NULL) (void)fclose(output);
+    free(canonical);
+    free(trace_bytes.data);
+    free(image.data);
+    if (trace_path[0] != '\0') (void)unlink(trace_path);
+    if (work[0] != '\0') (void)rmdir(work);
+    if (initialized) gbl_machine_dispose(&machine);
+    if (okay) {
+        printf("PASS determinism.time_authority: mode=%s termination=mailbox-complete semantic=pass case_id=7001 cycles=%" PRIu64 " instructions=%" PRIu64 " master_cycles=%" PRIu64 " trace_count=%zu time_state_digest=%016" PRIx64 "\n",
+               mode, cycles, instructions, clean_machine.master_cycles,
+               trace.count, time_digest);
+    }
+    return okay;
+}
+
 static bool gbl_test_time_authority_observe(const char *mode,
                                             const char *output_path,
                                             const char **failure)
@@ -2341,6 +2693,8 @@ static bool gbl_test_time_authority_observe(const char *mode,
     char alternate_header[256];
     char digest[GBL_SHA256_HEX_CAPACITY];
     char alternate_digest[GBL_SHA256_HEX_CAPACITY];
+    uint64_t time_digest;
+    uint64_t alternate_time_digest;
     uint8_t *rom_before = NULL;
     size_t rom_length = 0u;
     size_t steps = 0u;
@@ -2354,6 +2708,10 @@ static bool gbl_test_time_authority_observe(const char *mode,
     bool okay = false;
     FILE *output = NULL;
 
+    if (strcmp(mode, "timer") == 0 || strcmp(mode, "timer-mutant") == 0) {
+        return gbl_test_time_authority_timer_observe(mode, output_path,
+                                                     failure);
+    }
     if (strcmp(mode, "full") != 0 && !final_mode) {
         *failure = "invalid-observation-mode";
         return false;
@@ -2505,11 +2863,13 @@ static bool gbl_test_time_authority_observe(const char *mode,
         goto cleanup;
     }
     memcpy(rom_before, machine.rom, rom_length);
+    time_digest = gbl_test_time_state_digest(&machine);
     header_length = snprintf(
         header, sizeof header,
-        "{\"schema\":\"gamebloke.time-authority/1\",\"termination\":%u,\"reason\":%u,\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\",\"master_cycles\":\"%" PRIu64 "\",\"trace_count\":%zu}\n",
+        "{\"schema\":\"gamebloke.time-authority/1\",\"termination\":%u,\"reason\":%u,\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\",\"master_cycles\":\"%" PRIu64 "\",\"time_state_digest\":\"%016" PRIx64 "\",\"trace_count\":%zu}\n",
         (unsigned int)total.termination, (unsigned int)total.reason,
-        total.cycles, total.instructions, machine.master_cycles, trace.count);
+        total.cycles, total.instructions, machine.master_cycles,
+        time_digest, trace.count);
     if (header_length < 0 || (size_t)header_length >= sizeof header) {
         *failure = "canonical-header-failed";
         goto cleanup;
@@ -2531,12 +2891,14 @@ static bool gbl_test_time_authority_observe(const char *mode,
         *failure = "final-cycle-boundary-overflow";
         goto cleanup;
     }
+    alternate_time_digest = gbl_test_time_state_digest_at(
+        &machine, machine.master_cycles + UINT64_C(1));
     alternate_header_length = snprintf(
         alternate_header, sizeof alternate_header,
-        "{\"schema\":\"gamebloke.time-authority/1\",\"termination\":%u,\"reason\":%u,\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\",\"master_cycles\":\"%" PRIu64 "\",\"trace_count\":%zu}\n",
+        "{\"schema\":\"gamebloke.time-authority/1\",\"termination\":%u,\"reason\":%u,\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64 "\",\"master_cycles\":\"%" PRIu64 "\",\"time_state_digest\":\"%016" PRIx64 "\",\"trace_count\":%zu}\n",
         (unsigned int)total.termination, (unsigned int)total.reason,
         total.cycles, total.instructions, machine.master_cycles + UINT64_C(1),
-        trace.count);
+        alternate_time_digest, trace.count);
     if (alternate_header_length < 0 ||
         (size_t)alternate_header_length >= sizeof alternate_header ||
         (size_t)alternate_header_length >
@@ -2561,7 +2923,8 @@ static bool gbl_test_time_authority_observe(const char *mode,
         goto cleanup;
     }
 
-    if (memcmp(&machine, &machine_before, sizeof machine) != 0 ||
+    if (!gbl_test_canonical_equal(&machine_before, &machine) ||
+        !gbl_test_same_instance_identity_equal(&machine_before, &machine) ||
         memcmp(machine.rom, rom_before, rom_length) != 0) {
         *failure = "observation-mutated-machine-state-or-time";
         goto cleanup;

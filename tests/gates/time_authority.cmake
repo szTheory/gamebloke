@@ -125,6 +125,69 @@ function(gbl__require_hash_mismatch clean_path mutant_path label trace_expectati
     "EXPECTED time-authority-trace-hash-mismatch: ${label} mutant hash ${mutant_hash} differs from clean ${clean_hash}")
 endfunction()
 
+function(gbl__require_timer_state_mismatch clean_path mutant_path)
+  file(READ "${clean_path}" clean_bytes)
+  file(READ "${mutant_path}" mutant_bytes)
+  string(FIND "${clean_bytes}" "\n" clean_header_end)
+  string(FIND "${mutant_bytes}" "\n" mutant_header_end)
+  if(clean_header_end EQUAL -1 OR mutant_header_end EQUAL -1)
+    message(FATAL_ERROR "time-authority: Timer 0 observation header is missing")
+  endif()
+  string(SUBSTRING "${clean_bytes}" 0 ${clean_header_end} clean_header)
+  string(SUBSTRING "${mutant_bytes}" 0 ${mutant_header_end} mutant_header)
+  math(EXPR clean_trace_start "${clean_header_end} + 1")
+  math(EXPR mutant_trace_start "${mutant_header_end} + 1")
+  string(SUBSTRING "${clean_bytes}" ${clean_trace_start} -1 clean_trace)
+  string(SUBSTRING "${mutant_bytes}" ${mutant_trace_start} -1 mutant_trace)
+  if(NOT "${clean_trace}" STREQUAL "${mutant_trace}")
+    message(FATAL_ERROR
+      "time-authority: timer-state control changed ordinary trace bytes")
+  endif()
+  foreach(field IN ITEMS model qualification semantic_state case_id cycles
+      instructions master_cycles interrupt_flags if_request timer0_generation
+      timer0_enabled timer0_irq_enabled event_count event0_live
+      event0_generation time_state_digest trace_count)
+    string(JSON clean_${field} ERROR_VARIABLE clean_${field}_error
+      GET "${clean_header}" ${field})
+    string(JSON mutant_${field} ERROR_VARIABLE mutant_${field}_error
+      GET "${mutant_header}" ${field})
+    if(NOT "${clean_${field}_error}" STREQUAL "NOTFOUND" OR
+        NOT "${mutant_${field}_error}" STREQUAL "NOTFOUND")
+      message(FATAL_ERROR
+        "time-authority: timer-state observation field ${field} is missing")
+    endif()
+  endforeach()
+  if(NOT clean_model STREQUAL "gamebloke-timer-model-1" OR
+      NOT clean_qualification STREQUAL "project-model-only" OR
+      NOT clean_semantic_state STREQUAL "pass" OR
+      NOT clean_case_id STREQUAL "7001" OR
+      NOT clean_if_request OR NOT clean_timer0_enabled OR
+      NOT clean_timer0_irq_enabled OR NOT clean_event0_live OR
+      clean_event_count LESS 1 OR
+      NOT clean_timer0_generation STREQUAL clean_event0_generation)
+    message(FATAL_ERROR
+      "time-authority: clean Timer 0 observation lacks live model/IF state")
+  endif()
+  if(NOT mutant_model STREQUAL clean_model OR
+      NOT mutant_qualification STREQUAL clean_qualification OR
+      NOT mutant_semantic_state STREQUAL clean_semantic_state OR
+      NOT mutant_case_id STREQUAL clean_case_id OR
+      NOT mutant_cycles STREQUAL clean_cycles OR
+      NOT mutant_instructions STREQUAL clean_instructions OR
+      NOT mutant_master_cycles STREQUAL clean_master_cycles OR
+      mutant_if_request OR NOT mutant_timer0_enabled OR
+      NOT mutant_timer0_irq_enabled OR NOT mutant_event0_live OR
+      mutant_timer0_generation STREQUAL clean_timer0_generation OR
+      NOT mutant_event0_generation STREQUAL clean_event0_generation OR
+      mutant_time_state_digest STREQUAL clean_time_state_digest OR
+      NOT mutant_trace_count STREQUAL clean_trace_count)
+    message(FATAL_ERROR
+      "time-authority: timer-state mutant did not isolate live generation/IF changes")
+  endif()
+  message(STATUS
+    "EXPECTED time-authority-timer-state-mismatch: live timer generation and IF request changed while trace bytes stayed identical")
+endfunction()
+
 function(gbl__run_observation executable mode output_path expected_status)
   execute_process(
     COMMAND "${executable}" time-authority "${mode}" "${output_path}"
@@ -145,6 +208,28 @@ function(gbl__run_observation executable mode output_path expected_status)
     message(FATAL_ERROR "time-authority: observation output is empty or incomplete")
   endif()
   set(GBL_LAST_RUN_OUTPUT "${run_out}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__verify_timer_observation candidate_executable clean_executable
+    output_root)
+  set(candidate_output "${output_root}/timer-candidate.jsonl")
+  set(clean_output "${output_root}/timer-clean.jsonl")
+  gbl__run_observation("${candidate_executable}" timer
+    "${candidate_output}" mailbox-complete)
+  set(candidate_line "${GBL_LAST_RUN_OUTPUT}")
+  gbl__run_observation("${clean_executable}" timer "${clean_output}"
+    mailbox-complete)
+  set(clean_line "${GBL_LAST_RUN_OUTPUT}")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E compare_files
+    "${candidate_output}" "${clean_output}"
+    RESULT_VARIABLE timer_compare)
+  if(NOT "${timer_compare}" STREQUAL "0")
+    message(FATAL_ERROR
+      "time-authority: fresh Timer 0 candidate and clean observations differ\n${candidate_line}${clean_line}")
+  endif()
+  set(GBL_TIMER_CLEAN_OUTPUT "${clean_output}" PARENT_SCOPE)
+  message(STATUS
+    "PASS time-authority: clean Timer 0 guest binds live timer/event/IF state to the canonical observation")
 endfunction()
 
 gbl__cache_value(CMAKE_C_COMPILER compiler)
@@ -203,6 +288,8 @@ file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
   "${input_root}/include/gamebloke/gamebloke.h")
 file(COPY_FILE "${SRC}/tests/determinism_test.c"
   "${input_root}/tests/determinism_test.c")
+file(COPY_FILE "${SRC}/tests/state_check.h"
+  "${input_root}/tests/state_check.h")
 file(COPY_FILE "${BIN}/generated/control/fixture_index.h"
   "${input_root}/generated/control/fixture_index.h")
 
@@ -266,6 +353,7 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E compare_files
 if(NOT "${exact_compare}" STREQUAL "0")
   message(FATAL_ERROR "time-authority: clean observations are not byte-identical")
 endif()
+gbl__verify_timer_observation("${candidate}" "${clean_executable}" "${root}")
 if(CASE STREQUAL "clean")
   message(STATUS
     "PASS bus.time_authority.clean: candidate and fresh clean compilation match; ${clean_line}")
@@ -316,10 +404,22 @@ foreach(label IN ITEMS midpath final)
     "${label}" "${trace_expectation}")
 endforeach()
 
+set(timer_mutant_output "${root}/timer-mutant.jsonl")
+gbl__run_observation("${clean_executable}" timer-mutant
+  "${timer_mutant_output}" mailbox-complete)
+set(timer_mutant_line "${GBL_LAST_RUN_OUTPUT}")
+if(NOT timer_mutant_line MATCHES
+    "EXPECTED time-authority-timer-state-mismatch")
+  message(FATAL_ERROR
+    "time-authority: timer-state mutation did not emit its named mismatch\n${timer_mutant_line}")
+endif()
+gbl__require_timer_state_mismatch("${root}/timer-clean.jsonl"
+  "${timer_mutant_output}")
+
 file(SHA256 "${SRC}/src/cpu.c" source_cpu_hash_after)
 if(NOT "${source_cpu_hash_before}" STREQUAL "${source_cpu_hash_after}")
   message(FATAL_ERROR
     "time-authority: production src/cpu.c changed during disposable mutation")
 endif()
 message(STATUS
-  "PASS bus.time_authority.control: clean companion passes; midpath trace and final-only cycle mutants are rejected with the named reason")
+  "PASS bus.time_authority.control: clean companions pass; midpath/final clock mutants and live timer/event/IF state mutation are rejected with named evidence")
