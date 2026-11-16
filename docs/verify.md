@@ -619,4 +619,4 @@ The full-workflow evidence, including actual totals and allowed skips, is
 recorded in [Phase 7 evidence](../.planning/phases/07-time-authority-and-timer-0-polling-proof/07-EVIDENCE.md).
 The `DIAG-04` ARM/Thumb evidence gap and `DET-02` hosted-x64 evidence gap remain
 open carryovers. Hardware timing edges `TIME-01` and `BUS-06` remain
-unclassified, and six owner judgments remain pending their separate review.
+unclassified. The six prohibition judgments were individually accepted after source/evidence review; hardware-edge classification and Phase 6 carryovers remain open.
