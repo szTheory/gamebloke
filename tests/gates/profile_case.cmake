@@ -39,6 +39,7 @@ file(READ "${SRC}/profiles/agb.json" base_profile)
 string(JSON PROFILE_VERSION GET "${base_profile}" profile_version)
 string(JSON UNMODELED_COUNT LENGTH "${base_profile}" unmodeled)
 math(EXPR NEXT_PROFILE_VERSION "${PROFILE_VERSION}+1")
+math(EXPR NEXT_PROFILE_UNMODELED_COUNT "${UNMODELED_COUNT}+1")
 
 # profile_copy(<out-var> <variant>): a fresh sandbox copy of the real profile.
 function(profile_copy out variant)
@@ -612,7 +613,7 @@ elseif(CASE STREQUAL "bus_policy_copy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
 elseif(CASE STREQUAL "unmodeled_missing")
-  # Remove each of the eleven required entries in turn from a fresh copy; each
+  # Remove each required entry in turn from a fresh copy; each
   # removal names its own id.
   file(READ "${SRC}/profiles/agb.json" real)
   string(JSON n LENGTH "${real}" unmodeled)
@@ -780,7 +781,7 @@ elseif(CASE STREQUAL "hblank_edge_hardcoded")
   endforeach()
 
 elseif(CASE STREQUAL "unmodeled_bad_entry")
-  # prefetch is entry 1, dma entry 5, sp-micro-differences entry 0.
+  # prefetch is entry 1, dma entry 7, sp-micro-differences entry 0.
   profile_copy(p status)
   gbl_json_mutate_set("${p}" "\"todo\"" unmodeled 1 status)
   expect_code(unmodeled-bad-entry "${p}")
@@ -795,10 +796,10 @@ elseif(CASE STREQUAL "unmodeled_bad_entry")
   profile_copy(p details)
   gbl_json_mutate_set("${p}" [=["The Micro has no cartridge switch."]=] unmodeled 0 details 0)
   expect_code(unmodeled-bad-entry "${p}")
-  # hblank-flag-edge (entry 2) must carry disp-hblank-flag-edge, not another dispute id
+  # hblank-flag-edge (entry 4) must carry disp-hblank-flag-edge, not another dispute id
   # (disp-dma-latch is a registry id, so no dispute-unknown finding can stand in for it).
   profile_copy(p hblank_dispute)
-  gbl_json_mutate_set("${p}" "\"disp-dma-latch\"" unmodeled 2 dispute)
+  gbl_json_mutate_set("${p}" "\"disp-dma-latch\"" unmodeled 4 dispute)
   expect_detail(unmodeled-bad-entry "hblank-flag-edge: dispute" "${p}")
 
 elseif(CASE STREQUAL "dispute_unknown")
@@ -910,14 +911,14 @@ elseif(CASE STREQUAL "coordinated_change")
   doc_copy(d coordinated)
   gbl_json_mutate_set("${p}"
     [=[{"id": "serial-link", "status": "unmodeled", "reason": "Not emulated in v1.0; no result may claim serial link behavior."}]=]
-    unmodeled 11)
+    unmodeled ${UNMODELED_COUNT})
   gbl_json_mutate_set("${p}" "${NEXT_PROFILE_VERSION}" profile_version)
   gbl_text_mutate("${d}" "| `backup-media` |"
     "| `serial-link` | The serial link port. |\n| `backup-media` |")
   gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n" "\nprofile_version: ${NEXT_PROFILE_VERSION}\n")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v${NEXT_PROFILE_VERSION}, 11 timing constants, 12 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${NEXT_PROFILE_VERSION}, 11 timing constants, ${NEXT_PROFILE_UNMODELED_COUNT} unmodeled\\)")
 
 else()
   message(FATAL_ERROR "profile-case: unknown case: ${CASE}")
