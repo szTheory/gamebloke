@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 3
 waived_count: 0
-fixed_count: 20
-total_count: 23
-last_updated: 2026-11-16T06:18:16.334Z
+fixed_count: 22
+total_count: 25
+last_updated: 2026-11-16T07:56:39.863Z
 ---
 
 # Broken Windows Ledger
@@ -38,6 +38,8 @@ last_updated: 2026-11-16T06:18:16.334Z
 | 21 | 07 | deviation | tests/gates/core_mutation.cmake |  | Moved the clock-overflow mutation to the checked addition in machine.c; its negative control passes. | fixed |  | 2026-11-16T06:18:15.494Z | 2026-11-16T06:18:15.660Z |
 | 22 | 07 | deviation | tests/state_check.h |  | Made the new shared time-preview comparison inline to satisfy strict unused-function warnings. | fixed |  | 2026-11-16T06:18:15.825Z | 2026-11-16T06:18:16.003Z |
 | 23 | 07 | deviation | .planning/phases/07-time-authority-and-timer-0-polling-proof/07-02-01-red-evidence.json |  | Replaced absolute JUnit report locations in both RED evidence commands with repository-relative paths. | fixed |  | 2026-11-16T06:18:16.167Z | 2026-11-16T06:18:16.334Z |
+| 24 | 07 | deviation | src/machine.c |  | Ordered time preparation now advances by the shared quoted bus-operation cycle count instead of an independent fixed-one-cycle literal; canonical workflow passes. | fixed |  | 2026-11-16T07:56:10.142Z | 2026-11-16T07:56:39.776Z |
+| 25 | 07 | deviation | src/cpu.c |  | Exception units now use the shared calculator for their internal-cycle attribution; determinism control and canonical workflow pass. | fixed |  | 2026-11-16T07:56:14.967Z | 2026-11-16T07:56:39.863Z |
 
 ````json
 [
@@ -338,6 +340,32 @@ last_updated: 2026-11-16T06:18:16.334Z
     "reason": "",
     "recorded_at": "2026-11-16T06:18:16.167Z",
     "resolved_at": "2026-11-16T06:18:16.334Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 24,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "src/machine.c",
+    "line": null,
+    "description": "Ordered time preparation now advances by the shared quoted bus-operation cycle count instead of an independent fixed-one-cycle literal; canonical workflow passes.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-16T07:56:10.142Z",
+    "resolved_at": "2026-11-16T07:56:39.776Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 25,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "src/cpu.c",
+    "line": null,
+    "description": "Exception units now use the shared calculator for their internal-cycle attribution; determinism control and canonical workflow pass.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-16T07:56:14.967Z",
+    "resolved_at": "2026-11-16T07:56:39.863Z",
     "milestone": "v2.0"
   }
 ]
