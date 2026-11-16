@@ -45,6 +45,59 @@ if(DEFINED GBL_ARTIFACT_ROOT AND NOT "${GBL_ARTIFACT_ROOT}" STREQUAL "")
   endif()
 endif()
 get_filename_component(GBL_CONTROL_IMAGE "${GBL_CONTROL_IMAGE}" ABSOLUTE)
+set(timer0_control_pass_supplied FALSE)
+set(timer0_control_disabled_supplied FALSE)
+if(DEFINED GBL_CONTROL_TIMER0_IMAGE AND
+    NOT "${GBL_CONTROL_TIMER0_IMAGE}" STREQUAL "")
+  set(timer0_control_pass_supplied TRUE)
+  get_filename_component(GBL_CONTROL_TIMER0_IMAGE
+    "${GBL_CONTROL_TIMER0_IMAGE}" ABSOLUTE)
+endif()
+if(DEFINED GBL_CONTROL_TIMER0_DISABLED_IMAGE AND
+    NOT "${GBL_CONTROL_TIMER0_DISABLED_IMAGE}" STREQUAL "")
+  set(timer0_control_disabled_supplied TRUE)
+  get_filename_component(GBL_CONTROL_TIMER0_DISABLED_IMAGE
+    "${GBL_CONTROL_TIMER0_DISABLED_IMAGE}" ABSOLUTE)
+endif()
+if(NOT timer0_control_pass_supplied STREQUAL
+    timer0_control_disabled_supplied)
+  message(FATAL_ERROR
+    "fixture-index: timer0-image-pair-required")
+endif()
+if(timer0_control_pass_supplied)
+  if(NOT DEFINED GBL_CONTROL_TIMER0_GENERATOR_COMPILER OR
+      "${GBL_CONTROL_TIMER0_GENERATOR_COMPILER}" STREQUAL "")
+    message(FATAL_ERROR
+      "fixture-index: timer0-generator-compiler-required")
+  endif()
+  set(timer0_pass_expected
+    "${GBL_OUTPUT_ROOT}/generated/fixtures/owned-timer0-pass.gba")
+  set(timer0_disabled_expected
+    "${GBL_OUTPUT_ROOT}/generated/fixtures/owned-timer0-disabled.gba")
+  if(NOT "${GBL_CONTROL_TIMER0_IMAGE}" STREQUAL
+      "${timer0_pass_expected}" OR
+      NOT "${GBL_CONTROL_TIMER0_DISABLED_IMAGE}" STREQUAL
+      "${timer0_disabled_expected}")
+    message(FATAL_ERROR "fixture-index: timer0-image-not-owned-output")
+  endif()
+  foreach(timer0_image IN ITEMS "${GBL_CONTROL_TIMER0_IMAGE}"
+      "${GBL_CONTROL_TIMER0_DISABLED_IMAGE}")
+    gbl_resolve_contained_path(timer0_image_real timer0_image_status
+      "${GBL_OUTPUT_ROOT}" "${timer0_image}")
+    if(NOT timer0_image_status STREQUAL "ok" OR
+        NOT EXISTS "${timer0_image_real}" OR
+        IS_DIRECTORY "${timer0_image_real}")
+      message(FATAL_ERROR "fixture-index: timer0-image-invalid")
+    endif()
+  endforeach()
+  file(SHA256 "${GBL_SOURCE_DIR}/tests/fixtures/instruction_image.c"
+    timer0_generator_source_sha256)
+  string(LENGTH "${timer0_generator_source_sha256}" generator_digest_length)
+  if(NOT generator_digest_length EQUAL 64 OR
+      NOT timer0_generator_source_sha256 MATCHES "^[0-9a-f]+$")
+    message(FATAL_ERROR "fixture-index: timer0-generator-source-unpinned")
+  endif()
+endif()
 if(DEFINED GBL_CONTROL_FAIL_IMAGE AND NOT "${GBL_CONTROL_FAIL_IMAGE}" STREQUAL "")
   get_filename_component(GBL_CONTROL_FAIL_IMAGE "${GBL_CONTROL_FAIL_IMAGE}" ABSOLUTE)
 endif()
@@ -149,7 +202,16 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       NOT "${GBL_CONTROL_ZERO_CASE_IMAGE}" STREQUAL "")
     list(APPEND control_ids synthetic-control-pass-zero-case)
   endif()
+  if(timer0_control_pass_supplied)
+    list(APPEND control_ids
+      synthetic-control-timer0-pass synthetic-control-timer0-disabled)
+  endif()
   foreach(control_id IN LISTS control_ids)
+    set(control_channel_member "")
+    set(control_license
+      "{\"spdx\":\"LicenseRef-Gamebloke-Synthetic-Control\",\"notices\":[\"Artificial validator input for generated test bytes; no redistribution grant.\"],\"redistributable\":\"unknown\"}")
+    set(control_expected
+      "{\"provenance_class\":\"disputed\",\"dispute\":\"disp-gbatek-errata\"}")
     if(control_id STREQUAL "synthetic-control-pass")
       set(control_image "${GBL_CONTROL_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass.gba")
@@ -211,6 +273,22 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       set(control_image "${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}")
       set(control_source_path "generated/fixtures/owned-register-arm-zero.gba")
       set(control_bios "none")
+    elseif(control_id STREQUAL "synthetic-control-timer0-pass")
+      set(control_image "${GBL_CONTROL_TIMER0_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-timer0-pass.gba")
+      set(control_bios "none")
+      set(control_license
+        "{\"spdx\":\"LicenseRef-Gamebloke-Synthetic-Control\",\"notices\":[\"tests/fixtures/timer0-NOTICE.md\"],\"redistributable\":\"unknown\"}")
+      set(control_expected
+        "{\"provenance_class\":\"project-authored\",\"dispute\":null}")
+    elseif(control_id STREQUAL "synthetic-control-timer0-disabled")
+      set(control_image "${GBL_CONTROL_TIMER0_DISABLED_IMAGE}")
+      set(control_source_path "generated/fixtures/owned-timer0-disabled.gba")
+      set(control_bios "none")
+      set(control_license
+        "{\"spdx\":\"LicenseRef-Gamebloke-Synthetic-Control\",\"notices\":[\"tests/fixtures/timer0-NOTICE.md\"],\"redistributable\":\"unknown\"}")
+      set(control_expected
+        "{\"provenance_class\":\"project-authored\",\"dispute\":null}")
     else()
       set(control_image "${GBL_CONTROL_ZERO_CASE_IMAGE}")
       set(control_source_path "generated/fixtures/owned-arm-pass-zero-case.gba")
@@ -283,6 +361,28 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       string(JSON control_channel SET "${control_channel}" entry_address
         "\"${entry_address}\"")
       set(control_channel_member ",\n      \"result_channel\": ${control_channel}")
+    elseif(control_id MATCHES "^synthetic-control-timer0-")
+      set(control_source "{}")
+      string(JSON control_source SET "${control_source}" kind "\"in-tree\"")
+      string(JSON control_source SET "${control_source}" path
+        "\"${control_source_path}\"")
+      string(JSON control_source SET "${control_source}" sha256
+        "\"${control_digest}\"")
+
+      set(control_toolchain "{}")
+      string(JSON control_toolchain SET "${control_toolchain}" identity
+        "\"CMake-configured ${GBL_CONTROL_TIMER0_GENERATOR_COMPILER} C17 generator\"")
+      string(JSON control_toolchain SET "${control_toolchain}" sha256 null)
+      set(control_build "{}")
+      if(control_id STREQUAL "synthetic-control-timer0-pass")
+        set(control_timer0_mode "enabled")
+      else()
+        set(control_timer0_mode "disabled")
+      endif()
+      string(JSON control_build SET "${control_build}" recipe
+        "\"tests/fixtures/instruction_image.c SHA-256=${timer0_generator_source_sha256}; original 0x240-byte ARM guest, Timer 0 ${control_timer0_mode}, generated local artifact\"")
+      string(JSON control_build SET "${control_build}" toolchain
+        "${control_toolchain}")
     else()
       set(control_source "{}")
       string(JSON control_source SET "${control_source}" kind "\"in-tree\"")
@@ -308,10 +408,10 @@ if(NOT DEFINED GBL_CONTROL_MANIFEST OR "${GBL_CONTROL_MANIFEST}" STREQUAL "")
       "    {\n"
       "      \"id\": \"${control_id}\",\n"
       "      \"source\": ${control_source},\n"
-      "      \"license\": {\"spdx\": \"LicenseRef-Gamebloke-Synthetic-Control\", \"notices\": [\"Artificial validator input for generated test bytes; no redistribution grant.\"], \"redistributable\": \"unknown\"},\n"
+      "      \"license\": ${control_license},\n"
       "      \"build\": ${control_build},\n"
       "      \"bios_requirement\": \"${control_bios}\",\n"
-      "      \"expected\": {\"provenance_class\": \"disputed\", \"dispute\": \"disp-gbatek-errata\"},\n"
+      "      \"expected\": ${control_expected},\n"
       "      \"permitted_use\": [\"local-only\"]${control_channel_member}\n"
       "    }")
   endforeach()
@@ -362,6 +462,11 @@ list(APPEND control_checks
   "synthetic-control-register-arm|${GBL_CONTROL_IMAGE}"
   "synthetic-control-register-thumb|${GBL_CONTROL_IMAGE}"
   "synthetic-control-register-mailbox-pass|${GBL_CONTROL_IMAGE}")
+if(timer0_control_pass_supplied)
+  list(APPEND control_checks
+    "synthetic-control-timer0-pass|${GBL_CONTROL_TIMER0_IMAGE}"
+    "synthetic-control-timer0-disabled|${GBL_CONTROL_TIMER0_DISABLED_IMAGE}")
+endif()
 if(DEFINED GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE AND
     NOT "${GBL_CONTROL_REGISTER_ARM_ZERO_IMAGE}" STREQUAL "")
   list(APPEND control_checks

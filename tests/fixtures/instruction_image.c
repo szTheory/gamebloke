@@ -8,7 +8,8 @@ enum {
     IMAGE_SIZE = 0x240u,
     ARM_ENTRY_OFFSET = 0x00u,
     ARM_CODE_OFFSET = 0xC0u,
-    THUMB_CODE_OFFSET = 0x1A0u
+    THUMB_CODE_OFFSET = 0x1A0u,
+    TIMER0_MAILBOX_OFFSET = 0x80u
 };
 
 #define MAILBOX_ADDRESS UINT32_C(0x03007FC0)
@@ -108,6 +109,50 @@ static void make_mailbox_image(uint8_t image[IMAGE_SIZE], uint32_t state,
     memset(image, 0, IMAGE_SIZE);
     put_direct_start_branch(image);
     put_arm_mailbox(image, ARM_CODE_OFFSET, state, case_id, write_completion);
+}
+
+static void make_timer0_polling_image(uint8_t image[IMAGE_SIZE],
+                                      bool timer_enabled)
+{
+    const uint32_t timer_control = timer_enabled ? UINT32_C(0xC0) :
+                                                   UINT32_C(0x40);
+    const uint32_t timer_reload_and_control =
+        UINT32_C(0x0000FFFF) | (timer_control << 16u);
+
+    memset(image, 0, IMAGE_SIZE);
+    put_direct_start_branch(image);
+
+    /* Load Timer 0's 16-bit reload/control pair and start it (or leave only
+     * its IRQ-enable bit set in the disabled control image). */
+    put_u32(image, ARM_CODE_OFFSET + 0x00u, UINT32_C(0xE59F0038));
+    put_u32(image, ARM_CODE_OFFSET + 0x04u, UINT32_C(0xE59F1038));
+    put_u32(image, ARM_CODE_OFFSET + 0x08u, UINT32_C(0xE5801000));
+
+    /* Enable Timer 0's request in IE and the master request gate in IME. The
+     * CPU remains in direct-start state with IRQ entry masked. */
+    put_u32(image, ARM_CODE_OFFSET + 0x0Cu, UINT32_C(0xE59F2034));
+    put_u32(image, ARM_CODE_OFFSET + 0x10u, UINT32_C(0xE3A03008));
+    put_u32(image, ARM_CODE_OFFSET + 0x14u, UINT32_C(0xE1C230B0));
+    put_u32(image, ARM_CODE_OFFSET + 0x18u, UINT32_C(0xE59F202C));
+    put_u32(image, ARM_CODE_OFFSET + 0x1Cu, UINT32_C(0xE3A03001));
+    put_u32(image, ARM_CODE_OFFSET + 0x20u, UINT32_C(0xE1C230B0));
+
+    /* Poll only Timer 0's IF bit. A set device request takes the branch to
+     * the mailbox code; no exception or handler path is used by the guest. */
+    put_u32(image, ARM_CODE_OFFSET + 0x24u, UINT32_C(0xE59F3024));
+    put_u32(image, ARM_CODE_OFFSET + 0x28u, UINT32_C(0xE1D340B0));
+    put_u32(image, ARM_CODE_OFFSET + 0x2Cu, UINT32_C(0xE3140008));
+    put_u32(image, ARM_CODE_OFFSET + 0x30u, UINT32_C(0x0AFFFFFB));
+    put_u32(image, ARM_CODE_OFFSET + 0x34u, UINT32_C(0xEA000011));
+
+    put_u32(image, ARM_CODE_OFFSET + 0x40u, UINT32_C(0x04000100));
+    put_u32(image, ARM_CODE_OFFSET + 0x44u, timer_reload_and_control);
+    put_u32(image, ARM_CODE_OFFSET + 0x48u, UINT32_C(0x04000200));
+    put_u32(image, ARM_CODE_OFFSET + 0x4Cu, UINT32_C(0x04000208));
+    put_u32(image, ARM_CODE_OFFSET + 0x50u, UINT32_C(0x04000202));
+
+    put_arm_mailbox(image, ARM_CODE_OFFSET + TIMER0_MAILBOX_OFFSET,
+                    UINT32_C(2), UINT32_C(7001), true);
 }
 
 static void make_loop_image(uint8_t image[IMAGE_SIZE])
@@ -222,6 +267,12 @@ static bool generate_all(const char *directory)
 
     make_thumb_bx_image(image);
     okay = write_image(directory, "owned-arm-thumb-bx-pass.gba", image) &&
+           okay;
+
+    make_timer0_polling_image(image, true);
+    okay = write_image(directory, "owned-timer0-pass.gba", image) && okay;
+    make_timer0_polling_image(image, false);
+    okay = write_image(directory, "owned-timer0-disabled.gba", image) &&
            okay;
 
     /* A generated one-byte mutation is a no-write identity negative control. */

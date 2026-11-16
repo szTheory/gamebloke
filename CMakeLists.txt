@@ -202,6 +202,8 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     owned-register-thumb-zero.gba
     owned-register-thumb-fail.gba
     owned-arm-thumb-bx-pass.gba
+    owned-timer0-pass.gba
+    owned-timer0-disabled.gba
     owned-arm-pass-mutated.gba)
   set(GBL_OWNED_FIXTURE_FILES "")
   foreach(fixture IN LISTS GBL_OWNED_FIXTURE_NAMES)
@@ -341,6 +343,9 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "-DGBL_CONTROL_REGISTER_ARM_STOP_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-stop.gba"
       "-DGBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-zero.gba"
       "-DGBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-fail.gba"
+      "-DGBL_CONTROL_TIMER0_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-pass.gba"
+      "-DGBL_CONTROL_TIMER0_DISABLED_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-disabled.gba"
+      "-DGBL_CONTROL_TIMER0_GENERATOR_COMPILER=${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}"
       "-DGBL_CONTROL_MANIFEST_OUTPUT=${GBL_CONTROL_MANIFEST}"
       "-DGBL_MANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "-DGBL_REGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
@@ -361,6 +366,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     COMMAND ${GBL_FIXTURE_INDEX_COMMAND}
     DEPENDS ${GBL_OWNED_FIXTURE_FILES} ${GBL_DIAGNOSTIC_INDEX_DEPENDS}
       "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/timer0-NOTICE.md"
       "${CMAKE_SOURCE_DIR}/cmake/CheckDiagnosticAuthority.cmake"
       "${CMAKE_SOURCE_DIR}/cmake/PathContainment.cmake"
       "${CMAKE_SOURCE_DIR}/registry/disputes.json"
