@@ -99,6 +99,27 @@ function(result_add_time_extension result)
   gbl_json_mutate_set("${result}" "true" timer0 if_request)
 endfunction()
 
+function(result_add_phase8_extension result)
+  result_add_time_extension("${result}")
+  gbl_json_mutate_set("${result}" "\"24\"" time bus_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time internal_cycles)
+  gbl_json_mutate_set("${result}"
+    "{\"model\":\"gamebloke-irq-input-model-1\",\"qualification\":\"project-model-only\",\"observed\":true,\"irq\":{\"if\":8,\"ie\":8,\"ime\":1,\"sample\":{\"cycle\":\"4\",\"if\":0,\"ie\":8,\"ime\":1,\"eligible_sources\":0,\"eligible\":false,\"cpsr_i_masked\":false,\"accepted\":false,\"entered\":false}},\"last_exception\":\"none\",\"power\":{\"state\":\"running\",\"cause\":\"wake_event\",\"wake_source_mask\":8,\"wake_cycle\":\"5\"},\"keypad\":{\"keyinput\":1022,\"keycnt\":0,\"condition\":false,\"irq_condition\":false,\"applied_events\":1,\"pending_events\":0},\"wait_cycles\":\"4\"}"
+    phase8)
+  gbl_json_mutate_set("${result}" "\"0\"" phase8 wait_cycles)
+endfunction()
+
+function(result_phase8_set_not_run result)
+  gbl_json_mutate_set("${result}" "false" phase8 observed)
+  foreach(path IN ITEMS irq/if irq/ie irq/ime irq/sample last_exception
+      power/state power/cause power/wake_source_mask power/wake_cycle
+      keypad/keyinput keypad/keycnt keypad/condition keypad/irq_condition
+      keypad/applied_events keypad/pending_events wait_cycles)
+    string(REPLACE "/" ";" keys "${path}")
+    gbl_json_mutate_set("${result}" "null" phase8 ${keys})
+  endforeach()
+endfunction()
+
 # hex(<out-var> <fragment> <times>): a synthesized hex string.
 function(hex out fragment times)
   string(REPEAT "${fragment}" ${times} value)
@@ -370,6 +391,132 @@ elseif(CASE STREQUAL "semantic_time")
   gbl_json_mutate_set("${r}" "{\"complete\": false}" trace)
   expect_detail(incomplete-trace
     "incomplete trace requires trace-output-full HARNESS_FAIL" "${r}")
+
+elseif(CASE STREQUAL "phase_positive")
+  result_copy(r legacy_without_phase8)
+  expect_ok(PASS "${r}")
+
+  result_copy(r complete_phase8_tuple)
+  result_add_phase8_extension("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r phase8_wait_cycles_in_total)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"20\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"4\"" phase8 wait_cycles)
+  expect_ok(PASS "${r}")
+
+  hex(h64 "a" 64)
+  result_copy(r phase8_with_script_identity)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"script\"" claim input_timeline kind)
+  gbl_json_mutate_set("${r}" "\"${h64}\"" claim input_timeline sha256)
+  expect_ok(PASS "${r}")
+
+  result_copy(r phase8_zero_budget_nulls)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"TIMEOUT\"" status)
+  gbl_json_mutate_set("${r}" "\"cycle-budget\"" reason)
+  gbl_json_mutate_set("${r}" "\"timeout\"" termination)
+  gbl_json_mutate_set("${r}" "\"absent\"" semantic state)
+  gbl_json_mutate_set("${r}" "\"0\"" semantic case_id)
+  gbl_json_mutate_set("${r}" "\"0\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time instructions)
+  gbl_json_mutate_set("${r}" "\"0\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "null" timer0 if_request)
+  result_phase8_set_not_run("${r}")
+  expect_ok(TIMEOUT "${r}")
+
+  result_copy(r phase8_uint64_max_boundary)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551614\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"1\"" phase8 wait_cycles)
+  expect_ok(PASS "${r}")
+
+elseif(CASE STREQUAL "phase_negative")
+  result_copy(r missing_phase8_field)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_remove("${r}" phase8 irq ime)
+  expect_detail(missing-field "phase8.irq.ime" "${r}")
+
+  result_copy(r phase8_wrong_type)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "0" phase8 keypad condition)
+  expect_detail(bad-phase8-type "phase8.keypad.condition" "${r}")
+
+  result_copy(r entered_without_acceptance)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample entered)
+  expect_detail(bad-phase8-entry "entered requires accepted IRQ exception" "${r}")
+
+  result_copy(r accepted_while_sample_masked)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample if)
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample eligible_sources)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample eligible)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample cpsr_i_masked)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample accepted)
+  expect_detail(bad-phase8-eligibility "accepted conflicts with sampled" "${r}")
+
+  result_copy(r wake_without_source)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "null" phase8 power wake_source_mask)
+  expect_detail(bad-phase8-wake "wake cause requires source and cycle" "${r}")
+
+  result_copy(r not_run_observations)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "false" phase8 observed)
+  expect_detail(bad-phase8-not-run "unobserved phase8 requires null" "${r}")
+
+  hex(h10 "a" 10)
+  result_copy(r phase8_bad_script_digest)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"script\"" claim input_timeline kind)
+  gbl_json_mutate_set("${r}" "\"${h10}\"" claim input_timeline sha256)
+  expect_detail(bad-input-timeline "claim.input_timeline.sha256" "${r}")
+
+  result_copy(r lost_wait_cycles)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"20\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"4\"" phase8 wait_cycles)
+  expect_ok(PASS "${r}")
+  gbl_json_mutate_set("${r}" "\"0\"" phase8 wait_cycles)
+  expect_detail(bad-time-components
+    "time.cycles does not equal time.bus_cycles \\+ time.internal_cycles \\+ phase8.wait_cycles" "${r}")
+
+  result_copy(r phase8_wait_overflow)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551616\"" phase8 wait_cycles)
+  expect_detail(time-overflow "phase8.wait_cycles" "${r}")
+
+  result_copy(r phase8_sum_overflow)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time bus_cycles)
+  expect_ok(PASS "${r}")
+  gbl_json_mutate_set("${r}" "\"1\"" phase8 wait_cycles)
+  expect_detail(time-sum-overflow
+    "time.bus_cycles \\+ time.internal_cycles \\+ phase8.wait_cycles exceeds UINT64_MAX" "${r}")
+
+  result_copy(r inflated_phase8_qualification)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"hardware-qualified\"" phase8 qualification)
+  expect_detail(bad-phase8-qualification "phase8.qualification" "${r}")
+
+  result_copy(r handler_success_claim)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample if)
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample eligible_sources)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample eligible)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample accepted)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample entered)
+  gbl_json_mutate_set("${r}" "\"irq\"" phase8 last_exception)
+  expect_detail(bad-phase8-handler-claim
+    "entered IRQ must remain GUEST_STOP with no-bios-irq" "${r}")
 
 elseif(CASE STREQUAL "usage")
   # No RESULT, and no MANIFEST.

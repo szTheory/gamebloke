@@ -1072,6 +1072,7 @@ result.nc.missing_reason control,result
 result.nc.missing_refusal control,result
 result.nc.pass_without_digest control,result
 result.nc.pass_without_run control,result
+result.nc.phase8 control,result
 result.nc.ran_state_mismatch control,result
 result.nc.semantic_time control,result
 result.nc.undisclosed_dispute control,result
@@ -1083,6 +1084,7 @@ result.pos.all_states positive,result
 result.pos.bios_provider_forms positive,result
 result.pos.disputed positive,result
 result.pos.instruction_reasons positive,result
+result.pos.phase8 positive,result
 runner.hash runner,unit
 runner.help runner,unit
 runner.metadata gate,runner

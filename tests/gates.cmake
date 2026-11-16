@@ -395,6 +395,11 @@ foreach(case IN ITEMS
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
 endforeach()
 
+gbl_add_test(
+  NAME result.nc.phase8
+  LABELS control result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase_negative" -P "${GBL_RESULT_CASE}")
+
 foreach(case IN ITEMS
     all_states bios_provider_forms disputed instruction_reasons)
   gbl_add_test(
@@ -402,6 +407,11 @@ foreach(case IN ITEMS
     LABELS positive result
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
 endforeach()
+
+gbl_add_test(
+  NAME result.pos.phase8
+  LABELS positive result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase_positive" -P "${GBL_RESULT_CASE}")
 
 # ---- strict JSON loader (Phase 2) -------------------------------------------
 # One negative control per loader reason code, plus the two helper controls
