@@ -353,6 +353,44 @@ static void free_machine(gbl_machine *machine)
     }
 }
 
+static gbl_machine *new_power_machine(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE] = { 0u };
+    gbl_allocator allocator = { NULL, test_allocate, test_release };
+    gbl_machine *machine = calloc(1u, sizeof(*machine));
+    gbl_load_result load;
+
+    if (machine == NULL ||
+        gbl_machine_init(machine, &allocator) != GBL_BUS_STATUS_OK) {
+        free(machine);
+        return NULL;
+    }
+    write_word(image, 0u, UINT32_C(0xE1A00000));
+    write_word(image, 4u, UINT32_C(0xE1A00000));
+    write_word(image, 8u, UINT32_C(0xE1A00000));
+    load = gbl_load_rom(machine, image, sizeof(image));
+    if (load.status != GBL_LOAD_STATUS_OK ||
+        load.reason != GBL_LOAD_REASON_NONE) {
+        free_machine(machine);
+        return NULL;
+    }
+    machine->cpu.cpsr = UINT32_C(0x0000001F);
+    machine->cpu.execution_address = UINT32_C(0x08000000);
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    if (gbl_machine_set_power_state(
+            machine, GBL_MACHINE_POWER_HALTED) != GBL_TIME_STATUS_OK) {
+        free_machine(machine);
+        return NULL;
+    }
+    return machine;
+}
+
 static bool event_equal(const gbl_event *left, const gbl_event *right)
 {
     return left->cycle == right->cycle &&
@@ -505,6 +543,35 @@ static gbl_bus_result write_timer_word(gbl_machine *machine,
 
     return gbl_bus_write(machine, address, 4u, GBL_BUS_CLASS_NONSEQUENTIAL,
                          value);
+}
+
+static bool run_power(gbl_machine *machine, uint64_t cycle_budget,
+                      gbl_run_result *result)
+{
+    const gbl_run_options options = {
+        .cycle_budget = cycle_budget,
+        .unit_limit = 0u,
+        .category_mask = 0u,
+        .trace_buffer = NULL
+    };
+
+    return machine != NULL && result != NULL &&
+           gbl_cpu_run(machine, &options, result) == GBL_RUN_STATUS_OK;
+}
+
+static bool run_power_cycles_add_up(const gbl_run_result *result)
+{
+    uint64_t accounted;
+
+    if (result == NULL ||
+        result->bus_cycles > UINT64_MAX - result->internal_cycles) {
+        return false;
+    }
+    accounted = result->bus_cycles + result->internal_cycles;
+    if (accounted > UINT64_MAX - result->wait_cycles) {
+        return false;
+    }
+    return result->cycles == accounted + result->wait_cycles;
 }
 
 static int run_event_order(void)
@@ -1725,6 +1792,395 @@ static int run_keypad_refusal(void)
     }
 }
 
+static int run_halt_boundary(void)
+{
+    const gbl_input_event tie_input = {
+        UINT64_C(3), UINT16_C(0x0001)
+    };
+    const gbl_input_event keypad_input = {
+        UINT64_C(2), UINT16_C(0x0001)
+    };
+    gbl_machine *before = new_power_machine();
+    gbl_machine *at = new_power_machine();
+    gbl_machine *after = new_power_machine();
+    gbl_machine *tie = new_power_machine();
+    gbl_machine *keypad = new_power_machine();
+    gbl_machine *accepted = new_power_machine();
+    gbl_machine *pending = new_power_machine();
+    gbl_machine *stopped = new_power_machine();
+    gbl_machine *deadlocked = new_power_machine();
+    gbl_machine *zero = new_power_machine();
+    gbl_machine *split = new_power_machine();
+    gbl_machine *unsplit = new_power_machine();
+    gbl_run_result before_result = { 0 };
+    gbl_run_result at_result = { 0 };
+    gbl_run_result after_result = { 0 };
+    gbl_run_result tie_result = { 0 };
+    gbl_run_result keypad_result = { 0 };
+    gbl_run_result accepted_result = { 0 };
+    gbl_run_result pending_result = { 0 };
+    gbl_run_result stop_result = { 0 };
+    gbl_run_result deadlock_result = { 0 };
+    gbl_run_result zero_result = { 0 };
+    gbl_run_result split_first_result = { 0 };
+    gbl_run_result split_second_result = { 0 };
+    gbl_run_result unsplit_result = { 0 };
+    uint64_t stop_cycle = 0u;
+    uint64_t deadlock_cycle = 0u;
+    time_snapshot split_snapshot;
+    time_snapshot unsplit_snapshot;
+    const gbl_input_event future_input = {
+        UINT64_C(5), UINT16_C(0x0001)
+    };
+
+    CHECK(before != NULL && at != NULL && after != NULL && tie != NULL &&
+          keypad != NULL && accepted != NULL && pending != NULL &&
+          stopped != NULL && deadlocked != NULL && zero != NULL &&
+          split != NULL && unsplit != NULL);
+    if (before != NULL && at != NULL && after != NULL && tie != NULL &&
+        keypad != NULL && accepted != NULL && pending != NULL &&
+        stopped != NULL && deadlocked != NULL && zero != NULL &&
+        split != NULL && unsplit != NULL) {
+        CHECK(write_timer_word(before, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        CHECK(write_timer_word(at, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        CHECK(write_timer_word(after, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        before->interrupt_enable = TIMER0_IF_BIT;
+        at->interrupt_enable = TIMER0_IF_BIT;
+        after->interrupt_enable = TIMER0_IF_BIT;
+
+        CHECK(run_power(before, UINT64_C(1), &before_result));
+        CHECK(before_result.termination == GBL_RUN_TIMEOUT &&
+              before_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+              before_result.wait_cycles == UINT64_C(1) &&
+              before->master_cycles == UINT64_C(2) &&
+              before->interrupt_flags == 0u &&
+              before->power_state == GBL_MACHINE_POWER_HALTED);
+        CHECK(run_power(at, UINT64_C(2), &at_result));
+        CHECK(at_result.wait_cycles == UINT64_C(2) &&
+              at_result.wake_cycle == UINT64_C(3) &&
+              at_result.wake_source_mask == TIMER0_IF_BIT &&
+              at_result.power_cause == GBL_CPU_POWER_CAUSE_WAKE_EVENT &&
+              at->interrupt_flags == TIMER0_IF_BIT &&
+              at->master_cycles == UINT64_C(3) &&
+              at->power_state == GBL_MACHINE_POWER_RUNNING &&
+              at_result.instructions == 0u);
+        CHECK(run_power(after, UINT64_C(3), &after_result));
+        CHECK(after_result.power_cause == GBL_CPU_POWER_CAUSE_WAKE_EVENT &&
+              after_result.wake_cycle == UINT64_C(3) &&
+              after_result.wait_cycles == UINT64_C(2) &&
+              after_result.wake_source_mask == TIMER0_IF_BIT &&
+              after_result.instructions == 1u &&
+              after->interrupt_flags == TIMER0_IF_BIT &&
+              after->master_cycles == UINT64_C(4) &&
+              after->power_state == GBL_MACHINE_POWER_RUNNING);
+
+        CHECK(write_timer_word(tie, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        CHECK(gbl_machine_set_input_timeline(tie, &tie_input, 1u) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_bus_write(tie, UINT32_C(0x04000132), 2u,
+                            GBL_BUS_CLASS_NONSEQUENTIAL,
+                            UINT32_C(0x4001)).status == GBL_BUS_STATUS_OK);
+        tie->interrupt_enable = UINT16_C(0x1008);
+        tie->interrupt_master_enable = 0u;
+        tie->cpu.cpsr |= UINT32_C(0x00000080);
+        CHECK(run_power(tie, UINT64_C(1), &tie_result));
+        CHECK(tie_result.wake_cycle == UINT64_C(3) &&
+              tie_result.wake_source_mask == UINT16_C(0x1008) &&
+              tie_result.wait_cycles == UINT64_C(1) &&
+              tie->interrupt_flags == UINT16_C(0x1008) &&
+              tie->input_event_cursor == 1u &&
+              tie->pressed_keys == UINT16_C(0x0001) &&
+              tie->timers[0].counter == UINT16_C(0xFFFE) &&
+              !tie->cpu.irq_observation.accepted &&
+              !tie->cpu.irq_observation.entered);
+
+        CHECK(gbl_machine_set_input_timeline(keypad, &keypad_input, 1u) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_bus_write(keypad, UINT32_C(0x04000132), 2u,
+                            GBL_BUS_CLASS_NONSEQUENTIAL,
+                            UINT32_C(0x4001)).status == GBL_BUS_STATUS_OK);
+        keypad->interrupt_enable = UINT16_C(0x1000);
+        CHECK(run_power(keypad, UINT64_C(1), &keypad_result));
+        CHECK(keypad_result.wake_cycle == UINT64_C(2) &&
+              keypad_result.wake_source_mask == UINT16_C(0x1000) &&
+              keypad_result.power_cause == GBL_CPU_POWER_CAUSE_WAKE_EVENT &&
+              keypad->interrupt_flags == UINT16_C(0x1000) &&
+              keypad->pressed_keys == UINT16_C(0x0001) &&
+              keypad->input_event_cursor == 1u);
+
+        CHECK(write_timer_word(accepted, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        accepted->interrupt_enable = TIMER0_IF_BIT;
+        accepted->interrupt_master_enable = 1u;
+        CHECK(run_power(accepted, UINT64_C(3), &accepted_result));
+        CHECK(accepted_result.reason == GBL_RUN_REASON_GUEST_STOP &&
+              accepted_result.power_cause ==
+                  GBL_CPU_POWER_CAUSE_WAKE_EVENT &&
+              accepted_result.wait_cycles == UINT64_C(2) &&
+              accepted_result.internal_cycles == UINT64_C(1) &&
+              accepted_result.bus_cycles == 0u &&
+              accepted_result.cycles == UINT64_C(3) &&
+              accepted->cpu.irq_observation.sample_cycle == UINT64_C(3) &&
+              accepted->cpu.irq_observation.entry_cycle == UINT64_C(4) &&
+              accepted->cpu.irq_observation.accepted &&
+              accepted->cpu.irq_observation.entered &&
+              accepted->cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
+              run_power_cycles_add_up(&accepted_result));
+
+        pending->interrupt_flags = TIMER0_IF_BIT;
+        pending->interrupt_enable = TIMER0_IF_BIT;
+        pending->interrupt_master_enable = 0u;
+        pending->cpu.cpsr |= UINT32_C(0x00000080);
+        CHECK(run_power(pending, UINT64_C(1), &pending_result));
+        CHECK(pending_result.power_cause ==
+                  GBL_CPU_POWER_CAUSE_WAKE_PENDING &&
+              pending_result.wake_cycle == 0u &&
+              pending_result.wake_source_mask == TIMER0_IF_BIT &&
+              pending_result.wait_cycles == 0u &&
+              pending->master_cycles == UINT64_C(1) &&
+              pending_result.instructions == 1u &&
+              pending->power_state == GBL_MACHINE_POWER_RUNNING);
+
+        CHECK(gbl_machine_set_input_timeline(stopped, &future_input, 1u) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_set_power_state(
+                  stopped, GBL_MACHINE_POWER_STOPPED) ==
+              GBL_TIME_STATUS_OK);
+        stop_cycle = stopped->master_cycles;
+        CHECK(run_power(stopped, UINT64_C(10), &stop_result));
+        CHECK(stop_result.reason == GBL_RUN_REASON_GUEST_STOP &&
+              stop_result.power_cause ==
+                  GBL_CPU_POWER_CAUSE_STOP_REQUESTED &&
+              stop_result.wait_cycles == 0u &&
+              stopped->master_cycles == stop_cycle &&
+              stopped->input_event_cursor == 0u &&
+              stopped->pressed_keys == 0u &&
+              stopped->cpu.stop_reason == GBL_CPU_STOP_STOP_REQUESTED);
+
+        deadlock_cycle = deadlocked->master_cycles;
+        CHECK(run_power(deadlocked, UINT64_C(10), &deadlock_result));
+        CHECK(deadlock_result.reason == GBL_RUN_REASON_GUEST_STOP &&
+              deadlock_result.power_cause ==
+                  GBL_CPU_POWER_CAUSE_HALT_DEADLOCK &&
+              deadlock_result.wait_cycles == 0u &&
+              deadlocked->master_cycles == deadlock_cycle &&
+              deadlocked->cpu.stop_reason == GBL_CPU_STOP_HALT_DEADLOCK);
+
+        CHECK(write_timer_word(zero, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        CHECK(run_power(zero, 0u, &zero_result));
+        CHECK(zero_result.termination == GBL_RUN_TIMEOUT &&
+              zero_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+              zero_result.cycles == 0u && zero_result.wait_cycles == 0u &&
+              zero->master_cycles == UINT64_C(1) &&
+              zero->power_state == GBL_MACHINE_POWER_HALTED &&
+              zero->event_count == 1u &&
+              zero->events[0].cycle == UINT64_C(3) &&
+              run_power_cycles_add_up(&zero_result));
+
+        CHECK(write_timer_word(split, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        CHECK(write_timer_word(unsplit, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        CHECK(run_power(split, UINT64_C(1), &split_first_result));
+        CHECK(split_first_result.termination == GBL_RUN_TIMEOUT &&
+              split_first_result.wait_cycles == UINT64_C(1) &&
+              split->master_cycles == UINT64_C(2) &&
+              split->power_state == GBL_MACHINE_POWER_HALTED);
+        CHECK(run_power(split, UINT64_C(5), &split_second_result));
+        CHECK(run_power(unsplit, UINT64_C(6), &unsplit_result));
+        take_time_snapshot(split, &split_snapshot);
+        take_time_snapshot(unsplit, &unsplit_snapshot);
+        CHECK(time_snapshot_equal(&split_snapshot, &unsplit_snapshot) &&
+              split->power_state == GBL_MACHINE_POWER_HALTED &&
+              unsplit->power_state == GBL_MACHINE_POWER_HALTED &&
+              split->master_cycles == UINT64_C(7) &&
+              split_first_result.wait_cycles +
+                      split_second_result.wait_cycles ==
+                  unsplit_result.wait_cycles &&
+              unsplit_result.wait_cycles == UINT64_C(6) &&
+              run_power_cycles_add_up(&split_first_result) &&
+              run_power_cycles_add_up(&split_second_result) &&
+              run_power_cycles_add_up(&unsplit_result));
+    }
+
+    {
+        const int status = CHECK_DONE();
+
+        puts("TAP version 13");
+        puts(status == 0 ? "ok 1 - time.halt.boundary"
+                         : "not ok 1 - time.halt.boundary");
+        puts("1..1");
+        if (status == 0) {
+            printf("{\"type\":\"phase8-observation\",\"pending_if\":%u,\"pending_ie\":%u,\"pending_wake_cycle\":\"%llu\",\"timer_if\":%u,\"tie_if\":%u,\"tie_ie\":%u,\"tie_wake_cycle\":\"%llu\",\"tie_wait_cycles\":\"%llu\",\"input_if\":%u,\"input_wake_cycle\":\"%llu\",\"accepted_if\":%u,\"accepted_ie\":%u,\"sample_cycle\":\"%llu\",\"entry_cycle\":\"%llu\",\"wake_cycle\":\"%llu\",\"wait_cycles\":\"%llu\",\"bus_cycles\":\"%llu\",\"internal_cycles\":\"%llu\",\"stop_cause\":%u,\"deadlock_cause\":%u,\"timeout_reason\":%u}\n",
+                   (unsigned)pending->interrupt_flags,
+                   (unsigned)pending->interrupt_enable,
+                   (unsigned long long)pending_result.wake_cycle,
+                   (unsigned)at->interrupt_flags,
+                   (unsigned)tie->interrupt_flags,
+                   (unsigned)tie->interrupt_enable,
+                   (unsigned long long)tie_result.wake_cycle,
+                   (unsigned long long)tie_result.wait_cycles,
+                   (unsigned)keypad->interrupt_flags,
+                   (unsigned long long)keypad_result.wake_cycle,
+                   (unsigned)accepted->cpu.irq_observation.interrupt_flags,
+                   (unsigned)accepted->cpu.irq_observation.interrupt_enable,
+                   (unsigned long long)accepted->cpu.irq_observation.sample_cycle,
+                   (unsigned long long)accepted->cpu.irq_observation.entry_cycle,
+                   (unsigned long long)accepted_result.wake_cycle,
+                   (unsigned long long)accepted_result.wait_cycles,
+                   (unsigned long long)accepted_result.bus_cycles,
+                   (unsigned long long)accepted_result.internal_cycles,
+                   (unsigned)stop_result.power_cause,
+                   (unsigned)deadlock_result.power_cause,
+                   (unsigned)before_result.reason);
+        }
+        free_machine(before);
+        free_machine(at);
+        free_machine(after);
+        free_machine(tie);
+        free_machine(keypad);
+        free_machine(accepted);
+        free_machine(pending);
+        free_machine(stopped);
+        free_machine(deadlocked);
+        free_machine(zero);
+        free_machine(split);
+        free_machine(unsplit);
+        return status;
+    }
+}
+
+static int run_halt_refusal(void)
+{
+    gbl_machine *sequence = new_power_machine();
+    gbl_machine *bounded = new_power_machine();
+    gbl_machine *stale = new_power_machine();
+    gbl_machine *near_limit = new_power_machine();
+    gbl_run_result sequence_result = { 0 };
+    gbl_run_result bounded_result = { 0 };
+    gbl_run_result stale_result = { 0 };
+    gbl_run_result near_limit_result = { 0 };
+    time_snapshot sequence_snapshot;
+    time_snapshot stale_snapshot;
+    gbl_input_event last_input = { UINT64_MAX - UINT64_C(1),
+                                   UINT16_C(0x0001) };
+
+    CHECK(sequence != NULL && bounded != NULL && stale != NULL &&
+          near_limit != NULL);
+    if (sequence != NULL && bounded != NULL && stale != NULL &&
+        near_limit != NULL) {
+        CHECK(write_timer_word(sequence, 0u, UINT16_C(0xFFFE),
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        sequence->next_event_sequence = UINT64_MAX;
+        take_time_snapshot(sequence, &sequence_snapshot);
+        CHECK(run_power(sequence, UINT64_C(10), &sequence_result));
+        CHECK(sequence_result.termination == GBL_RUN_STOPPED &&
+              sequence_result.reason == GBL_RUN_REASON_TIME_REFUSAL &&
+              sequence_result.cycles == 0u &&
+              sequence_result.wait_cycles == 0u &&
+              time_matches_snapshot(sequence, &sequence_snapshot) &&
+              sequence->power_state == GBL_MACHINE_POWER_HALTED &&
+              !sequence->cpu.stopped);
+
+        CHECK(write_timer_word(bounded, 0u, UINT16_MAX,
+                               UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
+        bounded->interrupt_enable = 0u;
+        CHECK(run_power(bounded, UINT64_MAX, &bounded_result));
+        CHECK(bounded_result.termination == GBL_RUN_STOPPED &&
+              bounded_result.reason == GBL_RUN_REASON_TIME_REFUSAL &&
+              bounded_result.cycles == GBL_MACHINE_MAX_EVENT_DISPATCH &&
+              bounded_result.wait_cycles == GBL_MACHINE_MAX_EVENT_DISPATCH &&
+              bounded->master_cycles ==
+                  UINT64_C(1) + GBL_MACHINE_MAX_EVENT_DISPATCH &&
+              bounded->interrupt_flags == TIMER0_IF_BIT &&
+              bounded->interrupt_enable == 0u &&
+              bounded->power_state == GBL_MACHINE_POWER_HALTED &&
+              !bounded->cpu.stopped && bounded->event_count == 1u &&
+              bounded->events[0].live &&
+              bounded->events[0].cycle ==
+                  UINT64_C(2) + GBL_MACHINE_MAX_EVENT_DISPATCH &&
+              run_power_cycles_add_up(&bounded_result));
+
+        stale->timers[0].generation = UINT64_C(2);
+        stale->timers[0].enabled = true;
+        stale->timers[0].reload = UINT16_MAX;
+        stale->timers[0].counter = UINT16_MAX;
+        stale->timers[0].divisor = 1u;
+        stale->timers[0].anchor_cycle = 0u;
+        stale->event_count = 1u;
+        stale->next_event_sequence = 2u;
+        stale->events[0] = (gbl_event){
+            UINT64_C(10), UINT64_C(1), UINT64_C(1), 0u,
+            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true, 0u
+        };
+        take_time_snapshot(stale, &stale_snapshot);
+        CHECK(run_power(stale, UINT64_C(100), &stale_result));
+        CHECK(stale_result.reason == GBL_RUN_REASON_GUEST_STOP &&
+              stale_result.power_cause ==
+                  GBL_CPU_POWER_CAUSE_HALT_DEADLOCK &&
+              stale_result.wait_cycles == 0u &&
+              stale->master_cycles == 0u &&
+              time_matches_snapshot(stale, &stale_snapshot) &&
+              stale->cpu.stop_reason == GBL_CPU_STOP_HALT_DEADLOCK);
+
+        CHECK(gbl_machine_set_input_timeline(near_limit, &last_input, 1u) ==
+              GBL_TIME_STATUS_OK);
+        near_limit->master_cycles = UINT64_MAX - UINT64_C(2);
+        near_limit->timers[0] = (gbl_timer_state){
+            UINT16_MAX, UINT16_C(0xFFFE), 1u, 0u,
+            UINT64_MAX - UINT64_C(2), UINT64_C(7), true, true, false
+        };
+        CHECK(near_limit->event_count == 1u &&
+              near_limit->next_event_sequence < UINT64_MAX);
+        if (near_limit->event_count == 1u &&
+            near_limit->next_event_sequence < UINT64_MAX) {
+            near_limit->events[1] = (gbl_event){
+                UINT64_MAX, near_limit->next_event_sequence,
+                near_limit->timers[0].generation, 0u,
+                (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true, 0u
+            };
+            ++near_limit->next_event_sequence;
+            ++near_limit->event_count;
+        }
+        CHECK(run_power(near_limit, UINT64_MAX, &near_limit_result));
+        CHECK(near_limit_result.termination == GBL_RUN_STOPPED &&
+              near_limit_result.reason == GBL_RUN_REASON_COUNTER_OVERFLOW &&
+              near_limit_result.cycles == 1u &&
+              near_limit_result.wait_cycles == 1u &&
+              near_limit->master_cycles == UINT64_MAX - UINT64_C(1) &&
+              near_limit->pressed_keys == UINT16_C(0x0001) &&
+              near_limit->input_event_cursor == 1u &&
+              near_limit->interrupt_flags == 0u &&
+              near_limit->event_count == 1u &&
+              near_limit->events[0].cycle == UINT64_MAX &&
+              near_limit->timers[0].counter == UINT16_C(0xFFFE) &&
+              near_limit->timers[0].anchor_cycle ==
+                  UINT64_MAX - UINT64_C(2) &&
+              near_limit->power_state == GBL_MACHINE_POWER_HALTED &&
+              !near_limit->cpu.stopped &&
+              run_power_cycles_add_up(&near_limit_result));
+    }
+
+    {
+        const int status = CHECK_DONE();
+
+        puts("TAP version 13");
+        puts(status == 0 ? "ok 1 - time.halt.refusal"
+                         : "not ok 1 - time.halt.refusal");
+        puts("1..1");
+        free_machine(sequence);
+        free_machine(bounded);
+        free_machine(stale);
+        free_machine(near_limit);
+        return status;
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -1761,6 +2217,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "keypad.refusal") == 0) {
         return run_keypad_refusal();
+    }
+    if (strcmp(argv[1], "time.halt.boundary") == 0) {
+        return run_halt_boundary();
+    }
+    if (strcmp(argv[1], "time.halt.refusal") == 0) {
+        return run_halt_refusal();
     }
     fprintf(stderr, "timer_test: unknown selector: %s\n", argv[1]);
     return 2;

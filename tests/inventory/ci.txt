@@ -115,6 +115,7 @@ cpu.nc.vector_fetch control,core,cpu
 cpu.no_bios core,cpu,unit
 cpu.peek core,cpu,unit
 cpu.pos.clean core,cpu,positive
+cpu.power.boundary core,cpu,unit
 cpu.psr core,cpu,unit
 cpu.slots core,cpu,unit
 cpu.slots_bounds core,cpu,unit
@@ -1121,6 +1122,8 @@ signature.tree gate,signature
 time.events.boundary core,time,timer,unit
 time.events.order core,time,timer,unit
 time.events.refusal core,time,timer,unit
+time.halt.boundary core,time,timer,unit
+time.halt.refusal core,time,timer,unit
 timer.costs core,time,timer,unit
 timer.costs.contract gate,time,timer
 timer.devices core,time,timer,unit
