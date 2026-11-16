@@ -103,7 +103,7 @@ if(CASE STREQUAL "copy")
   doc_copy(d copy)
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
 elseif(CASE STREQUAL "cpu_policy_value")
   if(NOT PROFILE_VERSION GREATER_EQUAL 6)
@@ -113,7 +113,7 @@ elseif(CASE STREQUAL "cpu_policy_value")
   doc_copy(d positive_cpu_policy)
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
   profile_copy(p missing_cpu_policy)
   gbl_json_mutate_remove("${p}" cpu_policy)
@@ -202,7 +202,7 @@ elseif(CASE STREQUAL "cpu_policy_doc")
   doc_copy(d positive_cpu_policy_doc)
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
   set(entry_row "| cpu_policy.entry_address | 134217728 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |")
   profile_copy(p stale_cpu_value)
@@ -270,7 +270,7 @@ elseif(CASE STREQUAL "timing_model")
   math(EXPR last_row "${row_count}-1")
   foreach(i RANGE ${last_row})
     string(JSON key GET "${json}" timing_model bus_access_costs ${i} key)
-    if(key STREQUAL "read|bios|4|s|data")
+    if(key STREQUAL "read/bios/4/s/data")
       set(found_row "${i}")
     endif()
   endforeach()
@@ -278,19 +278,21 @@ elseif(CASE STREQUAL "timing_model")
     message(FATAL_ERROR "profile-case: missing width/class control anchor")
   endif()
   gbl_json_mutate_remove("${p}" timing_model bus_access_costs ${found_row})
-  expect_detail(timing-model-missing-key "read\\|bios\\|4\\|s\\|data" "${p}")
+  expect_detail(timing-model-missing-key "read/bios/4/s/data" "${p}")
 
   profile_copy(p timing_model_duplicate_key)
-  gbl_json_mutate_set("${p}" "\"read|bios|1|n|fetch\""
+  gbl_json_mutate_set("${p}" "\"read/bios/1/n/fetch\""
     timing_model bus_access_costs 1 key)
   gbl_json_mutate_set("${p}" "\"fetch\""
     timing_model bus_access_costs 1 role)
-  expect_detail(timing-model-duplicate-key "read\\|bios\\|1\\|n\\|fetch" "${p}")
+  expect_detail(timing-model-duplicate-key "read/bios/1/n/fetch" "${p}")
 
   profile_copy(p timing_model_stale_narrative)
   doc_copy(d timing_model_stale_narrative)
-  doc_drop_row("${d}" "read|bios|1|n|fetch")
-  expect_detail(timing-model-doc "missing or stale row" "${p}" "${d}")
+  gbl_text_mutate("${d}"
+    "| `timing_model.read/bios/1/n/fetch` | project-selected | 1 |"
+    "| `timing_model.read/bios/1/n/fetch` | project-selected | 2 |")
+  expect_detail(timing-model-doc "timing_model: missing or stale row" "${p}" "${d}")
 
   profile_copy(p timing_model_missing_waitcnt)
   file(READ "${p}" json)
@@ -329,7 +331,7 @@ elseif(CASE STREQUAL "timing_model")
   profile_copy(p timing_model_invented_source)
   gbl_json_mutate_set("${p}" "\"hardware-qualified\""
     timing_model qualification)
-  expect_detail(timing-model-qualification "must be project-model-only" "${p}")
+  expect_detail(timing-model-qualification "timing_model\\.qualification must be project-model-only" "${p}")
 
 elseif(CASE STREQUAL "bus_policy_missing")
   profile_copy(p missing_bus_policy)
@@ -607,15 +609,15 @@ elseif(CASE STREQUAL "bus_policy_copy")
     "## Bus policy\n\n```html\n<pre>\n${valid_table}\n</pre>\n```\n")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
-    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, 11 unmodeled\\)")
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
 elseif(CASE STREQUAL "unmodeled_missing")
   # Remove each of the eleven required entries in turn from a fresh copy; each
   # removal names its own id.
   file(READ "${SRC}/profiles/agb.json" real)
   string(JSON n LENGTH "${real}" unmodeled)
-  if(NOT n EQUAL 11)
-    message(FATAL_ERROR "profile-case: expected 11 unmodeled entries, found ${n}")
+  if(NOT n EQUAL UNMODELED_COUNT)
+    message(FATAL_ERROR "profile-case: expected ${UNMODELED_COUNT} unmodeled entries, found ${n}")
   endif()
   math(EXPR last "${n}-1")
   foreach(i RANGE ${last})
