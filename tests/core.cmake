@@ -130,6 +130,7 @@ gbl_add_test(
 
 gbl_add_test(
   NAME phase8.selection.control
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
   LABELS gate time timer
   COMMAND "${CMAKE_COMMAND}"
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"

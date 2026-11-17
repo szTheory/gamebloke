@@ -48,7 +48,7 @@ fi
 "$repo_root/scripts/verify-phase7-fast.sh" --bin "$bin_dir"
 
 # Inventory and command bindings are checked before any Phase 8 test runs.
-cmake "-DSRC=$repo_root" "-DBIN=$bin_dir" -DCASE=verify \
+cmake -E chdir "$bin_dir" cmake "-DSRC=$repo_root" "-DBIN=$bin_dir" -DCASE=verify \
   -P "$repo_root/tests/gates/phase8_selection.cmake"
 
 expected_regex='^(cpu[.]irq[.]boundary|keypad[.](timeline|refusal)|time[.]halt[.]boundary|phase8[.]selection[.]control)$'
