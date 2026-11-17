@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 6
+profile_version: 7
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -517,6 +517,56 @@ attempted write payload. Inspect memory for stored data. BIOS/device execution,
 physical controllers, hardware/game accuracy, licensing and release qualification
 remain outside this profile's evidence.
 
+## IRQ, input, and power policy
+
+The following IRQ, keypad, and power behavior is the selected Gamebloke
+deterministic model. The values do not qualify GBA interrupt latency, a BIOS
+handler, or physical keypad behavior. The event priority and cycle observations
+are checked by the focused Phase 8 CPU and timer selectors.
+
+| Setting | Value | Label | Citation |
+| ------- | ----- | ----- | -------- |
+| irq_input_power_policy.if_ie_mask | 16383 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.ime_mask | 1 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.cpsr_i_mask | 128 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timer0_if_bit | 8 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keypad_if_bit | 4096 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keyinput_mask | 1023 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keycnt_mask | 50175 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.sample_boundary | completed-instruction-effects-and-events-before-next-instruction | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.initial_boundary | after-refill-before-first-instruction | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.entry_internal_cycles | 1 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.no_bios_irq_stop | after-entry-before-vector-fetch | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timer_event_priorities | [0, 1, 2, 3] | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keypad_event_priority | 4 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.input_event_capacity | 256 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.key_polarity | active-low | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keycnt_empty_selection | false | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keycnt_effective_edge | false-to-true | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.if_ack_while_held | stays-clear-until-condition-falls-then-rises | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.halt_wake_condition | IF-and-IE | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.halt_wake_mask_independent | [IME, CPSR.I] | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.power_transition_cost | internal-only | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.stop_policy | terminal-guest-stop-no-bios-wake | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.stop_cause_code | 3 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.deadlock_policy | distinct-guest-stop | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.deadlock_cause_code | 4 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timeout_policy | cycle-budget-timeout | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timeout_reason_code | 2 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.qualification | project-model-only | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+
+## IRQ/input/power policy sources
+
+These cited hardware facts remain separate from the project-selected policy
+above. ARM7TDMI exception state and core cycles do not specify GBA bus waits or
+total GBA interrupt latency. Nintendo's manual describes device behavior; it
+does not qualify this implementation's timing.
+
+| Fact | Evidence | Label | Citation |
+| ---- | -------- | ----- | -------- |
+| irq_input_power_policy.source_facts.arm_exception_entry | ARM7TDMI exception state and entry behavior | REF | Arm ARM7TDMI Technical Reference Manual DDI 0210C §§2.8.1–2.8.5 and 6.12 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819) |
+| irq_input_power_policy.source_facts.gba_devices_and_power | GBA keypad, IRQ, HALT, and STOP behavior | REF | Nintendo AGB Programming Manual v1.1 §§14.1–14.2.1, 15, 16.1–16.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+
 ## SP and AGS naming
 
 The only profile id is `agb`. The SP is `agb` plus a host presentation preset, and
@@ -550,7 +600,7 @@ must not claim the behavior of anything in this table.
 | `audio` | Sound. |
 | `dma` | DMA transfers and their timing. |
 | `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |
-| `irq-controller` | The interrupt controller. |
+| `irq-controller` | A complete hardware-qualified GBA interrupt controller. The deterministic IF/IE/IME and CPU-boundary subset is implemented under `irq_input_power_policy`; exact GBA IRQ latency and BIOS-handler behavior remain unqualified. |
 | `backup-media` | Cartridge backup storage (save memory). |
 | `bios-protection` | CPU fetches participate in BIOS protection checks, but region/state-specific open-bus behavior and Game Pak prefetch are not qualified or emulated. |
-| `io-devices` | I/O device register semantics. |
+| `io-devices` | Complete I/O device register semantics remain incomplete and hardware-unqualified. The timer, IF/IE/IME, KEYINPUT, and KEYCNT subset is described by the timer and `irq_input_power_policy` entries; unsupported reads still use the project-policy placeholder. |

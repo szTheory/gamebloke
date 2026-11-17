@@ -51,6 +51,10 @@
 #   cpu-policy-source      CPU policy or sourced ARM architecture evidence is inflated or stale
 #   cpu-policy-value       CPU direct-start values or supported/excluded instruction scope is wrong
 #   cpu-policy-doc         visible CPU policy or instruction-scope table is missing, stale, or duplicated
+#   irq-policy-missing     irq_input_power_policy is absent, null, or not an object
+#   irq-policy-source      Phase 8 policy source or cited hardware source row is stale
+#   irq-policy-value       Phase 8 policy value, source row set, or profile version is wrong
+#   irq-policy-doc         visible IRQ/input/power policy or source-fact table is stale
 # The json:, contract:, and registry: codes come from the loader and the vocabulary
 # and registry readers this file calls.
 
@@ -98,6 +102,12 @@ set(GBL_PROFILE_CPU_CITE
   "Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops.")
 set(GBL_PROFILE_CPU_ARCH_CITE
   "ARM7TDMI Technical Reference Manual (DDI 0029G, Issue G), ARM state, Thumb state, and processor modes sections.")
+set(GBL_PROFILE_IRQ_POLICY_CITE
+  "Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification.")
+set(GBL_PROFILE_IRQ_ARM_CITE
+  "Arm ARM7TDMI Technical Reference Manual DDI 0210C §§2.8.1–2.8.5 and 6.12 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819)")
+set(GBL_PROFILE_IRQ_GBA_CITE
+  "Nintendo AGB Programming Manual v1.1 §§14.1–14.2.1, 15, 16.1–16.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)")
 set(GBL_PROFILE_CPU_SUPPORTED
   "ARM data processing: AND, EOR, SUB, RSB, ADD, ADC, SBC, RSC, TST, TEQ, CMP, CMN, ORR, MOV, BIC, MVN with rotated immediate and immediate/register LSL/LSR/ASR/ROR, defined flags and legal PC/exception-return forms"
   "ARM control flow: B, BL, BX"
@@ -724,6 +734,158 @@ function(gbl__profile_cpu_policy doc)
       list(GET ${expected_var} ${i} expected)
       if(NOT "${actual}" STREQUAL "${expected}")
         gbl_finding(profile cpu-policy-value "cpu_policy.${key}[${i}]: unexpected opcode/operand scope")
+      endif()
+    endforeach()
+  endforeach()
+endfunction()
+
+function(gbl__profile_irq_input_power_policy doc)
+  string(JSON policy_version ERROR_VARIABLE version_error GET
+    "${doc}" profile_version)
+  if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
+      policy_version LESS 7)
+    gbl_finding(profile irq-policy-value
+      "profile_version: expected 7 or later for Phase 8 policy")
+  endif()
+
+  gbl_json_type(policy_type "${doc}" irq_input_power_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile irq-policy-missing
+      "irq_input_power_policy: missing or not an object")
+    return()
+  endif()
+  string(JSON policy_length LENGTH "${doc}" irq_input_power_policy)
+  if(NOT policy_length EQUAL 31)
+    gbl_finding(profile irq-policy-value
+      "irq_input_power_policy: field count")
+  endif()
+  gbl__profile_policy_source("${doc}" irq_input_power_policy
+    "${GBL_PROFILE_IRQ_POLICY_CITE}" irq-policy-source)
+
+  gbl_json_type(source_facts_type "${doc}" irq_input_power_policy source_facts)
+  if(NOT "${source_facts_type}" STREQUAL "OBJECT")
+    gbl_finding(profile irq-policy-source
+      "irq_input_power_policy.source_facts: expected object")
+  else()
+    string(JSON source_facts_length LENGTH "${doc}"
+      irq_input_power_policy source_facts)
+    if(NOT source_facts_length EQUAL 2)
+      gbl_finding(profile irq-policy-source
+        "irq_input_power_policy.source_facts: expected two cited facts")
+    endif()
+    foreach(pair IN ITEMS
+        "arm_exception_entry|${GBL_PROFILE_IRQ_ARM_CITE}"
+        "gba_devices_and_power|${GBL_PROFILE_IRQ_GBA_CITE}")
+      string(REPLACE "|" ";" fields "${pair}")
+      list(GET fields 0 key)
+      list(GET fields 1 expected_cite)
+      gbl_json_type(fact_type "${doc}" irq_input_power_policy source_facts "${key}")
+      gbl_json_string(fact_source "${doc}" irq_input_power_policy source_facts "${key}" source)
+      gbl_json_string(fact_cite "${doc}" irq_input_power_policy source_facts "${key}" cite)
+      if(NOT "${fact_type}" STREQUAL "OBJECT" OR
+          NOT "${fact_source}" STREQUAL "REF" OR
+          NOT "${fact_cite}" STREQUAL "${expected_cite}")
+        gbl_finding(profile irq-policy-source
+          "irq_input_power_policy.source_facts.${key}: expected cited REF source")
+      endif()
+    endforeach()
+  endif()
+
+  foreach(pair IN ITEMS
+      "if_ie_mask|16383"
+      "ime_mask|1"
+      "cpsr_i_mask|128"
+      "timer0_if_bit|8"
+      "keypad_if_bit|4096"
+      "keyinput_mask|1023"
+      "keycnt_mask|50175"
+      "entry_internal_cycles|1"
+      "keypad_event_priority|4"
+      "input_event_capacity|256"
+      "stop_cause_code|3"
+      "deadlock_cause_code|4"
+      "timeout_reason_code|2")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected)
+    gbl_json_type(value_type "${doc}" irq_input_power_policy "${key}")
+    if(NOT "${value_type}" STREQUAL "NUMBER")
+      gbl_finding(profile irq-policy-value
+        "irq_input_power_policy.${key}: expected ${expected}")
+    else()
+      string(JSON value GET "${doc}" irq_input_power_policy "${key}")
+      if(NOT "${value}" STREQUAL "${expected}")
+        gbl_finding(profile irq-policy-value
+          "irq_input_power_policy.${key}: expected ${expected}")
+      endif()
+    endif()
+  endforeach()
+
+  foreach(pair IN ITEMS
+      "sample_boundary|completed-instruction-effects-and-events-before-next-instruction"
+      "initial_boundary|after-refill-before-first-instruction"
+      "no_bios_irq_stop|after-entry-before-vector-fetch"
+      "key_polarity|active-low"
+      "keycnt_effective_edge|false-to-true"
+      "if_ack_while_held|stays-clear-until-condition-falls-then-rises"
+      "halt_wake_condition|IF-and-IE"
+      "power_transition_cost|internal-only"
+      "stop_policy|terminal-guest-stop-no-bios-wake"
+      "deadlock_policy|distinct-guest-stop"
+      "timeout_policy|cycle-budget-timeout"
+      "qualification|project-model-only")
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected)
+    gbl_json_string(value "${doc}" irq_input_power_policy "${key}")
+    if(NOT "${value}" STREQUAL "${expected}")
+      gbl_finding(profile irq-policy-value
+        "irq_input_power_policy.${key}: expected ${expected}")
+    endif()
+  endforeach()
+
+  gbl_json_type(empty_selection_type "${doc}" irq_input_power_policy keycnt_empty_selection)
+  string(JSON empty_selection_value ERROR_VARIABLE empty_selection_error
+    GET "${doc}" irq_input_power_policy keycnt_empty_selection)
+  set(empty_selection_is_false FALSE)
+  if("${empty_selection_value}" STREQUAL "false" OR
+      "${empty_selection_value}" STREQUAL "OFF")
+    set(empty_selection_is_false TRUE)
+  endif()
+  if(NOT "${empty_selection_type}" STREQUAL "BOOLEAN" OR
+      NOT empty_selection_is_false)
+    gbl_finding(profile irq-policy-value
+      "irq_input_power_policy.keycnt_empty_selection: expected false")
+  endif()
+
+  foreach(spec IN ITEMS "timer_event_priorities|4" "halt_wake_mask_independent|2")
+    string(REPLACE "|" ";" fields "${spec}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected_count)
+    gbl_json_type(array_type "${doc}" irq_input_power_policy "${key}")
+    if(NOT "${array_type}" STREQUAL "ARRAY")
+      gbl_finding(profile irq-policy-value
+        "irq_input_power_policy.${key}: expected array")
+      continue()
+    endif()
+    string(JSON actual_count LENGTH "${doc}" irq_input_power_policy "${key}")
+    if(NOT actual_count EQUAL expected_count)
+      gbl_finding(profile irq-policy-value
+        "irq_input_power_policy.${key}: expected ${expected_count} rows")
+      continue()
+    endif()
+    if(key STREQUAL "timer_event_priorities")
+      set(expected_values 0 1 2 3)
+    else()
+      set(expected_values IME CPSR.I)
+    endif()
+    math(EXPR last "${expected_count}-1")
+    foreach(index RANGE ${last})
+      string(JSON actual GET "${doc}" irq_input_power_policy "${key}" ${index})
+      list(GET expected_values ${index} expected)
+      if(NOT "${actual}" STREQUAL "${expected}")
+        gbl_finding(profile irq-policy-value
+          "irq_input_power_policy.${key}[${index}]: expected ${expected}")
       endif()
     endforeach()
   endforeach()
@@ -1847,6 +2009,47 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
   gbl__profile_doc_policy_table("${normalized_text}" "## CPU stop classifications"
     cpu_stop 6 cpu_stop_rows "Setting;Value;Label;Citation" cpu-policy-doc)
 
+  string(REPLACE ";" "\\;" irq_cite_row "${GBL_PROFILE_IRQ_POLICY_CITE}")
+  set(irq_rows
+    "| irq_input_power_policy.if_ie_mask | 16383 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.ime_mask | 1 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.cpsr_i_mask | 128 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.timer0_if_bit | 8 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.keypad_if_bit | 4096 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.keyinput_mask | 1023 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.keycnt_mask | 50175 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.sample_boundary | completed-instruction-effects-and-events-before-next-instruction | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.initial_boundary | after-refill-before-first-instruction | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.entry_internal_cycles | 1 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.no_bios_irq_stop | after-entry-before-vector-fetch | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.timer_event_priorities | [0, 1, 2, 3] | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.keypad_event_priority | 4 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.input_event_capacity | 256 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.key_polarity | active-low | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.keycnt_empty_selection | false | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.keycnt_effective_edge | false-to-true | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.if_ack_while_held | stays-clear-until-condition-falls-then-rises | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.halt_wake_condition | IF-and-IE | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.halt_wake_mask_independent | [IME, CPSR.I] | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.power_transition_cost | internal-only | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.stop_policy | terminal-guest-stop-no-bios-wake | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.stop_cause_code | 3 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.deadlock_policy | distinct-guest-stop | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.deadlock_cause_code | 4 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.timeout_policy | cycle-budget-timeout | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.timeout_reason_code | 2 | IMPL | ${irq_cite_row} |"
+    "| irq_input_power_policy.qualification | project-model-only | IMPL | ${irq_cite_row} |")
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## IRQ, input, and power policy" irq_input_power_policy 28 irq_rows
+    "Setting;Value;Label;Citation" irq-policy-doc)
+
+  set(irq_source_rows
+    "| irq_input_power_policy.source_facts.arm_exception_entry | ARM7TDMI exception state and entry behavior | REF | ${GBL_PROFILE_IRQ_ARM_CITE} |"
+    "| irq_input_power_policy.source_facts.gba_devices_and_power | GBA keypad, IRQ, HALT, and STOP behavior | REF | ${GBL_PROFILE_IRQ_GBA_CITE} |")
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## IRQ/input/power policy sources" irq_input_power_policy.source_facts
+    2 irq_source_rows "Fact;Evidence;Label;Citation" irq-policy-doc)
+
   gbl__profile_doc_timing_sync("${normalized_text}" "${profile}")
 
   string(FIND "${normalized_text}" "\n## Unmodeled\n" at)
@@ -1999,6 +2202,7 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   gbl__profile_initialization_policy("${doc}")
   gbl__profile_read_policy("${doc}")
   gbl__profile_cpu_policy("${doc}")
+  gbl__profile_irq_input_power_policy("${doc}")
 
   set(json_ids "")
   gbl_json_length(um_len "${doc}" unmodeled)

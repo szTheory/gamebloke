@@ -920,6 +920,33 @@ elseif(CASE STREQUAL "coordinated_change")
   gbl_expect_pass(COMMAND ${cmd}
     REGEX "profile: ok \\(agb v${NEXT_PROFILE_VERSION}, 11 timing constants, ${NEXT_PROFILE_UNMODELED_COUNT} unmodeled\\)")
 
+elseif(CASE STREQUAL "irq_policy")
+  profile_copy(p bad_keycnt_mask)
+  gbl_json_mutate_set("${p}" "0" irq_input_power_policy keycnt_mask)
+  expect_detail(irq-policy-value "irq_input_power_policy\\.keycnt_mask: expected 50175" "${p}")
+
+  profile_copy(p bad_policy_source)
+  gbl_json_mutate_set("${p}" [=["REF"]=] irq_input_power_policy source)
+  expect_detail(irq-policy-source "irq_input_power_policy: source/citation" "${p}")
+
+  profile_copy(p wrong_irq_doc)
+  doc_copy(d wrong_irq_doc)
+  gbl_text_mutate("${d}"
+    "| irq_input_power_policy.keypad_event_priority | 4 | IMPL |"
+    "| irq_input_power_policy.keypad_event_priority | 5 | IMPL |")
+  expect_detail(irq-policy-doc "irq_input_power_policy: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p coordinated_irq_policy_drift)
+  doc_copy(d coordinated_irq_policy_drift)
+  gbl_json_mutate_set("${p}" [=["before-first-instruction"]=]
+    irq_input_power_policy sample_boundary)
+  gbl_text_mutate("${d}"
+    "| irq_input_power_policy.sample_boundary | completed-instruction-effects-and-events-before-next-instruction |"
+    "| irq_input_power_policy.sample_boundary | before-first-instruction |")
+  expect_detail(irq-policy-value
+    "irq_input_power_policy.sample_boundary: expected completed-instruction-effects-and-events-before-next-instruction"
+    "${p}" "${d}")
+
 else()
   message(FATAL_ERROR "profile-case: unknown case: ${CASE}")
 endif()

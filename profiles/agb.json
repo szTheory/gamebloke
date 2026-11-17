@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 6,
+  "profile_version": 7,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -147,6 +147,56 @@
     "extension_encoding": "later-architecture-stop",
     "address_arithmetic": "data-modulo32-static-fetch-checked"
   },
+  "irq_input_power_policy": {
+    "source": "IMPL",
+    "cite": "Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification.",
+    "source_facts": {
+      "arm_exception_entry": {
+        "source": "REF",
+        "cite": "Arm ARM7TDMI Technical Reference Manual DDI 0210C §§2.8.1–2.8.5 and 6.12 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819)"
+      },
+      "gba_devices_and_power": {
+        "source": "REF",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§14.1–14.2.1, 15, 16.1–16.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      }
+    },
+    "if_ie_mask": 16383,
+    "ime_mask": 1,
+    "cpsr_i_mask": 128,
+    "timer0_if_bit": 8,
+    "keypad_if_bit": 4096,
+    "keyinput_mask": 1023,
+    "keycnt_mask": 50175,
+    "sample_boundary": "completed-instruction-effects-and-events-before-next-instruction",
+    "initial_boundary": "after-refill-before-first-instruction",
+    "entry_internal_cycles": 1,
+    "no_bios_irq_stop": "after-entry-before-vector-fetch",
+    "timer_event_priorities": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "keypad_event_priority": 4,
+    "input_event_capacity": 256,
+    "key_polarity": "active-low",
+    "keycnt_empty_selection": false,
+    "keycnt_effective_edge": "false-to-true",
+    "if_ack_while_held": "stays-clear-until-condition-falls-then-rises",
+    "halt_wake_condition": "IF-and-IE",
+    "halt_wake_mask_independent": [
+      "IME",
+      "CPSR.I"
+    ],
+    "power_transition_cost": "internal-only",
+    "stop_policy": "terminal-guest-stop-no-bios-wake",
+    "stop_cause_code": 3,
+    "deadlock_policy": "distinct-guest-stop",
+    "deadlock_cause_code": 4,
+    "timeout_policy": "cycle-budget-timeout",
+    "timeout_reason_code": 2,
+    "qualification": "project-model-only"
+  },
   "read_policy": {
     "source": "IMPL",
     "cite": "Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails.",
@@ -215,7 +265,7 @@
     {
       "id": "irq-controller",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim interrupt controller behavior."
+      "reason": "A complete hardware-qualified GBA interrupt controller is not modeled. The deterministic IF/IE/IME and CPU-boundary subset is implemented under irq_input_power_policy; exact GBA IRQ latency and BIOS-handler behavior remain unqualified."
     },
     {
       "id": "backup-media",
@@ -230,7 +280,7 @@
     {
       "id": "io-devices",
       "status": "unmodeled",
-      "reason": "I/O device register semantics are not implemented; unsupported reads use a project-policy placeholder."
+      "reason": "I/O device register semantics remain incomplete and hardware-unqualified. The timer, IF/IE/IME, KEYINPUT, and KEYCNT subset is described by the timer and irq_input_power_policy entries; unsupported reads still use the project-policy placeholder."
     }
   ],
   "timing_model": {
