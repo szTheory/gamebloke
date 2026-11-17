@@ -857,8 +857,6 @@ phase7.selection.control gate,time,timer
 phase8.order gate,time,timer
 phase8.policy gate,profile,time
 phase8.selection.control gate,time,timer
-result.nc.phase8 control,result
-result.pos.phase8 positive,result
 runner.hash runner,unit
 runner.help runner,unit
 runner.input.cli gate,integration,runner

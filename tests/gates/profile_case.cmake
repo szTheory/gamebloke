@@ -823,14 +823,15 @@ elseif(CASE STREQUAL "doc_extra_id")
   gbl_text_mutate("${d}" "| `backup-media` |"
     "| `cgb-mode` | A row used only by this control. |\n| `backup-media` |")
   expect_code(doc-extra-id "${p}" "${d}")
+  set(io_devices_row [=[| `io-devices` | Complete I/O device register semantics remain incomplete and hardware-unqualified. The timer, IF/IE/IME, KEYINPUT, and KEYCNT subset is described by the timer and `irq_input_power_policy` entries; unsupported reads still use the project-policy placeholder. |]=])
   profile_copy(p duplicate_row)
   doc_copy(d duplicate_row)
-  gbl_text_mutate("${d}" "| `io-devices` | I/O device register semantics. |"
-    "| `io-devices` | I/O device register semantics. |\n| `io-devices` | I/O device register semantics. |")
+  gbl_text_mutate("${d}" "${io_devices_row}"
+    "${io_devices_row}\n${io_devices_row}")
   expect_detail(doc-extra-id "duplicate id io-devices" "${p}" "${d}")
   profile_copy(p duplicate_replaces_row)
   doc_copy(d duplicate_replaces_row)
-  gbl_text_mutate("${d}" "| `io-devices` | I/O device register semantics. |"
+  gbl_text_mutate("${d}" "${io_devices_row}"
     "| `prefetch` | The cartridge prefetch buffer and cartridge wait-state timing. |")
   expect_detail(doc-extra-id "duplicate id prefetch" "${p}" "${d}")
   foreach(shape IN ITEMS left right neither hash)
@@ -844,8 +845,8 @@ elseif(CASE STREQUAL "doc_extra_id")
     elseif(shape STREQUAL "hash")
       set(row "#${row}")
     endif()
-    gbl_text_mutate("${d}" "| `io-devices` | I/O device register semantics. |"
-      "| `io-devices` | I/O device register semantics. |\n${row}")
+    gbl_text_mutate("${d}" "${io_devices_row}"
+      "${io_devices_row}\n${row}")
     expect_code(doc-no-section "${p}" "${d}")
   endforeach()
 

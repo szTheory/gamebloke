@@ -4173,13 +4173,13 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             break;
         }
-        if (run_result.cycles >= run_options.cycle_budget) {
-            break;
-        }
         if (run_options.unit_limit != 0u &&
             completed_units >= run_options.unit_limit) {
             run_result.termination = GBL_RUN_PROGRESS;
             run_result.reason = GBL_RUN_REASON_UNIT_LIMIT;
+            break;
+        }
+        if (run_result.cycles >= run_options.cycle_budget) {
             break;
         }
         if (machine->power_state == GBL_MACHINE_POWER_HALTED) {

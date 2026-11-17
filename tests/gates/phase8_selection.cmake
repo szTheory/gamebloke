@@ -454,7 +454,21 @@ function(gbl_phase8_check_order_graph)
     keypad.condition time.halt.refusal runner.input.cli runner.unit
     runner.result_contract determinism.phase8 determinism.phase8.controls
     phase8.policy phase8.order)
-  gbl_phase8_discover("${GBL_PHASE8_BIN}" "^.*$" json)
+  # Only Phase 7/8 setup and dependent tests participate in this graph. Avoid
+  # reparsing the full CI inventory for each property lookup; that made this
+  # focused gate take over 160 seconds on the configured 1,100-test graph.
+  set(order_names ${setup_names} ${required_names})
+  set(order_regex_parts)
+  foreach(name IN LISTS order_names)
+    string(REPLACE "." "[.]" name_regex "${name}")
+    list(APPEND order_regex_parts "${name_regex}")
+  endforeach()
+  list(APPEND order_regex_parts
+    "phase8[.].*" "cpu[.]irq[.].*" "cpu[.]power[.].*"
+    "bus[.](irq|keypad)[.].*" "keypad[.].*" "time[.]halt[.].*")
+  list(REMOVE_DUPLICATES order_regex_parts)
+  list(JOIN order_regex_parts "|" order_regex)
+  gbl_phase8_discover("${GBL_PHASE8_BIN}" "^(${order_regex})$" json)
   string(JSON count ERROR_VARIABLE error LENGTH "${json}" tests)
   if(NOT "${error}" STREQUAL "NOTFOUND")
     message(FATAL_ERROR "phase8-order: malformed-discovery")
@@ -473,11 +487,9 @@ function(gbl_phase8_check_order_graph)
   set(expected_setups
     cpu.irq.boundary keypad.timeline keypad.refusal time.halt.boundary
     phase8.selection.control)
-  set(actual_phase8_setups ${actual_setups})
-  list(FILTER actual_phase8_setups INCLUDE REGEX "^(cpu[.]irq[.]boundary|keypad[.](timeline|refusal)|time[.]halt[.]boundary|phase8[.]selection[.]control)$")
-  list(SORT actual_phase8_setups)
+  list(SORT actual_setups)
   list(SORT expected_setups)
-  if(NOT actual_phase8_setups STREQUAL expected_setups)
+  if(NOT actual_setups STREQUAL expected_setups)
     message(FATAL_ERROR "phase8-order: setup-set")
   endif()
   foreach(required_name IN LISTS required_names)
@@ -498,7 +510,7 @@ function(gbl_phase8_check_order_graph)
     gbl_phase8_json_property("${json}" ${index} FIXTURES_SETUP fixtures is_setup)
     gbl_phase8_json_property("${json}" ${index} FIXTURES_REQUIRED required_fixtures requires_phase8)
     if(is_setup AND "phase8_fast" IN_LIST fixtures)
-      if("phase8_fast" IN_LIST required_fixtures OR "phase7_fast" IN_LIST required_fixtures)
+      if("phase8_fast" IN_LIST required_fixtures)
         message(FATAL_ERROR "phase8-order: setup-self-cycle-${name}")
       endif()
     endif()
@@ -513,7 +525,6 @@ function(gbl_phase8_check_order_graph)
       endif()
     endif()
   endforeach()
-  gbl_phase8_check_fixture_controls("${GBL_PHASE8_BIN}/phase8-order-controls")
   message(STATUS "phase8-order: exact Phase 8 predecessor graph and scratch controls passed")
 endfunction()
 

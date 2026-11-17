@@ -25,7 +25,7 @@ execute_process(
   RESULT_VARIABLE profile_rc OUTPUT_VARIABLE profile_out ERROR_VARIABLE profile_err)
 set(profile_output "${profile_out}${profile_err}")
 if(NOT profile_rc EQUAL 0 OR NOT "${profile_output}" MATCHES
-    "profile: ok \\(agb v6, 11 timing constants, 13 unmodeled\\)")
+    "profile: ok \\(agb v7, 11 timing constants, 13 unmodeled\\)")
   message(FATAL_ERROR "phase7-costs: clean profile validation failed: ${profile_output}")
 endif()
 
