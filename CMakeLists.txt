@@ -530,3 +530,31 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     endif()
   endforeach()
 endif()
+
+# The Phase 8 exact boundary set is a second staged prerequisite for longer
+# IRQ/input/HALT, runner, determinism, and profile-policy checks. Its setup
+# tests retain their Phase 7 prerequisite, while Phase 7 setup tests remain
+# independent of Phase 8.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase8_fast_setup_tests
+    cpu.irq.boundary
+    keypad.timeline
+    keypad.refusal
+    time.halt.boundary
+    phase8.selection.control)
+  foreach(test_name IN LISTS gbl_phase8_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase8_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase8_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu[.](irq[.]refusal|power[.]boundary)|bus[.](irq|keypad)[.]registers|keypad[.]condition|time[.]halt[.]refusal|runner[.](input[.]cli|unit|result_contract)|determinism[.]phase8([.]controls)?|phase8[.](order|policy))$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase8_fast)
+    endif()
+  endforeach()
+endif()

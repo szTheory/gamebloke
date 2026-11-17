@@ -128,6 +128,25 @@ gbl_add_test(
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     -DCASE=control -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_selection.cmake")
 
+gbl_add_test(
+  NAME phase8.selection.control
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_selection.cmake")
+gbl_add_test(
+  NAME phase8.order
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=order -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_selection.cmake")
+gbl_add_test(
+  NAME phase8.policy
+  LABELS gate profile time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_policy.cmake")
+
 add_executable(cpu_test tests/cpu_test.c)
 target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(
