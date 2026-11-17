@@ -6,16 +6,16 @@ current_phase: 8
 current_phase_name: IRQ, HALT, and Timestamped Input
 current_plan: 7
 status: executing
-stopped_at: Completed 08-06-PLAN.md
-last_updated: "2026-11-17T01:12:01.525Z"
-last_activity: 2026-11-16
+stopped_at: Completed 08-07-PLAN.md
+last_updated: "2026-11-17T03:13:46.380Z"
+last_activity: 2026-11-17
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: 87f4ef40d71a5b40f18aca86f549982ea77ef68b
+state_head: 8b58efe4ca5e6decee524f83c29d703d7d36dd61
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
   percent: 25
 ---
 
@@ -143,6 +143,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 08 P04 | 45m | 2 tasks | 11 files |
 | Phase 8 P5 | 37min | 2 tasks | 11 files |
 | Phase 8 P6 | 41m | 2 tasks | 10 files |
+| Phase 08 P07 | not measured | 2 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -342,6 +343,8 @@ Recent decisions affecting current work:
 - [Phase 8]: Describe Plan 08-05 replay results as deterministic model evidence, not hardware or physical-controller qualification.
 - [Phase 8]: Keep Phase 8 IRQ, keypad, HALT, and power values project-model-only; preserve source facts and hardware qualification as separate evidence.
 - [Phase 8]: Defer canonical CTest inventory and registered-graph evidence to Plan 08-07.
+- [Phase 08]: Keep deterministic IRQ, HALT, and keypad observations project-model evidence; preserve G4, physical qualification, hosted CI, and carryover stops.
+- [Phase 08]: Treat the sixth canonical local workflow as final evidence; retain earlier failed attempts and their bounded repairs as history.
 
 ### Pending Todos
 
@@ -392,11 +395,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-17T01:12:01.471Z
-Stopped at: Completed 08-06-PLAN.md
+Last session: 2026-11-17T03:13:46.322Z
+Stopped at: Completed 08-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Continue Phase 8 execution with $gsd-execute-phase 8; Plan 08-05 is next for deterministic timeline and IRQ observation coverage.
+- Continue Phase 8 Plan 08-07 verification and evidence closeout; Plans 08-01 through 08-06 are complete.
 - Preserve existing hosted/publication stops. No hosted rerun or publication follows from the roadmap or the two carried evidence gaps.
