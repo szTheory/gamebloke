@@ -929,8 +929,15 @@ static void gbl_interleave_seed_live_timer(gbl_machine *machine)
     machine->event_count = 1u;
     machine->next_event_sequence = UINT64_C(1);
     machine->events[0] = (gbl_event){
-        machine->master_cycles + UINT64_C(1), UINT64_C(1), UINT64_C(1),
-        0u, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true, 0u
+        .cycle = machine->master_cycles + UINT64_C(1),
+        .sequence = UINT64_C(1),
+        .generation = UINT64_C(1),
+        .priority = 0u,
+        .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+        .timer_index = 0u,
+        .dma_channel = 0u,
+        .live = true,
+        .input_index = 0u
     };
 }
 
@@ -3534,8 +3541,30 @@ static int gbl_test_phase8_main(void)
     return 0;
 }
 
+static int gbl_test_phase9_main(void)
+{
+    gbl_trace_record expected = { 0 };
+    gbl_trace_record actual;
+
+    expected.category = GBL_TRACE_DMA;
+    expected.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    expected.dma_dispute = GBL_DMA_DISPUTE_LATCH;
+    actual = expected;
+    actual.dma_dispute = GBL_DMA_DISPUTE_NONE;
+    if (gbl_interleave_trace_fields_equal(&expected, &actual, 1u)) {
+        fputs("FAIL determinism.phase9: dma-dispute-trace-field-ignored\n",
+              stderr);
+        return 1;
+    }
+    puts("PASS determinism.phase9: DMA trace comparison observes dispute metadata");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "phase9") == 0) {
+        return gbl_test_phase9_main();
+    }
     if (argc == 2 && strcmp(argv[1], "phase8") == 0) {
         return gbl_test_phase8_main();
     }
