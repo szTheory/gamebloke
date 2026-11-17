@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 09
 current_phase_name: Bus Timing, DMA, and Arbitration
-current_plan: Not started
+current_plan: 2
 status: executing
-stopped_at: Phase 9 context gathered; planning held for correct phase branch
-last_updated: "2026-11-17T15:27:30.043Z"
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-11-17T16:41:30.119Z"
 last_activity: 2026-11-17
-last_activity_desc: Phase 8 complete, transitioned to Phase 9
-state_head: 90b78d70c55037a7e0a94d8ff5fcb635e8e6e42d
+last_activity_desc: Phase 09 execution started
+state_head: 3f7d62ca9550b1fe4ed062dc3819f825511cb3ab
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 14
+  completed_plans: 15
   percent: 50
 ---
 
@@ -31,11 +31,11 @@ See: .planning/PROJECT.md (updated 2026-11-17)
 
 ## Current Position
 
-Phase: 09 (Bus Timing, DMA, and Arbitration) — READY TO EXECUTE
-Current Plan: Not started
+Phase: 09 (Bus Timing, DMA, and Arbitration) — EXECUTING
+Current Plan: 2
 Total Plans in Phase: 8
 Status: Ready to execute
-Last activity: 2026-11-17 — Phase 8 complete; Phase 9 is ready for discussion
+Last activity: 2026-11-17 — Phase 09 execution started
 
 Progress: [█████░░░░░] 50%
 
@@ -145,6 +145,7 @@ Progress: [█████░░░░░] 50%
 | Phase 8 P5 | 37min | 2 tasks | 11 files |
 | Phase 8 P6 | 41m | 2 tasks | 10 files |
 | Phase 08 P07 | not measured | 2 tasks | 21 files |
+| Phase 09 P01 | 53m | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -346,6 +347,9 @@ Recent decisions affecting current work:
 - [Phase 8]: Defer canonical CTest inventory and registered-graph evidence to Plan 08-07.
 - [Phase 08]: Keep deterministic IRQ, HALT, and keypad observations project-model evidence; preserve G4, physical qualification, hosted CI, and carryover stops.
 - [Phase 08]: Treat the sixth canonical local workflow as final evidence; retain earlier failed attempts and their bounded repairs as history.
+- [Phase 09]: Use a two-master-cycle DMA startup as explicit project policy; the hardware conversion remains UNKNOWN.
+- [Phase 09]: Use Nintendo AGB Programming Manual v1.1 section 3.3 for reset WS0 ROM quote; keep other region costs project-selected and label hardware mapping UNKNOWN.
+- [Phase 09]: Keep the transactional DMA coordinator in src/machine.c and refuse IO destinations before publishing source or device effects.
 
 ### Pending Todos
 
@@ -396,9 +400,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-17T13:25:51.022Z
-Stopped at: Phase 9 context gathered; planning held for correct phase branch
-Resume file: .planning/phases/09-bus-timing-dma-and-arbitration/09-CONTEXT.md
+Last session: 2026-11-17T16:41:30.045Z
+Stopped at: Completed 09-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
