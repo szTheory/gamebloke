@@ -14563,6 +14563,16 @@ static void test_dma_tracer(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_dma_refusal_state_comparator(void)
+{
+    gbl_machine before = { 0 };
+    gbl_machine after = before;
+
+    after.dma_channels[3].read_latch = UINT32_C(0xBEEF);
+    test_case(!gbl_test_time_state_equal(&before, &after),
+              "named time-state comparison detects DMA read-latch changes");
+}
+
 typedef void (*cpu_test_function)(void);
 
 typedef struct cpu_test_group {
@@ -14672,6 +14682,9 @@ static const cpu_test_function psr_functions[] = {
 };
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function dma_tracer_functions[] = { test_dma_tracer };
+static const cpu_test_function dma_refusal_functions[] = {
+    test_dma_refusal_state_comparator
+};
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
     test_irq_timer_tracer,
@@ -14914,6 +14927,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("dma.tracer", 1u, dma_tracer_functions),
+    CPU_TEST_GROUP("dma.refusal", 1u, dma_refusal_functions),
     CPU_TEST_GROUP("exceptions", 17u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
     CPU_TEST_GROUP("no_bios", 2u, no_bios_functions),
