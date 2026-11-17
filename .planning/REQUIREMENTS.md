@@ -16,7 +16,7 @@
 
 ### Bus and cycle accounting
 
-- [ ] **BUS-05**: WAITCNT behavior uses documented wait tables and sequential/non-sequential rules, including the 128 KiB boundary. Game Pak prefetch is either modeled with explicit evidence or listed as unmodeled in the active profile; BIOS read protection follows the selected BIOS policy.
+- [x] **BUS-05**: WAITCNT behavior uses documented wait tables and sequential/non-sequential rules, including the 128 KiB boundary. Game Pak prefetch is either modeled with explicit evidence or listed as unmodeled in the active profile; BIOS read protection follows the selected BIOS policy.
 - [x] **BUS-06**: CPU elapsed time is derived from explicit bus-access and internal-cycle components. The profile identifies source-backed, project-selected, and unmodeled costs by access region, width, and sequential state. A one-cycle placeholder cannot be presented as hardware timing.
 
 ### Interrupts, HALT, and input
@@ -78,7 +78,7 @@ Every current v2.0 requirement maps to exactly one phase. Status changes only wh
 | TIME-03 | Phase 7 | Complete |
 | TIME-04 | Phase 8 | Complete |
 | TIME-05 | Phase 7 | Complete |
-| BUS-05 | Phase 9 | Pending |
+| BUS-05 | Phase 9 | Complete |
 | BUS-06 | Phase 7 | Complete |
 | INPUT-01 | Phase 8 | Complete |
 | DMA-01 | Phase 9 | Pending |

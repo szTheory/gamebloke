@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 09
 current_phase_name: Bus Timing, DMA, and Arbitration
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-11-17T16:41:30.119Z"
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-11-17T19:53:47.315Z"
 last_activity: 2026-11-17
 last_activity_desc: Phase 09 execution started
-state_head: 3f7d62ca9550b1fe4ed062dc3819f825511cb3ab
+state_head: 0411626c7d9b3f3d76ecb856afbb3c9add3eb5c9
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 15
+  completed_plans: 16
   percent: 50
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-17)
 ## Current Position
 
 Phase: 09 (Bus Timing, DMA, and Arbitration) — EXECUTING
-Current Plan: 2
+Current Plan: 3
 Total Plans in Phase: 8
 Status: Ready to execute
 Last activity: 2026-11-17 — Phase 09 execution started
@@ -146,6 +146,7 @@ Progress: [█████░░░░░] 50%
 | Phase 8 P6 | 41m | 2 tasks | 10 files |
 | Phase 08 P07 | not measured | 2 tasks | 21 files |
 | Phase 09 P01 | 53m | 2 tasks | 13 files |
+| Phase 09 P02 | 190min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -350,6 +351,8 @@ Recent decisions affecting current work:
 - [Phase 09]: Use a two-master-cycle DMA startup as explicit project policy; the hardware conversion remains UNKNOWN.
 - [Phase 09]: Use Nintendo AGB Programming Manual v1.1 section 3.3 for reset WS0 ROM quote; keep other region costs project-selected and label hardware mapping UNKNOWN.
 - [Phase 09]: Keep the transactional DMA coordinator in src/machine.c and refuse IO destinations before publishing source or device effects.
+- [Phase 09]: Use one contextual WAITCNT quote path for CPU and DMA, including physical beat composition.
+- [Phase 09]: Keep prefetch execution unmodeled; separate community 128 KiB provenance and retain UNKNOWN hardware qualification.
 
 ### Pending Todos
 
@@ -400,8 +403,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-17T16:41:30.045Z
-Stopped at: Completed 09-01-PLAN.md
+Last session: 2026-11-17T19:53:47.241Z
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
