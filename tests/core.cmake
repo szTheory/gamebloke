@@ -179,6 +179,45 @@ foreach(selector IN ITEMS arithmetic arm_alu arm_block arm_block_banks arm_block
     LABELS cpu core unit
     COMMAND $<TARGET_FILE:cpu_test> ${selector})
 endforeach()
+
+# The Phase 09 DMA selectors are declared now and enter CTest when their lane
+# inventory rows are added by plan 09-07. Until then they remain directly
+# runnable without making earlier sequential plans fail configure-time parity.
+if(GBL_INVENTORY_LANE STREQUAL "ci" OR GBL_INVENTORY_LANE STREQUAL "asan")
+  file(STRINGS
+    "${CMAKE_SOURCE_DIR}/tests/inventory/${GBL_INVENTORY_LANE}.txt"
+    GBL_PHASE9_DMA_INVENTORY_ROWS)
+  foreach(selector IN ITEMS registers arbitration events latch refusal controls)
+    set(test_name "dma.${selector}")
+    set(registered FALSE)
+    foreach(inventory_row IN LISTS GBL_PHASE9_DMA_INVENTORY_ROWS)
+      string(FIND "${inventory_row}" "${test_name} " row_position)
+      if(row_position EQUAL 0)
+        set(registered TRUE)
+      endif()
+    endforeach()
+    if(registered)
+      gbl_add_test(
+        NAME ${test_name}
+        LABELS core dma unit
+        COMMAND $<TARGET_FILE:dma_test> ${selector})
+    endif()
+  endforeach()
+  set(test_name "cpu.dma.cpu")
+  set(registered FALSE)
+  foreach(inventory_row IN LISTS GBL_PHASE9_DMA_INVENTORY_ROWS)
+    string(FIND "${inventory_row}" "${test_name} " row_position)
+    if(row_position EQUAL 0)
+      set(registered TRUE)
+    endif()
+  endforeach()
+  if(registered)
+    gbl_add_test(
+      NAME ${test_name}
+      LABELS core cpu unit
+      COMMAND $<TARGET_FILE:cpu_test> dma.cpu)
+  endif()
+endif()
 set_tests_properties(cpu.power.boundary time.halt.boundary time.halt.refusal
   PROPERTIES TIMEOUT 10)
 

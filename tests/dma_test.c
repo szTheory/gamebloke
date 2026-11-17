@@ -275,6 +275,417 @@ static bool configure_dma(gbl_machine *machine, uint8_t channel,
            write_register(machine, channel, 10u, 2u, control);
 }
 
+static bool run_dma_unit(gbl_machine *machine, uint8_t channel,
+                         gbl_dma_step_result *result)
+{
+    return gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES, result) ==
+               GBL_DMA_STATUS_OK &&
+           !result->unit_completed && result->channel == channel &&
+           gbl_machine_dma_step(machine, UINT64_C(64), result) ==
+               GBL_DMA_STATUS_OK &&
+           result->unit_completed && result->channel == channel;
+}
+
+static bool test_dma_latches_are_isolated_and_disclosed(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result ch0_halfword = { 0 };
+    gbl_dma_step_result ch1_word = { 0 };
+    gbl_dma_step_result ch0_fallback = { 0 };
+    gbl_dma_step_result ch2_fallback = { 0 };
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->ewram[0x100u] = UINT8_C(0x12);
+    machine->ewram[0x101u] = UINT8_C(0x34);
+    machine->ewram[0x120u] = UINT8_C(0xB0);
+    machine->ewram[0x121u] = UINT8_C(0xA1);
+    machine->ewram[0x122u] = UINT8_C(0xD2);
+    machine->ewram[0x123u] = UINT8_C(0xC3);
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000100),
+                          UINT32_C(0x03000100), 1u, UINT16_C(0x8000)) &&
+            run_dma_unit(machine, 0u, &ch0_halfword) &&
+            machine->dma_channels[0].read_latch == UINT32_C(0x34123412) &&
+            configure_dma(machine, 1u, UINT32_C(0x02000120),
+                          UINT32_C(0x03000120), 1u,
+                          UINT16_C(0x8400)) &&
+            run_dma_unit(machine, 1u, &ch1_word) &&
+            machine->dma_channels[1].read_latch == UINT32_C(0xC3D2A1B0) &&
+            machine->dma_channels[0].read_latch == UINT32_C(0x34123412);
+    if (valid) {
+        const uint32_t global_open_bus = machine->open_bus;
+
+        valid = configure_dma(machine, 0u, 0u, UINT32_C(0x03000140), 1u,
+                              UINT16_C(0x8400)) &&
+                run_dma_unit(machine, 0u, &ch0_fallback) &&
+                ch0_fallback.used_channel_latch &&
+                ch0_fallback.value_provenance ==
+                    GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED &&
+                ch0_fallback.result_classification ==
+                    GBL_DMA_RESULT_CLASSIFICATION_DISPUTED &&
+                ch0_fallback.dispute == GBL_DMA_DISPUTE_LATCH &&
+                ch0_fallback.hardware_qualification ==
+                    GBL_HARDWARE_QUALIFICATION_UNKNOWN &&
+                machine->iwram[0x140u] == UINT8_C(0x12) &&
+                machine->iwram[0x141u] == UINT8_C(0x34) &&
+                machine->iwram[0x142u] == UINT8_C(0x12) &&
+                machine->iwram[0x143u] == UINT8_C(0x34) &&
+                machine->open_bus == global_open_bus &&
+                configure_dma(machine, 2u, 0u, UINT32_C(0x03000160), 1u,
+                              UINT16_C(0x8000)) &&
+                run_dma_unit(machine, 2u, &ch2_fallback) &&
+                ch2_fallback.used_channel_latch &&
+                ch2_fallback.value_provenance ==
+                    GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED &&
+                ch2_fallback.result_classification ==
+                    GBL_DMA_RESULT_CLASSIFICATION_DISPUTED &&
+                ch2_fallback.dispute == GBL_DMA_DISPUTE_LATCH &&
+                ch2_fallback.hardware_qualification ==
+                    GBL_HARDWARE_QUALIFICATION_UNKNOWN &&
+                machine->dma_channels[2].read_latch == 0u &&
+                machine->iwram[0x160u] == 0u &&
+                machine->iwram[0x161u] == 0u &&
+                machine->dma_channels[0].read_latch ==
+                    UINT32_C(0x34123412);
+    }
+    if (valid) {
+        gbl_machine_reset(machine);
+        valid = machine->dma_channels[0].read_latch == 0u &&
+                machine->dma_channels[1].read_latch == 0u &&
+                machine->dma_channels[2].read_latch == 0u &&
+                machine->dma_channels[3].read_latch == 0u &&
+                machine->event_count == 0u && !machine->dma_stream_valid;
+    }
+    test_case(valid,
+              "retained channel latches isolate halfword replication, word replacement, absent-source fallback, open bus, and reset");
+    if (valid) {
+        printf("phase9-observation:{\"schema\":\"gamebloke.phase9-observation/1\",\"kind\":\"dma-latch\",\"cases\":[{\"channel\":0,\"mode\":\"halfword-replicated\",\"value\":\"0x34123412\",\"used_channel_latch\":false,\"expected_value_provenance\":\"project-selected\",\"result_classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\",\"hardware_qualification\":\"UNKNOWN\"},{\"channel\":1,\"mode\":\"word-replaced\",\"value\":\"0xC3D2A1B0\",\"used_channel_latch\":false,\"expected_value_provenance\":\"project-selected\",\"result_classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\",\"hardware_qualification\":\"UNKNOWN\"},{\"channel\":0,\"mode\":\"absent-source-recall\",\"value\":\"0x34123412\",\"used_channel_latch\":true,\"expected_value_provenance\":\"project-selected\",\"result_classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\",\"hardware_qualification\":\"UNKNOWN\"},{\"channel\":2,\"mode\":\"reset-latch-zero\",\"value\":\"0x00000000\",\"used_channel_latch\":true,\"expected_value_provenance\":\"project-selected\",\"result_classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\",\"hardware_qualification\":\"UNKNOWN\"}],\"prefetch\":\"unmodeled\"}\n");
+    }
+    free_machine(machine);
+    return true;
+}
+
+static bool test_dma_refusal_transactions_are_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    gbl_machine *before = NULL;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    machine->ewram[0x200u] = UINT8_C(0xA7);
+    valid = configure_dma(machine, 3u, UINT32_C(0x02000200),
+                          UINT32_C(0x04000000), 1u, UINT16_C(0x8000)) &&
+            gbl_machine_dma_step(machine, 2u, &step) == GBL_DMA_STATUS_OK;
+    if (valid) {
+        *before = *machine;
+        valid = gbl_machine_dma_step(machine, 64u, &step) ==
+                    GBL_DMA_STATUS_UNIT_REFUSAL &&
+                gbl_test_canonical_equal(before, machine) &&
+                machine->ewram[0x200u] == UINT8_C(0xA7) &&
+                machine->dma_channels[3].read_latch == 0u;
+    }
+    test_case(valid,
+              "IO destination refusal preserves the complete source, latch, time, and owner state");
+    free_machine(machine);
+
+    machine = new_machine();
+    if (machine == NULL) {
+        free(before);
+        return false;
+    }
+    valid = configure_dma(machine, 3u, UINT32_C(0x02000220),
+                          UINT32_C(0x03000220), 1u, UINT16_C(0x8000)) &&
+            gbl_machine_dma_step(machine, 2u, &step) == GBL_DMA_STATUS_OK;
+    if (valid) {
+        *before = *machine;
+        valid = gbl_machine_dma_step(machine, 1u, &step) ==
+                    GBL_DMA_STATUS_BUDGET_REFUSAL &&
+                gbl_test_canonical_equal(before, machine);
+    }
+    test_case(valid,
+              "one-cycle-short DMA unit budget refuses without consuming startup or a partial unit");
+    free_machine(machine);
+
+    machine = new_machine();
+    if (machine == NULL) {
+        free(before);
+        return false;
+    }
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000240),
+                          UINT32_C(0x03000240), 1u, UINT16_C(0x9000));
+    if (valid) {
+        machine->event_count = GBL_EVENT_CAPACITY;
+        *before = *machine;
+        valid = gbl_machine_dma_request(
+                    machine, 0u, machine->master_cycles + 1u,
+                    machine->dma_channels[0].generation) ==
+                    GBL_TIME_STATUS_EVENT_CAPACITY &&
+                gbl_test_canonical_equal(before, machine);
+    }
+    test_case(valid,
+              "ready-event capacity refusal leaves all channel and scheduler state unchanged");
+    free_machine(machine);
+
+    machine = new_machine();
+    if (machine == NULL) {
+        free(before);
+        return false;
+    }
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000260),
+                          UINT32_C(0x03000260), 1u, UINT16_C(0x9000));
+    if (valid) {
+        *before = *machine;
+        valid = gbl_machine_dma_request(
+                    machine, 0u, machine->master_cycles + 1u,
+                    machine->dma_channels[0].generation + 1u) ==
+                    GBL_TIME_STATUS_INVALID_ARGUMENT &&
+                gbl_test_canonical_equal(before, machine);
+    }
+    test_case(valid,
+              "stale request generation is refused without creating a readiness edge");
+    free_machine(machine);
+    free(before);
+    return true;
+}
+
+static bool test_dma_scheduler_dispatch_limit_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *before = NULL;
+    gbl_bus_result timer;
+    uint64_t target;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000280),
+                          UINT32_C(0x03000280), 1u, UINT16_C(0x9000));
+    timer = gbl_bus_write(machine, UINT32_C(0x04000100), 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x00C0FFFF));
+    target = machine->master_cycles + UINT64_C(5000);
+    valid = valid && timer.status == GBL_BUS_STATUS_OK &&
+            gbl_machine_dma_request(
+                machine, 0u, target,
+                machine->dma_channels[0].generation) == GBL_TIME_STATUS_OK;
+    if (valid) {
+        *before = *machine;
+        valid = gbl_machine_advance_to(machine, target) ==
+                    GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT &&
+                gbl_test_canonical_equal(before, machine);
+    }
+    test_case(valid,
+              "timer dispatch-limit refusal retains the queued DMA request and rejects the whole time advance");
+    free_machine(machine);
+    free(before);
+    return valid;
+}
+
+typedef struct gbl_dma_observation_test_value {
+    uint32_t transfer_value;
+    uint32_t source_address;
+    uint64_t unit_cycles;
+    gbl_machine_bus_owner owner;
+    bool provenance_project_selected;
+    bool classified_disputed;
+    bool dispute_named;
+    bool qualification_unknown;
+} gbl_dma_observation_test_value;
+
+static const char *dma_observation_failure(
+    const gbl_dma_observation_test_value *expected,
+    const gbl_dma_observation_test_value *actual)
+{
+    if (expected->transfer_value != actual->transfer_value) {
+        return "dma-transfer-value";
+    }
+    if (expected->unit_cycles != actual->unit_cycles) {
+        return "dma-unit-cost";
+    }
+    if (expected->owner != actual->owner) {
+        return "dma-owner";
+    }
+    if (expected->source_address != actual->source_address) {
+        return "dma-mask";
+    }
+    if (expected->provenance_project_selected !=
+            actual->provenance_project_selected ||
+        expected->classified_disputed != actual->classified_disputed ||
+        expected->dispute_named != actual->dispute_named ||
+        expected->qualification_unknown != actual->qualification_unknown) {
+        return "dma-latch-disclosure";
+    }
+    return NULL;
+}
+
+static bool test_dma_controls_and_semantic_twins(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    gbl_dma_observation_test_value expected = {
+        UINT32_C(0x1234), UINT32_C(0x02000100), 4u,
+        GBL_MACHINE_BUS_OWNER_DMA, true, true, true, true
+    };
+    gbl_dma_observation_test_value actual = expected;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->ewram[0x300u] = 1u;
+    machine->ewram[0x302u] = 2u;
+    machine->ewram[0x304u] = 3u;
+    valid = configure_dma(machine, 3u, UINT32_C(0x02000300),
+                          UINT32_C(0x03000300), 2u, UINT16_C(0x8000)) &&
+            gbl_machine_dma_step(machine, 2u, &step) == GBL_DMA_STATUS_OK &&
+            gbl_machine_dma_step(machine, 2u, &step) == GBL_DMA_STATUS_OK &&
+            machine->dma_channels[3].current_source ==
+                UINT32_C(0x02000302) &&
+            machine->dma_channels[3].current_destination ==
+                UINT32_C(0x03000302) &&
+            write_register(machine, 3u, 10u, 2u, 0u);
+    if (valid) {
+        valid = configure_dma(machine, 3u, UINT32_C(0x02000304),
+                              UINT32_C(0x03000304), 2u,
+                              UINT16_C(0x80A0)) &&
+                gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK &&
+                gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK &&
+                machine->dma_channels[3].current_source ==
+                    UINT32_C(0x02000302) &&
+                machine->dma_channels[3].current_destination ==
+                    UINT32_C(0x03000302) &&
+                write_register(machine, 3u, 10u, 2u, 0u);
+    }
+    if (valid) {
+        valid = configure_dma(machine, 3u, UINT32_C(0x02000320),
+                              UINT32_C(0x03000320), 2u,
+                              UINT16_C(0x8140)) &&
+                gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK &&
+                gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK &&
+                machine->dma_channels[3].current_source ==
+                    UINT32_C(0x02000320) &&
+                machine->dma_channels[3].current_destination ==
+                    UINT32_C(0x03000320) &&
+                write_register(machine, 3u, 10u, 2u, 0u);
+    }
+    if (valid) {
+        valid = configure_dma(machine, 3u, UINT32_C(0x02000340),
+                              UINT32_C(0x03000340), 1u,
+                              UINT16_C(0x9260)) &&
+                machine->dma_channels[3].armed &&
+                !machine->dma_channels[3].pending;
+        if (valid) {
+            const uint64_t generation = machine->dma_channels[3].generation;
+            const uint64_t request_cycle = machine->master_cycles + 1u;
+
+            valid = gbl_machine_dma_request(machine, 3u, request_cycle,
+                                             generation) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_machine_advance_to(machine, request_cycle) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_machine_dma_step(machine, 2u, &step) ==
+                        GBL_DMA_STATUS_OK &&
+                    gbl_machine_dma_step(machine, 2u, &step) ==
+                        GBL_DMA_STATUS_OK &&
+                    machine->dma_channels[3].armed &&
+                    machine->dma_channels[3].remaining == 1u &&
+                    machine->dma_channels[3].current_destination ==
+                        UINT32_C(0x03000340) &&
+                    machine->dma_channels[3].current_source ==
+                        UINT32_C(0x02000342) &&
+                    write_register(machine, 3u, 10u, 2u, 0u);
+        }
+    }
+    if (valid) {
+        valid = configure_dma(machine, 3u, UINT32_C(0x02000360),
+                              UINT32_C(0x03000360), 1u,
+                              UINT16_C(0x8200)) &&
+                run_dma_unit(machine, 3u, &step) &&
+                (machine->dma_channels[3].control & UINT16_C(0x8000)) == 0u &&
+                !machine->dma_channels[3].armed &&
+                !machine->dma_channels[3].pending;
+    }
+    if (valid) {
+        valid = configure_dma(machine, 1u, UINT32_C(0x02000380),
+                              UINT32_C(0x03000380), 1u,
+                              UINT16_C(0xA000)) &&
+                machine->dma_channels[1].armed &&
+                !machine->dma_channels[1].pending &&
+                configure_dma(machine, 2u, UINT32_C(0x020003A0),
+                              UINT32_C(0x030003A0), 1u,
+                              UINT16_C(0xB000)) &&
+                machine->dma_channels[2].armed &&
+                !machine->dma_channels[2].pending &&
+                configure_dma(machine, 0u, UINT32_C(0x020003C0),
+                              UINT32_C(0x030003C0), 1u,
+                              UINT16_C(0x9000));
+    }
+    if (valid) {
+        const gbl_machine before = *machine;
+        const gbl_bus_result invalid = gbl_bus_write(
+            machine, dma_channel_base(0u) + 10u, 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xB000));
+
+        valid = invalid.status != GBL_BUS_STATUS_OK &&
+                gbl_test_canonical_equal(&before, machine);
+    }
+    test_case(valid,
+              "source and destination address modes progress independently; delayed repeat reloads count and destination while immediate repeat stays one-shot");
+    if (valid) {
+        printf("phase9-observation:{\"schema\":\"gamebloke.phase9-observation/1\",\"kind\":\"dma-control-policy\",\"immediate_repeat\":\"one-shot\",\"delayed_repeat\":\"armed\",\"destination_reload\":\"channel3\",\"production_triggers\":\"deferred\",\"hardware_qualification\":\"UNKNOWN\"}\n");
+    }
+    free_machine(machine);
+
+    actual = expected;
+    test_case(dma_observation_failure(&expected, &actual) == NULL,
+              "clean semantic observation twin passes the named classifier");
+    actual.transfer_value ^= 1u;
+    test_case(strcmp(dma_observation_failure(&expected, &actual),
+                     "dma-transfer-value") == 0,
+              "wrong transfer value twin fails as dma-transfer-value");
+    actual = expected;
+    ++actual.unit_cycles;
+    test_case(strcmp(dma_observation_failure(&expected, &actual),
+                     "dma-unit-cost") == 0,
+              "wrong unit cost twin fails as dma-unit-cost");
+    actual = expected;
+    actual.owner = GBL_MACHINE_BUS_OWNER_CPU;
+    test_case(strcmp(dma_observation_failure(&expected, &actual),
+                     "dma-owner") == 0,
+              "wrong owner twin fails as dma-owner");
+    actual = expected;
+    actual.source_address |= UINT32_C(0xF0000000);
+    test_case(strcmp(dma_observation_failure(&expected, &actual),
+                     "dma-mask") == 0,
+              "wrong channel mask twin fails as dma-mask");
+    actual = expected;
+    actual.dispute_named = false;
+    test_case(strcmp(dma_observation_failure(&expected, &actual),
+                     "dma-latch-disclosure") == 0,
+              "missing latch dispute twin fails as dma-latch-disclosure");
+    return true;
+}
+
 static bool test_dma_priority_and_resume(void)
 {
     gbl_machine *machine = new_machine();
@@ -537,6 +948,34 @@ static bool run_events(void)
     return failure_count == 0u ? 0 : 1;
 }
 
+static bool run_latch(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..1\n");
+    (void)test_dma_latches_are_isolated_and_disclosed();
+    return failure_count == 0u ? 0 : 1;
+}
+
+static bool run_refusal(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..5\n");
+    (void)test_dma_refusal_transactions_are_atomic();
+    (void)test_dma_scheduler_dispatch_limit_is_atomic();
+    return failure_count == 0u ? 0 : 1;
+}
+
+static bool run_controls(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..7\n");
+    (void)test_dma_controls_and_semantic_twins();
+    return failure_count == 0u ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "registers") == 0) {
@@ -547,6 +986,15 @@ int main(int argc, char **argv)
     }
     if (argc == 2 && strcmp(argv[1], "events") == 0) {
         return run_events();
+    }
+    if (argc == 2 && strcmp(argv[1], "latch") == 0) {
+        return run_latch();
+    }
+    if (argc == 2 && strcmp(argv[1], "refusal") == 0) {
+        return run_refusal();
+    }
+    if (argc == 2 && strcmp(argv[1], "controls") == 0) {
+        return run_controls();
     }
     fprintf(stderr, "dma_test: unknown selector or argument count\n");
     return 2;

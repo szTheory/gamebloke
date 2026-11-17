@@ -1008,6 +1008,15 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     result->completion_cycle = machine->master_cycles;
     result->unit_completed = true;
     result->used_channel_latch = has_fallback;
+    if (has_fallback) {
+        result->value_provenance =
+            GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED;
+        result->result_classification =
+            GBL_DMA_RESULT_CLASSIFICATION_DISPUTED;
+        result->dispute = GBL_DMA_DISPUTE_LATCH;
+        result->hardware_qualification =
+            GBL_HARDWARE_QUALIFICATION_UNKNOWN;
+    }
     return result->status;
 }
 

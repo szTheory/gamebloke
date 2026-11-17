@@ -116,6 +116,27 @@ typedef enum gbl_dma_status {
     GBL_DMA_STATUS_UNIT_REFUSAL = 8
 } gbl_dma_status;
 
+typedef enum gbl_dma_value_provenance {
+    GBL_DMA_VALUE_PROVENANCE_NONE = 0,
+    GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED = 1
+} gbl_dma_value_provenance;
+
+typedef enum gbl_dma_result_classification {
+    GBL_DMA_RESULT_CLASSIFICATION_NONE = 0,
+    GBL_DMA_RESULT_CLASSIFICATION_DISPUTED = 1
+} gbl_dma_result_classification;
+
+typedef enum gbl_dma_dispute_id {
+    GBL_DMA_DISPUTE_NONE = 0,
+    GBL_DMA_DISPUTE_LATCH = 1
+} gbl_dma_dispute_id;
+
+typedef enum gbl_hardware_qualification {
+    GBL_HARDWARE_QUALIFICATION_UNSPECIFIED = 0,
+    GBL_HARDWARE_QUALIFICATION_UNKNOWN = 1,
+    GBL_HARDWARE_QUALIFICATION_QUALIFIED = 2
+} gbl_hardware_qualification;
+
 /* Fixed, machine-owned channel state; execution coverage expands by phase. */
 typedef struct gbl_dma_channel_state {
     uint32_t source_address;
@@ -547,6 +568,11 @@ typedef struct gbl_trace_record {
     gbl_bus_access_class dma_destination_sequence;
     uint32_t dma_remaining;
     uint64_t dma_completed;
+    bool dma_used_channel_latch;
+    gbl_dma_value_provenance dma_value_provenance;
+    gbl_dma_result_classification dma_result_classification;
+    gbl_dma_dispute_id dma_dispute;
+    gbl_hardware_qualification dma_hardware_qualification;
 } gbl_trace_record;
 
 /* The host owns this append-only output. `count` is the number of valid records
@@ -642,6 +668,10 @@ typedef struct gbl_dma_step_result {
     uint64_t completion_cycle;
     bool unit_completed;
     bool used_channel_latch;
+    gbl_dma_value_provenance value_provenance;
+    gbl_dma_result_classification result_classification;
+    gbl_dma_dispute_id dispute;
+    gbl_hardware_qualification hardware_qualification;
 } gbl_dma_step_result;
 
 /* WAITCNT-aware quote shared by CPU and DMA. Its reset-state values are

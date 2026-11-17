@@ -4513,6 +4513,15 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                             dma_step.destination_sequence;
                         dma_record.dma_remaining = dma_step.remaining;
                         dma_record.dma_completed = dma_step.completed;
+                        dma_record.dma_used_channel_latch =
+                            dma_step.used_channel_latch;
+                        dma_record.dma_value_provenance =
+                            dma_step.value_provenance;
+                        dma_record.dma_result_classification =
+                            dma_step.result_classification;
+                        dma_record.dma_dispute = dma_step.dispute;
+                        dma_record.dma_hardware_qualification =
+                            dma_step.hardware_qualification;
                         if (!gbl_cpu_trace_stage(
                                 &run_options, trace_records,
                                 &trace_record_count, dma_record)) {
