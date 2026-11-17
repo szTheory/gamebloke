@@ -109,7 +109,18 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   2. All four DMA channels produce the expected transfers under channel priority, start-delay, count/address-mask, and unit-timing cases. Results expose the bus owner and CPU pause rather than completing transfers through untimed callbacks.
   3. Scheduled timers and other enabled events continue during DMA ownership, including events at transfer boundaries; the CPU resumes through the canonical execution path after ownership returns.
   4. Per-channel latch cases state their expected-value provenance and retain the dispute-registry link for unresolved behavior. Deliberately wrong transfer/timing controls fail for named semantic reasons; repeatable hashes alone do not establish accuracy.
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — Timed DMA/WAITCNT production tracer and whole-unit refusal
+- [ ] 09-02-PLAN.md — Complete WAITCNT matrix and transactional CPU variable costs
+- [ ] 09-03-PLAN.md — Four-channel DMA arbitration, events, masks and disputed latches
+- [ ] 09-04-PLAN.md — Production runner timing, ownership and evidence results
+- [ ] 09-05-PLAN.md — Deterministic DMA replay, reset, interleave and semantic controls
+- [ ] 09-06-PLAN.md — Profile/runtime consistency and open-dispute gates
+- [ ] 09-07-PLAN.md — Exact fast selection, cheap ordering and lane inventories
+- [ ] 09-08-PLAN.md — Developer verification and final measured local evidence
+
 **Research flag**: WAITCNT, sequential transitions, prefetch scope, DMA startup/arbitration timing, and the per-channel latch dispute require primary-source and bounded differential research. PPU-triggered DMA is integrated in Phase 10.
 **Owner gates**: SRAM `CART-01` and the mGBA deep lane `EVID-07` remain deferred. G8 and per-fixture rights/provenance review must be resolved before that lane is promoted or fetched.
 
@@ -136,7 +147,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 |-------|----------------|--------|-----------|
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
 | 8. IRQ, HALT, and Timestamped Input | 7/7 | In Progress | - |
-| 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
+| 9. Bus Timing, DMA, and Arbitration | 0/8 | Planned | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
 
 **Coverage:** 13 of 13 current v2.0 requirements map to exactly one phase; no orphans or duplicates. Deferred requirements and v1.0 evidence carryovers are excluded from this total.
