@@ -337,6 +337,11 @@ static void gbl_machine_time_copy_preview(
     preview->interrupt_flags = machine->interrupt_flags;
     preview->interrupt_enable = machine->interrupt_enable;
     preview->interrupt_master_enable = machine->interrupt_master_enable;
+    preview->waitcnt = machine->waitcnt;
+    preview->bus_owner = machine->bus_owner;
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        preview->dma_channels[index] = machine->dma_channels[index];
+    }
     preview->pressed_keys = machine->pressed_keys;
     preview->key_control = machine->key_control;
     preview->key_condition = machine->key_condition;
@@ -353,6 +358,65 @@ static void gbl_machine_time_copy_preview(
     preview->input_event_cursor = machine->input_event_cursor;
     for (index = 0u; index < machine->input_event_count; ++index) {
         preview->input_events[index] = machine->input_events[index];
+    }
+}
+
+static void gbl_preview_dma_register_write(
+    gbl_machine_time_preview *preview, uint32_t address, uint8_t value)
+{
+    uint32_t offset;
+    uint8_t channel_index;
+    uint32_t register_offset;
+    gbl_dma_channel_state *channel;
+    uint16_t previous_control;
+
+    if (preview == NULL || address < UINT32_C(0x040000B0) ||
+        address > UINT32_C(0x040000DF)) {
+        return;
+    }
+    offset = address - UINT32_C(0x040000B0);
+    channel_index = (uint8_t)(offset / UINT32_C(12));
+    register_offset = offset % UINT32_C(12);
+    if (channel_index >= GBL_DMA_CHANNEL_COUNT) {
+        return;
+    }
+    channel = &preview->dma_channels[channel_index];
+    if (register_offset < 4u) {
+        const uint8_t shift = (uint8_t)((register_offset & 3u) * 8u);
+        channel->source_address =
+            (channel->source_address & ~(UINT32_C(0xFF) << shift)) |
+            ((uint32_t)value << shift);
+    } else if (register_offset < 8u) {
+        const uint8_t shift = (uint8_t)((register_offset & 3u) * 8u);
+        channel->destination_address =
+            (channel->destination_address & ~(UINT32_C(0xFF) << shift)) |
+            ((uint32_t)value << shift);
+    } else if (register_offset < 10u) {
+        const uint8_t shift = (uint8_t)((register_offset & 1u) * 8u);
+        channel->count = (uint16_t)(
+            (channel->count & (uint16_t)~(UINT16_C(0xFF) << shift)) |
+            (uint16_t)((uint16_t)value << shift));
+    } else {
+        const uint8_t shift = (uint8_t)((register_offset & 1u) * 8u);
+
+        previous_control = channel->control;
+        channel->control = (uint16_t)(
+            (channel->control & (uint16_t)~(UINT16_C(0xFF) << shift)) |
+            (uint16_t)((uint16_t)value << shift));
+        if ((channel->control & UINT16_C(0x8000)) == 0u) {
+            channel->pending = false;
+            channel->active = false;
+            channel->startup_complete = false;
+            channel->remaining = 0u;
+        } else if ((previous_control & UINT16_C(0x8000)) == 0u) {
+            channel->current_source = channel->source_address;
+            channel->current_destination = channel->destination_address;
+            channel->remaining = channel->count;
+            channel->completed_units = 0u;
+            channel->pending = true;
+            channel->active = false;
+            channel->startup_complete = false;
+        }
     }
 }
 
@@ -462,8 +526,10 @@ static gbl_time_status gbl_preview_bus_write(
     uint16_t if_clear_mask = 0u;
     uint16_t interrupt_enable = preview->interrupt_enable;
     uint16_t interrupt_master_enable = preview->interrupt_master_enable;
+    uint16_t waitcnt = preview->waitcnt;
     uint16_t key_control = preview->key_control;
     bool key_control_written = false;
+    bool waitcnt_written = false;
     uint32_t lane;
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
@@ -513,6 +579,13 @@ static gbl_time_status gbl_preview_bus_write(
             interrupt_master_enable = (uint16_t)(
                 (interrupt_master_enable & UINT16_C(0x00FF)) |
                 (uint16_t)((uint16_t)byte_value << 8u));
+        } else if (lane_address == UINT32_C(0x04000204)) {
+            waitcnt = (uint16_t)((waitcnt & UINT16_C(0xFF00)) | byte_value);
+            waitcnt_written = true;
+        } else if (lane_address == UINT32_C(0x04000205)) {
+            waitcnt = (uint16_t)((waitcnt & UINT16_C(0x00FF)) |
+                                 (uint16_t)((uint16_t)byte_value << 8u));
+            waitcnt_written = true;
         } else if (lane_address == UINT32_C(0x04000132)) {
             key_control = (uint16_t)((key_control & UINT16_C(0xFF00)) |
                                      byte_value);
@@ -521,6 +594,10 @@ static gbl_time_status gbl_preview_bus_write(
             key_control = (uint16_t)((key_control & UINT16_C(0x00FF)) |
                                      (uint16_t)((uint16_t)byte_value << 8u));
             key_control_written = true;
+        } else if (lane_address >= UINT32_C(0x040000B0) &&
+                   lane_address <= UINT32_C(0x040000DF)) {
+            gbl_preview_dma_register_write(preview, lane_address,
+                                           byte_value);
         }
     }
     for (lane = 0u; lane < GBL_TIMER_COUNT; ++lane) {
@@ -541,6 +618,9 @@ static gbl_time_status gbl_preview_bus_write(
         (uint16_t)(interrupt_enable & UINT16_C(0x3FFF));
     preview->interrupt_master_enable =
         (uint16_t)(interrupt_master_enable & UINT16_C(0x0001));
+    if (waitcnt_written) {
+        preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x7FFF));
+    }
     if (key_control_written) {
         preview->key_control =
             (uint16_t)(key_control & GBL_KEYPAD_CONTROL_MASK);
@@ -623,6 +703,8 @@ void gbl_machine_commit_time(gbl_machine *machine,
     machine->interrupt_flags = preview->interrupt_flags;
     machine->interrupt_enable = preview->interrupt_enable;
     machine->interrupt_master_enable = preview->interrupt_master_enable;
+    machine->waitcnt = preview->waitcnt;
+    machine->bus_owner = preview->bus_owner;
     machine->pressed_keys = preview->pressed_keys;
     machine->key_control = preview->key_control;
     machine->key_condition = preview->key_condition;
@@ -634,12 +716,138 @@ void gbl_machine_commit_time(gbl_machine *machine,
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         machine->timers[index] = preview->timers[index];
     }
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        machine->dma_channels[index] = preview->dma_channels[index];
+    }
     machine->input_generation = preview->input_generation;
     machine->input_event_count = preview->input_event_count;
     machine->input_event_cursor = preview->input_event_cursor;
     for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
         machine->input_events[index] = preview->input_events[index];
     }
+}
+
+static gbl_dma_status gbl_dma_status_from_time(gbl_time_status status)
+{
+    if (status == GBL_TIME_STATUS_CYCLE_OVERFLOW) {
+        return GBL_DMA_STATUS_TIME_OVERFLOW;
+    }
+    if (status == GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT) {
+        return GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT;
+    }
+    return GBL_DMA_STATUS_UNIT_REFUSAL;
+}
+
+gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
+                                   uint64_t cycle_budget,
+                                   gbl_dma_step_result *result)
+{
+    uint8_t channel_index;
+    gbl_dma_channel_state *channel;
+    gbl_dma_step_result step = { 0 };
+    gbl_time_status time_status;
+
+    if (machine == NULL || result == NULL || !machine->initialized ||
+        machine->event_count > GBL_EVENT_CAPACITY ||
+        machine->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        machine->input_event_cursor > machine->input_event_count) {
+        step.status = GBL_DMA_STATUS_INVALID_ARGUMENT;
+        if (result != NULL) {
+            *result = step;
+        }
+        return step.status;
+    }
+    step.owner = machine->bus_owner;
+    step.completion_cycle = machine->master_cycles;
+    for (channel_index = 0u; channel_index < GBL_DMA_CHANNEL_COUNT;
+         ++channel_index) {
+        if (machine->dma_channels[channel_index].pending ||
+            machine->dma_channels[channel_index].active) {
+            break;
+        }
+    }
+    if (channel_index == GBL_DMA_CHANNEL_COUNT) {
+        step.status = GBL_DMA_STATUS_IDLE;
+        *result = step;
+        return step.status;
+    }
+    channel = &machine->dma_channels[channel_index];
+    step.channel = channel_index;
+    step.remaining = channel->remaining;
+    step.completed = channel->completed_units;
+    if (channel_index != 3u || channel->count != 1u ||
+        channel->remaining != 1u ||
+        (channel->control & UINT16_C(0x8000)) == 0u ||
+        (channel->control & UINT16_C(0x7400)) != 0u) {
+        step.status = GBL_DMA_STATUS_UNSUPPORTED;
+        *result = step;
+        return step.status;
+    }
+    if (channel->pending) {
+        const gbl_time_operation startup = {
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+            GBL_DMA_STARTUP_CYCLES
+        };
+        gbl_machine_time_preview preview;
+        if (cycle_budget < GBL_DMA_STARTUP_CYCLES) {
+            step.status = GBL_DMA_STATUS_BUDGET_REFUSAL;
+            *result = step;
+            return step.status;
+        }
+        time_status = gbl_machine_prepare_operations(
+            machine, &startup, 1u, &preview);
+        if (time_status != GBL_TIME_STATUS_OK) {
+            step.status = gbl_dma_status_from_time(time_status);
+            *result = step;
+            return step.status;
+        }
+        preview.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+        preview.dma_channels[channel_index].pending = false;
+        preview.dma_channels[channel_index].active = true;
+        preview.dma_channels[channel_index].startup_complete = true;
+        gbl_machine_commit_time(machine, &preview);
+        step.status = GBL_DMA_STATUS_OK;
+        step.owner = GBL_MACHINE_BUS_OWNER_DMA;
+        step.startup_cycles = GBL_DMA_STARTUP_CYCLES;
+        step.remaining = machine->dma_channels[channel_index].remaining;
+        step.completed = machine->dma_channels[channel_index].completed_units;
+        step.completion_cycle = machine->master_cycles;
+        *result = step;
+        return step.status;
+    }
+    if (!channel->active || !channel->startup_complete ||
+        machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA) {
+        step.status = GBL_DMA_STATUS_UNIT_REFUSAL;
+        *result = step;
+        return step.status;
+    }
+    if (channel->remaining == 0u ||
+        channel->completed_units == UINT64_MAX) {
+        step.status = GBL_DMA_STATUS_UNIT_REFUSAL;
+        *result = step;
+        return step.status;
+    }
+    step.status = gbl_bus_dma_transfer_unit(machine, channel_index,
+                                             cycle_budget, &step);
+    if (step.status == GBL_DMA_STATUS_OK && step.unit_completed) {
+        channel = &machine->dma_channels[channel_index];
+        --channel->remaining;
+        ++channel->completed_units;
+        if (channel->remaining == 0u) {
+            channel->active = false;
+            channel->pending = false;
+            channel->control =
+                (uint16_t)(channel->control & (uint16_t)~UINT16_C(0x8000));
+            channel->startup_complete = false;
+            machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
+        }
+        step.owner = GBL_MACHINE_BUS_OWNER_DMA;
+        step.remaining = channel->remaining;
+        step.completed = channel->completed_units;
+        step.completion_cycle = machine->master_cycles;
+    }
+    *result = step;
+    return step.status;
 }
 
 gbl_time_status gbl_machine_advance_to(gbl_machine *machine,

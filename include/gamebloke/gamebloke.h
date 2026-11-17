@@ -37,6 +37,8 @@ typedef enum gbl_bus_status {
 } gbl_bus_status;
 
 #define GBL_TIMER_COUNT 4u
+#define GBL_DMA_CHANNEL_COUNT 4u
+#define GBL_DMA_STARTUP_CYCLES UINT64_C(2)
 #define GBL_EVENT_CAPACITY 16u
 #define GBL_INPUT_EVENT_CAPACITY 256u
 #define GBL_MACHINE_MAX_EVENT_DISPATCH 4096u
@@ -95,6 +97,39 @@ typedef struct gbl_timer_state {
     bool cascade;
 } gbl_timer_state;
 
+typedef enum gbl_machine_bus_owner {
+    GBL_MACHINE_BUS_OWNER_CPU = 0,
+    GBL_MACHINE_BUS_OWNER_DMA = 1
+} gbl_machine_bus_owner;
+
+typedef enum gbl_dma_status {
+    GBL_DMA_STATUS_NONE = 0,
+    GBL_DMA_STATUS_OK = 1,
+    GBL_DMA_STATUS_IDLE = 2,
+    GBL_DMA_STATUS_BUDGET_REFUSAL = 3,
+    GBL_DMA_STATUS_INVALID_ARGUMENT = 4,
+    GBL_DMA_STATUS_UNSUPPORTED = 5,
+    GBL_DMA_STATUS_TIME_OVERFLOW = 6,
+    GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT = 7,
+    GBL_DMA_STATUS_UNIT_REFUSAL = 8
+} gbl_dma_status;
+
+/* Fixed, machine-owned channel state; execution coverage expands by phase. */
+typedef struct gbl_dma_channel_state {
+    uint32_t source_address;
+    uint32_t destination_address;
+    uint32_t current_source;
+    uint32_t current_destination;
+    uint32_t read_latch;
+    uint64_t completed_units;
+    uint16_t count;
+    uint16_t control;
+    uint16_t remaining;
+    bool pending;
+    bool active;
+    bool startup_complete;
+} gbl_dma_channel_state;
+
 /* Internal machine power policy. This is not a stable guest or host embedding
  * ABI; STOP remains terminal in the guest-cycle-only profile. */
 typedef enum gbl_machine_power_state {
@@ -111,6 +146,9 @@ typedef struct gbl_machine_time_preview {
     uint16_t interrupt_flags;
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
+    uint16_t waitcnt;
+    gbl_machine_bus_owner bus_owner;
+    gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
     uint16_t pressed_keys;
     uint16_t key_control;
     bool key_condition;
@@ -154,7 +192,9 @@ typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY = 8,
     GBL_BUS_OUTCOME_IO_TIMER_SUBSET = 9,
     GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET = 10,
-    GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET = 11
+    GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET = 11,
+    GBL_BUS_OUTCOME_IO_DMA_SUBSET = 12,
+    GBL_BUS_OUTCOME_IO_WAITCNT_SUBSET = 13
 } gbl_bus_outcome;
 
 typedef enum gbl_bus_access_class {
@@ -186,7 +226,8 @@ typedef enum gbl_bus_access_role {
 } gbl_bus_access_role;
 
 typedef enum gbl_cycle_cost_provenance {
-    GBL_CYCLE_COST_PROJECT_SELECTED = 0
+    GBL_CYCLE_COST_PROJECT_SELECTED = 0,
+    GBL_CYCLE_COST_SOURCE_BACKED = 1
 } gbl_cycle_cost_provenance;
 
 typedef struct gbl_cycle_cost {
@@ -195,9 +236,8 @@ typedef struct gbl_cycle_cost {
     const char *model;
 } gbl_cycle_cost;
 
-/* Returns false and leaves cost_out unchanged for any unsupported key. All
- * currently supported bus rows are one project-selected cycle in
- * gamebloke-timer-model-1; this is model data, not hardware qualification. */
+/* Legacy reset-state compatibility quote. Address-sensitive production code
+ * uses gbl_bus_quote below. */
 bool gbl_bus_cost_for(gbl_bus_direction direction, gbl_bus_region region,
                      uint8_t width, gbl_bus_access_class sequence,
                      gbl_bus_access_role role, gbl_cycle_cost *cost_out);
@@ -432,11 +472,13 @@ typedef enum gbl_run_reason {
 typedef enum gbl_trace_category {
     GBL_TRACE_INSTRUCTION = 1u << 0,
     GBL_TRACE_BUS = 1u << 1,
-    GBL_TRACE_EXCEPTION = 1u << 2
+    GBL_TRACE_EXCEPTION = 1u << 2,
+    GBL_TRACE_DMA = 1u << 3
 } gbl_trace_category;
 
 #define GBL_TRACE_CATEGORY_MASK \
-    ((uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS | GBL_TRACE_EXCEPTION))
+    ((uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS | GBL_TRACE_EXCEPTION | \
+                GBL_TRACE_DMA))
 
 /* All records are zero-initialized before applicable fields are set.
  * Instruction records use guest_cycle at unit start plus instruction_address
@@ -458,6 +500,16 @@ typedef struct gbl_trace_record {
     gbl_bus_access_class access_class;
     gbl_bus_outcome bus_outcome;
     gbl_exception_kind exception_kind;
+    gbl_machine_bus_owner bus_owner;
+    gbl_dma_status dma_status;
+    uint8_t dma_channel;
+    uint64_t dma_startup_cycles;
+    uint64_t dma_source_cycles;
+    uint64_t dma_destination_cycles;
+    gbl_bus_access_class dma_source_sequence;
+    gbl_bus_access_class dma_destination_sequence;
+    uint16_t dma_remaining;
+    uint64_t dma_completed;
 } gbl_trace_record;
 
 /* The host owns this append-only output. `count` is the number of valid records
@@ -491,6 +543,11 @@ typedef struct gbl_run_result {
     uint64_t wake_cycle;
     uint16_t wake_source_mask;
     gbl_cpu_power_cause power_cause;
+    uint64_t dma_startup_cycles;
+    uint64_t dma_source_cycles;
+    uint64_t dma_destination_cycles;
+    uint64_t dma_completed_units;
+    uint64_t dma_pause_cycles;
 } gbl_run_result;
 
 typedef struct gbl_machine {
@@ -502,6 +559,9 @@ typedef struct gbl_machine {
     uint16_t interrupt_flags;
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
+    uint16_t waitcnt;
+    gbl_machine_bus_owner bus_owner;
+    gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
     uint16_t pressed_keys;
     uint16_t key_control;
     bool key_condition;
@@ -525,6 +585,36 @@ typedef struct gbl_machine {
     gbl_header_diagnostics header_diagnostics;
     gbl_cpu_state cpu;
 } gbl_machine;
+
+typedef struct gbl_dma_step_result {
+    gbl_dma_status status;
+    gbl_machine_bus_owner owner;
+    uint8_t channel;
+    uint64_t startup_cycles;
+    uint64_t source_cycles;
+    uint64_t destination_cycles;
+    gbl_bus_access_class source_sequence;
+    gbl_bus_access_class destination_sequence;
+    uint16_t remaining;
+    uint64_t completed;
+    uint64_t completion_cycle;
+    bool unit_completed;
+} gbl_dma_step_result;
+
+/* WAITCNT-aware quote shared by CPU and DMA. Its reset-state values are
+ * sourced or explicitly project-selected in the active timing evidence. */
+bool gbl_bus_quote(const gbl_machine *machine, uint32_t address,
+                   gbl_bus_direction direction, uint8_t width,
+                   gbl_bus_access_class sequence,
+                   gbl_bus_access_role role, gbl_cycle_cost *cost_out);
+
+/* Internal scheduler/bus seam: bounded startup or one atomic transfer unit. */
+gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
+                                   uint64_t cycle_budget,
+                                   gbl_dma_step_result *result);
+gbl_dma_status gbl_bus_dma_transfer_unit(
+    gbl_machine *machine, uint8_t channel, uint64_t cycle_budget,
+    gbl_dma_step_result *result);
 
 /* Internal, read-only inspection of the physical IWRAM window. The caller
  * owns machine/out storage and provides synchronization and lifetime. */
