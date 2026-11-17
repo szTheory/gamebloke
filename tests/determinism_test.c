@@ -3236,6 +3236,119 @@ done:
     return okay;
 }
 
+static bool gbl_test_phase8_wait_instance(
+    gbl_interleave_instance *instance, const uint8_t *image,
+    size_t image_length)
+{
+    static const gbl_input_event event = {
+        UINT64_C(4), UINT16_C(1)
+    };
+    gbl_bus_result timer_write;
+    gbl_bus_result keypad_write;
+
+    if (!gbl_interleave_load(instance, image, image_length,
+                             UINT64_C(1000))) {
+        return false;
+    }
+    instance->machine.cpu.cpsr = UINT32_C(0x0000001F);
+    instance->machine.cpu.execution_address = UINT32_C(0x08000000);
+    instance->machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), UINT32_C(0xE1A00000), 4u, true
+    };
+    instance->machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+    };
+    instance->machine.cpu.next_fetch_sequential = true;
+    timer_write = gbl_bus_write(
+        &instance->machine, UINT32_C(0x04000100), 4u,
+        GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x00C0FFFD));
+    keypad_write = gbl_bus_write(
+        &instance->machine, UINT32_C(0x04000132), 2u,
+        GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
+    if (timer_write.status != GBL_BUS_STATUS_OK ||
+        keypad_write.status != GBL_BUS_STATUS_OK ||
+        instance->machine.master_cycles != UINT64_C(2) ||
+        instance->machine.timers[0].enabled == false ||
+        instance->machine.interrupt_flags != 0u) {
+        return false;
+    }
+    instance->machine.interrupt_enable = UINT16_C(0x1008);
+    instance->machine.interrupt_master_enable = 0u;
+    if (gbl_machine_set_input_timeline(&instance->machine, &event, 1u) !=
+            GBL_TIME_STATUS_OK ||
+        gbl_machine_set_power_state(&instance->machine,
+                                    GBL_MACHINE_POWER_HALTED) !=
+            GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_test_phase8_wait_resume(const uint8_t *image,
+                                        size_t image_length)
+{
+    gbl_interleave_instance before_wake = { 0 };
+    gbl_interleave_instance split = { 0 };
+    gbl_interleave_instance unsplit = { 0 };
+    const gbl_run_options unit_budget = {
+        UINT64_C(1), 0u, 0u, NULL
+    };
+    const gbl_run_options combined_budget = {
+        UINT64_C(2), 0u, 0u, NULL
+    };
+    gbl_run_result cancelled_before_wake = { 0 };
+    gbl_run_result split_timeout = { 0 };
+    gbl_run_result split_wake = { 0 };
+    gbl_run_result unsplit_wake = { 0 };
+    gbl_run_result split_total = { 0 };
+    bool okay = false;
+    bool disposed;
+
+    if (!gbl_test_phase8_wait_instance(&before_wake, image, image_length) ||
+        !gbl_test_phase8_wait_instance(&split, image, image_length) ||
+        !gbl_test_phase8_wait_instance(&unsplit, image, image_length) ||
+        gbl_cpu_run(&before_wake.machine, &unit_budget,
+                    &cancelled_before_wake) != GBL_RUN_STATUS_OK ||
+        gbl_cpu_run(&split.machine, &unit_budget, &split_timeout) !=
+            GBL_RUN_STATUS_OK ||
+        cancelled_before_wake.termination != GBL_RUN_TIMEOUT ||
+        cancelled_before_wake.reason != GBL_RUN_REASON_CYCLE_BUDGET ||
+        cancelled_before_wake.wait_cycles != UINT64_C(1) ||
+        before_wake.machine.power_state != GBL_MACHINE_POWER_HALTED ||
+        before_wake.machine.input_event_cursor != 0u ||
+        before_wake.machine.interrupt_flags != 0u ||
+        !gbl_test_canonical_equal(&before_wake.machine, &split.machine) ||
+        gbl_cpu_run(&split.machine, &unit_budget, &split_wake) !=
+            GBL_RUN_STATUS_OK ||
+        gbl_cpu_run(&unsplit.machine, &combined_budget, &unsplit_wake) !=
+            GBL_RUN_STATUS_OK) {
+        goto done;
+    }
+    split_total = split_wake;
+    if (UINT64_MAX - split_total.cycles < split_timeout.cycles ||
+        UINT64_MAX - split_total.wait_cycles < split_timeout.wait_cycles) {
+        goto done;
+    }
+    split_total.cycles += split_timeout.cycles;
+    split_total.wait_cycles += split_timeout.wait_cycles;
+    okay = gbl_test_run_result_equal(&split_total, &unsplit_wake) &&
+           split.machine.power_state == GBL_MACHINE_POWER_RUNNING &&
+           split.machine.master_cycles == UINT64_C(4) &&
+           split.machine.input_event_cursor == 1u &&
+           split.machine.pressed_keys == UINT16_C(1) &&
+           split.machine.interrupt_flags == UINT16_C(0x1008) &&
+           split_wake.power_cause == GBL_CPU_POWER_CAUSE_WAKE_EVENT &&
+           split_wake.wake_cycle == UINT64_C(4) &&
+           split_wake.wake_source_mask == UINT16_C(0x1008) &&
+           gbl_test_canonical_equal(&split.machine, &unsplit.machine);
+
+done:
+    disposed = gbl_interleave_dispose(&before_wake);
+    disposed = gbl_interleave_dispose(&split) && disposed;
+    disposed = gbl_interleave_dispose(&unsplit) && disposed;
+    return okay && disposed;
+}
+
 static bool gbl_test_phase8_replay(const uint8_t *arm_image,
                                    size_t arm_length,
                                    const uint8_t *thumb_image,
@@ -3405,6 +3518,9 @@ static int gbl_test_phase8_main(void)
     } else if (!gbl_test_phase8_cancellation(arm_image.data,
                                              arm_image.length)) {
         failure = "input-cancellation-boundary-differs";
+    } else if (!gbl_test_phase8_wait_resume(arm_image.data,
+                                            arm_image.length)) {
+        failure = "halt-timeout-resume-or-budget-boundary-wake-differs";
     } else {
         okay = true;
     }
