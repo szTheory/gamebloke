@@ -14435,6 +14435,76 @@ static void test_power_boundary(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_dma_tracer(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_bus_result bus_result;
+    gbl_input_event input_event;
+    bool valid;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE3A07042));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    write_halfword(image, 0x80u, UINT16_C(0xBEEF));
+    valid = machine_load(&machine, image);
+    if (valid) {
+        machine.iwram[0x20u] = UINT8_C(0xA5);
+        machine.iwram[0x21u] = UINT8_C(0x5A);
+        machine.iwram[0x22u] = UINT8_C(0xC3);
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000D4), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x08000080));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000D8), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x03000020));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000DC), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000DE), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x8000));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x04000100), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x00C0FFFC));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        input_event = (gbl_input_event){ machine.master_cycles + 4u, 1u };
+        valid = gbl_machine_set_input_timeline(&machine, &input_event, 1u) ==
+                GBL_TIME_STATUS_OK;
+    }
+    options.cycle_budget = UINT64_C(64);
+    options.unit_limit = UINT64_C(2);
+    if (valid) {
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_OK &&
+                result.instructions == 1u &&
+                machine.cpu.r0_7[7] == UINT32_C(0x42) &&
+                machine.iwram[0x20u] == UINT8_C(0xEF) &&
+                machine.iwram[0x21u] == UINT8_C(0xBE) &&
+                machine.iwram[0x22u] == UINT8_C(0xC3) &&
+                machine.pressed_keys == UINT16_C(1) &&
+                (machine.interrupt_flags & UINT16_C(8)) != 0u;
+    }
+    test_case(valid,
+              "DMA3 copies one ROM halfword, advances live devices, pauses CPU, then resumes it");
+    gbl_machine_dispose(&machine);
+}
+
 typedef void (*cpu_test_function)(void);
 
 typedef struct cpu_test_group {
@@ -14543,6 +14613,7 @@ static const cpu_test_function psr_functions[] = {
     test_psr_unpredictable_refusals
 };
 static const cpu_test_function tracer_functions[] = { test_tracer };
+static const cpu_test_function dma_tracer_functions[] = { test_dma_tracer };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
     test_irq_timer_tracer,
@@ -14784,6 +14855,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
+    CPU_TEST_GROUP("dma.tracer", 1u, dma_tracer_functions),
     CPU_TEST_GROUP("exceptions", 17u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
     CPU_TEST_GROUP("no_bios", 2u, no_bios_functions),
