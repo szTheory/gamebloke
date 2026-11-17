@@ -236,6 +236,33 @@ typedef struct gbl_cycle_cost {
     const char *model;
 } gbl_cycle_cost;
 
+typedef enum gbl_bus_boundary_provenance {
+    GBL_BUS_BOUNDARY_PROVENANCE_NONE = 0,
+    GBL_BUS_BOUNDARY_PROVENANCE_GBATEK_3_06 = 1
+} gbl_bus_boundary_provenance;
+
+/* Typed quote evidence keeps manual-backed waits, the community boundary
+ * convention, and unmodeled prefetch/hardware qualification distinct. */
+typedef struct gbl_phase9_bus_observation {
+    uint16_t waitcnt;
+    uint32_t address;
+    uint64_t cycles;
+    uint64_t beat_cycles[2];
+    uint8_t width;
+    uint8_t beat_count;
+    uint8_t window;
+    uint8_t beat_windows[2];
+    gbl_bus_direction direction;
+    gbl_bus_access_role role;
+    gbl_bus_access_class requested_sequence;
+    gbl_bus_access_class beat_sequences[2];
+    gbl_cycle_cost_provenance cost_provenance;
+    gbl_bus_boundary_provenance boundary_provenance;
+    const char *cost_model;
+    bool prefetch_modeled;
+    bool hardware_qualified;
+} gbl_phase9_bus_observation;
+
 /* Legacy reset-state compatibility quote. Address-sensitive production code
  * uses gbl_bus_quote below. */
 bool gbl_bus_cost_for(gbl_bus_direction direction, gbl_bus_region region,
@@ -607,6 +634,11 @@ bool gbl_bus_quote(const gbl_machine *machine, uint32_t address,
                    gbl_bus_direction direction, uint8_t width,
                    gbl_bus_access_class sequence,
                    gbl_bus_access_role role, gbl_cycle_cost *cost_out);
+bool gbl_bus_quote_observed(
+    const gbl_machine *machine, uint32_t address,
+    gbl_bus_direction direction, uint8_t width,
+    gbl_bus_access_class sequence, gbl_bus_access_role role,
+    gbl_cycle_cost *cost_out, gbl_phase9_bus_observation *observation_out);
 
 /* Internal scheduler/bus seam: bounded startup or one atomic transfer unit. */
 gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,

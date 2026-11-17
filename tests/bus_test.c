@@ -1139,6 +1139,66 @@ static int run_keypad_registers(void)
     return 1;
 }
 
+static const char *bus_access_sequence_name(gbl_bus_access_class sequence)
+{
+    return sequence == GBL_BUS_CLASS_SEQUENTIAL
+               ? "sequential"
+               : "nonsequential";
+}
+
+static const char *bus_window_name(uint8_t window)
+{
+    static const char *const names[3] = { "WS0", "WS1", "WS2" };
+
+    return window < 3u ? names[window] : "none";
+}
+
+static void emit_phase9_observation(
+    const gbl_phase9_bus_observation *observation)
+{
+    uint8_t beat;
+
+    if (observation == NULL) {
+        return;
+    }
+    printf("phase9-observation:{\"schema\":\"gamebloke.phase9-observation/1\",\"waitcnt\":\"0x%04X\",\"address\":\"0x%08X\",\"width\":%u,\"direction\":\"%s\",\"role\":\"%s\",\"requested_sequence\":\"%s\",\"window\":\"%s\",\"cycles\":%llu,\"beat_count\":%u,\"beat_cycles\":[",
+           (unsigned int)observation->waitcnt,
+           (unsigned int)observation->address,
+           (unsigned int)observation->width,
+           observation->direction == GBL_BUS_DIRECTION_WRITE
+               ? "write"
+               : "read",
+           observation->role == GBL_BUS_ROLE_FETCH ? "fetch" : "data",
+           bus_access_sequence_name(observation->requested_sequence),
+           bus_window_name(observation->window),
+           (unsigned long long)observation->cycles,
+           (unsigned int)observation->beat_count);
+    for (beat = 0u; beat < observation->beat_count; ++beat) {
+        printf("%s%llu", beat == 0u ? "" : ",",
+               (unsigned long long)observation->beat_cycles[beat]);
+    }
+    printf("],\"beat_windows\":[");
+    for (beat = 0u; beat < observation->beat_count; ++beat) {
+        printf("%s\"%s\"", beat == 0u ? "" : ",",
+               bus_window_name(observation->beat_windows[beat]));
+    }
+    printf("],\"effective_sequences\":[");
+    for (beat = 0u; beat < observation->beat_count; ++beat) {
+        printf("%s\"%s\"", beat == 0u ? "" : ",",
+               bus_access_sequence_name(
+                   observation->beat_sequences[beat]));
+    }
+    printf("],\"cost_provenance\":\"%s\",\"cost_model\":\"%s\",\"boundary_provenance\":\"%s\",\"prefetch\":\"unmodeled\",\"hardware_qualification\":\"UNKNOWN\"}\n",
+           observation->cost_provenance == GBL_CYCLE_COST_SOURCE_BACKED
+               ? "source-backed"
+               : "project-selected",
+           observation->cost_model == NULL ? "" : observation->cost_model,
+           observation->boundary_provenance ==
+                   GBL_BUS_BOUNDARY_PROVENANCE_GBATEK_3_06
+               ? "community-gbatek-3.06"
+               : "none");
+}
+
 static int run_waitcnt_matrix(void)
 {
     static const uint32_t window_bases[3] = {
@@ -1171,7 +1231,9 @@ static int run_waitcnt_matrix(void)
                 const uint64_t sequential_cycles =
                     short_selector != 0u
                         ? UINT64_C(2)
-                        : window == 2u ? UINT64_C(9) : UINT64_C(3);
+                        : window == 0u
+                              ? UINT64_C(3)
+                              : window == 1u ? UINT64_C(5) : UINT64_C(9);
                 const uint64_t nonsequential_cycles =
                     (uint64_t)first_waits[first_selector] + UINT64_C(1);
 
@@ -1234,6 +1296,62 @@ static int run_waitcnt_matrix(void)
             }
         }
     }
+    machine->waitcnt = 0u;
+    for (window = 0u; window < 3u; ++window) {
+        gbl_phase9_bus_observation observation;
+        gbl_cycle_cost cost = { 0u, GBL_CYCLE_COST_PROJECT_SELECTED, NULL };
+        bool quoted = gbl_bus_quote_observed(
+            machine, window_bases[window] + UINT32_C(0x100),
+            GBL_BUS_DIRECTION_READ, 2u, GBL_BUS_CLASS_NONSEQUENTIAL,
+            GBL_BUS_ROLE_DATA, &cost, &observation);
+
+        CHECK(quoted);
+        if (quoted) {
+            CHECK(observation.waitcnt == 0u);
+            CHECK(observation.address ==
+                  window_bases[window] + UINT32_C(0x100));
+            CHECK(observation.width == 2u && observation.beat_count == 1u);
+            CHECK(observation.window == window);
+            CHECK(observation.beat_windows[0] == window);
+            CHECK(observation.beat_cycles[0] == cost.cycles);
+            CHECK(observation.beat_sequences[0] ==
+                  GBL_BUS_CLASS_NONSEQUENTIAL);
+            CHECK(observation.cost_provenance ==
+                  GBL_CYCLE_COST_SOURCE_BACKED);
+            CHECK(observation.boundary_provenance ==
+                  GBL_BUS_BOUNDARY_PROVENANCE_NONE);
+            CHECK(!observation.prefetch_modeled &&
+                  !observation.hardware_qualified);
+            emit_phase9_observation(&observation);
+        }
+
+        cost.cycles = 0u;
+        quoted = gbl_bus_quote_observed(
+            machine, window_bases[window] + UINT32_C(0x1FFFE),
+            GBL_BUS_DIRECTION_READ, 4u, GBL_BUS_CLASS_SEQUENTIAL,
+            GBL_BUS_ROLE_DATA, &cost, &observation);
+        CHECK(quoted);
+        if (quoted) {
+            CHECK(observation.waitcnt == 0u);
+            CHECK(observation.width == 4u && observation.beat_count == 2u);
+            CHECK(observation.window == window);
+            CHECK(observation.beat_windows[0] == window &&
+                  observation.beat_windows[1] == window);
+            CHECK(observation.beat_sequences[0] ==
+                  GBL_BUS_CLASS_SEQUENTIAL);
+            CHECK(observation.beat_sequences[1] ==
+                  GBL_BUS_CLASS_NONSEQUENTIAL);
+            CHECK(observation.boundary_provenance ==
+                  GBL_BUS_BOUNDARY_PROVENANCE_GBATEK_3_06);
+            CHECK(observation.cost_provenance ==
+                  GBL_CYCLE_COST_SOURCE_BACKED);
+            CHECK(!observation.prefetch_modeled &&
+                  !observation.hardware_qualified);
+            CHECK(cost.cycles == observation.beat_cycles[0] +
+                                     observation.beat_cycles[1]);
+            emit_phase9_observation(&observation);
+        }
+    }
     free_machine(machine);
     if (CHECK_DONE() == 0) {
         puts("waitcnt.matrix: all windows, selectors, widths, roles and directions ok");
@@ -1249,7 +1367,7 @@ static int run_waitcnt_boundary(void)
         UINT32_C(0x0C000000)
     };
     static const uint64_t nonsequential_cycles[3] = {
-        UINT64_C(5), UINT64_C(4), UINT64_C(3)
+        UINT64_C(5), UINT64_C(5), UINT64_C(5)
     };
     static const uint64_t sequential_cycles[3] = {
         UINT64_C(3), UINT64_C(5), UINT64_C(9)
@@ -1336,6 +1454,12 @@ static int run_waitcnt_registers(void)
     };
     gbl_cycle_cost before = { 0u, GBL_CYCLE_COST_PROJECT_SELECTED, NULL };
     gbl_cycle_cost after = { 0u, GBL_CYCLE_COST_PROJECT_SELECTED, NULL };
+    gbl_cycle_cost quote_sentinel = {
+        UINT64_C(7), GBL_CYCLE_COST_PROJECT_SELECTED, "sentinel"
+    };
+    gbl_cycle_cost quote_unchanged = quote_sentinel;
+    gbl_phase9_bus_observation observation_sentinel;
+    gbl_phase9_bus_observation observation_unchanged;
     gbl_bus_result result;
 
     if (machine == NULL || snapshot == NULL) {
@@ -1359,6 +1483,21 @@ static int run_waitcnt_registers(void)
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.value == UINT32_C(0x5FFF));
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000204), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x08));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->waitcnt == UINT16_C(0x5F08));
+    result = gbl_bus_write(machine, UINT32_C(0x04000205), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x40));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->waitcnt == UINT16_C(0x4008));
+    result = gbl_bus_read(machine, UINT32_C(0x04000204), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == 0x08u);
+    result = gbl_bus_read(machine, UINT32_C(0x04000205), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK && result.value == 0x40u);
 
     result = gbl_bus_write(machine, UINT32_C(0x04000204), 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1FFF));
@@ -1389,6 +1528,24 @@ static int run_waitcnt_registers(void)
                         GBL_BUS_CLASS_NONSEQUENTIAL,
                         GBL_BUS_ROLE_DATA, &after));
     CHECK(after.cycles == UINT64_C(3));
+
+    memset(&observation_sentinel, 0, sizeof(observation_sentinel));
+    observation_sentinel.waitcnt = UINT16_C(0x1234);
+    observation_sentinel.address = UINT32_C(0x87654321);
+    observation_sentinel.cycles = UINT64_C(9);
+    observation_sentinel.cost_model = "sentinel";
+    observation_sentinel.prefetch_modeled = true;
+    memcpy(&observation_unchanged, &observation_sentinel,
+           sizeof(observation_sentinel));
+    CHECK(!gbl_bus_quote_observed(
+        machine, UINT32_MAX - 1u, GBL_BUS_DIRECTION_READ, 4u,
+        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA, &quote_sentinel,
+        &observation_sentinel));
+    CHECK(quote_sentinel.cycles == quote_unchanged.cycles &&
+          quote_sentinel.provenance == quote_unchanged.provenance &&
+          quote_sentinel.model == quote_unchanged.model);
+    CHECK(memcmp(&observation_sentinel, &observation_unchanged,
+                 sizeof(observation_sentinel)) == 0);
 
     machine->open_bus = UINT32_C(0x76543210);
     result = gbl_bus_read_fetch(machine, 0u, 4u,

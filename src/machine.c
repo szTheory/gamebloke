@@ -619,7 +619,7 @@ static gbl_time_status gbl_preview_bus_write(
     preview->interrupt_master_enable =
         (uint16_t)(interrupt_master_enable & UINT16_C(0x0001));
     if (waitcnt_written) {
-        preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x7FFF));
+        preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x5FFF));
     }
     if (key_control_written) {
         preview->key_control =

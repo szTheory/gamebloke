@@ -115,22 +115,31 @@ static uint8_t gbl_bus_wait_window(uint32_t address)
 }
 
 static uint64_t gbl_bus_gamepak_beat_cycles(
-    uint16_t waitcnt, uint32_t address, gbl_bus_access_class sequence)
+    uint16_t waitcnt, uint32_t address,
+    gbl_bus_access_class requested_sequence,
+    gbl_bus_access_class *effective_sequence_out, bool *boundary_out)
 {
     static const uint8_t first_access_waits[4] = { 4u, 3u, 2u, 8u };
+    static const uint8_t sequential_waits[3] = { 2u, 4u, 8u };
     uint8_t window = gbl_bus_wait_window(address);
+    const bool boundary = (address & UINT32_C(0x1FFFF)) == 0u;
+    const gbl_bus_access_class sequence =
+        boundary ? GBL_BUS_CLASS_NONSEQUENTIAL : requested_sequence;
     uint8_t wait;
 
-    if (window == UINT8_MAX) {
+    if (window == UINT8_MAX || effective_sequence_out == NULL ||
+        boundary_out == NULL) {
         return 0u;
     }
+    *effective_sequence_out = sequence;
+    *boundary_out = boundary;
     if (sequence == GBL_BUS_CLASS_NONSEQUENTIAL) {
         const uint8_t shift = (uint8_t)(2u + window * 3u);
         wait = first_access_waits[(waitcnt >> shift) & UINT16_C(3)];
     } else {
         const uint8_t shift = (uint8_t)(4u + window * 3u);
         const bool short_wait = ((waitcnt >> shift) & UINT16_C(1)) != 0u;
-        wait = short_wait ? 1u : (window == 2u ? 8u : 2u);
+        wait = short_wait ? 1u : sequential_waits[window];
     }
     return (uint64_t)wait + UINT64_C(1);
 }
@@ -139,9 +148,11 @@ static bool gbl_bus_quote_with_waitcnt(
     uint16_t waitcnt, uint32_t address, gbl_bus_region region,
     gbl_bus_direction direction, uint8_t width,
     gbl_bus_access_class sequence, gbl_bus_access_role role,
-    gbl_cycle_cost *cost_out)
+    gbl_cycle_cost *cost_out,
+    gbl_phase9_bus_observation *observation_out)
 {
     gbl_cycle_cost cost;
+    gbl_phase9_bus_observation observation = { 0 };
 
     if (cost_out == NULL ||
         (direction != GBL_BUS_DIRECTION_READ &&
@@ -154,20 +165,48 @@ static bool gbl_bus_quote_with_waitcnt(
         address > UINT32_MAX - ((uint32_t)width - 1u)) {
         return false;
     }
+    observation.waitcnt = waitcnt;
+    observation.address = address;
+    observation.width = width;
+    observation.window = UINT8_MAX;
+    observation.beat_windows[0] = UINT8_MAX;
+    observation.beat_windows[1] = UINT8_MAX;
+    observation.direction = direction;
+    observation.role = role;
+    observation.requested_sequence = sequence;
+    observation.boundary_provenance =
+        GBL_BUS_BOUNDARY_PROVENANCE_NONE;
+    observation.prefetch_modeled = false;
+    observation.hardware_qualified = false;
     if (region == GBL_BUS_REGION_ROM) {
         uint64_t cycles = 0u;
         uint8_t beat_count = width == 4u ? 2u : 1u;
         uint8_t beat;
 
+        observation.beat_count = beat_count;
         for (beat = 0u; beat < beat_count; ++beat) {
             const uint32_t beat_address = address + (uint32_t)beat * 2u;
-            const gbl_bus_access_class beat_sequence =
+            const gbl_bus_access_class requested_beat_sequence =
                 beat == 0u ? sequence : GBL_BUS_CLASS_SEQUENTIAL;
+            gbl_bus_access_class effective_sequence;
+            bool boundary;
             const uint64_t beat_cycles = gbl_bus_gamepak_beat_cycles(
-                waitcnt, beat_address, beat_sequence);
+                waitcnt, beat_address, requested_beat_sequence,
+                &effective_sequence, &boundary);
+            const uint8_t beat_window = gbl_bus_wait_window(beat_address);
 
             if (beat_cycles == 0u || beat_cycles > UINT64_MAX - cycles) {
                 return false;
+            }
+            observation.beat_cycles[beat] = beat_cycles;
+            observation.beat_sequences[beat] = effective_sequence;
+            observation.beat_windows[beat] = beat_window;
+            if (beat == 0u) {
+                observation.window = beat_window;
+            }
+            if (boundary) {
+                observation.boundary_provenance =
+                    GBL_BUS_BOUNDARY_PROVENANCE_GBATEK_3_06;
             }
             cycles += beat_cycles;
         }
@@ -181,7 +220,13 @@ static bool gbl_bus_quote_with_waitcnt(
             GBL_TIMER_MODEL_NAME
         };
     }
+    observation.cycles = cost.cycles;
+    observation.cost_provenance = cost.provenance;
+    observation.cost_model = cost.model;
     *cost_out = cost;
+    if (observation_out != NULL) {
+        *observation_out = observation;
+    }
     return true;
 }
 
@@ -195,7 +240,22 @@ bool gbl_bus_quote(const gbl_machine *machine, uint32_t address,
     }
     return gbl_bus_quote_with_waitcnt(
         machine->waitcnt, address, gbl_bus_region_for_address(address),
-        direction, width, sequence, role, cost_out);
+        direction, width, sequence, role, cost_out, NULL);
+}
+
+bool gbl_bus_quote_observed(
+    const gbl_machine *machine, uint32_t address,
+    gbl_bus_direction direction, uint8_t width,
+    gbl_bus_access_class sequence, gbl_bus_access_role role,
+    gbl_cycle_cost *cost_out,
+    gbl_phase9_bus_observation *observation_out)
+{
+    if (machine == NULL || observation_out == NULL) {
+        return false;
+    }
+    return gbl_bus_quote_with_waitcnt(
+        machine->waitcnt, address, gbl_bus_region_for_address(address),
+        direction, width, sequence, role, cost_out, observation_out);
 }
 
 bool gbl_bus_cost_for(gbl_bus_direction direction, gbl_bus_region region,
@@ -208,7 +268,7 @@ bool gbl_bus_cost_for(gbl_bus_direction direction, gbl_bus_region region,
         address = UINT32_C(0x08000000);
     }
     return gbl_bus_quote_with_waitcnt(0u, address, region, direction, width,
-                                      sequence, role, cost_out);
+                                      sequence, role, cost_out, NULL);
 }
 
 static uint32_t gbl_bus_physical_vram_offset(uint32_t address)
