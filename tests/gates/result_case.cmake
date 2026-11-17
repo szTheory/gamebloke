@@ -18,7 +18,7 @@ foreach(var CASE SRC BIN)
     message(FATAL_ERROR "result-case: -D${var}= is required")
   endif()
 endforeach()
-if(NOT CASE MATCHES "^[a-z_]+$")
+if(NOT CASE MATCHES "^[a-z0-9_]+$")
   message(FATAL_ERROR "result-case: bad case name: ${CASE}")
 endif()
 
@@ -107,6 +107,53 @@ function(result_add_phase8_extension result)
     "{\"model\":\"gamebloke-irq-input-model-1\",\"qualification\":\"project-model-only\",\"observed\":true,\"irq\":{\"if\":8,\"ie\":8,\"ime\":1,\"sample\":{\"cycle\":\"4\",\"if\":0,\"ie\":8,\"ime\":1,\"eligible_sources\":0,\"eligible\":false,\"cpsr_i_masked\":false,\"accepted\":false,\"entered\":false}},\"last_exception\":\"none\",\"power\":{\"state\":\"running\",\"cause\":\"wake_event\",\"wake_source_mask\":8,\"wake_cycle\":\"5\"},\"keypad\":{\"keyinput\":1022,\"keycnt\":0,\"condition\":false,\"irq_condition\":false,\"applied_events\":1,\"pending_events\":0},\"wait_cycles\":\"4\"}"
     phase8)
   gbl_json_mutate_set("${result}" "\"0\"" phase8 wait_cycles)
+endfunction()
+
+function(result_add_phase9_extension result)
+  result_add_phase8_extension("${result}")
+  gbl_json_mutate_set("${result}" "\"0\"" time wait_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_startup_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_source_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_destination_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_completed_units)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${result}"
+    "{\"model\":\"gamebloke-dma-observation-1\",\"observed\":true,\"waitcnt\":0,\"bus_owner\":\"cpu\",\"cpu_paused\":false,\"machine_cycles\":\"24\",\"channels\":[{\"channel\":0,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false},{\"channel\":1,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false},{\"channel\":2,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false},{\"channel\":3,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false}],\"timing\":{\"dma_startup_cycles\":\"0\",\"dma_source_cycles\":\"0\",\"dma_destination_cycles\":\"0\",\"dma_completed_units\":\"0\",\"dma_pause_cycles\":\"0\"},\"waitcnt_policy\":{\"manual_waits\":\"nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2\",\"other_region_costs\":\"project-selected\",\"128k_boundary_source\":\"gbatek-3.06-community-documentation\",\"hardware_qualification\":\"UNKNOWN\"},\"startup_policy\":{\"cycles_per_request\":\"2\",\"provenance\":\"project-selected\",\"manual_activation_delay\":\"described; conversion is selected\",\"hardware_qualification\":\"UNKNOWN\"},\"latch_policy\":{\"policy\":\"per-channel-retained-latch\",\"provenance\":\"project-selected\",\"fallback_observed\":false,\"classification\":null,\"dispute_id\":null,\"hardware_qualification\":\"UNKNOWN\"},\"prefetch\":\"unmodeled\"}"
+    phase9)
+endfunction()
+
+function(result_add_phase9_dma_transfer result)
+  result_add_phase9_extension("${result}")
+  gbl_json_mutate_set("${result}" "\"32\"" time cycles)
+  gbl_json_mutate_set("${result}" "\"32\"" time budget_cycles)
+  gbl_json_mutate_set("${result}" "\"2\"" time dma_startup_cycles)
+  gbl_json_mutate_set("${result}" "\"5\"" time dma_source_cycles)
+  gbl_json_mutate_set("${result}" "\"1\"" time dma_destination_cycles)
+  gbl_json_mutate_set("${result}" "\"1\"" time dma_completed_units)
+  gbl_json_mutate_set("${result}" "\"8\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${result}" "\"32\"" phase9 machine_cycles)
+  foreach(pair IN ITEMS
+      "dma_startup_cycles;2" "dma_source_cycles;5" "dma_destination_cycles;1"
+      "dma_completed_units;1" "dma_pause_cycles;8")
+    list(GET pair 0 field)
+    list(GET pair 1 value)
+    gbl_json_mutate_set("${result}" "\"${value}\"" phase9 timing "${field}")
+  endforeach()
+  gbl_json_mutate_set("${result}"
+    "{\"channel\":3,\"source_address\":\"0x08000200\",\"destination_address\":\"0x03000020\",\"current_source\":\"0x08000202\",\"current_destination\":\"0x03000022\",\"read_latch\":\"0xBEEFBEEF\",\"count\":1,\"control\":0,\"remaining\":0,\"completed_units\":\"1\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false}"
+    phase9 channels 3)
+endfunction()
+
+function(result_add_phase9_latch_observation result)
+  result_add_phase9_dma_transfer("${result}")
+  gbl_json_mutate_set("${result}" "true" phase9 latch_policy fallback_observed)
+  gbl_json_mutate_set("${result}" "\"disputed\"" phase9 latch_policy classification)
+  gbl_json_mutate_set("${result}" "\"disp-dma-latch\"" phase9 latch_policy dispute_id)
+  gbl_json_mutate_set("${result}" "[\"disp-dma-latch\"]" disputes)
+  gbl_json_mutate_set("${result}" "[\"disputed\"]" labels)
+  gbl_json_mutate_set("${result}"
+    "{\"mask\":\"8\",\"count\":\"4\",\"capacity\":\"4\",\"complete\":true,\"emitted\":true}"
+    trace)
 endfunction()
 
 function(result_phase8_set_not_run result)
@@ -391,6 +438,81 @@ elseif(CASE STREQUAL "semantic_time")
   gbl_json_mutate_set("${r}" "{\"complete\": false}" trace)
   expect_detail(incomplete-trace
     "incomplete trace requires trace-output-full HARNESS_FAIL" "${r}")
+
+elseif(CASE STREQUAL "phase9")
+  # Historical result/1 remains valid when the whole optional DMA extension is absent.
+  result_copy(r historical_without_phase9)
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9)
+  result_add_phase9_extension("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9_dma_transfer)
+  result_add_phase9_dma_transfer("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9_with_disputed_latch)
+  result_add_phase9_latch_observation("${r}")
+  expect_ok(PASS "${r}")
+
+elseif(CASE STREQUAL "phase9_negative")
+  result_copy(r phase9_missing_model)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_remove("${r}" phase9 model)
+  expect_detail(missing-field "phase9.model" "${r}")
+
+  result_copy(r phase9_wrong_waitcnt_type)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"0\"" phase9 waitcnt)
+  expect_detail(bad-phase9-type "phase9.waitcnt" "${r}")
+
+  result_copy(r phase9_wrong_total)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"31\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"31\"" time budget_cycles)
+  expect_detail(bad-time-components "time.cycles does not equal" "${r}")
+
+  result_copy(r phase9_unknown_owner)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"host\"" phase9 bus_owner)
+  expect_detail(bad-phase9-owner "phase9.bus_owner" "${r}")
+
+  result_copy(r phase9_invalid_channel)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "4" phase9 channels 3 channel)
+  expect_detail(bad-phase9-channel "phase9.channels" "${r}")
+
+  result_copy(r phase9_inconsistent_progress)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "true" phase9 channels 3 active)
+  expect_detail(bad-phase9-progress "active channel needs remaining work" "${r}")
+
+  result_copy(r phase9_inconsistent_component)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"6\"" phase9 timing dma_source_cycles)
+  expect_detail(bad-phase9-timing "phase9.timing.dma_source_cycles" "${r}")
+
+  result_copy(r phase9_missing_latch_link)
+  result_add_phase9_latch_observation("${r}")
+  gbl_json_mutate_set("${r}" "[]" disputes)
+  gbl_json_mutate_set("${r}" "[]" labels)
+  expect_detail(undisclosed-dispute "disp-dma-latch" "${r}")
+
+  result_copy(r phase9_settled_latch)
+  result_add_phase9_latch_observation("${r}")
+  gbl_json_mutate_set("${r}" "\"settled\"" phase9 latch_policy classification)
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\"" phase9 latch_policy hardware_qualification)
+  expect_detail(bad-phase9-latch "latch fallback must remain disputed and UNKNOWN" "${r}")
+
+  result_copy(r phase9_modeled_prefetch)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"modeled\"" phase9 prefetch)
+  expect_detail(bad-phase9-prefetch "phase9.prefetch" "${r}")
+
+  result_copy(r phase9_partial_without_object)
+  gbl_json_mutate_set("${r}" "\"0\"" time dma_startup_cycles)
+  expect_detail(partial-phase9-extension "time DMA fields require phase9" "${r}")
 
 elseif(CASE STREQUAL "phase_positive")
   result_copy(r legacy_without_phase8)
