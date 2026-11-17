@@ -64,7 +64,8 @@ typedef enum gbl_time_status {
 
 typedef enum gbl_event_kind {
     GBL_EVENT_KIND_TIMER_OVERFLOW = 1,
-    GBL_EVENT_KIND_KEYPAD_INPUT = 2
+    GBL_EVENT_KIND_KEYPAD_INPUT = 2,
+    GBL_EVENT_KIND_DMA_READY = 3
 } gbl_event_kind;
 
 typedef struct gbl_input_event {
@@ -81,6 +82,7 @@ typedef struct gbl_event {
     uint8_t priority;
     uint8_t kind;
     uint8_t timer_index;
+    uint8_t dma_channel;
     bool live;
     uint16_t input_index;
 } gbl_event;
@@ -150,6 +152,11 @@ typedef struct gbl_machine_time_preview {
     uint16_t interrupt_master_enable;
     uint16_t waitcnt;
     gbl_machine_bus_owner bus_owner;
+    uint8_t dma_last_channel;
+    uint8_t dma_last_width;
+    uint32_t dma_last_source;
+    uint32_t dma_last_destination;
+    bool dma_stream_valid;
     gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
     uint16_t pressed_keys;
     uint16_t key_control;
@@ -591,6 +598,11 @@ typedef struct gbl_machine {
     uint16_t interrupt_master_enable;
     uint16_t waitcnt;
     gbl_machine_bus_owner bus_owner;
+    uint8_t dma_last_channel;
+    uint8_t dma_last_width;
+    uint32_t dma_last_source;
+    uint32_t dma_last_destination;
+    bool dma_stream_valid;
     gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
     uint16_t pressed_keys;
     uint16_t key_control;
@@ -629,6 +641,7 @@ typedef struct gbl_dma_step_result {
     uint64_t completed;
     uint64_t completion_cycle;
     bool unit_completed;
+    bool used_channel_latch;
 } gbl_dma_step_result;
 
 /* WAITCNT-aware quote shared by CPU and DMA. Its reset-state values are
@@ -661,8 +674,8 @@ bool gbl_bus_quote_observed(
 gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
                                    uint64_t cycle_budget,
                                    gbl_dma_step_result *result);
-/* Internal deterministic delayed-request seam. The explicit cycle is applied
- * through the canonical machine clock; generation rejects stale requests. */
+/* Internal deterministic delayed-request seam. The explicit cycle is queued
+ * on the canonical machine clock; generation rejects stale requests. */
 gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
                                        uint8_t channel, uint64_t cycle,
                                        uint64_t generation);

@@ -786,6 +786,7 @@ static gbl_bus_result gbl_bus_read_role(gbl_machine *machine,
         machine->open_bus = gbl_bus_latch_replication(value, width);
     }
     gbl_machine_commit_time(machine, &time_preview);
+    machine->dma_stream_valid = false;
     result = gbl_bus_make_result(GBL_BUS_STATUS_OK,
                                  has_fallback ? fallback_outcome : first_outcome,
                                  value, cost.cycles, access_class);
@@ -854,6 +855,7 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
         fallback_outcome = gbl_bus_fallback_priority(fallback_outcome,
                                                      lane_outcome);
     }
+    machine->dma_stream_valid = false;
 
     result = gbl_bus_make_result(
         GBL_BUS_STATUS_OK,
@@ -882,6 +884,8 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     uint8_t width;
     bool has_fallback = false;
     uint32_t destination_region;
+    gbl_bus_access_class source_sequence = GBL_BUS_CLASS_NONSEQUENTIAL;
+    gbl_bus_access_class destination_sequence = GBL_BUS_CLASS_NONSEQUENTIAL;
 
     if (machine == NULL || result == NULL || !machine->initialized ||
         channel >= GBL_DMA_CHANNEL_COUNT) {
@@ -893,6 +897,18 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     width = (dma->control & UINT16_C(0x0400)) != 0u ? 4u : 2u;
     destination_region =
         (uint32_t)gbl_bus_region_for_address(destination_address);
+    if (machine->dma_stream_valid &&
+        machine->dma_last_channel == channel &&
+        machine->dma_last_width == width) {
+        if (machine->dma_last_source <= UINT32_MAX - width &&
+            machine->dma_last_source + width == source_address) {
+            source_sequence = GBL_BUS_CLASS_SEQUENTIAL;
+        }
+        if (machine->dma_last_destination <= UINT32_MAX - width &&
+            machine->dma_last_destination + width == destination_address) {
+            destination_sequence = GBL_BUS_CLASS_SEQUENTIAL;
+        }
+    }
     if (!dma->active || !dma->startup_complete ||
         machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA ||
         dma->remaining == 0u || dma->completed_units == UINT64_MAX ||
@@ -908,11 +924,11 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
          destination_region != GBL_BUS_REGION_VRAM &&
          destination_region != GBL_BUS_REGION_OAM) ||
         !gbl_bus_quote(machine, source_address, GBL_BUS_DIRECTION_READ,
-                       width, GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
+                       width, source_sequence, GBL_BUS_ROLE_DATA,
                        &source_cost) ||
         !gbl_bus_quote(machine, destination_address,
                        GBL_BUS_DIRECTION_WRITE, width,
-                       GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
+                       destination_sequence, GBL_BUS_ROLE_DATA,
                        &destination_cost) ||
         source_cost.cycles > UINT64_MAX - destination_cost.cycles) {
         result->status = GBL_DMA_STATUS_UNIT_REFUSAL;
@@ -972,6 +988,11 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     }
     machine->dma_channels[channel].read_latch =
         gbl_bus_latch_replication(value, width);
+    machine->dma_last_channel = channel;
+    machine->dma_last_width = width;
+    machine->dma_last_source = source_address;
+    machine->dma_last_destination = destination_address;
+    machine->dma_stream_valid = true;
     for (lane = 0u; lane < width; ++lane) {
         (void)gbl_bus_write_lane(
             machine, destination_address + lane,
@@ -982,10 +1003,11 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     result->channel = channel;
     result->source_cycles = source_cost.cycles;
     result->destination_cycles = destination_cost.cycles;
-    result->source_sequence = GBL_BUS_CLASS_NONSEQUENTIAL;
-    result->destination_sequence = GBL_BUS_CLASS_NONSEQUENTIAL;
+    result->source_sequence = source_sequence;
+    result->destination_sequence = destination_sequence;
     result->completion_cycle = machine->master_cycles;
     result->unit_completed = true;
+    result->used_channel_latch = has_fallback;
     return result->status;
 }
 

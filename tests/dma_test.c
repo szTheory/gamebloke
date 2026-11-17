@@ -265,6 +265,239 @@ static bool test_channel_zero_transfer_and_irq(void)
     return valid;
 }
 
+static bool configure_dma(gbl_machine *machine, uint8_t channel,
+                          uint32_t source, uint32_t destination,
+                          uint16_t count, uint16_t control)
+{
+    return write_register(machine, channel, 0u, 4u, source) &&
+           write_register(machine, channel, 4u, 4u, destination) &&
+           write_register(machine, channel, 8u, 2u, count) &&
+           write_register(machine, channel, 10u, 2u, control);
+}
+
+static bool test_dma_priority_and_resume(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    uint64_t ready_cycle;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->ewram[0x20u] = UINT8_C(0x10);
+    machine->ewram[0x30u] = UINT8_C(0x30);
+    machine->iwram[0x20u] = UINT8_C(0xEE);
+    machine->iwram[0x30u] = UINT8_C(0xEE);
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000020),
+                          UINT32_C(0x03000020), 1u, UINT16_C(0x9000)) &&
+            configure_dma(machine, 3u, UINT32_C(0x02000030),
+                          UINT32_C(0x03000030), 1u, UINT16_C(0x9000));
+    ready_cycle = machine->master_cycles + 2u;
+    valid = valid && gbl_machine_dma_request(
+                         machine, 3u, ready_cycle,
+                         machine->dma_channels[3].generation) ==
+                         GBL_TIME_STATUS_OK &&
+                     gbl_machine_dma_request(
+                         machine, 0u, ready_cycle,
+                         machine->dma_channels[0].generation) ==
+                         GBL_TIME_STATUS_OK &&
+                     gbl_machine_advance_to(machine, ready_cycle) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->dma_channels[0].pending &&
+                     machine->dma_channels[3].pending;
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 0u &&
+                step.startup_cycles == 2u && !step.unit_completed;
+    }
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 0u &&
+                step.unit_completed && machine->iwram[0x20u] == 0x10u &&
+                machine->dma_channels[3].pending;
+    }
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.startup_cycles == 2u;
+    }
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.unit_completed && machine->iwram[0x30u] == 0x30u &&
+                machine->bus_owner == GBL_MACHINE_BUS_OWNER_CPU;
+    }
+    test_case(valid,
+              "same-cycle delayed channels start in DMA0 to DMA3 priority order");
+    free_machine(machine);
+
+    machine = new_machine();
+    if (machine == NULL) {
+        return false;
+    }
+    machine->ewram[0x40u] = UINT8_C(0x41);
+    machine->ewram[0x42u] = UINT8_C(0x42);
+    machine->ewram[0x50u] = UINT8_C(0x50);
+    machine->iwram[0x40u] = 0u;
+    machine->iwram[0x42u] = 0u;
+    machine->iwram[0x50u] = 0u;
+    valid = configure_dma(machine, 3u, UINT32_C(0x02000040),
+                          UINT32_C(0x03000040), 2u, UINT16_C(0x8000)) &&
+            configure_dma(machine, 0u, UINT32_C(0x02000050),
+                          UINT32_C(0x03000050), 1u, UINT16_C(0x9000));
+    valid = valid && gbl_machine_dma_step(machine, 2u, &step) ==
+                         GBL_DMA_STATUS_OK && step.channel == 3u &&
+                     step.startup_cycles == 2u;
+    ready_cycle = machine->master_cycles + 1u;
+    valid = valid && gbl_machine_dma_request(
+                         machine, 0u, ready_cycle,
+                         machine->dma_channels[0].generation) ==
+                         GBL_TIME_STATUS_OK;
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.unit_completed && machine->dma_channels[0].pending &&
+                machine->dma_channels[3].active &&
+                machine->dma_channels[3].remaining == 1u &&
+                machine->dma_channels[3].current_source ==
+                    UINT32_C(0x02000042);
+    }
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 0u &&
+                step.startup_cycles == 2u;
+    }
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 0u &&
+                step.unit_completed && machine->iwram[0x50u] == 0x50u &&
+                machine->bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+                machine->dma_channels[3].active;
+    }
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.unit_completed &&
+                step.source_sequence == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                step.destination_sequence == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                machine->iwram[0x42u] == 0x42u &&
+                machine->bus_owner == GBL_MACHINE_BUS_OWNER_CPU;
+    }
+    test_case(valid,
+              "a DMA0 request waits for a DMA3 unit then suspends and resumes it at the next boundary");
+    if (valid) {
+        printf("phase9-observation:{\"schema\":\"gamebloke.phase9-observation/1\",\"kind\":\"dma-arbitration\",\"priority\":[0,1,2,3],\"resume_channel\":3,\"resume_sequence\":\"N\",\"startup_cycles\":2,\"startup_provenance\":\"project-selected\",\"hardware_qualification\":\"UNKNOWN\"}\n");
+    }
+    free_machine(machine);
+
+    machine = new_machine();
+    if (machine == NULL) {
+        test_case(false,
+                  "same-cycle DMA-ready event is applied before unit completion effects");
+        return false;
+    }
+    valid = configure_dma(machine, 3u, UINT32_C(0x02000080),
+                          UINT32_C(0x03000080), 1u, UINT16_C(0xC000)) &&
+            configure_dma(machine, 0u, UINT32_C(0x02000090),
+                          UINT32_C(0x03000090), 1u, UINT16_C(0x9000));
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.startup_cycles == 2u;
+    }
+    ready_cycle = machine->master_cycles + 2u;
+    valid = valid && gbl_machine_dma_request(
+                         machine, 0u, ready_cycle,
+                         machine->dma_channels[0].generation) ==
+                         GBL_TIME_STATUS_OK;
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.unit_completed &&
+                machine->dma_channels[0].pending &&
+                !machine->dma_channels[3].active &&
+                (machine->interrupt_flags & UINT16_C(0x0800)) != 0u &&
+                machine->bus_owner == GBL_MACHINE_BUS_OWNER_DMA;
+    }
+    test_case(valid,
+              "same-cycle DMA-ready event is applied before unit completion effects");
+    free_machine(machine);
+    return true;
+}
+
+static bool test_dma_events_during_startup_and_unit(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    gbl_input_event inputs[3];
+    uint64_t base_cycle;
+    uint64_t generation;
+    gbl_bus_result timer_write;
+    bool priority_order;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->ewram[0x60u] = UINT8_C(0xA6);
+    valid = configure_dma(machine, 3u, UINT32_C(0x02000060),
+                          UINT32_C(0x03000060), 2u, UINT16_C(0x8000)) &&
+            configure_dma(machine, 0u, UINT32_C(0x02000070),
+                          UINT32_C(0x03000070), 1u, UINT16_C(0x9000));
+    base_cycle = machine->master_cycles;
+    inputs[0] = (gbl_input_event){ base_cycle + 2u, 1u };
+    inputs[1] = (gbl_input_event){ base_cycle + 4u, 2u };
+    inputs[2] = (gbl_input_event){ base_cycle + 5u, 4u };
+    valid = valid && gbl_machine_set_input_timeline(machine, inputs, 3u) ==
+                         GBL_TIME_STATUS_OK;
+    timer_write = gbl_bus_write(machine, UINT32_C(0x04000100), 4u,
+                                GBL_BUS_CLASS_NONSEQUENTIAL,
+                                UINT32_C(0x00C0FFFE));
+    valid = valid && timer_write.status == GBL_BUS_STATUS_OK;
+    generation = machine->dma_channels[0].generation;
+    valid = valid && gbl_machine_dma_request(
+                         machine, 0u, base_cycle + 4u, generation) ==
+                         GBL_TIME_STATUS_OK;
+    priority_order = false;
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.startup_cycles == 2u && machine->master_cycles ==
+                    base_cycle + 3u && machine->pressed_keys == 1u &&
+                (machine->interrupt_flags & UINT16_C(0x0008)) != 0u &&
+                !machine->dma_channels[0].pending;
+        priority_order = machine->event_count >= 2u &&
+                         machine->events[0].cycle == base_cycle + 4u &&
+                         machine->events[0].kind ==
+                             GBL_EVENT_KIND_KEYPAD_INPUT &&
+                         machine->events[0].priority == 4u &&
+                         machine->events[1].cycle == base_cycle + 4u &&
+                         machine->events[1].kind ==
+                             GBL_EVENT_KIND_DMA_READY &&
+                         machine->events[1].priority == 5u;
+        valid = valid && priority_order;
+    }
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, 2u, &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.unit_completed && step.source_cycles == 1u &&
+                step.destination_cycles == 1u &&
+                machine->master_cycles == base_cycle + 5u &&
+                machine->pressed_keys == 4u &&
+                machine->input_event_cursor == 3u &&
+                machine->dma_channels[0].pending &&
+                machine->dma_channels[3].completed_units == 1u;
+    }
+    test_case(valid,
+              "timer and keypad events run during DMA startup and both unit intervals; readiness waits for the unit boundary");
+    if (valid) {
+        printf("phase9-observation:{\"schema\":\"gamebloke.phase9-observation/1\",\"kind\":\"dma-events\",\"event_priority\":[\"timer0-3\",\"keypad\",\"dma-ready0-3\"],\"completion_effects\":\"after-due-events\",\"startup_cycles\":2,\"startup_provenance\":\"project-selected\",\"prefetch\":\"unmodeled\",\"hardware_qualification\":\"UNKNOWN\"}\n");
+    }
+    free_machine(machine);
+    return true;
+}
+
 static bool run_registers(void)
 {
     check_count = 0u;
@@ -286,10 +519,34 @@ static bool run_registers(void)
     return failure_count == 0u ? 0 : 1;
 }
 
+static bool run_arbitration(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..3\n");
+    (void)test_dma_priority_and_resume();
+    return failure_count == 0u ? 0 : 1;
+}
+
+static bool run_events(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..1\n");
+    (void)test_dma_events_during_startup_and_unit();
+    return failure_count == 0u ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "registers") == 0) {
         return run_registers();
+    }
+    if (argc == 2 && strcmp(argv[1], "arbitration") == 0) {
+        return run_arbitration();
+    }
+    if (argc == 2 && strcmp(argv[1], "events") == 0) {
+        return run_events();
     }
     fprintf(stderr, "dma_test: unknown selector or argument count\n");
     return 2;

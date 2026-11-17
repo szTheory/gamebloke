@@ -52,6 +52,7 @@ static bool gbl_test_event_equal(const gbl_event *left,
            left->generation == right->generation &&
            left->priority == right->priority && left->kind == right->kind &&
            left->timer_index == right->timer_index &&
+           left->dma_channel == right->dma_channel &&
            left->live == right->live &&
            left->input_index == right->input_index;
 }
@@ -106,6 +107,11 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
         left->interrupt_master_enable != right->interrupt_master_enable ||
         left->waitcnt != right->waitcnt ||
         left->bus_owner != right->bus_owner ||
+        left->dma_last_channel != right->dma_last_channel ||
+        left->dma_last_width != right->dma_last_width ||
+        left->dma_last_source != right->dma_last_source ||
+        left->dma_last_destination != right->dma_last_destination ||
+        left->dma_stream_valid != right->dma_stream_valid ||
         left->cpu.force_nonsequential_fetch !=
             right->cpu.force_nonsequential_fetch ||
         left->pressed_keys != right->pressed_keys ||
@@ -162,6 +168,11 @@ static bool gbl_test_time_preview_equal(
         left->interrupt_master_enable != right->interrupt_master_enable ||
         left->waitcnt != right->waitcnt ||
         left->bus_owner != right->bus_owner ||
+        left->dma_last_channel != right->dma_last_channel ||
+        left->dma_last_width != right->dma_last_width ||
+        left->dma_last_source != right->dma_last_source ||
+        left->dma_last_destination != right->dma_last_destination ||
+        left->dma_stream_valid != right->dma_stream_valid ||
         left->pressed_keys != right->pressed_keys ||
         left->key_control != right->key_control ||
         left->key_condition != right->key_condition ||
@@ -221,6 +232,11 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.interrupt_master_enable = machine->interrupt_master_enable;
     machine_time.waitcnt = machine->waitcnt;
     machine_time.bus_owner = machine->bus_owner;
+    machine_time.dma_last_channel = machine->dma_last_channel;
+    machine_time.dma_last_width = machine->dma_last_width;
+    machine_time.dma_last_source = machine->dma_last_source;
+    machine_time.dma_last_destination = machine->dma_last_destination;
+    machine_time.dma_stream_valid = machine->dma_stream_valid;
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         machine_time.dma_channels[index] = machine->dma_channels[index];
     }
@@ -583,6 +599,12 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_u64(digest, machine->interrupt_master_enable);
     digest = gbl_test_digest_u64(digest, machine->waitcnt);
     digest = gbl_test_digest_byte(digest, (uint8_t)machine->bus_owner);
+    digest = gbl_test_digest_byte(digest, machine->dma_last_channel);
+    digest = gbl_test_digest_byte(digest, machine->dma_last_width);
+    digest = gbl_test_digest_u64(digest, machine->dma_last_source);
+    digest = gbl_test_digest_u64(digest, machine->dma_last_destination);
+    digest = gbl_test_digest_byte(digest,
+                                  machine->dma_stream_valid ? 1u : 0u);
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         const gbl_dma_channel_state *dma = &machine->dma_channels[index];
 
@@ -622,6 +644,7 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
         digest = gbl_test_digest_byte(digest, event->priority);
         digest = gbl_test_digest_byte(digest, event->kind);
         digest = gbl_test_digest_byte(digest, event->timer_index);
+        digest = gbl_test_digest_byte(digest, event->dma_channel);
         digest = gbl_test_digest_byte(digest, event->live ? 1u : 0u);
         digest = gbl_test_digest_u64(digest, event->input_index);
     }

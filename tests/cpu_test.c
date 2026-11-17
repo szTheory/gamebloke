@@ -14641,6 +14641,82 @@ static void test_dma_tracer(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_dma_cpu_pause_resume(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_trace_record records[2] = { { 0 }, { 0 } };
+    gbl_trace_buffer trace = { records, 2u, 0u, 0u };
+    gbl_bus_result bus_result;
+    bool valid;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE3A07042));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    valid = machine_load(&machine, image);
+    machine.ewram[0x80u] = UINT8_C(0x5A);
+    machine.ewram[0x81u] = UINT8_C(0xA5);
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000B0), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x02000080));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000B4), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x03000100));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000B8), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000BA), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0xC000));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    machine.interrupt_flags = UINT16_C(0x0100);
+    machine.interrupt_enable = UINT16_C(0x0100);
+    machine.interrupt_master_enable = 1u;
+    options.cycle_budget = UINT64_C(64);
+    options.unit_limit = 1u;
+    options.category_mask = (uint32_t)GBL_TRACE_DMA;
+    options.trace_buffer = &trace;
+    if (valid) {
+        valid = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK &&
+                result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                result.instructions == 0u &&
+                machine.cpu.retired_instructions == 0u &&
+                machine.cpu.r0_7[7] == 0u &&
+                machine.cpu.last_exception.kind == GBL_EXCEPTION_NONE &&
+                !machine.cpu.irq_observation.accepted &&
+                machine.dma_channels[0].completed_units == 1u &&
+                (machine.interrupt_flags & UINT16_C(0x0100)) != 0u &&
+                machine.iwram[0x100u] == UINT8_C(0x5A) &&
+                machine.iwram[0x101u] == UINT8_C(0xA5) &&
+                machine.bus_owner == GBL_MACHINE_BUS_OWNER_CPU &&
+                trace.count == 2u && records[0].dma_startup_cycles == 2u &&
+                records[1].dma_source_cycles == 1u &&
+                records[1].dma_destination_cycles == 1u;
+    }
+    if (valid) {
+        options.unit_limit = 1u;
+        valid = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK &&
+                result.instructions == 1u && machine.cpu.r0_7[7] == 0x42u &&
+                machine.cpu.retired_instructions == 1u &&
+                machine.bus_owner == GBL_MACHINE_BUS_OWNER_CPU;
+    }
+    test_case(valid,
+              "CPU retirement and IRQ acceptance pause during DMA, then resume through the canonical run loop");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_dma_refusal_state_comparator(void)
 {
     gbl_machine before = { 0 };
@@ -15582,6 +15658,9 @@ static const cpu_test_function psr_functions[] = {
 };
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function dma_tracer_functions[] = { test_dma_tracer };
+static const cpu_test_function dma_cpu_functions[] = {
+    test_dma_cpu_pause_resume
+};
 static const cpu_test_function dma_refusal_functions[] = {
     test_dma_refusal_state_comparator,
     test_dma_refusal_transactions,
@@ -15838,6 +15917,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("dma.tracer", 1u, dma_tracer_functions),
+    CPU_TEST_GROUP("dma.cpu", 1u, dma_cpu_functions),
     CPU_TEST_GROUP("dma.refusal", 15u, dma_refusal_functions),
     CPU_TEST_GROUP("waitcnt.cpu", 12u, waitcnt_cpu_functions),
     CPU_TEST_GROUP("dma.waitcnt", 1u, dma_waitcnt_functions),

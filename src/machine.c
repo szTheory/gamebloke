@@ -4,6 +4,7 @@
 #define GBL_KEYPAD_CONTROL_MASK UINT16_C(0xC3FF)
 #define GBL_KEYPAD_IRQ_BIT UINT16_C(0x1000)
 #define GBL_KEYPAD_EVENT_PRIORITY 4u
+#define GBL_DMA_EVENT_PRIORITY_BASE 5u
 
 static bool gbl_event_precedes(const gbl_event *left,
                                const gbl_event *right)
@@ -56,6 +57,23 @@ static void gbl_preview_remove_input_event(
     while (index < preview->event_count) {
         if (preview->events[index].kind ==
             (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
+            gbl_preview_remove_event(preview, index);
+        } else {
+            ++index;
+        }
+    }
+}
+
+static void gbl_preview_remove_dma_events(
+    gbl_machine_time_preview *preview, uint8_t channel_index)
+{
+    size_t index = 0u;
+
+    while (index < preview->event_count) {
+        const gbl_event *event = &preview->events[index];
+
+        if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+            event->dma_channel == channel_index) {
             gbl_preview_remove_event(preview, index);
         } else {
             ++index;
@@ -118,6 +136,55 @@ static gbl_time_status gbl_preview_insert_input_event(
     event.priority = GBL_KEYPAD_EVENT_PRIORITY;
     event.kind = (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT;
     event.input_index = (uint16_t)input_index;
+    event.live = true;
+    ++preview->next_event_sequence;
+
+    position = preview->event_count;
+    while (position > 0u &&
+           gbl_event_precedes(&event, &preview->events[position - 1u])) {
+        preview->events[position] = preview->events[position - 1u];
+        --position;
+    }
+    preview->events[position] = event;
+    ++preview->event_count;
+    return GBL_TIME_STATUS_OK;
+}
+
+static gbl_time_status gbl_preview_insert_dma_event(
+    gbl_machine_time_preview *preview, uint8_t channel_index,
+    uint64_t cycle, uint64_t generation)
+{
+    gbl_event event = { 0 };
+    size_t position;
+    size_t index;
+
+    if (preview->event_count >= GBL_EVENT_CAPACITY) {
+        return GBL_TIME_STATUS_EVENT_CAPACITY;
+    }
+    if (preview->next_event_sequence == UINT64_MAX) {
+        return GBL_TIME_STATUS_SEQUENCE_EXHAUSTED;
+    }
+    if (channel_index >= GBL_DMA_CHANNEL_COUNT ||
+        cycle < preview->master_cycles ||
+        preview->dma_channels[channel_index].generation != generation ||
+        !preview->dma_channels[channel_index].armed) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    for (index = 0u; index < preview->event_count; ++index) {
+        const gbl_event *existing = &preview->events[index];
+
+        if (existing->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+            existing->dma_channel == channel_index &&
+            existing->generation == generation) {
+            return GBL_TIME_STATUS_INPUT_OVERLAP;
+        }
+    }
+    event.cycle = cycle;
+    event.sequence = preview->next_event_sequence;
+    event.generation = generation;
+    event.priority = (uint8_t)(GBL_DMA_EVENT_PRIORITY_BASE + channel_index);
+    event.kind = (uint8_t)GBL_EVENT_KIND_DMA_READY;
+    event.dma_channel = channel_index;
     event.live = true;
     ++preview->next_event_sequence;
 
@@ -283,6 +350,23 @@ static gbl_time_status gbl_preview_dispatch_event(
     gbl_timer_state *timer;
     gbl_time_status status;
 
+    if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY) {
+        gbl_dma_channel_state *channel;
+
+        if (event->dma_channel >= GBL_DMA_CHANNEL_COUNT) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        channel = &preview->dma_channels[event->dma_channel];
+        if (!event->live || event->generation != channel->generation ||
+            !channel->armed ||
+            (channel->control & UINT16_C(0x8000)) == 0u) {
+            return GBL_TIME_STATUS_OK;
+        }
+        channel->armed = false;
+        channel->pending = true;
+        return GBL_TIME_STATUS_OK;
+    }
+
     if (event->kind == (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
         size_t input_index = event->input_index;
 
@@ -339,6 +423,11 @@ static void gbl_machine_time_copy_preview(
     preview->interrupt_master_enable = machine->interrupt_master_enable;
     preview->waitcnt = machine->waitcnt;
     preview->bus_owner = machine->bus_owner;
+    preview->dma_last_channel = machine->dma_last_channel;
+    preview->dma_last_width = machine->dma_last_width;
+    preview->dma_last_source = machine->dma_last_source;
+    preview->dma_last_destination = machine->dma_last_destination;
+    preview->dma_stream_valid = machine->dma_stream_valid;
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         preview->dma_channels[index] = machine->dma_channels[index];
     }
@@ -474,6 +563,7 @@ static gbl_time_status gbl_preview_dma_register_write(
                 if (channel->generation == UINT64_MAX) {
                     return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
                 }
+                gbl_preview_remove_dma_events(preview, channel_index);
                 ++channel->generation;
             }
             channel->pending = false;
@@ -485,6 +575,7 @@ static gbl_time_status gbl_preview_dma_register_write(
             if (channel->generation == UINT64_MAX) {
                 return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
             }
+            gbl_preview_remove_dma_events(preview, channel_index);
             ++channel->generation;
             gbl_dma_activate(channel, channel_index);
         }
@@ -533,6 +624,10 @@ static gbl_time_status gbl_preview_advance_to(
             if (event.timer_index >= GBL_TIMER_COUNT) {
                 return GBL_TIME_STATUS_INVALID_ARGUMENT;
             }
+        } else if (event.kind == (uint8_t)GBL_EVENT_KIND_DMA_READY) {
+            if (event.dma_channel >= GBL_DMA_CHANNEL_COUNT) {
+                return GBL_TIME_STATUS_INVALID_ARGUMENT;
+            }
         } else if (event.kind != (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
             return GBL_TIME_STATUS_INVALID_ARGUMENT;
         }
@@ -540,7 +635,9 @@ static gbl_time_status gbl_preview_advance_to(
             const uint64_t generation =
                 event.kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW
                     ? candidate.timers[event.timer_index].generation
-                    : candidate.input_generation;
+                    : event.kind == (uint8_t)GBL_EVENT_KIND_DMA_READY
+                          ? candidate.dma_channels[event.dma_channel].generation
+                          : candidate.input_generation;
 
             if (event.generation == generation) {
                 return GBL_TIME_STATUS_INVALID_ARGUMENT;
@@ -782,6 +879,11 @@ void gbl_machine_commit_time(gbl_machine *machine,
     machine->interrupt_master_enable = preview->interrupt_master_enable;
     machine->waitcnt = preview->waitcnt;
     machine->bus_owner = preview->bus_owner;
+    machine->dma_last_channel = preview->dma_last_channel;
+    machine->dma_last_width = preview->dma_last_width;
+    machine->dma_last_source = preview->dma_last_source;
+    machine->dma_last_destination = preview->dma_last_destination;
+    machine->dma_stream_valid = preview->dma_stream_valid;
     machine->pressed_keys = preview->pressed_keys;
     machine->key_control = preview->key_control;
     machine->key_condition = preview->key_condition;
@@ -815,11 +917,27 @@ static gbl_dma_status gbl_dma_status_from_time(gbl_time_status status)
     return GBL_DMA_STATUS_UNIT_REFUSAL;
 }
 
+static bool gbl_dma_other_channel_ready(const gbl_machine *machine,
+                                       uint8_t excluded_channel)
+{
+    uint8_t index;
+
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        if (index != excluded_channel &&
+            (machine->dma_channels[index].pending ||
+             machine->dma_channels[index].active)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
                                        uint8_t channel_index, uint64_t cycle,
                                        uint64_t generation)
 {
     gbl_dma_channel_state *channel;
+    gbl_machine_time_preview candidate;
     gbl_time_status status;
 
     if (machine == NULL || !machine->initialized ||
@@ -836,17 +954,13 @@ gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
         ((channel->control >> 12u) & 3u) == 0u || !channel->armed) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
-    status = gbl_machine_advance_to(machine, cycle);
+    gbl_machine_time_copy_preview(machine, &candidate);
+    status = gbl_preview_insert_dma_event(&candidate, channel_index, cycle,
+                                          generation);
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
-    channel = &machine->dma_channels[channel_index];
-    if (channel->generation != generation ||
-        (channel->control & UINT16_C(0x8000)) == 0u || !channel->armed) {
-        return GBL_TIME_STATUS_INVALID_ARGUMENT;
-    }
-    channel->armed = false;
-    channel->pending = true;
+    gbl_machine_commit_time(machine, &candidate);
     return GBL_TIME_STATUS_OK;
 }
 
@@ -926,14 +1040,21 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
         *result = step;
         return step.status;
     }
-    if (!channel->active || !channel->startup_complete ||
-        machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA) {
+    if (!channel->active || !channel->startup_complete) {
         step.status = GBL_DMA_STATUS_UNIT_REFUSAL;
         *result = step;
         return step.status;
     }
+    if (machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA) {
+        machine->bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+        machine->dma_stream_valid = false;
+    }
     if (channel->remaining == 0u ||
-        channel->completed_units == UINT64_MAX) {
+        channel->completed_units == UINT64_MAX ||
+        (channel->remaining == 1u &&
+         !((channel->control & UINT16_C(0x0200)) != 0u &&
+           ((channel->control >> 12u) & 3u) != 0u) &&
+         channel->generation == UINT64_MAX)) {
         step.status = GBL_DMA_STATUS_UNIT_REFUSAL;
         *result = step;
         return step.status;
@@ -992,14 +1113,20 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
                 channel->control = (uint16_t)(
                     channel->control & (uint16_t)~UINT16_C(0x8000));
                 channel->armed = false;
-                machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
-                machine->cpu.force_nonsequential_fetch = true;
+                ++channel->generation;
             }
             if ((channel->control & UINT16_C(0x4000)) != 0u) {
                 machine->interrupt_flags = (uint16_t)(
                     machine->interrupt_flags |
                     (uint16_t)(UINT16_C(0x0100) << channel_index));
             }
+        }
+        if (!channel->pending && !channel->active &&
+            machine->bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+            !gbl_dma_other_channel_ready(machine, channel_index)) {
+            machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
+            machine->cpu.force_nonsequential_fetch = true;
+            machine->dma_stream_valid = false;
         }
         step.owner = GBL_MACHINE_BUS_OWNER_DMA;
         step.remaining = channel->remaining;
@@ -1256,6 +1383,11 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->interrupt_master_enable = 0u;
     machine->waitcnt = 0u;
     machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
+    machine->dma_last_channel = 0u;
+    machine->dma_last_width = 0u;
+    machine->dma_last_source = 0u;
+    machine->dma_last_destination = 0u;
+    machine->dma_stream_valid = false;
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         machine->dma_channels[index] = (gbl_dma_channel_state){ 0 };
     }
