@@ -91,6 +91,16 @@ function(expect_ok status result)
 endfunction()
 
 function(result_add_time_extension result)
+  gbl_json_mutate_remove("${result}" phase8)
+  gbl_json_mutate_remove("${result}" phase9)
+  gbl_json_mutate_remove("${result}" time wait_cycles)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${result}" time ${field})
+  endforeach()
+  foreach(field IN ITEMS model qualification bus_cycles internal_cycles)
+    gbl_json_mutate_remove("${result}" time ${field})
+  endforeach()
   gbl_json_mutate_set("${result}" "{}" timer0)
   gbl_json_mutate_set("${result}" "\"gamebloke-timer-model-1\"" time model)
   gbl_json_mutate_set("${result}" "\"project-model-only\"" time qualification)
@@ -442,6 +452,11 @@ elseif(CASE STREQUAL "semantic_time")
 elseif(CASE STREQUAL "phase9")
   # Historical result/1 remains valid when the whole optional DMA extension is absent.
   result_copy(r historical_without_phase9)
+  gbl_json_mutate_remove("${r}" phase9)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${r}" time ${field})
+  endforeach()
   expect_ok(PASS "${r}")
 
   result_copy(r current_phase9)
@@ -467,16 +482,40 @@ elseif(CASE STREQUAL "phase9_negative")
   gbl_json_mutate_set("${r}" "\"0\"" phase9 waitcnt)
   expect_detail(bad-phase9-type "phase9.waitcnt" "${r}")
 
+  result_copy(r phase9_time_overflow)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551616\""
+    time dma_startup_cycles)
+  expect_detail(time-overflow "time.dma_startup_cycles" "${r}")
+
+  result_copy(r phase9_total_overflow)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"1\"" time internal_cycles)
+  expect_detail(time-sum-overflow "CPU, HALT, and DMA timing components" "${r}")
+
+  result_copy(r phase9_pause_exceeds_elapsed)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"33\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${r}" "\"33\"" phase9 timing dma_pause_cycles)
+  expect_detail(bad-phase9-timing "time.dma_pause_cycles exceeds time.cycles" "${r}")
+
   result_copy(r phase9_wrong_total)
   result_add_phase9_dma_transfer("${r}")
   gbl_json_mutate_set("${r}" "\"31\"" time cycles)
   gbl_json_mutate_set("${r}" "\"31\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"31\"" phase9 machine_cycles)
   expect_detail(bad-time-components "time.cycles does not equal" "${r}")
 
   result_copy(r phase9_unknown_owner)
   result_add_phase9_extension("${r}")
   gbl_json_mutate_set("${r}" "\"host\"" phase9 bus_owner)
   expect_detail(bad-phase9-owner "phase9.bus_owner" "${r}")
+
+  result_copy(r phase9_owner_pause_mismatch)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"dma\"" phase9 bus_owner)
+  expect_detail(bad-phase9-owner "phase9.cpu_paused must match the bus owner" "${r}")
 
   result_copy(r phase9_invalid_channel)
   result_add_phase9_extension("${r}")
@@ -486,12 +525,24 @@ elseif(CASE STREQUAL "phase9_negative")
   result_copy(r phase9_inconsistent_progress)
   result_add_phase9_extension("${r}")
   gbl_json_mutate_set("${r}" "true" phase9 channels 3 active)
-  expect_detail(bad-phase9-progress "active channel needs remaining work" "${r}")
+  expect_detail(bad-phase9-progress "phase9.channels" "${r}")
+
+  result_copy(r phase9_completed_unit_sum)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"2\"" time dma_completed_units)
+  gbl_json_mutate_set("${r}" "\"2\"" phase9 timing dma_completed_units)
+  expect_detail(bad-phase9-progress
+    "channel completed_units do not sum to time.dma_completed_units" "${r}")
 
   result_copy(r phase9_inconsistent_component)
   result_add_phase9_extension("${r}")
   gbl_json_mutate_set("${r}" "\"6\"" phase9 timing dma_source_cycles)
   expect_detail(bad-phase9-timing "phase9.timing.dma_source_cycles" "${r}")
+
+  result_copy(r phase9_wait_component_mismatch)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"1\"" time wait_cycles)
+  expect_detail(bad-phase9-timing "time.wait_cycles differs from phase8.wait_cycles" "${r}")
 
   result_copy(r phase9_missing_latch_link)
   result_add_phase9_latch_observation("${r}")
@@ -511,11 +562,24 @@ elseif(CASE STREQUAL "phase9_negative")
   expect_detail(bad-phase9-prefetch "phase9.prefetch" "${r}")
 
   result_copy(r phase9_partial_without_object)
+  gbl_json_mutate_remove("${r}" phase9)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${r}" time ${field})
+  endforeach()
   gbl_json_mutate_set("${r}" "\"0\"" time dma_startup_cycles)
   expect_detail(partial-phase9-extension "time DMA fields require phase9" "${r}")
 
 elseif(CASE STREQUAL "phase_positive")
   result_copy(r legacy_without_phase8)
+  foreach(field IN ITEMS model qualification bus_cycles internal_cycles wait_cycles
+      dma_startup_cycles dma_source_cycles dma_destination_cycles
+      dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${r}" time ${field})
+  endforeach()
+  gbl_json_mutate_remove("${r}" timer0)
+  gbl_json_mutate_remove("${r}" phase8)
+  gbl_json_mutate_remove("${r}" phase9)
   expect_ok(PASS "${r}")
 
   result_copy(r complete_phase8_tuple)

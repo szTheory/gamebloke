@@ -109,15 +109,49 @@ these fields:
   evaluator entry is observed, `value` is null; afterward it is a raw uint32 JSON number.
   This is separate from `semantic`, which always reports the actual mailbox observation.
 - `time`: `{cycles, instructions, budget_cycles, model, qualification, bus_cycles,
-  internal_cycles}`. The four counters are canonical decimal strings in uint64 range
-  (`"0"` or a nonzero digit followed by digits). They are strings so JSON consumers do not
-  round values above their exact integer range. `cycles` equals `bus_cycles` plus
-  `internal_cycles`, with checked uint64 arithmetic. `model` is the declared
-  `gamebloke-timer-model-1`; `qualification` is `project-model-only`. The cycle values are
-  observations from that model, not a hardware timing claim. The observed cycles must be
-  less than or equal to the requested cycle budget. A bounded run may stop short when its
-  next whole instruction or refill unit cannot fit; equality with the budget is not required
-  for TIMEOUT, and exact-boundary mailbox completion is valid.
+  internal_cycles, wait_cycles, dma_startup_cycles, dma_source_cycles,
+  dma_destination_cycles, dma_completed_units, dma_pause_cycles}` for current producers.
+  Counters are canonical decimal strings in uint64 range (`"0"` or a nonzero digit followed
+  by digits), so JSON consumers do not round values above their exact integer range. With
+  the phase 9 extension, elapsed cycles equal CPU `bus_cycles` plus CPU `internal_cycles`,
+  `phase8.wait_cycles` when phase 8 is present, and DMA startup, source, and destination
+  cycles. Current producer `time.wait_cycles` mirrors `phase8.wait_cycles` and is validated
+  as the same observation; it is not added a second time. `dma_pause_cycles` describes the
+  CPU pause window, must not exceed elapsed cycles, and is not added a second time.
+  The checker uses checked decimal arithmetic without converting the uint64 values to a
+  floating point or signed machine integer. `model` is `gamebloke-timer-model-1` and
+  `qualification` is `project-model-only`; these values describe implementation evidence,
+  not a hardware timing claim. Observed cycles must not exceed the requested cycle budget.
+  A bounded run may stop short when its next whole instruction or refill unit cannot fit;
+  equality with the budget is not required for TIMEOUT, and exact-boundary mailbox completion
+  is valid.
+- `phase9`: the complete additive DMA observation. A present extension identifies model
+  `gamebloke-dma-observation-1`, reports whether a machine snapshot was observed, and when
+  observed carries WAITCNT, bus owner, CPU paused state, machine cycles, and four channels in
+  channel order. Each channel reports programmed/current addresses, retained read latch,
+  count/control, remaining units, completed units, and pending/armed/active/startup flags.
+  Current `phase9` results also require the phase 8 timing observation; duplicated
+  `time.wait_cycles` and `phase8.wait_cycles` must agree.
+  When no machine execution was observed, those snapshot fields are null. The timing object
+  repeats the five DMA counters in `time`; duplicate values must match, machine cycles must
+  equal `time.cycles`, and summed channel completions must equal
+  `time.dma_completed_units`. Channel count, bounds, and progress flags are checked together.
+  The terminal `cpu_paused` and owner fields describe the observed machine state; instruction
+  totals do not claim CPU retirement during paused DMA cycles.
+- Phase 9 provenance stays explicit. Documented Game Pak wait values point to
+  `nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2`; values for other regions are
+  `project-selected`. The 128 KiB Game Pak boundary cites
+  `gbatek-3.06-community-documentation`, which is community documentation rather than
+  hardware qualification. The two-master-cycle startup value and retained-latch behavior are
+  selected project policy, and hardware qualification remains `UNKNOWN`. A latch fallback
+  observation is `disputed`, links `disp-dma-latch` in the result's top-level dispute list,
+  and must remain open in the registry. DMA Prefetch is explicitly `unmodeled`.
+- Whole-extension absence is the historical result/1 compatibility path. A current producer
+  emits the complete `phase9` object and all `time.dma_*` fields, including zero values. If
+  `phase9` is present, every required observation, policy, timing, and provenance field must
+  have its declared type. Any `time.dma_*` field without `phase9`, or a partial `phase9`
+  object, is rejected. The illustrative `result-pass.json` shows a current producer shape;
+  tests remove the whole extension and its DMA time fields to verify historical compatibility.
 - `timer0`: `{if_request}` reports Timer 0's device interrupt-request bit independently from
   the semantic mailbox and CPU state. It is a boolean after at least one committed CPU unit;
   `false` means the executed machine was observed with the request bit clear. It is `null`
@@ -177,6 +211,14 @@ The semantic/time/termination findings are:
 - `bad-time`: a counter is not a canonical decimal string or `time` is not an object.
 - `time-overflow`: a canonical decimal time counter is greater than
   `18446744073709551615`.
+- `partial-phase9-extension`: one or more `time.dma_*` fields is present without `phase9`.
+- `bad-phase9-type`, `bad-phase9-owner`, `bad-phase9-channel`, `bad-phase9-progress`,
+  `bad-phase9-timing`, `bad-phase9-policy`, `bad-phase9-latch`, and
+  `bad-phase9-prefetch`: a current DMA extension has an incomplete or ill-typed observation,
+  inconsistent ownership/channel state, mismatched timing contributions, unsupported
+  provenance/qualification, missing dispute disclosure, or a modeled Prefetch claim.
+- `time-sum-overflow` and `bad-time-components`: the checked CPU/HALT/DMA sum exceeds uint64
+  or differs from `time.cycles`.
 - `cycles-exceed-budget`: `time.cycles` is greater than `time.budget_cycles`.
 - `bad-termination`: the token is non-string/invalid or conflicts with status; a missing
   top-level token is `missing-field`. A no-BIOS GUEST_STOP needs a reason equal to its

@@ -72,6 +72,9 @@
 #   time-overflow         a time decimal string exceeds UINT64_MAX
 #   time-sum-overflow     bus/internal components sum above UINT64_MAX
 #   bad-time-components   time.cycles differs from the component sum
+#   partial-phase9-extension one or more time.dma_* members exists without phase9
+#   bad-phase9-*           phase9 model, types, channel progress, timing, provenance,
+#                          ownership, latch disclosure, or Prefetch statement is invalid
 #   bad-timer0-request    Timer 0 IF observation has an invalid type or run-state
 #   cycles-exceed-budget  reported cycles are greater than budget_cycles
 #   bad-termination       termination is missing, unnamed, or inconsistent with status
@@ -166,6 +169,626 @@ function(gbl__result_uint16 valid_out value_out doc maximum)
   endif()
   set(${valid_out} "${valid}" PARENT_SCOPE)
   set(${value_out} "${value}" PARENT_SCOPE)
+endfunction()
+
+# gbl__result_uint32(<out-valid> <out-value> <doc> <maximum> <key>...): bounded
+# JSON integer parser for channel progress counters. Lexical comparison keeps values
+# outside CMake's signed range from reaching math(EXPR).
+function(gbl__result_uint32 valid_out value_out doc maximum)
+  gbl_json_type(ty "${doc}" ${ARGN})
+  set(valid FALSE)
+  set(value "")
+  if("${ty}" STREQUAL "NUMBER")
+    string(JSON value GET "${doc}" ${ARGN})
+    if("${value}" MATCHES "^(0|[1-9][0-9]*)$")
+      string(LENGTH "${value}" digits)
+      string(LENGTH "${maximum}" maximum_digits)
+      if(digits LESS maximum_digits OR
+          (digits EQUAL maximum_digits AND NOT "${value}" STRGREATER "${maximum}"))
+        set(valid TRUE)
+      endif()
+    endif()
+  endif()
+  set(${valid_out} "${valid}" PARENT_SCOPE)
+  set(${value_out} "${value}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__result_phase9_decimal valid_out value_out doc label)
+  gbl_json_type(ty "${doc}" ${ARGN})
+  set(valid FALSE)
+  set(value "")
+  if("${ty}" STREQUAL "MISSING" OR "${ty}" STREQUAL "NULL")
+    gbl_finding(result missing-field "${label}")
+  else()
+    gbl__result_uint64(valid value "${doc}" ${ARGN})
+    if(NOT valid)
+      if("${ty}" STREQUAL "STRING")
+        string(JSON invalid_decimal GET "${doc}" ${ARGN})
+        if("${invalid_decimal}" MATCHES "^(0|[1-9][0-9]*)$")
+          string(LENGTH "${invalid_decimal}" digits)
+          if(digits GREATER 20 OR
+              (digits EQUAL 20 AND
+               "${invalid_decimal}" STRGREATER "18446744073709551615"))
+            gbl_finding(result time-overflow "${label}")
+          else()
+            gbl_finding(result bad-phase9-type
+              "${label} must be a canonical uint64 decimal string")
+          endif()
+        else()
+          gbl_finding(result bad-phase9-type
+            "${label} must be a canonical uint64 decimal string")
+        endif()
+      else()
+        gbl_finding(result bad-phase9-type
+          "${label} must be a canonical uint64 decimal string")
+      endif()
+    endif()
+  endif()
+  set(${valid_out} "${valid}" PARENT_SCOPE)
+  set(${value_out} "${value}" PARENT_SCOPE)
+endfunction()
+
+# Validate the additive DMA observation and return its timing components for the
+# machine-time equation. Absence is the complete historical result/1 path; any DMA
+# time member without phase9 is a partial extension and fails closed.
+function(gbl__result_phase9_check doc time_cycles present_out valid_out)
+  set(phase9_present FALSE)
+  set(dma_valid TRUE)
+  set(dma_startup_cycles "0")
+  set(dma_source_cycles "0")
+  set(dma_destination_cycles "0")
+  set(dma_completed_units "0")
+  set(dma_pause_cycles "0")
+  gbl_json_type(phase9_type "${doc}" phase9)
+  if(NOT "${phase9_type}" STREQUAL "MISSING")
+    set(phase9_present TRUE)
+  endif()
+
+  set(time_dma_present FALSE)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl_json_type(time_${field}_type "${doc}" time ${field})
+    if(NOT "${time_${field}_type}" STREQUAL "MISSING")
+      set(time_dma_present TRUE)
+    endif()
+  endforeach()
+  if(NOT phase9_present)
+    if(time_dma_present)
+      gbl_finding(result partial-phase9-extension
+        "time DMA fields require phase9")
+      set(dma_valid FALSE)
+    endif()
+    set(${present_out} FALSE PARENT_SCOPE)
+    set(${valid_out} "${dma_valid}" PARENT_SCOPE)
+    set(phase9_dma_startup_cycles "0" PARENT_SCOPE)
+    set(phase9_dma_source_cycles "0" PARENT_SCOPE)
+    set(phase9_dma_destination_cycles "0" PARENT_SCOPE)
+    set(phase9_dma_completed_units "0" PARENT_SCOPE)
+    set(phase9_dma_pause_cycles "0" PARENT_SCOPE)
+    return()
+  endif()
+
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl__result_phase9_decimal(time_${field}_valid time_${field} "${doc}"
+      "time.${field}" time ${field})
+    if(NOT time_${field}_valid)
+      set(dma_valid FALSE)
+    endif()
+    set(${field} "${time_${field}}")
+  endforeach()
+  if(time_dma_pause_cycles_valid)
+    gbl__result_decimal_le(pause_within_elapsed "${time_dma_pause_cycles}"
+      "${time_cycles}")
+    if(NOT pause_within_elapsed)
+      gbl_finding(result bad-phase9-timing
+        "time.dma_pause_cycles exceeds time.cycles")
+      set(dma_valid FALSE)
+    endif()
+  endif()
+
+  if(NOT "${phase9_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase9-type "phase9 must be an object")
+    set(dma_valid FALSE)
+    set(${present_out} TRUE PARENT_SCOPE)
+    set(${valid_out} FALSE PARENT_SCOPE)
+    foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+        dma_destination_cycles dma_completed_units dma_pause_cycles)
+      set(phase9_${field} "${${field}}" PARENT_SCOPE)
+    endforeach()
+    return()
+  endif()
+
+  foreach(field IN ITEMS model observed waitcnt bus_owner cpu_paused
+      machine_cycles channels timing waitcnt_policy startup_policy latch_policy
+      prefetch)
+    gbl_json_type(phase9_${field}_type "${doc}" phase9 ${field})
+    if("${phase9_${field}_type}" STREQUAL "MISSING" OR
+        (("${field}" STREQUAL "model" OR
+          "${field}" STREQUAL "observed" OR
+          "${field}" STREQUAL "timing" OR
+          "${field}" STREQUAL "waitcnt_policy" OR
+          "${field}" STREQUAL "startup_policy" OR
+          "${field}" STREQUAL "latch_policy" OR
+          "${field}" STREQUAL "prefetch") AND
+         "${phase9_${field}_type}" STREQUAL "NULL"))
+      gbl_finding(result missing-field "phase9.${field}")
+      set(dma_valid FALSE)
+    endif()
+  endforeach()
+
+  gbl_json_type(model_type "${doc}" phase9 model)
+  if("${model_type}" STREQUAL "STRING")
+    string(JSON model GET "${doc}" phase9 model)
+    if(NOT "${model}" STREQUAL "gamebloke-dma-observation-1")
+      gbl_finding(result bad-phase9-model "phase9.model")
+      set(dma_valid FALSE)
+    endif()
+  elseif(NOT "${model_type}" STREQUAL "MISSING" AND
+      NOT "${model_type}" STREQUAL "NULL")
+    gbl_finding(result bad-phase9-type "phase9.model must be a string")
+    set(dma_valid FALSE)
+  endif()
+
+  set(observed_valid FALSE)
+  set(observed FALSE)
+  gbl_json_type(observed_type "${doc}" phase9 observed)
+  if("${observed_type}" STREQUAL "BOOLEAN")
+    set(observed_valid TRUE)
+    string(JSON observed GET "${doc}" phase9 observed)
+  else()
+    gbl_finding(result bad-phase9-type "phase9.observed must be boolean")
+    set(dma_valid FALSE)
+  endif()
+
+  gbl_json_type(timing_type "${doc}" phase9 timing)
+  if(NOT "${timing_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase9-type "phase9.timing must be an object")
+    set(dma_valid FALSE)
+  else()
+    foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+        dma_destination_cycles dma_completed_units dma_pause_cycles)
+      gbl__result_phase9_decimal(phase9_${field}_valid phase9_${field} "${doc}"
+        "phase9.timing.${field}" phase9 timing ${field})
+      if(NOT phase9_${field}_valid)
+        set(dma_valid FALSE)
+      elseif(time_${field}_valid AND
+          NOT "${phase9_${field}}" STREQUAL "${time_${field}}")
+        gbl_finding(result bad-phase9-timing
+          "phase9.timing.${field} differs from time.${field}")
+        set(dma_valid FALSE)
+      endif()
+    endforeach()
+  endif()
+
+  # WAITCNT costs have manual provenance for the documented Game Pak wait states;
+  # the 128 KiB boundary remains community documentation and all hardware claims
+  # remain UNKNOWN. Other region values are explicitly selected project policy.
+  gbl_json_type(waitcnt_policy_type "${doc}" phase9 waitcnt_policy)
+  if(NOT "${waitcnt_policy_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase9-policy "phase9.waitcnt_policy must be an object")
+    set(dma_valid FALSE)
+  else()
+    foreach(pair IN ITEMS
+        "manual_waits;nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2"
+        "other_region_costs;project-selected"
+        "128k_boundary_source;gbatek-3.06-community-documentation"
+        "hardware_qualification;UNKNOWN")
+      list(GET pair 0 field)
+      list(GET pair 1 expected)
+      gbl_json_type(type "${doc}" phase9 waitcnt_policy ${field})
+      if(NOT "${type}" STREQUAL "STRING")
+        gbl_finding(result bad-phase9-policy
+          "phase9.waitcnt_policy.${field} must be a string")
+        set(dma_valid FALSE)
+      else()
+        string(JSON actual GET "${doc}" phase9 waitcnt_policy ${field})
+        if(NOT "${actual}" STREQUAL "${expected}")
+          gbl_finding(result bad-phase9-policy
+            "phase9.waitcnt_policy.${field}")
+          set(dma_valid FALSE)
+        endif()
+      endif()
+    endforeach()
+  endif()
+
+  gbl_json_type(startup_policy_type "${doc}" phase9 startup_policy)
+  if(NOT "${startup_policy_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase9-policy "phase9.startup_policy must be an object")
+    set(dma_valid FALSE)
+  else()
+    foreach(pair IN ITEMS
+        "cycles_per_request;2" "provenance;project-selected"
+        "hardware_qualification;UNKNOWN")
+      list(GET pair 0 field)
+      list(GET pair 1 expected)
+      gbl_json_type(type "${doc}" phase9 startup_policy ${field})
+      if(NOT "${type}" STREQUAL "STRING")
+        gbl_finding(result bad-phase9-policy
+          "phase9.startup_policy.${field} must be a string")
+        set(dma_valid FALSE)
+      else()
+        string(JSON actual GET "${doc}" phase9 startup_policy ${field})
+        if(NOT "${actual}" STREQUAL "${expected}")
+          gbl_finding(result bad-phase9-policy
+            "phase9.startup_policy.${field}")
+          set(dma_valid FALSE)
+        endif()
+      endif()
+    endforeach()
+    gbl_json_type(activation_delay_type "${doc}"
+      phase9 startup_policy manual_activation_delay)
+    if(NOT "${activation_delay_type}" STREQUAL "STRING")
+      gbl_finding(result bad-phase9-policy
+        "phase9.startup_policy.manual_activation_delay must be a string")
+      set(dma_valid FALSE)
+    else()
+      string(JSON activation_delay GET "${doc}"
+        phase9 startup_policy manual_activation_delay)
+      if(NOT "${activation_delay}" STREQUAL
+          "described; conversion is selected")
+        gbl_finding(result bad-phase9-policy
+          "phase9.startup_policy.manual_activation_delay")
+        set(dma_valid FALSE)
+      endif()
+    endif()
+  endif()
+  if(time_dma_startup_cycles_valid AND
+      NOT "${time_dma_startup_cycles}" MATCHES "[02468]$")
+    gbl_finding(result bad-phase9-timing
+      "time.dma_startup_cycles must use the selected two-cycle request cost")
+    set(dma_valid FALSE)
+  endif()
+
+  gbl_json_type(prefetch_type "${doc}" phase9 prefetch)
+  if(NOT "${prefetch_type}" STREQUAL "STRING")
+    gbl_finding(result bad-phase9-prefetch "phase9.prefetch must be a string")
+    set(dma_valid FALSE)
+  else()
+    string(JSON prefetch GET "${doc}" phase9 prefetch)
+    if(NOT "${prefetch}" STREQUAL "unmodeled")
+      gbl_finding(result bad-phase9-prefetch "phase9.prefetch")
+      set(dma_valid FALSE)
+    endif()
+  endif()
+
+  # Observations are either all present for a run or all null when no machine
+  # execution took place. This prevents a partial object from looking complete.
+  set(channels_valid FALSE)
+  set(any_active_or_pending FALSE)
+  set(completed_sum "0")
+  if(observed_valid AND observed)
+    gbl_json_type(waitcnt_type "${doc}" phase9 waitcnt)
+    gbl__result_uint16(waitcnt_valid waitcnt "${doc}" "65535" phase9 waitcnt)
+    if(NOT waitcnt_valid)
+      gbl_finding(result bad-phase9-type "phase9.waitcnt must be a uint16 integer")
+      set(dma_valid FALSE)
+    endif()
+
+    gbl_json_type(owner_type "${doc}" phase9 bus_owner)
+    if(NOT "${owner_type}" STREQUAL "STRING")
+      gbl_finding(result bad-phase9-owner "phase9.bus_owner must be cpu or dma")
+      set(dma_valid FALSE)
+    else()
+      string(JSON owner GET "${doc}" phase9 bus_owner)
+      if(NOT "${owner}" MATCHES "^(cpu|dma)$")
+        gbl_finding(result bad-phase9-owner "phase9.bus_owner")
+        set(dma_valid FALSE)
+      endif()
+    endif()
+
+    gbl_json_type(paused_type "${doc}" phase9 cpu_paused)
+    if(NOT "${paused_type}" STREQUAL "BOOLEAN")
+      gbl_finding(result bad-phase9-type "phase9.cpu_paused must be boolean")
+      set(dma_valid FALSE)
+    else()
+      string(JSON paused GET "${doc}" phase9 cpu_paused)
+      if(("${owner}" STREQUAL "dma" AND NOT paused) OR
+          ("${owner}" STREQUAL "cpu" AND paused))
+        gbl_finding(result bad-phase9-owner
+          "phase9.cpu_paused must match the bus owner")
+        set(dma_valid FALSE)
+      endif()
+    endif()
+
+    gbl__result_phase9_decimal(machine_cycles_valid machine_cycles "${doc}"
+      "phase9.machine_cycles" phase9 machine_cycles)
+    if(NOT machine_cycles_valid)
+      set(dma_valid FALSE)
+    elseif(NOT "${machine_cycles}" STREQUAL "${time_cycles}")
+      gbl_finding(result bad-phase9-timing
+        "phase9.machine_cycles differs from time.cycles")
+      set(dma_valid FALSE)
+    endif()
+
+    gbl_json_length(channel_count "${doc}" phase9 channels)
+    if(NOT channel_count EQUAL 4)
+      gbl_finding(result bad-phase9-channel
+        "phase9.channels must contain exactly four channels")
+      set(dma_valid FALSE)
+    else()
+      set(channels_valid TRUE)
+      foreach(index RANGE 0 3)
+        set(channel_valid TRUE)
+        gbl_json_type(channel_type "${doc}" phase9 channels ${index})
+        if(NOT "${channel_type}" STREQUAL "OBJECT")
+          gbl_finding(result bad-phase9-channel
+            "phase9.channels[${index}] must be an object")
+          set(channel_valid FALSE)
+        endif()
+
+        gbl__result_uint16(channel_id_valid channel_id "${doc}" "3"
+          phase9 channels ${index} channel)
+        if(NOT channel_id_valid OR NOT "${channel_id}" STREQUAL "${index}")
+          gbl_finding(result bad-phase9-channel
+            "phase9.channels[${index}].channel must match its index")
+          set(channel_valid FALSE)
+        endif()
+
+        foreach(address IN ITEMS source_address destination_address
+            current_source current_destination read_latch)
+          gbl_json_type(address_type "${doc}" phase9 channels ${index} ${address})
+          if(NOT "${address_type}" STREQUAL "STRING")
+            gbl_finding(result bad-phase9-type
+              "phase9.channels[${index}].${address} must be an eight-digit hex string")
+            set(channel_valid FALSE)
+          else()
+            string(JSON address_value GET "${doc}" phase9 channels ${index} ${address})
+            if(NOT "${address_value}" MATCHES "^0x[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]$")
+              gbl_finding(result bad-phase9-type
+                "phase9.channels[${index}].${address} must be an eight-digit hex string")
+              set(channel_valid FALSE)
+            endif()
+          endif()
+        endforeach()
+
+        if(index EQUAL 3)
+          set(count_maximum "65535")
+          set(zero_count_limit "65536")
+        else()
+          set(count_maximum "16383")
+          set(zero_count_limit "16384")
+        endif()
+        gbl__result_uint16(count_valid channel_count_value "${doc}"
+          "${count_maximum}" phase9 channels ${index} count)
+        gbl__result_uint16(control_valid control_value "${doc}" "65535"
+          phase9 channels ${index} control)
+        if(NOT count_valid OR NOT control_valid)
+          gbl_finding(result bad-phase9-type
+            "phase9.channels[${index}] count/control must be bounded uint16 integers")
+          set(channel_valid FALSE)
+        endif()
+        if(NOT count_valid)
+          set(channel_count_value "0")
+        endif()
+        if("${count_valid}" AND "${channel_count_value}" STREQUAL "0")
+          set(remaining_maximum "${zero_count_limit}")
+        else()
+          set(remaining_maximum "${channel_count_value}")
+        endif()
+        gbl__result_uint32(remaining_valid remaining "${doc}"
+          "${remaining_maximum}" phase9 channels ${index} remaining)
+        gbl__result_phase9_decimal(completed_valid completed "${doc}"
+          "phase9.channels[${index}].completed_units"
+          phase9 channels ${index} completed_units)
+        if(NOT remaining_valid OR NOT completed_valid)
+          if(NOT remaining_valid)
+            gbl_finding(result bad-phase9-progress
+              "phase9.channels[${index}].remaining is outside its transfer bound")
+          endif()
+          set(channel_valid FALSE)
+        endif()
+
+        foreach(flag IN ITEMS pending armed active startup_complete)
+          gbl_json_type(flag_${flag}_type "${doc}" phase9 channels ${index} ${flag})
+          if(NOT "${flag_${flag}_type}" STREQUAL "BOOLEAN")
+            gbl_finding(result bad-phase9-type
+              "phase9.channels[${index}].${flag} must be boolean")
+            set(channel_valid FALSE)
+          else()
+            string(JSON flag_${flag} GET "${doc}" phase9 channels ${index} ${flag})
+          endif()
+        endforeach()
+
+        if(channel_valid)
+          math(EXPR control_enable "${control_value} & 32768")
+          math(EXPR start_mode "(${control_value} >> 12) & 3")
+          if((flag_active AND ("${remaining}" STREQUAL "0" OR
+                  NOT flag_startup_complete)) OR
+              (flag_startup_complete AND NOT flag_active) OR
+              (flag_pending AND ("${remaining}" STREQUAL "0" OR flag_active OR
+                  flag_armed OR flag_startup_complete OR NOT start_mode EQUAL 0)) OR
+              (flag_armed AND ("${remaining}" STREQUAL "0" OR flag_active OR
+                  flag_pending OR flag_startup_complete OR start_mode EQUAL 0)) OR
+              ("${remaining}" GREATER 0 AND NOT flag_active AND NOT flag_pending AND
+                  NOT flag_armed) OR
+              ((flag_active OR flag_pending OR flag_armed) AND
+                  NOT control_enable EQUAL 32768) OR
+              ("${remaining}" EQUAL 0 AND
+                  (flag_active OR flag_pending OR flag_armed OR flag_startup_complete)))
+            gbl_finding(result bad-phase9-progress
+              "phase9.channels[${index}] has inconsistent remaining and activity flags")
+            set(channel_valid FALSE)
+          endif()
+          if(flag_active OR flag_pending)
+            set(any_active_or_pending TRUE)
+          endif()
+          gbl__result_decimal_add(completed_sum "${completed_sum}" "${completed}")
+          gbl__result_decimal_le(completed_sum_valid "${completed_sum}"
+            "18446744073709551615")
+          if(NOT completed_sum_valid)
+            gbl_finding(result time-sum-overflow
+              "phase9 channel completed units exceed UINT64_MAX")
+            set(dma_valid FALSE)
+          endif()
+        else()
+          set(channels_valid FALSE)
+          set(dma_valid FALSE)
+        endif()
+      endforeach()
+    endif()
+    if(channels_valid AND time_dma_completed_units_valid AND
+        NOT "${completed_sum}" STREQUAL "${time_dma_completed_units}")
+      gbl_finding(result bad-phase9-progress
+        "channel completed_units do not sum to time.dma_completed_units")
+      set(dma_valid FALSE)
+    endif()
+    if("${owner}" STREQUAL "dma" AND NOT any_active_or_pending)
+      gbl_finding(result bad-phase9-owner
+        "DMA owner requires a pending or active channel")
+      set(dma_valid FALSE)
+    elseif("${owner}" STREQUAL "cpu" AND any_active_or_pending)
+      gbl_finding(result bad-phase9-owner
+        "CPU owner conflicts with a pending or active channel")
+      set(dma_valid FALSE)
+    endif()
+  elseif(observed_valid)
+    foreach(path IN ITEMS waitcnt bus_owner cpu_paused machine_cycles channels)
+      gbl_json_type(value_type "${doc}" phase9 ${path})
+      if(NOT "${value_type}" STREQUAL "NULL")
+        gbl_finding(result bad-phase9-not-observed
+          "unobserved phase9 requires null ${path}")
+        set(dma_valid FALSE)
+      endif()
+    endforeach()
+    foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+        dma_destination_cycles dma_completed_units dma_pause_cycles)
+      if(time_${field}_valid AND NOT "${time_${field}}" STREQUAL "0")
+        gbl_finding(result bad-phase9-not-observed
+          "unobserved phase9 requires zero ${field}")
+        set(dma_valid FALSE)
+      endif()
+    endforeach()
+  endif()
+
+  if(NOT observed_valid)
+    set(dma_valid FALSE)
+  endif()
+
+  gbl_json_type(latch_type "${doc}" phase9 latch_policy)
+  if(NOT "${latch_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase9-policy "phase9.latch_policy must be an object")
+    set(dma_valid FALSE)
+  else()
+    foreach(pair IN ITEMS
+        "policy;per-channel-retained-latch"
+        "provenance;project-selected"
+        "hardware_qualification;UNKNOWN")
+      list(GET pair 0 field)
+      list(GET pair 1 expected)
+      gbl_json_type(type "${doc}" phase9 latch_policy ${field})
+      if(NOT "${type}" STREQUAL "STRING")
+        gbl_finding(result bad-phase9-policy
+          "phase9.latch_policy.${field} must be a string")
+        set(dma_valid FALSE)
+      else()
+        string(JSON actual GET "${doc}" phase9 latch_policy ${field})
+        if(NOT "${actual}" STREQUAL "${expected}")
+          gbl_finding(result bad-phase9-policy "phase9.latch_policy.${field}")
+          set(dma_valid FALSE)
+        endif()
+      endif()
+    endforeach()
+    gbl_json_type(fallback_type "${doc}" phase9 latch_policy fallback_observed)
+    gbl_json_type(classification_type "${doc}" phase9 latch_policy classification)
+    gbl_json_type(dispute_id_type "${doc}" phase9 latch_policy dispute_id)
+    if("${fallback_type}" STREQUAL "BOOLEAN")
+      string(JSON fallback_observed GET "${doc}" phase9 latch_policy fallback_observed)
+    elseif(NOT "${fallback_type}" STREQUAL "NULL")
+      gbl_finding(result bad-phase9-latch
+        "latch fallback observation must be boolean or null")
+      set(dma_valid FALSE)
+      set(fallback_observed FALSE)
+    else()
+      set(fallback_observed FALSE)
+    endif()
+    if(fallback_observed)
+      if(NOT observed OR NOT "${classification_type}" STREQUAL "STRING" OR
+          NOT "${dispute_id_type}" STREQUAL "STRING")
+        gbl_finding(result bad-phase9-latch
+          "latch fallback must remain disputed and UNKNOWN")
+        set(dma_valid FALSE)
+      else()
+        string(JSON classification GET "${doc}" phase9 latch_policy classification)
+        string(JSON dispute_id GET "${doc}" phase9 latch_policy dispute_id)
+        if(NOT "${classification}" STREQUAL "disputed" OR
+            NOT "${dispute_id}" STREQUAL "disp-dma-latch")
+          gbl_finding(result bad-phase9-latch
+            "latch fallback must remain disputed and UNKNOWN")
+          set(dma_valid FALSE)
+        endif()
+      endif()
+      gbl_json_length(dispute_count "${doc}" disputes)
+      set(latch_dispute_listed FALSE)
+      if(dispute_count GREATER 0)
+        math(EXPR dispute_last "${dispute_count}-1")
+        foreach(index RANGE 0 ${dispute_last})
+          gbl_json_string(dispute_id "${doc}" disputes ${index})
+          if("${dispute_id}" STREQUAL "disp-dma-latch")
+            set(latch_dispute_listed TRUE)
+          endif()
+        endforeach()
+      endif()
+      if(NOT latch_dispute_listed)
+        gbl_finding(result undisclosed-dispute "disp-dma-latch is not in disputes")
+        set(dma_valid FALSE)
+      endif()
+      gbl_json_type(trace_type "${doc}" trace)
+      gbl__result_phase9_decimal(trace_mask_valid trace_mask "${doc}"
+        "trace.mask" trace mask)
+      set(trace_mask_within_range FALSE)
+      if(trace_mask_valid)
+        gbl__result_decimal_le(trace_mask_within_range "${trace_mask}"
+          "4294967295")
+      endif()
+      if(NOT "${trace_type}" STREQUAL "OBJECT" OR NOT trace_mask_valid OR
+          NOT trace_mask_within_range)
+        gbl_finding(result bad-phase9-latch
+          "latch fallback requires a DMA trace record")
+        set(dma_valid FALSE)
+      else()
+        math(EXPR trace_has_dma "${trace_mask} & 8")
+        gbl__result_phase9_decimal(trace_count_valid trace_count "${doc}"
+          "trace.count" trace count)
+        gbl__result_phase9_decimal(trace_capacity_valid trace_capacity "${doc}"
+          "trace.capacity" trace capacity)
+        if(NOT trace_has_dma EQUAL 8 OR NOT trace_count_valid OR
+            NOT trace_capacity_valid OR "${trace_count}" STREQUAL "0")
+          gbl_finding(result bad-phase9-latch
+            "latch fallback requires a captured DMA trace record")
+          set(dma_valid FALSE)
+        else()
+          gbl__result_decimal_le(trace_within_capacity "${trace_count}"
+            "${trace_capacity}")
+          if(NOT trace_within_capacity)
+            gbl_finding(result bad-phase9-latch
+              "DMA trace count exceeds its capacity")
+            set(dma_valid FALSE)
+          endif()
+        endif()
+      endif()
+    else()
+      if(NOT "${classification_type}" STREQUAL "NULL" OR
+          NOT "${dispute_id_type}" STREQUAL "NULL")
+        gbl_finding(result bad-phase9-latch
+          "unobserved latch fallback cannot carry a classification or dispute")
+        set(dma_valid FALSE)
+      endif()
+      if(observed_valid AND NOT observed AND
+          NOT "${fallback_type}" STREQUAL "NULL")
+        gbl_finding(result bad-phase9-not-observed
+          "unobserved phase9 requires null latch fallback")
+        set(dma_valid FALSE)
+      endif()
+    endif()
+  endif()
+
+  set(${present_out} TRUE PARENT_SCOPE)
+  set(${valid_out} "${dma_valid}" PARENT_SCOPE)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    set(phase9_${field} "${${field}}" PARENT_SCOPE)
+  endforeach()
 endfunction()
 
 # gbl__result_decimal_le(<out> <left> <right>): compare canonical nonnegative decimal
@@ -368,7 +991,9 @@ function(gbl_result_check file manifest registry vocab)
   # Once any extension member appears, the complete model/component/IF tuple is
   # required and is validated independently from guest semantic success.
   set(time_extension_present FALSE)
-  foreach(field IN ITEMS model qualification bus_cycles internal_cycles)
+  foreach(field IN ITEMS model qualification bus_cycles internal_cycles
+      dma_startup_cycles dma_source_cycles dma_destination_cycles
+      dma_completed_units dma_pause_cycles)
     gbl_json_type(extension_${field}_type "${doc}" time ${field})
     if(NOT "${extension_${field}_type}" STREQUAL "MISSING")
       set(time_extension_present TRUE)
@@ -382,6 +1007,10 @@ function(gbl_result_check file manifest registry vocab)
   set(phase8_present FALSE)
   if(NOT "${phase8_type}" STREQUAL "MISSING")
     set(phase8_present TRUE)
+    set(time_extension_present TRUE)
+  endif()
+  gbl_json_type(phase9_type "${doc}" phase9)
+  if(NOT "${phase9_type}" STREQUAL "MISSING")
     set(time_extension_present TRUE)
   endif()
 
@@ -863,6 +1492,31 @@ function(gbl_result_check file manifest registry vocab)
       endif()
     endif()
 
+    gbl__result_phase9_check("${doc}" "${time_cycles}"
+      phase9_present phase9_dma_valid)
+    if(NOT phase9_dma_valid)
+      set(time_components_valid FALSE)
+    endif()
+    if(phase9_present)
+      if(NOT phase8_present)
+        gbl_finding(result missing-field "phase8.wait_cycles")
+        set(phase9_dma_valid FALSE)
+        set(time_components_valid FALSE)
+      endif()
+      gbl__result_phase9_decimal(time_wait_valid time_wait_cycles "${doc}"
+        "time.wait_cycles" time wait_cycles)
+      if(NOT time_wait_valid)
+        set(phase9_dma_valid FALSE)
+        set(time_components_valid FALSE)
+      elseif(phase8_wait_valid AND
+          NOT "${time_wait_cycles}" STREQUAL "${phase8_wait_for_sum}")
+        gbl_finding(result bad-phase9-timing
+          "time.wait_cycles differs from phase8.wait_cycles")
+        set(phase9_dma_valid FALSE)
+        set(time_components_valid FALSE)
+      endif()
+    endif()
+
     if(time_valid AND time_components_valid)
       gbl__result_decimal_add(time_component_sum "${time_bus_cycles}"
         "${time_internal_cycles}")
@@ -870,10 +1524,20 @@ function(gbl_result_check file manifest registry vocab)
         gbl__result_decimal_add(time_component_sum "${time_component_sum}"
           "${phase8_wait_for_sum}")
       endif()
+      if(phase9_present)
+        foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+            dma_destination_cycles)
+          gbl__result_decimal_add(time_component_sum "${time_component_sum}"
+            "${phase9_${field}}")
+        endforeach()
+      endif()
       gbl__result_decimal_le(time_component_sum_in_range "${time_component_sum}"
         "18446744073709551615")
       if(NOT time_component_sum_in_range)
-        if(phase8_present)
+        if(phase9_present)
+          gbl_finding(result time-sum-overflow
+            "CPU, HALT, and DMA timing components exceed UINT64_MAX")
+        elseif(phase8_present)
           gbl_finding(result time-sum-overflow
             "time.bus_cycles + time.internal_cycles + phase8.wait_cycles exceeds UINT64_MAX")
         else()
@@ -881,7 +1545,10 @@ function(gbl_result_check file manifest registry vocab)
             "time.bus_cycles + time.internal_cycles exceeds UINT64_MAX")
         endif()
       elseif(NOT "${time_component_sum}" STREQUAL "${time_cycles}")
-        if(phase8_present)
+        if(phase9_present)
+          gbl_finding(result bad-time-components
+            "time.cycles does not equal time.bus_cycles + time.internal_cycles + phase8.wait_cycles + time.dma_startup_cycles + time.dma_source_cycles + time.dma_destination_cycles")
+        elseif(phase8_present)
           gbl_finding(result bad-time-components
             "time.cycles does not equal time.bus_cycles + time.internal_cycles + phase8.wait_cycles")
         else()
