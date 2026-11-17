@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 enum {
-    GBL_RUNNER_TEST_COUNT = 39u,
+    GBL_RUNNER_TEST_COUNT = 40u,
     GBL_RUNNER_TEST_PATH_CAPACITY = 1024u,
     GBL_RUNNER_TEST_WATCHDOG_TICKS = 300u
 };
@@ -371,6 +371,173 @@ static void gbl_test_write_le32(uint8_t *bytes, size_t offset,
     bytes[offset + 1u] = (uint8_t)((value >> 8u) & UINT32_C(0xFF));
     bytes[offset + 2u] = (uint8_t)((value >> 16u) & UINT32_C(0xFF));
     bytes[offset + 3u] = (uint8_t)(value >> 24u);
+}
+
+static bool gbl_test_serialize_result(const gbl_runner_result *result,
+                                      char *json, size_t capacity);
+
+static void gbl_test_emit_arm_word(uint8_t *image, size_t *offset,
+                                   uint32_t opcode)
+{
+    gbl_test_write_le32(image, *offset, opcode);
+    *offset += 4u;
+}
+
+static void gbl_test_emit_arm_ldr_literal(uint8_t *image, size_t *offset,
+                                          unsigned int destination,
+                                          size_t literal_offset)
+{
+    const size_t instruction_offset = *offset;
+    const size_t pc = instruction_offset + 8u;
+    const uint32_t displacement = (uint32_t)(literal_offset - pc);
+
+    gbl_test_emit_arm_word(image, offset,
+                           UINT32_C(0xE59F0000) |
+                               ((uint32_t)destination << 12u) |
+                               displacement);
+}
+
+static bool gbl_test_write_dma_guest(const char *path)
+{
+    uint8_t image[0x220u] = { 0u };
+    static const uint32_t literals[] = {
+        UINT32_C(0x08000200), UINT32_C(0x03000020), UINT32_C(0x040000D4),
+        UINT32_C(0x040000D8), UINT32_C(1), UINT32_C(0x040000DC),
+        UINT32_C(0x8000), UINT32_C(0x040000DE), UINT32_C(0xBEEF),
+        UINT32_C(0x03007FC0), UINT32_C(0x47424C4B), UINT32_C(1),
+        UINT32_C(2), UINT32_C(9), UINT32_C(0x434F4D50), UINT32_C(3)
+    };
+    const size_t literal_offset = 0x100u;
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    /* Guest code configures DMA3 using ARM instructions, then gates the
+     * semantic mailbox on the halfword copied from its scratch ROM image. */
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 0u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 1u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u,
+                                  literal_offset + 2u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5800000) |
+                                              (2u << 16u));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u,
+                                  literal_offset + 3u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5800000) |
+                                              (2u << 16u) | (1u << 12u));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 4u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u,
+                                  literal_offset + 5u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C000B0) |
+                                              (2u << 16u));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 6u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u,
+                                  literal_offset + 7u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C000B0) |
+                                              (2u << 16u));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 1u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u,
+                                  literal_offset + 8u * 4u);
+    gbl_test_emit_arm_word(image, &offset,
+                           UINT32_C(0xE1500002) | (1u << 16u));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x1A00000B));
+
+    /* PASS mailbox on a matching transfer. */
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 9u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 10u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 11u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801004));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 12u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801008));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 13u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE580100C));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 14u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801010));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEA00000D));
+
+    /* FAIL mailbox on a mismatching transfer. */
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 9u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 10u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 11u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801004));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 15u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801008));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 13u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE580100C));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 14u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801010));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFF));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, literal_offset + index * 4u,
+                            literals[index]);
+    }
+    image[0x200u] = UINT8_C(0xEF);
+    image[0x201u] = UINT8_C(0xBE);
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_runner_dma_observation(const char *scratch_directory)
+{
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[8192];
+    gbl_runner_result result = { 0 };
+    gbl_runner_status status;
+    bool okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "runner-dma-observation.gba") ||
+        !gbl_test_path(trace_path, sizeof trace_path, scratch_directory,
+                       "runner-dma-observation.jsonl") ||
+        !gbl_test_write_dma_guest(rom_path)) {
+        return false;
+    }
+    (void)remove(trace_path);
+    status = gbl_test_execute(rom_path, NULL, UINT64_C(1000),
+                              (uint32_t)GBL_TRACE_DMA, 64u, trace_path,
+                              NULL, NULL, (gbl_runner_allocator){ 0 },
+                              &result);
+    okay = status == GBL_RUNNER_GUEST_STOP &&
+           result.status == GBL_RUNNER_GUEST_STOP && result.ran &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.trace_count >= 2u &&
+           result.trace_records[0].category == GBL_TRACE_DMA &&
+           result.trace_records[1].category == GBL_TRACE_DMA &&
+           gbl_test_serialize_result(&result, json, sizeof json) &&
+           strstr(json, "\"phase9\"") != NULL;
+    gbl_runner_result_dispose(&result);
+    return okay;
 }
 
 static bool gbl_test_write_timer0_guest(const char *path, bool enabled)
@@ -1320,6 +1487,9 @@ static bool gbl_test_execute_all(const char *fixture_directory,
     gbl_test_case(okay && timer0_observations.not_run_request_null,
                   "timer0-not-run: zero-budget and pre-read refusal requests remain null");
 
+    gbl_test_case(gbl_test_runner_dma_observation(scratch_directory),
+                  "runner-dma-production: guest mailbox follows a real DMA transfer and result exposes phase9");
+
     if (!gbl_test_path(path, sizeof path, fixture_directory,
                        "owned-arm-pass.gba")) {
         return false;
@@ -1735,10 +1905,21 @@ int main(int argc, char **argv)
         argv[2][0] != '\0') {
         return gbl_test_prepare_refusal_inputs(argv[2]) ? 0 : 1;
     }
+    if (argc == 3 && strcmp(argv[1], "dma") == 0 && argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: DMA scratch directory setup failed\n", stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(
+            gbl_test_runner_dma_observation(argv[2]),
+            "runner-dma-production: guest mailbox follows a real DMA transfer and result exposes phase9");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
         fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH | "
-              "runner_test prepare DIR\n",
+              "runner_test prepare DIR | runner_test dma SCRATCH_DIR\n",
               stderr);
         return 2;
     }
