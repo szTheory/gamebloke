@@ -31,7 +31,7 @@ set(GBL_PHASE8_REGEX
   "^(cpu[.]irq[.]boundary|keypad[.](timeline|refusal)|time[.]halt[.]boundary|phase8[.]selection[.]control)$")
 set(GBL_PHASE8_GATE "${CMAKE_CURRENT_LIST_FILE}")
 set(GBL_PHASE8_INVENTORY_ROWS
-  "cpu.irq.boundary cpu,core,unit"
+  "cpu.irq.boundary core,cpu,unit"
   "keypad.timeline core,time,timer,unit"
   "keypad.refusal core,time,timer,unit"
   "time.halt.boundary core,time,timer,unit"

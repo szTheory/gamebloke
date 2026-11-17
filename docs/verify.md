@@ -627,3 +627,62 @@ recorded in [Phase 7 evidence](../.planning/phases/07-time-authority-and-timer-0
 The `DIAG-04` ARM/Thumb evidence gap and `DET-02` hosted-x64 evidence gap remain
 open carryovers. Hardware timing edges `TIME-01` and `BUS-06` remain
 unclassified. The six prohibition judgments were individually accepted after source/evidence review; hardware-edge classification and Phase 6 carryovers remain open.
+
+## Phase 8 IRQ, HALT, and timestamped input checks
+
+The canonical local command remains `cmake --workflow --preset ci`. It builds,
+runs the complete configured CI inventory, and checks its JUnit results. Run it
+once after the focused checks below when source, configuration, fixtures, and
+toolchain inputs are current. This command is also the CI entry point; local
+results do not establish hosted CI evidence.
+
+For quick feedback, run:
+
+```sh
+scripts/verify-phase8-fast.sh
+ctest --test-dir build/ci --output-on-failure --no-tests=error \
+  -FA '^(phase7_fast|phase8_fast)$' \
+  -R '^phase8[.](order|policy)$'
+```
+
+The fast script first passes the exact five Phase 7 prerequisites on the same
+build inputs, then checks the exact five Phase 8 cases: `cpu.irq.boundary`,
+`keypad.timeline`, `keypad.refusal`, `time.halt.boundary`, and
+`phase8.selection.control`. The follow-up command runs the registered ordering
+and profile-policy gates after the fast fixtures have passed, excluding only
+automatic fixture insertion for those explicit selections. The ordering gate
+checks the real CTest graph and its failed-predecessor control. The policy gate
+compares runtime observations with the AGB profile and documentation, including
+its drift controls. Both inventories list those gates with their exact labels.
+
+For task-focused checks after a `ci` build:
+
+```sh
+build/ci/cpu_test irq.boundary
+build/ci/cpu_test irq.refusal
+build/ci/bus_test irq.registers
+build/ci/timer_test keypad.timeline
+build/ci/timer_test keypad.condition
+build/ci/timer_test keypad.refusal
+build/ci/bus_test keypad.registers
+build/ci/cpu_test power.boundary
+build/ci/timer_test time.halt.boundary
+build/ci/timer_test time.halt.refusal
+ctest --test-dir build/ci --output-on-failure --no-tests=error \
+  -R '^(runner[.](help|input[.]cli|relocation)|determinism[.]phase8([.]controls)?)$'
+```
+
+The runner input-script adapter accepts at most 16 KiB total and 256 records;
+it probes one byte beyond the size cap before scanning input. This bounds host
+file work and does not add a host clock or physical-controller path to the
+machine. Input is a deterministic logical timeline. Model cycles, wait cycles,
+IF requests, sampled IRQ eligibility, exception entry, keypad state, guest
+progress, and HALT wake are separate observations.
+
+IRQ, keypad, HALT, event ordering, and costs use the declared
+`gamebloke-irq-input-model-1` policy and are `project-model-only`. A no-BIOS IRQ
+may end with the classified `GUEST_STOP` (`no-bios-irq`); this does not mean a
+BIOS handler ran. These tests do not establish GBA IRQ latency, physical input
+behavior, broad game compatibility, or hardware qualification. BIOS-stub or
+IRQ-driven playable work remains behind G4. `DIAG-04` and `DET-02` remain open
+evidence carryovers; local checks do not authorize hosted CI or publication.
