@@ -615,6 +615,7 @@ static void gbl_runner_phase9_observe(gbl_runner_result *result,
                                       const gbl_machine *machine)
 {
     gbl_runner_phase9_observation *observation = &result->phase9;
+    bool latch_fallback_observed = false;
     size_t index;
 
     observation->observed = true;
@@ -623,21 +624,25 @@ static void gbl_runner_phase9_observe(gbl_runner_result *result,
     observation->machine_cycles = machine->master_cycles;
     memcpy(observation->channels, machine->dma_channels,
            sizeof observation->channels);
-    observation->latch_fallback_known =
-        result->trace_complete &&
-        (result->trace_mask & (uint32_t)GBL_TRACE_DMA) != 0u;
-    observation->latch_fallback_observed = false;
-    if (observation->latch_fallback_known) {
-        for (index = 0u; index < result->trace_count; ++index) {
+    if ((result->trace_mask & (uint32_t)GBL_TRACE_DMA) != 0u) {
+        const size_t available = result->trace_count < result->trace_capacity
+                                     ? result->trace_count
+                                     : result->trace_capacity;
+
+        for (index = 0u; index < available; ++index) {
             const gbl_trace_record *record = &result->trace_records[index];
 
             if (record->category == GBL_TRACE_DMA &&
                 record->dma_used_channel_latch) {
-                observation->latch_fallback_observed = true;
+                latch_fallback_observed = true;
                 break;
             }
         }
     }
+    observation->latch_fallback_known = latch_fallback_observed ||
+        (result->trace_complete &&
+         (result->trace_mask & (uint32_t)GBL_TRACE_DMA) != 0u);
+    observation->latch_fallback_observed = latch_fallback_observed;
 }
 
 static bool gbl_runner_u64_add(uint64_t left, uint64_t right,

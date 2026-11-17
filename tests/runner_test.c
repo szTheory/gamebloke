@@ -514,6 +514,8 @@ static bool gbl_test_runner_dma_observation(const char *scratch_directory)
     char json[8192];
     char trace[4096];
     gbl_runner_result result = { 0 };
+    gbl_runner_result full_trace_result = { 0 };
+    gbl_runner_result partial_latch_result = { 0 };
     gbl_runner_result incomplete_trace_result = { 0 };
     gbl_runner_result timeout_result = { 0 };
     gbl_runner_result cancelled_result = { 0 };
@@ -523,6 +525,8 @@ static bool gbl_test_runner_dma_observation(const char *scratch_directory)
     gbl_input_event input_event;
     uint64_t total;
     bool okay;
+    size_t latch_trace_index = SIZE_MAX;
+    size_t index;
 
     if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
                        "runner-dma-observation.gba") ||
@@ -611,6 +615,42 @@ static bool gbl_test_runner_dma_observation(const char *scratch_directory)
            strstr(json, "\"fallback_observed\":null") != NULL &&
            strstr(json, "\"disputes\":[]") != NULL;
     gbl_runner_result_dispose(&incomplete_trace_result);
+
+    status = gbl_test_execute(
+        rom_path, NULL, UINT64_C(1000),
+        (uint32_t)(GBL_TRACE_DMA | GBL_TRACE_INSTRUCTION), 256u, NULL, NULL,
+        NULL, (gbl_runner_allocator){ 0 }, &full_trace_result);
+    for (index = 0u; index < full_trace_result.trace_count; ++index) {
+        if (full_trace_result.trace_records[index].category == GBL_TRACE_DMA &&
+            full_trace_result.trace_records[index].dma_used_channel_latch) {
+            latch_trace_index = index;
+            break;
+        }
+    }
+    okay = okay && status == GBL_RUNNER_GUEST_STOP &&
+           full_trace_result.trace_complete && latch_trace_index != SIZE_MAX &&
+           full_trace_result.trace_count > latch_trace_index + 1u;
+    gbl_runner_result_dispose(&full_trace_result);
+
+    if (latch_trace_index != SIZE_MAX && latch_trace_index < SIZE_MAX - 1u) {
+        status = gbl_test_execute(
+            rom_path, NULL, UINT64_C(1000),
+            (uint32_t)(GBL_TRACE_DMA | GBL_TRACE_INSTRUCTION),
+            latch_trace_index + 1u, NULL, NULL, NULL,
+            (gbl_runner_allocator){ 0 }, &partial_latch_result);
+        okay = okay && status == GBL_RUNNER_HARNESS_FAIL &&
+               !partial_latch_result.trace_complete &&
+               partial_latch_result.phase9.latch_fallback_known &&
+               partial_latch_result.phase9.latch_fallback_observed &&
+               gbl_test_serialize_result(&partial_latch_result, json,
+                                         sizeof json) &&
+               strstr(json,
+                      "\"fallback_observed\":true,\"classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\"") != NULL &&
+               strstr(json, "\"disputes\":[\"disp-dma-latch\"]") != NULL;
+    } else {
+        okay = false;
+    }
+    gbl_runner_result_dispose(&partial_latch_result);
     input_event = (gbl_input_event){ result.trace_records[1].guest_cycle, 1u };
     status = gbl_test_execute_timeline(
         rom_path, NULL, UINT64_C(1000), true, &input_event, 1u, NULL, NULL,
