@@ -150,6 +150,8 @@ gbl_add_test(
 
 add_executable(cpu_test tests/cpu_test.c)
 target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)
+add_executable(dma_test tests/dma_test.c)
+target_link_libraries(dma_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(
   NAME cpu.tracer
   LABELS cpu core unit
