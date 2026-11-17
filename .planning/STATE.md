@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 09
 current_phase_name: Bus Timing, DMA, and Arbitration
-current_plan: 4
+current_plan: 5
 status: executing
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-11-17T20:55:23.878Z"
+stopped_at: Completed 09-04-PLAN.md
+last_updated: "2026-11-17T22:43:39.131Z"
 last_activity: 2026-11-17
 last_activity_desc: Phase 09 execution started
-state_head: 876cb3c37660a3c137deafd9042fd65c3a831e74
+state_head: 7974ecb7e1ac14e41d7fc4b9454bfddd3dd40c0b
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 17
+  completed_plans: 18
   percent: 50
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-17)
 ## Current Position
 
 Phase: 09 (Bus Timing, DMA, and Arbitration) — EXECUTING
-Current Plan: 4
+Current Plan: 5
 Total Plans in Phase: 8
 Status: Ready to execute
 Last activity: 2026-11-17 — Phase 09 execution started
@@ -148,6 +148,7 @@ Progress: [█████░░░░░] 50%
 | Phase 09 P01 | 53m | 2 tasks | 13 files |
 | Phase 09 P02 | 190min | 2 tasks | 12 files |
 | Phase 09 P03 | 43m | 3 tasks | 9 files |
+| Phase 09 P04 | 81 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -357,6 +358,9 @@ Recent decisions affecting current work:
 - [Phase 09]: DMA readiness uses the canonical scheduler and reconsiders priority only at complete transfer-unit boundaries.
 - [Phase 09]: The two-master-cycle startup conversion is project-selected; its hardware mapping remains UNKNOWN and Prefetch remains unmodeled.
 - [Phase 09]: Per-channel DMA latches remain selected policy under open dispute disp-dma-latch; dependent results are disputed and hardware qualification UNKNOWN.
+- [Phase 09]: Elapsed machine time equals CPU bus, CPU internal, HALT wait, DMA startup, source and destination contributions; DMA pause remains informative and is not added.
+- [Phase 09]: DMA startup conversion remains project-selected at two master cycles; hardware mapping is UNKNOWN and prefetch remains unmodeled.
+- [Phase 09]: Per-channel retained latch behavior stays disputed under open disp-dma-latch, and four source-audit edge flags remain unresolved.
 
 ### Pending Todos
 
@@ -407,8 +411,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-17T20:55:23.706Z
-Stopped at: Completed 09-03-PLAN.md
+Last session: 2026-11-17T22:43:39.051Z
+Stopped at: Completed 09-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
