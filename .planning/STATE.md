@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 09
 current_phase_name: Bus Timing, DMA, and Arbitration
-current_plan: 3
+current_plan: 4
 status: executing
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-11-17T19:53:47.315Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-11-17T20:55:23.878Z"
 last_activity: 2026-11-17
 last_activity_desc: Phase 09 execution started
-state_head: 0411626c7d9b3f3d76ecb856afbb3c9add3eb5c9
+state_head: 876cb3c37660a3c137deafd9042fd65c3a831e74
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 16
+  completed_plans: 17
   percent: 50
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-17)
 ## Current Position
 
 Phase: 09 (Bus Timing, DMA, and Arbitration) — EXECUTING
-Current Plan: 3
+Current Plan: 4
 Total Plans in Phase: 8
 Status: Ready to execute
 Last activity: 2026-11-17 — Phase 09 execution started
@@ -147,6 +147,7 @@ Progress: [█████░░░░░] 50%
 | Phase 08 P07 | not measured | 2 tasks | 21 files |
 | Phase 09 P01 | 53m | 2 tasks | 13 files |
 | Phase 09 P02 | 190min | 2 tasks | 12 files |
+| Phase 09 P03 | 43m | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -353,6 +354,9 @@ Recent decisions affecting current work:
 - [Phase 09]: Keep the transactional DMA coordinator in src/machine.c and refuse IO destinations before publishing source or device effects.
 - [Phase 09]: Use one contextual WAITCNT quote path for CPU and DMA, including physical beat composition.
 - [Phase 09]: Keep prefetch execution unmodeled; separate community 128 KiB provenance and retain UNKNOWN hardware qualification.
+- [Phase 09]: DMA readiness uses the canonical scheduler and reconsiders priority only at complete transfer-unit boundaries.
+- [Phase 09]: The two-master-cycle startup conversion is project-selected; its hardware mapping remains UNKNOWN and Prefetch remains unmodeled.
+- [Phase 09]: Per-channel DMA latches remain selected policy under open dispute disp-dma-latch; dependent results are disputed and hardware qualification UNKNOWN.
 
 ### Pending Todos
 
@@ -403,8 +407,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-17T19:53:47.241Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-11-17T20:55:23.706Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

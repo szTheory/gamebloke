@@ -27,7 +27,7 @@
 
 ### DMA
 
-- [ ] **DMA-01**: Four DMA channels use the shared machine clock and bus arbitration. Tests cover priority, start delay, CPU pause, transfer unit timing, count/address masking, and per-channel latch behavior; disputed behavior remains linked to the dispute registry until evidence resolves it.
+- [x] **DMA-01**: Four DMA channels use the shared machine clock and bus arbitration. Tests cover priority, start delay, CPU pause, transfer unit timing, count/address masking, and per-channel latch behavior; disputed behavior remains linked to the dispute registry until evidence resolves it.
 
 ### PPU and first pixels
 
@@ -81,7 +81,7 @@ Every current v2.0 requirement maps to exactly one phase. Status changes only wh
 | BUS-05 | Phase 9 | Complete |
 | BUS-06 | Phase 7 | Complete |
 | INPUT-01 | Phase 8 | Complete |
-| DMA-01 | Phase 9 | Pending |
+| DMA-01 | Phase 9 | Complete |
 | PPU-01 | Phase 10 | Pending |
 | PPU-02 | Phase 10 | Pending |
 | PLAY-01 | Phase 10 | Pending |
