@@ -1310,6 +1310,175 @@ static bool gbl_phase9_trace_order(const gbl_interleave_instance *instance)
            channels[2] == 0u && channels[3] == 0u && channels[4] == 3u;
 }
 
+static const char *gbl_phase9_observation_compare(
+    const gbl_interleave_instance *expected,
+    const gbl_interleave_instance *actual)
+{
+    const size_t destination_offsets[] = {
+        0x100u, 0x101u, 0x102u, 0x103u, 0x200u, 0x201u
+    };
+    size_t index;
+
+    for (index = 0u;
+         index < sizeof destination_offsets / sizeof destination_offsets[0];
+         ++index) {
+        const size_t offset = destination_offsets[index];
+        if (expected->machine.iwram[offset] != actual->machine.iwram[offset]) {
+            return "dma-transfer-value";
+        }
+    }
+    if (expected->cycles != expected->bus_cycles + expected->internal_cycles +
+                               expected->wait_cycles ||
+        actual->cycles != actual->bus_cycles + actual->internal_cycles +
+                              actual->wait_cycles ||
+        expected->cycles != actual->cycles ||
+        expected->bus_cycles != actual->bus_cycles ||
+        expected->internal_cycles != actual->internal_cycles ||
+        expected->wait_cycles != actual->wait_cycles ||
+        expected->dma_startup_cycles != actual->dma_startup_cycles ||
+        expected->dma_source_cycles != actual->dma_source_cycles ||
+        expected->dma_destination_cycles != actual->dma_destination_cycles ||
+        expected->dma_completed_units != actual->dma_completed_units ||
+        expected->dma_pause_cycles != actual->dma_pause_cycles) {
+        return "dma-cycle-accounting";
+    }
+    if (expected->trace.count != actual->trace.count ||
+        !gbl_test_trace_equal(expected->trace.records, actual->trace.records,
+                              expected->trace.count)) {
+        return "dma-event-order";
+    }
+    if (!gbl_test_canonical_equal(&expected->machine, &actual->machine) ||
+        gbl_test_canonical_digest(&expected->machine) !=
+            gbl_test_canonical_digest(&actual->machine)) {
+        return "dma-state-contamination";
+    }
+    if (expected->instructions != actual->instructions ||
+        expected->termination != actual->termination ||
+        expected->reason != actual->reason ||
+        expected->mailbox.status != actual->mailbox.status ||
+        expected->mailbox.case_id != actual->mailbox.case_id) {
+        return "dma-run-outcome";
+    }
+    return "ok";
+}
+
+static bool gbl_phase9_canonical_field_controls(const gbl_machine *clean)
+{
+    gbl_machine mutant;
+    size_t channel_index;
+
+#define GBL_PHASE9_MACHINE_MUTATION(statement)                               \
+    do {                                                                     \
+        mutant = *clean;                                                     \
+        statement;                                                           \
+        if (gbl_test_canonical_equal(clean, &mutant) ||                      \
+            gbl_test_canonical_digest(clean) ==                              \
+                gbl_test_canonical_digest(&mutant)) {                        \
+            return false;                                                    \
+        }                                                                    \
+    } while (0)
+#define GBL_PHASE9_CHANNEL_MUTATION(member)                                  \
+    do {                                                                     \
+        for (channel_index = 0u; channel_index < GBL_DMA_CHANNEL_COUNT;      \
+             ++channel_index) {                                              \
+            mutant = *clean;                                                 \
+            mutant.dma_channels[channel_index].member ^= 1u;                 \
+            if (gbl_test_canonical_equal(clean, &mutant) ||                  \
+                gbl_test_canonical_digest(clean) ==                          \
+                    gbl_test_canonical_digest(&mutant)) {                    \
+                return false;                                                \
+            }                                                                \
+        }                                                                    \
+    } while (0)
+#define GBL_PHASE9_EVENT_MUTATION(member)                                    \
+    do {                                                                     \
+        mutant = *clean;                                                     \
+        mutant.events[0].member ^= 1u;                                       \
+        if (gbl_test_canonical_equal(clean, &mutant) ||                      \
+            gbl_test_canonical_digest(clean) ==                              \
+                gbl_test_canonical_digest(&mutant)) {                        \
+            return false;                                                    \
+        }                                                                    \
+    } while (0)
+    if (clean == NULL) return false;
+    GBL_PHASE9_MACHINE_MUTATION(mutant.waitcnt ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(
+        mutant.bus_owner = mutant.bus_owner == GBL_MACHINE_BUS_OWNER_CPU
+                               ? GBL_MACHINE_BUS_OWNER_DMA
+                               : GBL_MACHINE_BUS_OWNER_CPU);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.dma_last_channel ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.dma_last_width ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.dma_last_source ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.dma_last_destination ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.dma_stream_valid = !mutant.dma_stream_valid);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.next_event_sequence ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.event_count ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.input_generation ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.input_event_count ^= 1u);
+    GBL_PHASE9_MACHINE_MUTATION(mutant.input_event_cursor ^= 1u);
+    GBL_PHASE9_CHANNEL_MUTATION(source_address);
+    GBL_PHASE9_CHANNEL_MUTATION(destination_address);
+    GBL_PHASE9_CHANNEL_MUTATION(current_source);
+    GBL_PHASE9_CHANNEL_MUTATION(current_destination);
+    GBL_PHASE9_CHANNEL_MUTATION(read_latch);
+    GBL_PHASE9_CHANNEL_MUTATION(completed_units);
+    GBL_PHASE9_CHANNEL_MUTATION(generation);
+    GBL_PHASE9_CHANNEL_MUTATION(count);
+    GBL_PHASE9_CHANNEL_MUTATION(control);
+    GBL_PHASE9_CHANNEL_MUTATION(remaining);
+    GBL_PHASE9_CHANNEL_MUTATION(pending);
+    GBL_PHASE9_CHANNEL_MUTATION(armed);
+    GBL_PHASE9_CHANNEL_MUTATION(active);
+    GBL_PHASE9_CHANNEL_MUTATION(startup_complete);
+    GBL_PHASE9_EVENT_MUTATION(cycle);
+    GBL_PHASE9_EVENT_MUTATION(sequence);
+    GBL_PHASE9_EVENT_MUTATION(generation);
+    GBL_PHASE9_EVENT_MUTATION(priority);
+    GBL_PHASE9_EVENT_MUTATION(kind);
+    GBL_PHASE9_EVENT_MUTATION(timer_index);
+    GBL_PHASE9_EVENT_MUTATION(dma_channel);
+    GBL_PHASE9_EVENT_MUTATION(live);
+    GBL_PHASE9_EVENT_MUTATION(input_index);
+#undef GBL_PHASE9_EVENT_MUTATION
+#undef GBL_PHASE9_CHANNEL_MUTATION
+#undef GBL_PHASE9_MACHINE_MUTATION
+    return true;
+}
+
+static bool gbl_phase9_trace_field_controls(void)
+{
+    gbl_trace_record clean = { 0 };
+    gbl_trace_record mutant;
+
+#define GBL_PHASE9_TRACE_MUTATION(member)                                    \
+    do {                                                                     \
+        mutant = clean;                                                      \
+        mutant.member ^= 1u;                                                 \
+        if (gbl_test_trace_equal(&clean, &mutant, 1u)) return false;         \
+    } while (0)
+    GBL_PHASE9_TRACE_MUTATION(bus_owner);
+    GBL_PHASE9_TRACE_MUTATION(dma_status);
+    GBL_PHASE9_TRACE_MUTATION(dma_channel);
+    GBL_PHASE9_TRACE_MUTATION(dma_startup_cycles);
+    GBL_PHASE9_TRACE_MUTATION(dma_source_cycles);
+    GBL_PHASE9_TRACE_MUTATION(dma_destination_cycles);
+    GBL_PHASE9_TRACE_MUTATION(dma_source_sequence);
+    GBL_PHASE9_TRACE_MUTATION(dma_destination_sequence);
+    GBL_PHASE9_TRACE_MUTATION(dma_remaining);
+    GBL_PHASE9_TRACE_MUTATION(dma_completed);
+    GBL_PHASE9_TRACE_MUTATION(dma_used_channel_latch);
+    GBL_PHASE9_TRACE_MUTATION(dma_value_provenance);
+    GBL_PHASE9_TRACE_MUTATION(dma_result_classification);
+    GBL_PHASE9_TRACE_MUTATION(dma_dispute);
+    GBL_PHASE9_TRACE_MUTATION(dma_hardware_qualification);
+    GBL_PHASE9_TRACE_MUTATION(dma_source_address);
+    GBL_PHASE9_TRACE_MUTATION(dma_destination_address);
+    GBL_PHASE9_TRACE_MUTATION(dma_value);
+    GBL_PHASE9_TRACE_MUTATION(dma_width);
+#undef GBL_PHASE9_TRACE_MUTATION
+    return true;
+}
+
 static bool gbl_phase9_boundary_case(uint16_t waitcnt,
                                     uint64_t *cycles_out,
                                     uint64_t *source_cycles_out)
@@ -4201,10 +4370,121 @@ done:
     return 0;
 }
 
+static int gbl_test_phase9_controls_main(void)
+{
+    uint8_t image[0xC0u] = { 0 };
+    gbl_interleave_instance clean = { 0 };
+    gbl_interleave_instance twin = { 0 };
+    gbl_interleave_instance mutant;
+    gbl_trace_record *mutant_records = NULL;
+    const char *failure = "phase9-control-setup-failed";
+    bool okay = false;
+
+    image[0] = UINT8_C(0x42);
+    image[1] = UINT8_C(0x70);
+    image[2] = UINT8_C(0xA0);
+    image[3] = UINT8_C(0xE3);
+    image[7] = UINT8_C(0xEF);
+    if (!gbl_phase9_prepare(&clean, image, sizeof image, false, &failure) ||
+        !gbl_phase9_prepare(&twin, image, sizeof image, false, &failure) ||
+        !gbl_phase9_run_slice(&clean, UINT64_C(1000), 0u, &failure) ||
+        !gbl_phase9_run_slice(&twin, UINT64_C(1000), 0u, &failure) ||
+        !clean.complete || !twin.complete ||
+        !gbl_interleave_serialize_trace(&clean) ||
+        !gbl_interleave_serialize_trace(&twin) ||
+        !gbl_phase9_semantics(&clean, false) ||
+        !gbl_phase9_semantics(&twin, false) ||
+        !gbl_phase9_trace_order(&clean) || !gbl_phase9_trace_order(&twin) ||
+        strcmp(gbl_phase9_observation_compare(&clean, &twin), "ok") != 0) {
+        failure = "phase9-control-clean-twin-setup-or-semantic-run-failed";
+        goto done;
+    }
+    if (!gbl_phase9_canonical_field_controls(&clean.machine)) {
+        failure = "phase9-canonical-dma-waitcnt-or-event-field-mutation-accepted";
+        goto done;
+    }
+    if (!gbl_phase9_trace_field_controls()) {
+        failure = "phase9-dma-trace-field-mutation-accepted";
+        goto done;
+    }
+
+    mutant = twin;
+    mutant.machine.iwram[0x100u] ^= UINT8_C(1);
+    if (strcmp(gbl_phase9_observation_compare(&clean, &mutant),
+               "dma-transfer-value") != 0) {
+        failure = "dma-transfer-value-control-not-causal";
+        goto done;
+    }
+    {
+        gbl_interleave_instance stable_wrong_first = clean;
+        gbl_interleave_instance stable_wrong_second = twin;
+
+        stable_wrong_first.machine.iwram[0x100u] ^= UINT8_C(1);
+        stable_wrong_second.machine.iwram[0x100u] ^= UINT8_C(1);
+        if (strcmp(gbl_phase9_observation_compare(&stable_wrong_first,
+                                                 &stable_wrong_second),
+                   "ok") != 0 ||
+            gbl_phase9_semantics(&stable_wrong_first, false) ||
+            gbl_phase9_semantics(&stable_wrong_second, false)) {
+            failure = "stable-wrong-transfer-was-accepted-by-semantic-oracle";
+            goto done;
+        }
+    }
+
+    mutant = twin;
+    mutant_records = malloc(clean.trace.count * sizeof *mutant_records);
+    if (mutant_records == NULL) {
+        failure = "dma-event-order-control-allocation-failed";
+        goto done;
+    }
+    memcpy(mutant_records, twin.trace.records,
+           twin.trace.count * sizeof *mutant_records);
+    mutant.trace.records = mutant_records;
+    mutant.trace.records[0].sequence ^= UINT64_C(1);
+    if (strcmp(gbl_phase9_observation_compare(&clean, &mutant),
+               "dma-event-order") != 0) {
+        failure = "dma-event-order-control-not-causal";
+        goto done;
+    }
+    free(mutant_records);
+    mutant_records = NULL;
+
+    mutant = twin;
+    mutant.machine.dma_channels[3].read_latch ^= UINT32_C(1);
+    if (strcmp(gbl_phase9_observation_compare(&clean, &mutant),
+               "dma-state-contamination") != 0) {
+        failure = "dma-state-contamination-control-not-causal";
+        goto done;
+    }
+    mutant = twin;
+    mutant.dma_source_cycles += UINT64_C(1);
+    if (strcmp(gbl_phase9_observation_compare(&clean, &mutant),
+               "dma-cycle-accounting") != 0 ||
+        strcmp(gbl_phase9_observation_compare(&clean, &twin), "ok") != 0) {
+        failure = "dma-cycle-accounting-control-not-causal-or-clean-twin-failed";
+        goto done;
+    }
+    okay = true;
+
+done:
+    free(mutant_records);
+    (void)gbl_interleave_dispose(&clean);
+    (void)gbl_interleave_dispose(&twin);
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase9.controls: %s\n", failure);
+        return 1;
+    }
+    puts("PASS determinism.phase9.controls: semantic, trace, DMA state and cycle faults fail causally; clean twins and named field mutations are checked");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "phase9") == 0) {
         return gbl_test_phase9_main();
+    }
+    if (argc == 2 && strcmp(argv[1], "phase9-controls") == 0) {
+        return gbl_test_phase9_controls_main();
     }
     if (argc == 2 && strcmp(argv[1], "phase8") == 0) {
         return gbl_test_phase8_main();
