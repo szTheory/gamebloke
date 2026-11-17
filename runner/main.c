@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -10,8 +11,20 @@
 #include "run.h"
 
 enum { GBL_RUN_USAGE_ERROR = 2 };
+enum {
+    GBL_RUNNER_INPUT_SCRIPT_MAX_BYTES = 16 * 1024,
+    GBL_RUNNER_INPUT_SCRIPT_PROBE_BYTES = 1,
+    GBL_RUNNER_INPUT_SCRIPT_MAX_LINE_BYTES = 25
+};
 
 static volatile sig_atomic_t gbl_runner_interrupted;
+
+typedef enum gbl_runner_script_load_status {
+    GBL_RUNNER_SCRIPT_LOADED = 0,
+    GBL_RUNNER_SCRIPT_MISSING,
+    GBL_RUNNER_SCRIPT_IO_ERROR,
+    GBL_RUNNER_SCRIPT_INVALID
+} gbl_runner_script_load_status;
 
 static void gbl_runner_handle_sigint(int signal_number)
 {
@@ -73,9 +86,223 @@ static bool nonempty_string_fits(const char *text, size_t capacity)
 static void print_usage(FILE *out)
 {
     fputs("usage: gamebloke-run --rom PATH (--cycles DECIMAL | --frames DECIMAL) "
-          "[--fixture ID] [--trace-mask INTEGER] [--trace-capacity INTEGER] "
-          "[--trace-output PATH]\n",
+          "[--fixture ID] [--input-script PATH] [--trace-mask INTEGER] "
+          "[--trace-capacity INTEGER] [--trace-output PATH]\n",
           out);
+}
+
+static bool gbl_runner_ascii_whitespace(unsigned char character)
+{
+    return character == (unsigned char)' ' ||
+           character == (unsigned char)'\t' ||
+           character == (unsigned char)'\n' ||
+           character == (unsigned char)'\r' ||
+           character == (unsigned char)'\v' ||
+           character == (unsigned char)'\f';
+}
+
+static bool gbl_runner_parse_decimal_bytes(const unsigned char *bytes,
+                                           size_t length, uint64_t *value_out,
+                                           bool *overflow_out)
+{
+    uint64_t value = 0u;
+    size_t index;
+
+    if (bytes == NULL || length == 0u || value_out == NULL ||
+        overflow_out == NULL) {
+        return false;
+    }
+    *overflow_out = false;
+    for (index = 0u; index < length; ++index) {
+        uint64_t digit;
+
+        if (bytes[index] < (unsigned char)'0' ||
+            bytes[index] > (unsigned char)'9') {
+            return false;
+        }
+        digit = (uint64_t)(bytes[index] - (unsigned char)'0');
+        if (value > (UINT64_MAX - digit) / UINT64_C(10)) {
+            *overflow_out = true;
+            return false;
+        }
+        value = value * UINT64_C(10) + digit;
+    }
+    *value_out = value;
+    return true;
+}
+
+static bool gbl_runner_parse_input_script(
+    const unsigned char *bytes, size_t length,
+    gbl_input_event events[GBL_INPUT_EVENT_CAPACITY],
+    size_t *event_count_out, const char **reason_out)
+{
+    size_t offset = 0u;
+    size_t event_count = 0u;
+
+    if (bytes == NULL || events == NULL || event_count_out == NULL ||
+        reason_out == NULL) {
+        return false;
+    }
+    *event_count_out = 0u;
+    *reason_out = "input-script-invalid-grammar";
+    while (offset < length) {
+        const size_t line_start = offset;
+        size_t line_end;
+        size_t line_length;
+        size_t separator = SIZE_MAX;
+        size_t index;
+        uint64_t cycle;
+        uint64_t pressed_mask;
+        bool overflow = false;
+        bool whitespace_only = true;
+
+        while (offset < length && bytes[offset] != (unsigned char)'\n') {
+            offset++;
+        }
+        line_end = offset;
+        if (offset < length) {
+            offset++;
+            if (line_end > line_start &&
+                bytes[line_end - 1u] == (unsigned char)'\r') {
+                line_end--;
+            }
+        }
+        line_length = line_end - line_start;
+        if (line_length > GBL_RUNNER_INPUT_SCRIPT_MAX_LINE_BYTES) {
+            *reason_out = "input-script-line-too-long";
+            return false;
+        }
+        for (index = line_start; index < line_end; ++index) {
+            if (bytes[index] == 0u) {
+                *reason_out = "input-script-nul-byte";
+                return false;
+            }
+            if (!gbl_runner_ascii_whitespace(bytes[index])) {
+                whitespace_only = false;
+            }
+        }
+        if (line_length == 0u || whitespace_only) {
+            *reason_out = "input-script-blank-line";
+            return false;
+        }
+        if (event_count == GBL_INPUT_EVENT_CAPACITY) {
+            *reason_out = "input-script-too-many-records";
+            return false;
+        }
+        for (index = line_start; index < line_end; ++index) {
+            if (bytes[index] == (unsigned char)' ') {
+                if (separator != SIZE_MAX) {
+                    *reason_out = "input-script-invalid-grammar";
+                    return false;
+                }
+                separator = index;
+            }
+        }
+        if (separator == SIZE_MAX || separator == line_start ||
+            separator + 1u == line_end) {
+            *reason_out = "input-script-invalid-grammar";
+            return false;
+        }
+        if (!gbl_runner_parse_decimal_bytes(
+                bytes + line_start, separator - line_start, &cycle,
+                &overflow)) {
+            *reason_out = overflow ? "input-script-cycle-overflow"
+                                   : "input-script-invalid-grammar";
+            return false;
+        }
+        if (!gbl_runner_parse_decimal_bytes(
+                bytes + separator + 1u, line_end - separator - 1u,
+                &pressed_mask, &overflow)) {
+            *reason_out = overflow ? "input-script-key-mask-out-of-range"
+                                   : "input-script-invalid-grammar";
+            return false;
+        }
+        if (pressed_mask > UINT64_C(0x03FF)) {
+            *reason_out = "input-script-key-mask-out-of-range";
+            return false;
+        }
+        if (event_count != 0u &&
+            cycle < events[event_count - 1u].cycle) {
+            *reason_out = "input-script-cycle-decreasing";
+            return false;
+        }
+        events[event_count].cycle = cycle;
+        events[event_count].pressed_mask = (uint16_t)pressed_mask;
+        event_count++;
+    }
+    *event_count_out = event_count;
+    return true;
+}
+
+static gbl_runner_script_load_status gbl_runner_load_input_script(
+    const char *path, gbl_input_event events[GBL_INPUT_EVENT_CAPACITY],
+    size_t *event_count_out, const char **reason_out)
+{
+    unsigned char bytes[GBL_RUNNER_INPUT_SCRIPT_MAX_BYTES +
+                        GBL_RUNNER_INPUT_SCRIPT_PROBE_BYTES];
+    FILE *input;
+    size_t length;
+    bool read_failed;
+    int saved_errno;
+
+    if (reason_out == NULL) {
+        return GBL_RUNNER_SCRIPT_INVALID;
+    }
+    if (path == NULL || path[0] == '\0' || event_count_out == NULL) {
+        *reason_out = "input-script-invalid-grammar";
+        return GBL_RUNNER_SCRIPT_INVALID;
+    }
+    input = fopen(path, "rb");
+    if (input == NULL) {
+        saved_errno = errno;
+        if (saved_errno == ENOENT || saved_errno == ENOTDIR) {
+            *reason_out = "input-script-file-not-found";
+            return GBL_RUNNER_SCRIPT_MISSING;
+        }
+        *reason_out = "input-script-open-failed";
+        return GBL_RUNNER_SCRIPT_IO_ERROR;
+    }
+    length = fread(bytes, 1u, sizeof bytes, input);
+    read_failed = ferror(input) != 0;
+    saved_errno = errno;
+    if (length > GBL_RUNNER_INPUT_SCRIPT_MAX_BYTES) {
+        (void)fclose(input);
+        *reason_out = "input-script-too-large";
+        return GBL_RUNNER_SCRIPT_INVALID;
+    }
+    if (read_failed) {
+        (void)fclose(input);
+        errno = saved_errno;
+        *reason_out = "input-script-read-failed";
+        return GBL_RUNNER_SCRIPT_IO_ERROR;
+    }
+    if (fclose(input) != 0) {
+        *reason_out = "input-script-read-failed";
+        return GBL_RUNNER_SCRIPT_IO_ERROR;
+    }
+    if (!gbl_runner_parse_input_script(bytes, length, events,
+                                       event_count_out, reason_out)) {
+        return GBL_RUNNER_SCRIPT_INVALID;
+    }
+    return GBL_RUNNER_SCRIPT_LOADED;
+}
+
+static int gbl_runner_script_io_result(gbl_runner_status status,
+                                       const char *reason)
+{
+    gbl_runner_result result;
+
+    memset(&result, 0, sizeof result);
+    result.status = status;
+    result.semantic.status = GBL_MAILBOX_ABSENT;
+    result.trace_complete = true;
+    (void)snprintf(result.reason, sizeof result.reason, "%s", reason);
+    (void)snprintf(result.termination, sizeof result.termination,
+                   "not-started");
+    if (!gbl_runner_write_json(stdout, &result)) {
+        fputs("gamebloke-run: result-write-failed\n", stderr);
+    }
+    return 1;
 }
 
 static bool parse_decimal_u64(const char *text, uint64_t *value_out)
@@ -154,7 +381,8 @@ static bool parse_trace_mask(const char *text, uint32_t *mask_out)
     return true;
 }
 
-static bool parse_options(int argc, char **argv, gbl_runner_options *options)
+static bool parse_options(int argc, char **argv, gbl_runner_options *options,
+                          const char **input_script_path_out)
 {
     bool seen_rom = false;
     bool seen_fixture = false;
@@ -163,10 +391,15 @@ static bool parse_options(int argc, char **argv, gbl_runner_options *options)
     bool seen_trace_mask = false;
     bool seen_trace_capacity = false;
     bool seen_trace_output = false;
+    bool seen_input_script = false;
     uint64_t bound = 0u;
     int index = 1;
 
+    if (input_script_path_out == NULL) {
+        return false;
+    }
     memset(options, 0, sizeof *options);
+    *input_script_path_out = NULL;
     while (index < argc) {
         const char *flag = argv[index];
         const char *value;
@@ -224,6 +457,12 @@ static bool parse_options(int argc, char **argv, gbl_runner_options *options)
             if (value[0] == '\0') return false;
             options->trace_output_path = value;
             seen_trace_output = true;
+        } else if (strcmp(flag, "--input-script") == 0) {
+            if (seen_input_script || index + 1 >= argc) return false;
+            value = argv[++index];
+            if (value[0] == '\0') return false;
+            *input_script_path_out = value;
+            seen_input_script = true;
         } else {
             return false;
         }
@@ -237,6 +476,11 @@ int main(int argc, char **argv)
     gbl_runner_options options;
     gbl_runner_result result;
     gbl_runner_status status;
+    gbl_input_event input_events[GBL_INPUT_EVENT_CAPACITY] = { 0 };
+    size_t input_event_count = 0u;
+    const char *input_script_path = NULL;
+    const char *input_script_reason = NULL;
+    gbl_runner_script_load_status script_status;
 
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
         printf("gamebloke-run %s\n", gbl_version());
@@ -249,6 +493,7 @@ int main(int argc, char **argv)
               "  --cycles DECIMAL       run within a master-cycle budget\n"
               "  --frames DECIMAL       run within a profile frame budget\n"
               "  --fixture ID           select validated build-time fixture metadata\n"
+              "  --input-script PATH    read at most 16 KiB of cycle-based key events\n"
               "  --trace-mask INTEGER   select instruction, bus, or exception trace\n"
               "  --trace-capacity N     bound selected trace records (maximum 65536)\n"
               "  --trace-output PATH    write selected trace as JSON Lines\n"
@@ -260,9 +505,30 @@ int main(int argc, char **argv)
               stdout);
         return 0;
     }
-    if (!parse_options(argc, argv, &options)) {
+    if (!parse_options(argc, argv, &options, &input_script_path)) {
         print_usage(stderr);
         return GBL_RUN_USAGE_ERROR;
+    }
+    if (input_script_path != NULL) {
+        script_status = gbl_runner_load_input_script(
+            input_script_path, input_events, &input_event_count,
+            &input_script_reason);
+        if (script_status == GBL_RUNNER_SCRIPT_INVALID) {
+            print_usage(stderr);
+            fprintf(stderr, "gamebloke-run: %s\n", input_script_reason);
+            return GBL_RUN_USAGE_ERROR;
+        }
+        if (script_status == GBL_RUNNER_SCRIPT_MISSING) {
+            return gbl_runner_script_io_result(GBL_RUNNER_MISSING,
+                                               input_script_reason);
+        }
+        if (script_status == GBL_RUNNER_SCRIPT_IO_ERROR) {
+            return gbl_runner_script_io_result(GBL_RUNNER_HARNESS_FAIL,
+                                               input_script_reason);
+        }
+        options.input_timeline_present = true;
+        options.input_events = input_event_count == 0u ? NULL : input_events;
+        options.input_event_count = input_event_count;
     }
     if (!gbl_runner_install_sigint()) {
         return gbl_runner_signal_setup_failure();

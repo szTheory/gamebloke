@@ -88,6 +88,54 @@ function(gbl_check_relocation prefix tag out_ok out_reason out_detail)
     --unset=GBL_SOURCE_DIR
     --unset=GBL_PRODUCTION_INDEX)
   execute_process(
+    COMMAND ${clean_env} "${installed_runner}" --help
+    WORKING_DIRECTORY "${cwd}"
+    RESULT_VARIABLE installed_help_status
+    OUTPUT_VARIABLE installed_help
+    ERROR_VARIABLE installed_help_error)
+  if(NOT "${installed_help_status}" STREQUAL "0" OR
+      NOT "${installed_help}" MATCHES "--input-script PATH" OR
+      NOT "${installed_help_error}" STREQUAL "")
+    set(${out_ok} FALSE PARENT_SCOPE)
+    set(${out_reason} "installed-input-script-help-failed" PARENT_SCOPE)
+    set(${out_detail} "moved executable did not document --input-script" PARENT_SCOPE)
+    return()
+  endif()
+  set(installed_script "${sandbox}/${tag}-input-script.txt")
+  file(WRITE "${installed_script}" "0 1\n")
+  execute_process(
+    COMMAND ${clean_env} "${installed_runner}" --rom "${fixture}"
+      --cycles 1000 --input-script "${installed_script}"
+    WORKING_DIRECTORY "${cwd}"
+    RESULT_VARIABLE installed_script_status
+    OUTPUT_VARIABLE installed_script_json
+    ERROR_VARIABLE installed_script_error)
+  if(NOT "${installed_script_status}" STREQUAL "1" OR
+      NOT "${installed_script_error}" STREQUAL "")
+    set(${out_ok} FALSE PARENT_SCOPE)
+    set(${out_reason} "installed-input-script-run-failed" PARENT_SCOPE)
+    set(${out_detail} "moved executable returned an unexpected script result" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON installed_script_state ERROR_VARIABLE installed_script_state_error
+    GET "${installed_script_json}" status)
+  string(JSON installed_script_kind ERROR_VARIABLE installed_script_kind_error
+    GET "${installed_script_json}" claim input_timeline kind)
+  string(JSON installed_script_keyinput ERROR_VARIABLE installed_script_key_error
+    GET "${installed_script_json}" phase8 keypad keyinput)
+  if(NOT "${installed_script_state_error}" STREQUAL "NOTFOUND" OR
+      NOT "${installed_script_kind_error}" STREQUAL "NOTFOUND" OR
+      NOT "${installed_script_key_error}" STREQUAL "NOTFOUND" OR
+      NOT "${installed_script_state}" STREQUAL "GUEST_STOP" OR
+      NOT "${installed_script_kind}" STREQUAL "script" OR
+      NOT "${installed_script_keyinput}" STREQUAL "1022")
+    set(${out_ok} FALSE PARENT_SCOPE)
+    set(${out_reason} "installed-input-script-observation-mismatch" PARENT_SCOPE)
+    set(${out_detail} "moved executable did not report cycle-zero active-low input" PARENT_SCOPE)
+    return()
+  endif()
+
+  execute_process(
     COMMAND ${clean_env} "${build_runner}"
       --rom "${fixture}" --cycles 1000
     WORKING_DIRECTORY "${cwd}"
