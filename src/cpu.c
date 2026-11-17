@@ -4501,6 +4501,12 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                         dma_record.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
                         dma_record.dma_status = dma_step.status;
                         dma_record.dma_channel = dma_step.channel;
+                        dma_record.dma_source_address =
+                            dma_step.source_address;
+                        dma_record.dma_destination_address =
+                            dma_step.destination_address;
+                        dma_record.dma_value = dma_step.value;
+                        dma_record.dma_width = dma_step.width;
                         dma_record.dma_startup_cycles =
                             dma_step.startup_cycles;
                         dma_record.dma_source_cycles =

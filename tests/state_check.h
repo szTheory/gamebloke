@@ -473,7 +473,11 @@ static inline bool gbl_test_trace_equal(const gbl_trace_record *left,
                 b->dma_result_classification ||
             a->dma_dispute != b->dma_dispute ||
             a->dma_hardware_qualification !=
-                b->dma_hardware_qualification) {
+                b->dma_hardware_qualification ||
+            a->dma_source_address != b->dma_source_address ||
+            a->dma_destination_address != b->dma_destination_address ||
+            a->dma_value != b->dma_value ||
+            a->dma_width != b->dma_width) {
             return false;
         }
     }

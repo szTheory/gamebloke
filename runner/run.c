@@ -611,6 +611,79 @@ static void gbl_runner_phase8_observe(gbl_runner_result *result,
     observation->wait_cycles = result->wait_cycles;
 }
 
+static void gbl_runner_phase9_observe(gbl_runner_result *result,
+                                      const gbl_machine *machine)
+{
+    gbl_runner_phase9_observation *observation = &result->phase9;
+    size_t index;
+
+    observation->observed = true;
+    observation->waitcnt = machine->waitcnt;
+    observation->bus_owner = machine->bus_owner;
+    observation->machine_cycles = machine->master_cycles;
+    memcpy(observation->channels, machine->dma_channels,
+           sizeof observation->channels);
+    observation->latch_fallback_known =
+        result->trace_complete &&
+        (result->trace_mask & (uint32_t)GBL_TRACE_DMA) != 0u;
+    observation->latch_fallback_observed = false;
+    if (observation->latch_fallback_known) {
+        for (index = 0u; index < result->trace_count; ++index) {
+            const gbl_trace_record *record = &result->trace_records[index];
+
+            if (record->category == GBL_TRACE_DMA &&
+                record->dma_used_channel_latch) {
+                observation->latch_fallback_observed = true;
+                break;
+            }
+        }
+    }
+}
+
+static bool gbl_runner_u64_add(uint64_t left, uint64_t right,
+                               uint64_t *sum_out)
+{
+    if (sum_out == NULL || right > UINT64_MAX - left) {
+        return false;
+    }
+    *sum_out = left + right;
+    return true;
+}
+
+static bool gbl_runner_run_accounting(const gbl_run_result *run_result,
+                                     uint64_t *cpu_bus_out,
+                                     uint64_t *cpu_internal_out)
+{
+    uint64_t dma_access_cycles;
+    uint64_t total_cycles;
+
+    if (run_result == NULL || cpu_bus_out == NULL ||
+        cpu_internal_out == NULL ||
+        !gbl_runner_u64_add(run_result->dma_source_cycles,
+                            run_result->dma_destination_cycles,
+                            &dma_access_cycles) ||
+        dma_access_cycles > run_result->bus_cycles ||
+        run_result->dma_startup_cycles > run_result->internal_cycles) {
+        return false;
+    }
+    *cpu_bus_out = run_result->bus_cycles - dma_access_cycles;
+    *cpu_internal_out =
+        run_result->internal_cycles - run_result->dma_startup_cycles;
+    if (!gbl_runner_u64_add(*cpu_bus_out, *cpu_internal_out, &total_cycles) ||
+        !gbl_runner_u64_add(total_cycles, run_result->wait_cycles,
+                            &total_cycles) ||
+        !gbl_runner_u64_add(total_cycles, run_result->dma_startup_cycles,
+                            &total_cycles) ||
+        !gbl_runner_u64_add(total_cycles, run_result->dma_source_cycles,
+                            &total_cycles) ||
+        !gbl_runner_u64_add(total_cycles,
+                            run_result->dma_destination_cycles,
+                            &total_cycles)) {
+        return false;
+    }
+    return total_cycles == run_result->cycles;
+}
+
 void gbl_runner_classify_guest_stop(gbl_runner_result *result,
                                     const gbl_machine *machine,
                                     gbl_run_reason reason)
@@ -994,6 +1067,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                                           : "rom-load-failed");
                 gbl_runner_set_termination(result, "not-started");
             }
+            gbl_runner_phase9_observe(result, machine);
             gbl_machine_dispose(machine);
             result->allocator.release(result->allocator.context, machine,
                                       sizeof *machine);
@@ -1013,6 +1087,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_runner_set_refusal(result, "input-timeline-install-refused",
                                "guest-not-run");
         gbl_runner_set_termination(result, "refused-before-run");
+        gbl_runner_phase9_observe(result, machine);
         gbl_machine_dispose(machine);
         result->allocator.release(result->allocator.context, machine,
                                   sizeof *machine);
@@ -1031,6 +1106,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         result->status = GBL_RUNNER_HARNESS_FAIL;
         gbl_runner_set_reason(result, "rom-copy-identity-failed");
         gbl_runner_set_termination(result, "not-started");
+        gbl_runner_phase9_observe(result, machine);
         gbl_machine_dispose(machine);
         result->allocator.release(result->allocator.context, machine,
                                   sizeof *machine);
@@ -1049,6 +1125,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_run_result run_result;
         gbl_trace_buffer trace_buffer;
         uint64_t remaining;
+        uint64_t cpu_bus_cycles;
+        uint64_t cpu_internal_cycles;
         gbl_run_status run_status;
 
         result->semantic = gbl_mailbox_read(machine);
@@ -1094,16 +1172,22 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
             run_result.cycles > remaining ||
             run_result.cycles > UINT64_MAX - result->cycles ||
             run_result.instructions > UINT64_MAX - result->instructions ||
-            run_result.bus_cycles > UINT64_MAX - run_result.internal_cycles ||
-            run_result.wait_cycles >
-                UINT64_MAX -
-                    (run_result.bus_cycles + run_result.internal_cycles) ||
-            run_result.bus_cycles + run_result.internal_cycles +
-                    run_result.wait_cycles != run_result.cycles ||
-            run_result.bus_cycles > UINT64_MAX - result->bus_cycles ||
-            run_result.internal_cycles >
+            !gbl_runner_run_accounting(&run_result, &cpu_bus_cycles,
+                                       &cpu_internal_cycles) ||
+            cpu_bus_cycles > UINT64_MAX - result->bus_cycles ||
+            cpu_internal_cycles >
                 UINT64_MAX - result->internal_cycles ||
             run_result.wait_cycles > UINT64_MAX - result->wait_cycles ||
+            run_result.dma_startup_cycles >
+                UINT64_MAX - result->dma_startup_cycles ||
+            run_result.dma_source_cycles >
+                UINT64_MAX - result->dma_source_cycles ||
+            run_result.dma_destination_cycles >
+                UINT64_MAX - result->dma_destination_cycles ||
+            run_result.dma_completed_units >
+                UINT64_MAX - result->dma_completed_units ||
+            run_result.dma_pause_cycles >
+                UINT64_MAX - result->dma_pause_cycles ||
             (run_result.termination == GBL_RUN_PROGRESS &&
              run_result.cycles == 0u && run_result.instructions == 0u &&
              run_result.wait_cycles == 0u &&
@@ -1116,9 +1200,15 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         }
         result->cycles += run_result.cycles;
         result->instructions += run_result.instructions;
-        result->bus_cycles += run_result.bus_cycles;
-        result->internal_cycles += run_result.internal_cycles;
+        result->bus_cycles += cpu_bus_cycles;
+        result->internal_cycles += cpu_internal_cycles;
         result->wait_cycles += run_result.wait_cycles;
+        result->dma_startup_cycles += run_result.dma_startup_cycles;
+        result->dma_source_cycles += run_result.dma_source_cycles;
+        result->dma_destination_cycles +=
+            run_result.dma_destination_cycles;
+        result->dma_completed_units += run_result.dma_completed_units;
+        result->dma_pause_cycles += run_result.dma_pause_cycles;
         gbl_runner_phase8_observe(result, machine, &run_result);
         if (run_result.cycles != 0u || run_result.instructions != 0u ||
             run_result.power_cause != GBL_CPU_POWER_CAUSE_NONE) {
@@ -1193,6 +1283,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_runner_set_termination(result, "harness-failure");
     }
     (void)gbl_runner_write_trace_if_requested(options, result);
+    gbl_runner_phase9_observe(result, machine);
     if (has_committed_unit) {
         result->has_timer0_if_request = true;
         result->timer0_if_request =

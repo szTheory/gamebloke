@@ -12137,7 +12137,7 @@ static void test_trace_store_capacity(void)
         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_CLASS_NONSEQUENTIAL, 0u, 0u,
         false, GBL_DMA_VALUE_PROVENANCE_NONE,
         GBL_DMA_RESULT_CLASSIFICATION_NONE, GBL_DMA_DISPUTE_NONE,
-        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED
+        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED, 0u, 0u, 0u, 0u
     };
     gbl_trace_record short_records[4] = { prior, { 0 } };
     gbl_trace_record exact_records[4] = { prior, { 0 }, { 0 }, { 0 } };
@@ -12297,7 +12297,7 @@ static void test_trace_refill_capacity(void)
         GBL_BUS_CLASS_NONSEQUENTIAL, 0u, 0u, false,
         GBL_DMA_VALUE_PROVENANCE_NONE,
         GBL_DMA_RESULT_CLASSIFICATION_NONE, GBL_DMA_DISPUTE_NONE,
-        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED
+        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED, 0u, 0u, 0u, 0u
     };
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_trace_record records[2] = { prior, { 0 } };
@@ -12711,7 +12711,7 @@ static void test_trace_invalid_options(void)
         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_CLASS_NONSEQUENTIAL, 0u, 0u,
         false, GBL_DMA_VALUE_PROVENANCE_NONE,
         GBL_DMA_RESULT_CLASSIFICATION_NONE, GBL_DMA_DISPUTE_NONE,
-        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED
+        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED, 0u, 0u, 0u, 0u
     };
     gbl_trace_record records[2] = { marker, marker };
     gbl_trace_buffer trace = { records, 2u, 1u, UINT64_C(34) };
@@ -12856,7 +12856,7 @@ static void test_trace_sequence_and_untraced_parity(void)
         GBL_BUS_CLASS_NONSEQUENTIAL, 0u, 0u, false,
         GBL_DMA_VALUE_PROVENANCE_NONE,
         GBL_DMA_RESULT_CLASSIFICATION_NONE, GBL_DMA_DISPUTE_NONE,
-        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED
+        GBL_HARDWARE_QUALIFICATION_UNSPECIFIED, 0u, 0u, 0u, 0u
     };
     gbl_trace_record records[2] = { marker, { 0 } };
     gbl_trace_buffer trace = { records, 2u, 0u, UINT64_MAX };

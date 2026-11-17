@@ -70,6 +70,81 @@ static const char *gbl_runner_power_cause_name(gbl_cpu_power_cause cause)
     return NULL;
 }
 
+static const char *gbl_runner_bus_owner_name(gbl_machine_bus_owner owner)
+{
+    switch (owner) {
+    case GBL_MACHINE_BUS_OWNER_CPU: return "cpu";
+    case GBL_MACHINE_BUS_OWNER_DMA: return "dma";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_status_name(gbl_dma_status status)
+{
+    switch (status) {
+    case GBL_DMA_STATUS_NONE: return "none";
+    case GBL_DMA_STATUS_OK: return "ok";
+    case GBL_DMA_STATUS_IDLE: return "idle";
+    case GBL_DMA_STATUS_BUDGET_REFUSAL: return "budget_refusal";
+    case GBL_DMA_STATUS_INVALID_ARGUMENT: return "invalid_argument";
+    case GBL_DMA_STATUS_UNSUPPORTED: return "unsupported";
+    case GBL_DMA_STATUS_TIME_OVERFLOW: return "time_overflow";
+    case GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT: return "event_dispatch_limit";
+    case GBL_DMA_STATUS_UNIT_REFUSAL: return "unit_refusal";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_bus_class_name(gbl_bus_access_class access_class)
+{
+    switch (access_class) {
+    case GBL_BUS_CLASS_NONSEQUENTIAL: return "nonsequential";
+    case GBL_BUS_CLASS_SEQUENTIAL: return "sequential";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_provenance_name(
+    gbl_dma_value_provenance provenance)
+{
+    switch (provenance) {
+    case GBL_DMA_VALUE_PROVENANCE_NONE: return "none";
+    case GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED:
+        return "project-selected";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_classification_name(
+    gbl_dma_result_classification classification)
+{
+    switch (classification) {
+    case GBL_DMA_RESULT_CLASSIFICATION_NONE: return "none";
+    case GBL_DMA_RESULT_CLASSIFICATION_DISPUTED: return "disputed";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_dispute_name(gbl_dma_dispute_id dispute)
+{
+    switch (dispute) {
+    case GBL_DMA_DISPUTE_NONE: return NULL;
+    case GBL_DMA_DISPUTE_LATCH: return "disp-dma-latch";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_qualification_name(
+    gbl_hardware_qualification qualification)
+{
+    switch (qualification) {
+    case GBL_HARDWARE_QUALIFICATION_UNSPECIFIED: return "UNSPECIFIED";
+    case GBL_HARDWARE_QUALIFICATION_UNKNOWN: return "UNKNOWN";
+    case GBL_HARDWARE_QUALIFICATION_QUALIFIED: return "QUALIFIED";
+    }
+    return NULL;
+}
+
 static bool gbl_runner_json_string(FILE *output, const char *value)
 {
     static const char hex[] = "0123456789abcdef";
@@ -113,20 +188,79 @@ static bool gbl_runner_json_string(FILE *output, const char *value)
 static bool gbl_runner_trace_record_write(FILE *output,
                                           const gbl_trace_record *record)
 {
+    const char *dma_status = gbl_runner_dma_status_name(record->dma_status);
+    const char *owner = gbl_runner_bus_owner_name(record->bus_owner);
+    const char *source_sequence =
+        gbl_runner_bus_class_name(record->dma_source_sequence);
+    const char *destination_sequence =
+        gbl_runner_bus_class_name(record->dma_destination_sequence);
+    const char *provenance =
+        gbl_runner_dma_provenance_name(record->dma_value_provenance);
+    const char *classification =
+        gbl_runner_dma_classification_name(
+            record->dma_result_classification);
+    const char *dispute = gbl_runner_dma_dispute_name(record->dma_dispute);
+    const char *qualification = gbl_runner_qualification_name(
+        record->dma_hardware_qualification);
     const int written = fprintf(
         output,
         "{\"sequence\":\"%" PRIu64 "\",\"guest_cycle\":\"%" PRIu64
         "\",\"category\":%u,\"instruction_address\":\"0x%08" PRIx32
         "\",\"opcode\":\"0x%08" PRIx32 "\",\"address\":\"0x%08" PRIx32
         "\",\"value\":\"0x%08" PRIx32 "\",\"width\":%u,"
-        "\"access_class\":%u,\"bus_outcome\":%u,\"exception_kind\":%u}\n",
+        "\"access_class\":%u,\"bus_outcome\":%u,\"exception_kind\":%u",
         record->sequence, record->guest_cycle, (unsigned int)record->category,
         record->instruction_address, record->opcode, record->address,
         record->value, (unsigned int)record->width,
         (unsigned int)record->access_class, (unsigned int)record->bus_outcome,
         (unsigned int)record->exception_kind);
 
-    return written >= 0;
+    if (written < 0) {
+        return false;
+    }
+    if (record->category == GBL_TRACE_DMA) {
+        if (owner == NULL || dma_status == NULL || source_sequence == NULL ||
+            destination_sequence == NULL || provenance == NULL ||
+            classification == NULL || qualification == NULL ||
+            record->dma_channel >= GBL_DMA_CHANNEL_COUNT ||
+            fprintf(output,
+                    ",\"dma\":{\"owner\":\"%s\",\"channel\":%u,"
+                    "\"status\":\"%s\",\"source_address\":\"0x%08" PRIX32
+                    "\",\"destination_address\":\"0x%08" PRIX32
+                    "\",\"value\":\"0x%08" PRIX32
+                    "\",\"width\":%u,\"startup_cycles\":\"%" PRIu64
+                    "\",\"source_cycles\":\"%" PRIu64
+                    "\",\"destination_cycles\":\"%" PRIu64
+                    "\",\"source_sequence\":\"%s\","
+                    "\"destination_sequence\":\"%s\","
+                    "\"remaining\":%" PRIu32 ",\"completed\":\"%" PRIu64
+                    "\",\"used_channel_latch\":%s,"
+                    "\"value_provenance\":\"%s\","
+                    "\"classification\":\"%s\",\"dispute_id\":",
+                    owner, (unsigned int)record->dma_channel, dma_status,
+                    record->dma_source_address,
+                    record->dma_destination_address, record->dma_value,
+                    (unsigned int)record->dma_width,
+                    record->dma_startup_cycles, record->dma_source_cycles,
+                    record->dma_destination_cycles, source_sequence,
+                    destination_sequence, record->dma_remaining,
+                    record->dma_completed,
+                    record->dma_used_channel_latch ? "true" : "false",
+                    provenance, classification) < 0) {
+            return false;
+        }
+        if (dispute == NULL) {
+            if (fputs("null", output) == EOF) return false;
+        } else if (!gbl_runner_json_string(output, dispute)) {
+            return false;
+        }
+        if (fputs(",\"hardware_qualification\":", output) == EOF ||
+            !gbl_runner_json_string(output, qualification) ||
+            fputc('}', output) == EOF) {
+            return false;
+        }
+    }
+    return fputs("}\n", output) != EOF;
 }
 
 bool gbl_runner_write_trace(const char *path,
@@ -185,7 +319,9 @@ static bool gbl_runner_write_limits(FILE *output,
         "ARM7TDMI ARMv4T instruction families implemented with explicit project policies; full original diagnostics pending",
         "bus costs and Timer 0 behavior use project-selected model policy, not hardware-qualified timing",
         "Timer 0 IF is a device request; CPU IRQ samples and entry are project-model observations, while BIOS handlers and exact GBA IRQ latency are unqualified",
-        "BIOS provider none; DMA, active display and audio, physical input, and host presentation are not modeled",
+        "BIOS provider none; DMA is limited to the selected immediate model, while PPU/display, audio, physical input, and host presentation are not modeled",
+        "WAITCNT Game Pak rules are manual-backed; other region costs are project-selected, the 128 KiB boundary is community-sourced, and hardware qualification is UNKNOWN",
+        "Immediate DMA is modeled; PPU/audio trigger producers and Prefetch are unmodeled, while startup conversion and retained-channel-latch behavior remain project-selected",
         "result does not establish hardware accuracy or broad game compatibility",
         "SHA-256 establishes byte identity only, not permission or redistribution rights"
     };
@@ -342,13 +478,150 @@ static bool gbl_runner_write_phase8(FILE *output,
     return true;
 }
 
+static bool gbl_runner_write_phase9(
+    FILE *output, const gbl_runner_result *result)
+{
+    const gbl_runner_phase9_observation *obs = &result->phase9;
+    size_t index;
+
+    if (fputs("{\"model\":\"gamebloke-dma-observation-1\",\"observed\":",
+              output) == EOF ||
+        fputs(obs->observed ? "true" : "false", output) == EOF ||
+        fputs(",\"waitcnt\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (fprintf(output, "%u", (unsigned int)obs->waitcnt) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"bus_owner\":", output) == EOF) return false;
+    if (obs->observed) {
+        const char *owner = gbl_runner_bus_owner_name(obs->bus_owner);
+
+        if (owner == NULL || !gbl_runner_json_string(output, owner)) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"cpu_paused\":", output) == EOF) return false;
+    if (obs->observed) {
+        if (fputs(obs->bus_owner == GBL_MACHINE_BUS_OWNER_DMA ? "true"
+                                                               : "false",
+                  output) == EOF ||
+            fprintf(output, ",\"machine_cycles\":\"%" PRIu64 "\"",
+                    obs->machine_cycles) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"machine_cycles\":null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"channels\":", output) == EOF) return false;
+    if (obs->observed) {
+        if (fputc('[', output) == EOF) return false;
+        for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+            const gbl_dma_channel_state *channel = &obs->channels[index];
+
+            if ((index != 0u && fputc(',', output) == EOF) ||
+                fprintf(output,
+                        "{\"channel\":%zu,\"source_address\":\"0x%08" PRIX32
+                        "\",\"destination_address\":\"0x%08" PRIX32
+                        "\",\"current_source\":\"0x%08" PRIX32
+                        "\",\"current_destination\":\"0x%08" PRIX32
+                        "\",\"read_latch\":\"0x%08" PRIX32
+                        "\",\"count\":%u,\"control\":%u,"
+                        "\"remaining\":%" PRIu32
+                        ",\"completed_units\":\"%" PRIu64
+                        "\",\"pending\":%s,\"armed\":%s,"
+                        "\"active\":%s,\"startup_complete\":%s}",
+                        index, channel->source_address,
+                        channel->destination_address, channel->current_source,
+                        channel->current_destination, channel->read_latch,
+                        (unsigned int)channel->count,
+                        (unsigned int)channel->control, channel->remaining,
+                        channel->completed_units,
+                        channel->pending ? "true" : "false",
+                        channel->armed ? "true" : "false",
+                        channel->active ? "true" : "false",
+                        channel->startup_complete ? "true" : "false") < 0) {
+                return false;
+            }
+        }
+        if (fputc(']', output) == EOF) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fprintf(output,
+                ",\"timing\":{\"dma_startup_cycles\":\"%" PRIu64
+                "\",\"dma_source_cycles\":\"%" PRIu64
+                "\",\"dma_destination_cycles\":\"%" PRIu64
+                "\",\"dma_completed_units\":\"%" PRIu64
+                "\",\"dma_pause_cycles\":\"%" PRIu64 "\"},"
+                "\"waitcnt_policy\":{\"manual_waits\":"
+                "\"nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2\","
+                "\"other_region_costs\":\"project-selected\","
+                "\"128k_boundary_source\":\"gbatek-3.06-community-documentation\","
+                "\"hardware_qualification\":\"UNKNOWN\"},"
+                "\"startup_policy\":{\"cycles_per_request\":\"2\","
+                "\"provenance\":\"project-selected\","
+                "\"manual_activation_delay\":\"described; conversion is selected\","
+                "\"hardware_qualification\":\"UNKNOWN\"},"
+                "\"latch_policy\":{\"policy\":\"per-channel-retained-latch\","
+                "\"provenance\":\"project-selected\","
+                "\"fallback_observed\":",
+                result->dma_startup_cycles, result->dma_source_cycles,
+                result->dma_destination_cycles, result->dma_completed_units,
+                result->dma_pause_cycles) < 0) {
+        return false;
+    }
+    if (obs->latch_fallback_known) {
+        if (fputs(obs->latch_fallback_observed ? "true" : "false",
+                  output) == EOF) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"classification\":", output) == EOF) return false;
+    if (obs->latch_fallback_known && obs->latch_fallback_observed) {
+        if (fputs("\"disputed\",\"dispute_id\":\"disp-dma-latch\","
+                  "\"hardware_qualification\":\"UNKNOWN\"},"
+                  "\"prefetch\":\"unmodeled\"}",
+                  output) == EOF) {
+            return false;
+        }
+    } else if (fputs("null,\"dispute_id\":null,"
+                     "\"hardware_qualification\":\"UNKNOWN\"},"
+                     "\"prefetch\":\"unmodeled\"}",
+                     output) == EOF) {
+        return false;
+    }
+    return true;
+}
+
 bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
 {
     const char *reason;
     size_t index;
+    bool latch_dispute;
+    bool metadata_has_latch_dispute = false;
 
     if (output == NULL || result == NULL) {
         return false;
+    }
+    latch_dispute = result->phase9.latch_fallback_known &&
+                    result->phase9.latch_fallback_observed;
+    if (result->metadata != NULL) {
+        for (index = 0u; index < result->metadata->dispute_count; ++index) {
+            if (strcmp(result->metadata->dispute_ids[index],
+                       "disp-dma-latch") == 0) {
+                metadata_has_latch_dispute = true;
+                break;
+            }
+        }
     }
     reason = result->reason[0] == '\0' ? NULL : result->reason;
     if (fputs("{\"schema\":\"gamebloke.result/1\",\"fixture\":{\"id\":",
@@ -432,8 +705,17 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
             }
         }
     }
+    if (latch_dispute && !metadata_has_latch_dispute) {
+        if ((result->metadata != NULL &&
+             result->metadata->dispute_count != 0u &&
+             fputc(',', output) == EOF) ||
+            !gbl_runner_json_string(output, "disp-dma-latch")) {
+            return false;
+        }
+    }
     if (fputs("],\"labels\":", output) == EOF) return false;
-    if (result->metadata != NULL && result->metadata->dispute_count != 0u) {
+    if ((result->metadata != NULL &&
+         result->metadata->dispute_count != 0u) || latch_dispute) {
         if (fputs("[\"disputed\"]", output) == EOF) return false;
     } else if (fputs("[]", output) == EOF) {
         return false;
@@ -485,8 +767,17 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
         !gbl_runner_json_string(output, "project-model-only") ||
         fprintf(output, ",\"bus_cycles\":\"%" PRIu64
                        "\",\"internal_cycles\":\"%" PRIu64
+                       "\",\"wait_cycles\":\"%" PRIu64
+                       "\",\"dma_startup_cycles\":\"%" PRIu64
+                       "\",\"dma_source_cycles\":\"%" PRIu64
+                       "\",\"dma_destination_cycles\":\"%" PRIu64
+                       "\",\"dma_completed_units\":\"%" PRIu64
+                       "\",\"dma_pause_cycles\":\"%" PRIu64
                        "\"},\"timer0\":{\"if_request\":",
-                result->bus_cycles, result->internal_cycles) < 0) {
+                result->bus_cycles, result->internal_cycles,
+                result->wait_cycles, result->dma_startup_cycles,
+                result->dma_source_cycles, result->dma_destination_cycles,
+                result->dma_completed_units, result->dma_pause_cycles) < 0) {
         return false;
     }
     if (result->has_timer0_if_request) {
@@ -499,6 +790,8 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
     }
     if (fputs("},\"phase8\":", output) == EOF ||
         !gbl_runner_write_phase8(output, &result->phase8) ||
+        fputs(",\"phase9\":", output) == EOF ||
+        !gbl_runner_write_phase9(output, result) ||
         fputs(",\"termination\":", output) == EOF ||
         !gbl_runner_json_string(output, result->termination)) {
         return false;

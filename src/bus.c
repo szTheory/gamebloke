@@ -1001,6 +1001,10 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     result->status = GBL_DMA_STATUS_OK;
     result->owner = GBL_MACHINE_BUS_OWNER_DMA;
     result->channel = channel;
+    result->source_address = source_address;
+    result->destination_address = destination_address;
+    result->value = value;
+    result->width = width;
     result->source_cycles = source_cost.cycles;
     result->destination_cycles = destination_cost.cycles;
     result->source_sequence = source_sequence;

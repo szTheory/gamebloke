@@ -78,6 +78,16 @@ typedef struct gbl_runner_phase8_observation {
     uint64_t wait_cycles;
 } gbl_runner_phase8_observation;
 
+typedef struct gbl_runner_phase9_observation {
+    bool observed;
+    uint16_t waitcnt;
+    gbl_machine_bus_owner bus_owner;
+    uint64_t machine_cycles;
+    gbl_dma_channel_state channels[GBL_DMA_CHANNEL_COUNT];
+    bool latch_fallback_known;
+    bool latch_fallback_observed;
+} gbl_runner_phase9_observation;
+
 typedef enum gbl_runner_status {
     GBL_RUNNER_PASS = 0,
     GBL_RUNNER_GUEST_FAIL,
@@ -114,10 +124,16 @@ typedef struct gbl_runner_result {
     uint64_t bus_cycles;
     uint64_t internal_cycles;
     uint64_t wait_cycles;
+    uint64_t dma_startup_cycles;
+    uint64_t dma_source_cycles;
+    uint64_t dma_destination_cycles;
+    uint64_t dma_completed_units;
+    uint64_t dma_pause_cycles;
     bool input_timeline_present;
     bool has_input_timeline_sha256;
     char input_timeline_sha256[GBL_SHA256_HEX_CAPACITY];
     gbl_runner_phase8_observation phase8;
+    gbl_runner_phase9_observation phase9;
     bool has_timer0_if_request;
     bool timer0_if_request;
     char termination[64];

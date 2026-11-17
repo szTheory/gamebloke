@@ -573,6 +573,10 @@ typedef struct gbl_trace_record {
     gbl_dma_result_classification dma_result_classification;
     gbl_dma_dispute_id dma_dispute;
     gbl_hardware_qualification dma_hardware_qualification;
+    uint32_t dma_source_address;
+    uint32_t dma_destination_address;
+    uint32_t dma_value;
+    uint8_t dma_width;
 } gbl_trace_record;
 
 /* The host owns this append-only output. `count` is the number of valid records
@@ -672,6 +676,10 @@ typedef struct gbl_dma_step_result {
     gbl_dma_result_classification result_classification;
     gbl_dma_dispute_id dispute;
     gbl_hardware_qualification hardware_qualification;
+    uint32_t source_address;
+    uint32_t destination_address;
+    uint32_t value;
+    uint8_t width;
 } gbl_dma_step_result;
 
 /* WAITCNT-aware quote shared by CPU and DMA. Its reset-state values are
