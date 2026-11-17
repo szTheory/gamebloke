@@ -24,7 +24,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 ## Phases
 
 - [x] **Phase 7: Time Authority and Timer 0 Polling Proof** - One machine-time path, explicit cycle-accounting scope, four timers, and a BIOS-free polling guest with cheap boundary controls. (completed 2026-11-16)
-- [ ] **Phase 8: IRQ, HALT, and Timestamped Input** - Device requests, CPU interrupt acceptance, HALT wake, and logical keypad events remain separately observable.
+- [x] **Phase 8: IRQ, HALT, and Timestamped Input** - Device requests, CPU interrupt acceptance, HALT wake, and logical keypad events remain separately observable. (completed 2026-11-17)
 - [ ] **Phase 9: Bus Timing, DMA, and Arbitration** - WAITCNT and declared prefetch scope feed timed DMA arbitration while the CPU pauses and devices continue.
 - [ ] **Phase 10: PPU Timing and First Pixels** - PPU status/trigger boundaries and raw mode-3 output support the original polling Playable 0 scenario.
 
@@ -75,7 +75,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   2. HALT wakes at the declared event boundary independently of IRQ acceptance. Timers and other enabled devices continue while the CPU waits; STOP and deadlock have distinct `GUEST_STOP` causes.
   3. The same timestamped logical keypad timeline produces the same active-low key state, KEYCNT condition results, and request transitions, including event-boundary cases. No host device discovery or host clock participates in the machine result.
   4. Guest progress, elapsed machine time, device request state, CPU acceptance/entry, and wake cause remain separately inspectable, so a wake or request alone cannot be reported as handler execution.
-**Plans**: 7/7 plans executed
+**Plans**: 7/7 plans complete
 **Wave 1**
 - [x] 08-01-PLAN.md
 
@@ -112,13 +112,26 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 **Plans**: 8 plans
 
 Plans:
+**Wave 1**
 - [ ] 09-01-PLAN.md — Timed DMA/WAITCNT production tracer and whole-unit refusal
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 09-02-PLAN.md — Complete WAITCNT matrix and transactional CPU variable costs
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 09-03-PLAN.md — Four-channel DMA arbitration, events, masks and disputed latches
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 09-04-PLAN.md — Production runner timing, ownership and evidence results
 - [ ] 09-05-PLAN.md — Deterministic DMA replay, reset, interleave and semantic controls
+
+**Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 09-06-PLAN.md — Profile/runtime consistency and open-dispute gates
+
+**Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 09-07-PLAN.md — Exact fast selection, cheap ordering and lane inventories
+
+**Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 09-08-PLAN.md — Developer verification and final measured local evidence
 
 **Research flag**: WAITCNT, sequential transitions, prefetch scope, DMA startup/arbitration timing, and the per-channel latch dispute require primary-source and bounded differential research. PPU-triggered DMA is integrated in Phase 10.
@@ -146,7 +159,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
-| 8. IRQ, HALT, and Timestamped Input | 7/7 | In Progress | - |
+| 8. IRQ, HALT, and Timestamped Input | 7/7 | Complete    | 2026-11-17 |
 | 9. Bus Timing, DMA, and Arbitration | 0/8 | Planned | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
 

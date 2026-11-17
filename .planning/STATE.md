@@ -2,48 +2,48 @@
 gsd_state_version: "1.0"
 milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
-current_phase: 8
-current_phase_name: IRQ, HALT, and Timestamped Input
-current_plan: 7
+current_phase: 09
+current_phase_name: Bus Timing, DMA, and Arbitration
+current_plan: Not started
 status: executing
-stopped_at: Completed 08-07-PLAN.md
-last_updated: "2026-11-17T03:13:46.380Z"
+stopped_at: Phase 9 context gathered; planning held for correct phase branch
+last_updated: "2026-11-17T15:27:30.043Z"
 last_activity: 2026-11-17
-last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: 8b58efe4ca5e6decee524f83c29d703d7d36dd61
+last_activity_desc: Phase 8 complete, transitioned to Phase 9
+state_head: 90b78d70c55037a7e0a94d8ff5fcb635e8e6e42d
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 14
+  completed_phases: 2
+  total_plans: 22
   completed_plans: 14
-  percent: 25
+  percent: 50
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-16)
+See: .planning/PROJECT.md (updated 2026-11-17)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v2.0 Time, Interrupts, DMA, First Pixels (a GSD milestone label, not a software version)
-**Current focus:** Phase 08 — IRQ, HALT, and Timestamped Input
+**Current focus:** Phase 09 — Bus Timing, DMA, and Arbitration
 
 ## Current Position
 
-Phase: 8 (IRQ, HALT, and Timestamped Input) — IN PROGRESS
-Current Plan: 7
-Total Plans in Phase: 7
-Status: In progress; Plans 08-01 through 08-06 complete and Plan 08-07 next
-Last activity: 2026-11-17 — Plan 08-06 execution complete
+Phase: 09 (Bus Timing, DMA, and Arbitration) — READY TO EXECUTE
+Current Plan: Not started
+Total Plans in Phase: 8
+Status: Ready to execute
+Last activity: 2026-11-17 — Phase 8 complete; Phase 9 is ready for discussion
 
-Progress: [███░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 70
+- Total plans completed: 77
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -57,6 +57,7 @@ Progress: [███░░░░░░░] 25%
 | 4 | 13 | - | - |
 | 05 | 25 | - | - |
 | 07 | 7 | - | - |
+| 8 | 7 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -395,11 +396,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-17T03:13:46.322Z
-Stopped at: Completed 08-07-PLAN.md
-Resume file: None
+Last session: 2026-11-17T13:25:51.022Z
+Stopped at: Phase 9 context gathered; planning held for correct phase branch
+Resume file: .planning/phases/09-bus-timing-dma-and-arbitration/09-CONTEXT.md
 
 ## Operator Next Steps
 
-- Continue Phase 8 Plan 08-07 verification and evidence closeout; Plans 08-01 through 08-06 are complete.
-- Preserve existing hosted/publication stops. No hosted rerun or publication follows from the roadmap or the two carried evidence gaps.
+- Discuss Phase 09 before planning it; its roadmap goal is WAITCNT-aware bus costs and deterministic DMA arbitration.
+- Preserve the hosted/publication stops and open DIAG-04/DET-02 carryovers. Phase 8 completion does not close or renew them.

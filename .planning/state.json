@@ -6,17 +6,17 @@
     {
       "number": "7",
       "name": "Time Authority and Timer 0 Polling Proof",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "8",
       "name": "IRQ, HALT, and Timestamped Input",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "9",
       "name": "Bus Timing, DMA, and Arbitration",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "10",
@@ -26,8 +26,8 @@
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 1 of 4 · 0% · ready to verify"
+    "label": "Advance to the next step",
+    "reason": "Phase 3 of 4 · 50% · executing"
   },
-  "updated_at": "2026-11-16T14:43:47.687Z"
+  "updated_at": "2026-11-17T15:27:30.061Z"
 }
