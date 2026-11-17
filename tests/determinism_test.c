@@ -2669,10 +2669,14 @@ static bool gbl_test_time_authority_observe(const char *mode,
     gbl_trace_buffer trace = {
         trace_records, GBL_DETERMINISM_TRACE_CAPACITY, 0u, 0u
     };
-    gbl_run_result total = { GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT,
-                             0u, 0u, 0u, 0u };
-    gbl_run_result part = { GBL_RUN_PROGRESS, GBL_RUN_REASON_UNIT_LIMIT,
-                            0u, 0u, 0u, 0u };
+    gbl_run_result total = {
+        .termination = GBL_RUN_PROGRESS,
+        .reason = GBL_RUN_REASON_UNIT_LIMIT
+    };
+    gbl_run_result part = {
+        .termination = GBL_RUN_PROGRESS,
+        .reason = GBL_RUN_REASON_UNIT_LIMIT
+    };
     gbl_run_options options = {
         UINT64_C(1000), UINT64_C(1), GBL_TRACE_CATEGORY_MASK, &trace
     };
@@ -2979,8 +2983,28 @@ static int gbl_test_time_authority_main(const char *mode,
     return 1;
 }
 
+static int gbl_test_phase8_controls_main(void)
+{
+    gbl_machine clean = { 0 };
+    gbl_machine power_mutant;
+
+    clean.power_state = GBL_MACHINE_POWER_RUNNING;
+    power_mutant = clean;
+    power_mutant.power_state = GBL_MACHINE_POWER_HALTED;
+    if (gbl_test_canonical_equal(&clean, &power_mutant)) {
+        fputs("FAIL determinism.phase8.controls: power-state-mutation-accepted\n",
+              stderr);
+        return 1;
+    }
+    puts("PASS determinism.phase8.controls: power-state mutation rejected");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "phase8-controls") == 0) {
+        return gbl_test_phase8_controls_main();
+    }
     if (argc == 4 && strcmp(argv[1], "time-authority") == 0) {
         return gbl_test_time_authority_main(argv[2], argv[3]);
     }

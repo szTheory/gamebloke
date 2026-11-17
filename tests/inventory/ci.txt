@@ -134,6 +134,7 @@ cpu.tracer core,cpu,unit
 cpu.unit_boundaries core,cpu,unit
 determinism.interleave determinism,gate,integration
 determinism.interleave.controls determinism,gate,integration
+determinism.phase8.controls determinism,gate,integration
 determinism.repeat.controls determinism,gate,integration
 determinism.repeat.in_process determinism,gate,integration
 determinism.repeat.process determinism,gate,integration

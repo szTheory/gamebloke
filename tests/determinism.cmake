@@ -36,6 +36,10 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     NAME determinism.interleave.controls
     LABELS determinism gate integration
     COMMAND $<TARGET_FILE:determinism_test> interleave-controls)
+  gbl_add_test(
+    NAME determinism.phase8.controls
+    LABELS determinism gate integration
+    COMMAND $<TARGET_FILE:determinism_test> phase8-controls)
 
   foreach(case IN ITEMS repeat-process controls)
     if(case STREQUAL "controls")
