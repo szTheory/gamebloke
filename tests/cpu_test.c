@@ -15059,6 +15059,150 @@ static void test_cpu_refreshes_bus_quotes_from_waitcnt(void)
     gbl_machine_dispose(&machine);
 }
 
+static bool arm_loaded_pc_waitcnt_target(uint32_t target,
+                                         uint64_t cycle_budget,
+                                         uint64_t expected_cycles,
+                                         gbl_run_reason expected_reason)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_machine before;
+    gbl_trace_record records[4] = { 0 };
+    gbl_trace_record records_before[4];
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(20) };
+    const gbl_trace_buffer trace_before = trace;
+    gbl_run_result result = { 0 };
+    bool loaded;
+    bool ran = false;
+    bool matched;
+
+    make_empty_image(image);
+    write_word(image, 0x40u, UINT32_C(0xE1A0A00A));
+    write_word(image, 0x44u, UINT32_C(0xE1A0B00B));
+    loaded = machine_load(&machine, image);
+    memset(records, 0xA5, sizeof(records));
+    memcpy(records_before, records, sizeof(records_before));
+    if (loaded) {
+        machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        write_word(machine.iwram, 0x100u, target);
+        prepare_arm_instruction(&machine, UINT32_C(0xE590F000),
+                                TEST_CPSR_SYSTEM);
+        before = machine;
+        ran = run_traced_units(
+            &machine, cycle_budget, 1u,
+            GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace, &result);
+    }
+    if (expected_reason == GBL_RUN_REASON_CYCLE_BUDGET) {
+        matched = loaded && ran &&
+                  result.termination == GBL_RUN_TIMEOUT &&
+                  result.reason == expected_reason && result.cycles == 0u &&
+                  result.instructions == 0u &&
+                  gbl_test_canonical_equal(&before, &machine) &&
+                  gbl_test_same_instance_identity_equal(&before, &machine) &&
+                  trace.count == trace_before.count &&
+                  trace.next_sequence == trace_before.next_sequence &&
+                  gbl_test_trace_equal(records, records_before, 4u);
+    } else {
+        matched = loaded && ran &&
+                  result.termination == GBL_RUN_PROGRESS &&
+                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+                  result.instructions == 1u &&
+                  result.cycles == expected_cycles &&
+                  result.bus_cycles == expected_cycles &&
+                  result.internal_cycles == 0u && trace.count == 4u &&
+                  trace.next_sequence == trace_before.next_sequence + 4u &&
+                  records[1].address == UINT32_C(0x03000100) &&
+                  records[1].value == target &&
+                  records[2].address == target &&
+                  records[3].address == target + UINT32_C(4) &&
+                  records[3].guest_cycle == expected_cycles &&
+                  machine.master_cycles == before.master_cycles +
+                                               expected_cycles &&
+                  machine.cpu.execution_address == target &&
+                  machine.cpu.pipeline[1].address == target + UINT32_C(4);
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return matched;
+}
+
+static void test_cpu_waitcnt_loaded_pc_cost(void)
+{
+    test_case(arm_loaded_pc_waitcnt_target(
+                  UINT32_C(0x08000040), UINT64_C(9), UINT64_C(9),
+                  GBL_RUN_REASON_NONE),
+              "LDR PC reserves the exact reset WAITCNT cost in WS0");
+    test_case(arm_loaded_pc_waitcnt_target(
+                  UINT32_C(0x0A000040), UINT64_C(10), UINT64_C(10),
+                  GBL_RUN_REASON_NONE),
+              "LDR PC reserves the exact reset WAITCNT cost in WS1");
+    test_case(arm_loaded_pc_waitcnt_target(
+                  UINT32_C(0x0C000040), UINT64_C(13), UINT64_C(13),
+                  GBL_RUN_REASON_NONE),
+              "LDR PC reserves the exact reset WAITCNT cost in WS2");
+    test_case(arm_loaded_pc_waitcnt_target(
+                  UINT32_C(0x08000040), UINT64_C(8), UINT64_C(9),
+                  GBL_RUN_REASON_CYCLE_BUDGET),
+              "LDR PC one-cycle-short variable refill refuses before source read");
+}
+
+static void test_dma_waitcnt_quote_agreement(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_bus_result waitcnt_write;
+    gbl_dma_step_result dma_step = { 0 };
+    gbl_cycle_cost cpu_quote = { 0u, GBL_CYCLE_COST_PROJECT_SELECTED, NULL };
+    const uint32_t rom_address = UINT32_C(0x08000040);
+    bool loaded;
+    bool matched;
+
+    make_empty_image(image);
+    loaded = machine_load(&machine, image);
+    waitcnt_write = loaded
+        ? gbl_bus_write(&machine, UINT32_C(0x04000204), 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, UINT16_C(0x0008))
+        : (gbl_bus_result){ 0 };
+    if (loaded && waitcnt_write.status == GBL_BUS_STATUS_OK) {
+        machine.dma_channels[0].source_address = rom_address;
+        machine.dma_channels[0].destination_address = UINT32_C(0x03000020);
+        machine.dma_channels[0].count = 1u;
+        machine.dma_channels[0].remaining = 1u;
+        machine.dma_channels[0].active = true;
+        machine.dma_channels[0].startup_complete = true;
+        machine.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    }
+    matched = loaded && waitcnt_write.status == GBL_BUS_STATUS_OK &&
+              gbl_bus_quote(&machine, rom_address, GBL_BUS_DIRECTION_READ,
+                            2u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                            GBL_BUS_ROLE_DATA, &cpu_quote) &&
+              cpu_quote.cycles == UINT64_C(3);
+    if (matched) {
+        gbl_dma_channel_state *channel = &machine.dma_channels[3];
+
+        channel->source_address = rom_address;
+        channel->destination_address = UINT32_C(0x03000020);
+        channel->current_source = rom_address;
+        channel->current_destination = UINT32_C(0x03000020);
+        channel->count = 1u;
+        channel->remaining = 1u;
+        channel->control = UINT16_C(0x8000);
+        channel->active = true;
+        channel->startup_complete = true;
+        machine.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    }
+    matched = matched &&
+              gbl_machine_dma_step(&machine, UINT64_C(4), &dma_step) ==
+                  GBL_DMA_STATUS_OK &&
+              dma_step.unit_completed &&
+              dma_step.source_cycles == cpu_quote.cycles &&
+              dma_step.destination_cycles == UINT64_C(1);
+    test_case(matched,
+              "CPU quote and DMA source read share the contextual WAITCNT authority");
+    gbl_machine_dispose(&machine);
+}
+
 typedef void (*cpu_test_function)(void);
 
 typedef struct cpu_test_group {
@@ -15173,6 +15317,12 @@ static const cpu_test_function dma_refusal_functions[] = {
     test_dma_refusal_transactions,
     test_dma_cpu_trace_refusals,
     test_cpu_refreshes_bus_quotes_from_waitcnt
+};
+static const cpu_test_function waitcnt_cpu_functions[] = {
+    test_cpu_waitcnt_loaded_pc_cost
+};
+static const cpu_test_function dma_waitcnt_functions[] = {
+    test_dma_waitcnt_quote_agreement
 };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
@@ -15417,6 +15567,8 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("dma.tracer", 1u, dma_tracer_functions),
     CPU_TEST_GROUP("dma.refusal", 15u, dma_refusal_functions),
+    CPU_TEST_GROUP("waitcnt.cpu", 4u, waitcnt_cpu_functions),
+    CPU_TEST_GROUP("dma.waitcnt", 1u, dma_waitcnt_functions),
     CPU_TEST_GROUP("exceptions", 17u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
     CPU_TEST_GROUP("no_bios", 2u, no_bios_functions),
