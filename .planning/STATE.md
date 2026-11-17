@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 8
 current_phase_name: IRQ, HALT, and Timestamped Input
-current_plan: 5
+current_plan: 6
 status: executing
-stopped_at: Completed 08-04-PLAN.md
-last_updated: "2026-11-16T23:39:06.587Z"
+stopped_at: Completed 08-05-PLAN.md
+last_updated: "2026-11-17T00:28:28.677Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: f337de7f035712afaa882817cc42da9ac7d84df3
+state_head: 9a25d73c2fc864ac174ba1216ab067b914748d4a
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
   percent: 25
 ---
 
@@ -32,10 +32,10 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 8 (IRQ, HALT, and Timestamped Input) — IN PROGRESS
-Current Plan: 5
+Current Plan: 6
 Total Plans in Phase: 7
-Status: In progress; Plans 08-01 through 08-04 complete and Plan 08-05 next
-Last activity: 2026-11-16 — Plan 08-03 execution complete
+Status: In progress; Plans 08-01 through 08-05 complete and Plan 08-06 next
+Last activity: 2026-11-16 — Plan 08-05 execution complete
 
 Progress: [███░░░░░░░] 25%
 
@@ -141,6 +141,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 08 P02 | 32min | 2 tasks | 11 files |
 | Phase 08 P03 | 19 min | 2 tasks | 8 files |
 | Phase 08 P04 | 45m | 2 tasks | 11 files |
+| Phase 8 P5 | 37min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -336,6 +337,8 @@ Recent decisions affecting current work:
 - [Phase 08]: The Phase 8 result tuple remains an optional gamebloke.result/1 extension so historical documents remain valid.
 - [Phase 08]: Sampled IF/IE/IME/CPSR eligibility, current IRQ registers, wake, entry, and handler success remain distinct observations.
 - [Phase 08]: IRQ and timestamped input evidence remains project-model-only; exact GBA IRQ latency and BIOS handler behavior are unqualified.
+- [Phase 8]: Keep --input-script parsing in fixed local storage with a 16 KiB cap plus one-byte preflight probe and 256-record limit.
+- [Phase 8]: Describe Plan 08-05 replay results as deterministic model evidence, not hardware or physical-controller qualification.
 
 ### Pending Todos
 
@@ -386,8 +389,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-16T23:39:06.530Z
-Stopped at: Completed 08-04-PLAN.md
+Last session: 2026-11-17T00:28:28.618Z
+Stopped at: Completed 08-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

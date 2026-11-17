@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 4
 waived_count: 0
-fixed_count: 22
-total_count: 26
-last_updated: 2026-11-16T13:37:35.583Z
+fixed_count: 23
+total_count: 27
+last_updated: 2026-11-17T00:28:45.212Z
 ---
 
 # Broken Windows Ledger
@@ -41,6 +41,7 @@ last_updated: 2026-11-16T13:37:35.583Z
 | 24 | 07 | deviation | src/machine.c |  | Ordered time preparation now advances by the shared quoted bus-operation cycle count instead of an independent fixed-one-cycle literal; canonical workflow passes. | fixed |  | 2026-11-16T07:56:10.142Z | 2026-11-16T07:56:39.776Z |
 | 25 | 07 | deviation | src/cpu.c |  | Exception units now use the shared calculator for their internal-cycle attribution; determinism control and canonical workflow pass. | fixed |  | 2026-11-16T07:56:14.967Z | 2026-11-16T07:56:39.863Z |
 | 26 | 07 | skipped-test | tests/diagnostics.cmake | 37 | The local full workflow skipped 726 ARM/Thumb diagnostic cases because arm-toolchain-absent; DIAG-04 remains open. | open |  | 2026-11-16T13:37:35.583Z |  |
+| 27 | 8 | deviation | tests/determinism_test.c |  | Converted stale positional run-result initializers so the Phase 8 determinism target builds with warnings as errors. | fixed |  | 2026-11-17T00:28:03.040Z | 2026-11-17T00:28:45.212Z |
 
 ````json
 [
@@ -380,6 +381,19 @@ last_updated: 2026-11-16T13:37:35.583Z
     "reason": "",
     "recorded_at": "2026-11-16T13:37:35.583Z",
     "resolved_at": null,
+    "milestone": "v2.0"
+  },
+  {
+    "id": 27,
+    "kind": "deviation",
+    "phase": "8",
+    "file": "tests/determinism_test.c",
+    "line": null,
+    "description": "Converted stale positional run-result initializers so the Phase 8 determinism target builds with warnings as errors.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-17T00:28:03.040Z",
+    "resolved_at": "2026-11-17T00:28:45.212Z",
     "milestone": "v2.0"
   }
 ]

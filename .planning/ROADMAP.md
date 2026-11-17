@@ -75,7 +75,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   2. HALT wakes at the declared event boundary independently of IRQ acceptance. Timers and other enabled devices continue while the CPU waits; STOP and deadlock have distinct `GUEST_STOP` causes.
   3. The same timestamped logical keypad timeline produces the same active-low key state, KEYCNT condition results, and request transitions, including event-boundary cases. No host device discovery or host clock participates in the machine result.
   4. Guest progress, elapsed machine time, device request state, CPU acceptance/entry, and wake cause remain separately inspectable, so a wake or request alone cannot be reported as handler execution.
-**Plans**: 4/7 plans executed
+**Plans**: 5/7 plans executed
 **Wave 1**
 - [x] 08-01-PLAN.md
 
@@ -89,7 +89,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 - [x] 08-04-PLAN.md
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 08-05-PLAN.md
+- [x] 08-05-PLAN.md
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 08-06-PLAN.md
@@ -135,7 +135,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
-| 8. IRQ, HALT, and Timestamped Input | 4/7 | In Progress | - |
+| 8. IRQ, HALT, and Timestamped Input | 5/7 | In Progress | - |
 | 9. Bus Timing, DMA, and Arbitration | 0/TBD | Not started | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
 
