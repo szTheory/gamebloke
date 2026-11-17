@@ -104,6 +104,8 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
         left->interrupt_master_enable != right->interrupt_master_enable ||
         left->waitcnt != right->waitcnt ||
         left->bus_owner != right->bus_owner ||
+        left->cpu.force_nonsequential_fetch !=
+            right->cpu.force_nonsequential_fetch ||
         left->pressed_keys != right->pressed_keys ||
         left->key_control != right->key_control ||
         left->key_condition != right->key_condition ||
@@ -256,6 +258,8 @@ static bool gbl_test_cpu_equal(const gbl_cpu_state *left,
         left->cpsr != right->cpsr ||
         left->execution_address != right->execution_address ||
         left->next_fetch_sequential != right->next_fetch_sequential ||
+        left->force_nonsequential_fetch !=
+            right->force_nonsequential_fetch ||
         left->retired_instructions != right->retired_instructions ||
         left->stopped != right->stopped ||
         left->stop_reason != right->stop_reason ||
@@ -322,7 +326,8 @@ static inline bool gbl_test_cpu_is_direct_start(const gbl_cpu_state *cpu)
         cpu->pipeline[0].width != 0u || cpu->pipeline[0].valid ||
         cpu->pipeline[1].address != 0u || cpu->pipeline[1].opcode != 0u ||
         cpu->pipeline[1].width != 0u || cpu->pipeline[1].valid ||
-        cpu->next_fetch_sequential || cpu->retired_instructions != 0u ||
+        cpu->next_fetch_sequential || cpu->force_nonsequential_fetch ||
+        cpu->retired_instructions != 0u ||
         cpu->stopped || cpu->stop_reason != GBL_CPU_STOP_NONE ||
         cpu->last_exception.kind != GBL_EXCEPTION_NONE ||
         cpu->last_exception.current_address != 0u ||
@@ -514,6 +519,8 @@ static uint64_t gbl_test_digest_cpu(uint64_t digest,
     }
     digest = gbl_test_digest_byte(
         digest, cpu->next_fetch_sequential ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, cpu->force_nonsequential_fetch ? 1u : 0u);
     digest = gbl_test_digest_u64(digest, cpu->retired_instructions);
     digest = gbl_test_digest_byte(digest, cpu->stopped ? 1u : 0u);
     digest = gbl_test_digest_u64(digest, (uint64_t)cpu->stop_reason);

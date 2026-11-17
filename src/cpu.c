@@ -107,6 +107,8 @@ typedef struct gbl_cpu_unit {
     bool thumb_state;
     bool asynchronous;
     bool fetch_address_from_result;
+    bool fetch_target_projected;
+    bool timing_prepared;
     bool multiple_transfer;
     bool restore_cpsr_from_spsr;
     uint8_t fetch_result_index;
@@ -186,15 +188,23 @@ static bool gbl_cpu_unit_cost(const gbl_machine *machine,
         return false;
     }
     for (index = 0u; index < unit->fetch_count; ++index) {
-        const uint32_t address = unit->fetch_address_from_result
-                                     ? 0u
-                                     : unit->fetch_address[index];
+        const bool unresolved = unit->fetch_address_from_result &&
+                                !unit->fetch_target_projected;
+        const uint32_t address = unresolved ? 0u
+                                             : unit->fetch_address[index];
+
+        /* Decode may create a symbolic loaded-PC refill. It has no final
+         * quote until candidate reads resolve its target. Keep this interim
+         * cost free of a fictitious one-cycle unmapped reservation; run-time
+         * preflight requires the target to be projected first. */
+        if (unresolved) {
+            continue;
+        }
         if (!gbl_cpu_add_bus_quote(&bus_total, machine,
                                    GBL_BUS_DIRECTION_READ, address,
                                    unit->fetch_width,
                                    unit->fetch_class[index],
-                                   GBL_BUS_ROLE_FETCH,
-                                   unit->fetch_address_from_result)) {
+                                   GBL_BUS_ROLE_FETCH, false)) {
             return false;
         }
     }
@@ -3242,6 +3252,9 @@ static bool gbl_cpu_decode(gbl_machine *machine, gbl_cpu_unit *unit)
 static bool gbl_cpu_preflight(const gbl_machine *machine,
                               const gbl_cpu_unit *unit,
                               uint64_t remaining_budget,
+                              const gbl_time_operation operations[
+                                  GBL_TIME_OPERATION_MAX],
+                              size_t operation_count,
                               gbl_run_reason *reason)
 {
     const bool has_data_access = unit->data_slot_count != 0u;
@@ -3257,10 +3270,63 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         return false;
     }
     *reason = GBL_RUN_REASON_NONE;
-    if (!gbl_cpu_unit_cost(machine, unit, &expected_cost, &expected_bus_cycles,
-                           &expected_internal_cycles,
-                           &expected_pipeline_bus_cycles) ||
-        unit->result_count > GBL_CPU_RESULT_SLOT_MAX ||
+    if (unit->timing_prepared) {
+        size_t expected_operation_count =
+            (unit->internal_cycles != 0u ? 1u : 0u) +
+            (size_t)unit->data_slot_count +
+            (unit->post_data_internal_cycles != 0u ? 1u : 0u) +
+            (size_t)unit->post_data_pipeline_cycles +
+            (size_t)unit->fetch_count;
+        size_t operation_index;
+
+        expected_internal_cycles = (uint64_t)unit->internal_cycles +
+                                   (uint64_t)unit->post_data_internal_cycles;
+        expected_pipeline_bus_cycles =
+            (uint64_t)unit->post_data_pipeline_cycles;
+        expected_bus_cycles = expected_pipeline_bus_cycles;
+        if (unit->fetch_address_from_result &&
+            !unit->fetch_target_projected) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+        if (operations == NULL || operation_count != expected_operation_count ||
+            operation_count > GBL_TIME_OPERATION_MAX) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+        for (operation_index = 0u; operation_index < operation_count;
+             ++operation_index) {
+            const gbl_time_operation *operation =
+                &operations[operation_index];
+
+            if (operation->kind == GBL_TIME_OPERATION_BUS_READ ||
+                operation->kind == GBL_TIME_OPERATION_BUS_WRITE) {
+                if (operation->cycles == 0u ||
+                    operation->cycles >
+                        UINT64_MAX - expected_bus_cycles) {
+                    *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+                    return false;
+                }
+                expected_bus_cycles += operation->cycles;
+            } else if (operation->kind != GBL_TIME_OPERATION_INTERNAL) {
+                *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+                return false;
+            }
+        }
+        if (expected_internal_cycles > UINT64_MAX - expected_bus_cycles) {
+            *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            return false;
+        }
+        expected_cost = expected_bus_cycles + expected_internal_cycles;
+    } else if (operation_count != 0u ||
+               !gbl_cpu_unit_cost(machine, unit, &expected_cost,
+                                  &expected_bus_cycles,
+                                  &expected_internal_cycles,
+                                  &expected_pipeline_bus_cycles)) {
+        *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
+    if (unit->result_count > GBL_CPU_RESULT_SLOT_MAX ||
         unit->register_effect_count > GBL_CPU_REGISTER_EFFECT_MAX ||
         unit->status_effect_count > GBL_CPU_STATUS_EFFECT_MAX) {
         *reason = GBL_RUN_REASON_INVALID_CPU_STATE;
@@ -3301,7 +3367,10 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
           (unit->data_slots[0].operation == GBL_CPU_DATA_READ &&
            !unit->fetch_address_from_result &&
            (unit->fetch_count != 1u ||
-            unit->fetch_class[0] != GBL_BUS_CLASS_SEQUENTIAL)) ||
+            unit->fetch_class[0] !=
+                (machine->cpu.force_nonsequential_fetch
+                     ? GBL_BUS_CLASS_NONSEQUENTIAL
+                     : GBL_BUS_CLASS_SEQUENTIAL))) ||
           (unit->data_slots[0].operation == GBL_CPU_DATA_WRITE &&
            (unit->fetch_count != 1u ||
             unit->fetch_class[0] != GBL_BUS_CLASS_NONSEQUENTIAL)) ||
@@ -3713,6 +3782,7 @@ bool gbl_cpu_test_maximum_preflight(
     }
 
     if (!gbl_cpu_preflight(machine, &unit, options->cycle_budget,
+                           NULL, 0u,
                            &preflight_reason)) {
         *reason = preflight_reason;
         return false;
@@ -3810,46 +3880,81 @@ static bool gbl_cpu_append_time_operation(
     return true;
 }
 
-static bool gbl_cpu_append_quoted_bus_operation(
-    const gbl_machine *machine,
-    gbl_time_operation operations[GBL_TIME_OPERATION_MAX], size_t *count,
-    gbl_time_operation_kind kind, uint32_t address, uint8_t width,
-    uint32_t value, gbl_bus_access_class sequence,
-    gbl_bus_access_role role, bool address_unresolved)
+static uint32_t gbl_cpu_transform_data_read(
+    const gbl_cpu_data_slot *slot, uint32_t value)
 {
-    const gbl_bus_direction direction =
-        kind == GBL_TIME_OPERATION_BUS_WRITE
-            ? GBL_BUS_DIRECTION_WRITE
-            : GBL_BUS_DIRECTION_READ;
-    gbl_cycle_cost quote;
-
-    if (machine == NULL ||
-        (kind != GBL_TIME_OPERATION_BUS_READ &&
-         kind != GBL_TIME_OPERATION_BUS_WRITE) ||
-        !gbl_bus_quote(machine, address_unresolved ? 0u : address, direction,
-                       width, sequence, role, &quote)) {
-        return false;
+    if (slot->rotate_word_read) {
+        const uint8_t rotate =
+            (uint8_t)((uint32_t)slot->alignment_lane * 8u);
+        value = gbl_shift(GBL_SHIFT_ROR, value, rotate, false, true).value;
     }
-    return gbl_cpu_append_time_operation(operations, count, kind, address,
-                                         width, value, quote.cycles);
+    if (slot->rotate_halfword_read && slot->alignment_lane != 0u) {
+        value = gbl_shift(GBL_SHIFT_ROR, value, 8u, false, true).value;
+    }
+    if (slot->sign_extend_byte_read) {
+        value &= UINT32_C(0x000000FF);
+        if ((value & UINT32_C(0x00000080)) != 0u) {
+            value |= UINT32_C(0xFFFFFF00);
+        }
+    }
+    if (slot->sign_extend_halfword_read) {
+        value &= UINT32_C(0x0000FFFF);
+        if ((value & UINT32_C(0x00008000)) != 0u) {
+            value |= UINT32_C(0xFFFF0000);
+        }
+    }
+    return value;
+}
+
+static bool gbl_cpu_prepare_time_prefix(
+    const gbl_machine *machine,
+    const gbl_time_operation operations[GBL_TIME_OPERATION_MAX],
+    size_t count, gbl_machine_time_preview *candidate,
+    gbl_time_status *status)
+{
+    *status = gbl_machine_prepare_operations(machine, operations, count,
+                                             candidate);
+    return *status == GBL_TIME_STATUS_OK;
 }
 
 static bool gbl_cpu_build_time_operations(
-    const gbl_machine *machine, const gbl_cpu_unit *unit,
-    gbl_time_operation operations[GBL_TIME_OPERATION_MAX], size_t *count)
+    const gbl_machine *machine, gbl_cpu_unit *unit,
+    gbl_time_operation operations[GBL_TIME_OPERATION_MAX], size_t *count,
+    gbl_machine_time_preview *prepared_time, gbl_time_status *time_status)
 {
+    gbl_machine_time_preview candidate;
+    uint32_t projected_open_bus;
+    uint64_t bus_total = 0u;
+    uint64_t internal_total = 0u;
+    uint64_t pipeline_total = 0u;
     uint8_t index;
+
     if (machine == NULL || unit == NULL || operations == NULL || count == NULL ||
+        prepared_time == NULL || time_status == NULL ||
         unit->fetch_count > GBL_CPU_FETCH_SLOT_MAX ||
         unit->data_slot_count > GBL_CPU_DATA_SLOT_MAX) {
         return false;
     }
     *count = 0u;
-    if (unit->internal_cycles != 0u &&
-        !gbl_cpu_append_time_operation(
-            operations, count, GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
-            unit->internal_cycles)) {
+    *time_status = GBL_TIME_STATUS_INVALID_ARGUMENT;
+    unit->timing_prepared = false;
+    unit->fetch_target_projected = false;
+    if (!gbl_cpu_prepare_time_prefix(machine, operations, 0u, &candidate,
+                                     time_status)) {
         return false;
+    }
+    projected_open_bus = machine->open_bus;
+    if (unit->internal_cycles != 0u) {
+        if (!gbl_cpu_append_time_operation(
+                operations, count, GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+                unit->internal_cycles)) {
+            return false;
+        }
+        internal_total = unit->internal_cycles;
+        if (!gbl_cpu_prepare_time_prefix(machine, operations, *count,
+                                         &candidate, time_status)) {
+            return false;
+        }
     }
     for (index = 0u; index < unit->data_slot_count; ++index) {
         const gbl_cpu_data_slot *slot = &unit->data_slots[index];
@@ -3857,41 +3962,115 @@ static bool gbl_cpu_build_time_operations(
             slot->operation == GBL_CPU_DATA_WRITE
                 ? GBL_TIME_OPERATION_BUS_WRITE
                 : GBL_TIME_OPERATION_BUS_READ;
+        gbl_cycle_cost quote;
 
-        if (!gbl_cpu_append_quoted_bus_operation(
-                machine, operations, count, kind, slot->address, slot->width,
-                slot->write_value, slot->access_class, GBL_BUS_ROLE_DATA,
-                false)) {
+        if (!gbl_bus_quote_waitcnt(
+                candidate.waitcnt, slot->address,
+                slot->operation == GBL_CPU_DATA_WRITE
+                    ? GBL_BUS_DIRECTION_WRITE
+                    : GBL_BUS_DIRECTION_READ,
+                slot->width, slot->access_class, GBL_BUS_ROLE_DATA, &quote) ||
+            quote.cycles > UINT64_MAX - bus_total ||
+            !gbl_cpu_append_time_operation(
+                operations, count, kind, slot->address, slot->width,
+                slot->write_value, quote.cycles)) {
+            return false;
+        }
+        bus_total += quote.cycles;
+        if (!gbl_cpu_prepare_time_prefix(machine, operations, *count,
+                                         &candidate, time_status)) {
+            return false;
+        }
+        if (slot->operation == GBL_CPU_DATA_READ) {
+            gbl_bus_result projected;
+            uint32_t next_open_bus;
+
+            if (!gbl_bus_project_read(
+                    machine, &candidate, slot->address, slot->width,
+                    slot->access_class, GBL_BUS_ROLE_DATA,
+                    projected_open_bus, &projected, &next_open_bus) ||
+                projected.status != GBL_BUS_STATUS_OK ||
+                slot->result_index >= unit->result_count) {
+                return false;
+            }
+            unit->results[slot->result_index] =
+                gbl_cpu_transform_data_read(slot, projected.value);
+            projected_open_bus = next_open_bus;
+        }
+    }
+    if (unit->post_data_internal_cycles != 0u) {
+        if (unit->post_data_internal_cycles >
+            UINT64_MAX - internal_total ||
+            !gbl_cpu_append_time_operation(
+                operations, count, GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+                unit->post_data_internal_cycles)) {
+            return false;
+        }
+        internal_total += unit->post_data_internal_cycles;
+        if (!gbl_cpu_prepare_time_prefix(machine, operations, *count,
+                                         &candidate, time_status)) {
             return false;
         }
     }
-    if (unit->post_data_internal_cycles != 0u &&
-        !gbl_cpu_append_time_operation(
-            operations, count, GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
-            unit->post_data_internal_cycles)) {
-        return false;
-    }
     for (index = 0u; index < unit->post_data_pipeline_cycles; ++index) {
-        if (!gbl_cpu_append_quoted_bus_operation(
-                machine, operations, count, GBL_TIME_OPERATION_BUS_READ, 0u,
-                unit->fetch_width, 0u, GBL_BUS_CLASS_SEQUENTIAL,
-                GBL_BUS_ROLE_FETCH, true)) {
+        if (bus_total == UINT64_MAX || pipeline_total == UINT64_MAX ||
+            !gbl_cpu_append_time_operation(
+                operations, count, GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+                UINT64_C(1))) {
+            return false;
+        }
+        ++bus_total;
+        ++pipeline_total;
+        if (!gbl_cpu_prepare_time_prefix(machine, operations, *count,
+                                         &candidate, time_status)) {
             return false;
         }
     }
     for (index = 0u; index < unit->fetch_count; ++index) {
-        /* A loaded-PC refill has a read-dependent address. Its operation is
-         * still reserved as a time-only read; no guest memory is inspected. */
-        const uint32_t address = unit->fetch_address_from_result
-                                     ? 0u : unit->fetch_address[index];
+        uint32_t address = unit->fetch_address[index];
+        gbl_cycle_cost quote;
 
-        if (!gbl_cpu_append_quoted_bus_operation(
-                machine, operations, count, GBL_TIME_OPERATION_BUS_READ, address,
-                unit->fetch_width, 0u, unit->fetch_class[index],
-                GBL_BUS_ROLE_FETCH, unit->fetch_address_from_result)) {
+        if (unit->fetch_address_from_result) {
+            address = (unit->results[unit->fetch_result_index] &
+                       unit->fetch_result_mask) +
+                      unit->fetch_result_addend[index];
+            unit->fetch_address[index] = address;
+        }
+        if (!gbl_bus_quote_waitcnt(
+                candidate.waitcnt, address, GBL_BUS_DIRECTION_READ,
+                unit->fetch_width, unit->fetch_class[index],
+                GBL_BUS_ROLE_FETCH, &quote) ||
+            quote.cycles > UINT64_MAX - bus_total ||
+            !gbl_cpu_append_time_operation(
+                operations, count, GBL_TIME_OPERATION_BUS_READ, address,
+                unit->fetch_width, 0u, quote.cycles)) {
+            return false;
+        }
+        bus_total += quote.cycles;
+        if (!gbl_cpu_prepare_time_prefix(machine, operations, *count,
+                                         &candidate, time_status)) {
             return false;
         }
     }
+    if (internal_total > UINT64_MAX - bus_total) {
+        *time_status = GBL_TIME_STATUS_CYCLE_OVERFLOW;
+        return false;
+    }
+    unit->cycle_cost = bus_total + internal_total;
+    unit->bus_cycle_cost = bus_total;
+    unit->internal_cycle_cost = internal_total;
+    unit->post_data_pipeline_cost = pipeline_total;
+    unit->fetch_target_projected = unit->fetch_address_from_result;
+    unit->timing_prepared = true;
+    if (candidate.master_cycles < machine->master_cycles ||
+        candidate.master_cycles - machine->master_cycles !=
+            unit->cycle_cost) {
+        *time_status = GBL_TIME_STATUS_INVALID_ARGUMENT;
+        unit->timing_prepared = false;
+        return false;
+    }
+    *prepared_time = candidate;
+    *time_status = GBL_TIME_STATUS_OK;
     return true;
 }
 
@@ -4406,6 +4585,10 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             break;
         }
+        if (machine->cpu.force_nonsequential_fetch &&
+            unit.fetch_count != 0u) {
+            unit.fetch_class[0] = GBL_BUS_CLASS_NONSEQUENTIAL;
+        }
         unit_start_cycle = machine->master_cycles;
         if (unit.kind == GBL_CPU_UNIT_UNSUPPORTED ||
             unit.kind == GBL_CPU_UNIT_UNPREDICTABLE ||
@@ -4421,13 +4604,23 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = gbl_cpu_stop_result(machine->cpu.stop_reason);
             break;
         }
-        if (!gbl_cpu_refresh_cycle_cost_for_machine(machine, &unit)) {
+        if (!gbl_cpu_build_time_operations(
+                machine, &unit, time_operations, &time_operation_count,
+                &prepared_time, &time_status)) {
             run_result.termination = GBL_RUN_STOPPED;
-            run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+            run_result.reason = time_status == GBL_TIME_STATUS_INVALID_ARGUMENT
+                                    ? GBL_RUN_REASON_INVALID_CPU_STATE
+                                    : gbl_cpu_time_refusal_reason(time_status);
+            break;
+        }
+        if (time_status != GBL_TIME_STATUS_OK) {
+            run_result.termination = GBL_RUN_STOPPED;
+            run_result.reason = gbl_cpu_time_refusal_reason(time_status);
             break;
         }
         if (!gbl_cpu_preflight(machine, &unit,
                                run_options.cycle_budget - run_result.cycles,
+                               time_operations, time_operation_count,
                                &preflight_reason)) {
             run_result.termination =
                 preflight_reason == GBL_RUN_REASON_CYCLE_BUDGET
@@ -4443,19 +4636,6 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                 &preflight_reason)) {
             run_result.termination = GBL_RUN_TRACE_OUTPUT_FULL;
             run_result.reason = preflight_reason;
-            break;
-        }
-        if (!gbl_cpu_build_time_operations(machine, &unit, time_operations,
-                                           &time_operation_count)) {
-            run_result.termination = GBL_RUN_STOPPED;
-            run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
-            break;
-        }
-        time_status = gbl_machine_prepare_operations(
-            machine, time_operations, time_operation_count, &prepared_time);
-        if (time_status != GBL_TIME_STATUS_OK) {
-            run_result.termination = GBL_RUN_STOPPED;
-            run_result.reason = gbl_cpu_time_refusal_reason(time_status);
             break;
         }
         if (unit.kind != GBL_CPU_UNIT_REFILL && !unit.asynchronous) {
@@ -4588,32 +4768,8 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                         machine->cpu.stop_reason = GBL_CPU_STOP_BUS_ERROR;
                         break;
                     }
-                    value = data_result.value;
-                    if (slot->rotate_word_read) {
-                        const uint8_t rotate =
-                            (uint8_t)((uint32_t)slot->alignment_lane * 8u);
-                        const gbl_shift_result rotated = gbl_shift(
-                            GBL_SHIFT_ROR, value, rotate, false, true);
-
-                        value = rotated.value;
-                    }
-                    if (slot->rotate_halfword_read &&
-                        slot->alignment_lane != 0u) {
-                        value = gbl_shift(GBL_SHIFT_ROR, value, 8u, false,
-                                          true).value;
-                    }
-                    if (slot->sign_extend_byte_read) {
-                        value &= UINT32_C(0x000000FF);
-                        if ((value & UINT32_C(0x00000080)) != 0u) {
-                            value |= UINT32_C(0xFFFFFF00);
-                        }
-                    }
-                    if (slot->sign_extend_halfword_read) {
-                        value &= UINT32_C(0x0000FFFF);
-                        if ((value & UINT32_C(0x00008000)) != 0u) {
-                            value |= UINT32_C(0xFFFF0000);
-                        }
-                    }
+                    value = gbl_cpu_transform_data_read(slot,
+                                                        data_result.value);
                     unit.results[slot->result_index] = value;
                 } else {
                     data_result = gbl_bus_write(
@@ -4721,6 +4877,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.instructions++;
         }
         machine->cpu.next_fetch_sequential = true;
+        machine->cpu.force_nonsequential_fetch = false;
         if (!gbl_cpu_time_preview_matches_machine(machine, &prepared_time)) {
             machine->cpu.stopped = true;
             machine->cpu.stop_reason = GBL_CPU_STOP_INTERNAL_ERROR;

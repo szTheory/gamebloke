@@ -460,6 +460,7 @@ typedef struct gbl_cpu_state {
     uint32_t execution_address;
     gbl_cpu_pipeline_entry pipeline[2];
     bool next_fetch_sequential;
+    bool force_nonsequential_fetch;
     uint64_t retired_instructions;
     bool stopped;
     gbl_cpu_stop_reason stop_reason;
@@ -634,6 +635,20 @@ bool gbl_bus_quote(const gbl_machine *machine, uint32_t address,
                    gbl_bus_direction direction, uint8_t width,
                    gbl_bus_access_class sequence,
                    gbl_bus_access_role role, gbl_cycle_cost *cost_out);
+/* Candidate-state quote and read projection used by CPU preflight. The read
+ * helper observes the supplied completion-time preview and open-bus value but
+ * never mutates the canonical machine or caller outputs on refusal. */
+bool gbl_bus_quote_waitcnt(uint16_t waitcnt, uint32_t address,
+                           gbl_bus_direction direction, uint8_t width,
+                           gbl_bus_access_class sequence,
+                           gbl_bus_access_role role,
+                           gbl_cycle_cost *cost_out);
+bool gbl_bus_project_read(
+    const gbl_machine *machine,
+    const gbl_machine_time_preview *time_preview, uint32_t address,
+    uint8_t width, gbl_bus_access_class sequence, gbl_bus_access_role role,
+    uint32_t open_bus, gbl_bus_result *result_out,
+    uint32_t *open_bus_out);
 bool gbl_bus_quote_observed(
     const gbl_machine *machine, uint32_t address,
     gbl_bus_direction direction, uint8_t width,

@@ -218,6 +218,16 @@ static int run_costs(void)
         GBL_BUS_ROLE_FETCH, GBL_BUS_ROLE_DATA
     };
     static const char *const role_names[] = { "fetch", "data" };
+    static const uint32_t window_addresses[] = {
+        UINT32_C(0x08000002), UINT32_C(0x0A000002), UINT32_C(0x0C000002)
+    };
+    static const uint16_t waitcnt_values[] = { UINT16_C(0), UINT16_C(0x06D8) };
+    static const uint8_t first_costs[2][3] = {
+        { 5u, 5u, 5u }, { 3u, 3u, 3u }
+    };
+    static const uint8_t sequential_costs[2][3] = {
+        { 3u, 5u, 9u }, { 2u, 2u, 2u }
+    };
     size_t row_count = 0u;
     size_t direction_index;
     size_t region_index;
@@ -290,16 +300,30 @@ static int run_costs(void)
                             directions[direction_index], region,
                             widths[width_index], sequences[sequence_index],
                             roles[role_index], &cost));
-                        CHECK(cost.cycles == UINT64_C(1));
-                        CHECK(cost.provenance ==
-                              GBL_CYCLE_COST_PROJECT_SELECTED);
-                        CHECK_STREQ(cost.model, GBL_TIMER_MODEL_NAME);
-                        printf("%s,%s,%u,%s,%s,%llu,project-selected,%s\n",
+                        const bool rom = region == GBL_BUS_REGION_ROM;
+                        const uint64_t expected_cycles =
+                            rom ? (widths[width_index] == 4u
+                                       ? UINT64_C(8)
+                                       : UINT64_C(5))
+                                : UINT64_C(1);
+                        const gbl_cycle_cost_provenance expected_provenance =
+                            rom ? GBL_CYCLE_COST_SOURCE_BACKED
+                                : GBL_CYCLE_COST_PROJECT_SELECTED;
+                        const char *const expected_model =
+                            rom ? "nintendo-agb-programming-manual-v1.1"
+                                : GBL_TIMER_MODEL_NAME;
+
+                        CHECK(cost.cycles == expected_cycles);
+                        CHECK(cost.provenance == expected_provenance);
+                        CHECK_STREQ(cost.model, expected_model);
+                        printf("%s,%s,%u,%s,%s,%llu,%s,%s\n",
                                direction_names[direction_index],
                                bus_region_name(region), widths[width_index],
                                sequence_names[sequence_index],
                                role_names[role_index],
-                               (unsigned long long)cost.cycles, cost.model);
+                               (unsigned long long)cost.cycles,
+                               rom ? "source-backed" : "project-selected",
+                               cost.model);
                         ++row_count;
                     }
                 }
@@ -307,6 +331,50 @@ static int run_costs(void)
         }
     }
     CHECK(row_count == 162u);
+    puts("contextual-rom,address,waitcnt,width,sequence,cycles,provenance,model");
+    for (size_t wait_index = 0u;
+         wait_index < sizeof(waitcnt_values) / sizeof(waitcnt_values[0]);
+         ++wait_index) {
+        for (size_t window = 0u;
+             window < sizeof(window_addresses) / sizeof(window_addresses[0]);
+             ++window) {
+            for (size_t context_sequence_index = 0u;
+                 context_sequence_index <
+                     sizeof(sequences) / sizeof(sequences[0]);
+                 ++context_sequence_index) {
+                for (size_t context_width_index = 0u;
+                     context_width_index < 2u; ++context_width_index) {
+                    const uint8_t width = context_width_index == 0u ? 2u : 4u;
+                    const bool nonsequential =
+                        sequences[context_sequence_index] ==
+                        GBL_BUS_CLASS_NONSEQUENTIAL;
+                    const uint64_t first = first_costs[wait_index][window];
+                    const uint64_t sequential =
+                        sequential_costs[wait_index][window];
+                    const uint64_t expected_cycles = width == 2u
+                        ? (nonsequential ? first : sequential)
+                        : (nonsequential ? first + sequential
+                                         : sequential * UINT64_C(2));
+                    gbl_cycle_cost cost = { 0u, 0, NULL };
+
+                    CHECK(gbl_bus_quote_waitcnt(
+                        waitcnt_values[wait_index], window_addresses[window],
+                        GBL_BUS_DIRECTION_READ, width,
+                        sequences[context_sequence_index], GBL_BUS_ROLE_DATA,
+                        &cost));
+                    CHECK(cost.cycles == expected_cycles);
+                    CHECK(cost.provenance == GBL_CYCLE_COST_SOURCE_BACKED);
+                    CHECK_STREQ(cost.model,
+                                "nintendo-agb-programming-manual-v1.1");
+                    printf("%s,%08x,%04x,%u,%s,%llu,source-backed,%s\n",
+                           window == 0u ? "ws0" : window == 1u ? "ws1" : "ws2",
+                           window_addresses[window], waitcnt_values[wait_index],
+                           width, sequence_names[context_sequence_index],
+                           (unsigned long long)cost.cycles, cost.model);
+                }
+            }
+        }
+    }
     if (CHECK_DONE() == 0) {
         return 0;
     }

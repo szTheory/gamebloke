@@ -273,6 +273,12 @@ static bool run_arm_instruction(gbl_machine *machine, uint32_t opcode,
                                 uint32_t cpsr, uint64_t cycle_budget,
                                 gbl_run_result *result)
 {
+    /* These semantic fixtures use pre-WAITCNT cycle envelopes. Keep enough
+     * room for a quoted WS0 sequential fetch and instruction-specific bus work;
+     * exact and one-short budgets are exercised by dedicated selectors. */
+    if (cycle_budget != 0u && cycle_budget <= UINT64_MAX - UINT64_C(8)) {
+        cycle_budget += UINT64_C(8);
+    }
     prepare_arm_instruction(machine, opcode, cpsr);
     return run_units(machine, cycle_budget, 1u, result);
 }
@@ -281,6 +287,9 @@ static bool run_arm_instruction_with_trace(
     gbl_machine *machine, uint32_t opcode, uint32_t cpsr,
     uint64_t cycle_budget, gbl_trace_buffer *trace, gbl_run_result *result)
 {
+    if (cycle_budget != 0u && cycle_budget <= UINT64_MAX - UINT64_C(8)) {
+        cycle_budget += UINT64_C(8);
+    }
     prepare_arm_instruction(machine, opcode, cpsr);
     return run_traced_units(
         machine, cycle_budget, 1u,
@@ -378,14 +387,15 @@ static bool run_arm_instruction_in_mode(gbl_machine *machine,
     machine->cpu.next_fetch_sequential = true;
     machine->cpu.stopped = false;
     machine->cpu.stop_reason = GBL_CPU_STOP_NONE;
-    return run_units(machine, UINT64_C(1), 1u, result);
+    return run_units(machine, UINT64_C(6), 1u, result);
 }
 
 static bool run_single_instruction(gbl_machine *machine, uint32_t opcode,
                                    uint32_t cpsr, gbl_run_result *result)
 {
     const uint64_t cycle_budget =
-        (opcode & UINT32_C(0x10)) != 0u ? UINT64_C(2) : UINT64_C(1);
+        UINT64_C(6) + ((opcode & UINT32_C(0x10)) != 0u ? UINT64_C(1)
+                                                         : UINT64_C(0));
 
     return run_arm_instruction(machine, opcode, cpsr, cycle_budget, result);
 }
@@ -396,6 +406,9 @@ static bool run_thumb_instruction(gbl_machine *machine, uint16_t opcode,
 {
     const uint32_t address = UINT32_C(0x08000000);
 
+    if (cycle_budget != 0u && cycle_budget <= UINT64_MAX - UINT64_C(2)) {
+        cycle_budget += UINT64_C(2);
+    }
     machine->cpu.execution_address = address;
     machine->cpu.cpsr = (cpsr & ~UINT32_C(0x1F)) | TEST_CPSR_SYSTEM |
                         UINT32_C(0x00000020);
@@ -736,11 +749,11 @@ static void test_tracer(void)
         return;
     }
 
-    ran = run_units(&machine, 2u, 1u, &result);
+    ran = run_units(&machine, 14u, 1u, &result);
     test_case(ran && result.termination == GBL_RUN_PROGRESS &&
                   result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                  result.cycles == 2u && result.instructions == 0u &&
-                  machine.master_cycles == 2u &&
+                  result.cycles == 14u && result.instructions == 0u &&
+                  machine.master_cycles == 14u &&
                   machine.cpu.pipeline[0].address == UINT32_C(0x08000000) &&
                   machine.cpu.pipeline[0].opcode == TEST_MOV_R0_PC &&
                   machine.cpu.pipeline[1].address == UINT32_C(0x08000004) &&
@@ -748,26 +761,26 @@ static void test_tracer(void)
                       TEST_BRANCH_TO_08000010 &&
                   machine.open_bus == TEST_BRANCH_TO_08000010 &&
                   machine.cpu.next_fetch_sequential,
-              "empty refill fetches two words, costs two cycles and latches bus data");
+              "empty refill fetches two WS0 words for fourteen cycles and latches bus data");
 
-    ran = run_units(&machine, 1u, 1u, &result);
+    ran = run_units(&machine, 6u, 1u, &result);
     test_case(ran && result.termination == GBL_RUN_PROGRESS &&
-                  result.cycles == 1u && result.instructions == 1u &&
+                  result.cycles == 6u && result.instructions == 1u &&
                   machine.cpu.r0_7[0] == UINT32_C(0x08000008) &&
                   machine.cpu.execution_address == UINT32_C(0x08000004) &&
                   machine.open_bus == TEST_MOV_R1_R0,
               "MOV r0,pc observes address plus eight through the sequential bus fetch");
 
-    ran = run_units(&machine, 2u, 1u, &result);
+    ran = run_units(&machine, 14u, 1u, &result);
     test_case(ran && result.termination == GBL_RUN_PROGRESS &&
-                  result.cycles == 2u && result.instructions == 1u &&
+                  result.cycles == 14u && result.instructions == 1u &&
                   machine.cpu.execution_address == UINT32_C(0x08000010) &&
                   machine.cpu.pipeline[0].address == UINT32_C(0x08000010) &&
                   machine.cpu.pipeline[0].opcode == TEST_MOV_R2_R0 &&
                   machine.cpu.r0_7[1] == 0u,
-              "B refills its target and discards the stale sequential slot");
+              "B uses a fourteen-cycle WS0 target refill and discards the stale sequential slot");
 
-    ran = run_units(&machine, 1u, 1u, &result);
+    ran = run_units(&machine, 6u, 1u, &result);
     test_case(ran && result.instructions == 1u &&
                   machine.cpu.r0_7[1] == 0u &&
                   machine.cpu.r0_7[2] == UINT32_C(0x08000008),
@@ -801,13 +814,13 @@ static void test_exceptions(void)
             short_machine.cpu.cpsr = TEST_CPSR_SYSTEM;
         }
         const bool short_run = short_loaded &&
-            run_units(&short_machine, UINT64_C(2), 0u, &short_result);
+            run_units(&short_machine, UINT64_C(14), 0u, &short_result);
 
         test_case(short_run &&
                       short_result.termination == GBL_RUN_TIMEOUT &&
                       short_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
-                      short_result.cycles == UINT64_C(2) &&
-                      short_machine.master_cycles == UINT64_C(2) &&
+                      short_result.cycles == UINT64_C(14) &&
+                      short_machine.master_cycles == UINT64_C(14) &&
                       short_machine.cpu.cpsr == TEST_CPSR_SYSTEM &&
                       short_machine.cpu.svc_r13_14[1] == 0u &&
                       short_machine.cpu.spsr[2] == 0u &&
@@ -819,10 +832,10 @@ static void test_exceptions(void)
     }
 
     machine.cpu.cpsr = UINT32_C(0xA000001F); /* N/C, System, F clear */
-    exact = run_units(&machine, UINT64_C(3), 0u, &result);
+    exact = run_units(&machine, UINT64_C(15), 0u, &result);
     test_case(exact && result.termination == GBL_RUN_STOPPED &&
                   result.reason == GBL_RUN_REASON_GUEST_STOP &&
-                  result.cycles == UINT64_C(3) &&
+                  result.cycles == UINT64_C(15) &&
                   result.instructions == UINT64_C(1) &&
                   machine.cpu.stop_reason == GBL_CPU_STOP_SWI_NO_BIOS,
               "ARM SWI consumes its internal entry cycle and stops as guest");
@@ -857,6 +870,7 @@ static void test_irq_timer_tracer(void)
     gbl_bus_result control_result;
     bool loaded;
     bool configured;
+    bool primed;
     bool ran;
 
     make_empty_image(image);
@@ -869,6 +883,10 @@ static void test_irq_timer_tracer(void)
         return;
     }
 
+    primed = run_units(&machine, UINT64_C(14), 0u, &result) &&
+             result.termination == GBL_RUN_TIMEOUT &&
+             result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+             result.instructions == 0u && result.cycles == UINT64_C(14);
     ie_result = gbl_bus_write(&machine, UINT32_C(0x04000200), 2u,
                               GBL_BUS_CLASS_NONSEQUENTIAL,
                               UINT32_C(1) << 3u);
@@ -880,7 +898,7 @@ static void test_irq_timer_tracer(void)
     control_result = gbl_bus_write(&machine, UINT32_C(0x04000102), 2u,
                                    GBL_BUS_CLASS_NONSEQUENTIAL,
                                    UINT32_C(0x00C0));
-    configured = ie_result.status == GBL_BUS_STATUS_OK &&
+    configured = primed && ie_result.status == GBL_BUS_STATUS_OK &&
                  ime_result.status == GBL_BUS_STATUS_OK &&
                  reload_result.status == GBL_BUS_STATUS_OK &&
                  control_result.status == GBL_BUS_STATUS_OK &&
@@ -1387,7 +1405,7 @@ static bool run_guest_exception_case(bool thumb, uint32_t opcode,
             (thumb ? UINT32_C(0x00000020) : 0u);
     }
     /* Leave room for a broken stop latch to fetch from the absent vector. */
-    ran = loaded && run_traced_units(&machine, UINT64_C(5), 0u,
+    ran = loaded && run_traced_units(&machine, UINT64_C(32), 0u,
         GBL_TRACE_CATEGORY_MASK, &trace, &result);
     if (!ran) {
         gbl_machine_dispose(&machine);
@@ -1399,9 +1417,9 @@ static bool run_guest_exception_case(bool thumb, uint32_t opcode,
             (thumb ? UINT32_C(2) : UINT32_C(4));
         const bool observed = result.termination == GBL_RUN_STOPPED &&
             result.reason == GBL_RUN_REASON_GUEST_STOP &&
-            result.cycles == UINT64_C(3) &&
+            result.cycles == (thumb ? UINT64_C(9) : UINT64_C(15)) &&
             result.instructions == UINT64_C(1) &&
-            machine.master_cycles == UINT64_C(3) &&
+            machine.master_cycles == result.cycles &&
             machine.cpu.execution_address == vector &&
             machine.cpu.stop_reason == stop_reason &&
             machine.cpu.last_exception.kind == kind &&
@@ -1520,7 +1538,7 @@ static void test_budget(void)
                   "zero cycle budget performs no work");
     }
 
-    (void)run_units(&machine, 2u, 1u, &result);
+    (void)run_units(&machine, 14u, 1u, &result);
     {
         const gbl_machine before = machine;
         const bool ran = run_units(&machine, 0u, 1u, &result);
@@ -1532,7 +1550,7 @@ static void test_budget(void)
                   "one-short MOV boundary leaves state untouched");
     }
 
-    (void)run_units(&machine, 1u, 1u, &result);
+    (void)run_units(&machine, 6u, 1u, &result);
     {
         const gbl_machine before = machine;
         const bool ran = run_units(&machine, 1u, 1u, &result);
@@ -1544,14 +1562,14 @@ static void test_budget(void)
                   "one-short branch refill leaves state untouched");
     }
     {
-        const bool ran = run_units(&machine, 2u, 1u, &result);
+        const bool ran = run_units(&machine, 14u, 1u, &result);
 
         test_case(ran && result.termination == GBL_RUN_PROGRESS &&
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                      result.cycles == 2u && result.instructions == 1u &&
+                      result.cycles == 14u && result.instructions == 1u &&
                       machine.cpu.retired_instructions == 2u &&
                       machine.cpu.execution_address == UINT32_C(0x08000010),
-                  "exact-fit branch commits once with its two-cycle refill");
+                  "exact-fit branch commits once with its fourteen-cycle WS0 refill");
     }
     gbl_machine_dispose(&machine);
 
@@ -1577,10 +1595,10 @@ static void test_budget(void)
                                                        &overflow_machine),
                           "clock overflow is rejected before a refill");
             }
-            overflow_machine.master_cycles = UINT64_MAX - UINT64_C(2);
+            overflow_machine.master_cycles = UINT64_MAX - UINT64_C(14);
             {
                 const bool exact_ran =
-                    run_units(&overflow_machine, 2u, 1u, &result);
+                    run_units(&overflow_machine, 14u, 1u, &result);
                 const gbl_machine at_limit = overflow_machine;
                 const bool refused_at_limit =
                     run_units(&overflow_machine, 1u, 1u, &result);
@@ -1658,7 +1676,7 @@ static void test_arm_adc_carry_in(void)
     if (loaded) {
         machine.cpu.r0_7[0] = 0u;
         ran = run_arm_instruction(&machine, UINT32_C(0xE2B00001),
-                                  TEST_CPSR_C | TEST_CPSR_V, 2u, &result);
+                                  TEST_CPSR_C | TEST_CPSR_V, 6u, &result);
     }
     test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
                   result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
@@ -1763,7 +1781,7 @@ static void test_arm_alu_vectors(void)
         machine.cpu.r0_7[3] = vector->right;
         if (loaded) {
             ran = run_arm_instruction(&machine, vector->opcode,
-                                      vector->initial_flags, 1u, &result);
+                                      vector->initial_flags, 6u, &result);
         }
         registers_match = machine.cpu.r0_7[0] == sentinel &&
                           machine.cpu.r0_7[1] == vector->left &&
@@ -1780,7 +1798,8 @@ static void test_arm_alu_vectors(void)
         test_case(loaded && ran &&
                       result.termination == GBL_RUN_PROGRESS &&
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                      result.instructions == 1u && result.cycles == 1u &&
+                      result.instructions == 1u && result.cycles == 6u &&
+                      result.bus_cycles == 6u && result.internal_cycles == 0u &&
                       registers_match && flags_match,
                   vector->description);
     }
@@ -1804,7 +1823,7 @@ static void test_arm_alu_without_s_preserves_flags(void)
         machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
         machine.cpu.r0_7[3] = UINT32_C(2);
         ran = run_arm_instruction(&machine, UINT32_C(0xE0812003),
-                                  initial_flags, 1u, &result);
+                                  initial_flags, 6u, &result);
     }
     test_case(loaded && ran && result.instructions == 1u &&
                   machine.cpu.r0_7[2] == UINT32_C(3) &&
@@ -1888,8 +1907,8 @@ static void test_multiply_unsigned(void)
                       result.termination == GBL_RUN_PROGRESS &&
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                       result.instructions == 1u && result.cycles >= 1u &&
-                      result.bus_cycles == UINT64_C(1) &&
-                      result.internal_cycles + UINT64_C(1) == result.cycles &&
+                      result.bus_cycles == UINT64_C(6) &&
+                      result.internal_cycles + UINT64_C(6) == result.cycles &&
                       machine.cpu.r0_7[1] == vector->r1 &&
                       machine.cpu.r0_7[3] == vector->r3 &&
                       machine.cpu.r0_7[2] == vector->expected_r2 &&
@@ -1916,10 +1935,10 @@ static void test_arm_register_shifted_pc_operand_uses_plus_twelve(void)
         machine.cpu.r0_7[2] = UINT32_C(0xA5A5A5A5);
         shifted_rm_plus_twelve = run_arm_instruction(
             &machine, UINT32_C(0xE1B0211F), TEST_CPSR_C | TEST_CPSR_V,
-            2u, &result) &&
+            7u, &result) &&
             result.termination == GBL_RUN_PROGRESS &&
             result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-            result.instructions == 1u && result.cycles == 2u &&
+            result.instructions == 1u && result.cycles == 7u &&
             machine.cpu.r0_7[2] == UINT32_C(0x0800000C) &&
             (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
                                  TEST_CPSR_C | TEST_CPSR_V)) ==
@@ -1927,10 +1946,10 @@ static void test_arm_register_shifted_pc_operand_uses_plus_twelve(void)
 
         machine.cpu.r0_7[0] = 0u;
         shifted_rn_plus_twelve = run_arm_instruction(
-            &machine, UINT32_C(0xE08F0010), 0u, 2u, &result) &&
+            &machine, UINT32_C(0xE08F0010), 0u, 7u, &result) &&
             result.termination == GBL_RUN_PROGRESS &&
             result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-            result.instructions == 1u && result.cycles == 2u &&
+            result.instructions == 1u && result.cycles == 7u &&
             machine.cpu.r0_7[0] == UINT32_C(0x0800000C);
     }
     test_case(loaded && shifted_rm_plus_twelve &&
@@ -1956,118 +1975,118 @@ static void test_arm_operand2_shift_vectors(void)
     static const uint32_t nzc = TEST_CPSR_N | TEST_CPSR_Z | TEST_CPSR_C;
     static const arm_operand2_test_vector vectors[] = {
         { "rotated immediate zero preserves carry", UINT32_C(0xE3B02000),
-          0u, 0u, cv, 0u, TEST_CPSR_Z | TEST_CPSR_C, 1u },
+          0u, 0u, cv, 0u, TEST_CPSR_Z | TEST_CPSR_C, 6u },
         { "rotated immediate two derives clear carry", UINT32_C(0xE3B02180),
-          0u, 0u, cv, UINT32_C(0x20), 0u, 1u },
+          0u, 0u, cv, UINT32_C(0x20), 0u, 6u },
         { "rotated immediate eight derives set carry", UINT32_C(0xE3B02480),
-          0u, 0u, cv, UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_C, 1u },
+          0u, 0u, cv, UINT32_C(0x80000000), TEST_CPSR_N | TEST_CPSR_C, 6u },
         { "immediate LSL zero preserves carry", UINT32_C(0xE1B02000),
           UINT32_C(0x80000001), 0u, cv, UINT32_C(0x80000001),
-          TEST_CPSR_N | TEST_CPSR_C, 1u },
+          TEST_CPSR_N | TEST_CPSR_C, 6u },
         { "immediate LSL one returns shifted bit as carry",
           UINT32_C(0xE1B02080), UINT32_C(0x80000001), 0u, cv,
-          UINT32_C(2), TEST_CPSR_C, 1u },
+          UINT32_C(2), TEST_CPSR_C, 6u },
         { "immediate LSR zero means thirty-two", UINT32_C(0xE1B02020),
-          UINT32_C(0x80000001), 0u, cv, 0u, TEST_CPSR_Z | TEST_CPSR_C, 1u },
+          UINT32_C(0x80000001), 0u, cv, 0u, TEST_CPSR_Z | TEST_CPSR_C, 6u },
         { "immediate LSR one shifts and returns bit zero",
           UINT32_C(0xE1B020A0), UINT32_C(0x80000001), 0u, cv,
-          UINT32_C(0x40000000), TEST_CPSR_C, 1u },
+          UINT32_C(0x40000000), TEST_CPSR_C, 6u },
         { "immediate ASR zero sign-fills by thirty-two",
           UINT32_C(0xE1B02040), UINT32_C(0x80000001), 0u, cv,
-          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 1u },
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 6u },
         { "immediate ASR one sign-fills and returns bit zero",
           UINT32_C(0xE1B020C0), UINT32_C(0x80000001), 0u, cv,
-          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 1u },
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 6u },
         { "immediate ROR zero performs RRX with old carry",
           UINT32_C(0xE1B02060), UINT32_C(3), 0u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 1u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 6u },
         { "immediate ROR one rotates the register operand",
           UINT32_C(0xE1B020E0), UINT32_C(3), 0u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 1u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 6u },
         { "register LSL count zero preserves value and carry",
           UINT32_C(0xE1B02110), UINT32_C(0x80000001), 0u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register LSL count one shifts and returns bit thirty-one",
           UINT32_C(0xE1B02110), UINT32_C(0x80000001), 1u, cv,
-          UINT32_C(2), TEST_CPSR_C, 2u },
+          UINT32_C(2), TEST_CPSR_C, 7u },
         { "register LSL count thirty-one returns bit one as carry",
           UINT32_C(0xE1B02110), UINT32_C(0x80000001), 31u, cv,
-          UINT32_C(0x80000000), TEST_CPSR_N, 2u },
+          UINT32_C(0x80000000), TEST_CPSR_N, 7u },
         { "register LSL count thirty-two returns bit zero as carry",
           UINT32_C(0xE1B02110), UINT32_C(0x80000001), 32u, cv,
-          0u, TEST_CPSR_Z | TEST_CPSR_C, 2u },
+          0u, TEST_CPSR_Z | TEST_CPSR_C, 7u },
         { "register LSL count thirty-three clears carry",
           UINT32_C(0xE1B02110), UINT32_C(0x80000001), 33u, cv,
-          0u, TEST_CPSR_Z, 2u },
+          0u, TEST_CPSR_Z, 7u },
         { "register LSL count 255 clears carry",
           UINT32_C(0xE1B02110), UINT32_C(0x80000001), 255u, cv,
-          0u, TEST_CPSR_Z, 2u },
+          0u, TEST_CPSR_Z, 7u },
         { "register LSL count 256 uses low eight zero bits",
           UINT32_C(0xE1B02110), UINT32_C(0x80000001), 256u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register LSR count zero preserves value and carry",
           UINT32_C(0xE1B02130), UINT32_C(0x80000001), 0u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register LSR count one shifts and returns bit zero",
           UINT32_C(0xE1B02130), UINT32_C(0x80000001), 1u, cv,
-          UINT32_C(0x40000000), TEST_CPSR_C, 2u },
+          UINT32_C(0x40000000), TEST_CPSR_C, 7u },
         { "register LSR count thirty-one returns bit thirty",
           UINT32_C(0xE1B02130), UINT32_C(0x80000001), 31u, cv,
-          UINT32_C(1), 0u, 2u },
+          UINT32_C(1), 0u, 7u },
         { "register LSR count thirty-two returns bit thirty-one",
           UINT32_C(0xE1B02130), UINT32_C(0x80000001), 32u, cv,
-          0u, TEST_CPSR_Z | TEST_CPSR_C, 2u },
+          0u, TEST_CPSR_Z | TEST_CPSR_C, 7u },
         { "register LSR count thirty-three clears carry",
           UINT32_C(0xE1B02130), UINT32_C(0x80000001), 33u, cv,
-          0u, TEST_CPSR_Z, 2u },
+          0u, TEST_CPSR_Z, 7u },
         { "register LSR count 255 clears carry",
           UINT32_C(0xE1B02130), UINT32_C(0x80000001), 255u, cv,
-          0u, TEST_CPSR_Z, 2u },
+          0u, TEST_CPSR_Z, 7u },
         { "register LSR count 256 uses low eight zero bits",
           UINT32_C(0xE1B02130), UINT32_C(0x80000001), 256u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ASR count zero preserves value and carry",
           UINT32_C(0xE1B02150), UINT32_C(0x80000001), 0u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ASR count one sign-fills and returns bit zero",
           UINT32_C(0xE1B02150), UINT32_C(0x80000001), 1u, cv,
-          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ASR count thirty-one sign-fills",
           UINT32_C(0xE1B02150), UINT32_C(0x80000001), 31u, cv,
-          UINT32_MAX, TEST_CPSR_N, 2u },
+          UINT32_MAX, TEST_CPSR_N, 7u },
         { "register ASR count thirty-two sign-fills by word width",
           UINT32_C(0xE1B02150), UINT32_C(0x80000001), 32u, cv,
-          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ASR count thirty-three sign-fills",
           UINT32_C(0xE1B02150), UINT32_C(0x80000001), 33u, cv,
-          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ASR count 255 sign-fills",
           UINT32_C(0xE1B02150), UINT32_C(0x80000001), 255u, cv,
-          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_MAX, TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ASR count 256 uses low eight zero bits",
           UINT32_C(0xE1B02150), UINT32_C(0x80000001), 256u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ROR count zero preserves value and carry",
           UINT32_C(0xE1B02170), UINT32_C(0x80000001), 0u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ROR count one rotates right",
           UINT32_C(0xE1B02170), UINT32_C(0x80000001), 1u, cv,
-          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ROR count thirty-one rotates left one",
           UINT32_C(0xE1B02170), UINT32_C(0x80000001), 31u, cv,
-          UINT32_C(3), 0u, 2u },
+          UINT32_C(3), 0u, 7u },
         { "register ROR count thirty-two preserves value and derives carry",
           UINT32_C(0xE1B02170), UINT32_C(0x80000001), 32u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ROR count thirty-three repeats count one",
           UINT32_C(0xE1B02170), UINT32_C(0x80000001), 33u, cv,
-          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 2u },
+          UINT32_C(0xC0000000), TEST_CPSR_N | TEST_CPSR_C, 7u },
         { "register ROR count 255 repeats count thirty-one",
           UINT32_C(0xE1B02170), UINT32_C(0x80000001), 255u, cv,
-          UINT32_C(3), 0u, 2u },
+          UINT32_C(3), 0u, 7u },
         { "register ROR count 256 uses low eight zero bits",
           UINT32_C(0xE1B02170), UINT32_C(0x80000001), 256u, cv,
-          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 2u }
+          UINT32_C(0x80000001), TEST_CPSR_N | TEST_CPSR_C, 7u }
     };
     uint8_t image[TEST_IMAGE_SIZE];
     gbl_machine machine = { 0 };
@@ -2099,8 +2118,8 @@ static void test_arm_operand2_shift_vectors(void)
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                       result.instructions == 1u &&
                       result.cycles == vector->expected_cycles &&
-                      result.bus_cycles == UINT64_C(1) &&
-                      result.internal_cycles == vector->expected_cycles - 1u &&
+                      result.bus_cycles == UINT64_C(6) &&
+                      result.internal_cycles == vector->expected_cycles - UINT64_C(6) &&
                       machine.master_cycles ==
                           cycles_before + vector->expected_cycles &&
                       machine.cpu.retired_instructions == retired_before + 1u &&
@@ -2142,13 +2161,14 @@ static void arm_condition_case(gbl_machine *machine, bool loaded,
     machine->cpu.r0_7[1] = source;
     machine->cpu.r0_7[2] = sentinel;
     if (loaded) {
-        ran = run_arm_instruction(machine, opcode, flags, 1u, &result);
+        ran = run_arm_instruction(machine, opcode, flags, 6u, &result);
     }
     test_case(loaded && ran &&
                   result.termination == GBL_RUN_PROGRESS &&
                   result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                  result.instructions == 1u && result.cycles == 1u &&
-                  machine->master_cycles == cycles_before + 1u &&
+                  result.instructions == 1u && result.cycles == 6u &&
+                  result.bus_cycles == 6u && result.internal_cycles == 0u &&
+                  machine->master_cycles == cycles_before + 6u &&
                   machine->cpu.retired_instructions == retired_before + 1u &&
                   machine->cpu.execution_address == address + UINT32_C(4) &&
                   machine->cpu.pipeline[0].address == address + UINT32_C(4) &&
@@ -2288,10 +2308,10 @@ static bool arm_condition_failed_decode_pair(uint32_t opcode)
             candidate_records[index] = reference_records[index];
         }
         reference_ran = run_arm_instruction_with_trace(
-            &reference, reference_opcode, flags, UINT64_C(1),
+            &reference, reference_opcode, flags, UINT64_C(6),
             &reference_trace, &reference_result);
         candidate_ran = run_arm_instruction_with_trace(
-            &candidate, opcode, flags, UINT64_C(1), &candidate_trace,
+            &candidate, opcode, flags, UINT64_C(6), &candidate_trace,
             &candidate_result);
     } else {
         candidate_before = candidate.cpu;
@@ -2302,13 +2322,13 @@ static bool arm_condition_failed_decode_pair(uint32_t opcode)
         reference_result.termination == GBL_RUN_PROGRESS &&
         reference_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
         reference_result.instructions == UINT64_C(1) &&
-        reference_result.cycles == UINT64_C(1) &&
+        reference_result.cycles == UINT64_C(6) &&
         candidate_result.termination == GBL_RUN_PROGRESS &&
         candidate_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
         candidate_result.instructions == UINT64_C(1) &&
-        candidate_result.cycles == UINT64_C(1) &&
+        candidate_result.cycles == UINT64_C(6) &&
         gbl_test_canonical_equal(&reference, &candidate) &&
-        candidate.master_cycles == initial_cycles + UINT64_C(1) &&
+        candidate.master_cycles == initial_cycles + UINT64_C(6) &&
         candidate.cpu.retired_instructions ==
             candidate_before.retired_instructions + UINT64_C(1) &&
         candidate.cpu.execution_address == UINT32_C(0x08000004) &&
@@ -2581,7 +2601,7 @@ static void test_arm_register_shift_cycle_preflight(void)
         machine.cpu.stop_reason = GBL_CPU_STOP_NONE;
         before = machine;
         options = (gbl_run_options){
-            .cycle_budget = 1u,
+            .cycle_budget = 6u,
             .unit_limit = 1u,
             .category_mask = GBL_TRACE_CATEGORY_MASK,
             .trace_buffer = &trace
@@ -2609,7 +2629,7 @@ static void test_arm_register_shift_cycle_preflight(void)
         const uint64_t cycles_before = machine.master_cycles;
         const uint64_t retired_before = machine.cpu.retired_instructions;
 
-        options.cycle_budget = 2u;
+        options.cycle_budget = 7u;
         result = (gbl_run_result){
             GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u,
             0u, 0u, 0u, GBL_CPU_POWER_CAUSE_NONE, 0u, 0u, 0u, 0u, 0u
@@ -2618,8 +2638,8 @@ static void test_arm_register_shift_cycle_preflight(void)
         test_case(status == GBL_RUN_STATUS_OK &&
                       result.termination == GBL_RUN_PROGRESS &&
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                      result.instructions == 1u && result.cycles == 2u &&
-                      machine.master_cycles == cycles_before + 2u &&
+                      result.instructions == 1u && result.cycles == 7u &&
+                      machine.master_cycles == cycles_before + 7u &&
                       machine.cpu.retired_instructions == retired_before + 1u &&
                       machine.cpu.r0_7[2] == UINT32_C(2) &&
                       (machine.cpu.cpsr & (TEST_CPSR_N | TEST_CPSR_Z |
@@ -2668,10 +2688,10 @@ static void test_arm_block_stmia_then_ldmia_stream(void)
         machine.cpu.r0_7[7] = 0u;
         prepare_arm_instruction(&machine, stm, TEST_CPSR_SYSTEM);
         machine.cpu.pipeline[1].opcode = ldm;
-        passed = run_units(&machine, UINT64_C(16), UINT64_C(2), &result) &&
+        passed = run_units(&machine, UINT64_C(32), UINT64_C(2), &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.instructions == UINT64_C(2) &&
-                 result.cycles == UINT64_C(9) &&
+                 result.cycles == UINT64_C(21) &&
                  machine.cpu.r0_7[0] == UINT32_C(0x0300010C) &&
                  machine.cpu.r0_7[4] == UINT32_C(0x0300010C) &&
                  machine.cpu.r0_7[5] == UINT32_C(0x11223344) &&
@@ -2753,7 +2773,7 @@ static bool arm_block_transfer_case(const arm_block_mode_case *mode,
         passed = ran &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.instructions == UINT64_C(1) &&
-                 result.cycles == (load ? UINT64_C(4) : UINT64_C(3)) &&
+                 result.cycles == (load ? UINT64_C(9) : UINT64_C(10)) &&
                  machine.cpu.r0_7[base_register] ==
                      (writeback ? mode->writeback_address : original_base) &&
                  machine.cpu.r0_7[1] == first_value &&
@@ -2854,7 +2874,7 @@ static void test_arm_block_pc_store_source(void)
                      &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(3),
                      &trace, &result) &&
                  result.instructions == UINT64_C(1) &&
-                 result.cycles == UINT64_C(3) && trace.count == 4u &&
+                 result.cycles == UINT64_C(10) && trace.count == 4u &&
                  records[1].category == GBL_TRACE_BUS &&
                  records[1].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  records[2].category == GBL_TRACE_BUS &&
@@ -2980,12 +3000,12 @@ static void test_arm_block_maximum_pc_trace_fit(void)
         records[20] = arm_block_trace_marker(UINT64_C(0xBEEF));
         trace = (gbl_trace_buffer){ records, 20u, 1u, UINT64_C(700) };
         passed = run_arm_instruction_with_trace(
-                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(20),
+                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(32),
                      &trace, &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                  result.instructions == UINT64_C(1) &&
-                 result.cycles == UINT64_C(20) &&
+                 result.cycles == UINT64_C(32) &&
                  trace.count == 20u &&
                  trace.next_sequence == UINT64_C(719) &&
                  machine.cpu.execution_address == UINT32_C(0x08000020) &&
@@ -3036,7 +3056,7 @@ static void test_arm_block_maximum_pc_trace_fit(void)
 
             passed = record->sequence == UINT64_C(701) + (uint64_t)index &&
                      record->category == GBL_TRACE_BUS &&
-                     record->guest_cycle == (uint64_t)index + UINT64_C(1) &&
+                 record->guest_cycle == (uint64_t)index + UINT64_C(1) &&
                      record->address == UINT32_C(0x03000800) +
                                             (uint32_t)index * 4u &&
                      record->value == expected_values[index] &&
@@ -3047,13 +3067,13 @@ static void test_arm_block_maximum_pc_trace_fit(void)
         }
         passed = passed && records[18].sequence == UINT64_C(717) &&
                  records[18].category == GBL_TRACE_BUS &&
-                 records[18].guest_cycle == UINT64_C(19) &&
+                 records[18].guest_cycle == UINT64_C(26) &&
                  records[18].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
                  records[18].address == UINT32_C(0x08000020) &&
                  records[18].value == UINT32_C(0xE1A08008) &&
                  records[19].sequence == UINT64_C(718) &&
                  records[19].category == GBL_TRACE_BUS &&
-                 records[19].guest_cycle == UINT64_C(20) &&
+                 records[19].guest_cycle == UINT64_C(32) &&
                  records[19].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
                  records[19].address == UINT32_C(0x08000024) &&
                  records[19].value == UINT32_C(0xE1A09009) &&
@@ -3142,25 +3162,25 @@ static bool arm_block_maximum_refusal_case(
 static void test_arm_block_exact_preflight_refusals(void)
 {
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(20), 19u, UINT64_C(700), UINT64_C(41),
+                  UINT64_C(32), 19u, UINT64_C(700), UINT64_C(41),
                   UINT64_C(52), GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "one-short 19-record trace refusal preserves the full LDM state and caller buffer");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(20), 20u, UINT64_MAX - UINT64_C(18),
+                  UINT64_C(32), 20u, UINT64_MAX - UINT64_C(18),
                   UINT64_C(43), UINT64_C(54),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "trace sequence overflow refuses the full LDM before any read or refill");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(19), 20u, UINT64_C(700), UINT64_C(45),
+                  UINT64_C(31), 20u, UINT64_C(700), UINT64_C(45),
                   UINT64_C(56), GBL_RUN_REASON_CYCLE_BUDGET),
               "one-short cycle budget refuses all sixteen data reads and PC refill");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(20), 20u, UINT64_C(700),
-                  UINT64_MAX - UINT64_C(19), UINT64_C(58),
+                  UINT64_C(32), 20u, UINT64_C(700),
+                  UINT64_MAX - UINT64_C(31), UINT64_C(58),
                   GBL_RUN_REASON_COUNTER_OVERFLOW),
               "master-cycle counter overflow refuses the full LDM atomically");
     test_case(arm_block_maximum_refusal_case(
-                  UINT64_C(20), 20u, UINT64_C(700), UINT64_C(47),
+                  UINT64_C(32), 20u, UINT64_C(700), UINT64_C(47),
                   UINT64_MAX, GBL_RUN_REASON_COUNTER_OVERFLOW),
               "retirement counter overflow refuses the full LDM atomically");
 }
@@ -3212,7 +3232,7 @@ static bool arm_block_store_trace_one_short(void)
     }
     *before = machine;
     options = (gbl_run_options){
-        .cycle_budget = UINT64_C(16),
+        .cycle_budget = UINT64_C(23),
         .unit_limit = UINT64_C(1),
         .category_mask =
             (uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS),
@@ -3267,11 +3287,11 @@ static bool arm_block_alignment_case(bool load)
         }
         passed = run_arm_instruction_with_trace(
                      &machine, opcode, TEST_CPSR_SYSTEM,
-                     load ? UINT64_C(3) : UINT64_C(2),
+                     load ? UINT64_C(8) : UINT64_C(9),
                      &trace, &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.cycles == (load ? UINT64_C(3) : UINT64_C(2)) &&
+                 result.cycles == (load ? UINT64_C(8) : UINT64_C(9)) &&
                  trace.count == 3u &&
                  records[1].category == GBL_TRACE_BUS &&
                  records[1].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
@@ -3324,11 +3344,11 @@ static void test_arm_block_address_wraps_modulo32(void)
         machine.cpu.r0_7[1] = UINT32_C(0x12345678);
         machine.cpu.r0_7[2] = UINT32_C(0x9ABCDEF0);
         passed = run_arm_instruction_with_trace(
-                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(3),
+                     &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(10),
                      &trace, &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.cycles == UINT64_C(3) && trace.count == 4u &&
+                 result.cycles == UINT64_C(10) && trace.count == 4u &&
                  records[1].category == GBL_TRACE_BUS &&
                  records[1].address == UINT32_C(0xFFFFFFFC) &&
                  records[2].category == GBL_TRACE_BUS &&
@@ -3375,14 +3395,21 @@ static bool run_arm_block_in_mode(gbl_machine *machine, uint32_t opcode,
                                   gbl_trace_buffer *trace,
                                   gbl_run_result *result)
 {
+    if (cycle_budget != 0u && cycle_budget <= UINT64_MAX - UINT64_C(8)) {
+        cycle_budget += UINT64_C(8);
+    }
     prepare_arm_instruction(machine, opcode, cpsr);
     machine->cpu.cpsr = cpsr;
     if (trace == NULL) {
-        return run_units(machine, cycle_budget, UINT64_C(1), result);
+        const bool ran = run_units(machine, cycle_budget, UINT64_C(1), result);
+        return ran;
     }
-    return run_traced_units(machine, cycle_budget, UINT64_C(1),
-                            GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, trace,
-                            result);
+    {
+        const bool ran = run_traced_units(
+            machine, cycle_budget, UINT64_C(1),
+            GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, trace, result);
+        return ran;
+    }
 }
 
 static void test_arm_block_user_bank_transfers(void)
@@ -3424,7 +3451,7 @@ static void test_arm_block_user_bank_transfers(void)
                  &machine, store_opcode, TEST_CPSR_FIQ, UINT64_C(8),
                  &trace, &result) &&
              result.termination == GBL_RUN_PROGRESS &&
-             result.instructions == 1u && result.cycles == 8u &&
+             result.instructions == 1u && result.cycles == 15u &&
              trace.count == 9u && trace.records == records &&
              trace.next_sequence == UINT64_C(109) &&
              records[8].category == GBL_TRACE_BUS &&
@@ -3457,7 +3484,7 @@ static void test_arm_block_user_bank_transfers(void)
                  &machine, load_opcode, TEST_CPSR_FIQ, UINT64_C(9),
                  &trace, &result) &&
              result.termination == GBL_RUN_PROGRESS &&
-             result.instructions == 1u && result.cycles == 9u &&
+             result.instructions == 1u && result.cycles == 14u &&
              trace.count == 9u && trace.next_sequence == UINT64_C(209) &&
              machine.cpu.r0_7[0] == base &&
              (machine.cpu.cpsr & TEST_CPSR_MODE_MASK) == TEST_CPSR_FIQ &&
@@ -3528,7 +3555,7 @@ static void test_arm_block_user_bank_banked_base(void)
                        &trace, &result) &&
                    result.termination == GBL_RUN_PROGRESS &&
                    result.instructions == UINT64_C(1) &&
-                   result.cycles == UINT64_C(3) && trace.count == 4u &&
+                   result.cycles == UINT64_C(10) && trace.count == 4u &&
                    trace.next_sequence == UINT64_C(304) &&
                    records[1].category == GBL_TRACE_BUS &&
                    records[1].address == UINT32_C(0x03000300) &&
@@ -3559,7 +3586,7 @@ static void test_arm_block_user_bank_banked_base(void)
                       &trace, &result) &&
                   result.termination == GBL_RUN_PROGRESS &&
                   result.instructions == UINT64_C(1) &&
-                  result.cycles == UINT64_C(4) && trace.count == 4u &&
+                  result.cycles == UINT64_C(9) && trace.count == 4u &&
                   trace.next_sequence == UINT64_C(404) &&
                   records[1].category == GBL_TRACE_BUS &&
                   records[1].address == UINT32_C(0x03000300) &&
@@ -3620,7 +3647,7 @@ static bool arm_block_spsr_return_mode_case(uint32_t exception_mode,
     passed = run_arm_block_in_mode(&machine, opcode, exception_mode,
                                    UINT64_C(12), NULL, &result) &&
              result.termination == GBL_RUN_PROGRESS &&
-             result.instructions == 1u && result.cycles == UINT64_C(12) &&
+             result.instructions == 1u && result.cycles == UINT64_C(18) &&
              machine.cpu.cpsr == restored_cpsr &&
              machine.cpu.execution_address == UINT32_C(0x08000020) &&
              machine.cpu.pipeline[0].address == UINT32_C(0x08000020) &&
@@ -3646,10 +3673,10 @@ static bool arm_block_spsr_return_mode_case(uint32_t exception_mode,
                      UINT32_C(0x33000000) + (uint32_t)index;
         }
     }
-    passed = passed && run_units(&machine, UINT64_C(1), UINT64_C(1),
+    passed = passed && run_units(&machine, UINT64_C(3), UINT64_C(1),
                                  &result) &&
              result.termination == GBL_RUN_PROGRESS &&
-             result.instructions == 1u && result.cycles == UINT64_C(1) &&
+             result.instructions == 1u && result.cycles == UINT64_C(3) &&
              machine.cpu.r0_7[0] == 7u &&
              (machine.cpu.cpsr & (TEST_CPSR_T | TEST_CPSR_MODE_MASK)) ==
                  (TEST_CPSR_T | TEST_CPSR_SYSTEM) &&
@@ -3818,11 +3845,11 @@ static bool arm_block_exception_return_trace_case(size_t trace_capacity,
     before = machine;
     if (expect_success) {
         passed = run_traced_units(
-                     &machine, UINT64_C(20), UINT64_C(1),
+                     &machine, UINT64_C(32), UINT64_C(1),
                      GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace,
                      &result) &&
                  result.termination == GBL_RUN_PROGRESS &&
-                 result.instructions == 1u && result.cycles == 20u &&
+                 result.instructions == 1u && result.cycles == 32u &&
                  machine.cpu.cpsr == TEST_CPSR_SYSTEM &&
                  machine.cpu.execution_address == UINT32_C(0x08000020) &&
                  machine.cpu.pipeline[0].width == 4u &&
@@ -3839,7 +3866,7 @@ static bool arm_block_exception_return_trace_case(size_t trace_capacity,
                  records[18].width == 4u;
     } else {
         passed = run_traced_units(
-                     &machine, UINT64_C(20), UINT64_C(1),
+                     &machine, UINT64_C(32), UINT64_C(1),
                      GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace,
                      &result) &&
                  result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
@@ -3955,7 +3982,7 @@ static bool arm_block_empty_list_mode_case(
     const uint32_t expected_base =
         writeback ? mode->empty_updated_base : base;
     const uint32_t expected_trace_count = load ? 4u : 3u;
-    const uint32_t expected_cycles = load ? 5u : 2u;
+    const uint32_t expected_cycles = load ? 17u : 9u;
     const size_t memory_offset =
         (size_t)(mode->empty_transfer_address - UINT32_C(0x03000000));
     bool loaded;
@@ -4070,7 +4097,7 @@ static bool arm_block_base_in_list_case(
     const uint32_t opcode = encode_arm_block(
         mode->preindexed, mode->add_offset, writeback, load, base_register,
         register_lists[base_position]);
-    const uint32_t expected_cycles = load ? 5u : 4u;
+    const uint32_t expected_cycles = load ? 10u : 11u;
     size_t index;
     bool loaded;
     bool passed;
@@ -4240,7 +4267,7 @@ static bool arm_block_empty_s_store_case(void)
                  &machine, opcode, TEST_CPSR_FIQ, UINT64_C(2), &trace,
                  &result) &&
              result.termination == GBL_RUN_PROGRESS &&
-             result.instructions == 1u && result.cycles == 2u &&
+             result.instructions == 1u && result.cycles == 9u &&
              machine.cpu.r0_7[4] == base && trace.count == 3u &&
              records[1].address == base &&
              read_test_word(machine.iwram, 0x3400u) ==
@@ -4275,7 +4302,7 @@ static bool arm_block_empty_s_return_case(void)
                  &machine, opcode, TEST_CPSR_SVC, UINT64_C(5), &trace,
                  &result) &&
              result.termination == GBL_RUN_PROGRESS &&
-             result.instructions == 1u && result.cycles == 5u &&
+             result.instructions == 1u && result.cycles == 11u &&
              machine.cpu.cpsr == (TEST_CPSR_SYSTEM | TEST_CPSR_T) &&
              machine.cpu.execution_address == UINT32_C(0x08000302) &&
              machine.cpu.r0_7[4] == base + UINT32_C(0x40) &&
@@ -4350,7 +4377,7 @@ static bool arm_block_edge_trace_refusal_case(bool empty_list)
     }
     *before = machine;
     options = (gbl_run_options){
-        .cycle_budget = empty_list ? UINT64_C(5) : UINT64_C(5),
+        .cycle_budget = empty_list ? UINT64_C(16) : UINT64_C(10),
         .unit_limit = UINT64_C(1),
         .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
         .trace_buffer = &trace
@@ -4428,7 +4455,7 @@ static bool arm_block_full_wrap_trace_case(bool one_short)
         *before = machine;
     }
     options = (gbl_run_options){
-        .cycle_budget = UINT64_C(17),
+        .cycle_budget = UINT64_C(24),
         .unit_limit = UINT64_C(1),
         .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
         .trace_buffer = &trace
@@ -4447,8 +4474,8 @@ static bool arm_block_full_wrap_trace_case(bool one_short)
     } else {
         passed = passed && result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.cycles == 17u && result.instructions == 1u &&
-                 machine.master_cycles == 17u && trace.count == 18u &&
+                 result.cycles == 24u && result.instructions == 1u &&
+                 machine.master_cycles == 24u && trace.count == 18u &&
                  trace.next_sequence == initial_sequence + UINT64_C(18);
         for (index = 0u; passed && index < 16u; ++index) {
             passed = records[index + 1u].category == GBL_TRACE_BUS &&
@@ -4599,8 +4626,9 @@ static bool arm_subword_form_case(uint8_t transfer_kind,
         &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(2), &trace, &result);
     observed = ran &&
         result.termination == GBL_RUN_PROGRESS &&
-        result.cycles == UINT64_C(2) &&
-        result.instructions == UINT64_C(1) && machine.master_cycles == 2u &&
+        result.cycles == UINT64_C(7) &&
+        result.instructions == UINT64_C(1) &&
+        machine.master_cycles == 7u &&
         machine.cpu.r0_7[0] == expected_base &&
         (load ? machine.cpu.r0_7[2] == expected_result
               : (machine.iwram[access_address - UINT32_C(0x03000000)] ==
@@ -5006,7 +5034,7 @@ static bool arm_subword_bus_read_case(uint32_t address,
                                     GBL_BUS_CLASS_NONSEQUENTIAL);
         ran = expected_bus.status == GBL_BUS_STATUS_OK &&
               run_arm_instruction_with_trace(
-                  &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(2), &trace,
+                  &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(4), &trace,
                   &result);
         if (ran) {
             const uint32_t expected_value = arm_subword_expected_from_bus(
@@ -5014,9 +5042,9 @@ static bool arm_subword_bus_read_case(uint32_t address,
 
             observed = result.termination == GBL_RUN_PROGRESS &&
                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                result.cycles == UINT64_C(2) &&
+                result.cycles == UINT64_C(6) + expected_bus.cycles &&
                 result.instructions == UINT64_C(1) &&
-                machine.master_cycles == UINT64_C(2) &&
+                machine.master_cycles == UINT64_C(6) + expected_bus.cycles &&
                 machine.cpu.r0_7[0] == address &&
                 machine.cpu.r0_7[1] == expected_value &&
                 trace.count == 3u && trace.next_sequence == UINT64_C(43);
@@ -5183,7 +5211,7 @@ static bool arm_subword_odd_store_case(uint32_t address)
                                      source & UINT32_C(0x0000FFFF));
         ran = oracle_loaded && expected_bus.status == GBL_BUS_STATUS_OK &&
               run_arm_instruction_with_trace(
-                  &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(2), &trace,
+                  &machine, opcode, TEST_CPSR_SYSTEM, UINT64_C(4), &trace,
                   &result);
         for (index = 0u; index < trace.count; ++index) {
             if (records[index].category == GBL_TRACE_BUS &&
@@ -5212,7 +5240,7 @@ static bool arm_subword_odd_store_case(uint32_t address)
     }
     if (!loaded || !oracle_loaded || !ran || !saw_bus ||
         matching_bus_records != 1u ||
-        result.cycles != UINT64_C(2) ||
+        result.cycles != UINT64_C(6) + expected_bus.cycles ||
         result.instructions != UINT64_C(1) || trace.count != 3u ||
         trace.next_sequence != UINT64_C(43)) {
         return false;
@@ -5349,7 +5377,7 @@ static bool arm_subword_preflight_case(uint8_t mode)
     gbl_trace_record records_before[4];
     gbl_trace_buffer trace = { records, 4u, 1u, UINT64_C(90) };
     gbl_run_options options = {
-        .cycle_budget = UINT64_C(2),
+        .cycle_budget = UINT64_C(7),
         .unit_limit = 1u,
         .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
         .trace_buffer = &trace
@@ -5388,7 +5416,7 @@ static bool arm_subword_preflight_case(uint8_t mode)
         machine.iwram[0x101u] = UINT8_C(0x7F);
         prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
         if (mode == 0u) {
-            options.cycle_budget = UINT64_C(1);
+            options.cycle_budget = UINT64_C(6);
         } else if (mode == 1u) {
             trace.capacity = 3u;
         } else if (mode == 2u) {
@@ -5399,7 +5427,8 @@ static bool arm_subword_preflight_case(uint8_t mode)
             trace.count = 0u;
             trace.next_sequence = UINT64_MAX - UINT64_C(2);
         } else {
-            machine.master_cycles = UINT64_MAX - UINT64_C(2);
+            options.cycle_budget = UINT64_C(7);
+            machine.master_cycles = UINT64_MAX - UINT64_C(7);
             machine.cpu.retired_instructions = UINT64_MAX - UINT64_C(1);
             trace.capacity = 3u;
             trace.count = 0u;
@@ -5435,7 +5464,7 @@ static bool arm_subword_preflight_case(uint8_t mode)
         } else {
             observed = ran && result.termination == GBL_RUN_PROGRESS &&
                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                result.cycles == UINT64_C(2) && result.instructions == 1u &&
+                result.cycles == UINT64_C(7) && result.instructions == 1u &&
                 machine.master_cycles == UINT64_MAX &&
                 machine.cpu.retired_instructions == UINT64_MAX &&
                 machine.cpu.r0_7[1] == UINT32_C(0x8100007F) &&
@@ -6039,7 +6068,8 @@ static bool arm_transfer_preflight_boundary(uint64_t cycle_budget,
         } else {
             matched = ran && result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                 result.termination == GBL_RUN_PROGRESS &&
-                result.instructions == 1u && trace.count == 4u &&
+                result.instructions == 1u && result.cycles == 7u &&
+                trace.count == 4u &&
                 trace.next_sequence == UINT64_C(93) &&
                 machine.cpu.r0_7[0] == UINT32_C(0x03000104) &&
                 read_test_word(machine.iwram, 0x104u) ==
@@ -6055,13 +6085,13 @@ static bool arm_transfer_preflight_boundary(uint64_t cycle_budget,
 static void test_arm_transfer_preflight_boundaries(void)
 {
     test_case(arm_transfer_preflight_boundary(
-                  UINT64_C(1), 4u, GBL_RUN_REASON_CYCLE_BUDGET),
+                  UINT64_C(6), 4u, GBL_RUN_REASON_CYCLE_BUDGET),
               "ARM transfer one-short cycle budget preserves full state and trace buffer");
     test_case(arm_transfer_preflight_boundary(
                   UINT64_C(8), 3u, GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "ARM transfer one-short trace capacity preserves full state and trace buffer");
     test_case(arm_transfer_preflight_boundary(
-                  UINT64_C(2), 4u, GBL_RUN_REASON_UNIT_LIMIT),
+                  UINT64_C(7), 4u, GBL_RUN_REASON_UNIT_LIMIT),
               "ARM transfer exact cycle and trace reservations commit the whole unit");
 }
 
@@ -6189,12 +6219,12 @@ static bool arm_loaded_pc_ignores_target_lane(uint8_t lane)
         write_word(machine.iwram, 0x100u, raw_word);
         ran = run_arm_instruction_with_trace(
             &machine, UINT32_C(0xE590F000), TEST_CPSR_SYSTEM,
-            UINT64_C(3), &trace, &result);
+            UINT64_C(15), &trace, &result);
     }
     matched = loaded && ran &&
               result.termination == GBL_RUN_PROGRESS &&
               result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-              result.instructions == 1u && result.cycles == UINT64_C(3) &&
+              result.instructions == 1u && result.cycles == UINT64_C(15) &&
               trace.count == 4u &&
               trace.next_sequence == UINT64_C(11) &&
               records[1].address == (data_address & ~UINT32_C(3)) &&
@@ -6417,11 +6447,12 @@ static bool arm_loaded_pc_preflight_boundary(
         } else {
             matched = ran && result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                       result.instructions == 1u &&
-                      result.cycles == UINT64_C(3) && trace.count == 4u &&
+                      result.cycles == UINT64_C(15) && trace.count == 4u &&
                       trace.next_sequence == next_sequence + UINT64_C(4) &&
                       records[0].sequence == next_sequence &&
                       records[3].sequence == next_sequence + UINT64_C(3) &&
-                      machine.master_cycles == master_cycles + UINT64_C(3) &&
+                      records[3].guest_cycle == master_cycles + UINT64_C(15) &&
+                      machine.master_cycles == master_cycles + UINT64_C(15) &&
                       machine.cpu.retired_instructions ==
                           retired_instructions + UINT64_C(1) &&
                       machine.cpu.execution_address == UINT32_C(0x08000040) &&
@@ -6453,36 +6484,36 @@ static void test_loaded_pc_target_and_preflight(void)
     test_case(arm_loaded_pc_wraps_second_refill(),
               "LDR PC wraps its refill then stops at the ARM sequential-wrap boundary");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(2), 4u, 0u, UINT64_C(0), UINT64_C(0),
+                  UINT64_C(14), 4u, 0u, UINT64_C(0), UINT64_C(0),
                   UINT64_C(0),
                   GBL_RUN_REASON_CYCLE_BUDGET),
               "LDR PC one-short cycle budget preserves canonical state and caller trace");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(3), 4u, 1u, UINT64_C(90), UINT64_C(0),
+                  UINT64_C(15), 4u, 1u, UINT64_C(90), UINT64_C(0),
                   UINT64_C(0),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "LDR PC one-short trace capacity preserves canonical state and caller trace");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(3), 4u, 0u, UINT64_MAX - UINT64_C(3),
+                  UINT64_C(15), 4u, 0u, UINT64_MAX - UINT64_C(3),
                   UINT64_C(0), UINT64_C(0),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "LDR PC trace sequence overflow is refused before the data read");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(3), 4u, 0u, UINT64_MAX - UINT64_C(4),
+                  UINT64_C(15), 4u, 0u, UINT64_MAX - UINT64_C(4),
                   UINT64_C(0), UINT64_C(0), GBL_RUN_REASON_NONE),
               "LDR PC exact cycle and trace reservations commit the complete refill");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(3), 4u, 0u, UINT64_C(0),
+                  UINT64_C(15), 4u, 0u, UINT64_C(0),
                   UINT64_MAX - UINT64_C(2), UINT64_C(0),
                   GBL_RUN_REASON_COUNTER_OVERFLOW),
               "LDR PC master-cycle overflow is refused before the data read");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(3), 4u, 0u, UINT64_C(0), UINT64_C(0), UINT64_MAX,
+                  UINT64_C(15), 4u, 0u, UINT64_C(0), UINT64_C(0), UINT64_MAX,
                   GBL_RUN_REASON_COUNTER_OVERFLOW),
               "LDR PC retired-instruction overflow is refused before the data read");
     test_case(arm_loaded_pc_preflight_boundary(
-                  UINT64_C(3), 4u, 0u, UINT64_C(0),
-                  UINT64_MAX - UINT64_C(3), UINT64_MAX - UINT64_C(1),
+                  UINT64_C(15), 4u, 0u, UINT64_C(0),
+                  UINT64_MAX - UINT64_C(15), UINT64_MAX - UINT64_C(1),
                   GBL_RUN_REASON_NONE),
               "LDR PC exact machine-counter, retired-count, cycle, and trace limits commit");
 }
@@ -6504,9 +6535,9 @@ static void test_arm_pc_operand_contexts(void)
     make_empty_image(image);
     write_word(image, 0x00u, UINT32_C(0xE1A0000F)); /* MOV R0, PC */
     loaded = machine_load(&machine, image);
-    ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-          run_arm_program_unit(&machine, 1u, &result) &&
-          result.instructions == 1u && result.cycles == 1u &&
+    ran = loaded && run_arm_program_unit(&machine, 14u, &result) &&
+          run_arm_program_unit(&machine, 6u, &result) &&
+          result.instructions == 1u && result.cycles == 6u &&
           machine.cpu.r0_7[0] == UINT32_C(0x08000008) &&
           machine.cpu.execution_address == UINT32_C(0x08000004);
     test_case(ran,
@@ -6519,11 +6550,11 @@ static void test_arm_pc_operand_contexts(void)
     write_word(image, 0x44u, UINT32_C(0xE1A0B00B));
     loaded = machine_load(&machine, image);
     machine.cpu.r0_7[0] = UINT32_C(0x08000040);
-    ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-          run_arm_program_unit(&machine, 2u, &result) &&
+    ran = loaded && run_arm_program_unit(&machine, 14u, &result) &&
+          run_arm_program_unit(&machine, 14u, &result) &&
           result.termination == GBL_RUN_PROGRESS &&
           result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-          result.instructions == 1u && result.cycles == 2u &&
+          result.instructions == 1u && result.cycles == 14u &&
           machine.cpu.cpsr == UINT32_C(0x000000DF) &&
           machine.cpu.execution_address == UINT32_C(0x08000040) &&
           machine.cpu.pipeline[0].width == 4u &&
@@ -6537,9 +6568,9 @@ static void test_arm_pc_operand_contexts(void)
     write_word(image, 0x00u, UINT32_C(0xE580F000)); /* STR PC, [R0] */
     loaded = machine_load(&machine, image);
     machine.cpu.r0_7[0] = UINT32_C(0x02000000);
-    ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-          run_arm_program_unit(&machine, 2u, &result) &&
-          result.instructions == 1u && result.cycles == 2u &&
+    ran = loaded && run_arm_program_unit(&machine, 14u, &result) &&
+          run_arm_program_unit(&machine, 7u, &result) &&
+          result.instructions == 1u && result.cycles == 7u &&
           machine.ewram[0] == UINT8_C(0x0C) &&
           machine.ewram[1] == UINT8_C(0x00) &&
           machine.ewram[2] == UINT8_C(0x00) &&
@@ -6561,7 +6592,7 @@ static void test_thumb_pc_operand_contexts(void)
     loaded = machine_load(&machine, image);
     normal_pc = loaded && run_thumb_instruction(
         &machine, UINT16_C(0x4678), 0u, 1u, &result) &&
-        result.instructions == 1u && result.cycles == 1u &&
+        result.instructions == 1u && result.cycles == 3u &&
         machine.cpu.r0_7[0] == UINT32_C(0x08000004);
     test_case(normal_pc, "Thumb high-register PC operand reads current plus four");
     gbl_machine_dispose(&machine);
@@ -6579,8 +6610,8 @@ static void test_thumb_pc_operand_contexts(void)
         UINT32_C(0x08000004), UINT32_C(0x00005678), 2u, true
     };
     machine.cpu.next_fetch_sequential = true;
-    aligned_address = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-        result.instructions == 1u && result.cycles == 2u &&
+    aligned_address = loaded && run_arm_program_unit(&machine, 11u, &result) &&
+        result.instructions == 1u && result.cycles == 11u &&
         machine.cpu.r0_7[0] == UINT32_C(0x12345678) &&
         machine.cpu.execution_address == UINT32_C(0x08000004);
     test_case(aligned_address,
@@ -6605,12 +6636,12 @@ static void test_pc_return_condition_and_refusal(void)
     machine.cpu.cpsr = TEST_CPSR_SVC | UINT32_C(0x000000C0);
     machine.cpu.spsr[2] = TEST_CPSR_USER | TEST_CPSR_N | TEST_CPSR_C;
     machine.cpu.svc_r13_14[1] = UINT32_C(0x08000040);
-    condition_failed = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-        result.cycles == 2u &&
-        run_arm_program_unit(&machine, 1u, &result) &&
+    condition_failed = loaded && run_arm_program_unit(&machine, 14u, &result) &&
+        result.cycles == 14u &&
+        run_arm_program_unit(&machine, 6u, &result) &&
         result.termination == GBL_RUN_PROGRESS &&
         result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-        result.instructions == 1u && result.cycles == 1u &&
+        result.instructions == 1u && result.cycles == 6u &&
         machine.cpu.cpsr == (TEST_CPSR_SVC | UINT32_C(0x000000C0)) &&
         machine.cpu.execution_address == UINT32_C(0x08000004) &&
         machine.cpu.pipeline[0].address == UINT32_C(0x08000004) &&
@@ -6625,13 +6656,13 @@ static void test_pc_return_condition_and_refusal(void)
     loaded = machine_load(&machine, image);
     machine.cpu.r0_7[0] = UINT32_C(0xA5A5A5A5);
     machine.cpu.usr_r8_14[6] = UINT32_C(0x08000040);
-    absent_spsr = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-        result.cycles == 2u;
+    absent_spsr = loaded && run_arm_program_unit(&machine, 14u, &result) &&
+        result.cycles == 14u;
     before = machine;
     expected = machine;
     expected.cpu.stopped = true;
     expected.cpu.stop_reason = GBL_CPU_STOP_UNPREDICTABLE_INSTRUCTION;
-    absent_spsr = absent_spsr && run_arm_program_unit(&machine, 2u, &result) &&
+    absent_spsr = absent_spsr && run_arm_program_unit(&machine, 6u, &result) &&
         result.termination == GBL_RUN_STOPPED &&
         result.reason == GBL_RUN_REASON_UNPREDICTABLE_INSTRUCTION &&
         result.instructions == 0u && result.cycles == 0u &&
@@ -6672,8 +6703,8 @@ static void test_arm_pc_return(void)
     machine.cpu.svc_r13_14[1] = UINT32_C(0x08000040);
     machine.cpu.usr_r8_14[5] = UINT32_C(0x03000200);
     machine.cpu.usr_r8_14[6] = UINT32_C(0x08000070);
-    primed = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-        result.termination == GBL_RUN_PROGRESS && result.cycles == 2u;
+    primed = loaded && run_arm_program_unit(&machine, 14u, &result) &&
+        result.termination == GBL_RUN_PROGRESS && result.cycles == 14u;
     memset(records, 0xA5, sizeof(records));
     records[0].sequence = UINT64_C(23);
     records[0].guest_cycle = UINT64_C(41);
@@ -6692,7 +6723,7 @@ static void test_arm_pc_return(void)
     before = machine;
     digest_before = gbl_test_canonical_digest(&machine);
     one_short = primed && run_traced_units(
-        &machine, 1u, 1u, GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace,
+        &machine, 13u, 1u, GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace,
         &result) && result.termination == GBL_RUN_TIMEOUT &&
         result.reason == GBL_RUN_REASON_CYCLE_BUDGET && result.cycles == 0u &&
         result.instructions == 0u &&
@@ -6708,10 +6739,10 @@ static void test_arm_pc_return(void)
     test_case(one_short,
               "one-short S+PC refill preserves full state and trace bytes");
 
-    moved = primed && run_arm_program_unit(&machine, 2u, &result) &&
+    moved = primed && run_arm_program_unit(&machine, 14u, &result) &&
         result.termination == GBL_RUN_PROGRESS &&
         result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-        result.instructions == 1u && result.cycles == 2u &&
+        result.instructions == 1u && result.cycles == 14u &&
         machine.cpu.cpsr == machine.cpu.spsr[2] &&
         machine.cpu.execution_address == UINT32_C(0x08000040) &&
         machine.cpu.pipeline[0].width == 4u &&
@@ -6740,10 +6771,10 @@ static void test_arm_pc_return(void)
         machine.cpu.svc_r13_14[1] = UINT32_C(0x08000044);
         machine.cpu.usr_r8_14[5] = UINT32_C(0x03000200);
         machine.cpu.usr_r8_14[6] = UINT32_C(0x08000070);
-        subtracted = loaded && run_arm_program_unit(&machine, 2u, &result) &&
-            run_arm_program_unit(&machine, 2u, &result) &&
+        subtracted = loaded && run_arm_program_unit(&machine, 14u, &result) &&
+            run_arm_program_unit(&machine, 8u, &result) &&
             result.termination == GBL_RUN_PROGRESS &&
-            result.instructions == 1u && result.cycles == 2u &&
+            result.instructions == 1u && result.cycles == 8u &&
             machine.cpu.cpsr == machine.cpu.spsr[2] &&
             machine.cpu.execution_address == UINT32_C(0x08000040) &&
             machine.cpu.pipeline[0].width == 2u &&
@@ -6796,17 +6827,17 @@ static bool prime_psr_program(gbl_machine *machine, uint8_t image[])
     if (loaded) {
         machine->cpu.cpsr = TEST_CPSR_SVC;
     }
-    return loaded && run_arm_program_unit(machine, 2u, &result) &&
-           result.termination == GBL_RUN_PROGRESS && result.cycles == 2u;
+    return loaded && run_arm_program_unit(machine, 14u, &result) &&
+           result.termination == GBL_RUN_PROGRESS && result.cycles == 14u;
 }
 
 static bool retire_psr_instruction(gbl_machine *machine,
                                    gbl_run_result *result)
 {
-    return run_arm_program_unit(machine, 1u, result) &&
+    return run_arm_program_unit(machine, 6u, result) &&
            result->termination == GBL_RUN_PROGRESS &&
            result->reason == GBL_RUN_REASON_UNIT_LIMIT &&
-           result->instructions == 1u && result->cycles == 1u;
+           result->instructions == 1u && result->cycles == 6u;
 }
 
 static void test_psr_mrs_forms(void)
@@ -7168,7 +7199,7 @@ static void test_psr_mode_reads_and_banks(void)
         write_word(image, 0x00u, encode_arm_mrs(false, 0u));
         loaded = machine_load(&machine, image);
         machine.cpu.cpsr = status;
-        primed = loaded && run_arm_program_unit(&machine, 2u, &result);
+        primed = loaded && run_arm_program_unit(&machine, 14u, &result);
         read = primed && retire_psr_instruction(&machine, &result) &&
                machine.cpu.r0_7[0] == status;
         all_modes_read = all_modes_read && read;
@@ -7195,7 +7226,7 @@ static void test_psr_mode_reads_and_banks(void)
         if (index <= 5u) {
             machine.cpu.spsr[index - 1u] = saved;
         }
-        primed = loaded && run_arm_program_unit(&machine, 2u, &result);
+        primed = loaded && run_arm_program_unit(&machine, 14u, &result);
         read = primed && retire_psr_instruction(&machine, &result) &&
                machine.cpu.r0_7[0] == saved;
         all_saved_reads = all_saved_reads && read;
@@ -7226,7 +7257,7 @@ static void test_psr_mode_reads_and_banks(void)
         machine.cpu.r0_7[2] = TEST_CPSR_SYSTEM;
         machine.cpu.fiq_r8_14[0] = UINT32_C(0xF1F1F1F1);
         machine.cpu.usr_r8_14[0] = UINT32_C(0x51515151);
-        ran = loaded && run_arm_program_unit(&machine, 2u, &result) &&
+        ran = loaded && run_arm_program_unit(&machine, 14u, &result) &&
               retire_psr_instruction(&machine, &result) &&
               retire_psr_instruction(&machine, &result) &&
               retire_psr_instruction(&machine, &result) &&
@@ -7285,7 +7316,7 @@ static void test_psr_privilege_and_saved_state(void)
     if (machine_load(&machine, image)) {
         machine.cpu.cpsr = TEST_CPSR_USER | UINT32_C(0x00000080);
         machine.cpu.r0_7[0] = UINT32_C(0xA00000F3);
-        user_flags = run_arm_program_unit(&machine, 2u, &result) &&
+        user_flags = run_arm_program_unit(&machine, 14u, &result) &&
                      retire_psr_instruction(&machine, &result) &&
                      machine.cpu.cpsr == (TEST_CPSR_USER | UINT32_C(0x00000080) |
                                           UINT32_C(0xA0000000));
@@ -7302,7 +7333,7 @@ static void test_psr_privilege_and_saved_state(void)
         machine.cpu.cpsr = TEST_CPSR_SVC;
         machine.cpu.spsr[2] = TEST_CPSR_IRQ | UINT32_C(0x00000040) |
                               TEST_CPSR_N;
-        saved_t = run_arm_program_unit(&machine, 2u, &result) &&
+        saved_t = run_arm_program_unit(&machine, 14u, &result) &&
                   retire_psr_instruction(&machine, &result) &&
                   machine.cpu.spsr[2] ==
                       (TEST_CPSR_USER | UINT32_C(0x20) | TEST_CPSR_N) &&
@@ -7320,7 +7351,7 @@ static void test_psr_privilege_and_saved_state(void)
         const uint32_t before = TEST_CPSR_SVC | TEST_CPSR_C;
         machine.cpu.cpsr = before;
         machine.cpu.r0_7[0] = TEST_CPSR_USER;
-        condition_failed = run_arm_program_unit(&machine, 2u, &result) &&
+        condition_failed = run_arm_program_unit(&machine, 14u, &result) &&
                            retire_psr_instruction(&machine, &result) &&
                            machine.cpu.cpsr == before &&
                            machine.cpu.execution_address ==
@@ -7393,7 +7424,7 @@ static void test_psr_unpredictable_refusals(void)
         loaded = machine_load(&machine, image);
         machine.cpu.cpsr = modes[index];
         machine.cpu.r0_7[0] = operands[index];
-        primed = loaded && run_arm_program_unit(&machine, 2u, &result);
+        primed = loaded && run_arm_program_unit(&machine, 14u, &result);
         memset(records, 0x5Au, sizeof(records));
         records[0].sequence = UINT64_C(31);
         records[0].guest_cycle = UINT64_C(47);
@@ -7551,7 +7582,7 @@ static void test_arithmetic(void)
     ran = loaded && run_single_instruction(&machine, UINT32_C(0xE1B02110),
                                             0u, &result);
     test_case(ran && machine.cpu.r0_7[2] == 0u &&
-                  result.cycles == 2u &&
+                  result.cycles == 7u &&
                   (machine.cpu.cpsr & TEST_CPSR_C) != 0u,
               "register LSL count 32 costs an internal cycle and uses bit zero");
 
@@ -7778,42 +7809,42 @@ static void test_thumb_alu_vectors(void)
         uint32_t left, right, incoming, expected, flags;
         uint64_t cycles;
     } vectors[] = {
-        { "LSL immediate zero preserves C/V", 0x0008u, 0u, 0x80000001u, 0x30000000u, 0x80000001u, 0xB0000000u, 1u },
-        { "LSL immediate one", 0x0048u, 0u, 0x80000001u, 0x10000000u, 2u, 0x30000000u, 1u },
-        { "LSR immediate zero means 32", 0x0808u, 0u, 0x80000001u, 0x10000000u, 0u, 0x70000000u, 1u },
-        { "ASR immediate zero means 32", 0x1008u, 0u, 0x80000001u, 0x10000000u, 0xFFFFFFFFu, 0xB0000000u, 1u },
-        { "ADD register overflow", 0x1840u, 0x7FFFFFFFu, 1u, 0u, 0x80000000u, 0x90000000u, 1u },
-        { "SUB register borrow", 0x1A40u, 0u, 1u, 0u, 0xFFFFFFFFu, 0x80000000u, 1u },
-        { "ADD immediate3 carry", 0x1DC0u, 0xFFFFFFFFu, 0u, 0u, 6u, 0x20000000u, 1u },
-        { "SUB immediate3 zero", 0x1FC0u, 7u, 0u, 0u, 0u, 0x60000000u, 1u },
-        { "MOV immediate preserves C/V", 0x2000u, 0xFFFFFFFFu, 0u, 0x30000000u, 0u, 0x70000000u, 1u },
-        { "CMP immediate no write", 0x2801u, 1u, 0u, 0u, 1u, 0x60000000u, 1u },
-        { "ADD immediate8 overflow", 0x3001u, 0x7FFFFFFFu, 0u, 0u, 0x80000000u, 0x90000000u, 1u },
-        { "SUB immediate8 overflow", 0x3801u, 0x80000000u, 0u, 0u, 0x7FFFFFFFu, 0x30000000u, 1u },
-        { "AND preserves C/V", 0x4008u, 0x80000001u, 0x80000002u, 0x30000000u, 0x80000000u, 0xB0000000u, 1u },
-        { "EOR zero", 0x4048u, 3u, 3u, 0x30000000u, 0u, 0x70000000u, 1u },
-        { "LSL register", 0x4088u, 0x80000001u, 1u, 0x10000000u, 2u, 0x30000000u, 2u },
-        { "LSR register", 0x40C8u, 0x80000001u, 1u, 0x10000000u, 0x40000000u, 0x30000000u, 2u },
-        { "ASR register", 0x4108u, 0x80000001u, 1u, 0x10000000u, 0xC0000000u, 0xB0000000u, 2u },
-        { "ADC consumes carry", 0x4148u, 0xFFFFFFFFu, 0u, 0x20000000u, 0u, 0x60000000u, 1u },
-        { "ADC signed overflow", 0x4148u, 0x7FFFFFFFu, 0u, 0x20000000u, 0x80000000u, 0x90000000u, 1u },
-        { "SBC consumes borrow", 0x4188u, 0u, 0u, 0u, 0xFFFFFFFFu, 0x80000000u, 1u },
-        { "SBC no borrow", 0x4188u, 3u, 2u, 0x20000000u, 1u, 0x20000000u, 1u },
-        { "ROR register", 0x41C8u, 0x80000001u, 1u, 0x10000000u, 0xC0000000u, 0xB0000000u, 2u },
-        { "TST preserves destination", 0x4208u, 0x80000001u, 2u, 0x30000000u, 0x80000001u, 0x70000000u, 1u },
-        { "NEG minimum overflow", 0x4248u, 7u, 0x80000000u, 0u, 0x80000000u, 0x90000000u, 1u },
-        { "CMP register preserves destination", 0x4288u, 1u, 1u, 0u, 1u, 0x60000000u, 1u },
-        { "CMN preserves destination", 0x42C8u, 0xFFFFFFFFu, 1u, 0u, 0xFFFFFFFFu, 0x60000000u, 1u },
-        { "ORR preserves C/V", 0x4308u, 0x80000000u, 3u, 0x30000000u, 0x80000003u, 0xB0000000u, 1u },
-        { "MUL preserves C/V", 0x4348u, 0x80000000u, 2u, 0x30000000u, 0u, 0x70000000u, 5u },
-        { "MUL four internal cycles", 0x4348u, 0x12345678u, 3u, 0x30000000u, 0x369D0368u, 0x30000000u, 5u },
-        { "BIC", 0x4388u, 0x80000003u, 3u, 0x30000000u, 0x80000000u, 0xB0000000u, 1u },
-        { "MVN", 0x43C8u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 1u },
-        { "MUL negative early termination", 0x4348u, 0xFFFFFFFFu, 3u, 0x30000000u, 0xFFFFFFFDu, 0xB0000000u, 2u },
-        { "MUL two internal cycles", 0x4348u, 0x100u, 3u, 0x30000000u, 0x300u, 0x30000000u, 3u },
-        { "MUL three internal cycles", 0x4348u, 0x10000u, 3u, 0x30000000u, 0x30000u, 0x30000000u, 4u },
-        { "LSL register aliases count and destination", 0x4080u, 1u, 7u, 0x30000000u, 2u, 0x10000000u, 2u },
-        { "MUL zero retains C/V", 0x4348u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 2u }
+        { "LSL immediate zero preserves C/V", 0x0008u, 0u, 0x80000001u, 0x30000000u, 0x80000001u, 0xB0000000u, 3u },
+        { "LSL immediate one", 0x0048u, 0u, 0x80000001u, 0x10000000u, 2u, 0x30000000u, 3u },
+        { "LSR immediate zero means 32", 0x0808u, 0u, 0x80000001u, 0x10000000u, 0u, 0x70000000u, 3u },
+        { "ASR immediate zero means 32", 0x1008u, 0u, 0x80000001u, 0x10000000u, 0xFFFFFFFFu, 0xB0000000u, 3u },
+        { "ADD register overflow", 0x1840u, 0x7FFFFFFFu, 1u, 0u, 0x80000000u, 0x90000000u, 3u },
+        { "SUB register borrow", 0x1A40u, 0u, 1u, 0u, 0xFFFFFFFFu, 0x80000000u, 3u },
+        { "ADD immediate3 carry", 0x1DC0u, 0xFFFFFFFFu, 0u, 0u, 6u, 0x20000000u, 3u },
+        { "SUB immediate3 zero", 0x1FC0u, 7u, 0u, 0u, 0u, 0x60000000u, 3u },
+        { "MOV immediate preserves C/V", 0x2000u, 0xFFFFFFFFu, 0u, 0x30000000u, 0u, 0x70000000u, 3u },
+        { "CMP immediate no write", 0x2801u, 1u, 0u, 0u, 1u, 0x60000000u, 3u },
+        { "ADD immediate8 overflow", 0x3001u, 0x7FFFFFFFu, 0u, 0u, 0x80000000u, 0x90000000u, 3u },
+        { "SUB immediate8 overflow", 0x3801u, 0x80000000u, 0u, 0u, 0x7FFFFFFFu, 0x30000000u, 3u },
+        { "AND preserves C/V", 0x4008u, 0x80000001u, 0x80000002u, 0x30000000u, 0x80000000u, 0xB0000000u, 3u },
+        { "EOR zero", 0x4048u, 3u, 3u, 0x30000000u, 0u, 0x70000000u, 3u },
+        { "LSL register", 0x4088u, 0x80000001u, 1u, 0x10000000u, 2u, 0x30000000u, 4u },
+        { "LSR register", 0x40C8u, 0x80000001u, 1u, 0x10000000u, 0x40000000u, 0x30000000u, 4u },
+        { "ASR register", 0x4108u, 0x80000001u, 1u, 0x10000000u, 0xC0000000u, 0xB0000000u, 4u },
+        { "ADC consumes carry", 0x4148u, 0xFFFFFFFFu, 0u, 0x20000000u, 0u, 0x60000000u, 3u },
+        { "ADC signed overflow", 0x4148u, 0x7FFFFFFFu, 0u, 0x20000000u, 0x80000000u, 0x90000000u, 3u },
+        { "SBC consumes borrow", 0x4188u, 0u, 0u, 0u, 0xFFFFFFFFu, 0x80000000u, 3u },
+        { "SBC no borrow", 0x4188u, 3u, 2u, 0x20000000u, 1u, 0x20000000u, 3u },
+        { "ROR register", 0x41C8u, 0x80000001u, 1u, 0x10000000u, 0xC0000000u, 0xB0000000u, 4u },
+        { "TST preserves destination", 0x4208u, 0x80000001u, 2u, 0x30000000u, 0x80000001u, 0x70000000u, 3u },
+        { "NEG minimum overflow", 0x4248u, 7u, 0x80000000u, 0u, 0x80000000u, 0x90000000u, 3u },
+        { "CMP register preserves destination", 0x4288u, 1u, 1u, 0u, 1u, 0x60000000u, 3u },
+        { "CMN preserves destination", 0x42C8u, 0xFFFFFFFFu, 1u, 0u, 0xFFFFFFFFu, 0x60000000u, 3u },
+        { "ORR preserves C/V", 0x4308u, 0x80000000u, 3u, 0x30000000u, 0x80000003u, 0xB0000000u, 3u },
+        { "MUL preserves C/V", 0x4348u, 0x80000000u, 2u, 0x30000000u, 0u, 0x70000000u, 7u },
+        { "MUL four internal cycles", 0x4348u, 0x12345678u, 3u, 0x30000000u, 0x369D0368u, 0x30000000u, 7u },
+        { "BIC", 0x4388u, 0x80000003u, 3u, 0x30000000u, 0x80000000u, 0xB0000000u, 3u },
+        { "MVN", 0x43C8u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 3u },
+        { "MUL negative early termination", 0x4348u, 0xFFFFFFFFu, 3u, 0x30000000u, 0xFFFFFFFDu, 0xB0000000u, 4u },
+        { "MUL two internal cycles", 0x4348u, 0x100u, 3u, 0x30000000u, 0x300u, 0x30000000u, 5u },
+        { "MUL three internal cycles", 0x4348u, 0x10000u, 3u, 0x30000000u, 0x30000u, 0x30000000u, 6u },
+        { "LSL register aliases count and destination", 0x4080u, 1u, 7u, 0x30000000u, 2u, 0x10000000u, 4u },
+        { "MUL zero retains C/V", 0x4348u, 0u, 0xFFFFFFFFu, 0x30000000u, 0u, 0x70000000u, 4u }
     };
     size_t index;
 
@@ -7834,7 +7865,7 @@ static void test_thumb_alu_vectors(void)
             machine.cpu.cpsr == (vectors[index].flags | TEST_CPSR_SYSTEM | TEST_CPSR_T) &&
             machine.cpu.execution_address == UINT32_C(0x08000002) &&
             machine.cpu.retired_instructions == retired + 1u;
-        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+        valid = valid && run_units(&machine, 3u, 1u, &result) &&
             result.instructions == 1u &&
             machine.cpu.execution_address == UINT32_C(0x08000004) &&
             machine.cpu.r0_7[0] == vectors[index].expected;
@@ -7889,8 +7920,8 @@ static void test_thumb_high_matrix(void)
                     flags = operation != 1u ? 0xF0000000u
                         : left == right ? 0x60000000u
                         : left > right ? 0x20000000u : 0x80000000u;
-                    valid = run_units(&machine, 1u, 1u, &result) && valid &&
-                        result.instructions == 1u && result.cycles == 1u &&
+                    valid = run_units(&machine, 3u, 1u, &result) && valid &&
+                        result.instructions == 1u && result.cycles == 3u &&
                         machine.cpu.cpsr == (flags | 0x20u | modes[mode_index]) &&
                         machine.cpu.execution_address == UINT32_C(0x08000002);
                     for (reg = 0u; reg < 15u; ++reg) {
@@ -7949,13 +7980,16 @@ static void test_thumb_high_pc(void)
 
         machine.cpu.r0_7[0] = cases[index].input;
         machine.cpu.usr_r8_14[0] = cases[index].input;
-        valid = valid && run_units(&machine, 2u, 1u, &result) &&
-            result.instructions == 1u && result.cycles == 2u &&
+        valid = valid && run_units(&machine, cases[index].arm ? 14u : 8u,
+                                   1u, &result) &&
+            result.instructions == 1u &&
+            result.cycles == (cases[index].arm ? 14u : 8u) &&
             machine.cpu.execution_address == (cases[index].arm ? 0x08000020u : 0x08000010u) &&
             machine.cpu.cpsr == (0xF000001Fu | (cases[index].arm ? 0u : 0x20u)) &&
             machine.cpu.pipeline[0].width == (cases[index].arm ? 4u : 2u) &&
             machine.cpu.pipeline[0].opcode == (cases[index].arm ? 0xE3A070A5u : 0x275Au);
-        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+        valid = valid && run_units(&machine, cases[index].arm ? 6u : 3u,
+                                   1u, &result) &&
             result.instructions == 1u && machine.cpu.r0_7[7] == (cases[index].arm ? 0xA5u : 0x5Au);
         test_case(valid, "high PC write or BX refills aligned target and next call consumes it");
         gbl_machine_dispose(&machine);
@@ -8024,11 +8058,11 @@ static void test_thumb_bx_sources(void)
         } else {
             write_word(machine.rom, 4u, UINT32_C(0xE3A070A5));
         }
-        valid = valid && run_units(&machine, 2u, 1u, &result) &&
-            result.instructions == 1u && result.cycles == 2u &&
+        valid = valid && run_units(&machine, arm ? 14u : 8u, 1u, &result) &&
+            result.instructions == 1u && result.cycles == (arm ? 14u : 8u) &&
             machine.cpu.execution_address == (source == 15u ? 0x08000004u : arm ? 0x08000020u : 0x08000010u) &&
             machine.cpu.cpsr == (0xF000001Fu | (arm ? 0u : 0x20u));
-        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+        valid = valid && run_units(&machine, arm ? 6u : 3u, 1u, &result) &&
             result.instructions == 1u && machine.cpu.r0_7[7] == (arm ? 0xA5u : 0x5Au);
         (void)snprintf(name, sizeof(name), "BX source r%u switches state and consumes real target", source);
         test_case(valid, name);
@@ -8048,11 +8082,11 @@ static void test_thumb_flag_consumers(void)
         machine.cpu.r0_7[0] = 0x80000000u;
         machine.cpu.usr_r8_14[0] = equal != 0u ? 0x80000000u : 1u;
         machine.cpu.pipeline[1].opcode = 0xD005u; /* BEQ 08000010 */
-        valid = valid && run_units(&machine, 1u, 1u, &result) &&
+        valid = valid && run_units(&machine, 3u, 1u, &result) &&
             result.instructions == 1u &&
             machine.cpu.cpsr == (equal != 0u ? 0x6000003Fu : 0x3000003Fu) &&
             machine.cpu.r0_7[0] == 0x80000000u;
-        valid = valid && run_units(&machine, equal != 0u ? 2u : 1u, 1u, &result) &&
+        valid = valid && run_units(&machine, equal != 0u ? 8u : 3u, 1u, &result) &&
             result.instructions == 1u && machine.cpu.execution_address ==
                 (equal != 0u ? 0x08000010u : 0x08000004u);
         test_case(valid, "high CMP signed overflow/equality flags drive the following conditional branch");
@@ -8087,8 +8121,8 @@ static void test_thumb_shift_boundaries(void)
 
             machine.cpu.r0_7[0] = 0x80000001u;
             machine.cpu.r0_7[1] = counts[count];
-            valid = valid && run_units(&machine, 2u, 1u, &result) &&
-                result.instructions == 1u && result.cycles == 2u &&
+            valid = valid && run_units(&machine, 4u, 1u, &result) &&
+                result.instructions == 1u && result.cycles == 4u &&
                 machine.cpu.r0_7[0] == values[op][count] &&
                 machine.cpu.cpsr == (flags[op][count] | 0x3Fu);
             (void)snprintf(name, sizeof(name), "Thumb register shift %zu count %u", op, (unsigned int)counts[count]);
@@ -8101,7 +8135,7 @@ static void test_thumb_shift_boundaries(void)
 static void test_thumb_unit_bounds(void)
 {
     static const struct { uint16_t opcode; uint64_t cost; size_t records; } forms[] = {
-        { 0x4088u, 2u, 2u }, { 0x4348u, 5u, 2u }, { 0x4687u, 2u, 3u }
+        { 0x4088u, 4u, 2u }, { 0x4348u, 7u, 2u }, { 0x4687u, 8u, 3u }
     };
     size_t form;
     unsigned int boundary;
@@ -8145,7 +8179,8 @@ static void test_thumb_unit_bounds(void)
                     gbl_test_trace_equal(&records[0], &prior[0], 1u) &&
                     records[1].sequence == (boundary == 6u ? UINT64_MAX - (uint64_t)forms[form].records : 71u) &&
                     records[1].guest_cycle == before.master_cycles &&
-                    records[2].guest_cycle == before.master_cycles + (form == 2u ? 1u : forms[form].cost);
+                    records[2].guest_cycle == before.master_cycles +
+                        (form == 2u ? UINT64_C(5) : forms[form].cost);
             } else {
                 const gbl_run_reason reason = boundary == 1u ? GBL_RUN_REASON_CYCLE_BUDGET
                     : boundary == 2u || boundary == 3u ? GBL_RUN_REASON_TRACE_OUTPUT_FULL
@@ -8210,17 +8245,18 @@ static void test_thumb(void)
     machine.cpu.usr_r8_14[6] = UINT32_C(0xA5A5A5A5);
     {
         const uint64_t cycles_before = machine.master_cycles;
-        const bool one_short = loaded && run_arm_instruction(
-            &machine, UINT32_C(0xE12FFF10), 0u, 1u, &result) &&
+        bool one_short;
+
+        prepare_arm_instruction(&machine, UINT32_C(0xE12FFF10), 0u);
+        one_short = loaded && run_units(&machine, UINT64_C(7), 1u, &result) &&
             result.termination == GBL_RUN_TIMEOUT &&
             result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
             result.cycles == 0u && machine.master_cycles == cycles_before &&
             machine.cpu.execution_address == UINT32_C(0x08000000) &&
             (machine.cpu.cpsr & UINT32_C(0x20)) == 0u &&
             machine.cpu.usr_r8_14[6] == UINT32_C(0xA5A5A5A5);
-    ran = loaded && run_arm_instruction(&machine, UINT32_C(0xE12FFF10), 0u,
-                                        2u, &result);
-    test_case(one_short && ran && result.cycles == 2u &&
+        ran = loaded && run_units(&machine, UINT64_C(8), 1u, &result);
+        test_case(one_short && ran && result.cycles == 8u &&
                   result.instructions == 1u &&
                   machine.cpu.execution_address == UINT32_C(0x08000010) &&
                   (machine.cpu.cpsr & UINT32_C(0x20)) != 0u &&
@@ -8230,8 +8266,8 @@ static void test_thumb(void)
               "ARM BX preflights its budget then enters Thumb through bus refill");
     }
 
-    ran = loaded && run_units(&machine, 1u, 1u, &result);
-    test_case(ran && result.cycles == 1u && result.instructions == 1u &&
+    ran = loaded && run_units(&machine, 3u, 1u, &result);
+    test_case(ran && result.cycles == 3u && result.instructions == 1u &&
                   machine.cpu.r0_7[3] == UINT32_C(0x42) &&
                   machine.cpu.execution_address == UINT32_C(0x08000012),
               "Thumb instruction fetched by BX executes through the same core");
@@ -8286,8 +8322,8 @@ static void test_thumb(void)
 
     machine.cpu.r0_7[4] = UINT32_C(0x08000020);
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0x4720), 0u,
-                                          2u, &result);
-    test_case(ran && result.cycles == 2u &&
+                                          12u, &result);
+    test_case(ran && result.cycles == 14u &&
                   machine.cpu.execution_address == UINT32_C(0x08000020) &&
                   (machine.cpu.cpsr & UINT32_C(0x20)) == 0u &&
                   machine.cpu.pipeline[0].width == 4u &&
@@ -8312,12 +8348,12 @@ static void test_decode(void)
     loaded = machine_load(&machine, image);
 
     ran = loaded && run_arm_instruction(&machine, UINT32_C(0xEB000002), 0u,
-                                        2u, &result);
-    ran = ran && result.instructions == 1u && result.cycles == 2u &&
+                                        14u, &result);
+    ran = ran && result.instructions == 1u && result.cycles == 14u &&
           machine.cpu.execution_address == UINT32_C(0x08000010) &&
           machine.cpu.usr_r8_14[6] == UINT32_C(0x08000004) &&
           machine.cpu.pipeline[0].opcode == UINT32_C(0xE1A0200E);
-    ran = ran && run_units(&machine, 1u, 1u, &result) &&
+    ran = ran && run_units(&machine, 6u, 1u, &result) &&
           machine.cpu.r0_7[2] == UINT32_C(0x08000004);
     test_case(loaded && ran,
               "ARM BL links the next instruction and refills without stale slots");
@@ -8325,7 +8361,7 @@ static void test_decode(void)
     ran = loaded && run_arm_instruction(&machine, UINT32_C(0x1A000001),
                                         TEST_CPSR_Z, 1u, &result);
     test_case(ran && result.termination == GBL_RUN_PROGRESS &&
-                  result.cycles == 1u && machine.cpu.execution_address ==
+                  result.cycles == 6u && machine.cpu.execution_address ==
                       UINT32_C(0x08000004) &&
                   machine.cpu.pipeline[0].address == UINT32_C(0x08000004),
               "condition-failed ARM branch uses sequential fetch only");
@@ -8341,7 +8377,7 @@ static void test_decode(void)
         ran = loaded && run_arm_instruction(
             &machine, UINT32_C(0x0F000042), 0u, 1u, &result);
         swi_skipped = ran && result.termination == GBL_RUN_PROGRESS &&
-            result.instructions == 1u && result.cycles == 1u &&
+            result.instructions == 1u && result.cycles == 6u &&
             machine.cpu.execution_address == UINT32_C(0x08000004) &&
             machine.cpu.pipeline[0].address == UINT32_C(0x08000004) &&
             machine.cpu.cpsr == TEST_CPSR_SYSTEM && !machine.cpu.stopped &&
@@ -8354,7 +8390,7 @@ static void test_decode(void)
             &machine, UINT32_C(0x0C000010), 0u, 1u, &result);
         coprocessor_skipped = ran &&
             result.termination == GBL_RUN_PROGRESS &&
-            result.instructions == 1u && result.cycles == 1u &&
+            result.instructions == 1u && result.cycles == 6u &&
             machine.cpu.execution_address == UINT32_C(0x08000004) &&
             machine.cpu.pipeline[0].address == UINT32_C(0x08000004) &&
             machine.cpu.cpsr == TEST_CPSR_SYSTEM && !machine.cpu.stopped &&
@@ -8370,14 +8406,14 @@ static void test_decode(void)
     {
         const uint64_t cycles_before = machine.master_cycles;
         const bool one_short = loaded && run_thumb_instruction(
-            &machine, UINT16_C(0xE002), 0u, 1u, &result) &&
+            &machine, UINT16_C(0xE002), 0u, 5u, &result) &&
             result.termination == GBL_RUN_TIMEOUT &&
             result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
             result.cycles == 0u && machine.master_cycles == cycles_before &&
             machine.cpu.execution_address == UINT32_C(0x08000000);
         ran = loaded && run_thumb_instruction(&machine, UINT16_C(0xE002), 0u,
-                                              2u, &result);
-        test_case(one_short && ran && result.cycles == 2u &&
+                                              6u, &result);
+        test_case(one_short && ran && result.cycles == 8u &&
                   machine.cpu.execution_address == UINT32_C(0x08000008) &&
                   machine.cpu.pipeline[0].opcode == UINT32_C(0x2001) &&
                   machine.cpu.pipeline[0].width == 2u,
@@ -8386,13 +8422,13 @@ static void test_decode(void)
 
     {
         const bool taken = loaded && run_thumb_instruction(
-            &machine, UINT16_C(0xD001), TEST_CPSR_Z, 2u, &result) &&
-            result.cycles == 2u &&
+            &machine, UINT16_C(0xD001), TEST_CPSR_Z, 6u, &result) &&
+            result.cycles == 8u &&
             machine.cpu.execution_address == UINT32_C(0x08000006) &&
             machine.cpu.pipeline[0].opcode == UINT32_C(0x2105);
         const bool failed = loaded && run_thumb_instruction(
             &machine, UINT16_C(0xD001), 0u, 1u, &result) &&
-            result.cycles == 1u &&
+            result.cycles == 3u &&
             machine.cpu.execution_address == UINT32_C(0x08000002);
 
         test_case(taken && failed,
@@ -8404,7 +8440,7 @@ static void test_decode(void)
             run_thumb_instruction(&machine, UINT16_C(0xF000), 0u,
                                   UINT64_C(1), &result) &&
             result.termination == GBL_RUN_PROGRESS &&
-            result.instructions == 1u && result.cycles == 1u &&
+            result.instructions == 1u && result.cycles == 3u &&
             machine.cpu.execution_address == UINT32_C(0x08000002) &&
             machine.cpu.usr_r8_14[6] == UINT32_C(0x08000004) &&
             machine.cpu.stop_reason == GBL_CPU_STOP_NONE;
@@ -8687,9 +8723,11 @@ static void test_thumb_immediate_transfer_matrix(void)
                 machine.iwram[address_offset] = UINT8_C(0xD2);
                 machine.iwram[address_offset + 1u] = UINT8_C(0x6E);
             }
-            valid = run_units(&machine, 2u, 1u, &result) &&
+            valid = run_units(&machine, 4u,
+                              1u, &result) &&
                     result.termination == GBL_RUN_PROGRESS &&
-                    result.instructions == 1u && result.cycles == 2u &&
+                    result.instructions == 1u &&
+                    result.cycles == 4u &&
                     machine.cpu.r0_7[1] ==
                         UINT32_C(0x03000000) + base_offset;
             if (cases[index].load) {
@@ -8735,8 +8773,8 @@ static void test_thumb_transfer_modulo_address(void)
     if (valid) {
         machine.cpu.r0_7[1] = UINT32_C(0xFFFFFFFC);
         machine.cpu.r0_7[2] = UINT32_C(0x08000004);
-        valid = run_units(&machine, 2u, 1u, &result) &&
-                result.instructions == 1u && result.cycles == 2u &&
+        valid = run_units(&machine, 6u, 1u, &result) &&
+                result.instructions == 1u && result.cycles == 6u &&
                 machine.cpu.r0_7[3] == (uint32_t)(opcode & UINT16_C(0x00FF));
     }
     test_case(valid,
@@ -8876,9 +8914,11 @@ static void test_thumb_halfword_immediate_matrix(void)
             machine.iwram[data_offset - 1u] = UINT8_C(0xA7);
             write_halfword(machine.iwram, data_offset, UINT16_C(0xBEEF));
             machine.iwram[data_offset + 2u] = UINT8_C(0x9C);
-            valid = run_units(&machine, 2u, 1u, &result) &&
+            valid = run_units(&machine, 4u,
+                              1u, &result) &&
                     result.termination == GBL_RUN_PROGRESS &&
-                    result.instructions == 1u && result.cycles == 2u &&
+                    result.instructions == 1u &&
+                    result.cycles == 4u &&
                     machine.cpu.r0_7[1] ==
                         UINT32_C(0x03000000) + base_offset;
             if (cases[index].load) {
@@ -8926,8 +8966,10 @@ static void test_thumb_halfword_alignment(void)
             machine.iwram[0x100u] = UINT8_C(0x11);
             machine.iwram[0x101u] = UINT8_C(0x82);
             machine.iwram[0x102u] = UINT8_C(0x33);
-            valid = run_units(&machine, 2u, 1u, &result) &&
-                    result.instructions == 1u && result.cycles == 2u &&
+            valid = run_units(&machine, 4u,
+                              1u, &result) &&
+                    result.instructions == 1u &&
+                    result.cycles == 4u &&
                     machine.cpu.r0_7[1] == UINT32_C(0x03000101);
             if (cases[index].load) {
                 valid = valid && machine.cpu.r0_7[0] == UINT32_C(0x11000082) &&
@@ -8979,8 +9021,10 @@ static void test_thumb_sp_relative_matrix(void)
             machine.iwram[data_offset - 1u] = UINT8_C(0xA7);
             write_word(machine.iwram, data_offset, UINT32_C(0x89ABCDEF));
             machine.iwram[data_offset + 4u] = UINT8_C(0x9C);
-            valid = run_units(&machine, 2u, 1u, &result) &&
-                    result.instructions == 1u && result.cycles == 2u &&
+            valid = run_units(&machine, 4u,
+                              1u, &result) &&
+                    result.instructions == 1u &&
+                    result.cycles == 4u &&
                     machine.cpu.usr_r8_14[5] ==
                         UINT32_C(0x03000000) + stack_offset;
             if (cases[index].load) {
@@ -9014,7 +9058,7 @@ static void test_thumb_sp_alignment_and_banks(void)
         machine.iwram[0x201u] = UINT8_C(0x22);
         machine.iwram[0x202u] = UINT8_C(0x33);
         machine.iwram[0x203u] = UINT8_C(0x44);
-        valid = run_units(&machine, 2u, 1u, &result) &&
+        valid = run_units(&machine, 4u, 1u, &result) &&
                 machine.cpu.r0_7[0] == UINT32_C(0x11443322);
     }
     test_case(valid, "Thumb SP-relative odd word LDR uses the shared rotation policy");
@@ -9028,7 +9072,7 @@ static void test_thumb_sp_alignment_and_banks(void)
     if (valid) {
         machine.cpu.usr_r8_14[5] = UINT32_C(0x03000201);
         machine.cpu.r0_7[0] = UINT32_C(0xAABBCCDD);
-        valid = run_units(&machine, 2u, 1u, &result) &&
+        valid = run_units(&machine, 4u, 1u, &result) &&
                 read_test_word(machine.iwram, 0x200u) ==
                     UINT32_C(0xAABBCCDD);
     }
@@ -9045,7 +9089,7 @@ static void test_thumb_sp_alignment_and_banks(void)
         machine.cpu.r0_7[0] = UINT32_C(0xCAFEBABE);
         machine.cpu.irq_r13_14[0] = UINT32_C(0x03000500);
         machine.cpu.usr_r8_14[5] = UINT32_C(0x03000600);
-        valid = run_units(&machine, 2u, 1u, &result) &&
+        valid = run_units(&machine, 4u, 1u, &result) &&
                 read_test_word(machine.iwram, 0x504u) ==
                     UINT32_C(0xCAFEBABE) &&
                 machine.cpu.irq_r13_14[0] == UINT32_C(0x03000500) &&
@@ -9155,8 +9199,8 @@ static void test_thumb_sp_adjust(void)
                 ? UINT32_C(0x03000A00) : cases[index].initial;
             machine.cpu.irq_r13_14[0] = cases[index].irq_bank
                 ? cases[index].initial : UINT32_C(0x55000000);
-            valid = run_units(&machine, 1u, 1u, &result) &&
-                    result.instructions == 1u && result.cycles == 1u &&
+            valid = run_units(&machine, 3u, 1u, &result) &&
+                    result.instructions == 1u && result.cycles == 3u &&
                     machine.cpu.cpsr == flags &&
                     (cases[index].irq_bank
                         ? machine.cpu.irq_r13_14[0] == cases[index].expected &&
@@ -9192,7 +9236,7 @@ static void test_thumb_stack_maximum_roundtrip(void)
         pop_records, 12u, 0u, UINT64_C(200)
     };
     gbl_run_options options = {
-        .cycle_budget = UINT64_C(10),
+        .cycle_budget = UINT64_C(14),
         .unit_limit = UINT64_C(1),
         .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
         .trace_buffer = &push_trace
@@ -9228,7 +9272,7 @@ static void test_thumb_stack_maximum_roundtrip(void)
                      GBL_RUN_STATUS_OK &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.instructions == 1u && result.cycles == 10u &&
+                 result.instructions == 1u && result.cycles == 14u &&
                  machine.cpu.usr_r8_14[5] == stack_start &&
                  push_trace.count == 11u &&
                  push_trace.next_sequence == UINT64_C(111);
@@ -9363,8 +9407,8 @@ static void test_thumb_stack_banked_lr(void)
         machine.cpu.irq_r13_14[1] = UINT32_C(0x03000019);
         machine.cpu.usr_r8_14[5] = UINT32_C(0x03000600);
         machine.cpu.usr_r8_14[6] = UINT32_C(0x11223344);
-        pushed = run_units(&machine, 2u, 1u, &result) &&
-                 result.instructions == 1u && result.cycles == 2u &&
+        pushed = run_units(&machine, 6u, 1u, &result) &&
+                 result.instructions == 1u && result.cycles == 6u &&
                  machine.cpu.irq_r13_14[0] == UINT32_C(0x030004FC) &&
                  machine.cpu.irq_r13_14[1] == UINT32_C(0x03000019) &&
                  machine.cpu.usr_r8_14[5] == UINT32_C(0x03000600) &&
@@ -9414,8 +9458,8 @@ static void test_thumb_stack_low_register_lists(void)
         machine.cpu.usr_r8_14[5] = initial_sp;
         write_word(machine.iwram, 0x1F4u, UINT32_C(0xA55AA55A));
         write_word(machine.iwram, 0x200u, UINT32_C(0x5AA55AA5));
-        pushed = run_units(&machine, 3u, 1u, &result) &&
-                 result.instructions == 1u && result.cycles == 3u &&
+        pushed = run_units(&machine, 7u, 1u, &result) &&
+                 result.instructions == 1u && result.cycles == 7u &&
                  machine.cpu.usr_r8_14[5] == UINT32_C(0x030001F8) &&
                  read_test_word(machine.iwram, 0x1F8u) ==
                      UINT32_C(0x22334455) &&
@@ -9432,8 +9476,8 @@ static void test_thumb_stack_low_register_lists(void)
     if (loaded && pushed) {
         machine.cpu.r0_7[2] = 0u;
         machine.cpu.r0_7[5] = 0u;
-        popped = run_units(&machine, 4u, 1u, &result) &&
-                 result.instructions == 1u && result.cycles == 4u &&
+        popped = run_units(&machine, 6u, 1u, &result) &&
+                 result.instructions == 1u && result.cycles == 6u &&
                  machine.cpu.r0_7[2] == UINT32_C(0x22334455) &&
                  machine.cpu.r0_7[5] == UINT32_C(0x55667788) &&
                  machine.cpu.usr_r8_14[5] == initial_sp &&
@@ -9718,7 +9762,7 @@ static void test_thumb_multiple_store_base_first(void)
                      GBL_RUN_STATUS_OK &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.instructions == 1u && result.cycles == 3u &&
+                 result.instructions == 1u && result.cycles == 7u &&
                  machine.cpu.r0_7[0] == base + UINT32_C(8) &&
                  read_test_word(machine.iwram, 0x2000u) == base &&
                  read_test_word(machine.iwram, 0x2004u) == source_r2 &&
@@ -9765,7 +9809,7 @@ static void test_thumb_multiple_store_base_absent(void)
         write_word(machine.iwram, 0x2104u, UINT32_C(0x02020202));
         write_word(machine.iwram, 0x2108u, UINT32_C(0x2468ACE0));
         passed = run_units(&machine, 8u, 1u, &result) &&
-                 result.instructions == 1u && result.cycles == 3u &&
+                 result.instructions == 1u && result.cycles == 7u &&
                  machine.cpu.r0_7[6] == base + UINT32_C(8) &&
                  read_test_word(machine.iwram, 0x2100u) == source_r0 &&
                  read_test_word(machine.iwram, 0x2104u) == source_r2 &&
@@ -9875,7 +9919,7 @@ static void test_thumb_multiple_load_base_aliases(void)
                      result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                      result.instructions == 1u &&
                      result.cycles ==
-                         (uint64_t)cases[case_index].value_count + 2u &&
+                         (uint64_t)cases[case_index].value_count + 4u &&
                      trace.count ==
                          (size_t)cases[case_index].value_count + 2u &&
                      trace.next_sequence ==
@@ -9935,7 +9979,7 @@ static void test_thumb_multiple_load_base_absent(void)
         write_word(machine.iwram, 0x3300u, UINT32_C(0xE0100000));
         write_word(machine.iwram, 0x3304u, UINT32_C(0xE0200001));
         passed = run_units(&machine, 8u, 1u, &result) &&
-                 result.instructions == 1u && result.cycles == 4u &&
+                 result.instructions == 1u && result.cycles == 6u &&
                  machine.cpu.r0_7[0] == UINT32_C(0xE0100000) &&
                  machine.cpu.r0_7[2] == UINT32_C(0xE0200001) &&
                  machine.cpu.r0_7[3] == UINT32_C(0x03003308);
@@ -10106,7 +10150,7 @@ static bool thumb_multiple_maximum_exact_boundary(void)
     marker = records[0];
     if (loaded) {
         machine.cpu.r0_7[0] = base;
-        machine.master_cycles = UINT64_MAX - UINT64_C(10);
+        machine.master_cycles = UINT64_MAX - UINT64_C(12);
         machine.cpu.retired_instructions = UINT64_MAX - UINT64_C(1);
         for (index = 0u; index < 8u; ++index) {
             write_word(machine.iwram,
@@ -10118,7 +10162,7 @@ static bool thumb_multiple_maximum_exact_boundary(void)
             records, 11u, 1u, sequence_start
         };
         options = (gbl_run_options){
-            .cycle_budget = UINT64_C(10),
+            .cycle_budget = UINT64_C(12),
             .unit_limit = UINT64_C(1),
             .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
             .trace_buffer = &trace
@@ -10127,7 +10171,7 @@ static bool thumb_multiple_maximum_exact_boundary(void)
                      GBL_RUN_STATUS_OK &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.instructions == 1u && result.cycles == UINT64_C(10) &&
+                 result.instructions == 1u && result.cycles == UINT64_C(12) &&
                  machine.master_cycles == UINT64_MAX &&
                  machine.cpu.retired_instructions == UINT64_MAX &&
                  machine.cpu.r0_7[0] == UINT32_C(0xB0000000) &&
@@ -10149,23 +10193,23 @@ static bool thumb_multiple_maximum_exact_boundary(void)
 static void test_thumb_multiple_preflight(void)
 {
     test_case(thumb_multiple_maximum_refusal_case(
-                  9u, 11u, UINT64_C(700), UINT64_C(51), UINT64_C(61),
+                  11u, 11u, UINT64_C(700), UINT64_C(51), UINT64_C(61),
                   GBL_RUN_REASON_CYCLE_BUDGET),
               "one-short Thumb LDMIA cycle budget refuses all eight reads and fetch");
     test_case(thumb_multiple_maximum_refusal_case(
-                  10u, 10u, UINT64_C(700), UINT64_C(53), UINT64_C(63),
+                  12u, 10u, UINT64_C(700), UINT64_C(53), UINT64_C(63),
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "one-short Thumb LDMIA trace capacity preserves full state and caller records");
     test_case(thumb_multiple_maximum_refusal_case(
-                  10u, 11u, UINT64_MAX - UINT64_C(9), UINT64_C(55),
+                  12u, 11u, UINT64_MAX - UINT64_C(9), UINT64_C(55),
                   UINT64_C(65), GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "Thumb LDMIA trace sequence overflow refuses before the first read");
     test_case(thumb_multiple_maximum_refusal_case(
-                  10u, 11u, UINT64_C(700), UINT64_MAX - UINT64_C(9),
+                  12u, 11u, UINT64_C(700), UINT64_MAX - UINT64_C(11),
                   UINT64_C(67), GBL_RUN_REASON_COUNTER_OVERFLOW),
               "Thumb LDMIA master-cycle overflow refuses before effects");
     test_case(thumb_multiple_maximum_refusal_case(
-                  10u, 11u, UINT64_C(700), UINT64_C(59), UINT64_MAX,
+                  12u, 11u, UINT64_C(700), UINT64_C(59), UINT64_MAX,
                   GBL_RUN_REASON_COUNTER_OVERFLOW),
               "Thumb LDMIA retirement overflow refuses before effects");
     test_case(thumb_multiple_maximum_exact_boundary(),
@@ -10180,7 +10224,7 @@ static void test_thumb_multiple_wrapped_writeback(void)
     gbl_trace_record records[4];
     gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(800) };
     gbl_run_options options = {
-        .cycle_budget = UINT64_C(4),
+        .cycle_budget = UINT64_C(5),
         .unit_limit = UINT64_C(1),
         .category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
         .trace_buffer = &trace
@@ -10198,7 +10242,7 @@ static void test_thumb_multiple_wrapped_writeback(void)
                      GBL_RUN_STATUS_OK &&
                  result.termination == GBL_RUN_PROGRESS &&
                  result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                 result.instructions == 1u && result.cycles == 3u &&
+                 result.instructions == 1u && result.cycles == 5u &&
                  machine.cpu.r0_7[7] == 0u && trace.count == 3u &&
                  trace.next_sequence == UINT64_C(803) &&
                  records[1].category == GBL_TRACE_BUS &&
@@ -10233,7 +10277,7 @@ static void test_alignment(void)
     machine.cpu.r0_7[0] = UINT32_C(0x03000011);
     ran = loaded && run_arm_instruction(&machine, UINT32_C(0xE5902000), 0u,
                                         2u, &result);
-    test_case(ran && result.cycles == 2u &&
+    test_case(ran && result.cycles == 7u &&
                   machine.cpu.r0_7[2] == UINT32_C(0x11443322),
               "unaligned ARM word LDR rotates aligned bus data by the address lane");
 
@@ -10241,7 +10285,7 @@ static void test_alignment(void)
     machine.cpu.r0_7[1] = UINT32_C(0xAABBCCDD);
     ran = loaded && run_arm_instruction(&machine, UINT32_C(0xE5801000), 0u,
                                         2u, &result);
-    test_case(ran && result.cycles == 2u &&
+    test_case(ran && result.cycles == 7u &&
                   machine.iwram[0x10u] == UINT8_C(0xDD) &&
                   machine.iwram[0x11u] == UINT8_C(0xCC) &&
                   machine.iwram[0x12u] == UINT8_C(0xBB) &&
@@ -10270,13 +10314,13 @@ static void test_alignment(void)
               "ARM LDRB zero-extends the requested bus byte");
 
     ran = loaded && run_arm_instruction(&machine, UINT32_C(0xE59F2004), 0u,
-                                        2u, &result);
+                                        6u, &result);
     test_case(ran && machine.cpu.r0_7[2] == UINT32_C(0x76543210),
               "ARM LDR literal reads PC plus eight through the canonical bus");
 
     ran = loaded && run_thumb_instruction(&machine, UINT16_C(0x4801), 0u,
-                                          2u, &result);
-    test_case(ran && result.cycles == 2u &&
+                                          9u, &result);
+    test_case(ran && result.cycles == 11u &&
                   machine.cpu.r0_7[0] == UINT32_C(0xDEADBEEF),
               "Thumb PC-relative LDR aligns PC plus four before its offset");
 
@@ -10378,7 +10422,7 @@ static void test_alignment(void)
             .trace_buffer = NULL
         };
         const gbl_run_options exact_options = {
-            .cycle_budget = 2u,
+            .cycle_budget = 7u,
             .unit_limit = 1u,
             .category_mask = 0u,
             .trace_buffer = NULL
@@ -10400,7 +10444,7 @@ static void test_alignment(void)
         const bool exact = gbl_cpu_run(&machine, &exact_options,
                                        &exact_result) == GBL_RUN_STATUS_OK &&
                            exact_result.termination == GBL_RUN_PROGRESS &&
-                           exact_result.cycles == 2u &&
+                           exact_result.cycles == 7u &&
                            machine.cpu.r0_7[2] == UINT32_C(0x11443322);
 
         test_case(one_short && exact,
@@ -10464,24 +10508,24 @@ static void test_guest_mailbox_and_peek(void)
     make_mailbox_guest(image, GBL_MAILBOX_STATE_PASS,
                        TEST_MAILBOX_PASS_CASE);
     loaded = machine_load(&machine, image);
-    partial_ran = loaded && run_units(&machine, UINT64_C(22), 0u,
+    partial_ran = loaded && run_units(&machine, UINT64_C(126), 0u,
                                       &partial_result);
     pending = loaded ? gbl_mailbox_read(&machine)
                      : (gbl_mailbox_result){ GBL_MAILBOX_MALFORMED, 0u };
-    test_case(partial_ran && partial_result.cycles == UINT64_C(22) &&
-                  machine.master_cycles == UINT64_C(22) &&
+    test_case(partial_ran && partial_result.cycles == UINT64_C(126) &&
+                  machine.master_cycles == UINT64_C(126) &&
                   machine.iwram[TEST_MAILBOX_OFFSET + 8u] ==
                       (uint8_t)GBL_MAILBOX_STATE_PASS &&
                   machine.iwram[TEST_MAILBOX_OFFSET + 16u] == 0u &&
                   pending.status == GBL_MAILBOX_PENDING,
               "partial terminal guest stores remain pending before final marker");
 
-    final_ran = loaded && run_units(&machine, UINT64_C(2), 0u,
+    final_ran = loaded && run_units(&machine, UINT64_C(7), 0u,
                                     &final_result);
     passed = loaded ? gbl_mailbox_read(&machine)
                     : (gbl_mailbox_result){ GBL_MAILBOX_MALFORMED, 0u };
-    test_case(final_ran && final_result.cycles == UINT64_C(2) &&
-                  machine.master_cycles == UINT64_C(24) &&
+    test_case(final_ran && final_result.cycles == UINT64_C(7) &&
+                  machine.master_cycles == UINT64_C(133) &&
                   final_result.termination == GBL_RUN_TIMEOUT &&
                   passed.status == GBL_MAILBOX_PASS &&
                   passed.case_id == TEST_MAILBOX_PASS_CASE,
@@ -10609,12 +10653,12 @@ static void test_guest_mailbox_and_peek(void)
                            TEST_MAILBOX_FAIL_CASE);
         failure_loaded = machine_load(&failure, image);
         failure_ran = failure_loaded && run_units(
-            &failure, UINT64_C(24), 0u, &failure_result);
+            &failure, UINT64_C(133), 0u, &failure_result);
         failed = failure_loaded ? gbl_mailbox_read(&failure)
                                 : (gbl_mailbox_result){
                                       GBL_MAILBOX_MALFORMED, 0u
                                   };
-        test_case(failure_ran && failure_result.cycles == UINT64_C(24) &&
+        test_case(failure_ran && failure_result.cycles == UINT64_C(133) &&
                       failed.status == GBL_MAILBOX_FAIL &&
                       failed.case_id == TEST_MAILBOX_FAIL_CASE &&
                       gbl_mailbox_read(&failure).status == GBL_MAILBOX_FAIL &&
@@ -10796,10 +10840,10 @@ static bool prepare_swp_machine(gbl_machine *machine, uint32_t opcode,
         machine->cpu.spsr[index] = UINT32_C(0x88000000) + (uint32_t)index;
     }
 
-    if (!run_units(machine, 2u, 1u, &refill_result) ||
+    if (!run_units(machine, 14u, 1u, &refill_result) ||
         refill_result.termination != GBL_RUN_PROGRESS ||
         refill_result.reason != GBL_RUN_REASON_UNIT_LIMIT ||
-        refill_result.cycles != 2u || refill_result.instructions != 0u ||
+        refill_result.cycles != 14u || refill_result.instructions != 0u ||
         machine->cpu.pipeline[0].opcode != opcode ||
         machine->cpu.pipeline[1].opcode != UINT32_C(0xE1A00000)) {
         return false;
@@ -10890,7 +10934,7 @@ static void test_word_swp_stream_setup(void)
                            UINT32_C(0xE1001092) &&
                        machine.cpu.pipeline[1].address ==
                            UINT32_C(0x08000004) &&
-                       machine.master_cycles == 2u;
+                       machine.master_cycles == 14u;
 
     test_case(valid, "SWP fixture loads and refills from the original ARM stream");
     gbl_machine_dispose(&machine);
@@ -10913,11 +10957,11 @@ static void test_word_swp_read_write_trace(void)
     }
     prepared = prepare_word_swp_machine(&machine, TEST_SWP_ADDRESS);
     ran = prepared && run_traced_units(
-        &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
+        &machine, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
     test_case(ran && result.termination == GBL_RUN_PROGRESS &&
                   result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                  result.cycles == 3u && result.instructions == 1u &&
-                  machine.master_cycles == 5u &&
+                  result.cycles == 8u && result.instructions == 1u &&
+                  machine.master_cycles == 22u &&
                   machine.cpu.r0_7[1] == UINT32_C(0x11443322) &&
                   machine.cpu.r0_7[2] == UINT32_C(0xA1B2C3D4) &&
                   machine.iwram[0x40u] == UINT8_C(0xD4) &&
@@ -10938,24 +10982,24 @@ static void test_word_swp_read_write_trace(void)
                       word_swp_trace_sentinel.bus_outcome,
                       word_swp_trace_sentinel.exception_kind) &&
                   trace_record_is(&records[1], UINT64_MAX - UINT64_C(4),
-                                  2u, GBL_TRACE_INSTRUCTION,
+                                  14u, GBL_TRACE_INSTRUCTION,
                                   UINT32_C(0x08000000), UINT32_C(0xE1001092),
                                   0u, 0u, 0u, GBL_BUS_CLASS_NONSEQUENTIAL,
                                   GBL_BUS_OUTCOME_NONE, GBL_EXCEPTION_NONE) &&
                   trace_record_is(&records[2], UINT64_MAX - UINT64_C(3),
-                                  3u, GBL_TRACE_BUS,
+                                  15u, GBL_TRACE_BUS,
                                   UINT32_C(0x08000000), UINT32_C(0xE1001092),
                                   UINT32_C(0x03000040), UINT32_C(0x44332211),
                                   4u, GBL_BUS_CLASS_NONSEQUENTIAL,
                                   GBL_BUS_OUTCOME_RAM, GBL_EXCEPTION_NONE) &&
                   trace_record_is(&records[3], UINT64_MAX - UINT64_C(2),
-                                  4u, GBL_TRACE_BUS,
+                                  16u, GBL_TRACE_BUS,
                                   UINT32_C(0x08000000), UINT32_C(0xE1001092),
                                   UINT32_C(0x03000040), 0u, 4u,
                                   GBL_BUS_CLASS_NONSEQUENTIAL,
                                   GBL_BUS_OUTCOME_RAM, GBL_EXCEPTION_NONE) &&
                   trace_record_is(&records[4], UINT64_MAX - UINT64_C(1),
-                                  5u, GBL_TRACE_BUS,
+                                  22u, GBL_TRACE_BUS,
                                   UINT32_C(0x08000000), UINT32_C(0xE1001092),
                                   UINT32_C(0x08000008), UINT32_C(0xE1A00000),
                                   4u, GBL_BUS_CLASS_SEQUENTIAL,
@@ -10967,7 +11011,7 @@ static void test_word_swp_read_write_trace(void)
 static void test_word_swp_cycle_refusal(void)
 {
     test_case(word_swp_refusal_unchanged(
-                  2u, 5u, UINT64_C(17), GBL_RUN_TIMEOUT,
+                  7u, 5u, UINT64_C(17), GBL_RUN_TIMEOUT,
                   GBL_RUN_REASON_CYCLE_BUDGET),
               "word SWP one-short cycle budget leaves machine and trace untouched");
 }
@@ -10975,7 +11019,7 @@ static void test_word_swp_cycle_refusal(void)
 static void test_word_swp_trace_refusal(void)
 {
     test_case(word_swp_refusal_unchanged(
-                  3u, 4u, UINT64_C(17), GBL_RUN_TRACE_OUTPUT_FULL,
+                  8u, 4u, UINT64_C(17), GBL_RUN_TRACE_OUTPUT_FULL,
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "word SWP one-short trace capacity leaves machine and records untouched");
 }
@@ -10983,7 +11027,7 @@ static void test_word_swp_trace_refusal(void)
 static void test_word_swp_sequence_refusal(void)
 {
     test_case(word_swp_refusal_unchanged(
-                  3u, 5u, UINT64_MAX - UINT64_C(3),
+                  8u, 5u, UINT64_MAX - UINT64_C(3),
                   GBL_RUN_TRACE_OUTPUT_FULL,
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "word SWP one-short trace sequence leaves machine and records untouched");
@@ -11007,13 +11051,13 @@ static bool swp_alias_parity_case(uint32_t opcode, uint32_t address,
     const bool traced_loaded = prepare_swp_machine(&traced, opcode, address);
     const bool plain_loaded = prepare_swp_machine(&plain, opcode, address);
     const bool traced_ran = traced_loaded && run_traced_units(
-        &traced, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &traced_result);
+        &traced, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &traced_result);
     const bool plain_ran = plain_loaded &&
-                           run_units(&plain, 3u, 1u, &plain_result);
+                           run_units(&plain, 8u, 1u, &plain_result);
     const bool valid = traced_ran && plain_ran &&
         traced_result.termination == GBL_RUN_PROGRESS &&
         traced_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-        traced_result.cycles == 3u && traced_result.instructions == 1u &&
+        traced_result.cycles == 8u && traced_result.instructions == 1u &&
         plain_result.termination == traced_result.termination &&
         plain_result.reason == traced_result.reason &&
         plain_result.cycles == traced_result.cycles &&
@@ -11063,10 +11107,10 @@ static bool word_swp_lane_case(uint32_t address, uint32_t expected_rd)
     gbl_run_result result = { GBL_RUN_TIMEOUT, GBL_RUN_REASON_NONE, 0u, 0u, 0u, 0u , 0u, 0u, 0u, GBL_CPU_POWER_CAUSE_NONE, 0u, 0u, 0u, 0u, 0u};
     const bool prepared = prepare_word_swp_machine(&machine, address);
     const bool ran = prepared && run_traced_units(
-        &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
+        &machine, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
     const bool valid = ran &&
         result.termination == GBL_RUN_PROGRESS &&
-        result.reason == GBL_RUN_REASON_UNIT_LIMIT && result.cycles == 3u &&
+        result.reason == GBL_RUN_REASON_UNIT_LIMIT && result.cycles == 8u &&
         result.instructions == 1u && machine.cpu.r0_7[0] == address &&
         machine.cpu.r0_7[1] == expected_rd &&
         machine.cpu.r0_7[2] == UINT32_C(0xA1B2C3D4) &&
@@ -11075,21 +11119,21 @@ static bool word_swp_lane_case(uint32_t address, uint32_t expected_rd)
         machine.iwram[0x42u] == UINT8_C(0xB2) &&
         machine.iwram[0x43u] == UINT8_C(0xA1) &&
         trace.count == 4u && trace.next_sequence == 4u &&
-        trace_record_is(&records[0], 0u, 2u, GBL_TRACE_INSTRUCTION,
+        trace_record_is(&records[0], 0u, 14u, GBL_TRACE_INSTRUCTION,
                         UINT32_C(0x08000000), UINT32_C(0xE1001092), 0u, 0u,
                         0u, GBL_BUS_CLASS_NONSEQUENTIAL,
                         GBL_BUS_OUTCOME_NONE, GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[1], 1u, 3u, GBL_TRACE_BUS,
+        trace_record_is(&records[1], 1u, 15u, GBL_TRACE_BUS,
                         UINT32_C(0x08000000), UINT32_C(0xE1001092),
                         TEST_SWP_BASE_ADDRESS, UINT32_C(0x44332211), 4u,
                         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
                         GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[2], 2u, 4u, GBL_TRACE_BUS,
+        trace_record_is(&records[2], 2u, 16u, GBL_TRACE_BUS,
                         UINT32_C(0x08000000), UINT32_C(0xE1001092),
                         TEST_SWP_BASE_ADDRESS, 0u, 4u,
                         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
                         GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[3], 3u, 5u, GBL_TRACE_BUS,
+        trace_record_is(&records[3], 3u, 22u, GBL_TRACE_BUS,
                         UINT32_C(0x08000000), UINT32_C(0xE1001092),
                         UINT32_C(0x08000008), UINT32_C(0xE1A00000), 4u,
                         GBL_BUS_CLASS_SEQUENTIAL, GBL_BUS_OUTCOME_ROM,
@@ -11133,12 +11177,12 @@ static void test_swpb_read_write_trace(void)
     const bool prepared = prepare_swp_machine(
         &machine, UINT32_C(0xE1401092), TEST_SWP_ADDRESS);
     const bool ran = prepared && run_traced_units(
-        &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
+        &machine, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
 
     test_case(ran && result.termination == GBL_RUN_PROGRESS &&
                   result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                  result.cycles == 3u && result.instructions == 1u &&
-                  machine.master_cycles == 5u &&
+                  result.cycles == 8u && result.instructions == 1u &&
+                  machine.master_cycles == 22u &&
                   machine.cpu.r0_7[1] == UINT32_C(0x22) &&
                   machine.cpu.r0_7[2] == UINT32_C(0xA1B2C3D4) &&
                   machine.iwram[0x40u] == UINT8_C(0x11) &&
@@ -11147,24 +11191,24 @@ static void test_swpb_read_write_trace(void)
                   machine.iwram[0x43u] == UINT8_C(0x44) &&
                   trace.count == 5u && trace.next_sequence == UINT64_C(74) &&
                   trace_record_is(
-                      &records[1], UINT64_C(70), 2u, GBL_TRACE_INSTRUCTION,
+                      &records[1], UINT64_C(70), 14u, GBL_TRACE_INSTRUCTION,
                       UINT32_C(0x08000000), UINT32_C(0xE1401092), 0u, 0u,
                       0u, GBL_BUS_CLASS_NONSEQUENTIAL,
                       GBL_BUS_OUTCOME_NONE, GBL_EXCEPTION_NONE) &&
                   trace_record_is(
-                      &records[2], UINT64_C(71), 3u, GBL_TRACE_BUS,
+                      &records[2], UINT64_C(71), 15u, GBL_TRACE_BUS,
                       UINT32_C(0x08000000), UINT32_C(0xE1401092),
                       UINT32_C(0x03000041), UINT32_C(0x22), 1u,
                       GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
                       GBL_EXCEPTION_NONE) &&
                   trace_record_is(
-                      &records[3], UINT64_C(72), 4u, GBL_TRACE_BUS,
+                      &records[3], UINT64_C(72), 16u, GBL_TRACE_BUS,
                       UINT32_C(0x08000000), UINT32_C(0xE1401092),
                       UINT32_C(0x03000041), 0u, 1u,
                       GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
                       GBL_EXCEPTION_NONE) &&
                   trace_record_is(
-                      &records[4], UINT64_C(73), 5u, GBL_TRACE_BUS,
+                      &records[4], UINT64_C(73), 22u, GBL_TRACE_BUS,
                       UINT32_C(0x08000000), UINT32_C(0xE1401092),
                       UINT32_C(0x08000008), UINT32_C(0xE1A00000), 4u,
                       GBL_BUS_CLASS_SEQUENTIAL, GBL_BUS_OUTCOME_ROM,
@@ -11187,10 +11231,10 @@ static bool swpb_alias_case(uint32_t opcode, uint32_t expected_r0,
     const bool prepared = prepare_swp_machine(&machine, opcode,
                                                TEST_SWP_ADDRESS);
     const bool ran = prepared && run_traced_units(
-        &machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
+        &machine, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &result);
     const bool valid = ran &&
         result.termination == GBL_RUN_PROGRESS &&
-        result.reason == GBL_RUN_REASON_UNIT_LIMIT && result.cycles == 3u &&
+        result.reason == GBL_RUN_REASON_UNIT_LIMIT && result.cycles == 8u &&
         result.instructions == 1u && machine.cpu.r0_7[0] == expected_r0 &&
         machine.cpu.r0_7[1] == expected_r1 &&
         machine.cpu.r0_7[2] == expected_r2 &&
@@ -11206,20 +11250,20 @@ static bool swpb_alias_case(uint32_t opcode, uint32_t expected_r0,
                         before_prefix.value, before_prefix.width,
                         before_prefix.access_class, before_prefix.bus_outcome,
                         before_prefix.exception_kind) &&
-        trace_record_is(&records[1], UINT64_C(70), 2u,
+        trace_record_is(&records[1], UINT64_C(70), 14u,
                         GBL_TRACE_INSTRUCTION, UINT32_C(0x08000000), opcode,
                         0u, 0u, 0u, GBL_BUS_CLASS_NONSEQUENTIAL,
                         GBL_BUS_OUTCOME_NONE, GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[2], UINT64_C(71), 3u, GBL_TRACE_BUS,
+        trace_record_is(&records[2], UINT64_C(71), 15u, GBL_TRACE_BUS,
                         UINT32_C(0x08000000), opcode, TEST_SWP_ADDRESS,
                         UINT32_C(0x22), 1u,
                         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
                         GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[3], UINT64_C(72), 4u, GBL_TRACE_BUS,
+        trace_record_is(&records[3], UINT64_C(72), 16u, GBL_TRACE_BUS,
                         UINT32_C(0x08000000), opcode, TEST_SWP_ADDRESS, 0u,
                         1u, GBL_BUS_CLASS_NONSEQUENTIAL,
                         GBL_BUS_OUTCOME_RAM, GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[4], UINT64_C(73), 5u, GBL_TRACE_BUS,
+        trace_record_is(&records[4], UINT64_C(73), 22u, GBL_TRACE_BUS,
                         UINT32_C(0x08000000), opcode,
                         UINT32_C(0x08000008), UINT32_C(0xE1A00000), 4u,
                         GBL_BUS_CLASS_SEQUENTIAL, GBL_BUS_OUTCOME_ROM,
@@ -11265,7 +11309,7 @@ static void test_swp_pc_restrictions(void)
 
         if (prepared) {
             const gbl_machine before = machine;
-            const bool ran = run_units(&machine, 3u, 1u, &result);
+            const bool ran = run_units(&machine, 8u, 1u, &result);
             gbl_machine after = machine;
 
             after.cpu.stopped = before.cpu.stopped;
@@ -11367,13 +11411,13 @@ static void test_swp_selected_trace_boundaries(void)
     const bool plain_loaded =
         prepare_word_swp_machine(&plain, TEST_SWP_ADDRESS);
     const bool traced_ran = traced_loaded && run_traced_units(
-        &traced, 3u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &traced_result);
+        &traced, 8u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &traced_result);
     const bool plain_ran = plain_loaded &&
-                           run_units(&plain, 3u, 1u, &plain_result);
+                           run_units(&plain, 8u, 1u, &plain_result);
     const bool exact = traced_ran && plain_ran &&
         traced_result.termination == GBL_RUN_PROGRESS &&
         traced_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-        traced_result.cycles == 3u && traced_result.instructions == 1u &&
+        traced_result.cycles == 8u && traced_result.instructions == 1u &&
         plain_result.termination == traced_result.termination &&
         plain_result.reason == traced_result.reason &&
         plain_result.cycles == traced_result.cycles &&
@@ -11389,18 +11433,18 @@ static void test_swp_selected_trace_boundaries(void)
             word_swp_trace_sentinel.access_class,
             word_swp_trace_sentinel.bus_outcome,
             word_swp_trace_sentinel.exception_kind) &&
-        trace_record_is(&records[1], UINT64_MAX - UINT64_C(3), 3u,
+        trace_record_is(&records[1], UINT64_MAX - UINT64_C(3), 15u,
                         GBL_TRACE_BUS, UINT32_C(0x08000000),
                         UINT32_C(0xE1001092), UINT32_C(0x03000040),
                         UINT32_C(0x44332211), 4u,
                         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
                         GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[2], UINT64_MAX - UINT64_C(2), 4u,
+        trace_record_is(&records[2], UINT64_MAX - UINT64_C(2), 16u,
                         GBL_TRACE_BUS, UINT32_C(0x08000000),
                         UINT32_C(0xE1001092), UINT32_C(0x03000040), 0u, 4u,
                         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_OUTCOME_RAM,
                         GBL_EXCEPTION_NONE) &&
-        trace_record_is(&records[3], UINT64_MAX - UINT64_C(1), 5u,
+        trace_record_is(&records[3], UINT64_MAX - UINT64_C(1), 22u,
                         GBL_TRACE_BUS, UINT32_C(0x08000000),
                         UINT32_C(0xE1001092), UINT32_C(0x08000008),
                         UINT32_C(0xE1A00000), 4u,
@@ -11413,12 +11457,12 @@ static void test_swp_selected_trace_boundaries(void)
     test_case(exact,
               "SWP bus-only trace uses exact-fit capacity and sequence after a prefix");
     test_case(swp_refusal_unchanged(
-                  3u, 3u, UINT64_C(17), (uint32_t)GBL_TRACE_BUS, 2u, 0u,
+                  8u, 3u, UINT64_C(17), (uint32_t)GBL_TRACE_BUS, 2u, 0u,
                   GBL_RUN_TRACE_OUTPUT_FULL,
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
               "SWP one-short selected trace capacity preserves prefix and machine");
     test_case(swp_refusal_unchanged(
-                  3u, 4u, UINT64_MAX - UINT64_C(2),
+                  8u, 4u, UINT64_MAX - UINT64_C(2),
                   (uint32_t)GBL_TRACE_BUS, 2u, 0u,
                   GBL_RUN_TRACE_OUTPUT_FULL,
                   GBL_RUN_REASON_TRACE_OUTPUT_FULL),
@@ -11441,20 +11485,20 @@ static void test_swp_counter_headroom(void)
 
     if (prepared) {
         const gbl_run_options options = {
-            .cycle_budget = 3u,
+            .cycle_budget = 8u,
             .unit_limit = 1u,
             .category_mask = (uint32_t)GBL_TRACE_BUS,
             .trace_buffer = &trace
         };
 
-        machine.master_cycles = UINT64_MAX - UINT64_C(3);
+        machine.master_cycles = UINT64_MAX - UINT64_C(8);
         machine.cpu.retired_instructions = UINT64_MAX - UINT64_C(1);
         exact = gbl_cpu_run(&machine, &options, &result) ==
                     GBL_RUN_STATUS_OK &&
                 result.termination == GBL_RUN_PROGRESS &&
                 result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                result.cycles == 3u && result.instructions == 1u &&
-                result.bus_cycles == 3u && result.internal_cycles == 0u &&
+                result.cycles == 8u && result.instructions == 1u &&
+                result.bus_cycles == 8u && result.internal_cycles == 0u &&
                 machine.master_cycles == UINT64_MAX &&
                 machine.cpu.retired_instructions == UINT64_MAX &&
                 machine.cpu.r0_7[1] == UINT32_C(0x11443322) &&
@@ -11466,12 +11510,12 @@ static void test_swp_counter_headroom(void)
     gbl_machine_dispose(&machine);
 
     test_case(swp_refusal_unchanged(
-                  3u, 4u, UINT64_C(17), (uint32_t)GBL_TRACE_BUS,
-                  UINT64_MAX - UINT64_C(2), 0u, GBL_RUN_STOPPED,
+                  8u, 4u, UINT64_C(17), (uint32_t)GBL_TRACE_BUS,
+                  UINT64_MAX - UINT64_C(7), 0u, GBL_RUN_STOPPED,
                   GBL_RUN_REASON_COUNTER_OVERFLOW),
               "SWP one-short master-cycle headroom refuses before bus effects");
     test_case(swp_refusal_unchanged(
-                  3u, 4u, UINT64_C(17), (uint32_t)GBL_TRACE_BUS, 2u,
+                  8u, 4u, UINT64_C(17), (uint32_t)GBL_TRACE_BUS, 2u,
                   UINT64_MAX, GBL_RUN_STOPPED,
                   GBL_RUN_REASON_COUNTER_OVERFLOW),
               "SWP exhausted retirement counter refuses before bus effects");
@@ -11611,9 +11655,9 @@ static void test_multiply_signed_vectors(void)
                           result.termination == GBL_RUN_PROGRESS &&
                           result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
                           result.instructions == 1u &&
-                          result.bus_cycles == UINT64_C(1) &&
+                          result.bus_cycles == UINT64_C(6) &&
                           result.internal_cycles == expected_internal &&
-                          result.cycles == UINT64_C(1) + expected_internal &&
+                          result.cycles == UINT64_C(6) + expected_internal &&
                           machine.cpu.r0_7[2] == vector->expected_low &&
                           machine.cpu.r0_7[4] == vector->expected_high &&
                           (machine.cpu.cpsr & nzcv) == vector->expected_flags,
@@ -11693,11 +11737,11 @@ static void test_multiply_operand_restrictions(void)
         machine.cpu.r0_7[1] = UINT32_C(5);
         machine.cpu.r0_7[3] = UINT32_C(7);
         prime_arm_instruction(&machine, UINT32_C(0xE0110391), nzcv);
-        ran = run_units(&machine, UINT64_C(4), 1u, &result);
+        ran = run_units(&machine, UINT64_C(7), 1u, &result);
     }
     test_case(loaded && ran && result.termination == GBL_RUN_PROGRESS &&
                   result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                  result.cycles == 2u && result.instructions == 1u &&
+                  result.cycles == 7u && result.instructions == 1u &&
                   machine.cpu.r0_7[1] == UINT32_C(35) &&
                   machine.cpu.r0_7[3] == UINT32_C(7) &&
                   (machine.cpu.cpsr & nzcv) == (TEST_CPSR_C | TEST_CPSR_V),
@@ -11757,7 +11801,7 @@ static void test_multiply_timing_table(void)
             const uint8_t algorithm_cycles = form->signed_termination
                 ? sample->signed_m
                 : sample->unsigned_m;
-            const uint64_t expected_cycles = UINT64_C(1) +
+            const uint64_t expected_cycles = UINT64_C(6) +
                 (uint64_t)algorithm_cycles +
                 (uint64_t)form->extra_internal_cycles;
             const uint64_t cycles_before = machine.master_cycles;
@@ -11863,7 +11907,7 @@ static bool multiply_refusal_unchanged(uint64_t cycle_budget,
 static bool multiply_exact_headroom(void)
 {
     const uint32_t opcode = UINT32_C(0xE0E54392); /* SMLAL r4,r5,r2,r3 */
-    const uint64_t cost = UINT64_C(7);
+    const uint64_t cost = UINT64_C(12);
     gbl_machine machine = { 0 };
     gbl_trace_record records[3];
     gbl_trace_buffer trace = {
@@ -11916,7 +11960,7 @@ static bool multiply_exact_headroom(void)
 
 static void test_multiply_preflight_boundaries(void)
 {
-    const uint64_t cost = UINT64_C(7);
+    const uint64_t cost = UINT64_C(12);
 
     test_case(multiply_exact_headroom(),
               "SMLAL exact-fit cycles, trace, sequence, and counters reach UINT64_MAX");
@@ -12003,7 +12047,7 @@ static bool maximum_reservation_case_passes(
         &required_records, &reason);
 
     return reserved == test->expected_reserved &&
-           reason == test->expected_reason && cycle_cost == UINT64_C(18) &&
+           reason == test->expected_reason && cycle_cost == UINT64_C(30) &&
            required_records == test->expected_records &&
            gbl_test_canonical_equal(&machine_before, &machine) &&
            gbl_test_canonical_digest(&machine_before) ==
@@ -12021,57 +12065,57 @@ static void test_maximum_unit_reservations(void)
 {
     static const cpu_maximum_reservation_case cases[] = {
         { "maximum descriptor reserves exact cycle/counter/trace headroom",
-          GBL_CPU_TEST_COUNT_VALID, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), true, GBL_RUN_REASON_NONE, 19u },
+          GBL_CPU_TEST_COUNT_VALID, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), true, GBL_RUN_REASON_NONE, 19u },
         { "maximum descriptor refuses one-short cycle budget unchanged",
-          GBL_CPU_TEST_COUNT_VALID, 17u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), false, GBL_RUN_REASON_CYCLE_BUDGET, 0u },
+          GBL_CPU_TEST_COUNT_VALID, 29u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), false, GBL_RUN_REASON_CYCLE_BUDGET, 0u },
         { "maximum descriptor refuses one-short master-cycle headroom",
-          GBL_CPU_TEST_COUNT_VALID, 18u,
-          UINT64_MAX - UINT64_C(17), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_COUNT_VALID, 30u,
+          UINT64_MAX - UINT64_C(29), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_COUNTER_OVERFLOW, 0u },
         { "maximum descriptor refuses one-short retirement headroom",
-          GBL_CPU_TEST_COUNT_VALID, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX, 20u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_COUNT_VALID, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX, 20u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_COUNTER_OVERFLOW, 0u },
         { "maximum descriptor refuses one-short trace capacity unchanged",
-          GBL_CPU_TEST_COUNT_VALID, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 19u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_COUNT_VALID, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 19u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_TRACE_OUTPUT_FULL, 19u },
         { "maximum descriptor refuses one-short trace sequence unchanged",
-          GBL_CPU_TEST_COUNT_VALID, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
+          GBL_CPU_TEST_COUNT_VALID, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
           UINT64_MAX - UINT64_C(18), false,
           GBL_RUN_REASON_TRACE_OUTPUT_FULL, 19u },
         { "maximum descriptor rejects one-over fetch count unchanged",
-          GBL_CPU_TEST_FETCH_COUNT_OVERFLOW, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_FETCH_COUNT_OVERFLOW, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
         { "maximum descriptor rejects one-over data count unchanged",
-          GBL_CPU_TEST_DATA_COUNT_OVERFLOW, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_DATA_COUNT_OVERFLOW, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
         { "maximum descriptor rejects one-over result count unchanged",
-          GBL_CPU_TEST_RESULT_COUNT_OVERFLOW, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_RESULT_COUNT_OVERFLOW, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
         { "maximum descriptor rejects one-over register-effect count unchanged",
-          GBL_CPU_TEST_REGISTER_EFFECT_COUNT_OVERFLOW, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_REGISTER_EFFECT_COUNT_OVERFLOW, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_INVALID_CPU_STATE, 0u },
         { "maximum descriptor rejects one-over status-effect count unchanged",
-          GBL_CPU_TEST_STATUS_EFFECT_COUNT_OVERFLOW, 18u,
-          UINT64_MAX - UINT64_C(18), UINT64_MAX - UINT64_C(1), 20u,
-          UINT64_MAX - UINT64_C(19), false,
+          GBL_CPU_TEST_STATUS_EFFECT_COUNT_OVERFLOW, 30u,
+          UINT64_MAX - UINT64_C(30), UINT64_MAX - UINT64_C(1), 20u,
+          UINT64_MAX - UINT64_C(30), false,
           GBL_RUN_REASON_INVALID_CPU_STATE, 0u }
     };
     size_t index;
@@ -12116,7 +12160,7 @@ static void test_trace_store_capacity(void)
         const gbl_machine before = short_machine;
         const gbl_trace_record prior_before = short_records[0];
         const bool ran = run_traced_units(
-            &short_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
+            &short_machine, 7u, 1u, GBL_TRACE_CATEGORY_MASK,
             &short_trace, &short_result);
 
         test_case(ran &&
@@ -12149,13 +12193,13 @@ static void test_trace_store_capacity(void)
 
     if (exact_loaded) {
         const bool ran = run_traced_units(
-            &exact_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
+            &exact_machine, 7u, 1u, GBL_TRACE_CATEGORY_MASK,
             &exact_trace, &exact_result);
         const uint8_t *ewram = exact_machine.ewram;
 
         test_case(ran && exact_result.termination == GBL_RUN_PROGRESS &&
                       exact_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                      exact_result.cycles == 2u &&
+                      exact_result.cycles == 7u &&
                       exact_result.instructions == 1u &&
                       exact_trace.count == 4u &&
                       exact_trace.next_sequence == UINT64_C(20) &&
@@ -12183,7 +12227,7 @@ static void test_trace_store_capacity(void)
                                       GBL_BUS_CLASS_NONSEQUENTIAL,
                                       GBL_BUS_OUTCOME_RAM,
                                       GBL_EXCEPTION_NONE) &&
-                      trace_record_is(&exact_records[3], UINT64_C(19), 2u,
+                      trace_record_is(&exact_records[3], UINT64_C(19), 7u,
                                       GBL_TRACE_BUS,
                                       UINT32_C(0x08000000),
                                       UINT32_C(0xE5810000),
@@ -12263,7 +12307,7 @@ static void test_trace_refill_capacity(void)
     if (loaded) {
         const gbl_machine before = machine;
         const bool short_run = run_traced_units(
-            &machine, 2u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &result);
+            &machine, 14u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &result);
 
         test_case(short_run &&
                       result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
@@ -12289,14 +12333,14 @@ static void test_trace_refill_capacity(void)
     trace.capacity = 2u;
     if (loaded) {
         const bool exact_run = run_traced_units(
-            &machine, 2u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &result);
+            &machine, 14u, 1u, (uint32_t)GBL_TRACE_BUS, &trace, &result);
 
         test_case(exact_run && result.termination == GBL_RUN_PROGRESS &&
                       result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                      result.cycles == 2u && result.instructions == 0u &&
+                      result.cycles == 14u && result.instructions == 0u &&
                       trace.count == 2u &&
                       trace.next_sequence == UINT64_C(93) &&
-                      trace_record_is(&records[0], UINT64_C(91), 1u,
+                      trace_record_is(&records[0], UINT64_C(91), 8u,
                                       GBL_TRACE_BUS,
                                       UINT32_C(0x08000000), 0u,
                                       UINT32_C(0x08000000),
@@ -12304,7 +12348,7 @@ static void test_trace_refill_capacity(void)
                                       GBL_BUS_CLASS_NONSEQUENTIAL,
                                       GBL_BUS_OUTCOME_ROM,
                                       GBL_EXCEPTION_NONE) &&
-                      trace_record_is(&records[1], UINT64_C(92), 2u,
+                      trace_record_is(&records[1], UINT64_C(92), 14u,
                                       GBL_TRACE_BUS,
                                       UINT32_C(0x08000000), 0u,
                                       UINT32_C(0x08000004),
@@ -12362,7 +12406,7 @@ static void test_trace_category_masks(void)
         seed_trace_store_machine(&machine);
         loaded = machine.initialized && machine.rom != NULL;
         ran = loaded && run_traced_units(
-            &machine, 2u, 1u, cases[case_index].mask, trace_pointer, &result);
+            &machine, 7u, 1u, cases[case_index].mask, trace_pointer, &result);
         if ((cases[case_index].mask & (uint32_t)GBL_TRACE_INSTRUCTION) != 0u) {
             categories_match = trace.count > expected_index &&
                 records[expected_index].category == GBL_TRACE_INSTRUCTION;
@@ -12383,7 +12427,7 @@ static void test_trace_category_masks(void)
             }
         }
         test_case(ran && result.termination == GBL_RUN_PROGRESS &&
-                      result.cycles == 2u &&
+                      result.cycles == 7u &&
                       trace.count == cases[case_index].expected_count &&
                       trace.next_sequence ==
                           (uint64_t)cases[case_index].expected_count &&
@@ -12416,10 +12460,10 @@ static void test_trace_control_flow(void)
         prime_trace_arm_instruction(&branch_machine, UINT32_C(0xEA000002));
     }
     branch_ran = branch_loaded && run_traced_units(
-        &branch_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK, &trace,
+        &branch_machine, 14u, 1u, GBL_TRACE_CATEGORY_MASK, &trace,
         &branch_result);
     test_case(branch_ran && branch_result.termination == GBL_RUN_PROGRESS &&
-                  branch_result.cycles == 2u &&
+                  branch_result.cycles == 14u &&
                   branch_machine.cpu.execution_address ==
                       UINT32_C(0x08000010) &&
                   trace.count == 3u &&
@@ -12430,7 +12474,7 @@ static void test_trace_control_flow(void)
                                   GBL_BUS_CLASS_NONSEQUENTIAL,
                                   GBL_BUS_OUTCOME_NONE,
                                   GBL_EXCEPTION_NONE) &&
-                  trace_record_is(&records[1], 1u, 1u, GBL_TRACE_BUS,
+                  trace_record_is(&records[1], 1u, 8u, GBL_TRACE_BUS,
                                   UINT32_C(0x08000000),
                                   UINT32_C(0xEA000002),
                                   UINT32_C(0x08000010),
@@ -12438,7 +12482,7 @@ static void test_trace_control_flow(void)
                                   GBL_BUS_CLASS_NONSEQUENTIAL,
                                   GBL_BUS_OUTCOME_ROM,
                                   GBL_EXCEPTION_NONE) &&
-                  trace_record_is(&records[2], 2u, 2u, GBL_TRACE_BUS,
+                  trace_record_is(&records[2], 2u, 14u, GBL_TRACE_BUS,
                                   UINT32_C(0x08000000),
                                   UINT32_C(0xEA000002),
                                   UINT32_C(0x08000014),
@@ -12469,10 +12513,10 @@ static void test_trace_control_flow(void)
             bx_machine.cpu.r0_7[0] = UINT32_C(0x08000011);
         }
         bx_ran = bx_loaded && run_traced_units(
-            &bx_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK, &bx_trace,
+            &bx_machine, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &bx_trace,
             &bx_result);
         test_case(bx_ran && bx_result.termination == GBL_RUN_PROGRESS &&
-                      bx_result.cycles == 2u && bx_trace.count == 3u &&
+                      bx_result.cycles == 8u && bx_trace.count == 3u &&
                       bx_machine.cpu.execution_address ==
                           UINT32_C(0x08000010) &&
                       (bx_machine.cpu.cpsr & UINT32_C(0x20)) != 0u &&
@@ -12483,7 +12527,7 @@ static void test_trace_control_flow(void)
                                       GBL_BUS_CLASS_NONSEQUENTIAL,
                                       GBL_BUS_OUTCOME_NONE,
                                       GBL_EXCEPTION_NONE) &&
-                      trace_record_is(&bx_records[1], 1u, 1u, GBL_TRACE_BUS,
+                      trace_record_is(&bx_records[1], 1u, 5u, GBL_TRACE_BUS,
                                       UINT32_C(0x08000000),
                                       UINT32_C(0xE12FFF10),
                                       UINT32_C(0x08000010),
@@ -12491,7 +12535,7 @@ static void test_trace_control_flow(void)
                                       GBL_BUS_CLASS_NONSEQUENTIAL,
                                       GBL_BUS_OUTCOME_ROM,
                                       GBL_EXCEPTION_NONE) &&
-                      trace_record_is(&bx_records[2], 2u, 2u, GBL_TRACE_BUS,
+                      trace_record_is(&bx_records[2], 2u, 8u, GBL_TRACE_BUS,
                                       UINT32_C(0x08000000),
                                       UINT32_C(0xE12FFF10),
                                       UINT32_C(0x08000012),
@@ -12526,11 +12570,11 @@ static void test_trace_control_flow(void)
             load_machine.ewram[3] = UINT8_C(0x12);
         }
         load_ran = load_loaded && run_traced_units(
-            &load_machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK, &load_trace,
+            &load_machine, 7u, 1u, GBL_TRACE_CATEGORY_MASK, &load_trace,
             &load_result);
         test_case(load_ran &&
                       load_result.termination == GBL_RUN_PROGRESS &&
-                      load_result.cycles == 2u &&
+                      load_result.cycles == 7u &&
                       load_result.instructions == 1u &&
                       load_machine.cpu.r0_7[2] == UINT32_C(0x12345678) &&
                       load_trace.count == 3u &&
@@ -12550,7 +12594,7 @@ static void test_trace_control_flow(void)
                                       GBL_BUS_CLASS_NONSEQUENTIAL,
                                       GBL_BUS_OUTCOME_RAM,
                                       GBL_EXCEPTION_NONE) &&
-                      trace_record_is(&load_records[2], 2u, 2u,
+                      trace_record_is(&load_records[2], 2u, 7u,
                                       GBL_TRACE_BUS,
                                       UINT32_C(0x08000000),
                                       UINT32_C(0xE5912000),
@@ -12622,14 +12666,14 @@ static void test_trace_after_mailbox_pass(void)
     make_mailbox_guest(image, GBL_MAILBOX_STATE_PASS,
                        TEST_MAILBOX_PASS_CASE);
     loaded = machine_load(&machine, image);
-    completed_run = loaded && run_units(&machine, 24u, 0u, &completed);
+    completed_run = loaded && run_units(&machine, 512u, 0u, &completed);
     mailbox = loaded ? gbl_mailbox_read(&machine)
                      : (gbl_mailbox_result){ GBL_MAILBOX_MALFORMED, 0u };
     if (loaded) {
         const gbl_machine before = machine;
 
         exhausted_run = run_traced_units(
-            &machine, 4u, 1u, (uint32_t)GBL_TRACE_INSTRUCTION, &trace,
+            &machine, 7u, 1u, (uint32_t)GBL_TRACE_INSTRUCTION, &trace,
             &exhausted);
         test_case(completed_run && mailbox.status == GBL_MAILBOX_PASS &&
                       mailbox.case_id == TEST_MAILBOX_PASS_CASE &&
@@ -12815,7 +12859,7 @@ static void test_trace_sequence_and_untraced_parity(void)
     if (loaded) {
         const gbl_machine before = exhausted_machine;
         const bool ran = run_traced_units(
-            &exhausted_machine, 2u, 1u,
+            &exhausted_machine, 7u, 1u,
             (uint32_t)GBL_TRACE_INSTRUCTION, &trace, &exhausted);
 
         test_case(ran &&
@@ -12857,8 +12901,8 @@ static void test_trace_sequence_and_untraced_parity(void)
         traced_loaded = traced.initialized && traced.rom != NULL;
         plain_loaded = plain.initialized && plain.rom != NULL;
         traced_ran = traced_loaded && run_traced_units(
-            &traced, 2u, 1u, 0u, &ignored, &traced_result);
-        plain_ran = plain_loaded && run_units(&plain, 2u, 1u, &plain_result);
+            &traced, 7u, 1u, 0u, &ignored, &traced_result);
+        plain_ran = plain_loaded && run_units(&plain, 7u, 1u, &plain_result);
         test_case(traced_ran && plain_ran &&
                       traced_result.termination == plain_result.termination &&
                       traced_result.reason == plain_result.reason &&
@@ -12910,12 +12954,12 @@ static void test_trace_unit_limit(void)
         plain.cpu.r0_7[1] = UINT32_C(0x02000000);
     }
     traced_ran = traced_loaded && run_traced_units(
-        &traced, 8u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &traced_result);
-    plain_ran = plain_loaded && run_units(&plain, 8u, 1u, &plain_result);
+        &traced, 7u, 1u, GBL_TRACE_CATEGORY_MASK, &trace, &traced_result);
+    plain_ran = plain_loaded && run_units(&plain, 7u, 1u, &plain_result);
     test_case(traced_ran && plain_ran &&
                   traced_result.termination == GBL_RUN_PROGRESS &&
                   traced_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                  traced_result.cycles == 2u &&
+                  traced_result.cycles == 7u &&
                   traced_result.instructions == 1u && trace.count == 3u &&
                   gbl_test_canonical_equal(&traced, &plain) &&
                   gbl_test_canonical_digest(&traced) ==
@@ -12954,7 +12998,7 @@ static void test_thumb_bl_halves(void)
         gbl_trace_record records[3];
         gbl_trace_buffer trace = { records, 3u, 0u, 71u };
         const bool suffix = index >= 4u;
-        const uint64_t cost = suffix ? 2u : 1u;
+        const uint64_t cost = suffix ? 2u : 3u;
         bool valid = prepare_thumb_transfer(&machine, cases[index].opcode,
                                             UINT32_C(0x08000000), image);
         char description[128];
@@ -13022,14 +13066,14 @@ static void test_thumb_bl_stream_boundary(void)
         machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){ 0 };
         machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){ 0 };
         machine.cpu.next_fetch_sequential = false;
-        valid = run_traced_units(&machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
+        valid = run_traced_units(&machine, 8u, 1u, GBL_TRACE_CATEGORY_MASK,
                                 &trace, &result) &&
-            result.instructions == 0u && result.cycles == 2u && trace.count == 2u;
-        valid = valid && run_traced_units(&machine, 1u, 0u,
+            result.instructions == 0u && result.cycles == 8u && trace.count == 2u;
+        valid = valid && run_traced_units(&machine, 3u, 0u,
                         GBL_TRACE_CATEGORY_MASK, &trace, &result) &&
             result.termination == GBL_RUN_TIMEOUT &&
             result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
-            result.instructions == 1u && result.cycles == 1u &&
+            result.instructions == 1u && result.cycles == 3u &&
             machine.cpu.usr_r8_14[6] == UINT32_C(0x08000004) &&
             machine.cpu.execution_address == UINT32_C(0x08000002) &&
             machine.cpu.pipeline[0].opcode == UINT32_C(0xF802) &&
@@ -13039,9 +13083,9 @@ static void test_thumb_bl_stream_boundary(void)
     }
     test_case(valid, "Thumb BL cycle budget stops after prefix without executing suffix");
     if (valid) {
-        valid = run_traced_units(&machine, 2u, 1u, GBL_TRACE_CATEGORY_MASK,
+        valid = run_traced_units(&machine, 8u, 1u, GBL_TRACE_CATEGORY_MASK,
                                 &trace, &result) &&
-            result.instructions == 1u && result.cycles == 2u &&
+            result.instructions == 1u && result.cycles == 8u &&
             machine.cpu.usr_r8_14[6] == UINT32_C(0x08000005) &&
             machine.cpu.execution_address == UINT32_C(0x08000008) &&
             trace.count == 7u && records[4].opcode == UINT32_C(0xF802) &&
@@ -13051,7 +13095,7 @@ static void test_thumb_bl_stream_boundary(void)
             machine.cpu.cpsr == UINT32_C(0xA000003F);
     }
     test_case(valid, "Thumb BL suffix retires separately with Thumb link and target refill");
-    valid = valid && run_units(&machine, 1u, 1u, &result) &&
+    valid = valid && run_units(&machine, 3u, 1u, &result) &&
         machine.cpu.r0_7[5] == UINT32_C(0x43) &&
         machine.cpu.execution_address == UINT32_C(0x0800000A);
     test_case(valid, "Thumb BL target is consumed by the next actual run call");
@@ -13142,7 +13186,7 @@ static void test_thumb_bl_preflight(void)
                            half == 0u ? "prefix" : "suffix", boundary);
             test_case(thumb_control_resource_case(
                           half == 0u ? UINT16_C(0xF000) : UINT16_C(0xF800),
-                          half == 0u ? 1u : 2u, half == 0u ? 2u : 3u,
+                          half == 0u ? 3u : 2u, half == 0u ? 2u : 3u,
                           false, boundary),
                       description);
         }
@@ -13177,9 +13221,9 @@ static void test_thumb_bl_irq_boundary(void)
             /* The public status API explicitly clears I in privileged System
              * mode before the prefix. Direct-start normally masks IRQ. */
             valid = gbl_cpu_set_cpsr(&machine, cpsr) == GBL_CPU_STATUS_OK &&
-                run_traced_units(&machine, 1u, 1u, GBL_TRACE_CATEGORY_MASK,
+                run_traced_units(&machine, 3u, 1u, GBL_TRACE_CATEGORY_MASK,
                                  &trace, &result) &&
-                result.instructions == 1u && result.cycles == 1u &&
+                result.instructions == 1u && result.cycles == 3u &&
                 machine.cpu.usr_r8_14[6] == UINT32_C(0x08000004) &&
                 machine.cpu.execution_address == UINT32_C(0x08000002) &&
                 machine.cpu.pipeline[0].opcode == UINT32_C(0xF802) &&
@@ -13434,8 +13478,8 @@ static void test_thumb_control_static_guards(void)
 static void test_thumb_control_preflight(void)
 {
     static const struct { uint16_t opcode; uint64_t cost; size_t records; bool exception; } cases[] = {
-        { 0xD100u, 2u, 3u, false }, { 0xE000u, 2u, 3u, false },
-        { 0xDF7Fu, 1u, 2u, true }, { 0xD000u, 1u, 2u, false }
+        { 0xD100u, 8u, 3u, false }, { 0xE000u, 8u, 3u, false },
+        { 0xDF7Fu, 1u, 2u, true }, { 0xD000u, 3u, 2u, false }
     };
     size_t index;
     unsigned int boundary;
@@ -13452,10 +13496,9 @@ static void test_thumb_control_preflight(void)
     }
 }
 
-/* Independent maximum-unit witnesses. The cost and record counts are literal
- * consequences of the selected uniform one-cycle bus profile, not decoded
- * values read back from the implementation. No device/MMIO side effects or
- * address-dependent waits are admitted by this contract. */
+/* Independent maximum-unit witnesses. Data slots remain in one-cycle non-ROM
+ * regions; refill totals include literal reset WAITCNT quotes at Game Pak
+ * addresses. Costs are source-derived rather than read back from the unit. */
 typedef struct unit_boundary_case {
     const char *name;
     uint32_t opcode;
@@ -13655,9 +13698,7 @@ static bool unit_boundary_run(const unit_boundary_case *spec,
             output.result.termination == GBL_RUN_PROGRESS &&
             output.result.cycles == spec->cost && output.result.instructions == 1u &&
             output.result.bus_cycles ==
-                (uint64_t)spec->transfers +
-                    (spec->swap ? UINT64_C(2) : UINT64_C(1)) +
-                    (pc_load ? UINT64_C(2) : UINT64_C(0)) &&
+                spec->cost - (spec->load ? UINT64_C(1) : UINT64_C(0)) &&
             output.result.internal_cycles ==
                 (spec->load ? UINT64_C(1) : UINT64_C(0)) &&
             machine.master_cycles == start_cycles + spec->cost &&
@@ -13760,7 +13801,7 @@ static bool cpu_timer_refusal_is_atomic(uint32_t opcode,
         GBL_RUN_PROGRESS, GBL_RUN_REASON_NONE, UINT64_C(71), UINT64_C(73),
         UINT64_C(79), UINT64_C(83)
     , 0u, 0u, 0u, GBL_CPU_POWER_CAUSE_NONE, 0u, 0u, 0u, 0u, 0u};
-    uint64_t start_cycles = UINT64_MAX - UINT64_C(8);
+    uint64_t start_cycles = UINT64_MAX - UINT64_C(32);
     size_t index;
     bool valid;
 
@@ -13816,7 +13857,8 @@ static bool cpu_timer_refusal_is_atomic(uint32_t opcode,
             .live = true
         };
         machine.event_count = 1u;
-        machine.next_event_sequence = UINT64_MAX;
+        machine.next_event_sequence =
+            trace_refusal ? UINT64_C(1) : UINT64_MAX;
     }
     before = malloc(sizeof(*before));
     if (before == NULL) {
@@ -13990,14 +14032,14 @@ static void test_cycle_attribution_api(void)
     gbl_run_result result = { 0 };
     const bool prepared = prepare_arm_multiply_machine(
         &machine, UINT32_C(0xE0000293));
-    const bool ran = prepared && run_units(&machine, 2u, 1u, &result);
+    const bool ran = prepared && run_units(&machine, 7u, 1u, &result);
     const bool valid = ran && result.termination == GBL_RUN_PROGRESS &&
                        result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                       result.cycles == 2u && result.bus_cycles == 1u &&
+                       result.cycles == 7u && result.bus_cycles == 6u &&
                        result.internal_cycles == 1u;
 
     test_case(valid,
-              "CPU result separates one quoted fetch cycle from one internal multiply cycle");
+              "CPU result separates six reset-quoted WS0 fetch cycles from one internal multiply cycle");
     gbl_machine_dispose(&machine);
 }
 
@@ -14020,21 +14062,21 @@ static void test_timer_write_and_trace_refusals(void)
 static void test_unit_boundaries(void)
 {
     static const unit_boundary_case cases[] = {
-        { "LDM16-PC", 0xE8B0FFFFu, 20u, 19u, 16u,
+        { "LDM16-PC", 0xE8B0FFFFu, 32u, 19u, 16u,
           true, false, false, false, false, false, false },
-        { "STM16-PC", 0xE8A0FFFFu, 17u, 18u, 16u,
+        { "STM16-PC", 0xE8A0FFFFu, 24u, 18u, 16u,
           false, false, false, false, false, false, false },
-        { "LDM16-SPSR", 0xE8D0FFFFu, 20u, 19u, 16u,
+        { "LDM16-SPSR", 0xE8D0FFFFu, 26u, 19u, 16u,
           true, false, false, true, false, false, false },
-        { "LDM15-user", 0xE8D07FFFu, 17u, 17u, 15u,
+        { "LDM15-user", 0xE8D07FFFu, 22u, 17u, 15u,
           true, false, true, false, false, false, false },
-        { "SWP", 0xE1001092u, 3u, 4u, 1u,
+        { "SWP", 0xE1001092u, 8u, 4u, 1u,
           false, false, false, false, true, false, false },
-        { "PUSH9", 0xB5FFu, 10u, 11u, 9u,
+        { "PUSH9", 0xB5FFu, 14u, 11u, 9u,
           false, true, false, false, false, false, false },
-        { "POP9-PC", 0xBDFFu, 13u, 12u, 9u,
+        { "POP9-PC", 0xBDFFu, 19u, 12u, 9u,
           true, true, false, false, false, false, false },
-        { "STM16-data-wrap", 0xE8A0FFFFu, 17u, 18u, 16u,
+        { "STM16-data-wrap", 0xE8A0FFFFu, 24u, 18u, 16u,
           false, false, false, false, false, true, false },
         { "LDM16-target-wrap", 0xE8B0FFFFu, 20u, 19u, 16u,
           true, false, false, false, false, false, true }
@@ -14288,7 +14330,7 @@ static void test_irq_refusal_contract(void)
             unsplit_machine.interrupt_enable = 8u;
             unsplit_machine.interrupt_master_enable = 1u;
         }
-        split = split && run_units(&split_machine, 1u, 0u, &split_result) &&
+        split = split && run_units(&split_machine, 6u, 0u, &split_result) &&
             split_result.termination == GBL_RUN_TIMEOUT &&
             split_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
             split_result.instructions == 1u;
@@ -14300,7 +14342,7 @@ static void test_irq_refusal_contract(void)
                 split_machine.cpu.irq_observation.entered;
         }
         if (split) {
-            split = run_units(&unsplit_machine, 2u, 0u, &unsplit_result) &&
+            split = run_units(&unsplit_machine, 7u, 0u, &unsplit_result) &&
                 unsplit_result.reason == GBL_RUN_REASON_GUEST_STOP &&
                 unsplit_result.instructions == 1u &&
                 unsplit_machine.cpu.last_exception.kind == GBL_EXCEPTION_IRQ &&
@@ -14614,6 +14656,7 @@ static void test_dma_refusal_state_comparator(void)
     } while (0)
 
     GBL_CHECK_DMA_STATE_CHANGE(after.waitcnt = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.cpu.force_nonsequential_fetch = true);
     GBL_CHECK_DMA_STATE_CHANGE(after.bus_owner = GBL_MACHINE_BUS_OWNER_DMA);
     GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].source_address = 1u);
     GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].destination_address = 1u);
@@ -15032,6 +15075,8 @@ static void test_cpu_refreshes_bus_quotes_from_waitcnt(void)
         machine.waitcnt == UINT16_C(4)) {
         run_status = gbl_cpu_run(&machine, &options, &result);
         reconciled = result.cycles == machine.master_cycles - start_cycle &&
+                     result.cycles == UINT64_C(19) &&
+                     result.bus_cycles == UINT64_C(19) &&
                      result.cycles == result.bus_cycles +
                                           result.internal_cycles +
                                           result.wait_cycles;
@@ -15130,21 +15175,255 @@ static bool arm_loaded_pc_waitcnt_target(uint32_t target,
 static void test_cpu_waitcnt_loaded_pc_cost(void)
 {
     test_case(arm_loaded_pc_waitcnt_target(
-                  UINT32_C(0x08000040), UINT64_C(9), UINT64_C(9),
+                  UINT32_C(0x08000040), UINT64_C(15), UINT64_C(15),
                   GBL_RUN_REASON_NONE),
               "LDR PC reserves the exact reset WAITCNT cost in WS0");
     test_case(arm_loaded_pc_waitcnt_target(
-                  UINT32_C(0x0A000040), UINT64_C(10), UINT64_C(10),
+                  UINT32_C(0x0A000040), UINT64_C(21), UINT64_C(21),
                   GBL_RUN_REASON_NONE),
               "LDR PC reserves the exact reset WAITCNT cost in WS1");
     test_case(arm_loaded_pc_waitcnt_target(
-                  UINT32_C(0x0C000040), UINT64_C(13), UINT64_C(13),
+                  UINT32_C(0x0C000040), UINT64_C(33), UINT64_C(33),
                   GBL_RUN_REASON_NONE),
               "LDR PC reserves the exact reset WAITCNT cost in WS2");
     test_case(arm_loaded_pc_waitcnt_target(
-                  UINT32_C(0x08000040), UINT64_C(8), UINT64_C(9),
+                  UINT32_C(0x08000040), UINT64_C(14), UINT64_C(15),
                   GBL_RUN_REASON_CYCLE_BUDGET),
               "LDR PC one-cycle-short variable refill refuses before source read");
+}
+
+static bool cpu_waitcnt_loaded_pc_window_case(bool thumb, uint32_t opcode,
+                                               uint32_t target,
+                                               uint64_t expected_cycles)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_trace_record records[4];
+    gbl_trace_buffer trace = { records, 4u, 0u, UINT64_C(20) };
+    gbl_run_result result = { 0 };
+    const uint32_t width = thumb ? 2u : 4u;
+    const uint32_t aligned_target = thumb ? target & ~UINT32_C(1) : target;
+    const uint32_t loaded_target = thumb ? target | UINT32_C(1) : target;
+    const uint64_t budget = expected_cycles;
+    bool loaded;
+    bool ran = false;
+    bool matched;
+
+    make_empty_image(image);
+    if (thumb) {
+        write_halfword(image, 0u, (uint16_t)opcode);
+        write_halfword(image, 2u, UINT16_C(0x46C0));
+    } else {
+        write_word(image, 0u, opcode);
+        write_word(image, 4u, UINT32_C(0xE1A00000));
+    }
+    loaded = machine_load(&machine, image);
+    memset(records, 0xA5, sizeof(records));
+    if (loaded) {
+        write_word(machine.iwram, 0x100u, loaded_target);
+        if (thumb) {
+            machine.cpu.execution_address = UINT32_C(0x08000000);
+            machine.cpu.cpsr = TEST_CPSR_SYSTEM | TEST_CPSR_T;
+            machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+                UINT32_C(0x08000000), opcode, 2u, true
+            };
+            machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+                UINT32_C(0x08000002), UINT32_C(0x46C0), 2u, true
+            };
+            machine.cpu.usr_r8_14[5] = UINT32_C(0x03000100);
+        } else {
+            prepare_arm_instruction(&machine, opcode, TEST_CPSR_SYSTEM);
+            machine.cpu.r0_7[0] = UINT32_C(0x03000100);
+        }
+        machine.cpu.next_fetch_sequential = true;
+        ran = run_traced_units(
+            &machine, budget, 1u,
+            GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS, &trace, &result);
+    }
+    matched = loaded && ran &&
+              result.termination == GBL_RUN_PROGRESS &&
+              result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+              result.instructions == 1u && result.cycles == expected_cycles &&
+              result.bus_cycles + result.internal_cycles + result.wait_cycles ==
+                  result.cycles &&
+              machine.master_cycles == result.cycles && trace.count == 4u &&
+              trace.next_sequence == UINT64_C(24) &&
+              records[1].category == GBL_TRACE_BUS &&
+              records[1].address == UINT32_C(0x03000100) &&
+              records[1].value == loaded_target &&
+              records[2].address == aligned_target &&
+              records[2].width == width &&
+              records[2].access_class == GBL_BUS_CLASS_NONSEQUENTIAL &&
+              records[3].address == aligned_target + width &&
+              records[3].width == width &&
+              records[3].access_class == GBL_BUS_CLASS_SEQUENTIAL &&
+              records[3].guest_cycle == expected_cycles &&
+              machine.cpu.execution_address == aligned_target &&
+              machine.cpu.pipeline[0].address == aligned_target &&
+              machine.cpu.pipeline[1].address == aligned_target + width;
+
+    gbl_machine_dispose(&machine);
+    return matched;
+}
+
+static void test_cpu_waitcnt_block_and_pop_pc_cost(void)
+{
+    static const uint32_t targets[3] = {
+        UINT32_C(0x08000040), UINT32_C(0x0A000040), UINT32_C(0x0C000040)
+    };
+    size_t window;
+
+    for (window = 0u; window < 3u; ++window) {
+        char description[120];
+
+        (void)snprintf(description, sizeof(description),
+                       "ARM LDM PC refills through Game Pak window %zu", window);
+        test_case(cpu_waitcnt_loaded_pc_window_case(
+                      false,
+                      encode_arm_block(false, true, false, true, 0u,
+                                       UINT16_C(0x8000)),
+                      targets[window],
+                      window == 0u ? UINT64_C(17)
+                                   : window == 1u ? UINT64_C(23)
+                                                  : UINT64_C(35)),
+                  description);
+        (void)snprintf(description, sizeof(description),
+                       "Thumb POP PC refills through Game Pak window %zu", window);
+        test_case(cpu_waitcnt_loaded_pc_window_case(
+                      true, UINT32_C(0xBD00), targets[window],
+                      window == 0u ? UINT64_C(11)
+                                   : window == 1u ? UINT64_C(13)
+                                                  : UINT64_C(17)),
+                  description);
+    }
+}
+
+static bool prepare_waitcnt_resume_machine(gbl_machine *machine)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE1A00000));
+    if (!machine_load(machine, image)) {
+        return false;
+    }
+    machine->cpu.r0_7[0] = UINT32_C(0x03000100);
+    write_word(machine->iwram, 0x100u, UINT32_C(0x0A000040));
+    prepare_arm_instruction(machine, UINT32_C(0xE590F000),
+                            TEST_CPSR_SYSTEM);
+    return true;
+}
+
+static bool cpu_waitcnt_resume_matches_uninterrupted(void)
+{
+    gbl_machine resumed = { 0 };
+    gbl_machine uninterrupted = { 0 };
+    gbl_machine before;
+    gbl_trace_record resumed_records[4] = { 0 };
+    gbl_trace_record uninterrupted_records[4] = { 0 };
+    gbl_trace_buffer resumed_trace = {
+        resumed_records, 4u, 0u, UINT64_C(20)
+    };
+    gbl_trace_buffer uninterrupted_trace = {
+        uninterrupted_records, 4u, 0u, UINT64_C(20)
+    };
+    gbl_run_result short_result = { 0 };
+    gbl_run_result resumed_result = { 0 };
+    gbl_run_result uninterrupted_result = { 0 };
+    const bool loaded = prepare_waitcnt_resume_machine(&resumed) &&
+                        prepare_waitcnt_resume_machine(&uninterrupted);
+    bool matched = false;
+
+    if (loaded) {
+        before = resumed;
+        matched = run_traced_units(
+                      &resumed, UINT64_C(20), 1u,
+                      GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+                      &resumed_trace, &short_result) &&
+                  short_result.termination == GBL_RUN_TIMEOUT &&
+                  short_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+                  short_result.instructions == 0u && short_result.cycles == 0u &&
+                  gbl_test_canonical_equal(&before, &resumed) &&
+                  resumed_trace.count == 0u &&
+                  resumed_trace.next_sequence == UINT64_C(20);
+    }
+    if (matched) {
+        matched = run_traced_units(
+                      &resumed, UINT64_C(21), 1u,
+                      GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+                      &resumed_trace, &resumed_result) &&
+                  run_traced_units(
+                      &uninterrupted, UINT64_C(21), 1u,
+                      GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS,
+                      &uninterrupted_trace, &uninterrupted_result) &&
+                  resumed_result.cycles == UINT64_C(21) &&
+                  uninterrupted_result.cycles == UINT64_C(21) &&
+                  resumed_result.instructions == 1u &&
+                  uninterrupted_result.instructions == 1u &&
+                  gbl_test_canonical_equal(&resumed, &uninterrupted) &&
+                  resumed_trace.count == uninterrupted_trace.count &&
+                  resumed_trace.next_sequence ==
+                      uninterrupted_trace.next_sequence &&
+                  gbl_test_trace_equal(resumed_records,
+                                       uninterrupted_records, 4u);
+    }
+    gbl_machine_dispose(&resumed);
+    gbl_machine_dispose(&uninterrupted);
+    return loaded && matched;
+}
+
+static bool cpu_waitcnt_dma_breaks_fetch_sequence(void)
+{
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_trace_record records[8] = { 0 };
+    gbl_trace_buffer trace = { records, 8u, 0u, 0u };
+    gbl_run_status run_status = GBL_RUN_STATUS_INVALID_ARGUMENT;
+    size_t index;
+    bool saw_nonsequential_refill = false;
+    bool prepared = prepare_dma_refusal_machine(
+        &machine, UINT32_C(0x03000020));
+
+    if (prepared) {
+        machine.cpu.execution_address = UINT32_C(0x08000000);
+        machine.cpu.cpsr = TEST_CPSR_SYSTEM;
+        machine.cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+            UINT32_C(0x08000000), UINT32_C(0xE1A00000), 4u, true
+        };
+        machine.cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+            UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+        };
+        machine.cpu.next_fetch_sequential = true;
+        options.cycle_budget = UINT64_C(64);
+        options.unit_limit = UINT64_C(1);
+        options.category_mask = GBL_TRACE_INSTRUCTION | GBL_TRACE_BUS |
+                                GBL_TRACE_DMA;
+        options.trace_buffer = &trace;
+        run_status = gbl_cpu_run(&machine, &options, &result);
+        prepared = run_status == GBL_RUN_STATUS_OK &&
+                   result.instructions == 1u &&
+                   result.dma_completed_units == UINT64_C(1) &&
+                   machine.bus_owner == GBL_MACHINE_BUS_OWNER_CPU;
+        for (index = 0u; prepared && index < trace.count; ++index) {
+            if (records[index].category == GBL_TRACE_BUS &&
+                records[index].address == UINT32_C(0x08000008)) {
+                saw_nonsequential_refill =
+                    records[index].access_class ==
+                    GBL_BUS_CLASS_NONSEQUENTIAL;
+            }
+        }
+    }
+    gbl_machine_dispose(&machine);
+    return prepared && saw_nonsequential_refill;
+}
+
+static void test_cpu_waitcnt_resume_and_dma_sequence(void)
+{
+    test_case(cpu_waitcnt_resume_matches_uninterrupted(),
+              "variable WAITCNT refill resumes to the same state as uninterrupted execution");
+    test_case(cpu_waitcnt_dma_breaks_fetch_sequence(),
+              "DMA interposition forces the next CPU Game Pak fetch to nonsequential");
 }
 
 static void test_dma_waitcnt_quote_agreement(void)
@@ -15164,15 +15443,6 @@ static void test_dma_waitcnt_quote_agreement(void)
         ? gbl_bus_write(&machine, UINT32_C(0x04000204), 2u,
                         GBL_BUS_CLASS_NONSEQUENTIAL, UINT16_C(0x0008))
         : (gbl_bus_result){ 0 };
-    if (loaded && waitcnt_write.status == GBL_BUS_STATUS_OK) {
-        machine.dma_channels[0].source_address = rom_address;
-        machine.dma_channels[0].destination_address = UINT32_C(0x03000020);
-        machine.dma_channels[0].count = 1u;
-        machine.dma_channels[0].remaining = 1u;
-        machine.dma_channels[0].active = true;
-        machine.dma_channels[0].startup_complete = true;
-        machine.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
-    }
     matched = loaded && waitcnt_write.status == GBL_BUS_STATUS_OK &&
               gbl_bus_quote(&machine, rom_address, GBL_BUS_DIRECTION_READ,
                             2u, GBL_BUS_CLASS_NONSEQUENTIAL,
@@ -15319,7 +15589,9 @@ static const cpu_test_function dma_refusal_functions[] = {
     test_cpu_refreshes_bus_quotes_from_waitcnt
 };
 static const cpu_test_function waitcnt_cpu_functions[] = {
-    test_cpu_waitcnt_loaded_pc_cost
+    test_cpu_waitcnt_loaded_pc_cost,
+    test_cpu_waitcnt_block_and_pop_pc_cost,
+    test_cpu_waitcnt_resume_and_dma_sequence
 };
 static const cpu_test_function dma_waitcnt_functions[] = {
     test_dma_waitcnt_quote_agreement
@@ -15567,7 +15839,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("dma.tracer", 1u, dma_tracer_functions),
     CPU_TEST_GROUP("dma.refusal", 15u, dma_refusal_functions),
-    CPU_TEST_GROUP("waitcnt.cpu", 4u, waitcnt_cpu_functions),
+    CPU_TEST_GROUP("waitcnt.cpu", 12u, waitcnt_cpu_functions),
     CPU_TEST_GROUP("dma.waitcnt", 1u, dma_waitcnt_functions),
     CPU_TEST_GROUP("exceptions", 17u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),

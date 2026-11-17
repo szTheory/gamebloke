@@ -238,9 +238,19 @@ bool gbl_bus_quote(const gbl_machine *machine, uint32_t address,
     if (machine == NULL) {
         return false;
     }
+    return gbl_bus_quote_waitcnt(machine->waitcnt, address, direction, width,
+                                 sequence, role, cost_out);
+}
+
+bool gbl_bus_quote_waitcnt(uint16_t waitcnt, uint32_t address,
+                           gbl_bus_direction direction, uint8_t width,
+                           gbl_bus_access_class sequence,
+                           gbl_bus_access_role role,
+                           gbl_cycle_cost *cost_out)
+{
     return gbl_bus_quote_with_waitcnt(
-        machine->waitcnt, address, gbl_bus_region_for_address(address),
-        direction, width, sequence, role, cost_out, NULL);
+        waitcnt, address, gbl_bus_region_for_address(address), direction,
+        width, sequence, role, cost_out, NULL);
 }
 
 bool gbl_bus_quote_observed(
@@ -284,6 +294,30 @@ static uint32_t gbl_bus_physical_vram_offset(uint32_t address)
 static uint8_t *gbl_bus_memory_byte(gbl_machine *machine,
                                    gbl_bus_region region,
                                    uint32_t address)
+{
+    switch (region) {
+    case GBL_BUS_REGION_EWRAM:
+        return &machine->ewram[address & GBL_EWRAM_MASK];
+    case GBL_BUS_REGION_IWRAM:
+        return &machine->iwram[address & GBL_IWRAM_MASK];
+    case GBL_BUS_REGION_PRAM:
+        return &machine->pram[address & (GBL_PRAM_SIZE - 1u)];
+    case GBL_BUS_REGION_VRAM:
+        return &machine->vram[gbl_bus_physical_vram_offset(address)];
+    case GBL_BUS_REGION_OAM:
+        return &machine->oam[address & (GBL_OAM_SIZE - 1u)];
+    case GBL_BUS_REGION_BIOS:
+    case GBL_BUS_REGION_IO:
+    case GBL_BUS_REGION_ROM:
+    case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
+        break;
+    }
+    return NULL;
+}
+
+static const uint8_t *gbl_bus_memory_const_byte(
+    const gbl_machine *machine, gbl_bus_region region, uint32_t address)
 {
     switch (region) {
     case GBL_BUS_REGION_EWRAM:
@@ -447,7 +481,8 @@ static gbl_bus_status gbl_bus_status_from_time(gbl_time_status status)
 }
 
 static bool gbl_bus_read_lane(
-    gbl_machine *machine, const gbl_machine_time_preview *time_preview,
+    const gbl_machine *machine,
+    const gbl_machine_time_preview *time_preview,
     uint32_t address, uint8_t *value, gbl_bus_outcome *outcome)
 {
     gbl_bus_region region = gbl_bus_region_for_address(address);
@@ -459,7 +494,7 @@ static bool gbl_bus_read_lane(
     case GBL_BUS_REGION_PRAM:
     case GBL_BUS_REGION_VRAM:
     case GBL_BUS_REGION_OAM:
-        *value = *gbl_bus_memory_byte(machine, region, address);
+        *value = *gbl_bus_memory_const_byte(machine, region, address);
         return true;
     case GBL_BUS_REGION_ROM: {
         uint32_t offset = address & GBL_ROM_MASK;
@@ -540,6 +575,59 @@ static bool gbl_bus_read_lane(
     *value = 0u;
     *outcome = GBL_BUS_OUTCOME_UNMAPPED;
     return false;
+}
+
+bool gbl_bus_project_read(
+    const gbl_machine *machine,
+    const gbl_machine_time_preview *time_preview, uint32_t address,
+    uint8_t width, gbl_bus_access_class sequence, gbl_bus_access_role role,
+    uint32_t open_bus, gbl_bus_result *result_out,
+    uint32_t *open_bus_out)
+{
+    gbl_cycle_cost cost;
+    gbl_bus_result result;
+    uint32_t value = 0u;
+    uint32_t lane;
+    bool has_fallback = false;
+    gbl_bus_outcome first_outcome = GBL_BUS_OUTCOME_NONE;
+    gbl_bus_outcome fallback_outcome = GBL_BUS_OUTCOME_NONE;
+
+    if (machine == NULL || !machine->initialized || time_preview == NULL ||
+        result_out == NULL || open_bus_out == NULL ||
+        gbl_bus_validate_request(machine, address, width, sequence) !=
+            GBL_BUS_STATUS_OK ||
+        (role != GBL_BUS_ROLE_FETCH && role != GBL_BUS_ROLE_DATA) ||
+        !gbl_bus_quote_waitcnt(time_preview->waitcnt, address,
+                               GBL_BUS_DIRECTION_READ, width, sequence, role,
+                               &cost)) {
+        return false;
+    }
+    for (lane = 0u; lane < (uint32_t)width; ++lane) {
+        uint8_t byte_value;
+        gbl_bus_outcome lane_outcome;
+        const bool has_data = gbl_bus_read_lane(
+            machine, time_preview, address + lane, &byte_value,
+            &lane_outcome);
+
+        if (lane == 0u) {
+            first_outcome = lane_outcome;
+        }
+        if (!has_data) {
+            byte_value = gbl_bus_latch_byte(open_bus, lane);
+            has_fallback = true;
+            fallback_outcome = gbl_bus_fallback_priority(fallback_outcome,
+                                                         lane_outcome);
+        }
+        value |= (uint32_t)byte_value << (lane * 8u);
+    }
+    result = gbl_bus_make_result(
+        GBL_BUS_STATUS_OK,
+        has_fallback ? fallback_outcome : first_outcome, value,
+        cost.cycles, sequence);
+    *result_out = result;
+    *open_bus_out = has_fallback ? open_bus
+                                 : gbl_bus_latch_replication(value, width);
+    return true;
 }
 
 static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,

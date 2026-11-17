@@ -840,6 +840,7 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
                 (uint16_t)(channel->control & (uint16_t)~UINT16_C(0x8000));
             channel->startup_complete = false;
             machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
+            machine->cpu.force_nonsequential_fetch = true;
         }
         step.owner = GBL_MACHINE_BUS_OWNER_DMA;
         step.remaining = channel->remaining;
