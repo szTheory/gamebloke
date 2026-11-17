@@ -496,7 +496,7 @@ static void test_lifecycle(void)
                   gbl_test_cpu_is_direct_start(&machine.cpu),
               "load initializes the complete direct-start CPU state");
     if (!loaded) {
-        test_case(false, "reset clears CPU banks and restores the direct-start policy");
+        test_case(false, "reset clears CPU and DMA state and restores reset policies");
         test_case(false, "successful replacement load cold-resets pipeline and counters");
         test_case(false, "canonical equality and digest cover every CPU field");
         test_case(false, "invalid run arguments preserve machine and output storage");
@@ -509,10 +509,19 @@ static void test_lifecycle(void)
 
     seed_nondefault_cpu_state(&machine.cpu);
     machine.master_cycles = 33u;
+    machine.waitcnt = UINT16_C(0x7FFF);
+    machine.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    machine.dma_channels[3].read_latch = UINT32_C(0x1234);
+    machine.dma_channels[3].remaining = 1u;
+    machine.dma_channels[3].active = true;
     gbl_machine_reset(&machine);
     test_case(gbl_test_cpu_is_direct_start(&machine.cpu) &&
-                  machine.master_cycles == 0u,
-              "reset clears CPU banks and restores the direct-start policy");
+                  machine.master_cycles == 0u && machine.waitcnt == 0u &&
+                  machine.bus_owner == GBL_MACHINE_BUS_OWNER_CPU &&
+                  gbl_test_dma_channel_equal(
+                      &machine.dma_channels[3],
+                      &(gbl_dma_channel_state){ 0 }),
+              "reset clears CPU and DMA state and restores reset policies");
 
     seed_nondefault_cpu_state(&machine.cpu);
     machine.master_cycles = UINT64_C(0x123456789);
@@ -687,18 +696,19 @@ static void test_lifecycle(void)
         bool first_loaded;
         bool second_loaded;
         bool first_ran;
+        const uint64_t first_cycle_budget = UINT64_C(64);
 
         make_program(second_image);
         first_loaded = machine_load(&first, image);
         second_loaded = machine_load(&second, second_image);
         first_ran = first_loaded &&
-                    run_units(&first, 3u, 2u, &first_result);
+                    run_units(&first, first_cycle_budget, 2u, &first_result);
         test_case(first_loaded && second_loaded && first_ran &&
                       first_result.termination == GBL_RUN_PROGRESS &&
                       first_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
-                      first_result.cycles == 3u &&
+                      first_result.cycles > 3u &&
                       first.cpu.r0_7[0] == UINT32_C(0x08000008) &&
-                      first.master_cycles == 3u &&
+                      first.master_cycles == first_result.cycles &&
                       gbl_test_cpu_is_direct_start(&second.cpu) &&
                       second.master_cycles == 0u,
                   "CPU state remains isolated between machine instances");
@@ -14306,71 +14316,97 @@ static void test_irq_refusal_contract(void)
 
 static void test_irq_timer_boundary_adjacency(void)
 {
-    gbl_machine at_deadline = { 0 };
-    gbl_machine one_cycle_late = { 0 };
+    gbl_machine probe = { 0 };
+    gbl_machine before = { 0 };
+    gbl_machine exact = { 0 };
+    gbl_machine after = { 0 };
     gbl_run_result result = { 0 };
-    gbl_bus_result timer_write;
-    bool valid = prepare_irq_boundary_machine(&at_deadline, false) &&
-        prepare_irq_boundary_machine(&one_cycle_late, false);
+    uint64_t instruction_cycles = 0u;
+    uint64_t cpu_start_cycle = 0u;
+    bool valid = prepare_irq_boundary_machine(&probe, false) &&
+                 run_units(&probe, UINT64_C(64), 1u, &result) &&
+                 result.instructions == 1u && result.cycles != 0u;
 
     if (valid) {
-        timer_write = gbl_bus_write(&at_deadline, UINT32_C(0x04000100), 4u,
-                                    GBL_BUS_CLASS_NONSEQUENTIAL,
-                                    UINT32_C(0x00C0FFFE));
-        valid = timer_write.status == GBL_BUS_STATUS_OK &&
-            at_deadline.master_cycles == 1u &&
-            at_deadline.events[0].cycle == 3u;
+        instruction_cycles = result.cycles;
+        valid = prepare_irq_boundary_machine(&before, false) &&
+                prepare_irq_boundary_machine(&exact, false) &&
+                prepare_irq_boundary_machine(&after, false);
+        cpu_start_cycle = before.master_cycles + 1u;
     }
-    if (valid) {
-        timer_write = gbl_bus_write(&one_cycle_late, UINT32_C(0x04000100), 4u,
-                                    GBL_BUS_CLASS_NONSEQUENTIAL,
-                                    UINT32_C(0x00C0FFFD));
-        valid = timer_write.status == GBL_BUS_STATUS_OK &&
-            one_cycle_late.master_cycles == 1u &&
-            one_cycle_late.events[0].cycle == 4u;
-    }
-    if (valid) {
-        at_deadline.interrupt_enable = 8u;
-        at_deadline.interrupt_master_enable = 1u;
-        one_cycle_late.interrupt_enable = 8u;
-        one_cycle_late.interrupt_master_enable = 1u;
+    if (valid && instruction_cycles > 2u) {
+        const uint64_t event_cycles[3] = {
+            cpu_start_cycle + instruction_cycles - 1u,
+            cpu_start_cycle + instruction_cycles,
+            cpu_start_cycle + instruction_cycles + 1u
+        };
+        gbl_machine *machines[3] = { &before, &exact, &after };
+        uint8_t index;
 
-        valid = run_units(&at_deadline, 1u, 1u, &result) &&
-                result.instructions == 1u &&
-                at_deadline.cpu.irq_observation.sample_cycle == 1u &&
-                at_deadline.cpu.irq_observation.interrupt_flags == 0u &&
-                run_units(&at_deadline, 1u, 1u, &result) &&
-                result.instructions == 1u &&
-                at_deadline.cpu.irq_observation.sample_cycle == 2u &&
-                at_deadline.cpu.irq_observation.interrupt_flags == 0u &&
-                at_deadline.interrupt_flags == 8u &&
-                run_units(&at_deadline, 1u, 0u, &result) &&
-                result.reason == GBL_RUN_REASON_GUEST_STOP &&
-                at_deadline.cpu.irq_observation.sample_cycle == 3u &&
-                at_deadline.cpu.irq_observation.interrupt_flags == 8u &&
-                at_deadline.cpu.irq_observation.entered;
+        for (index = 0u; index < 3u && valid; ++index) {
+            const uint16_t reload = (uint16_t)(UINT32_C(0x10000) -
+                (event_cycles[index] - cpu_start_cycle));
+            const uint32_t timer_value =
+                ((uint32_t)UINT8_C(0xC0) << 16u) | reload;
+            const gbl_bus_result timer_write = gbl_bus_write(
+                machines[index], UINT32_C(0x04000100), 4u,
+                GBL_BUS_CLASS_NONSEQUENTIAL, timer_value);
+
+            valid = timer_write.status == GBL_BUS_STATUS_OK &&
+                    machines[index]->events[0].cycle == event_cycles[index];
+            machines[index]->interrupt_enable = 8u;
+            machines[index]->interrupt_master_enable = 1u;
+        }
+    } else {
+        valid = false;
     }
     if (valid) {
-        valid = run_units(&one_cycle_late, 1u, 1u, &result) &&
-                one_cycle_late.cpu.irq_observation.sample_cycle == 1u &&
-                one_cycle_late.cpu.irq_observation.interrupt_flags == 0u &&
-                run_units(&one_cycle_late, 1u, 1u, &result) &&
-                one_cycle_late.cpu.irq_observation.sample_cycle == 2u &&
-                one_cycle_late.cpu.irq_observation.interrupt_flags == 0u &&
-                run_units(&one_cycle_late, 1u, 1u, &result) &&
-                one_cycle_late.cpu.irq_observation.sample_cycle == 3u &&
-                one_cycle_late.cpu.irq_observation.interrupt_flags == 0u &&
-                one_cycle_late.interrupt_flags == 8u &&
-                run_units(&one_cycle_late, 1u, 0u, &result) &&
+        valid = run_units(&before, instruction_cycles, 1u, &result) &&
+                result.instructions == 1u && before.master_cycles ==
+                    cpu_start_cycle + instruction_cycles &&
+                before.interrupt_flags == 8u &&
+                run_units(&exact, instruction_cycles, 1u, &result) &&
+                result.instructions == 1u && exact.master_cycles ==
+                    cpu_start_cycle + instruction_cycles &&
+                exact.interrupt_flags == 8u &&
+                run_units(&after, instruction_cycles, 1u, &result) &&
+                result.instructions == 1u && after.master_cycles ==
+                    cpu_start_cycle + instruction_cycles &&
+                after.interrupt_flags == 0u;
+    }
+    if (valid) {
+        valid = run_units(&before, 1u, 0u, &result) &&
                 result.reason == GBL_RUN_REASON_GUEST_STOP &&
-                one_cycle_late.cpu.irq_observation.sample_cycle == 4u &&
-                one_cycle_late.cpu.irq_observation.interrupt_flags == 8u &&
-                one_cycle_late.cpu.irq_observation.entered;
+                before.cpu.irq_observation.sample_cycle ==
+                    cpu_start_cycle + instruction_cycles &&
+                before.cpu.irq_observation.interrupt_flags == 8u &&
+                before.cpu.irq_observation.entered &&
+                run_units(&exact, 1u, 0u, &result) &&
+                result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                exact.cpu.irq_observation.sample_cycle ==
+                    cpu_start_cycle + instruction_cycles &&
+                exact.cpu.irq_observation.interrupt_flags == 8u &&
+                exact.cpu.irq_observation.entered;
+    }
+    if (valid) {
+        valid = run_units(&after, instruction_cycles, 1u, &result) &&
+                result.instructions == 1u &&
+                after.interrupt_flags == 8u &&
+                after.master_cycles ==
+                    cpu_start_cycle + instruction_cycles * 2u &&
+                run_units(&after, 1u, 0u, &result) &&
+                result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                after.cpu.irq_observation.sample_cycle ==
+                    cpu_start_cycle + instruction_cycles * 2u &&
+                after.cpu.irq_observation.interrupt_flags == 8u &&
+                after.cpu.irq_observation.entered;
     }
     test_case(valid,
-              "timer IF is sampled one cycle before, exactly at, and one cycle after adjacent boundaries");
-    gbl_machine_dispose(&at_deadline);
-    gbl_machine_dispose(&one_cycle_late);
+              "timer IF is sampled one cycle before, at, and after a measured CPU boundary");
+    gbl_machine_dispose(&probe);
+    gbl_machine_dispose(&before);
+    gbl_machine_dispose(&exact);
+    gbl_machine_dispose(&after);
 }
 
 static void test_power_boundary(void)
@@ -14566,11 +14602,461 @@ static void test_dma_tracer(void)
 static void test_dma_refusal_state_comparator(void)
 {
     gbl_machine before = { 0 };
-    gbl_machine after = before;
+    gbl_machine after;
+    bool detects_new_time_state = true;
 
-    after.dma_channels[3].read_latch = UINT32_C(0xBEEF);
-    test_case(!gbl_test_time_state_equal(&before, &after),
-              "named time-state comparison detects DMA read-latch changes");
+#define GBL_CHECK_DMA_STATE_CHANGE(statement) \
+    do { \
+        after = before; \
+        statement; \
+        detects_new_time_state = detects_new_time_state && \
+                                 !gbl_test_time_state_equal(&before, &after); \
+    } while (0)
+
+    GBL_CHECK_DMA_STATE_CHANGE(after.waitcnt = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.bus_owner = GBL_MACHINE_BUS_OWNER_DMA);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].source_address = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].destination_address = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].current_source = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].current_destination = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].read_latch =
+                               UINT32_C(0xBEEF));
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].completed_units = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].count = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].control = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].remaining = 1u);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].pending = true);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].active = true);
+    GBL_CHECK_DMA_STATE_CHANGE(after.dma_channels[3].startup_complete = true);
+#undef GBL_CHECK_DMA_STATE_CHANGE
+
+    test_case(detects_new_time_state,
+              "named time-state comparison detects WAITCNT, owner, channel, and latch changes");
+}
+
+static bool prepare_dma_refusal_machine(gbl_machine *machine,
+                                        uint32_t destination)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_bus_result bus_result;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE1A00000));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    write_halfword(image, 0x80u, UINT16_C(0xBEEF));
+    if (!machine_load(machine, image)) {
+        return false;
+    }
+    bus_result = gbl_bus_write(machine, UINT32_C(0x040000D4), 4u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x08000080));
+    if (bus_result.status != GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    bus_result = gbl_bus_write(machine, UINT32_C(0x040000D8), 4u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, destination);
+    if (bus_result.status != GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    bus_result = gbl_bus_write(machine, UINT32_C(0x040000DC), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+    if (bus_result.status != GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    bus_result = gbl_bus_write(machine, UINT32_C(0x040000DE), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT16_C(0x8000));
+    return bus_result.status == GBL_BUS_STATUS_OK;
+}
+
+static int dma_semantic_check(uint16_t expected_value,
+                              uint16_t observed_value,
+                              gbl_machine_bus_owner expected_owner,
+                              gbl_machine_bus_owner observed_owner,
+                              const char **reason)
+{
+    if (reason == NULL) {
+        return 1;
+    }
+    *reason = NULL;
+    if (expected_value != observed_value) {
+        *reason = "dma-transfer-value";
+        return 1;
+    }
+    if (expected_owner != observed_owner) {
+        *reason = "dma-cpu-pause";
+        return 1;
+    }
+    return 0;
+}
+
+static void test_dma_refusal_transactions(void)
+{
+    gbl_machine machine = { 0 };
+    gbl_dma_step_result step = { 0 };
+    uint64_t snapshot;
+    bool prepared = prepare_dma_refusal_machine(
+        &machine, UINT32_C(0x03000020));
+
+    snapshot = gbl_test_canonical_digest(&machine);
+    if (prepared) {
+        const gbl_dma_status status =
+            gbl_machine_dma_step(&machine, 1u, &step);
+        test_case(status == GBL_DMA_STATUS_BUDGET_REFUSAL &&
+                      gbl_test_canonical_digest(&machine) == snapshot,
+                  "short DMA startup budget preserves the pending request");
+    } else {
+        test_case(false, "short DMA startup budget preserves the pending request");
+    }
+    if (prepared) {
+        const gbl_dma_status startup =
+            gbl_machine_dma_step(&machine, 2u, &step);
+        const uint64_t after_startup = gbl_test_canonical_digest(&machine);
+        const gbl_dma_status short_unit =
+            gbl_machine_dma_step(&machine, 5u, &step);
+        test_case(startup == GBL_DMA_STATUS_OK && step.startup_cycles == 0u &&
+                      short_unit == GBL_DMA_STATUS_BUDGET_REFUSAL &&
+                      gbl_test_canonical_digest(&machine) == after_startup &&
+                      machine.bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+                      machine.dma_channels[3].startup_complete,
+                  "short DMA unit budget preserves startup and remains resumable");
+    } else {
+        test_case(false,
+                  "short DMA unit budget preserves startup and remains resumable");
+    }
+    if (prepared) {
+        const uint64_t before_unit = gbl_test_canonical_digest(&machine);
+        const gbl_dma_status status =
+            gbl_machine_dma_step(&machine, 6u, &step);
+        test_case(status == GBL_DMA_STATUS_OK && step.unit_completed &&
+                      step.startup_cycles == 0u && step.source_cycles == 5u &&
+                      step.destination_cycles == 1u &&
+                      machine.iwram[0x20u] == UINT8_C(0xEF) &&
+                      machine.iwram[0x21u] == UINT8_C(0xBE) &&
+                      machine.iwram[0x22u] == 0u &&
+                      machine.bus_owner == GBL_MACHINE_BUS_OWNER_CPU &&
+                      before_unit != gbl_test_canonical_digest(&machine),
+                  "exact DMA unit budget commits one halfword without replaying startup");
+    } else {
+        test_case(false,
+                  "exact DMA unit budget commits one halfword without replaying startup");
+    }
+    gbl_machine_dispose(&machine);
+
+    {
+        gbl_machine above_budget_machine = { 0 };
+        const bool above_prepared = prepare_dma_refusal_machine(
+            &above_budget_machine, UINT32_C(0x03000020));
+        const uint64_t start_cycle = above_budget_machine.master_cycles;
+        const gbl_dma_status startup = above_prepared
+            ? gbl_machine_dma_step(&above_budget_machine, 3u, &step)
+            : GBL_DMA_STATUS_INVALID_ARGUMENT;
+        const gbl_dma_status unit = above_prepared
+            ? gbl_machine_dma_step(&above_budget_machine, 7u, &step)
+            : GBL_DMA_STATUS_INVALID_ARGUMENT;
+        test_case(above_prepared && startup == GBL_DMA_STATUS_OK &&
+                      unit == GBL_DMA_STATUS_OK && step.unit_completed &&
+                      step.startup_cycles == 0u && step.source_cycles == 5u &&
+                      step.destination_cycles == 1u &&
+                      above_budget_machine.master_cycles - start_cycle ==
+                          UINT64_C(8),
+                  "above-budget startup and DMA unit commit with exact costs");
+        gbl_machine_dispose(&above_budget_machine);
+    }
+
+    {
+        gbl_machine io_machine = { 0 };
+        const bool io_prepared = prepare_dma_refusal_machine(
+            &io_machine, UINT32_C(0x04000100));
+        const gbl_dma_status startup = io_prepared
+            ? gbl_machine_dma_step(&io_machine, 2u, &step)
+            : GBL_DMA_STATUS_INVALID_ARGUMENT;
+        const gbl_machine identity_before = io_machine;
+        const uint64_t before_io = gbl_test_canonical_digest(&io_machine);
+        const gbl_dma_status refusal = io_prepared
+            ? gbl_machine_dma_step(&io_machine, 6u, &step)
+            : GBL_DMA_STATUS_INVALID_ARGUMENT;
+        test_case(io_prepared && startup == GBL_DMA_STATUS_OK &&
+                      refusal == GBL_DMA_STATUS_UNIT_REFUSAL &&
+                      gbl_test_same_instance_identity_equal(
+                          &identity_before, &io_machine) &&
+                      gbl_test_canonical_digest(&io_machine) == before_io,
+                  "late timer destination refusal leaves source and device state untouched");
+        gbl_machine_dispose(&io_machine);
+    }
+
+    {
+        gbl_machine overflow_machine = { 0 };
+        const bool overflow_prepared = prepare_dma_refusal_machine(
+            &overflow_machine, UINT32_C(0x03000020));
+        const gbl_dma_status startup = overflow_prepared
+            ? gbl_machine_dma_step(&overflow_machine, 2u, &step)
+            : GBL_DMA_STATUS_INVALID_ARGUMENT;
+        if (overflow_prepared) {
+            overflow_machine.master_cycles = UINT64_MAX - 2u;
+        }
+        const uint64_t before_overflow =
+            gbl_test_canonical_digest(&overflow_machine);
+        const gbl_dma_status refusal = overflow_prepared
+            ? gbl_machine_dma_step(&overflow_machine, 6u, &step)
+            : GBL_DMA_STATUS_INVALID_ARGUMENT;
+        test_case(overflow_prepared && startup == GBL_DMA_STATUS_OK &&
+                      refusal == GBL_DMA_STATUS_TIME_OVERFLOW &&
+                      gbl_test_canonical_digest(&overflow_machine) ==
+                          before_overflow,
+                  "DMA clock overflow refuses the unit without partial progress");
+        gbl_machine_dispose(&overflow_machine);
+    }
+
+    {
+        gbl_machine event_machine = { 0 };
+        gbl_machine_time_preview preview = { 0 };
+        gbl_machine_time_preview sentinel = { 0 };
+        const gbl_time_operation operations[GBL_TIME_OPERATION_MAX] = {
+            { .kind = GBL_TIME_OPERATION_INTERNAL,
+              .cycles = GBL_MACHINE_MAX_EVENT_DISPATCH },
+            { .kind = GBL_TIME_OPERATION_INTERNAL, .cycles = 1u }
+        };
+        const bool event_prepared = prepare_dma_refusal_machine(
+            &event_machine, UINT32_C(0x03000020));
+        const gbl_bus_result timer_write = event_prepared
+            ? gbl_bus_write(&event_machine, UINT32_C(0x04000100), 4u,
+                            GBL_BUS_CLASS_NONSEQUENTIAL,
+                            UINT32_C(0x00C0FFFF))
+            : (gbl_bus_result){ 0 };
+        const uint64_t before_events =
+            gbl_test_canonical_digest(&event_machine);
+
+        sentinel.master_cycles = UINT64_C(17);
+        sentinel.waitcnt = UINT16_C(4);
+        sentinel.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+        preview = sentinel;
+        const gbl_time_status event_status =
+            event_prepared && timer_write.status == GBL_BUS_STATUS_OK
+                ? gbl_machine_prepare_operations(&event_machine, operations,
+                                                 2u, &preview)
+                : GBL_TIME_STATUS_INVALID_ARGUMENT;
+        test_case(event_prepared && timer_write.status == GBL_BUS_STATUS_OK &&
+                      event_status == GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT &&
+                      gbl_test_time_preview_equal(&preview, &sentinel) &&
+                      gbl_test_canonical_digest(&event_machine) ==
+                          before_events,
+                  "DMA-pending candidate refuses event-dispatch exhaustion atomically");
+        gbl_machine_dispose(&event_machine);
+    }
+
+    {
+        const char *clean_reason = NULL;
+        const char *fault_reason = NULL;
+        const int clean = dma_semantic_check(
+            UINT16_C(0xBEEF), UINT16_C(0xBEEF),
+            GBL_MACHINE_BUS_OWNER_DMA, GBL_MACHINE_BUS_OWNER_DMA,
+            &clean_reason);
+        const int fault = dma_semantic_check(
+            UINT16_C(0xBEEF), UINT16_C(0xBEEE),
+            GBL_MACHINE_BUS_OWNER_DMA, GBL_MACHINE_BUS_OWNER_DMA,
+            &fault_reason);
+        test_case(clean == 0 && clean_reason == NULL && fault != 0 &&
+                      fault_reason != NULL &&
+                      strcmp(fault_reason, "dma-transfer-value") == 0,
+                  "semantic fault twin rejects a corrupted transfer value with dma-transfer-value");
+    }
+}
+
+static void test_dma_cpu_trace_refusals(void)
+{
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_trace_record record = { .sequence = 41u, .guest_cycle = 42u };
+    gbl_trace_record record_before = record;
+    gbl_trace_buffer trace = { &record, 0u, 0u, 0u };
+    uint64_t snapshot;
+    bool prepared = prepare_dma_refusal_machine(
+        &machine, UINT32_C(0x03000020));
+
+    options.cycle_budget = 64u;
+    options.unit_limit = 2u;
+    options.category_mask = (uint32_t)GBL_TRACE_DMA;
+    options.trace_buffer = &trace;
+    const gbl_machine identity_before = machine;
+    snapshot = gbl_test_canonical_digest(&machine);
+    test_case(prepared && gbl_cpu_run(&machine, &options, &result) ==
+                              GBL_RUN_STATUS_OK &&
+                  result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                  result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                  trace.count == 0u && trace.next_sequence == 0u &&
+                  gbl_test_trace_equal(&record, &record_before, 1u) &&
+                  gbl_test_same_instance_identity_equal(&identity_before,
+                                                        &machine) &&
+                  gbl_test_canonical_digest(&machine) == snapshot,
+              "DMA trace-capacity refusal leaves startup and trace unchanged");
+    gbl_machine_dispose(&machine);
+
+    {
+        gbl_machine sequence_machine = { 0 };
+        gbl_run_options sequence_options = { 0 };
+        gbl_run_result sequence_result = { 0 };
+        gbl_trace_record sequence_record = {
+            .sequence = 99u, .guest_cycle = 100u
+        };
+        const gbl_trace_record sequence_before = sequence_record;
+        gbl_trace_buffer sequence_trace = {
+            &sequence_record, 1u, 0u, UINT64_MAX
+        };
+        const bool sequence_prepared = prepare_dma_refusal_machine(
+            &sequence_machine, UINT32_C(0x03000020));
+        const uint64_t sequence_snapshot =
+            gbl_test_canonical_digest(&sequence_machine);
+
+        sequence_options.cycle_budget = 64u;
+        sequence_options.unit_limit = 2u;
+        sequence_options.category_mask = (uint32_t)GBL_TRACE_DMA;
+        sequence_options.trace_buffer = &sequence_trace;
+        test_case(sequence_prepared &&
+                      gbl_cpu_run(&sequence_machine, &sequence_options,
+                                  &sequence_result) == GBL_RUN_STATUS_OK &&
+                      sequence_result.termination ==
+                          GBL_RUN_TRACE_OUTPUT_FULL &&
+                      sequence_trace.count == 0u &&
+                      sequence_trace.next_sequence == UINT64_MAX &&
+                      gbl_test_trace_equal(&sequence_record,
+                                           &sequence_before, 1u) &&
+                      gbl_test_canonical_digest(&sequence_machine) ==
+                          sequence_snapshot,
+                  "DMA trace-sequence exhaustion refuses before startup mutation");
+        gbl_machine_dispose(&sequence_machine);
+    }
+
+    {
+        gbl_machine continuation_machine = { 0 };
+        gbl_run_options continuation_options = { 0 };
+        gbl_run_result first_result = { 0 };
+        gbl_run_result resume_result = { 0 };
+        gbl_trace_record records[2] = { { 0 }, { 0 } };
+        gbl_trace_buffer continuation_trace = { records, 1u, 0u, 0u };
+        const bool continuation_prepared = prepare_dma_refusal_machine(
+            &continuation_machine, UINT32_C(0x03000020));
+
+        continuation_options.cycle_budget = 64u;
+        continuation_options.unit_limit = 2u;
+        continuation_options.category_mask = (uint32_t)GBL_TRACE_DMA;
+        continuation_options.trace_buffer = &continuation_trace;
+        const gbl_run_status first_run = continuation_prepared
+            ? gbl_cpu_run(&continuation_machine, &continuation_options,
+                          &first_result)
+            : GBL_RUN_STATUS_INVALID_ARGUMENT;
+        const bool retained_startup =
+            first_run == GBL_RUN_STATUS_OK &&
+            first_result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+            first_result.cycles == UINT64_C(2) &&
+            continuation_trace.count == 1u &&
+            continuation_machine.dma_channels[3].startup_complete &&
+            continuation_machine.dma_channels[3].remaining == 1u;
+
+        continuation_trace.capacity = 2u;
+        continuation_options.cycle_budget = UINT64_C(8);
+        continuation_options.unit_limit = 1u;
+        const gbl_run_status resume = retained_startup
+            ? gbl_cpu_run(&continuation_machine, &continuation_options,
+                          &resume_result)
+            : GBL_RUN_STATUS_INVALID_ARGUMENT;
+        test_case(retained_startup && resume == GBL_RUN_STATUS_OK &&
+                      resume_result.dma_startup_cycles == 0u &&
+                      resume_result.dma_source_cycles == UINT64_C(5) &&
+                      resume_result.dma_destination_cycles == UINT64_C(1) &&
+                      resume_result.dma_completed_units == 1u &&
+                      continuation_trace.count == 2u &&
+                      records[0].dma_startup_cycles == UINT64_C(2) &&
+                      records[1].dma_startup_cycles == 0u &&
+                      records[1].dma_source_cycles == UINT64_C(5) &&
+                      records[1].dma_destination_cycles == UINT64_C(1),
+                  "trace-capacity retry retains startup and does not charge it twice");
+        gbl_machine_dispose(&continuation_machine);
+    }
+
+    {
+        gbl_machine zero_budget_machine = { 0 };
+        gbl_run_options zero_options = { .cycle_budget = 0u,
+                                         .unit_limit = 2u };
+        gbl_run_result zero_result = { 0 };
+        const bool zero_prepared = prepare_dma_refusal_machine(
+            &zero_budget_machine, UINT32_C(0x03000020));
+        const uint64_t zero_snapshot =
+            gbl_test_canonical_digest(&zero_budget_machine);
+        test_case(zero_prepared &&
+                      gbl_cpu_run(&zero_budget_machine, &zero_options,
+                                  &zero_result) == GBL_RUN_STATUS_OK &&
+                      zero_result.cycles == 0u &&
+                      gbl_test_canonical_digest(&zero_budget_machine) ==
+                          zero_snapshot,
+                  "zero-budget CPU run performs no DMA mutation");
+        gbl_machine_dispose(&zero_budget_machine);
+    }
+
+    {
+        const gbl_trace_record left = {
+            .category = GBL_TRACE_DMA,
+            .dma_source_sequence = GBL_BUS_CLASS_NONSEQUENTIAL
+        };
+        gbl_trace_record right = left;
+
+        right.dma_destination_sequence = GBL_BUS_CLASS_SEQUENTIAL;
+        test_case(!gbl_test_trace_equal(&left, &right, 1u),
+                  "trace equality detects DMA sequence observation changes");
+    }
+}
+
+static void test_cpu_refreshes_bus_quotes_from_waitcnt(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { .cycle_budget = 64u, .unit_limit = 2u };
+    gbl_run_result result = { 0 };
+    gbl_bus_result waitcnt_write;
+    uint64_t start_cycle;
+    gbl_run_status run_status = GBL_RUN_STATUS_INVALID_ARGUMENT;
+    bool reconciled = false;
+    bool loaded;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE1A00000));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    loaded = machine_load(&machine, image);
+    waitcnt_write = loaded
+        ? gbl_bus_write(&machine, UINT32_C(0x04000204), 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, UINT16_C(0x0004))
+        : (gbl_bus_result){ 0 };
+    start_cycle = machine.master_cycles;
+    if (loaded && waitcnt_write.status == GBL_BUS_STATUS_OK &&
+        machine.waitcnt == UINT16_C(4)) {
+        run_status = gbl_cpu_run(&machine, &options, &result);
+        reconciled = result.cycles == machine.master_cycles - start_cycle &&
+                     result.cycles == result.bus_cycles +
+                                          result.internal_cycles +
+                                          result.wait_cycles;
+    }
+    if (run_status != GBL_RUN_STATUS_OK || result.instructions != 1u ||
+        !reconciled) {
+        printf("# waitcnt cpu diagnostic: loaded=%u bus=%u waitcnt=%u run=%u term=%u reason=%u instructions=%llu cycles=%llu elapsed=%llu buscycles=%llu internal=%llu wait=%llu\n",
+               loaded ? 1u : 0u, (unsigned int)waitcnt_write.status,
+               (unsigned int)machine.waitcnt, (unsigned int)run_status,
+               (unsigned int)result.termination,
+               (unsigned int)result.reason,
+               (unsigned long long)result.instructions,
+               (unsigned long long)result.cycles,
+               (unsigned long long)(machine.master_cycles - start_cycle),
+               (unsigned long long)result.bus_cycles,
+               (unsigned long long)result.internal_cycles,
+               (unsigned long long)result.wait_cycles);
+    }
+    test_case(loaded && waitcnt_write.status == GBL_BUS_STATUS_OK &&
+                  machine.waitcnt == UINT16_C(4) &&
+                  run_status == GBL_RUN_STATUS_OK &&
+                  result.instructions == 1u &&
+                  reconciled,
+              "CPU unit preflight and accounting use the active WAITCNT quote");
+    gbl_machine_dispose(&machine);
 }
 
 typedef void (*cpu_test_function)(void);
@@ -14683,7 +15169,10 @@ static const cpu_test_function psr_functions[] = {
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function dma_tracer_functions[] = { test_dma_tracer };
 static const cpu_test_function dma_refusal_functions[] = {
-    test_dma_refusal_state_comparator
+    test_dma_refusal_state_comparator,
+    test_dma_refusal_transactions,
+    test_dma_cpu_trace_refusals,
+    test_cpu_refreshes_bus_quotes_from_waitcnt
 };
 static const cpu_test_function exception_functions[] = {
     test_exceptions,
@@ -14927,7 +15416,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
     CPU_TEST_GROUP("dma.tracer", 1u, dma_tracer_functions),
-    CPU_TEST_GROUP("dma.refusal", 1u, dma_refusal_functions),
+    CPU_TEST_GROUP("dma.refusal", 15u, dma_refusal_functions),
     CPU_TEST_GROUP("exceptions", 17u, exception_functions),
     CPU_TEST_GROUP("modes", 5u, modes_functions),
     CPU_TEST_GROUP("no_bios", 2u, no_bios_functions),

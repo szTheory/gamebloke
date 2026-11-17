@@ -1867,14 +1867,16 @@ static int run_halt_boundary(void)
               at->master_cycles == UINT64_C(3) &&
               at->power_state == GBL_MACHINE_POWER_RUNNING &&
               at_result.instructions == 0u);
-        CHECK(run_power(after, UINT64_C(3), &after_result));
+        CHECK(run_power(after, UINT64_C(8), &after_result));
         CHECK(after_result.power_cause == GBL_CPU_POWER_CAUSE_WAKE_EVENT &&
               after_result.wake_cycle == UINT64_C(3) &&
               after_result.wait_cycles == UINT64_C(2) &&
               after_result.wake_source_mask == TIMER0_IF_BIT &&
               after_result.instructions == 1u &&
+              after_result.bus_cycles == UINT64_C(6) &&
+              after_result.cycles == UINT64_C(8) &&
               after->interrupt_flags == TIMER0_IF_BIT &&
-              after->master_cycles == UINT64_C(4) &&
+              after->master_cycles == UINT64_C(9) &&
               after->power_state == GBL_MACHINE_POWER_RUNNING);
 
         CHECK(write_timer_word(tie, 0u, UINT16_C(0xFFFE),
@@ -1935,14 +1937,16 @@ static int run_halt_boundary(void)
         pending->interrupt_enable = TIMER0_IF_BIT;
         pending->interrupt_master_enable = 0u;
         pending->cpu.cpsr |= UINT32_C(0x00000080);
-        CHECK(run_power(pending, UINT64_C(1), &pending_result));
+        CHECK(run_power(pending, UINT64_C(6), &pending_result));
         CHECK(pending_result.power_cause ==
                   GBL_CPU_POWER_CAUSE_WAKE_PENDING &&
               pending_result.wake_cycle == 0u &&
               pending_result.wake_source_mask == TIMER0_IF_BIT &&
               pending_result.wait_cycles == 0u &&
-              pending->master_cycles == UINT64_C(1) &&
+              pending->master_cycles == UINT64_C(6) &&
               pending_result.instructions == 1u &&
+              pending_result.bus_cycles == UINT64_C(6) &&
+              pending_result.cycles == UINT64_C(6) &&
               pending->power_state == GBL_MACHINE_POWER_RUNNING);
 
         CHECK(gbl_machine_set_input_timeline(stopped, &future_input, 1u) ==

@@ -88,6 +88,8 @@ cpu.arm_subword_alignment core,cpu,unit
 cpu.arm_transfer core,cpu,unit
 cpu.budget core,cpu,unit
 cpu.decode core,cpu,unit
+cpu.dma.refusal core,cpu,unit
+cpu.dma.tracer core,cpu,unit
 cpu.exceptions core,cpu,unit
 cpu.irq.boundary core,cpu,unit
 cpu.irq.refusal core,cpu,unit

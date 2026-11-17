@@ -1094,6 +1094,11 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->interrupt_flags = 0u;
     machine->interrupt_enable = 0u;
     machine->interrupt_master_enable = 0u;
+    machine->waitcnt = 0u;
+    machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        machine->dma_channels[index] = (gbl_dma_channel_state){ 0 };
+    }
     machine->pressed_keys = 0u;
     machine->key_control = 0u;
     machine->key_condition = false;

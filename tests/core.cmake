@@ -155,6 +155,14 @@ gbl_add_test(
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> tracer)
 gbl_add_test(
+  NAME cpu.dma.tracer
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> dma.tracer)
+gbl_add_test(
+  NAME cpu.dma.refusal
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> dma.refusal)
+gbl_add_test(
   NAME cpu.lifecycle
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> lifecycle)

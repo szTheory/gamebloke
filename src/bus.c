@@ -780,6 +780,11 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
         }
         value |= (uint32_t)byte_value << (lane * 8u);
     }
+    if (gbl_bus_region_for_address(destination_address) ==
+        GBL_BUS_REGION_IO) {
+        result->status = GBL_DMA_STATUS_UNIT_REFUSAL;
+        return result->status;
+    }
     operations[0] = source_operation;
     operations[1] = (gbl_time_operation){
         GBL_TIME_OPERATION_BUS_WRITE, 2u, destination_address, value,

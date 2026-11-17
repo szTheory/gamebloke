@@ -139,15 +139,28 @@ _Static_assert(GBL_TIME_OPERATION_MAX ==
                "time operation capacity covers all fetch, data, and internal slots");
 
 static bool gbl_cpu_add_bus_quote(uint64_t *total,
+                                  const gbl_machine *machine,
                                   gbl_bus_direction direction,
-                                  gbl_bus_region region, uint8_t width,
+                                  uint32_t address, uint8_t width,
                                   gbl_bus_access_class sequence,
-                                  gbl_bus_access_role role)
+                                  gbl_bus_access_role role,
+                                  bool address_unresolved)
 {
     gbl_cycle_cost quote;
+    bool quoted;
 
-    if (total == NULL ||
-        !gbl_bus_cost_for(direction, region, width, sequence, role, &quote) ||
+    if (machine != NULL && !address_unresolved) {
+        quoted = gbl_bus_quote(machine, address, direction, width, sequence,
+                               role, &quote);
+    } else {
+        quoted = gbl_bus_cost_for(direction,
+                                  address_unresolved
+                                      ? GBL_BUS_REGION_UNMAPPED
+                                      : gbl_bus_region_for_address(address),
+                                  width,
+                                  sequence, role, &quote);
+    }
+    if (total == NULL || !quoted ||
         quote.cycles > UINT64_MAX - *total) {
         return false;
     }
@@ -155,7 +168,8 @@ static bool gbl_cpu_add_bus_quote(uint64_t *total,
     return true;
 }
 
-static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost,
+static bool gbl_cpu_unit_cost(const gbl_machine *machine,
+                              const gbl_cpu_unit *unit, uint64_t *cost,
                               uint64_t *bus_cycles,
                               uint64_t *internal_cycles,
                               uint64_t *pipeline_bus_cycles)
@@ -175,14 +189,12 @@ static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost,
         const uint32_t address = unit->fetch_address_from_result
                                      ? 0u
                                      : unit->fetch_address[index];
-        const gbl_bus_region region = unit->fetch_address_from_result
-                                          ? GBL_BUS_REGION_UNMAPPED
-                                          : gbl_bus_region_for_address(address);
-
-        if (!gbl_cpu_add_bus_quote(&bus_total, GBL_BUS_DIRECTION_READ,
-                                   region, unit->fetch_width,
+        if (!gbl_cpu_add_bus_quote(&bus_total, machine,
+                                   GBL_BUS_DIRECTION_READ, address,
+                                   unit->fetch_width,
                                    unit->fetch_class[index],
-                                   GBL_BUS_ROLE_FETCH)) {
+                                   GBL_BUS_ROLE_FETCH,
+                                   unit->fetch_address_from_result)) {
             return false;
         }
     }
@@ -194,9 +206,8 @@ static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost,
                 : GBL_BUS_DIRECTION_READ;
 
         if (!gbl_cpu_add_bus_quote(
-                &bus_total, direction,
-                gbl_bus_region_for_address(slot->address), slot->width,
-                slot->access_class, GBL_BUS_ROLE_DATA)) {
+                &bus_total, machine, direction, slot->address, slot->width,
+                slot->access_class, GBL_BUS_ROLE_DATA, false)) {
             return false;
         }
     }
@@ -205,11 +216,11 @@ static bool gbl_cpu_unit_cost(const gbl_cpu_unit *unit, uint64_t *cost,
      * in the cost key instead of folding it into an ARM I-cycle interval. */
     pipeline_start = bus_total;
     for (index = 0u; index < unit->post_data_pipeline_cycles; ++index) {
-        if (!gbl_cpu_add_bus_quote(&bus_total, GBL_BUS_DIRECTION_READ,
-                                   GBL_BUS_REGION_UNMAPPED,
+        if (!gbl_cpu_add_bus_quote(&bus_total, machine,
+                                   GBL_BUS_DIRECTION_READ, 0u,
                                    unit->fetch_width,
                                    GBL_BUS_CLASS_SEQUENTIAL,
-                                   GBL_BUS_ROLE_FETCH)) {
+                                   GBL_BUS_ROLE_FETCH, true)) {
             return false;
         }
     }
@@ -236,8 +247,28 @@ static bool gbl_cpu_refresh_cycle_cost(gbl_cpu_unit *unit)
     uint64_t internal_cycles;
     uint64_t pipeline_bus_cycles;
 
-    if (!gbl_cpu_unit_cost(unit, &cost, &bus_cycles, &internal_cycles,
+    if (!gbl_cpu_unit_cost(NULL, unit, &cost, &bus_cycles, &internal_cycles,
                            &pipeline_bus_cycles)) {
+        return false;
+    }
+    unit->cycle_cost = cost;
+    unit->bus_cycle_cost = bus_cycles;
+    unit->internal_cycle_cost = internal_cycles;
+    unit->post_data_pipeline_cost = pipeline_bus_cycles;
+    return true;
+}
+
+static bool gbl_cpu_refresh_cycle_cost_for_machine(
+    const gbl_machine *machine, gbl_cpu_unit *unit)
+{
+    uint64_t cost;
+    uint64_t bus_cycles;
+    uint64_t internal_cycles;
+    uint64_t pipeline_bus_cycles;
+
+    if (machine == NULL || unit == NULL ||
+        !gbl_cpu_unit_cost(machine, unit, &cost, &bus_cycles,
+                           &internal_cycles, &pipeline_bus_cycles)) {
         return false;
     }
     unit->cycle_cost = cost;
@@ -3226,7 +3257,7 @@ static bool gbl_cpu_preflight(const gbl_machine *machine,
         return false;
     }
     *reason = GBL_RUN_REASON_NONE;
-    if (!gbl_cpu_unit_cost(unit, &expected_cost, &expected_bus_cycles,
+    if (!gbl_cpu_unit_cost(machine, unit, &expected_cost, &expected_bus_cycles,
                            &expected_internal_cycles,
                            &expected_pipeline_bus_cycles) ||
         unit->result_count > GBL_CPU_RESULT_SLOT_MAX ||
@@ -3652,7 +3683,8 @@ bool gbl_cpu_test_maximum_preflight(
     }
     if (machine == NULL || options == NULL || cycle_cost == NULL ||
         required_records == NULL || reason == NULL ||
-        !gbl_cpu_test_build_maximum_unit(&unit)) {
+        !gbl_cpu_test_build_maximum_unit(&unit) ||
+        !gbl_cpu_refresh_cycle_cost_for_machine(machine, &unit)) {
         return false;
     }
     *cycle_cost = unit.cycle_cost;
@@ -4387,6 +4419,11 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                         : GBL_CPU_STOP_UNSUPPORTED_INSTRUCTION;
             run_result.termination = GBL_RUN_STOPPED;
             run_result.reason = gbl_cpu_stop_result(machine->cpu.stop_reason);
+            break;
+        }
+        if (!gbl_cpu_refresh_cycle_cost_for_machine(machine, &unit)) {
+            run_result.termination = GBL_RUN_STOPPED;
+            run_result.reason = GBL_RUN_REASON_INVALID_CPU_STATE;
             break;
         }
         if (!gbl_cpu_preflight(machine, &unit,

@@ -75,6 +75,21 @@ static bool gbl_test_timer_equal(const gbl_timer_state *left,
            left->cascade == right->cascade;
 }
 
+static bool gbl_test_dma_channel_equal(const gbl_dma_channel_state *left,
+                                      const gbl_dma_channel_state *right)
+{
+    return left->source_address == right->source_address &&
+           left->destination_address == right->destination_address &&
+           left->current_source == right->current_source &&
+           left->current_destination == right->current_destination &&
+           left->read_latch == right->read_latch &&
+           left->completed_units == right->completed_units &&
+           left->count == right->count && left->control == right->control &&
+           left->remaining == right->remaining &&
+           left->pending == right->pending && left->active == right->active &&
+           left->startup_complete == right->startup_complete;
+}
+
 static inline bool gbl_test_time_state_equal(const gbl_machine *left,
                                              const gbl_machine *right)
 {
@@ -87,6 +102,8 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
         left->interrupt_flags != right->interrupt_flags ||
         left->interrupt_enable != right->interrupt_enable ||
         left->interrupt_master_enable != right->interrupt_master_enable ||
+        left->waitcnt != right->waitcnt ||
+        left->bus_owner != right->bus_owner ||
         left->pressed_keys != right->pressed_keys ||
         left->key_control != right->key_control ||
         left->key_condition != right->key_condition ||
@@ -109,6 +126,12 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         if (!gbl_test_timer_equal(&left->timers[index],
                                   &right->timers[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        if (!gbl_test_dma_channel_equal(&left->dma_channels[index],
+                                        &right->dma_channels[index])) {
             return false;
         }
     }
@@ -133,6 +156,8 @@ static bool gbl_test_time_preview_equal(
         left->interrupt_flags != right->interrupt_flags ||
         left->interrupt_enable != right->interrupt_enable ||
         left->interrupt_master_enable != right->interrupt_master_enable ||
+        left->waitcnt != right->waitcnt ||
+        left->bus_owner != right->bus_owner ||
         left->pressed_keys != right->pressed_keys ||
         left->key_control != right->key_control ||
         left->key_condition != right->key_condition ||
@@ -155,6 +180,12 @@ static bool gbl_test_time_preview_equal(
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         if (!gbl_test_timer_equal(&left->timers[index],
                                   &right->timers[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        if (!gbl_test_dma_channel_equal(&left->dma_channels[index],
+                                        &right->dma_channels[index])) {
             return false;
         }
     }
@@ -184,6 +215,11 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.interrupt_flags = machine->interrupt_flags;
     machine_time.interrupt_enable = machine->interrupt_enable;
     machine_time.interrupt_master_enable = machine->interrupt_master_enable;
+    machine_time.waitcnt = machine->waitcnt;
+    machine_time.bus_owner = machine->bus_owner;
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        machine_time.dma_channels[index] = machine->dma_channels[index];
+    }
     machine_time.pressed_keys = machine->pressed_keys;
     machine_time.key_control = machine->key_control;
     machine_time.key_condition = machine->key_condition;
@@ -398,7 +434,16 @@ static inline bool gbl_test_trace_equal(const gbl_trace_record *left,
             a->value != b->value || a->width != b->width ||
             a->access_class != b->access_class ||
             a->bus_outcome != b->bus_outcome ||
-            a->exception_kind != b->exception_kind) {
+            a->exception_kind != b->exception_kind ||
+            a->bus_owner != b->bus_owner || a->dma_status != b->dma_status ||
+            a->dma_channel != b->dma_channel ||
+            a->dma_startup_cycles != b->dma_startup_cycles ||
+            a->dma_source_cycles != b->dma_source_cycles ||
+            a->dma_destination_cycles != b->dma_destination_cycles ||
+            a->dma_source_sequence != b->dma_source_sequence ||
+            a->dma_destination_sequence != b->dma_destination_sequence ||
+            a->dma_remaining != b->dma_remaining ||
+            a->dma_completed != b->dma_completed) {
             return false;
         }
     }
@@ -527,6 +572,25 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_u64(digest, machine->interrupt_flags);
     digest = gbl_test_digest_u64(digest, machine->interrupt_enable);
     digest = gbl_test_digest_u64(digest, machine->interrupt_master_enable);
+    digest = gbl_test_digest_u64(digest, machine->waitcnt);
+    digest = gbl_test_digest_byte(digest, (uint8_t)machine->bus_owner);
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        const gbl_dma_channel_state *dma = &machine->dma_channels[index];
+
+        digest = gbl_test_digest_u64(digest, dma->source_address);
+        digest = gbl_test_digest_u64(digest, dma->destination_address);
+        digest = gbl_test_digest_u64(digest, dma->current_source);
+        digest = gbl_test_digest_u64(digest, dma->current_destination);
+        digest = gbl_test_digest_u64(digest, dma->read_latch);
+        digest = gbl_test_digest_u64(digest, dma->completed_units);
+        digest = gbl_test_digest_u64(digest, dma->count);
+        digest = gbl_test_digest_u64(digest, dma->control);
+        digest = gbl_test_digest_u64(digest, dma->remaining);
+        digest = gbl_test_digest_byte(digest, dma->pending ? 1u : 0u);
+        digest = gbl_test_digest_byte(digest, dma->active ? 1u : 0u);
+        digest = gbl_test_digest_byte(digest,
+                                      dma->startup_complete ? 1u : 0u);
+    }
     digest = gbl_test_digest_u64(digest, machine->pressed_keys);
     digest = gbl_test_digest_u64(digest, machine->key_control);
     digest = gbl_test_digest_byte(digest, machine->key_condition ? 1u : 0u);
