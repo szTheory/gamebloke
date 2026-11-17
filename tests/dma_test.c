@@ -128,9 +128,10 @@ static bool test_programming_widths_and_enable_edges(void)
             write_register(machine, 0u, 10u, 2u, UINT32_C(0x8000)) &&
             machine->dma_channels[0].pending &&
             machine->dma_channels[0].current_source ==
-                machine->dma_channels[0].source_address &&
+                (machine->dma_channels[0].source_address & ~UINT32_C(1)) &&
             machine->dma_channels[0].current_destination ==
-                machine->dma_channels[0].destination_address &&
+                (machine->dma_channels[0].destination_address &
+                 ~UINT32_C(1)) &&
             write_register(machine, 0u, 0u, 4u, UINT32_C(0x02001003)) &&
             machine->dma_channels[0].current_source !=
                 machine->dma_channels[0].source_address &&
@@ -138,7 +139,7 @@ static bool test_programming_widths_and_enable_edges(void)
             !machine->dma_channels[0].pending &&
             write_register(machine, 0u, 10u, 2u, UINT32_C(0x8000)) &&
             machine->dma_channels[0].current_source ==
-                machine->dma_channels[0].source_address &&
+                (machine->dma_channels[0].source_address & ~UINT32_C(1)) &&
             base == UINT32_C(0x040000B0);
     free_machine(machine);
     return valid;
@@ -244,7 +245,7 @@ static bool test_channel_zero_transfer_and_irq(void)
     machine->ewram[0x20u] = UINT8_C(0x5A);
     machine->ewram[0x21u] = UINT8_C(0xC3);
     valid = write_register(machine, 0u, 0u, 4u, UINT32_C(0x02000020)) &&
-            write_register(machine, 0u, 4u, 4u, UINT32_C(0x02000100)) &&
+            write_register(machine, 0u, 4u, 4u, UINT32_C(0x03000100)) &&
             write_register(machine, 0u, 8u, 2u, 1u) &&
             write_register(machine, 0u, 10u, 2u, UINT32_C(0xC000));
     startup = valid ? gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES,

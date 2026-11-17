@@ -122,10 +122,12 @@ typedef struct gbl_dma_channel_state {
     uint32_t current_destination;
     uint32_t read_latch;
     uint64_t completed_units;
+    uint64_t generation;
     uint16_t count;
     uint16_t control;
-    uint16_t remaining;
+    uint32_t remaining;
     bool pending;
+    bool armed;
     bool active;
     bool startup_complete;
 } gbl_dma_channel_state;
@@ -536,7 +538,7 @@ typedef struct gbl_trace_record {
     uint64_t dma_destination_cycles;
     gbl_bus_access_class dma_source_sequence;
     gbl_bus_access_class dma_destination_sequence;
-    uint16_t dma_remaining;
+    uint32_t dma_remaining;
     uint64_t dma_completed;
 } gbl_trace_record;
 
@@ -623,7 +625,7 @@ typedef struct gbl_dma_step_result {
     uint64_t destination_cycles;
     gbl_bus_access_class source_sequence;
     gbl_bus_access_class destination_sequence;
-    uint16_t remaining;
+    uint32_t remaining;
     uint64_t completed;
     uint64_t completion_cycle;
     bool unit_completed;
@@ -659,6 +661,11 @@ bool gbl_bus_quote_observed(
 gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
                                    uint64_t cycle_budget,
                                    gbl_dma_step_result *result);
+/* Internal deterministic delayed-request seam. The explicit cycle is applied
+ * through the canonical machine clock; generation rejects stale requests. */
+gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
+                                       uint8_t channel, uint64_t cycle,
+                                       uint64_t generation);
 gbl_dma_status gbl_bus_dma_transfer_unit(
     gbl_machine *machine, uint8_t channel, uint64_t cycle_budget,
     gbl_dma_step_result *result);

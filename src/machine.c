@@ -361,7 +361,65 @@ static void gbl_machine_time_copy_preview(
     }
 }
 
-static void gbl_preview_dma_register_write(
+static uint32_t gbl_dma_source_mask(uint8_t channel)
+{
+    return channel == 0u ? UINT32_C(0x07FFFFFF)
+                        : UINT32_C(0x0FFFFFFF);
+}
+
+static uint32_t gbl_dma_destination_mask(uint8_t channel)
+{
+    return channel == 3u ? UINT32_C(0x0FFFFFFF)
+                         : UINT32_C(0x07FFFFFF);
+}
+
+static uint16_t gbl_dma_count_mask(uint8_t channel)
+{
+    return channel == 3u ? UINT16_MAX : UINT16_C(0x3FFF);
+}
+
+static bool gbl_dma_control_valid(uint8_t channel, uint16_t control)
+{
+    const uint8_t source_mode = (uint8_t)((control >> 7u) & 3u);
+    const uint8_t destination_mode = (uint8_t)((control >> 5u) & 3u);
+    const bool drq = (control & UINT16_C(0x0800)) != 0u;
+    const uint8_t start_mode = (uint8_t)((control >> 12u) & 3u);
+
+    return source_mode != 3u &&
+           (destination_mode != 3u || channel == 3u) &&
+           (!drq || channel == 3u) && !(start_mode == 3u && channel == 0u);
+}
+
+static void gbl_dma_activate(gbl_dma_channel_state *channel,
+                             uint8_t channel_index)
+{
+    const uint32_t width = (channel->control & UINT16_C(0x0400)) != 0u
+                               ? 4u
+                               : 2u;
+    const uint16_t count = (uint16_t)(channel->count &
+                                      gbl_dma_count_mask(channel_index));
+    const uint32_t source_mask = gbl_dma_source_mask(channel_index);
+    const uint32_t destination_mask =
+        gbl_dma_destination_mask(channel_index);
+    const uint32_t encoded_count = count == 0u
+                                       ? (channel_index == 3u
+                                              ? UINT32_C(0x10000)
+                                              : UINT32_C(0x4000))
+                                       : count;
+
+    channel->current_source =
+        (channel->source_address & source_mask) & ~(width - 1u);
+    channel->current_destination =
+        (channel->destination_address & destination_mask) & ~(width - 1u);
+    channel->remaining = encoded_count;
+    channel->completed_units = 0u;
+    channel->active = false;
+    channel->startup_complete = false;
+    channel->pending = ((channel->control >> 12u) & 3u) == 0u;
+    channel->armed = !channel->pending;
+}
+
+static gbl_time_status gbl_preview_dma_register_write(
     gbl_machine_time_preview *preview, uint32_t address, uint8_t value)
 {
     uint32_t offset;
@@ -372,13 +430,13 @@ static void gbl_preview_dma_register_write(
 
     if (preview == NULL || address < UINT32_C(0x040000B0) ||
         address > UINT32_C(0x040000DF)) {
-        return;
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     offset = address - UINT32_C(0x040000B0);
     channel_index = (uint8_t)(offset / UINT32_C(12));
     register_offset = offset % UINT32_C(12);
     if (channel_index >= GBL_DMA_CHANNEL_COUNT) {
-        return;
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     channel = &preview->dma_channels[channel_index];
     if (register_offset < 4u) {
@@ -386,16 +444,20 @@ static void gbl_preview_dma_register_write(
         channel->source_address =
             (channel->source_address & ~(UINT32_C(0xFF) << shift)) |
             ((uint32_t)value << shift);
+        channel->source_address &= gbl_dma_source_mask(channel_index);
     } else if (register_offset < 8u) {
         const uint8_t shift = (uint8_t)((register_offset & 3u) * 8u);
         channel->destination_address =
             (channel->destination_address & ~(UINT32_C(0xFF) << shift)) |
             ((uint32_t)value << shift);
+        channel->destination_address &=
+            gbl_dma_destination_mask(channel_index);
     } else if (register_offset < 10u) {
         const uint8_t shift = (uint8_t)((register_offset & 1u) * 8u);
         channel->count = (uint16_t)(
             (channel->count & (uint16_t)~(UINT16_C(0xFF) << shift)) |
             (uint16_t)((uint16_t)value << shift));
+        channel->count &= gbl_dma_count_mask(channel_index);
     } else {
         const uint8_t shift = (uint8_t)((register_offset & 1u) * 8u);
 
@@ -403,21 +465,31 @@ static void gbl_preview_dma_register_write(
         channel->control = (uint16_t)(
             (channel->control & (uint16_t)~(UINT16_C(0xFF) << shift)) |
             (uint16_t)((uint16_t)value << shift));
+        channel->control &= UINT16_C(0xFFE0);
+        if (!gbl_dma_control_valid(channel_index, channel->control)) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
         if ((channel->control & UINT16_C(0x8000)) == 0u) {
+            if ((previous_control & UINT16_C(0x8000)) != 0u) {
+                if (channel->generation == UINT64_MAX) {
+                    return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
+                }
+                ++channel->generation;
+            }
             channel->pending = false;
+            channel->armed = false;
             channel->active = false;
             channel->startup_complete = false;
             channel->remaining = 0u;
         } else if ((previous_control & UINT16_C(0x8000)) == 0u) {
-            channel->current_source = channel->source_address;
-            channel->current_destination = channel->destination_address;
-            channel->remaining = channel->count;
-            channel->completed_units = 0u;
-            channel->pending = true;
-            channel->active = false;
-            channel->startup_complete = false;
+            if (channel->generation == UINT64_MAX) {
+                return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
+            }
+            ++channel->generation;
+            gbl_dma_activate(channel, channel_index);
         }
     }
+    return GBL_TIME_STATUS_OK;
 }
 
 static gbl_time_status gbl_preview_advance_to(
@@ -596,8 +668,13 @@ static gbl_time_status gbl_preview_bus_write(
             key_control_written = true;
         } else if (lane_address >= UINT32_C(0x040000B0) &&
                    lane_address <= UINT32_C(0x040000DF)) {
-            gbl_preview_dma_register_write(preview, lane_address,
-                                           byte_value);
+            const gbl_time_status status =
+                gbl_preview_dma_register_write(preview, lane_address,
+                                               byte_value);
+
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
         }
     }
     for (lane = 0u; lane < GBL_TIMER_COUNT; ++lane) {
@@ -738,6 +815,41 @@ static gbl_dma_status gbl_dma_status_from_time(gbl_time_status status)
     return GBL_DMA_STATUS_UNIT_REFUSAL;
 }
 
+gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
+                                       uint8_t channel_index, uint64_t cycle,
+                                       uint64_t generation)
+{
+    gbl_dma_channel_state *channel;
+    gbl_time_status status;
+
+    if (machine == NULL || !machine->initialized ||
+        channel_index >= GBL_DMA_CHANNEL_COUNT ||
+        machine->event_count > GBL_EVENT_CAPACITY) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    channel = &machine->dma_channels[channel_index];
+    if (cycle < machine->master_cycles) {
+        return GBL_TIME_STATUS_BACKWARD;
+    }
+    if (channel->generation != generation ||
+        (channel->control & UINT16_C(0x8000)) == 0u ||
+        ((channel->control >> 12u) & 3u) == 0u || !channel->armed) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    status = gbl_machine_advance_to(machine, cycle);
+    if (status != GBL_TIME_STATUS_OK) {
+        return status;
+    }
+    channel = &machine->dma_channels[channel_index];
+    if (channel->generation != generation ||
+        (channel->control & UINT16_C(0x8000)) == 0u || !channel->armed) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    channel->armed = false;
+    channel->pending = true;
+    return GBL_TIME_STATUS_OK;
+}
+
 gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
                                    uint64_t cycle_budget,
                                    gbl_dma_step_result *result)
@@ -775,10 +887,9 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
     step.channel = channel_index;
     step.remaining = channel->remaining;
     step.completed = channel->completed_units;
-    if (channel_index != 3u || channel->count != 1u ||
-        channel->remaining != 1u ||
-        (channel->control & UINT16_C(0x8000)) == 0u ||
-        (channel->control & UINT16_C(0x7400)) != 0u) {
+    if ((channel->control & UINT16_C(0x8000)) == 0u ||
+        channel->remaining == 0u ||
+        !gbl_dma_control_valid(channel_index, channel->control)) {
         step.status = GBL_DMA_STATUS_UNSUPPORTED;
         *result = step;
         return step.status;
@@ -830,17 +941,65 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
     step.status = gbl_bus_dma_transfer_unit(machine, channel_index,
                                              cycle_budget, &step);
     if (step.status == GBL_DMA_STATUS_OK && step.unit_completed) {
+        const uint32_t width =
+            (channel->control & UINT16_C(0x0400)) != 0u ? 4u : 2u;
+        const uint8_t source_mode =
+            (uint8_t)((channel->control >> 7u) & 3u);
+        const uint8_t destination_mode =
+            (uint8_t)((channel->control >> 5u) & 3u);
+
         channel = &machine->dma_channels[channel_index];
         --channel->remaining;
         ++channel->completed_units;
+        if (source_mode == 0u) {
+            channel->current_source =
+                (channel->current_source + width) &
+                gbl_dma_source_mask(channel_index);
+        } else if (source_mode == 1u) {
+            channel->current_source =
+                (channel->current_source - width) &
+                gbl_dma_source_mask(channel_index);
+        }
+        if (destination_mode == 0u || destination_mode == 3u) {
+            channel->current_destination =
+                (channel->current_destination + width) &
+                gbl_dma_destination_mask(channel_index);
+        } else if (destination_mode == 1u) {
+            channel->current_destination =
+                (channel->current_destination - width) &
+                gbl_dma_destination_mask(channel_index);
+        }
         if (channel->remaining == 0u) {
             channel->active = false;
             channel->pending = false;
-            channel->control =
-                (uint16_t)(channel->control & (uint16_t)~UINT16_C(0x8000));
             channel->startup_complete = false;
-            machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
-            machine->cpu.force_nonsequential_fetch = true;
+            if ((channel->control & UINT16_C(0x0200)) != 0u &&
+                ((channel->control >> 12u) & 3u) != 0u) {
+                channel->remaining =
+                    (channel->count & gbl_dma_count_mask(channel_index));
+                if (channel->remaining == 0u) {
+                    channel->remaining = channel_index == 3u
+                                             ? UINT32_C(0x10000)
+                                             : UINT32_C(0x4000);
+                }
+                if (destination_mode == 3u) {
+                    channel->current_destination =
+                        channel->destination_address &
+                        gbl_dma_destination_mask(channel_index) & ~(width - 1u);
+                }
+                channel->armed = true;
+            } else {
+                channel->control = (uint16_t)(
+                    channel->control & (uint16_t)~UINT16_C(0x8000));
+                channel->armed = false;
+                machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
+                machine->cpu.force_nonsequential_fetch = true;
+            }
+            if ((channel->control & UINT16_C(0x4000)) != 0u) {
+                machine->interrupt_flags = (uint16_t)(
+                    machine->interrupt_flags |
+                    (uint16_t)(UINT16_C(0x0100) << channel_index));
+            }
         }
         step.owner = GBL_MACHINE_BUS_OWNER_DMA;
         step.remaining = channel->remaining;

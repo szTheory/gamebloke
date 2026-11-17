@@ -375,6 +375,10 @@ static gbl_bus_outcome gbl_bus_fallback_priority(gbl_bus_outcome left,
         right == GBL_BUS_OUTCOME_UNMAPPED) {
         return GBL_BUS_OUTCOME_UNMAPPED;
     }
+    if (left == GBL_BUS_OUTCOME_IO_DMA_SUBSET ||
+        right == GBL_BUS_OUTCOME_IO_DMA_SUBSET) {
+        return GBL_BUS_OUTCOME_IO_DMA_SUBSET;
+    }
     return GBL_BUS_OUTCOME_NONE;
 }
 
@@ -516,7 +520,14 @@ static bool gbl_bus_read_lane(
             return true;
         }
         if (gbl_bus_is_dma_byte(address)) {
+            const uint32_t offset = address - UINT32_C(0x040000B0);
+            const uint32_t register_offset = offset % UINT32_C(12);
+
             *outcome = GBL_BUS_OUTCOME_IO_DMA_SUBSET;
+            if (register_offset < 10u) {
+                *value = 0u;
+                return false;
+            }
             *value = gbl_bus_dma_register_byte(time_preview, address);
             return true;
         }
@@ -868,7 +879,9 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     uint32_t source_address;
     uint32_t destination_address;
     uint32_t lane;
+    uint8_t width;
     bool has_fallback = false;
+    uint32_t destination_region;
 
     if (machine == NULL || result == NULL || !machine->initialized ||
         channel >= GBL_DMA_CHANNEL_COUNT) {
@@ -877,20 +890,28 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
     dma = &machine->dma_channels[channel];
     source_address = dma->current_source;
     destination_address = dma->current_destination;
+    width = (dma->control & UINT16_C(0x0400)) != 0u ? 4u : 2u;
+    destination_region =
+        (uint32_t)gbl_bus_region_for_address(destination_address);
     if (!dma->active || !dma->startup_complete ||
         machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA ||
         dma->remaining == 0u || dma->completed_units == UINT64_MAX ||
-        gbl_bus_validate_request(machine, source_address, 2u,
+        gbl_bus_validate_request(machine, source_address, width,
                                  GBL_BUS_CLASS_NONSEQUENTIAL) !=
             GBL_BUS_STATUS_OK ||
-        gbl_bus_validate_request(machine, destination_address, 2u,
+        gbl_bus_validate_request(machine, destination_address, width,
                                  GBL_BUS_CLASS_NONSEQUENTIAL) !=
             GBL_BUS_STATUS_OK ||
+        (destination_region != GBL_BUS_REGION_EWRAM &&
+         destination_region != GBL_BUS_REGION_IWRAM &&
+         destination_region != GBL_BUS_REGION_PRAM &&
+         destination_region != GBL_BUS_REGION_VRAM &&
+         destination_region != GBL_BUS_REGION_OAM) ||
         !gbl_bus_quote(machine, source_address, GBL_BUS_DIRECTION_READ,
-                       2u, GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
+                       width, GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
                        &source_cost) ||
         !gbl_bus_quote(machine, destination_address,
-                       GBL_BUS_DIRECTION_WRITE, 2u,
+                       GBL_BUS_DIRECTION_WRITE, width,
                        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
                        &destination_cost) ||
         source_cost.cycles > UINT64_MAX - destination_cost.cycles) {
@@ -902,7 +923,7 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
         return result->status;
     }
     source_operation = (gbl_time_operation){
-        GBL_TIME_OPERATION_BUS_READ, 2u, source_address, 0u,
+        GBL_TIME_OPERATION_BUS_READ, width, source_address, 0u,
         source_cost.cycles
     };
     time_status = gbl_machine_prepare_operations(
@@ -916,26 +937,21 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
                                    : GBL_DMA_STATUS_UNIT_REFUSAL;
         return result->status;
     }
-    for (lane = 0u; lane < 2u; ++lane) {
+    for (lane = 0u; lane < width; ++lane) {
         uint8_t byte_value;
         gbl_bus_outcome lane_outcome;
 
         if (!gbl_bus_read_lane(machine, &source_preview,
                                source_address + lane, &byte_value,
                                &lane_outcome)) {
-            byte_value = gbl_bus_latch_byte(machine->open_bus, lane);
+            byte_value = gbl_bus_latch_byte(dma->read_latch, lane);
             has_fallback = true;
         }
         value |= (uint32_t)byte_value << (lane * 8u);
     }
-    if (gbl_bus_region_for_address(destination_address) ==
-        GBL_BUS_REGION_IO) {
-        result->status = GBL_DMA_STATUS_UNIT_REFUSAL;
-        return result->status;
-    }
     operations[0] = source_operation;
     operations[1] = (gbl_time_operation){
-        GBL_TIME_OPERATION_BUS_WRITE, 2u, destination_address, value,
+        GBL_TIME_OPERATION_BUS_WRITE, width, destination_address, value,
         destination_cost.cycles
     };
     time_status = gbl_machine_prepare_operations(machine, operations, 2u,
@@ -952,13 +968,14 @@ gbl_dma_status gbl_bus_dma_transfer_unit(
 
     gbl_machine_commit_time(machine, &unit_preview);
     if (!has_fallback) {
-        machine->open_bus = gbl_bus_latch_replication(value, 2u);
+        machine->open_bus = gbl_bus_latch_replication(value, width);
     }
-    machine->dma_channels[channel].read_latch = value;
-    for (lane = 0u; lane < 2u; ++lane) {
+    machine->dma_channels[channel].read_latch =
+        gbl_bus_latch_replication(value, width);
+    for (lane = 0u; lane < width; ++lane) {
         (void)gbl_bus_write_lane(
             machine, destination_address + lane,
-            (uint8_t)((value >> (lane * 8u)) & UINT32_C(0xFF)), 2u);
+            (uint8_t)((value >> (lane * 8u)) & UINT32_C(0xFF)), width);
     }
     result->status = GBL_DMA_STATUS_OK;
     result->owner = GBL_MACHINE_BUS_OWNER_DMA;
