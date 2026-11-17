@@ -258,7 +258,7 @@ static void gbl_test_dispose(gbl_test_observation *observation)
 
 enum {
     GBL_INTERLEAVE_TRACE_CAPACITY = 4096u,
-    GBL_INTERLEAVE_TRACE_LINE_CAPACITY = 256u,
+    GBL_INTERLEAVE_TRACE_LINE_CAPACITY = 1024u,
     GBL_INTERLEAVE_MAX_UNITS = 10000u
 };
 
@@ -270,9 +270,17 @@ typedef struct gbl_interleave_instance {
     gbl_run_termination termination;
     gbl_run_reason reason;
     uint64_t budget;
+    uint64_t base_cycles;
     uint64_t cycles;
     uint64_t instructions;
+    uint64_t bus_cycles;
+    uint64_t internal_cycles;
     uint64_t wait_cycles;
+    uint64_t dma_startup_cycles;
+    uint64_t dma_source_cycles;
+    uint64_t dma_destination_cycles;
+    uint64_t dma_completed_units;
+    uint64_t dma_pause_cycles;
     uint64_t wake_cycle;
     uint16_t wake_source_mask;
     gbl_cpu_power_cause power_cause;
@@ -374,6 +382,7 @@ static bool gbl_interleave_step(gbl_interleave_instance *instance,
     gbl_run_options options;
     gbl_run_result result = { 0 };
     uint64_t remaining;
+    uint64_t component_cycles;
 
     if (instance == NULL || !instance->initialized || instance->complete ||
         failure == NULL) {
@@ -393,15 +402,47 @@ static bool gbl_interleave_step(gbl_interleave_instance *instance,
         *failure = "interleave-canonical-run-failed";
         return false;
     }
-    if (UINT64_MAX - instance->cycles < result.cycles ||
+    if (UINT64_MAX - result.bus_cycles < result.internal_cycles ||
+        UINT64_MAX - result.bus_cycles - result.internal_cycles <
+            result.wait_cycles) {
+        *failure = "interleave-cycle-components-overflow";
+        return false;
+    }
+    component_cycles = result.bus_cycles + result.internal_cycles +
+                       result.wait_cycles;
+    if (component_cycles != result.cycles ||
+        UINT64_MAX - instance->cycles < result.cycles ||
         UINT64_MAX - instance->instructions < result.instructions ||
-        UINT64_MAX - instance->wait_cycles < result.wait_cycles) {
-        *failure = "interleave-progress-overflow";
+        UINT64_MAX - instance->bus_cycles < result.bus_cycles ||
+        UINT64_MAX - instance->internal_cycles < result.internal_cycles ||
+        UINT64_MAX - instance->wait_cycles < result.wait_cycles ||
+        UINT64_MAX - instance->dma_startup_cycles <
+            result.dma_startup_cycles ||
+        UINT64_MAX - instance->dma_source_cycles < result.dma_source_cycles ||
+        UINT64_MAX - instance->dma_destination_cycles <
+            result.dma_destination_cycles ||
+        UINT64_MAX - instance->dma_completed_units <
+            result.dma_completed_units ||
+        UINT64_MAX - instance->dma_pause_cycles < result.dma_pause_cycles) {
+        *failure = "interleave-progress-overflow-or-cycle-accounting";
         return false;
     }
     instance->cycles += result.cycles;
     instance->instructions += result.instructions;
+    instance->bus_cycles += result.bus_cycles;
+    instance->internal_cycles += result.internal_cycles;
     instance->wait_cycles += result.wait_cycles;
+    instance->dma_startup_cycles += result.dma_startup_cycles;
+    instance->dma_source_cycles += result.dma_source_cycles;
+    instance->dma_destination_cycles += result.dma_destination_cycles;
+    instance->dma_completed_units += result.dma_completed_units;
+    instance->dma_pause_cycles += result.dma_pause_cycles;
+    if (instance->base_cycles > UINT64_MAX - instance->cycles ||
+        instance->machine.master_cycles !=
+            instance->base_cycles + instance->cycles) {
+        *failure = "interleave-machine-time-accounting-mismatch";
+        return false;
+    }
     if (result.wake_cycle != 0u || result.wake_source_mask != 0u ||
         result.power_cause != GBL_CPU_POWER_CAUSE_NONE) {
         instance->wake_cycle = result.wake_cycle;
@@ -493,13 +534,40 @@ static bool gbl_interleave_serialize_trace(
             "\",\"address\":\"0x%08" PRIx32
             "\",\"value\":\"0x%08" PRIx32
             "\",\"width\":%u,\"access_class\":%u,\"bus_outcome\":%u,"
-            "\"exception_kind\":%u}\n",
+            "\"exception_kind\":%u,\"bus_owner\":%u,\"dma_status\":%u,"
+            "\"dma_channel\":%u,\"dma_startup_cycles\":\"%" PRIu64
+            "\",\"dma_source_cycles\":\"%" PRIu64
+            "\",\"dma_destination_cycles\":\"%" PRIu64
+            "\",\"dma_source_sequence\":%u,\"dma_destination_sequence\":%u,"
+            "\"dma_remaining\":%u,\"dma_completed\":\"%" PRIu64
+            "\",\"dma_used_channel_latch\":%s,\"dma_value_provenance\":%u,"
+            "\"dma_result_classification\":%u,\"dma_dispute\":%u,"
+            "\"dma_hardware_qualification\":%u,"
+            "\"dma_source_address\":\"0x%08" PRIx32
+            "\",\"dma_destination_address\":\"0x%08" PRIx32
+            "\",\"dma_value\":\"0x%08" PRIx32
+            "\",\"dma_width\":%u}\n",
             record->sequence, record->guest_cycle,
             (unsigned int)record->category, record->instruction_address,
             record->opcode, record->address, record->value,
             (unsigned int)record->width, (unsigned int)record->access_class,
             (unsigned int)record->bus_outcome,
-            (unsigned int)record->exception_kind);
+            (unsigned int)record->exception_kind,
+            (unsigned int)record->bus_owner,
+            (unsigned int)record->dma_status,
+            (unsigned int)record->dma_channel,
+            record->dma_startup_cycles, record->dma_source_cycles,
+            record->dma_destination_cycles,
+            (unsigned int)record->dma_source_sequence,
+            (unsigned int)record->dma_destination_sequence,
+            record->dma_remaining, record->dma_completed,
+            record->dma_used_channel_latch ? "true" : "false",
+            (unsigned int)record->dma_value_provenance,
+            (unsigned int)record->dma_result_classification,
+            (unsigned int)record->dma_dispute,
+            (unsigned int)record->dma_hardware_qualification,
+            record->dma_source_address, record->dma_destination_address,
+            record->dma_value, (unsigned int)record->dma_width);
 
         if (written < 0 || (size_t)written >= capacity - offset) return false;
         offset += (size_t)written;
@@ -518,25 +586,7 @@ static bool gbl_interleave_trace_fields_equal(
     const gbl_trace_record *first, const gbl_trace_record *second,
     size_t count)
 {
-    size_t index;
-
-    for (index = 0u; index < count; ++index) {
-        if (first[index].sequence != second[index].sequence ||
-            first[index].guest_cycle != second[index].guest_cycle ||
-            first[index].category != second[index].category ||
-            first[index].instruction_address !=
-                second[index].instruction_address ||
-            first[index].opcode != second[index].opcode ||
-            first[index].address != second[index].address ||
-            first[index].value != second[index].value ||
-            first[index].width != second[index].width ||
-            first[index].access_class != second[index].access_class ||
-            first[index].bus_outcome != second[index].bus_outcome ||
-            first[index].exception_kind != second[index].exception_kind) {
-            return false;
-        }
-    }
-    return true;
+    return gbl_test_trace_equal(first, second, count);
 }
 
 static bool gbl_interleave_trace_has_instruction(
@@ -574,9 +624,17 @@ static const char *gbl_interleave_compare(
         expected->wake_cycle != actual->wake_cycle ||
         expected->wake_source_mask != actual->wake_source_mask ||
         expected->power_cause != actual->power_cause ||
+        expected->base_cycles != actual->base_cycles ||
         expected->machine.master_cycles != actual->machine.master_cycles ||
         expected->machine.cpu.retired_instructions !=
-            actual->machine.cpu.retired_instructions) {
+            actual->machine.cpu.retired_instructions ||
+        expected->bus_cycles != actual->bus_cycles ||
+        expected->internal_cycles != actual->internal_cycles ||
+        expected->dma_startup_cycles != actual->dma_startup_cycles ||
+        expected->dma_source_cycles != actual->dma_source_cycles ||
+        expected->dma_destination_cycles != actual->dma_destination_cycles ||
+        expected->dma_completed_units != actual->dma_completed_units ||
+        expected->dma_pause_cycles != actual->dma_pause_cycles) {
         return "interleave-progress-mismatch";
     }
     if (!gbl_interleave_machine_equal(&expected->machine, &actual->machine)) {
@@ -675,7 +733,9 @@ static bool gbl_interleave_timer0_complete(
     if (instance == NULL || instance->mailbox.status != GBL_MAILBOX_PASS ||
         instance->mailbox.case_id != UINT32_C(7001) ||
         instance->cycles == 0u || instance->cycles > UINT64_C(10000) ||
-        instance->machine.master_cycles != instance->cycles ||
+        instance->base_cycles > UINT64_MAX - instance->cycles ||
+        instance->machine.master_cycles !=
+            instance->base_cycles + instance->cycles ||
         (instance->machine.interrupt_flags & (UINT16_C(1) << 3u)) == 0u ||
         !instance->machine.timers[0].enabled ||
         !instance->machine.timers[0].irq_enabled ||
@@ -744,9 +804,17 @@ static bool gbl_interleave_reset_reload(gbl_interleave_instance *instance,
     instance->termination = GBL_RUN_PROGRESS;
     instance->reason = GBL_RUN_REASON_NONE;
     instance->budget = budget;
+    instance->base_cycles = 0u;
     instance->cycles = 0u;
     instance->instructions = 0u;
+    instance->bus_cycles = 0u;
+    instance->internal_cycles = 0u;
     instance->wait_cycles = 0u;
+    instance->dma_startup_cycles = 0u;
+    instance->dma_source_cycles = 0u;
+    instance->dma_destination_cycles = 0u;
+    instance->dma_completed_units = 0u;
+    instance->dma_pause_cycles = 0u;
     instance->wake_cycle = 0u;
     instance->wake_source_mask = 0u;
     instance->power_cause = GBL_CPU_POWER_CAUSE_NONE;
@@ -925,7 +993,7 @@ static void gbl_interleave_seed_live_timer(gbl_machine *machine)
         UINT16_MAX, UINT16_MAX, UINT16_C(1), 0u,
         machine->master_cycles, UINT64_C(1), true, true, false
     };
-    machine->interrupt_flags |= UINT16_C(1) << 3u;
+    machine->interrupt_flags &= (uint16_t)~(UINT16_C(1) << 3u);
     machine->event_count = 1u;
     machine->next_event_sequence = UINT64_C(1);
     machine->events[0] = (gbl_event){
@@ -939,6 +1007,444 @@ static void gbl_interleave_seed_live_timer(gbl_machine *machine)
         .live = true,
         .input_index = 0u
     };
+}
+
+static bool gbl_phase9_write(gbl_machine *machine, uint32_t address,
+                             uint8_t width, uint32_t value)
+{
+    const gbl_bus_result result = gbl_bus_write(
+        machine, address, width, GBL_BUS_CLASS_NONSEQUENTIAL, value);
+
+    return result.status == GBL_BUS_STATUS_OK;
+}
+
+static bool gbl_phase9_configure(gbl_interleave_instance *instance,
+                                 bool variant, const char **failure);
+
+static bool gbl_phase9_configure_dma(gbl_machine *machine, uint8_t channel,
+                                     uint32_t source, uint32_t destination,
+                                     uint16_t count, uint16_t control)
+{
+    const uint32_t base = UINT32_C(0x040000B0) +
+                          (uint32_t)channel * UINT32_C(12);
+
+    return gbl_phase9_write(machine, base, 4u, source) &&
+           gbl_phase9_write(machine, base + 4u, 4u, destination) &&
+           gbl_phase9_write(machine, base + 8u, 2u, count) &&
+           gbl_phase9_write(machine, base + 10u, 2u, control);
+}
+
+static bool gbl_phase9_prepare(gbl_interleave_instance *instance,
+                               const uint8_t *image, size_t image_length,
+                               bool variant, const char **failure)
+{
+    if (!gbl_interleave_load(instance, image, image_length, UINT64_C(1000))) {
+        *failure = "phase9-synthetic-machine-load-failed";
+        return false;
+    }
+    return gbl_phase9_configure(instance, variant, failure);
+}
+
+static bool gbl_phase9_configure(gbl_interleave_instance *instance,
+                                 bool variant, const char **failure)
+{
+    const uint16_t values_a[3] = {
+        UINT16_C(0x1234), UINT16_C(0x5678), UINT16_C(0xABCD)
+    };
+    const uint16_t values_b[3] = {
+        UINT16_C(0xA1B2), UINT16_C(0xC3D4), UINT16_C(0xE5F6)
+    };
+    const uint16_t *values = variant ? values_b : values_a;
+    gbl_input_event input;
+    uint64_t ready_cycle;
+
+    instance->machine.ewram[0] = (uint8_t)(values[0] & UINT16_C(0xFF));
+    instance->machine.ewram[1] = (uint8_t)(values[0] >> 8u);
+    instance->machine.ewram[2] = (uint8_t)(values[1] & UINT16_C(0xFF));
+    instance->machine.ewram[3] = (uint8_t)(values[1] >> 8u);
+    instance->machine.ewram[0x10u] =
+        (uint8_t)(values[2] & UINT16_C(0xFF));
+    instance->machine.ewram[0x11u] = (uint8_t)(values[2] >> 8u);
+    memset(&instance->machine.iwram[0xFEu], 0xEE, 4u);
+    memset(&instance->machine.iwram[0x104u], 0xEE, 4u);
+    memset(&instance->machine.iwram[0x1FEu], 0xEE, 4u);
+    memset(&instance->machine.iwram[0x202u], 0xEE, 4u);
+    if (!gbl_phase9_write(&instance->machine, UINT32_C(0x04000204), 2u,
+                          UINT16_C(0x0014)) ||
+        !gbl_phase9_configure_dma(&instance->machine, 3u,
+                                  UINT32_C(0x02000000),
+                                  UINT32_C(0x03000100), 2u,
+                                  UINT16_C(0x8000)) ||
+        !gbl_phase9_configure_dma(&instance->machine, 0u,
+                                  UINT32_C(0x02000010),
+                                  UINT32_C(0x03000200), 1u,
+                                  UINT16_C(0x9000))) {
+        *failure = "phase9-register-configuration-failed";
+        return false;
+    }
+    gbl_interleave_seed_live_timer(&instance->machine);
+    instance->machine.key_control = UINT16_C(0x4001);
+    input = (gbl_input_event){ instance->machine.master_cycles + 4u,
+                               UINT16_C(1) };
+    if (gbl_machine_set_input_timeline(&instance->machine, &input, 1u) !=
+        GBL_TIME_STATUS_OK) {
+        *failure = "phase9-input-timeline-setup-failed";
+        return false;
+    }
+    instance->base_cycles = instance->machine.master_cycles;
+    instance->budget = UINT64_C(1000);
+    ready_cycle = instance->machine.master_cycles;
+    if (!instance->machine.dma_channels[3].pending ||
+        gbl_machine_dma_request(
+            &instance->machine, 0u, ready_cycle + UINT64_C(4),
+            instance->machine.dma_channels[0].generation) !=
+            GBL_TIME_STATUS_OK) {
+        *failure = "phase9-dma-ready-event-setup-failed";
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_phase9_reset_instance(gbl_interleave_instance *instance)
+{
+    if (instance == NULL || !instance->initialized || instance->records == NULL) {
+        return false;
+    }
+    free(instance->serialized_trace);
+    instance->serialized_trace = NULL;
+    instance->serialized_trace_length = 0u;
+    memset(instance->records, 0,
+           GBL_INTERLEAVE_TRACE_CAPACITY * sizeof *instance->records);
+    instance->trace.count = 0u;
+    instance->trace.next_sequence = 0u;
+    instance->mailbox = gbl_mailbox_read(&instance->machine);
+    instance->termination = GBL_RUN_PROGRESS;
+    instance->reason = GBL_RUN_REASON_NONE;
+    instance->base_cycles = 0u;
+    instance->cycles = 0u;
+    instance->instructions = 0u;
+    instance->bus_cycles = 0u;
+    instance->internal_cycles = 0u;
+    instance->wait_cycles = 0u;
+    instance->dma_startup_cycles = 0u;
+    instance->dma_source_cycles = 0u;
+    instance->dma_destination_cycles = 0u;
+    instance->dma_completed_units = 0u;
+    instance->dma_pause_cycles = 0u;
+    instance->wake_cycle = 0u;
+    instance->wake_source_mask = 0u;
+    instance->power_cause = GBL_CPU_POWER_CAUSE_NONE;
+    instance->complete = false;
+    return true;
+}
+
+static bool gbl_phase9_run_slice(gbl_interleave_instance *instance,
+                                uint64_t budget, uint64_t unit_limit,
+                                const char **failure)
+{
+    const gbl_run_options options = {
+        budget, unit_limit, GBL_TRACE_CATEGORY_MASK, &instance->trace
+    };
+    gbl_run_result result = { 0 };
+    uint64_t component_cycles;
+
+    if (instance == NULL || !instance->initialized || instance->complete ||
+        budget == 0u || failure == NULL ||
+        gbl_cpu_run(&instance->machine, &options, &result) !=
+            GBL_RUN_STATUS_OK) {
+        if (failure != NULL) *failure = "phase9-canonical-run-slice-failed";
+        return false;
+    }
+    if (UINT64_MAX - result.bus_cycles < result.internal_cycles ||
+        UINT64_MAX - result.bus_cycles - result.internal_cycles <
+            result.wait_cycles) {
+        *failure = "phase9-cycle-component-overflow";
+        return false;
+    }
+    component_cycles = result.bus_cycles + result.internal_cycles +
+                       result.wait_cycles;
+    if (component_cycles != result.cycles ||
+        UINT64_MAX - instance->cycles < result.cycles ||
+        UINT64_MAX - instance->instructions < result.instructions ||
+        UINT64_MAX - instance->bus_cycles < result.bus_cycles ||
+        UINT64_MAX - instance->internal_cycles < result.internal_cycles ||
+        UINT64_MAX - instance->wait_cycles < result.wait_cycles ||
+        UINT64_MAX - instance->dma_startup_cycles <
+            result.dma_startup_cycles ||
+        UINT64_MAX - instance->dma_source_cycles < result.dma_source_cycles ||
+        UINT64_MAX - instance->dma_destination_cycles <
+            result.dma_destination_cycles ||
+        UINT64_MAX - instance->dma_completed_units <
+            result.dma_completed_units ||
+        UINT64_MAX - instance->dma_pause_cycles < result.dma_pause_cycles) {
+        *failure = "phase9-cycle-accounting-overflow-or-mismatch";
+        return false;
+    }
+    instance->cycles += result.cycles;
+    instance->instructions += result.instructions;
+    instance->bus_cycles += result.bus_cycles;
+    instance->internal_cycles += result.internal_cycles;
+    instance->wait_cycles += result.wait_cycles;
+    instance->dma_startup_cycles += result.dma_startup_cycles;
+    instance->dma_source_cycles += result.dma_source_cycles;
+    instance->dma_destination_cycles += result.dma_destination_cycles;
+    instance->dma_completed_units += result.dma_completed_units;
+    instance->dma_pause_cycles += result.dma_pause_cycles;
+    if (instance->base_cycles > UINT64_MAX - instance->cycles ||
+        instance->machine.master_cycles !=
+            instance->base_cycles + instance->cycles) {
+        *failure = "phase9-master-cycle-accounting-mismatch";
+        return false;
+    }
+    instance->termination = result.termination;
+    instance->reason = result.reason;
+    instance->mailbox = gbl_mailbox_read(&instance->machine);
+    if (result.wake_cycle != 0u || result.wake_source_mask != 0u ||
+        result.power_cause != GBL_CPU_POWER_CAUSE_NONE) {
+        instance->wake_cycle = result.wake_cycle;
+        instance->wake_source_mask = result.wake_source_mask;
+        instance->power_cause = result.power_cause;
+    }
+    if (result.termination == GBL_RUN_TRACE_OUTPUT_FULL) {
+        *failure = "phase9-trace-capacity-exhausted";
+        return false;
+    }
+    if (instance->mailbox.status == GBL_MAILBOX_PASS ||
+        instance->mailbox.status == GBL_MAILBOX_FAIL ||
+        result.termination == GBL_RUN_STOPPED) {
+        instance->complete = true;
+    }
+    return true;
+}
+
+static bool gbl_phase9_semantics(const gbl_interleave_instance *instance,
+                                bool variant)
+{
+    const uint16_t first = variant ? UINT16_C(0xA1B2) : UINT16_C(0x1234);
+    const uint16_t second = variant ? UINT16_C(0xC3D4) : UINT16_C(0x5678);
+    const uint16_t high = variant ? UINT16_C(0xE5F6) : UINT16_C(0xABCD);
+    const gbl_dma_channel_state *dma0 = &instance->machine.dma_channels[0];
+    const gbl_dma_channel_state *dma3 = &instance->machine.dma_channels[3];
+
+#define GBL_PHASE9_REQUIRE(condition, label)                                 \
+    do {                                                                     \
+        if (!(condition)) return false;                                      \
+    } while (0)
+    GBL_PHASE9_REQUIRE(instance->complete && instance->machine.cpu.stopped,
+                       "synthetic guest did not stop");
+    GBL_PHASE9_REQUIRE(instance->machine.cpu.r0_7[7] == UINT32_C(0x42) &&
+                           instance->instructions >= UINT64_C(2),
+                       "synthetic CPU progress differs");
+    GBL_PHASE9_REQUIRE(instance->machine.iwram[0x100u] == (uint8_t)first &&
+                           instance->machine.iwram[0x101u] ==
+                               (uint8_t)(first >> 8u) &&
+                           instance->machine.iwram[0x102u] == (uint8_t)second &&
+                           instance->machine.iwram[0x103u] ==
+                               (uint8_t)(second >> 8u) &&
+                           instance->machine.iwram[0x200u] == (uint8_t)high &&
+                           instance->machine.iwram[0x201u] ==
+                               (uint8_t)(high >> 8u),
+                       "DMA destination values differ");
+    GBL_PHASE9_REQUIRE(instance->machine.iwram[0xFEu] == UINT8_C(0xEE) &&
+                           instance->machine.iwram[0xFFu] == UINT8_C(0xEE) &&
+                           instance->machine.iwram[0x104u] == UINT8_C(0xEE) &&
+                           instance->machine.iwram[0x105u] == UINT8_C(0xEE) &&
+                           instance->machine.iwram[0x1FEu] == UINT8_C(0xEE) &&
+                           instance->machine.iwram[0x1FFu] == UINT8_C(0xEE) &&
+                           instance->machine.iwram[0x202u] == UINT8_C(0xEE) &&
+                           instance->machine.iwram[0x203u] == UINT8_C(0xEE),
+                       "DMA overwrote a neighboring address");
+    GBL_PHASE9_REQUIRE(
+        dma3->completed_units == UINT64_C(2) && dma3->remaining == 0u &&
+            dma3->current_source == UINT32_C(0x02000004) &&
+            dma3->current_destination == UINT32_C(0x03000104) &&
+            dma3->read_latch ==
+                ((uint32_t)second | ((uint32_t)second << 16u)) &&
+            dma0->completed_units == UINT64_C(1) && dma0->remaining == 0u &&
+            dma0->current_source == UINT32_C(0x02000012) &&
+            dma0->current_destination == UINT32_C(0x03000202) &&
+            dma0->read_latch == ((uint32_t)high | ((uint32_t)high << 16u)),
+        "DMA channel progress or retained latch differs");
+    GBL_PHASE9_REQUIRE(instance->machine.bus_owner ==
+                               GBL_MACHINE_BUS_OWNER_CPU &&
+                           instance->machine.waitcnt == UINT16_C(0x0014),
+                       "bus ownership or WAITCNT differs");
+    GBL_PHASE9_REQUIRE(
+        (instance->machine.interrupt_flags & (UINT16_C(1) << 3u)) != 0u &&
+            (instance->machine.interrupt_flags & (UINT16_C(1) << 12u)) !=
+                0u &&
+            instance->machine.pressed_keys == UINT16_C(1) &&
+            instance->machine.key_condition,
+        "timer or input event state differs");
+    GBL_PHASE9_REQUIRE(instance->dma_startup_cycles == UINT64_C(4) &&
+                           instance->dma_completed_units == UINT64_C(3) &&
+                           instance->dma_source_cycles == UINT64_C(3) &&
+                           instance->dma_destination_cycles == UINT64_C(3) &&
+                           instance->dma_pause_cycles == UINT64_C(10),
+                       "DMA cost contributions differ");
+    GBL_PHASE9_REQUIRE(instance->cycles == instance->bus_cycles +
+                                              instance->internal_cycles +
+                                              instance->wait_cycles,
+                       "run cycle totals do not equal named contributions");
+#undef GBL_PHASE9_REQUIRE
+    (void)sizeof "synthetic semantic checks use named failure groups";
+    return true;
+}
+
+static bool gbl_phase9_trace_order(const gbl_interleave_instance *instance)
+{
+    uint8_t channels[5] = { 0u };
+    size_t index;
+    size_t count = 0u;
+
+    for (index = 0u; index < instance->trace.count; ++index) {
+        const gbl_trace_record *record = &instance->trace.records[index];
+
+        if (record->category == GBL_TRACE_DMA &&
+            record->dma_status == GBL_DMA_STATUS_OK) {
+            if (count < sizeof channels) channels[count] = record->dma_channel;
+            ++count;
+        }
+    }
+    return count >= 5u && channels[0] == 3u && channels[1] == 3u &&
+           channels[2] == 0u && channels[3] == 0u && channels[4] == 3u;
+}
+
+static bool gbl_phase9_boundary_case(uint16_t waitcnt,
+                                    uint64_t *cycles_out,
+                                    uint64_t *source_cycles_out)
+{
+    const size_t image_length = 0x20002u;
+    uint8_t *image = malloc(image_length);
+    gbl_interleave_instance instance = { 0 };
+    const char *failure = "phase9-boundary-setup-failed";
+    size_t index;
+    size_t source_records = 0u;
+    uint64_t observed_source_cycles = 0u;
+    bool okay = false;
+
+    if (image == NULL) return false;
+    for (index = 0u; index < image_length; ++index) {
+        image[index] = (uint8_t)((index * 13u + 7u) & 0xFFu);
+    }
+    image[0] = UINT8_C(0x42);
+    image[1] = UINT8_C(0x70);
+    image[2] = UINT8_C(0xA0);
+    image[3] = UINT8_C(0xE3);
+    image[4] = 0u;
+    image[5] = 0u;
+    image[6] = 0u;
+    image[7] = UINT8_C(0xEF);
+    image[0x1FFFEu] = UINT8_C(0x34);
+    image[0x1FFFFu] = UINT8_C(0x12);
+    image[0x20000u] = UINT8_C(0x78);
+    image[0x20001u] = UINT8_C(0x56);
+    if (!gbl_interleave_load(&instance, image, image_length,
+                             UINT64_C(1000)) ||
+        !gbl_phase9_write(&instance.machine, UINT32_C(0x04000204), 2u,
+                          waitcnt)) {
+        goto done;
+    }
+    memset(&instance.machine.ewram[0x3FEu], 0xEE, 8u);
+    if (!gbl_phase9_configure_dma(&instance.machine, 3u,
+                                  UINT32_C(0x0801FFFE),
+                                  UINT32_C(0x02000400), 2u,
+                                  UINT16_C(0x8000))) {
+        goto done;
+    }
+    instance.base_cycles = instance.machine.master_cycles;
+    instance.budget = UINT64_C(1000);
+    if (!instance.machine.dma_channels[3].pending ||
+        !gbl_phase9_run_slice(&instance, UINT64_C(1000), 0u, &failure) ||
+        !instance.complete || !instance.machine.cpu.stopped ||
+        instance.machine.ewram[0x400u] != UINT8_C(0x34) ||
+        instance.machine.ewram[0x401u] != UINT8_C(0x12) ||
+        instance.machine.ewram[0x402u] != UINT8_C(0x78) ||
+        instance.machine.ewram[0x403u] != UINT8_C(0x56) ||
+        instance.machine.ewram[0x3FEu] != UINT8_C(0xEE) ||
+        instance.machine.ewram[0x3FFu] != UINT8_C(0xEE) ||
+        instance.machine.ewram[0x404u] != UINT8_C(0xEE) ||
+        instance.machine.ewram[0x405u] != UINT8_C(0xEE) ||
+        instance.dma_completed_units != UINT64_C(2) ||
+        instance.dma_startup_cycles != GBL_DMA_STARTUP_CYCLES ||
+        instance.cycles != instance.bus_cycles + instance.internal_cycles +
+                               instance.wait_cycles) {
+        goto done;
+    }
+    for (index = 0u; index < instance.trace.count; ++index) {
+        const gbl_trace_record *record = &instance.trace.records[index];
+
+        if (record->category == GBL_TRACE_DMA &&
+            record->dma_channel == 3u &&
+            record->dma_source_address >= UINT32_C(0x0801FFFE) &&
+            record->dma_source_address <= UINT32_C(0x08020000)) {
+            const uint32_t expected_source =
+                source_records == 0u ? UINT32_C(0x0801FFFE)
+                                     : UINT32_C(0x08020000);
+            const gbl_bus_access_class requested_sequence =
+                source_records == 0u ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                     : GBL_BUS_CLASS_SEQUENTIAL;
+            gbl_cycle_cost observed_cost = { 0 };
+            gbl_phase9_bus_observation observation = { 0 };
+
+            if (record->dma_source_address != expected_source ||
+                !gbl_bus_quote_observed(
+                    &instance.machine, record->dma_source_address,
+                    GBL_BUS_DIRECTION_READ, 2u, requested_sequence,
+                    GBL_BUS_ROLE_DATA, &observed_cost, &observation) ||
+                record->dma_source_cycles != observed_cost.cycles ||
+                observation.beat_sequences[0] !=
+                    GBL_BUS_CLASS_NONSEQUENTIAL ||
+                observation.hardware_qualified ||
+                observation.prefetch_modeled ||
+                (source_records == 0u &&
+                 observation.boundary_provenance !=
+                     GBL_BUS_BOUNDARY_PROVENANCE_NONE) ||
+                (source_records == 1u &&
+                 observation.boundary_provenance !=
+                     GBL_BUS_BOUNDARY_PROVENANCE_GBATEK_3_06) ||
+                UINT64_MAX - observed_source_cycles < observed_cost.cycles) {
+                goto done;
+            }
+            observed_source_cycles += observed_cost.cycles;
+            ++source_records;
+        }
+    }
+    if (source_records != 2u ||
+        observed_source_cycles != instance.dma_source_cycles) {
+        goto done;
+    }
+    *cycles_out = instance.cycles;
+    *source_cycles_out = instance.dma_source_cycles;
+    okay = true;
+
+done:
+    if (!okay) {
+        fprintf(stderr,
+                "phase9 boundary diagnostic: waitcnt=%04x cycles=%" PRIu64
+                " source=%" PRIu64 " units=%" PRIu64 " bytes=%02x%02x%02x%02x "
+                "trace=%zu failure=%s\n",
+                (unsigned int)waitcnt, instance.cycles,
+                instance.dma_source_cycles, instance.dma_completed_units,
+                instance.machine.ewram[0x403u],
+                instance.machine.ewram[0x402u],
+                instance.machine.ewram[0x401u],
+                instance.machine.ewram[0x400u], instance.trace.count, failure);
+        for (index = 0u; index < instance.trace.count; ++index) {
+            const gbl_trace_record *record = &instance.trace.records[index];
+            if (record->category == GBL_TRACE_DMA) {
+                fprintf(stderr, "boundary trace[%zu]=addr=%08" PRIx32
+                                " seq=%u done=%" PRIu64 " status=%u\n",
+                        index, record->dma_source_address,
+                        (unsigned int)record->dma_source_sequence,
+                        record->dma_completed,
+                        (unsigned int)record->dma_status);
+            }
+        }
+    }
+    (void)gbl_interleave_dispose(&instance);
+    free(image);
+    return okay;
 }
 
 static int gbl_test_interleave_controls_main(void)
@@ -3543,20 +4049,155 @@ static int gbl_test_phase8_main(void)
 
 static int gbl_test_phase9_main(void)
 {
-    gbl_trace_record expected = { 0 };
-    gbl_trace_record actual;
+    uint8_t image[0xC0u] = { 0 };
+    gbl_interleave_instance whole = { 0 };
+    gbl_interleave_instance split = { 0 };
+    gbl_interleave_instance reset = { 0 };
+    gbl_interleave_instance isolated_b = { 0 };
+    gbl_interleave_instance alternating_a = { 0 };
+    gbl_interleave_instance alternating_b = { 0 };
+    const char *failure = "phase9-synthetic-image-setup-failed";
+    uint64_t boundary_default_cycles = 0u;
+    uint64_t boundary_default_source_cycles = 0u;
+    uint64_t boundary_waitcnt_cycles = 0u;
+    uint64_t boundary_waitcnt_source_cycles = 0u;
+    bool okay = false;
+    bool disposed = true;
 
-    expected.category = GBL_TRACE_DMA;
-    expected.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
-    expected.dma_dispute = GBL_DMA_DISPUTE_LATCH;
-    actual = expected;
-    actual.dma_dispute = GBL_DMA_DISPUTE_NONE;
-    if (gbl_interleave_trace_fields_equal(&expected, &actual, 1u)) {
-        fputs("FAIL determinism.phase9: dma-dispute-trace-field-ignored\n",
-              stderr);
+    /* MOV r7,#0x42; SWI 0. The image has no external fixture or ROM bytes. */
+    image[0] = UINT8_C(0x42);
+    image[1] = UINT8_C(0x70);
+    image[2] = UINT8_C(0xA0);
+    image[3] = UINT8_C(0xE3);
+    image[4] = UINT8_C(0x00);
+    image[5] = UINT8_C(0x00);
+    image[6] = UINT8_C(0x00);
+    image[7] = UINT8_C(0xEF);
+
+    if (!gbl_phase9_prepare(&whole, image, sizeof image, false, &failure) ||
+        !gbl_phase9_prepare(&split, image, sizeof image, false, &failure) ||
+        !gbl_phase9_prepare(&reset, image, sizeof image, false, &failure) ||
+        !gbl_phase9_prepare(&isolated_b, image, sizeof image, true, &failure) ||
+        !gbl_phase9_prepare(&alternating_a, image, sizeof image, false,
+                            &failure) ||
+        !gbl_phase9_prepare(&alternating_b, image, sizeof image, true,
+                            &failure)) {
+        goto done;
+    }
+    if (!gbl_phase9_run_slice(&whole, UINT64_C(1000), 0u, &failure)) {
+        goto done;
+    }
+    if (!whole.complete) {
+        failure = "phase9-whole-run-did-not-reach-terminal";
+        goto done;
+    }
+    if (!gbl_interleave_serialize_trace(&whole)) {
+        failure = "phase9-whole-trace-serialization-failed";
+        goto done;
+    }
+    if (!gbl_phase9_semantics(&whole, false)) {
+        failure = "phase9-whole-run-semantic-or-timing-mismatch";
+        goto done;
+    }
+    if (!gbl_phase9_trace_order(&whole)) {
+        failure = "phase9-whole-dma-trace-order-mismatch";
+        goto done;
+    }
+
+    /* Resume at one cycle below startup, exact startup, and one source plus
+     * destination unit. The higher-priority DMA event is due at that unit
+     * boundary, so DMA3 must retain its progress and resume after DMA0. */
+    if (!gbl_phase9_run_slice(&split, UINT64_C(1), 0u, &failure) ||
+        split.cycles != 0u || !split.machine.dma_channels[3].pending ||
+        !gbl_phase9_run_slice(&split, UINT64_C(2), 0u, &failure) ||
+        split.cycles != UINT64_C(2) ||
+        !split.machine.dma_channels[3].startup_complete ||
+        !gbl_phase9_run_slice(&split, UINT64_C(2), 0u, &failure) ||
+        split.cycles != UINT64_C(4) ||
+        split.dma_completed_units != UINT64_C(1) ||
+        split.dma_pause_cycles != UINT64_C(4) ||
+        !split.machine.dma_channels[3].active ||
+        split.machine.dma_channels[3].remaining != 1u ||
+        !split.machine.dma_channels[0].pending ||
+        !gbl_phase9_run_slice(&split, UINT64_C(1000), 0u, &failure) ||
+        !split.complete || !gbl_interleave_serialize_trace(&split) ||
+        !gbl_phase9_semantics(&split, false) ||
+        strcmp(gbl_interleave_compare(&whole, &split), "ok") != 0) {
+        failure = "phase9-split-startup-or-resume-mismatch";
+        goto done;
+    }
+
+    /* Reset while one channel is ready and the lower-priority channel is
+     * armed. Reset must clear scheduled/mutable state while retaining the
+     * loaded ROM allocation, then replay the same transfer as a fresh run. */
+    {
+        const uint8_t *rom_identity = reset.machine.rom;
+        gbl_machine_reset(&reset.machine);
+        if (reset.machine.rom != rom_identity || reset.machine.event_count != 0u ||
+            reset.machine.waitcnt != 0u ||
+            reset.machine.bus_owner != GBL_MACHINE_BUS_OWNER_CPU ||
+            reset.machine.interrupt_flags != 0u ||
+            reset.machine.dma_channels[0].armed ||
+            reset.machine.dma_channels[0].pending ||
+            reset.machine.dma_channels[3].armed ||
+            reset.machine.dma_channels[3].pending ||
+            !gbl_phase9_reset_instance(&reset) ||
+            !gbl_phase9_configure(&reset, false, &failure) ||
+            !gbl_phase9_run_slice(&reset, UINT64_C(1000), 0u, &failure) ||
+            !reset.complete || !gbl_interleave_serialize_trace(&reset) ||
+            !gbl_phase9_semantics(&reset, false) ||
+            strcmp(gbl_interleave_compare(&whole, &reset), "ok") != 0) {
+            failure = "phase9-reset-state-or-instance-identity-leaked";
+            goto done;
+        }
+    }
+
+    if (!gbl_interleave_run_isolated(&isolated_b, &failure) ||
+        !gbl_interleave_run_alternating(&alternating_a, &alternating_b,
+                                        &failure) ||
+        !gbl_interleave_serialize_trace(&isolated_b) ||
+        !gbl_interleave_serialize_trace(&alternating_a) ||
+        !gbl_interleave_serialize_trace(&alternating_b) ||
+        !gbl_phase9_semantics(&isolated_b, true) ||
+        !gbl_phase9_semantics(&alternating_a, false) ||
+        !gbl_phase9_semantics(&alternating_b, true) ||
+        strcmp(gbl_interleave_compare(&isolated_b, &alternating_b), "ok") !=
+            0 ||
+        strcmp(gbl_interleave_compare(&whole, &alternating_a), "ok") != 0) {
+        failure = "phase9-interleaved-instances-contaminated-each-other";
+        goto done;
+    }
+    if (!gbl_phase9_boundary_case(UINT16_C(0x0000),
+                                 &boundary_default_cycles,
+                                 &boundary_default_source_cycles) ||
+        !gbl_phase9_boundary_case(UINT16_C(0x0014),
+                                 &boundary_waitcnt_cycles,
+                                 &boundary_waitcnt_source_cycles) ||
+        boundary_default_cycles == boundary_waitcnt_cycles ||
+        boundary_default_source_cycles == boundary_waitcnt_source_cycles) {
+        failure = "phase9-128k-community-boundary-or-waitcnt-window-mismatch";
+        goto done;
+    }
+    okay = true;
+
+done:
+    disposed = gbl_interleave_dispose(&whole) && disposed;
+    disposed = gbl_interleave_dispose(&split) && disposed;
+    disposed = gbl_interleave_dispose(&reset) && disposed;
+    disposed = gbl_interleave_dispose(&isolated_b) && disposed;
+    disposed = gbl_interleave_dispose(&alternating_a) && disposed;
+    disposed = gbl_interleave_dispose(&alternating_b) && disposed;
+    if (!disposed) {
+        failure = "phase9-machine-disposal-failed";
+        okay = false;
+    }
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase9: %s\n", failure);
         return 1;
     }
-    puts("PASS determinism.phase9: DMA trace comparison observes dispute metadata");
+    printf("PASS determinism.phase9.boundary: 128 KiB source transition forces N under WAITCNT 0x0000/0x0014; provenance=GBATEK-3.06 hardware=UNKNOWN prefetch=unmodeled (%" PRIu64 "/%" PRIu64 " source cycles)\n",
+           boundary_default_source_cycles, boundary_waitcnt_source_cycles);
+    puts("PASS determinism.phase9: fresh, split, reset and interleaved synthetic DMA runs preserve semantics, timing and disputed evidence labels");
     return 0;
 }
 
