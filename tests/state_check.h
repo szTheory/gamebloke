@@ -83,6 +83,7 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
     if (left == NULL || right == NULL ||
         left->master_cycles != right->master_cycles ||
         left->next_event_sequence != right->next_event_sequence ||
+        left->power_state != right->power_state ||
         left->interrupt_flags != right->interrupt_flags ||
         left->interrupt_enable != right->interrupt_enable ||
         left->interrupt_master_enable != right->interrupt_master_enable ||
@@ -111,7 +112,7 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
             return false;
         }
     }
-    for (index = 0u; index < left->input_event_count; ++index) {
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
         if (!gbl_test_input_event_equal(&left->input_events[index],
                                         &right->input_events[index])) {
             return false;
@@ -137,6 +138,7 @@ static bool gbl_test_time_preview_equal(
         left->key_condition != right->key_condition ||
         left->key_irq_condition != right->key_irq_condition ||
         left->event_count != right->event_count ||
+        left->event_count > GBL_EVENT_CAPACITY ||
         left->input_generation != right->input_generation ||
         left->input_event_count != right->input_event_count ||
         left->input_event_cursor != right->input_event_cursor ||
@@ -156,7 +158,7 @@ static bool gbl_test_time_preview_equal(
             return false;
         }
     }
-    for (index = 0u; index < left->input_event_count; ++index) {
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
         if (!gbl_test_input_event_equal(&left->input_events[index],
                                         &right->input_events[index])) {
             return false;
@@ -196,7 +198,7 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.input_generation = machine->input_generation;
     machine_time.input_event_count = machine->input_event_count;
     machine_time.input_event_cursor = machine->input_event_cursor;
-    for (index = 0u; index < machine->input_event_count; ++index) {
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
         machine_time.input_events[index] = machine->input_events[index];
     }
     return gbl_test_time_preview_equal(preview, &machine_time);
@@ -521,6 +523,7 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     if (machine == NULL) return gbl_test_digest_byte(digest, 0xFFu);
     digest = gbl_test_digest_u64(digest, master_cycles);
     digest = gbl_test_digest_u64(digest, machine->next_event_sequence);
+    digest = gbl_test_digest_byte(digest, (uint8_t)machine->power_state);
     digest = gbl_test_digest_u64(digest, machine->interrupt_flags);
     digest = gbl_test_digest_u64(digest, machine->interrupt_enable);
     digest = gbl_test_digest_u64(digest, machine->interrupt_master_enable);
@@ -560,8 +563,7 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
         digest = gbl_test_digest_byte(digest, timer->irq_enabled ? 1u : 0u);
         digest = gbl_test_digest_byte(digest, timer->cascade ? 1u : 0u);
     }
-    for (index = 0u; index < machine->input_event_count &&
-                        index < GBL_INPUT_EVENT_CAPACITY; ++index) {
+    for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
         const gbl_input_event *event = &machine->input_events[index];
 
         digest = gbl_test_digest_u64(digest, event->cycle);

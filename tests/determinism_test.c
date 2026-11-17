@@ -272,6 +272,10 @@ typedef struct gbl_interleave_instance {
     uint64_t budget;
     uint64_t cycles;
     uint64_t instructions;
+    uint64_t wait_cycles;
+    uint64_t wake_cycle;
+    uint16_t wake_source_mask;
+    gbl_cpu_power_cause power_cause;
     char *serialized_trace;
     size_t serialized_trace_length;
     bool initialized;
@@ -339,6 +343,15 @@ static bool gbl_interleave_load(gbl_interleave_instance *instance,
     return true;
 }
 
+static bool gbl_interleave_set_timeline(
+    gbl_interleave_instance *instance, const gbl_input_event *events,
+    size_t count)
+{
+    return instance != NULL && instance->initialized &&
+           gbl_machine_set_input_timeline(&instance->machine, events, count) ==
+               GBL_TIME_STATUS_OK;
+}
+
 static bool gbl_interleave_dispose(gbl_interleave_instance *instance)
 {
     bool disposed;
@@ -381,12 +394,20 @@ static bool gbl_interleave_step(gbl_interleave_instance *instance,
         return false;
     }
     if (UINT64_MAX - instance->cycles < result.cycles ||
-        UINT64_MAX - instance->instructions < result.instructions) {
+        UINT64_MAX - instance->instructions < result.instructions ||
+        UINT64_MAX - instance->wait_cycles < result.wait_cycles) {
         *failure = "interleave-progress-overflow";
         return false;
     }
     instance->cycles += result.cycles;
     instance->instructions += result.instructions;
+    instance->wait_cycles += result.wait_cycles;
+    if (result.wake_cycle != 0u || result.wake_source_mask != 0u ||
+        result.power_cause != GBL_CPU_POWER_CAUSE_NONE) {
+        instance->wake_cycle = result.wake_cycle;
+        instance->wake_source_mask = result.wake_source_mask;
+        instance->power_cause = result.power_cause;
+    }
     instance->termination = result.termination;
     instance->reason = result.reason;
     instance->mailbox = gbl_mailbox_read(&instance->machine);
@@ -549,6 +570,10 @@ static const char *gbl_interleave_compare(
     }
     if (expected->cycles != actual->cycles ||
         expected->instructions != actual->instructions ||
+        expected->wait_cycles != actual->wait_cycles ||
+        expected->wake_cycle != actual->wake_cycle ||
+        expected->wake_source_mask != actual->wake_source_mask ||
+        expected->power_cause != actual->power_cause ||
         expected->machine.master_cycles != actual->machine.master_cycles ||
         expected->machine.cpu.retired_instructions !=
             actual->machine.cpu.retired_instructions) {
@@ -721,6 +746,10 @@ static bool gbl_interleave_reset_reload(gbl_interleave_instance *instance,
     instance->budget = budget;
     instance->cycles = 0u;
     instance->instructions = 0u;
+    instance->wait_cycles = 0u;
+    instance->wake_cycle = 0u;
+    instance->wake_source_mask = 0u;
+    instance->power_cause = GBL_CPU_POWER_CAUSE_NONE;
     instance->complete = false;
     return true;
 }
@@ -2983,25 +3012,417 @@ static int gbl_test_time_authority_main(const char *mode,
     return 1;
 }
 
+static bool gbl_test_run_result_equal(const gbl_run_result *left,
+                                      const gbl_run_result *right)
+{
+    return left->termination == right->termination &&
+           left->reason == right->reason && left->cycles == right->cycles &&
+           left->instructions == right->instructions &&
+           left->wait_cycles == right->wait_cycles &&
+           left->wake_cycle == right->wake_cycle &&
+           left->wake_source_mask == right->wake_source_mask &&
+           left->power_cause == right->power_cause;
+}
+
 static int gbl_test_phase8_controls_main(void)
 {
     gbl_machine clean = { 0 };
-    gbl_machine power_mutant;
+    gbl_machine mutant;
+    gbl_run_result clean_result = { 0 };
+    gbl_run_result wake_mutant;
 
     clean.power_state = GBL_MACHINE_POWER_RUNNING;
-    power_mutant = clean;
-    power_mutant.power_state = GBL_MACHINE_POWER_HALTED;
-    if (gbl_test_canonical_equal(&clean, &power_mutant)) {
+    mutant = clean;
+    mutant.power_state = GBL_MACHINE_POWER_HALTED;
+    if (gbl_test_canonical_equal(&clean, &mutant) ||
+        gbl_test_canonical_digest(&clean) ==
+            gbl_test_canonical_digest(&mutant)) {
         fputs("FAIL determinism.phase8.controls: power-state-mutation-accepted\n",
               stderr);
         return 1;
     }
-    puts("PASS determinism.phase8.controls: power-state mutation rejected");
+
+    clean.input_event_count = 2u;
+    clean.input_events[0] = (gbl_input_event){ UINT64_C(10), UINT16_C(1) };
+    clean.input_events[1] = (gbl_input_event){ UINT64_C(20), UINT16_C(0) };
+    mutant = clean;
+    mutant.input_event_cursor = 1u;
+    if (gbl_test_canonical_equal(&clean, &mutant) ||
+        gbl_test_canonical_digest(&clean) ==
+            gbl_test_canonical_digest(&mutant)) {
+        fputs("FAIL determinism.phase8.controls: timeline-cursor-mutation-accepted\n",
+              stderr);
+        return 1;
+    }
+    mutant = clean;
+    mutant.pressed_keys ^= UINT16_C(1);
+    if (gbl_test_canonical_equal(&clean, &mutant)) {
+        fputs("FAIL determinism.phase8.controls: key-bit-mutation-accepted\n",
+              stderr);
+        return 1;
+    }
+    mutant = clean;
+    mutant.cpu.irq_observation.sampled = true;
+    mutant.cpu.irq_observation.sample_cycle = UINT64_C(10);
+    mutant.cpu.irq_observation.interrupt_flags = UINT16_C(8);
+    if (gbl_test_canonical_equal(&clean, &mutant)) {
+        fputs("FAIL determinism.phase8.controls: irq-observation-mutation-accepted\n",
+              stderr);
+        return 1;
+    }
+    clean_result.termination = GBL_RUN_TIMEOUT;
+    clean_result.reason = GBL_RUN_REASON_CYCLE_BUDGET;
+    clean_result.wait_cycles = UINT64_C(4);
+    wake_mutant = clean_result;
+    wake_mutant.wake_cycle = UINT64_C(4);
+    wake_mutant.wake_source_mask = UINT16_C(8);
+    if (gbl_test_run_result_equal(&clean_result, &wake_mutant)) {
+        fputs("FAIL determinism.phase8.controls: wake-cycle-mutation-accepted\n",
+              stderr);
+        return 1;
+    }
+    puts("PASS determinism.phase8.controls: power, key, timeline, IRQ and wake mutations rejected");
+    return 0;
+}
+
+typedef struct gbl_test_cancel_after {
+    unsigned int calls;
+    unsigned int cancel_on;
+} gbl_test_cancel_after;
+
+static bool gbl_test_cancel_at_boundary(void *context)
+{
+    gbl_test_cancel_after *cancel = context;
+
+    cancel->calls++;
+    return cancel->calls >= cancel->cancel_on;
+}
+
+static bool gbl_test_phase8_cancel_run(
+    const char *rom_path, const gbl_input_event *events, size_t event_count,
+    unsigned int cancel_on, gbl_runner_result *result,
+    gbl_test_bytes *json)
+{
+    gbl_test_cancel_after cancel = { 0u, cancel_on };
+    gbl_runner_options options = { 0 };
+
+    options.rom_path = rom_path;
+    options.fixture_id = "synthetic-control-pass";
+    options.cycle_budget = UINT64_C(1000);
+    options.trace_mask = GBL_TRACE_CATEGORY_MASK;
+    options.trace_capacity = GBL_DETERMINISM_TRACE_CAPACITY;
+    options.cancelled = gbl_test_cancel_at_boundary;
+    options.cancel_context = &cancel;
+    options.input_timeline_present = true;
+    options.input_events = events;
+    options.input_event_count = event_count;
+    return gbl_runner_execute(&options, result) == GBL_RUNNER_CANCELLED &&
+           result->status == GBL_RUNNER_CANCELLED &&
+           strcmp(result->termination, "cancelled") == 0 &&
+           gbl_test_json(result, json);
+}
+
+static bool gbl_test_phase8_replacement(const uint8_t *image,
+                                       size_t image_length)
+{
+    static const gbl_input_event pending_a[] = {
+        { UINT64_C(30), UINT16_C(1) }, { UINT64_C(40), UINT16_C(0) }
+    };
+    static const gbl_input_event pending_b[] = {
+        { UINT64_C(31), UINT16_C(2) }, { UINT64_C(41), UINT16_C(0) }
+    };
+    static const gbl_input_event replacement[] = {
+        { UINT64_C(10), UINT16_C(1) },
+        { UINT64_C(10), UINT16_C(2) },
+        { UINT64_C(20), UINT16_C(0) }
+    };
+    gbl_interleave_instance first = { 0 };
+    gbl_interleave_instance second = { 0 };
+    const bool okay =
+        gbl_interleave_load(&first, image, image_length, UINT64_C(1000)) &&
+        gbl_interleave_load(&second, image, image_length, UINT64_C(1000)) &&
+        gbl_interleave_set_timeline(&first, pending_a,
+                                    sizeof pending_a / sizeof pending_a[0]) &&
+        gbl_interleave_set_timeline(&second, pending_b,
+                                    sizeof pending_b / sizeof pending_b[0]) &&
+        gbl_machine_advance_to(&first.machine, UINT64_C(10)) ==
+            GBL_TIME_STATUS_OK &&
+        gbl_machine_advance_to(&second.machine, UINT64_C(10)) ==
+            GBL_TIME_STATUS_OK &&
+        gbl_interleave_set_timeline(
+            &first, replacement, sizeof replacement / sizeof replacement[0]) &&
+        gbl_interleave_set_timeline(
+            &second, replacement,
+            sizeof replacement / sizeof replacement[0]) &&
+        gbl_machine_advance_to(&first.machine, UINT64_C(10)) ==
+            GBL_TIME_STATUS_OK &&
+        gbl_machine_advance_to(&second.machine, UINT64_C(10)) ==
+            GBL_TIME_STATUS_OK &&
+        first.machine.pressed_keys == UINT16_C(2) &&
+        first.machine.input_event_cursor == 2u &&
+        gbl_machine_advance_to(&first.machine, UINT64_C(20)) ==
+            GBL_TIME_STATUS_OK &&
+        gbl_machine_advance_to(&second.machine, UINT64_C(20)) ==
+            GBL_TIME_STATUS_OK &&
+        gbl_test_canonical_equal(&first.machine, &second.machine);
+    const bool disposed = gbl_interleave_dispose(&first) &&
+                          gbl_interleave_dispose(&second);
+
+    return okay && disposed;
+}
+
+static bool gbl_test_phase8_cancellation(const uint8_t *image,
+                                         size_t image_length)
+{
+    static const gbl_input_event events[] = {
+        { UINT64_C(0), UINT16_C(1) },
+        { UINT64_C(100), UINT16_C(0) }
+    };
+    char rom_path[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    gbl_runner_result before = { 0 };
+    gbl_runner_result after = { 0 };
+    gbl_runner_result after_twin = { 0 };
+    gbl_test_bytes before_json = { 0 };
+    gbl_test_bytes after_json = { 0 };
+    gbl_test_bytes after_twin_json = { 0 };
+    bool okay = false;
+
+    (void)image;
+    (void)image_length;
+    if (!gbl_test_path(rom_path, sizeof rom_path,
+                       GBL_DETERMINISM_FIXTURE_DIR, "owned-arm-pass.gba") ||
+        !gbl_test_phase8_cancel_run(rom_path, events,
+                                    sizeof events / sizeof events[0], 1u,
+                                    &before, &before_json) ||
+        !gbl_test_phase8_cancel_run(rom_path, events,
+                                    sizeof events / sizeof events[0], 2u,
+                                    &after, &after_json) ||
+        !gbl_test_phase8_cancel_run(rom_path, events,
+                                    sizeof events / sizeof events[0], 2u,
+                                    &after_twin, &after_twin_json)) {
+        goto done;
+    }
+    okay = before.cycles == 0u && before.phase8.applied_input_events == 0u &&
+           after.cycles > 0u && after.phase8.applied_input_events == 1u &&
+           after.phase8.keyinput == UINT16_C(0x03FE) &&
+           after_twin.cycles == after.cycles &&
+           after_twin.phase8.applied_input_events ==
+               after.phase8.applied_input_events &&
+           after_twin.phase8.keyinput == after.phase8.keyinput &&
+           after_json.length == after_twin_json.length &&
+           memcmp(after_json.data, after_twin_json.data, after_json.length) ==
+               0;
+    if (!okay) {
+        fprintf(stderr,
+                "phase8 cancel evidence: before cycles=%" PRIu64
+                " applied=%zu; after cycles=%" PRIu64
+                " applied=%zu keyinput=%u; twin cycles=%" PRIu64
+                " applied=%zu keyinput=%u; json=%zu/%zu\n",
+                before.cycles, before.phase8.applied_input_events,
+                after.cycles, after.phase8.applied_input_events,
+                (unsigned int)after.phase8.keyinput, after_twin.cycles,
+                after_twin.phase8.applied_input_events,
+                (unsigned int)after_twin.phase8.keyinput, after_json.length,
+                after_twin_json.length);
+    }
+
+done:
+    gbl_runner_result_dispose(&before);
+    gbl_runner_result_dispose(&after);
+    gbl_runner_result_dispose(&after_twin);
+    free(before_json.data);
+    free(after_json.data);
+    free(after_twin_json.data);
+    return okay;
+}
+
+static bool gbl_test_phase8_replay(const uint8_t *arm_image,
+                                   size_t arm_length,
+                                   const uint8_t *thumb_image,
+                                   size_t thumb_length,
+                                   const char **failure)
+{
+    static const gbl_input_event arm_timeline[] = {
+        { UINT64_C(0), UINT16_C(1) },
+        { UINT64_C(10), UINT16_C(0) },
+        { UINT64_C(200), UINT16_C(2) }
+    };
+    static const gbl_input_event thumb_timeline[] = {
+        { UINT64_C(0), UINT16_C(4) },
+        { UINT64_C(10), UINT16_C(0) },
+        { UINT64_C(200), UINT16_C(8) }
+    };
+    gbl_interleave_instance fresh = { 0 };
+    gbl_interleave_instance split = { 0 };
+    gbl_interleave_instance reset = { 0 };
+    gbl_interleave_instance isolated_arm = { 0 };
+    gbl_interleave_instance isolated_thumb = { 0 };
+    gbl_interleave_instance alternating_arm = { 0 };
+    gbl_interleave_instance alternating_thumb = { 0 };
+    unsigned int unit;
+    bool okay = false;
+
+    if (!gbl_interleave_load(&fresh, arm_image, arm_length, UINT64_C(1000)) ||
+        !gbl_interleave_set_timeline(&fresh, arm_timeline,
+                                     sizeof arm_timeline /
+                                         sizeof arm_timeline[0]) ||
+        !gbl_interleave_run_isolated(&fresh, failure) ||
+        !gbl_interleave_serialize_trace(&fresh) ||
+        fresh.mailbox.status != GBL_MAILBOX_PASS ||
+        fresh.mailbox.case_id != UINT32_C(0x9001) ||
+        fresh.machine.cpu.stopped || fresh.machine.input_event_cursor != 2u ||
+        fresh.machine.pressed_keys != 0u) {
+        fprintf(stderr,
+                "phase8 fresh evidence: mailbox=%u/%" PRIu32
+                " stopped=%u cursor=%zu keys=%u cycles=%" PRIu64 "\n",
+                (unsigned int)fresh.mailbox.status, fresh.mailbox.case_id,
+                fresh.machine.cpu.stopped ? 1u : 0u,
+                fresh.machine.input_event_cursor,
+                (unsigned int)fresh.machine.pressed_keys, fresh.cycles);
+        *failure = "fresh-input-replay-failed";
+        goto done;
+    }
+    if (!gbl_interleave_load(&split, arm_image, arm_length, UINT64_C(1000)) ||
+        !gbl_interleave_set_timeline(&split, arm_timeline,
+                                     sizeof arm_timeline /
+                                         sizeof arm_timeline[0])) {
+        *failure = "split-input-replay-setup-failed";
+        goto done;
+    }
+    for (unit = 0u; unit < 2u; ++unit) {
+        if (!gbl_interleave_step(&split, failure)) {
+            *failure = "split-input-prefix-failed";
+            goto done;
+        }
+    }
+    if (split.machine.input_event_cursor == 0u ||
+        !gbl_interleave_run_isolated(&split, failure) ||
+        !gbl_interleave_serialize_trace(&split) ||
+        strcmp(gbl_interleave_compare(&fresh, &split), "ok") != 0) {
+        *failure = "split-input-replay-differs-from-fresh";
+        goto done;
+    }
+
+    if (!gbl_interleave_load(&reset, arm_image, arm_length, UINT64_C(1000)) ||
+        !gbl_interleave_set_timeline(&reset, arm_timeline,
+                                     sizeof arm_timeline /
+                                         sizeof arm_timeline[0]) ||
+        !gbl_interleave_step(&reset, failure) ||
+        reset.machine.input_event_cursor == 0u ||
+        !gbl_interleave_reset_reload(&reset, arm_image, arm_length,
+                                     UINT64_C(1000)) ||
+        !gbl_interleave_set_timeline(&reset, arm_timeline,
+                                     sizeof arm_timeline /
+                                         sizeof arm_timeline[0]) ||
+        !gbl_interleave_run_isolated(&reset, failure) ||
+        !gbl_interleave_serialize_trace(&reset) ||
+        strcmp(gbl_interleave_compare(&fresh, &reset), "ok") != 0) {
+        *failure = "partial-timeline-reset-differs-from-fresh";
+        goto done;
+    }
+
+    if (!gbl_interleave_load(&isolated_arm, arm_image, arm_length,
+                             UINT64_C(1000)) ||
+        !gbl_interleave_load(&alternating_arm, arm_image, arm_length,
+                             UINT64_C(1000)) ||
+        !gbl_interleave_set_timeline(&isolated_arm, arm_timeline,
+                                     sizeof arm_timeline /
+                                         sizeof arm_timeline[0]) ||
+        !gbl_interleave_set_timeline(&alternating_arm, arm_timeline,
+                                     sizeof arm_timeline /
+                                         sizeof arm_timeline[0]) ||
+        !gbl_interleave_load(&isolated_thumb, thumb_image, thumb_length,
+                             UINT64_C(1000)) ||
+        !gbl_interleave_load(&alternating_thumb, thumb_image, thumb_length,
+                             UINT64_C(1000)) ||
+        !gbl_interleave_set_timeline(&isolated_thumb, thumb_timeline,
+                                     sizeof thumb_timeline /
+                                         sizeof thumb_timeline[0]) ||
+        !gbl_interleave_set_timeline(&alternating_thumb, thumb_timeline,
+                                     sizeof thumb_timeline /
+                                         sizeof thumb_timeline[0]) ||
+        !gbl_interleave_run_isolated(&isolated_arm, failure) ||
+        !gbl_interleave_run_isolated(&isolated_thumb, failure) ||
+        !gbl_interleave_run_alternating(&alternating_arm, &alternating_thumb,
+                                        failure) ||
+        !gbl_interleave_serialize_trace(&isolated_arm) ||
+        !gbl_interleave_serialize_trace(&isolated_thumb) ||
+        !gbl_interleave_serialize_trace(&alternating_arm) ||
+        !gbl_interleave_serialize_trace(&alternating_thumb) ||
+        strcmp(gbl_interleave_compare(&isolated_arm, &alternating_arm),
+               "ok") != 0 ||
+        strcmp(gbl_interleave_compare(&isolated_thumb, &alternating_thumb),
+               "ok") != 0 ||
+        isolated_arm.mailbox.status != GBL_MAILBOX_PASS ||
+        isolated_arm.mailbox.case_id != UINT32_C(0x9001) ||
+        isolated_thumb.mailbox.status != GBL_MAILBOX_PASS ||
+        isolated_thumb.mailbox.case_id != UINT32_C(0x9005) ||
+        isolated_arm.machine.cpu.stopped || isolated_thumb.machine.cpu.stopped ||
+        isolated_arm.machine.input_event_cursor != 2u ||
+        isolated_thumb.machine.input_event_cursor != 2u) {
+        *failure = "distinct-input-timelines-leaked-between-instances";
+        goto done;
+    }
+    okay = true;
+
+done:
+    {
+        bool disposed = true;
+
+        disposed = gbl_interleave_dispose(&fresh) && disposed;
+        disposed = gbl_interleave_dispose(&split) && disposed;
+        disposed = gbl_interleave_dispose(&reset) && disposed;
+        disposed = gbl_interleave_dispose(&isolated_arm) && disposed;
+        disposed = gbl_interleave_dispose(&isolated_thumb) && disposed;
+        disposed = gbl_interleave_dispose(&alternating_arm) && disposed;
+        disposed = gbl_interleave_dispose(&alternating_thumb) && disposed;
+        if (!disposed) {
+            *failure = "phase8-replay-disposal-failed";
+            return false;
+        }
+    }
+    return okay;
+}
+
+static int gbl_test_phase8_main(void)
+{
+    gbl_test_bytes arm_image = { 0 };
+    gbl_test_bytes thumb_image = { 0 };
+    const char *failure = "phase8-fixture-read-failed";
+    bool okay = false;
+
+    if (!gbl_interleave_fixture(&arm_image, "owned-arm-pass.gba") ||
+        !gbl_interleave_fixture(&thumb_image,
+                                "owned-arm-thumb-bx-pass.gba")) {
+        failure = "phase8-fixture-read-failed";
+    } else if (!gbl_test_phase8_replay(arm_image.data, arm_image.length,
+                                      thumb_image.data, thumb_image.length,
+                                      &failure)) {
+        /* Replay helper supplies its own stable failure reason. */
+    } else if (!gbl_test_phase8_replacement(arm_image.data,
+                                            arm_image.length)) {
+        failure = "same-cycle-timeline-replacement-differs";
+    } else if (!gbl_test_phase8_cancellation(arm_image.data,
+                                             arm_image.length)) {
+        failure = "input-cancellation-boundary-differs";
+    } else {
+        okay = true;
+    }
+    free(arm_image.data);
+    free(thumb_image.data);
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase8: %s\n", failure);
+        return 1;
+    }
+    puts("PASS determinism.phase8: fresh, split, reset and interleaved ARM/Thumb input timelines match named state and traces");
     return 0;
 }
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "phase8") == 0) {
+        return gbl_test_phase8_main();
+    }
     if (argc == 2 && strcmp(argv[1], "phase8-controls") == 0) {
         return gbl_test_phase8_controls_main();
     }
