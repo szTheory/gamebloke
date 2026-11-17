@@ -1139,10 +1139,286 @@ static int run_keypad_registers(void)
     return 1;
 }
 
+static int run_waitcnt_matrix(void)
+{
+    static const uint32_t window_bases[3] = {
+        UINT32_C(0x08000000), UINT32_C(0x0A000000),
+        UINT32_C(0x0C000000)
+    };
+    static const uint8_t first_waits[4] = { 4u, 3u, 2u, 8u };
+    static const uint8_t widths[3] = { 1u, 2u, 4u };
+    gbl_machine *machine = new_machine();
+    size_t window;
+    size_t first_selector;
+    size_t short_selector;
+    size_t width_index;
+    unsigned int sequence_index;
+    unsigned int direction_index;
+    unsigned int role_index;
+
+    if (machine == NULL) {
+        fprintf(stderr, "waitcnt.matrix: machine allocation failed\n");
+        return 1;
+    }
+    for (window = 0u; window < 3u; ++window) {
+        for (first_selector = 0u; first_selector < 4u; ++first_selector) {
+            for (short_selector = 0u; short_selector < 2u;
+                 ++short_selector) {
+                const uint8_t first_shift =
+                    (uint8_t)(2u + (uint8_t)(window * 3u));
+                const uint8_t sequential_shift =
+                    (uint8_t)(4u + (uint8_t)(window * 3u));
+                const uint64_t sequential_cycles =
+                    short_selector != 0u
+                        ? UINT64_C(2)
+                        : window == 2u ? UINT64_C(9) : UINT64_C(3);
+                const uint64_t nonsequential_cycles =
+                    (uint64_t)first_waits[first_selector] + UINT64_C(1);
+
+                machine->waitcnt = (uint16_t)(
+                    ((uint16_t)first_selector << first_shift) |
+                    ((uint16_t)short_selector << sequential_shift));
+                for (width_index = 0u; width_index < 3u; ++width_index) {
+                    for (sequence_index = 0u; sequence_index < 2u;
+                         ++sequence_index) {
+                        const gbl_bus_access_class sequence =
+                            sequence_index == 0u
+                                ? GBL_BUS_CLASS_NONSEQUENTIAL
+                                : GBL_BUS_CLASS_SEQUENTIAL;
+                        const uint64_t first_cycles =
+                            sequence == GBL_BUS_CLASS_NONSEQUENTIAL
+                                ? nonsequential_cycles
+                                : sequential_cycles;
+                        const uint64_t expected_cycles =
+                            widths[width_index] == 4u
+                                ? first_cycles + sequential_cycles
+                                : first_cycles;
+
+                        for (direction_index = 0u; direction_index < 2u;
+                             ++direction_index) {
+                            const gbl_bus_direction direction =
+                                direction_index == 0u
+                                    ? GBL_BUS_DIRECTION_READ
+                                    : GBL_BUS_DIRECTION_WRITE;
+
+                            for (role_index = 0u; role_index < 2u;
+                                 ++role_index) {
+                                const gbl_bus_access_role role =
+                                    role_index == 0u
+                                        ? GBL_BUS_ROLE_FETCH
+                                        : GBL_BUS_ROLE_DATA;
+                                gbl_cycle_cost cost = {
+                                    0u, GBL_CYCLE_COST_PROJECT_SELECTED,
+                                    NULL
+                                };
+
+                                if (direction == GBL_BUS_DIRECTION_WRITE &&
+                                    role == GBL_BUS_ROLE_FETCH) {
+                                    continue;
+                                }
+                                CHECK(gbl_bus_quote(
+                                    machine, window_bases[window] +
+                                                 UINT32_C(0x100),
+                                    direction, widths[width_index],
+                                    sequence, role, &cost));
+                                CHECK(cost.cycles == expected_cycles);
+                                CHECK(cost.provenance ==
+                                      GBL_CYCLE_COST_SOURCE_BACKED);
+                                CHECK_STREQ(
+                                    cost.model,
+                                    "nintendo-agb-programming-manual-v1.1");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("waitcnt.matrix: all windows, selectors, widths, roles and directions ok");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_waitcnt_boundary(void)
+{
+    static const uint32_t window_bases[3] = {
+        UINT32_C(0x08000000), UINT32_C(0x0A000000),
+        UINT32_C(0x0C000000)
+    };
+    static const uint64_t nonsequential_cycles[3] = {
+        UINT64_C(5), UINT64_C(4), UINT64_C(3)
+    };
+    static const uint64_t sequential_cycles[3] = {
+        UINT64_C(3), UINT64_C(5), UINT64_C(9)
+    };
+    gbl_machine *machine = new_machine();
+    size_t window;
+    bool passed = true;
+
+    if (machine == NULL) {
+        puts("TAP version 13");
+        puts("1..1");
+        puts("not ok 1 - waitcnt.boundary forces nonsequential beats at 128 KiB thresholds");
+        return 1;
+    }
+    for (window = 0u; window < 3u; ++window) {
+        const uint32_t boundary =
+            window_bases[window] + UINT32_C(0x20000);
+        const uint32_t byte_addresses[3] = {
+            boundary - 1u, boundary, boundary + 1u
+        };
+        const uint32_t halfword_addresses[3] = {
+            boundary - 2u, boundary, boundary + 2u
+        };
+        const uint32_t word_addresses[3] = {
+            boundary - 2u, boundary, boundary + 4u
+        };
+        size_t neighbor;
+
+        for (neighbor = 0u; neighbor < 3u; ++neighbor) {
+            gbl_cycle_cost cost = { 0u, GBL_CYCLE_COST_PROJECT_SELECTED,
+                                    NULL };
+            const uint64_t expected =
+                neighbor == 1u ? nonsequential_cycles[window]
+                               : sequential_cycles[window];
+            bool quoted;
+
+            quoted = gbl_bus_quote(machine, byte_addresses[neighbor],
+                                   GBL_BUS_DIRECTION_READ, 1u,
+                                   GBL_BUS_CLASS_SEQUENTIAL,
+                                   GBL_BUS_ROLE_DATA, &cost);
+            passed = passed && quoted && cost.cycles == expected;
+
+            cost.cycles = 0u;
+            quoted = gbl_bus_quote(machine, halfword_addresses[neighbor],
+                                   GBL_BUS_DIRECTION_READ, 2u,
+                                   GBL_BUS_CLASS_SEQUENTIAL,
+                                   GBL_BUS_ROLE_DATA, &cost);
+            passed = passed && quoted && cost.cycles == expected;
+
+            cost.cycles = 0u;
+            quoted = gbl_bus_quote(machine, word_addresses[neighbor],
+                                   GBL_BUS_DIRECTION_READ, 4u,
+                                   GBL_BUS_CLASS_SEQUENTIAL,
+                                   GBL_BUS_ROLE_DATA, &cost);
+            passed = passed && quoted &&
+                     cost.cycles ==
+                         (neighbor == 0u
+                              ? sequential_cycles[window] +
+                                    nonsequential_cycles[window]
+                              : neighbor == 1u
+                                    ? nonsequential_cycles[window] +
+                                          sequential_cycles[window]
+                                    : sequential_cycles[window] *
+                                          UINT64_C(2));
+        }
+    }
+    free_machine(machine);
+    puts("TAP version 13");
+    puts("1..1");
+    puts(passed
+             ? "ok 1 - waitcnt.boundary forces nonsequential beats at 128 KiB thresholds"
+             : "not ok 1 - waitcnt.boundary forces nonsequential beats at 128 KiB thresholds");
+    return passed ? 0 : 1;
+}
+
+static int run_waitcnt_registers(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *snapshot = calloc(1u, sizeof(*snapshot));
+    gbl_machine_time_preview preview;
+    gbl_time_operation operation = {
+        GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x04000204),
+        UINT32_C(0x0008), UINT64_C(1)
+    };
+    gbl_cycle_cost before = { 0u, GBL_CYCLE_COST_PROJECT_SELECTED, NULL };
+    gbl_cycle_cost after = { 0u, GBL_CYCLE_COST_PROJECT_SELECTED, NULL };
+    gbl_bus_result result;
+
+    if (machine == NULL || snapshot == NULL) {
+        fprintf(stderr, "waitcnt.registers: machine allocation failed\n");
+        free_machine(machine);
+        free(snapshot);
+        return 1;
+    }
+    CHECK(machine->waitcnt == 0u);
+    CHECK(gbl_bus_quote(machine, UINT32_C(0x08000000),
+                        GBL_BUS_DIRECTION_READ, 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL,
+                        GBL_BUS_ROLE_DATA, &before));
+    CHECK(before.cycles == UINT64_C(5));
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000204), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_MAX);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->waitcnt == UINT16_C(0x5FFF));
+    result = gbl_bus_read(machine, UINT32_C(0x04000204), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.value == UINT32_C(0x5FFF));
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000204), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1FFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->waitcnt == UINT16_C(0x1FFF));
+    CHECK(gbl_bus_quote(machine, UINT32_C(0x08000000),
+                        GBL_BUS_DIRECTION_READ, 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL,
+                        GBL_BUS_ROLE_DATA, &before));
+    result = gbl_bus_write(machine, UINT32_C(0x04000204), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x5FFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK &&
+          machine->waitcnt == UINT16_C(0x5FFF));
+    CHECK(gbl_bus_quote(machine, UINT32_C(0x08000000),
+                        GBL_BUS_DIRECTION_READ, 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL,
+                        GBL_BUS_ROLE_DATA, &after));
+    CHECK(before.cycles == after.cycles);
+
+    CHECK(gbl_machine_prepare_operations(machine, &operation, 1u,
+                                         &preview) == GBL_TIME_STATUS_OK);
+    CHECK(machine->waitcnt == UINT16_C(0x5FFF));
+    CHECK(preview.waitcnt == UINT16_C(0x0008));
+    gbl_machine_commit_time(machine, &preview);
+    CHECK(machine->waitcnt == UINT16_C(0x0008));
+    CHECK(gbl_bus_quote(machine, UINT32_C(0x08000000),
+                        GBL_BUS_DIRECTION_READ, 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL,
+                        GBL_BUS_ROLE_DATA, &after));
+    CHECK(after.cycles == UINT64_C(3));
+
+    machine->open_bus = UINT32_C(0x76543210);
+    result = gbl_bus_read_fetch(machine, 0u, 4u,
+                                GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_BIOS_ABSENT);
+    CHECK(result.value == UINT32_C(0x76543210));
+
+    machine->master_cycles = UINT64_MAX;
+    memcpy(snapshot, machine, sizeof(*snapshot));
+    result = gbl_bus_write(machine, UINT32_C(0x04000204), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFFFF));
+    CHECK(result.status == GBL_BUS_STATUS_TIME_OVERFLOW);
+    CHECK(result.cycles == 0u);
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(machine, snapshot));
+
+    free_machine(machine);
+    free(snapshot);
+    if (CHECK_DONE() == 0) {
+        puts("waitcnt.registers: lanes, mask, prefetch invariance and atomic writes ok");
+        return 0;
+    }
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|irq.registers|keypad.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -1162,6 +1438,15 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "keypad.registers") == 0) {
         return run_keypad_registers();
+    }
+    if (strcmp(argv[1], "waitcnt.matrix") == 0) {
+        return run_waitcnt_matrix();
+    }
+    if (strcmp(argv[1], "waitcnt.boundary") == 0) {
+        return run_waitcnt_boundary();
+    }
+    if (strcmp(argv[1], "waitcnt.registers") == 0) {
+        return run_waitcnt_registers();
     }
     fprintf(stderr, "bus_test: unknown selector: %s\n", argv[1]);
     return 2;
