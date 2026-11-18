@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 5
+current_plan: 6
 status: executing
-stopped_at: Completed 10-04-PLAN.md
-last_updated: "2026-11-18T20:55:27.865Z"
+stopped_at: Completed 10-05-PLAN.md
+last_updated: "2026-11-18T21:34:44.436Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: 45db2e5d5bb215704e9eed905b34552dc1c0becc
+state_head: 0a86ce05f6a5cf0dd4aa85d04df7678c79d5a5a4
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 31
-  completed_plans: 26
+  completed_plans: 27
   percent: 75
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 ## Current Position
 
 Phase: 10 — PPU Timing and First Pixels
-Current Plan: 5
+Current Plan: 6
 Total Plans in Phase: 9
 Status: Ready to execute
 Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
@@ -158,6 +158,7 @@ Progress: [████████░░] 75%
 | Phase 10 P02 | 38 min | 2 tasks | 11 files |
 | Phase 10 P3 | 39min | 2 tasks | 9 files |
 | Phase 10 P04 | 33 min from first task commit; start time unrecorded | 2 tasks | 5 files |
+| Phase 10 P05 | 34 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -394,6 +395,9 @@ Recent decisions affecting current work:
 - [Phase 10]: Task 2 stayed test-only because its transactional refusal and collision behavior already passed after Task 1.
 - [Phase 10]: Keep the selected +1006-cycle HBlank event separate from the unknown hardware edge; retain the open disp-hblank-flag-edge dispute and UNKNOWN qualification.
 - [Phase 10]: Use typed ppu.tracer and ppu.boundary observations for runtime values, and require the ppu.registers selector's exact success summary.
+- [Phase 10]: Keep the +1006-cycle HBlank selection project-selected/REF, disputed under disp-hblank-flag-edge, with hardware qualification UNKNOWN.
+- [Phase 10]: Copy raw frame bytes only for a requested complete supported epoch; keep artifact status and digest separate from guest semantics and machine time.
+- [Phase 10]: Keep PLAY-01 and G6 Playable 0 acceptance pending; synthetic runner evidence does not satisfy the owner judgment gate.
 
 ### Pending Todos
 
@@ -444,8 +448,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T20:55:27.591Z
-Stopped at: Completed 10-04-PLAN.md
+Last session: 2026-11-18T21:34:44.152Z
+Stopped at: Completed 10-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
