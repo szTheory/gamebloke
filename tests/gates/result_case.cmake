@@ -494,6 +494,13 @@ elseif(CASE STREQUAL "phase9")
   result_add_phase9_dma_transfer("${r}")
   expect_ok(PASS "${r}")
 
+  result_copy(r current_phase9_pending_dma_startup)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "32768" phase9 channels 3 control)
+  gbl_json_mutate_set("${r}" "1" phase9 channels 3 remaining)
+  gbl_json_mutate_set("${r}" "true" phase9 channels 3 pending)
+  expect_ok(PASS "${r}")
+
   result_copy(r current_phase9_with_disputed_latch)
   result_add_phase9_latch_observation("${r}")
   expect_ok(PASS "${r}")
