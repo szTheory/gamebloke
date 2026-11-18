@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Evidence Spine** — Archived with open evidence gaps on 2026-11-15. Phases 1–5 are complete; Phase 6 remains incomplete.
-- 🚧 **v2.0 Time, Interrupts, DMA, First Pixels** — Phases 7–10; roadmap ready for Phase 7 discussion and planning.
+- 🚧 **v2.0 Time, Interrupts, DMA, First Pixels** — Phases 7–10; Phase 9 is complete and Phase 10 is ready for discussion and planning.
 - 📋 **v3.0 PPU Completion** — Planned.
 - 📋 **v4.0 Audio** — Planned.
 - 📋 **v5.0 Cartridge and Saves** — Planned.
@@ -25,7 +25,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 
 - [x] **Phase 7: Time Authority and Timer 0 Polling Proof** - One machine-time path, explicit cycle-accounting scope, four timers, and a BIOS-free polling guest with cheap boundary controls. (completed 2026-11-16)
 - [x] **Phase 8: IRQ, HALT, and Timestamped Input** - Device requests, CPU interrupt acceptance, HALT wake, and logical keypad events remain separately observable. (completed 2026-11-17)
-- [ ] **Phase 9: Bus Timing, DMA, and Arbitration** - WAITCNT and declared prefetch scope feed timed DMA arbitration while the CPU pauses and devices continue.
+- [x] **Phase 9: Bus Timing, DMA, and Arbitration** - WAITCNT and declared prefetch scope feed timed DMA arbitration while the CPU pauses and devices continue. (completed 2026-11-18)
 - [ ] **Phase 10: PPU Timing and First Pixels** - PPU status/trigger boundaries and raw mode-3 output support the original polling Playable 0 scenario.
 
 ## Phase Details
@@ -109,7 +109,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   2. All four DMA channels produce the expected transfers under channel priority, start-delay, count/address-mask, and unit-timing cases. Results expose the bus owner and CPU pause rather than completing transfers through untimed callbacks.
   3. Scheduled timers and other enabled events continue during DMA ownership, including events at transfer boundaries; the CPU resumes through the canonical execution path after ownership returns.
   4. Per-channel latch cases state their expected-value provenance and retain the dispute-registry link for unresolved behavior. Deliberately wrong transfer/timing controls fail for named semantic reasons; repeatable hashes alone do not establish accuracy.
-**Plans**: 7/8 plans executed
+**Plans**: 8/8 plans complete
 
 Plans:
 **Wave 1**
@@ -132,7 +132,7 @@ Plans:
 - [x] 09-07-PLAN.md — Exact fast selection, cheap ordering and lane inventories
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 09-08-PLAN.md — Developer verification and final measured local evidence
+- [x] 09-08-PLAN.md — Developer verification and final measured local evidence
 
 **Research flag**: WAITCNT, sequential transitions, prefetch scope, DMA startup/arbitration timing, and the per-channel latch dispute require primary-source and bounded differential research. PPU-triggered DMA is integrated in Phase 10.
 **Owner gates**: SRAM `CART-01` and the mGBA deep lane `EVID-07` remain deferred. G8 and per-fixture rights/provenance review must be resolved before that lane is promoted or fetched.
@@ -160,7 +160,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
 | 8. IRQ, HALT, and Timestamped Input | 7/7 | Complete    | 2026-11-17 |
-| 9. Bus Timing, DMA, and Arbitration | 7/8 | In Progress | - |
+| 9. Bus Timing, DMA, and Arbitration | 8/8 | Complete    | 2026-11-18 |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
 
 **Coverage:** 13 of 13 current v2.0 requirements map to exactly one phase; no orphans or duplicates. Deferred requirements and v1.0 evidence carryovers are excluded from this total.

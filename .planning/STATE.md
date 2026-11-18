@@ -2,48 +2,48 @@
 gsd_state_version: "1.0"
 milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
-current_phase: 09
-current_phase_name: Bus Timing, DMA, and Arbitration
-current_plan: 8
-status: executing
-stopped_at: Completed 09-07-PLAN.md
-last_updated: "2026-11-18T02:17:40.416Z"
-last_activity: 2026-11-17
-last_activity_desc: Phase 09 execution started
-state_head: d4bd46484896328d694c532aeb73725ff398dabd
+current_phase: 10
+current_phase_name: PPU Timing and First Pixels
+current_plan: Not started
+status: planning
+stopped_at: Phase 9 complete, ready to plan Phase 10
+last_updated: "2026-11-18T16:46:00.905Z"
+last_activity: 2026-11-18
+last_activity_desc: Phase 9 complete, transitioned to Phase 10
+state_head: 6b1a564c061606ef4137b5635c0647ba28cda15e
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 22
-  completed_plans: 21
-  percent: 50
+  completed_plans: 22
+  percent: 75
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-17)
+See: .planning/PROJECT.md (updated 2026-11-18)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v2.0 Time, Interrupts, DMA, First Pixels (a GSD milestone label, not a software version)
-**Current focus:** Phase 09 — Bus Timing, DMA, and Arbitration
+**Current focus:** Phase 10 — PPU Timing and First Pixels
 
 ## Current Position
 
-Phase: 09 (Bus Timing, DMA, and Arbitration) — EXECUTING
-Current Plan: 8
-Total Plans in Phase: 8
-Status: Ready to execute
-Last activity: 2026-11-17 — Phase 09 execution started
+Phase: 10 — PPU Timing and First Pixels
+Current Plan: Not started
+Total Plans in Phase: TBD
+Status: Ready to plan
+Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 77
+- Total plans completed: 85
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -58,6 +58,7 @@ Progress: [█████░░░░░] 50%
 | 05 | 25 | - | - |
 | 07 | 7 | - | - |
 | 8 | 7 | - | - |
+| 9 | 8 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -152,6 +153,7 @@ Progress: [█████░░░░░] 50%
 | Phase 09 P05 | 51min | 2 tasks | 1 files |
 | Phase 09 P06 | 55min | 3 tasks | 8 files |
 | Phase 09 P07 | 31m from first task commit | 2 tasks | 8 files |
+| Phase 09 P08 | 2h | 2 tasks | 23 files |
 
 ## Accumulated Context
 
@@ -371,6 +373,9 @@ Recent decisions affecting current work:
 - [Phase 09]: DMA startup and whole-unit arbitration remain project-selected; per-channel latch results remain disputed under open disp-dma-latch.
 - [Phase 09]: Keep Phase 9 checks in the existing CI workflow and reuse its configured build.
 - [Phase 09]: Require the seven cheap Phase 9 checks as fixture predecessors for longer affected cases.
+- [Phase 09]: Scope Timer 0 fixture-dependent selectors to the guarded local-timer0 lane and exclude them from CI/ASAN.
+- [Phase 09]: Run the unchanged canonical local CI workflow once after all current inputs and cheap checks are settled.
+- [Phase 09]: Treat local passes as implementation evidence only; hardware, hosted, rights, and publication gates remain separate.
 
 ### Pending Todos
 
@@ -421,8 +426,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T02:17:40.326Z
-Stopped at: Completed 09-07-PLAN.md
+Last session: 2026-11-18T05:01:51.799Z
+Stopped at: Phase 9 complete, ready to plan Phase 10
 Resume file: None
 
 ## Operator Next Steps

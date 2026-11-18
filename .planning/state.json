@@ -16,7 +16,7 @@
     {
       "number": "9",
       "name": "Bus Timing, DMA, and Arbitration",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "10",
@@ -26,8 +26,8 @@
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 3 of 4 · 50% · executing"
+    "label": "Advance to the next step (plan phase 10)",
+    "reason": "Phase 4 of 4 — needs a plan"
   },
-  "updated_at": "2026-11-17T15:27:30.061Z"
+  "updated_at": "2026-11-18T16:46:00.921Z"
 }

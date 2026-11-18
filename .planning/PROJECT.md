@@ -45,6 +45,9 @@ no-BIOS scheduler work.
 
 - ✓ Bus-backed bounded ARM/Thumb subset, explicit pipeline/modes/exceptions, neutral mailbox inspection, category traces, exact machine-time JSON results and installed CLI relocation — Phase 4. Full ISA diagnostics remain Phase 5; timing/latch policies are unverified and trace writes currently retain the bus result zero.
 - ✓ Profile version 4 names the direct-start/no-BIOS CPU policy and implemented/excluded operand scope; actual producer results preserve dispute disclosure — Phase 4.
+- ✓ One shared machine-time path, four timers, explicit bus/internal cycle accounting, and an original BIOS-free Timer 0 polling guest — Phase 7. Selected timing costs remain project-model evidence, not hardware qualification.
+- ✓ Device IRQ requests, CPU eligibility/acceptance/entry, HALT wake, and timestamped logical keypad input remain separately observable — Phase 8. These deterministic policies do not establish GBA IRQ latency or physical-controller behavior.
+- ✓ WAITCNT-aware bus costs, four-channel DMA arbitration, CPU pause/resume, and device events on the shared clock — Phase 9. Startup and latch policies remain project-selected or disputed, not hardware qualification.
 
 ### Active
 
@@ -54,10 +57,9 @@ REQUIREMENTS.md.
 - [ ] A named, explicit first GBA machine profile (model, BIOS mode, cartridge/backup scope) with support claims tied to evidence
 - [ ] A portable canonical machine core that owns deterministic CPU/device state and has no host files, wall clock, UI, A/V devices, or save-file policy
 - [ ] ARM7TDMI ARM/Thumb execution plus the memory bus, wait states, and prefetch, at a timing precision defined by the selected profile
-- [ ] Interrupts, timers, DMA, and video/audio event scheduling in guest-time units
+- [ ] PPU and audio event scheduling in guest-time units
 - [ ] PPU output in raw machine form (all six display modes as the profile requires), kept separate from host conversion and scaling
 - [ ] Audio (PSG + Direct Sound FIFO) produced as raw machine samples, kept separate from host resampling and playback
-- [ ] Logical keypad input sampled at explicit machine-time boundaries
 - [ ] Cartridge ROM validation (sizes, header, truncation) plus explicitly modeled backup devices. Save type is never inferred from a filename or title.
 - [ ] A documented BIOS/boot policy that works without a bundled Nintendo BIOS dump
 - [ ] A deterministic headless runner with machine-readable semantic results and raw A/V capture. Missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
@@ -90,7 +92,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
-- **Current implementation:** C17/CMake core and headless runner through Phase 7. The v2.0 first phase adds model-scoped machine time, four timers, explicit bus/internal cycle reporting, and an original BIOS-free Timer 0 polling guest. Its timing remains project-model-only, not hardware qualification. The v1.0 milestone audit found Phase 6 incomplete: local Linux ARM64 runs passed, ARM and Thumb stopped before source-bound result evaluation (`DIAG-04`), and hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Both gaps remain open in `.planning/STATE.md` and the archived v1.0 audit.
+- **Current implementation:** C17/CMake core and headless runner through Phase 9. The v2.0 time path includes four timers, explicit bus/internal cycle reporting, a BIOS-free Timer 0 polling guest, separately observable IRQ request/eligibility/entry and HALT wake, timestamped logical keypad input, WAITCNT-aware bus quotes, and four-channel DMA arbitration. PPU timing and raw video are next. Selected startup, latch, and event policies remain project-model or disputed evidence, not GBA hardware qualification. The v1.0 Phase 6 gaps remain open: ARM and Thumb stopped before source-bound result evaluation (`DIAG-04`), and hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). No hosted rerun or publication is authorized by this phase transition.
 
 ## Constraints
 
@@ -135,6 +137,8 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | Remains the policy; Phase 6 is local and incomplete, with hosted evidence still open |
 | Owner-authorized logo authority (2026-11-10) | Owner supplied two existing local files and delegated ignored copies, hashing and checks; only the shared digest is published | Verified, owner-accepted and activated on main through PR #6. No rights/provenance inference. |
 | Canonical CPU/runner evidence boundary (Phase 4) | One bus-backed interpreter, whole-unit budget/trace preflight, distinct status/semantic/time/claim/limits, build-time fixture authority | Verified in local/hosted checks and independent reviews; later diagnostic evidence remains scoped, with DIAG-04/DET-02 open as recorded in Phase 6 |
+| IRQ, HALT, and timestamped input boundary (Phase 8) | Keep device requests separate from CPU sampling/entry and HALT wake; keep input deterministic and model-scoped | Verified locally; no BIOS handler, hardware latency, physical-controller qualification, or carryover closure is claimed |
+| WAITCNT and DMA evidence boundary (Phase 9) | Route bus costs and DMA through shared machine time; label selected startup/latch behavior and preserve disputes | Verified locally; no hardware timing, latch qualification, hosted evidence, or fixture-rights conclusion is claimed |
 | Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
 | Automation-first verification and CI efficiency (owner, 2026-11-16) | Shift repeatable verification left; minimize UAT through useful automated evidence; use CI for recurring value; preflight long work and inspect measured critical paths without weakening checks | ✓ Adopted as the default in Verification and Iteration Policy above |
 | Carry v1.0 Phase 6 evidence gaps into v2.0 (owner, 2026-11-15) | Archive v1.0 while preserving ARM/Thumb source-bound evaluation (`DIAG-04`) and hosted Linux x64 GCC/Clang (`DET-02`) as open; do not relabel local results as passes for those claims | Recorded in `.planning/STATE.md` and the archived v1.0 audit; no hosted run or publication authorized |
@@ -158,4 +162,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-16 after Phase 7 completion and verification policy update*
+*Last updated: 2026-11-18 after Phase 9 completion*
