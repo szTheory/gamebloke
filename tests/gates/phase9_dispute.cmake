@@ -42,6 +42,7 @@ set(registry_file "${SRC_ROOT}/registry/disputes.json")
 set(vocab_file "${SRC_ROOT}/contracts/evidence.json")
 set(checker_file "${SRC_ROOT}/cmake/CheckProfile.cmake")
 set(registry_checker "${SRC_ROOT}/cmake/CheckRegistry.cmake")
+set(contract_checker "${SRC_ROOT}/cmake/CheckContract.cmake")
 set(GBL_PHASE9_DISPUTE_AUTHORITY_FILES
   "${profile_file}"
   "${doc_file}"
@@ -49,6 +50,7 @@ set(GBL_PHASE9_DISPUTE_AUTHORITY_FILES
   "${vocab_file}"
   "${checker_file}"
   "${registry_checker}"
+  "${contract_checker}"
   "${SRC_ROOT}/cmake/GblJson.cmake")
 set(GBL_PHASE9_DISPUTE_AUTHORITY_HASHES)
 foreach(authority_file IN LISTS GBL_PHASE9_DISPUTE_AUTHORITY_FILES)
@@ -380,4 +382,4 @@ if(NOT CASE STREQUAL "verify")
   message(STATUS "phase9-dispute: six causal dispute controls and clean twins passed")
 endif()
 gbl_phase9_dispute_assert_authority_unchanged()
-message(STATUS "phase9-dispute: canonical profile, document, registry, vocabulary and checker inputs unchanged")
+message(STATUS "phase9-dispute: canonical profile, document, registry, vocabulary, and profile/registry/contract checker inputs unchanged")

@@ -41,12 +41,16 @@ set(doc_file "${GBL_PHASE9_SRC}/docs/profile-agb.md")
 set(registry_file "${GBL_PHASE9_SRC}/registry/disputes.json")
 set(vocab_file "${GBL_PHASE9_SRC}/contracts/evidence.json")
 set(checker_file "${GBL_PHASE9_SRC}/cmake/CheckProfile.cmake")
+set(registry_checker_file "${GBL_PHASE9_SRC}/cmake/CheckRegistry.cmake")
+set(contract_checker_file "${GBL_PHASE9_SRC}/cmake/CheckContract.cmake")
 set(GBL_PHASE9_AUTHORITY_FILES
   "${profile_file}"
   "${doc_file}"
   "${registry_file}"
   "${vocab_file}"
   "${checker_file}"
+  "${registry_checker_file}"
+  "${contract_checker_file}"
   "${GBL_PHASE9_SRC}/cmake/GblJson.cmake")
 set(GBL_PHASE9_AUTHORITY_HASHES)
 foreach(authority_file IN LISTS GBL_PHASE9_AUTHORITY_FILES)
@@ -661,4 +665,4 @@ if(NOT CASE STREQUAL "verify")
   message(STATUS "phase9-policy: eight causal drift controls and clean twins passed")
 endif()
 gbl_phase9_assert_authority_unchanged()
-message(STATUS "phase9-policy: canonical profile, document, registry, vocabulary and checker inputs unchanged")
+message(STATUS "phase9-policy: canonical profile, document, registry, vocabulary, and profile/registry/contract checker inputs unchanged")
