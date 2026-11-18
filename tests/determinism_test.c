@@ -4154,7 +4154,7 @@ static bool gbl_test_phase8_replay(const uint8_t *arm_image,
         isolated_thumb.mailbox.case_id != UINT32_C(0x9005) ||
         isolated_arm.machine.cpu.stopped || isolated_thumb.machine.cpu.stopped ||
         isolated_arm.machine.input_event_cursor != 2u ||
-        isolated_thumb.machine.input_event_cursor != 2u) {
+        isolated_thumb.machine.input_event_cursor != 3u) {
         *failure = "distinct-input-timelines-leaked-between-instances";
         goto done;
     }
