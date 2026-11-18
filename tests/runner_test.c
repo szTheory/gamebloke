@@ -511,9 +511,12 @@ static bool gbl_test_runner_dma_observation(const char *scratch_directory)
 {
     char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char hblank_trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char json[8192];
     char trace[4096];
+    char hblank_trace[1024];
     gbl_runner_result result = { 0 };
+    gbl_runner_result hblank_trace_result = { 0 };
     gbl_runner_result full_trace_result = { 0 };
     gbl_runner_result partial_latch_result = { 0 };
     gbl_runner_result incomplete_trace_result = { 0 };
@@ -523,6 +526,7 @@ static bool gbl_test_runner_dma_observation(const char *scratch_directory)
     gbl_test_cancel_state cancel_probe = { 0u, SIZE_MAX };
     gbl_test_cancel_state cancel_state = { 0u, 0u };
     gbl_input_event input_event;
+    gbl_trace_record hblank_record = { 0 };
     uint64_t total;
     bool okay;
     size_t latch_trace_index = SIZE_MAX;
@@ -602,6 +606,29 @@ static bool gbl_test_runner_dma_observation(const char *scratch_directory)
                   "\"source_address\":\"0x00000000\",\"destination_address\":\"0x03000022\",\"value\":\"0x0000BEEF\",\"width\":2") != NULL &&
            strstr(trace,
                   "\"used_channel_latch\":true,\"value_provenance\":\"project-selected\",\"classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\",\"hardware_qualification\":\"UNKNOWN\"") != NULL;
+    {
+        bool hblank_trace_okay = result.trace_records != NULL &&
+            result.trace_count > 3u &&
+            gbl_test_path(hblank_trace_path, sizeof hblank_trace_path,
+                          scratch_directory, "hblank-dma-dispute.jsonl");
+
+        if (hblank_trace_okay) {
+            hblank_record = result.trace_records[3];
+            hblank_record.dma_dispute = GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE;
+            hblank_trace_result.trace_records = &hblank_record;
+            hblank_trace_result.trace_capacity = 1u;
+            hblank_trace_result.trace_count = 1u;
+            (void)remove(hblank_trace_path);
+            hblank_trace_okay = gbl_runner_write_trace(
+                                    hblank_trace_path,
+                                    &hblank_trace_result) &&
+                gbl_test_read_file(hblank_trace_path, hblank_trace,
+                                   sizeof hblank_trace) &&
+                strstr(hblank_trace,
+                    "\"dispute_id\":\"disp-hblank-flag-edge\",\"hardware_qualification\":\"UNKNOWN\"") != NULL;
+        }
+        okay = okay && hblank_trace_okay;
+    }
     status = gbl_test_execute(rom_path, NULL, UINT64_C(1000),
                               (uint32_t)GBL_TRACE_DMA, 1u, NULL, NULL, NULL,
                               (gbl_runner_allocator){ 0 },

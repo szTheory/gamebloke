@@ -130,6 +130,8 @@ static const char *gbl_runner_dma_dispute_name(gbl_dma_dispute_id dispute)
     switch (dispute) {
     case GBL_DMA_DISPUTE_NONE: return NULL;
     case GBL_DMA_DISPUTE_LATCH: return "disp-dma-latch";
+    case GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE:
+        return "disp-hblank-flag-edge";
     }
     return NULL;
 }
