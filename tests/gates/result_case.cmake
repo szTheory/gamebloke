@@ -542,6 +542,13 @@ elseif(CASE STREQUAL "phase9_negative")
   gbl_json_mutate_set("${r}" "\"33\"" phase9 timing dma_pause_cycles)
   expect_detail(bad-phase9-timing "time.dma_pause_cycles exceeds time.cycles" "${r}")
 
+  result_copy(r phase9_pause_component_mismatch)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"7\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${r}" "\"7\"" phase9 timing dma_pause_cycles)
+  expect_detail(bad-phase9-timing
+    "time.dma_pause_cycles differs from DMA timing components" "${r}")
+
   result_copy(r phase9_wrong_total)
   result_add_phase9_dma_transfer("${r}")
   gbl_json_mutate_set("${r}" "\"31\"" time cycles)

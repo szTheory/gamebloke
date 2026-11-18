@@ -286,6 +286,18 @@ function(gbl__result_phase9_check doc time_cycles present_out valid_out)
       set(dma_valid FALSE)
     endif()
   endif()
+  if(time_dma_pause_cycles_valid AND time_dma_startup_cycles_valid AND
+      time_dma_source_cycles_valid AND time_dma_destination_cycles_valid)
+    gbl__result_decimal_add(dma_pause_components
+      "${time_dma_startup_cycles}" "${time_dma_source_cycles}")
+    gbl__result_decimal_add(dma_pause_components "${dma_pause_components}"
+      "${time_dma_destination_cycles}")
+    if(NOT "${time_dma_pause_cycles}" STREQUAL "${dma_pause_components}")
+      gbl_finding(result bad-phase9-timing
+        "time.dma_pause_cycles differs from DMA timing components")
+      set(dma_valid FALSE)
+    endif()
+  endif()
 
   if(NOT "${phase9_type}" STREQUAL "OBJECT")
     gbl_finding(result bad-phase9-type "phase9 must be an object")

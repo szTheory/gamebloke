@@ -116,8 +116,9 @@ these fields:
   the phase 9 extension, elapsed cycles equal CPU `bus_cycles` plus CPU `internal_cycles`,
   `phase8.wait_cycles` when phase 8 is present, and DMA startup, source, and destination
   cycles. Current producer `time.wait_cycles` mirrors `phase8.wait_cycles` and is validated
-  as the same observation; it is not added a second time. `dma_pause_cycles` describes the
-  CPU pause window, must not exceed elapsed cycles, and is not added a second time.
+  as the same observation; it is not added a second time. `dma_pause_cycles` equals the sum
+  of DMA startup, source, and destination costs, describes the CPU pause window, and is not
+  added to elapsed cycles a second time.
   The checker uses checked decimal arithmetic without converting the uint64 values to a
   floating point or signed machine integer. `model` is `gamebloke-timer-model-1` and
   `qualification` is `project-model-only`; these values describe implementation evidence,
