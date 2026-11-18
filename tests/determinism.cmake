@@ -11,6 +11,13 @@ target_compile_definitions(determinism_test PRIVATE
 target_link_libraries(determinism_test PRIVATE gamebloke_core gbl_warnings)
 add_dependencies(determinism_test gbl_fixture_indexes)
 
+if(GBL_LANE STREQUAL "asan")
+  # Keep the command-dispatch tests in separate frames. At -O1, the ASan ARM64
+  # build inlines enough of this large test translation unit into main to
+  # exceed the runner's default stack before any test starts.
+  target_compile_options(determinism_test PRIVATE -fno-inline-functions)
+endif()
+
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   gbl_add_test(
     NAME determinism.interleave.controls

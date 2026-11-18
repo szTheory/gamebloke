@@ -35,6 +35,19 @@ function(gbl_read_cache_entry cache_path key output_type output_value)
   set(${output_value} "${CMAKE_MATCH_2}" PARENT_SCOPE)
 endfunction()
 
+function(gbl_resolve_program_path input output)
+  if(IS_ABSOLUTE "${input}")
+    file(REAL_PATH "${input}" resolved)
+  else()
+    find_program(resolved NAMES "${input}" NO_CACHE)
+  endif()
+  if(NOT resolved OR NOT EXISTS "${resolved}")
+    message(FATAL_ERROR "runner-metadata: compiler-path-not-found: ${input}")
+  endif()
+  file(REAL_PATH "${resolved}" resolved)
+  set(${output} "${resolved}" PARENT_SCOPE)
+endfunction()
+
 set(parent_cache "${BIN}/CMakeCache.txt")
 if(NOT EXISTS "${parent_cache}" OR IS_DIRECTORY "${parent_cache}")
   message(FATAL_ERROR "runner-metadata: parent-cache-missing")
@@ -334,7 +347,17 @@ foreach(key IN ITEMS CMAKE_C_COMPILER CMAKE_C_FLAGS CMAKE_EXE_LINKER_FLAGS
     CMAKE_GENERATOR CMAKE_MAKE_PROGRAM)
   gbl_read_cache_entry("${legacy_cache}" "${key}"
     "legacy_${key}_type" "legacy_${key}")
-  if(NOT "${legacy_${key}}" STREQUAL "${parent_${key}}")
+  if(key STREQUAL "CMAKE_C_COMPILER")
+    # CMake resolves a relative compiler name (for example clang-21) to its
+    # absolute executable path in a nested configure. Compare the selected
+    # compiler, not the spelling used in the parent preset.
+    gbl_resolve_program_path("${parent_${key}}" parent_compiler_path)
+    gbl_resolve_program_path("${legacy_${key}}" legacy_compiler_path)
+    if(NOT "${legacy_compiler_path}" STREQUAL "${parent_compiler_path}")
+      message(FATAL_ERROR
+        "runner-metadata: legacy-runner-parent-setting-not-inherited: ${key}")
+    endif()
+  elseif(NOT "${legacy_${key}}" STREQUAL "${parent_${key}}")
     message(FATAL_ERROR
       "runner-metadata: legacy-runner-parent-setting-not-inherited: ${key}")
   endif()

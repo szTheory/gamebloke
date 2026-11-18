@@ -467,7 +467,10 @@ static inline bool gbl_test_trace_equal(const gbl_trace_record *left,
             a->dma_destination_sequence != b->dma_destination_sequence ||
             a->dma_remaining != b->dma_remaining ||
             a->dma_completed != b->dma_completed ||
-            a->dma_used_channel_latch != b->dma_used_channel_latch ||
+            !gbl_test_bytes_equal(
+                (const uint8_t *)&a->dma_used_channel_latch,
+                (const uint8_t *)&b->dma_used_channel_latch,
+                sizeof a->dma_used_channel_latch) ||
             a->dma_value_provenance != b->dma_value_provenance ||
             a->dma_result_classification !=
                 b->dma_result_classification ||
