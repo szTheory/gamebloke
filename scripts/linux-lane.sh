@@ -4,7 +4,7 @@
 # container so a Linux-only failure (GCC-only warnings, sanitizer runtime
 # differences) shows up before a push.
 #
-#   sh scripts/linux-lane.sh <workflow-preset> [gcc|clang]
+#   sh scripts/linux-lane.sh <workflow-preset|compile> [gcc|clang]
 #
 # The default compiler is clang for the asan preset, gcc otherwise. The working
 # Git-selected snapshot is mounted read-only at /src and copied to /work, so
@@ -24,7 +24,7 @@
 GBL_LINUX_IMAGE=${GBL_LINUX_IMAGE:-ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c}
 
 usage() {
-    echo "linux-lane: usage: linux-lane.sh <workflow-preset> [gcc|clang]" >&2
+    echo "linux-lane: usage: linux-lane.sh <workflow-preset|compile> [gcc|clang]" >&2
     exit 2
 }
 
@@ -89,6 +89,12 @@ cmake --version | head -n 1
 cd /work
 echo "linux-lane: setup wall seconds $(($(date +%s) - setup_started))"
 workflow_started=$(date +%s)
-cmake --workflow --preset "$GBL_PRESET"
+if [ "$GBL_PRESET" = compile ]; then
+    echo "linux-lane: configure and build ci preset (tests not run)"
+    cmake --preset ci
+    cmake --build --preset ci
+else
+    cmake --workflow --preset "$GBL_PRESET"
+fi
 echo "linux-lane: workflow wall seconds $(($(date +%s) - workflow_started))"
 '
