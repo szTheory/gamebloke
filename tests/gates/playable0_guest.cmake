@@ -99,7 +99,7 @@ message(STATUS "playable0-guest: original local guest generation admitted")
 return()
 endif()
 
-set(output_dir "${BIN}/playable0")
+set(output_dir "${BIN}/playable0-${CASE}")
 set(runner "${BIN}/gamebloke-run")
 set(guest "${BIN}/generated/fixtures/owned-playable0.gba")
 set(input_script "${output_dir}/neutral-right-hold-release.txt")
@@ -113,6 +113,7 @@ endforeach()
 
 file(WRITE "${input_script}"
   "0 0\n1450000 16\n1730000 17\n2010000 1\n2290000 0\n")
+file(REMOVE "${video_path}")
 execute_process(
   COMMAND "${runner}" --rom "${guest}" --fixture owned-playable0
     --cycles 2808960 --input-script "${input_script}"
@@ -172,3 +173,16 @@ if(NOT actual_video_length EQUAL 76800 OR
 endif()
 message(STATUS
   "playable0-guest: registered PASS; case=${semantic_case}; events=${applied_events}; cycles=${cycle_count}; raw_bytes=${actual_video_length}; sha256=${actual_video_sha}")
+
+set(selector_dir "${BIN}/playable0-${CASE}-runner-test")
+execute_process(
+  COMMAND "${BIN}/runner_test" playable0 "${CASE}" "${selector_dir}"
+  RESULT_VARIABLE selector_result
+  OUTPUT_VARIABLE selector_output
+  ERROR_VARIABLE selector_error
+  TIMEOUT 60)
+if(NOT "${selector_result}" STREQUAL "0")
+  message(FATAL_ERROR
+    "playable0-guest: source-bound ${CASE} evaluator failed (${selector_result}); ${selector_error}${selector_output}")
+endif()
+message(STATUS "playable0-guest: source-bound ${CASE} evaluator passed")

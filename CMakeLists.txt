@@ -391,6 +391,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     DEPENDS ${GBL_OWNED_FIXTURE_FILES} ${GBL_DIAGNOSTIC_INDEX_DEPENDS}
       "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "${CMAKE_SOURCE_DIR}/tests/fixtures/timer0-NOTICE.md"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/playable0-NOTICE.md"
       "${CMAKE_SOURCE_DIR}/cmake/CheckDiagnosticAuthority.cmake"
       "${CMAKE_SOURCE_DIR}/cmake/PathContainment.cmake"
       "${CMAKE_SOURCE_DIR}/registry/disputes.json"
@@ -420,19 +421,19 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   add_dependencies(gamebloke-run-control gbl_fixture_indexes)
 
   # Exercise the actual host runner modules against the build-only synthetic
-  # index, except for the separately selected local Playable 0 mode.
+  # index, except for the separately selected local Playable 0 CLI mode.
   add_executable(runner_test tests/runner_test.c runner/run.c runner/result.c
     runner/sha256.c)
-  set(GBL_RUNNER_TEST_INDEX_DIR "${GBL_CONTROL_INDEX_DIR}")
-  if(GBL_LANE STREQUAL "local-playable0")
-    # The explicitly selected local guest mode needs its canonical local-only
-    # fixture row. Other lanes keep the generated synthetic control index.
-    set(GBL_RUNNER_TEST_INDEX_DIR "${GBL_PRODUCTION_INDEX_DIR}")
-    target_compile_definitions(runner_test PRIVATE
-      GBL_RUNNER_TEST_LOCAL_PLAYABLE0=1)
-  endif()
   target_include_directories(runner_test PRIVATE runner
-    "${GBL_RUNNER_TEST_INDEX_DIR}")
+    "${GBL_CONTROL_INDEX_DIR}")
+  if(GBL_LANE STREQUAL "local-playable0")
+    # Keep ordinary runner_test on its synthetic index. The explicit local
+    # guest mode exercises the production runner, which owns the local row.
+    target_compile_definitions(runner_test PRIVATE
+      GBL_RUNNER_TEST_LOCAL_PLAYABLE0=1
+      "GBL_RUNNER_TEST_PLAYABLE_CLI=\"$<TARGET_FILE:gamebloke-run>\"")
+    add_dependencies(runner_test gamebloke-run)
+  endif()
   target_compile_definitions(runner_test PRIVATE
     "GBL_RUNNER_TEST_FIXTURE_DIR=\"${GBL_FIXTURE_DIR}\""
     "GBL_RUNNER_TEST_SCRATCH_DIR=\"${CMAKE_BINARY_DIR}/runner-test\""
@@ -497,7 +498,7 @@ elseif(GBL_LANE STREQUAL "local-timer0")
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/timer0_guest.cmake")
 elseif(GBL_LANE STREQUAL "local-playable0")
-  foreach(case IN ITEMS admission verify)
+  foreach(case IN ITEMS admission verify control)
     gbl_add_test(
       NAME "playable0_${case}"
       LABELS core integration playable0 local

@@ -11,17 +11,17 @@ generated image digest and its build artifact path to the committed generator
 revision. Its build recipe also records the generator source SHA-256.
 
 The measured generator source SHA-256 is
-`dd0f530e8d59776c9da221cf3cb84dcd3146dfa2705eb2207d26dc8a5a4739a4`.
+`69141fcded0458d57b217033a2bbac31c01a84824ec11c2b1cc06e597818e7b0`.
 Generation used CMake 4.4.3 and Apple Clang 21.0.0
 (`clang-2100.1.1.101`) as the configured C17 host compiler. The explicit local
 preset creates all bytes only under ignored `build/local-playable0`.
 
 | Local build artifact | SHA-256 |
 | --- | --- |
-| `owned-playable0.gba` | `efebcfca411bf9e946f393a56176b60f683b80d51b7eb5f17369c5bf99f643d9` |
-| `owned-playable0-input-disabled.gba` | `d3a61ae4c5413094ff758816ce134b43645e3eba481e78aab4511921430fe297` |
-| `owned-playable0-wrong-color.gba` | `8a75b8d38f13dc25d1b8621510df37c6f5cd917e91c39d7d365bde140b70ee81` |
-| `owned-playable0-wrong-address.gba` | `f1549dffde70b5765a003273e8200b28a9a31f2cab1fc4229cca2f2c9cef0051` |
+| `owned-playable0.gba` | `9114432ee8b722080709c7171fde5fe56f2300a7deaf0c77588f85defc5ee899` |
+| `owned-playable0-input-disabled.gba` | `e1012bd229cd18f0657215bed761ba9c7d0c672310d1a88cef895a61688710a6` |
+| `owned-playable0-wrong-color.gba` | `d6693d2f5ce431791f8264108aec9daea35fe2ae8f95fd0f9077224ec576c4e8` |
+| `owned-playable0-wrong-address.gba` | `e8b63e17f22a9b27cc7d9efbf42d8708c58826db9bb1acc5aaa450564dc18086` |
 
 ## Guest behavior and bounded local evidence
 
@@ -44,7 +44,7 @@ The deterministic logical input script is:
 ```
 
 The bounded run uses 10 complete frame units (`2,808,960` cycles). The
-observed completion is at `2,725,260` cycles with a valid 240×160 BGR555 frame
+observed completion is at `2,725,239` cycles with a valid 240×160 BGR555 frame
 of 76,800 bytes. Final input 0 reports the source-bound case ID `ABE80000`;
 changing only the last input value to 16 reports `ABF00000`. The final RIGHT
 run moves the marker to x=128 and changes 256 bytes in the full raw frame.

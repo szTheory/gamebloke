@@ -955,6 +955,647 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     return okay;
 }
 
+#ifdef GBL_RUNNER_TEST_LOCAL_PLAYABLE0
+enum {
+    GBL_PLAYABLE0_JSON_CAPACITY = 16384u,
+    GBL_PLAYABLE0_WATCHDOG_TICKS = 3000u,
+    GBL_PLAYABLE0_TEST_CYCLES = 2808960u
+};
+
+typedef struct gbl_playable0_run {
+    char json[GBL_PLAYABLE0_JSON_CAPACITY];
+    char status[32];
+    char reason[96];
+    char fixture_id[GBL_RUNNER_FIXTURE_ID_CAPACITY];
+    char semantic_state[32];
+    char frame_state[32];
+    char video_sha256[GBL_SHA256_HEX_CAPACITY];
+    char input_sha256[GBL_SHA256_HEX_CAPACITY];
+    uint64_t case_id;
+    uint64_t cycles;
+    uint64_t instructions;
+    uint64_t applied_events;
+    uint64_t pending_events;
+    uint64_t keyinput;
+    uint64_t frame_epoch;
+    uint64_t sample_cycle;
+    uint64_t completion_cycle;
+    uint64_t frame_length;
+    int exit_code;
+    uint8_t *frame;
+    size_t frame_size;
+} gbl_playable0_run;
+
+static bool gbl_playable0_json_string(const char *json, const char *marker,
+                                      char *output, size_t capacity)
+{
+    const char *value = strstr(json, marker);
+    const char *end;
+    size_t length;
+
+    if (value == NULL || output == NULL || capacity == 0u) {
+        return false;
+    }
+    value += strlen(marker);
+    end = strchr(value, '"');
+    if (end == NULL) {
+        return false;
+    }
+    length = (size_t)(end - value);
+    if (length >= capacity) {
+        return false;
+    }
+    memcpy(output, value, length);
+    output[length] = '\0';
+    return true;
+}
+
+static bool gbl_playable0_json_unsigned(const char *json, const char *marker,
+                                       bool quoted, uint64_t *output)
+{
+    const char *value = strstr(json, marker);
+    char *end = NULL;
+    unsigned long long parsed;
+
+    if (value == NULL || output == NULL) {
+        return false;
+    }
+    value += strlen(marker);
+    if (quoted) {
+        if (*value != '"') {
+            return false;
+        }
+        value++;
+    }
+    if (*value < '0' || *value > '9') {
+        return false;
+    }
+    errno = 0;
+    parsed = strtoull(value, &end, 10);
+    if (errno != 0 || end == value || (quoted && *end != '"') ||
+        (!quoted && *end != ',' && *end != '}')) {
+        return false;
+    }
+    *output = (uint64_t)parsed;
+    return true;
+}
+
+static bool gbl_playable0_parse_result(gbl_playable0_run *run)
+{
+    const char *fixture = strstr(run->json, "\"fixture\":{");
+    const char *semantic = strstr(run->json, "\"semantic\":{");
+    const char *time = strstr(run->json, "\"time\":{");
+    const char *keypad = strstr(run->json, "\"keypad\":{");
+    const char *raster = strstr(run->json, "\"raster\":{");
+    const char *frame = strstr(run->json, "\"frame\":{");
+    const char *video = strstr(run->json, "\"raw_video\":{");
+    const char *input = strstr(run->json, "\"input_timeline\":{");
+
+    if (strstr(run->json, "\"schema\":\"gamebloke.result/1\"") == NULL ||
+        !gbl_playable0_json_string(run->json, "\"status\":\"",
+                                   run->status, sizeof run->status) ||
+        !gbl_playable0_json_string(run->json, "\"reason\":\"",
+                                   run->reason, sizeof run->reason)) {
+        return false;
+    }
+    if (fixture != NULL &&
+        !gbl_playable0_json_string(fixture, "\"id\":\"",
+                                   run->fixture_id,
+                                   sizeof run->fixture_id)) {
+        run->fixture_id[0] = '\0';
+    }
+    if (semantic != NULL) {
+        (void)gbl_playable0_json_string(semantic, "\"state\":\"",
+                                       run->semantic_state,
+                                       sizeof run->semantic_state);
+        (void)gbl_playable0_json_unsigned(semantic, "\"case_id\":", true,
+                                          &run->case_id);
+    }
+    if (time != NULL) {
+        (void)gbl_playable0_json_unsigned(time, "\"cycles\":", true,
+                                          &run->cycles);
+        (void)gbl_playable0_json_unsigned(time, "\"instructions\":", true,
+                                          &run->instructions);
+    }
+    if (keypad != NULL) {
+        (void)gbl_playable0_json_unsigned(keypad, "\"applied_events\":",
+                                          false, &run->applied_events);
+        (void)gbl_playable0_json_unsigned(keypad, "\"pending_events\":",
+                                          false, &run->pending_events);
+        (void)gbl_playable0_json_unsigned(keypad, "\"keyinput\":", false,
+                                          &run->keyinput);
+    }
+    if (raster != NULL) {
+        (void)gbl_playable0_json_unsigned(raster, "\"frame_epoch\":", true,
+                                          &run->frame_epoch);
+    }
+    if (frame != NULL) {
+        (void)gbl_playable0_json_string(frame, "\"state\":\"",
+                                       run->frame_state,
+                                       sizeof run->frame_state);
+        (void)gbl_playable0_json_unsigned(frame, "\"byte_length\":", false,
+                                          &run->frame_length);
+        (void)gbl_playable0_json_unsigned(frame, "\"sample_cycle\":", true,
+                                          &run->sample_cycle);
+        (void)gbl_playable0_json_unsigned(frame, "\"completion_cycle\":",
+                                          true, &run->completion_cycle);
+    }
+    if (video != NULL) {
+        (void)gbl_playable0_json_string(video, "\"sha256\":\"",
+                                       run->video_sha256,
+                                       sizeof run->video_sha256);
+    }
+    if (input != NULL) {
+        (void)gbl_playable0_json_string(input, "\"sha256\":\"",
+                                       run->input_sha256,
+                                       sizeof run->input_sha256);
+    }
+    return true;
+}
+
+static bool gbl_playable0_write_timeline(const char *path, bool final_right)
+{
+    FILE *file = fopen(path, "wb");
+    bool okay;
+
+    if (file == NULL) {
+        return false;
+    }
+    okay = fputs(final_right
+                     ? "0 0\n1450000 16\n1730000 17\n2010000 1\n2290000 16\n"
+                     : "0 0\n1450000 16\n1730000 17\n2010000 1\n2290000 0\n",
+                 file) >= 0;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_playable0_read_frame(gbl_playable0_run *run,
+                                     const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (file == NULL) {
+        return false;
+    }
+    run->frame = malloc(GBL_RUNNER_VIDEO_BYTES);
+    if (run->frame == NULL) {
+        (void)fclose(file);
+        return false;
+    }
+    length = fread(run->frame, 1u, GBL_RUNNER_VIDEO_BYTES, file);
+    extra = fgetc(file);
+    okay = length == GBL_RUNNER_VIDEO_BYTES && extra == EOF &&
+           ferror(file) == 0;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    if (!okay) {
+        free(run->frame);
+        run->frame = NULL;
+        return false;
+    }
+    run->frame_size = length;
+    return true;
+}
+
+static bool gbl_playable0_run_guest(const char *scratch_directory,
+                                   const char *run_name,
+                                   const char *fixture_id,
+                                   const char *rom_name, bool final_right,
+                                   gbl_playable0_run *run)
+{
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char input_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char result_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char error_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char video_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    struct timespec poll_wait = { 0, 10000000L };
+    pid_t child;
+    int child_status = 0;
+    size_t tick;
+
+    memset(run, 0, sizeof *run);
+    if (!gbl_test_path(rom_path, sizeof rom_path, GBL_RUNNER_TEST_FIXTURE_DIR,
+                       rom_name) ||
+        !gbl_test_path(input_path, sizeof input_path, scratch_directory,
+                       run_name) ||
+        !gbl_test_path(result_path, sizeof result_path, scratch_directory,
+                       run_name) ||
+        !gbl_test_path(error_path, sizeof error_path, scratch_directory,
+                       run_name) ||
+        !gbl_test_path(video_path, sizeof video_path, scratch_directory,
+                       run_name) ||
+        strlen(input_path) + sizeof ".input" >= sizeof input_path ||
+        strlen(result_path) + sizeof ".json" >= sizeof result_path ||
+        strlen(error_path) + sizeof ".stderr" >= sizeof error_path ||
+        strlen(video_path) + sizeof ".raw" >= sizeof video_path) {
+        return false;
+    }
+    strcat(input_path, ".input");
+    strcat(result_path, ".json");
+    strcat(error_path, ".stderr");
+    strcat(video_path, ".raw");
+    if (!gbl_playable0_write_timeline(input_path, final_right)) {
+        return false;
+    }
+    (void)remove(result_path);
+    (void)remove(error_path);
+    (void)remove(video_path);
+
+    child = fork();
+    if (child < 0) {
+        return false;
+    }
+    if (child == 0) {
+        const int out_fd = open(result_path, O_CREAT | O_TRUNC | O_WRONLY,
+                                0600);
+        const int err_fd = open(error_path, O_CREAT | O_TRUNC | O_WRONLY,
+                                0600);
+
+        if (out_fd < 0 || err_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0 ||
+            dup2(err_fd, STDERR_FILENO) < 0) {
+            _exit(126);
+        }
+        (void)close(out_fd);
+        (void)close(err_fd);
+        execl(GBL_RUNNER_TEST_PLAYABLE_CLI, "gamebloke-run", "--rom",
+              rom_path, "--fixture", fixture_id, "--cycles", "2808960",
+              "--input-script", input_path, "--video-output", video_path,
+              (char *)NULL);
+        _exit(127);
+    }
+
+    for (tick = 0u; tick < GBL_PLAYABLE0_WATCHDOG_TICKS; ++tick) {
+        const pid_t waited = waitpid(child, &child_status, WNOHANG);
+
+        if (waited == child) {
+            if (!WIFEXITED(child_status) ||
+                (WEXITSTATUS(child_status) != 0 &&
+                 WEXITSTATUS(child_status) != 1) ||
+                !gbl_test_read_file(result_path, run->json,
+                                   sizeof run->json)) {
+                return false;
+            }
+            run->exit_code = WEXITSTATUS(child_status);
+            return gbl_playable0_parse_result(run);
+        }
+        if (waited < 0 && errno != EINTR) {
+            (void)kill(child, SIGKILL);
+            (void)waitpid(child, &child_status, 0);
+            return false;
+        }
+        (void)nanosleep(&poll_wait, NULL);
+    }
+    (void)kill(child, SIGKILL);
+    (void)waitpid(child, &child_status, 0);
+    return false;
+}
+
+static uint16_t gbl_playable0_pixel(const uint8_t *frame, unsigned x,
+                                   unsigned y)
+{
+    const size_t offset = ((size_t)y * 240u + (size_t)x) * 2u;
+
+    return (uint16_t)((uint16_t)frame[offset] |
+                      ((uint16_t)frame[offset + 1u] << 8u));
+}
+
+static bool gbl_playable0_region_is(const uint8_t *frame, unsigned x,
+                                    unsigned y, uint16_t color)
+{
+    unsigned row;
+    unsigned column;
+
+    if (frame == NULL || x > 232u || y > 152u) {
+        return false;
+    }
+    for (row = 0u; row < 8u; ++row) {
+        for (column = 0u; column < 8u; ++column) {
+            if (gbl_playable0_pixel(frame, x + column, y + row) != color) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool gbl_playable0_find_region(const uint8_t *frame, uint16_t color,
+                                      unsigned *found_x,
+                                      unsigned *found_y)
+{
+    unsigned y;
+
+    if (frame == NULL || found_x == NULL || found_y == NULL) {
+        return false;
+    }
+    for (y = 0u; y <= 152u; ++y) {
+        unsigned x;
+
+        for (x = 0u; x <= 232u; ++x) {
+            if (gbl_playable0_pixel(frame, x, y) == color &&
+                gbl_playable0_region_is(frame, x, y, color)) {
+                *found_x = x;
+                *found_y = y;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static size_t gbl_playable0_difference_count(const uint8_t *left,
+                                            const uint8_t *right,
+                                            size_t length)
+{
+    size_t index;
+    size_t differences = 0u;
+
+    for (index = 0u; index < length; ++index) {
+        if (left[index] != right[index]) {
+            differences++;
+        }
+    }
+    return differences;
+}
+
+static const char *gbl_playable0_evaluate(const gbl_playable0_run *run,
+                                         const char *expected_fixture,
+                                         const uint8_t *frame,
+                                         uint64_t expected_case,
+                                         unsigned expected_x,
+                                         uint16_t expected_color,
+                                         uint64_t expected_keyinput)
+{
+    unsigned actual_x;
+    unsigned actual_y;
+
+    if (run->exit_code != 0 || strcmp(run->status, "PASS") != 0 ||
+        strcmp(run->fixture_id, expected_fixture) != 0) {
+        return "fixture-status-or-registration";
+    }
+    if (strcmp(run->semantic_state, "pass") != 0) {
+        return "mailbox-not-pass";
+    }
+    actual_x = (unsigned)((run->case_id >> 13u) & UINT64_C(0xFF));
+    if (actual_x != expected_x) {
+        return "guest-position";
+    }
+    if (run->case_id != expected_case) {
+        return "mailbox-progress";
+    }
+    if (run->applied_events != 5u || run->pending_events != 0u ||
+        run->keyinput != expected_keyinput) {
+        return "input-observation";
+    }
+    if (run->cycles == 0u || run->cycles > GBL_PLAYABLE0_TEST_CYCLES ||
+        strcmp(run->frame_state, "valid") != 0 ||
+        run->frame_length != GBL_RUNNER_VIDEO_BYTES ||
+        run->frame_size != GBL_RUNNER_VIDEO_BYTES || frame == NULL) {
+        return "complete-raw-frame";
+    }
+    if (!gbl_playable0_region_is(frame, expected_x, 80u, expected_color)) {
+        if (gbl_playable0_find_region(frame, expected_color, &actual_x,
+                                      &actual_y)) {
+            return actual_x != expected_x || actual_y != 80u
+                       ? "guest-position"
+                       : "raw-frame-color";
+        }
+        return "raw-frame-color";
+    }
+    return NULL;
+}
+
+static bool gbl_playable0_hash_matches(const gbl_playable0_run *run)
+{
+    char actual[GBL_SHA256_HEX_CAPACITY];
+
+    return run->frame != NULL &&
+           gbl_sha256_span(run->frame, run->frame_size, actual) &&
+           strcmp(actual, run->video_sha256) == 0;
+}
+
+static bool gbl_playable0_replay_matches(const gbl_playable0_run *left,
+                                         const gbl_playable0_run *right)
+{
+    return strcmp(left->status, right->status) == 0 &&
+           strcmp(left->reason, right->reason) == 0 &&
+           strcmp(left->fixture_id, right->fixture_id) == 0 &&
+           strcmp(left->semantic_state, right->semantic_state) == 0 &&
+           left->case_id == right->case_id && left->cycles == right->cycles &&
+           left->instructions == right->instructions &&
+           left->applied_events == right->applied_events &&
+           left->pending_events == right->pending_events &&
+           left->keyinput == right->keyinput &&
+           left->frame_epoch == right->frame_epoch &&
+           left->sample_cycle == right->sample_cycle &&
+           left->completion_cycle == right->completion_cycle &&
+           left->frame_length == right->frame_length &&
+           strcmp(left->input_sha256, right->input_sha256) == 0 &&
+           strcmp(left->video_sha256, right->video_sha256) == 0 &&
+           left->frame_size == right->frame_size && left->frame != NULL &&
+           right->frame != NULL &&
+           memcmp(left->frame, right->frame, left->frame_size) == 0;
+}
+
+static void gbl_playable0_dispose(gbl_playable0_run *run)
+{
+    free(run->frame);
+    run->frame = NULL;
+    run->frame_size = 0u;
+}
+
+static bool gbl_test_runner_playable0_verify(const char *scratch_directory)
+{
+    gbl_playable0_run neutral = { 0 };
+    gbl_playable0_run repeated = { 0 };
+    gbl_playable0_run changed = { 0 };
+    gbl_playable0_run interleaved = { 0 };
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    const char *neutral_error;
+    const char *changed_error;
+    bool setup;
+    bool replay;
+
+    setup = gbl_playable0_run_guest(scratch_directory, "neutral",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &neutral) &&
+            gbl_playable0_run_guest(scratch_directory, "repeat",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &repeated) &&
+            gbl_playable0_run_guest(scratch_directory, "changed",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    true, &changed) &&
+            gbl_playable0_run_guest(scratch_directory, "interleaved",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &interleaved);
+    if (!setup) {
+        gbl_playable0_dispose(&neutral);
+        gbl_playable0_dispose(&repeated);
+        gbl_playable0_dispose(&changed);
+        gbl_playable0_dispose(&interleaved);
+        return false;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "neutral.raw");
+    if (!gbl_playable0_read_frame(&neutral, path)) {
+        neutral.frame = NULL;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "repeat.raw");
+    if (!gbl_playable0_read_frame(&repeated, path)) {
+        repeated.frame = NULL;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "changed.raw");
+    if (!gbl_playable0_read_frame(&changed, path)) {
+        changed.frame = NULL;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory,
+                        "interleaved.raw");
+    if (!gbl_playable0_read_frame(&interleaved, path)) {
+        interleaved.frame = NULL;
+    }
+
+    neutral_error = gbl_playable0_evaluate(
+        &neutral, "owned-playable0", neutral.frame, UINT64_C(0xABE80000), 64u,
+        UINT16_C(0x03E0), UINT64_C(1023));
+    gbl_test_case(neutral_error == NULL,
+                  "registered local guest returns PASS with five-word mailbox progress");
+    gbl_test_case(neutral_error == NULL && neutral.applied_events == 5u &&
+                      neutral.pending_events == 0u && neutral.keyinput == 1023u &&
+                      neutral.cycles <= GBL_PLAYABLE0_TEST_CYCLES,
+                  "neutral/right/hold/release input observations and cycle budget are separate");
+
+    replay = gbl_playable0_hash_matches(&neutral) &&
+             gbl_playable0_replay_matches(&neutral, &repeated) &&
+             gbl_playable0_replay_matches(&neutral, &interleaved);
+    gbl_test_case(replay,
+                  "fresh and interleaved baseline runs match metadata and all 76,800 raw bytes");
+    changed_error = gbl_playable0_evaluate(
+        &changed, "owned-playable0", changed.frame,
+        UINT64_C(0xABF00000), 128u,
+        UINT16_C(0x03E0), UINT64_C(1007));
+    gbl_test_case(changed_error == NULL && gbl_playable0_hash_matches(&changed) &&
+                      changed.frame != NULL && neutral.frame != NULL &&
+                      strcmp(neutral.video_sha256, changed.video_sha256) != 0 &&
+                      gbl_playable0_difference_count(
+                          neutral.frame, changed.frame,
+                          GBL_RUNNER_VIDEO_BYTES) == 256u,
+                  "final RIGHT moves the marker to x=128 and changes its two 8x8 regions");
+
+    gbl_playable0_dispose(&neutral);
+    gbl_playable0_dispose(&repeated);
+    gbl_playable0_dispose(&changed);
+    gbl_playable0_dispose(&interleaved);
+    return true;
+}
+
+static bool gbl_test_runner_playable0_control(const char *scratch_directory)
+{
+    gbl_playable0_run clean = { 0 };
+    gbl_playable0_run input_disabled = { 0 };
+    gbl_playable0_run wrong_color = { 0 };
+    gbl_playable0_run wrong_address = { 0 };
+    const char *input_reason;
+    const char *color_reason;
+    const char *address_reason;
+    uint8_t *tampered = NULL;
+    bool setup;
+    bool tampered_rejected = false;
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    size_t pixel_offset;
+
+    setup = gbl_playable0_run_guest(scratch_directory, "clean",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &clean) &&
+            gbl_playable0_run_guest(
+                scratch_directory, "input-disabled",
+                "owned-playable0-input-disabled",
+                "owned-playable0-input-disabled.gba", true,
+                &input_disabled) &&
+            gbl_playable0_run_guest(
+                scratch_directory, "wrong-color", "owned-playable0-wrong-color",
+                "owned-playable0-wrong-color.gba", false, &wrong_color) &&
+            gbl_playable0_run_guest(
+                scratch_directory, "wrong-address",
+                "owned-playable0-wrong-address",
+                "owned-playable0-wrong-address.gba", false, &wrong_address);
+    if (!setup) {
+        gbl_playable0_dispose(&clean);
+        gbl_playable0_dispose(&input_disabled);
+        gbl_playable0_dispose(&wrong_color);
+        gbl_playable0_dispose(&wrong_address);
+        return false;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "clean.raw");
+    setup = gbl_playable0_read_frame(&clean, path);
+    (void)gbl_test_path(path, sizeof path, scratch_directory,
+                        "input-disabled.raw");
+    setup = setup && gbl_playable0_read_frame(&input_disabled, path);
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "wrong-color.raw");
+    setup = setup && gbl_playable0_read_frame(&wrong_color, path);
+    (void)gbl_test_path(path, sizeof path, scratch_directory,
+                        "wrong-address.raw");
+    setup = setup && gbl_playable0_read_frame(&wrong_address, path);
+    if (!setup) {
+        gbl_playable0_dispose(&clean);
+        gbl_playable0_dispose(&input_disabled);
+        gbl_playable0_dispose(&wrong_color);
+        gbl_playable0_dispose(&wrong_address);
+        return false;
+    }
+
+    gbl_test_case(
+        gbl_playable0_evaluate(&clean, "owned-playable0", clean.frame,
+                               UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0),
+                               UINT64_C(1023)) == NULL,
+        "clean baseline twin passes the source-bound mailbox and pixel evaluator");
+    input_reason = gbl_playable0_evaluate(
+        &input_disabled, "owned-playable0-input-disabled",
+        input_disabled.frame, UINT64_C(0xABF00000), 128u, UINT16_C(0x03E0),
+        UINT64_C(1007));
+    gbl_test_case(input_reason != NULL &&
+                      strcmp(input_reason, "guest-position") == 0,
+                  "input-disabled guest is rejected for missing right-key movement");
+    color_reason = gbl_playable0_evaluate(
+        &wrong_color, "owned-playable0-wrong-color", wrong_color.frame,
+        UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0), UINT64_C(1023));
+    gbl_test_case(color_reason != NULL &&
+                      strcmp(color_reason, "raw-frame-color") == 0,
+                  "wrong-color guest is rejected by the named raw pixel check");
+    address_reason = gbl_playable0_evaluate(
+        &wrong_address, "owned-playable0-wrong-address", wrong_address.frame,
+        UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0), UINT64_C(1023));
+    gbl_test_case(address_reason != NULL &&
+                      strcmp(address_reason, "guest-position") == 0,
+                  "wrong-address guest is rejected by the named marker position check");
+
+    tampered = malloc(GBL_RUNNER_VIDEO_BYTES);
+    if (tampered != NULL) {
+        memcpy(tampered, clean.frame, GBL_RUNNER_VIDEO_BYTES);
+        pixel_offset = ((size_t)80u * 240u + 64u) * 2u;
+        tampered[pixel_offset] ^= UINT8_C(1);
+        tampered_rejected =
+            strcmp(gbl_playable0_evaluate(
+                       &clean, "owned-playable0", tampered,
+                       UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0),
+                       UINT64_C(1023)),
+                   "raw-frame-color") == 0;
+    }
+    gbl_test_case(tampered_rejected,
+                  "one-byte frame tamper is rejected by semantic pixel inspection");
+
+    free(tampered);
+    gbl_playable0_dispose(&clean);
+    gbl_playable0_dispose(&input_disabled);
+    gbl_playable0_dispose(&wrong_color);
+    gbl_playable0_dispose(&wrong_address);
+    return true;
+}
+#endif
+
 static bool gbl_test_runner_dma_observation(const char *scratch_directory)
 {
     char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
@@ -2546,6 +3187,41 @@ int main(int argc, char **argv)
         argv[2][0] != '\0') {
         return gbl_test_prepare_refusal_inputs(argv[2]) ? 0 : 1;
     }
+#ifdef GBL_RUNNER_TEST_LOCAL_PLAYABLE0
+    if (argc == 4 && strcmp(argv[1], "playable0") == 0 &&
+        (strcmp(argv[2], "verify") == 0 ||
+         strcmp(argv[2], "control") == 0) &&
+        argv[3][0] != '\0') {
+        bool setup;
+
+        if (mkdir(argv[3], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: Playable 0 scratch setup failed\n", stderr);
+            return 2;
+        }
+        if (stat(argv[3], &info) != 0 || !S_ISDIR(info.st_mode)) {
+            fputs("runner_test: Playable 0 scratch path is not a directory\n",
+                  stderr);
+            return 2;
+        }
+        if (strcmp(argv[2], "verify") == 0) {
+            printf("1..4\n");
+            setup = gbl_test_runner_playable0_verify(argv[3]);
+            if (!setup) {
+                fputs("runner_test: Playable 0 verification setup failed\n",
+                      stderr);
+                return 2;
+            }
+            return gbl_test_failures == 0u && gbl_test_number == 4u ? 0 : 1;
+        }
+        printf("1..5\n");
+        setup = gbl_test_runner_playable0_control(argv[3]);
+        if (!setup) {
+            fputs("runner_test: Playable 0 control setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 5u ? 0 : 1;
+    }
+#endif
     if (argc == 3 && strcmp(argv[1], "dma") == 0 && argv[2][0] != '\0') {
         if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
             fputs("runner_test: DMA scratch directory setup failed\n", stderr);
@@ -2597,6 +3273,7 @@ int main(int argc, char **argv)
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
         fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH | "
               "runner_test prepare DIR | runner_test dma SCRATCH_DIR | "
+              "runner_test playable0 {verify|control} SCRATCH_DIR | "
               "runner_test ppu.observation SCRATCH_DIR | "
               "runner_test ppu.output SCRATCH_DIR | "
               "runner_test ppu.output-controls SCRATCH_DIR\n",
