@@ -1,8 +1,8 @@
 #!/bin/sh
-# Local Linux runner for any workflow preset (developer tool; CI does not call
-# it). Runs `cmake --workflow --preset <preset>` in a digest-pinned ubuntu:26.04
-# container so a Linux-only failure (GCC-only warnings, sanitizer runtime
-# differences) shows up before a push.
+# Local Linux runner (developer tool; CI does not call it) in a digest-pinned
+# ubuntu:26.04 container so Linux-only failures (compiler warnings, sanitizer
+# runtime differences) show up before a push. Workflow presets run the full
+# CMake workflow; `compile` configures and builds the `ci` preset without tests.
 #
 #   sh scripts/linux-lane.sh <workflow-preset|compile> [gcc|clang]
 #
