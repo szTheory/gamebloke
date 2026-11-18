@@ -8,7 +8,7 @@ endforeach()
 get_filename_component(SRC "${SRC}" ABSOLUTE)
 get_filename_component(BIN "${BIN}" ABSOLUTE)
 
-if(NOT CASE STREQUAL "admission")
+if(NOT CASE MATCHES "^(admission|verify|control)$")
   message(FATAL_ERROR "playable0-guest: unknown case ${CASE}")
 endif()
 
@@ -16,6 +16,22 @@ set(generator "${BIN}/gbl_instruction_image")
 if(DEFINED GENERATOR AND NOT "${GENERATOR}" STREQUAL "")
   set(generator "${GENERATOR}")
 endif()
+
+if(CASE STREQUAL "verify" OR CASE STREQUAL "control")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}" "-DBIN=${SRC}/build/ci"
+      -DCASE=verify -P "${SRC}/tests/gates/phase10_policy.cmake"
+    RESULT_VARIABLE preflight_result
+    OUTPUT_VARIABLE preflight_output
+    ERROR_VARIABLE preflight_error
+    TIMEOUT 30)
+  if(NOT "${preflight_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "playable0-guest: phase10 preflight failed (${preflight_result}); ${preflight_error}${preflight_output}")
+  endif()
+endif()
+
+if(CASE STREQUAL "admission")
 set(output_dir "${BIN}/playable0-admission")
 if(NOT EXISTS "${generator}" OR IS_DIRECTORY "${generator}")
   message(FATAL_ERROR "playable0-guest: local instruction generator is missing")
@@ -80,3 +96,79 @@ if(EXISTS "${ci_refusal_dir}/generated/fixtures/owned-playable0.gba")
   message(FATAL_ERROR "playable0-guest: CI refusal left a local guest artifact")
 endif()
 message(STATUS "playable0-guest: original local guest generation admitted")
+return()
+endif()
+
+set(output_dir "${BIN}/playable0")
+set(runner "${BIN}/gamebloke-run")
+set(guest "${BIN}/generated/fixtures/owned-playable0.gba")
+set(input_script "${output_dir}/neutral-right-hold-release.txt")
+set(video_path "${output_dir}/neutral.raw")
+file(MAKE_DIRECTORY "${output_dir}")
+foreach(path IN ITEMS "${runner}" "${guest}")
+  if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+    message(FATAL_ERROR "playable0-guest: local run input is missing: ${path}")
+  endif()
+endforeach()
+
+file(WRITE "${input_script}"
+  "0 0\n1450000 16\n1730000 17\n2010000 1\n2290000 0\n")
+execute_process(
+  COMMAND "${runner}" --rom "${guest}" --fixture owned-playable0
+    --cycles 2808960 --input-script "${input_script}"
+    --video-output "${video_path}"
+  RESULT_VARIABLE run_result
+  OUTPUT_VARIABLE run_output
+  ERROR_VARIABLE run_error
+  TIMEOUT 30)
+if(NOT "${run_result}" STREQUAL "0" AND
+    NOT "${run_result}" STREQUAL "1")
+  message(FATAL_ERROR
+    "playable0-guest: runner did not complete a bounded result (${run_result}); ${run_error}${run_output}")
+endif()
+string(REGEX MATCH "^[{][^\n]*[}]\n$" one_json_line "${run_output}")
+if(NOT "${one_json_line}" STREQUAL "${run_output}")
+  message(FATAL_ERROR "playable0-guest: runner did not write one JSON result line")
+endif()
+string(JSON actual_status ERROR_VARIABLE status_error GET "${run_output}" status)
+string(JSON actual_reason ERROR_VARIABLE reason_error GET "${run_output}" reason)
+if(NOT "${status_error}" STREQUAL "NOTFOUND" OR
+    NOT "${reason_error}" STREQUAL "NOTFOUND")
+  message(FATAL_ERROR
+    "playable0-guest: runner result JSON is malformed; ${status_error}${reason_error}")
+endif()
+if(NOT "${actual_status}" STREQUAL "PASS" OR
+    NOT "${run_result}" STREQUAL "0")
+  message(FATAL_ERROR
+    "playable0-guest: expected registered local status PASS; got ${actual_status}/${actual_reason} (exit ${run_result})")
+endif()
+string(JSON semantic_state GET "${run_output}" semantic state)
+string(JSON semantic_case GET "${run_output}" semantic case_id)
+string(JSON applied_events GET "${run_output}" phase8 keypad applied_events)
+string(JSON pending_events GET "${run_output}" phase8 keypad pending_events)
+string(JSON final_keyinput GET "${run_output}" phase8 keypad keyinput)
+string(JSON cycle_count GET "${run_output}" time cycles)
+string(JSON frame_state GET "${run_output}" phase10 frame state)
+string(JSON frame_length GET "${run_output}" phase10 frame byte_length)
+string(JSON video_emitted GET "${run_output}" raw_video emitted)
+string(JSON reported_video_sha GET "${run_output}" raw_video sha256)
+if(NOT semantic_state STREQUAL "pass" OR
+    NOT semantic_case STREQUAL "2884108288" OR
+    NOT applied_events STREQUAL "5" OR NOT pending_events STREQUAL "0" OR
+    NOT final_keyinput STREQUAL "1023" OR
+    NOT cycle_count MATCHES "^[1-9][0-9]*$" OR
+    cycle_count GREATER 2808960 OR NOT frame_state STREQUAL "valid" OR
+    NOT frame_length STREQUAL "76800" OR NOT video_emitted OR
+    NOT EXISTS "${video_path}")
+  message(FATAL_ERROR
+    "playable0-guest: semantic/frame expectation failed (semantic=${semantic_state}/${semantic_case}; input=${applied_events}/${pending_events}/${final_keyinput}; cycles=${cycle_count}; frame=${frame_state}/${frame_length}; emitted=${video_emitted})")
+endif()
+file(SIZE "${video_path}" actual_video_length)
+file(SHA256 "${video_path}" actual_video_sha)
+if(NOT actual_video_length EQUAL 76800 OR
+    NOT actual_video_sha STREQUAL reported_video_sha)
+  message(FATAL_ERROR
+    "playable0-guest: raw output metadata mismatch (${actual_video_length}/${actual_video_sha}/${reported_video_sha})")
+endif()
+message(STATUS
+  "playable0-guest: registered PASS; case=${semantic_case}; events=${applied_events}; cycles=${cycle_count}; raw_bytes=${actual_video_length}; sha256=${actual_video_sha}")

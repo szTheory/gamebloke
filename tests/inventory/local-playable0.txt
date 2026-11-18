@@ -1,2 +1,3 @@
 inventory.junit post
 playable0_admission core,integration,local,playable0
+playable0_verify core,integration,local,playable0

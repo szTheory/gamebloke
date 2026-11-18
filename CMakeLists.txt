@@ -420,7 +420,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   add_dependencies(gamebloke-run-control gbl_fixture_indexes)
 
   # Exercise the actual host runner modules against the build-only synthetic
-  # index. The production CLI remains bound to the canonical empty index.
+  # index, except for the separately selected local Playable 0 mode.
   add_executable(runner_test tests/runner_test.c runner/run.c runner/result.c
     runner/sha256.c)
   set(GBL_RUNNER_TEST_INDEX_DIR "${GBL_CONTROL_INDEX_DIR}")
@@ -497,14 +497,16 @@ elseif(GBL_LANE STREQUAL "local-timer0")
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/timer0_guest.cmake")
 elseif(GBL_LANE STREQUAL "local-playable0")
-  gbl_add_test(
-    NAME playable0_admission
-    LABELS core integration playable0 local
-    COMMAND "${CMAKE_COMMAND}"
-      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
-      "-DCASE=admission"
-      "-DGENERATOR=$<TARGET_FILE:gbl_instruction_image>"
-      -P "${CMAKE_SOURCE_DIR}/tests/gates/playable0_guest.cmake")
+  foreach(case IN ITEMS admission verify)
+    gbl_add_test(
+      NAME "playable0_${case}"
+      LABELS core integration playable0 local
+      COMMAND "${CMAKE_COMMAND}"
+        "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+        "-DCASE=${case}"
+        "-DGENERATOR=$<TARGET_FILE:gbl_instruction_image>"
+        -P "${CMAKE_SOURCE_DIR}/tests/gates/playable0_guest.cmake")
+  endforeach()
 endif()
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)
