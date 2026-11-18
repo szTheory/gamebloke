@@ -1,0 +1,2 @@
+inventory.junit post
+playable0_admission core,integration,local,playable0

@@ -24,16 +24,16 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Lane selection. Each lane has its own sorted test inventory under
 # tests/inventory/<lane>.txt. Later plans add each lane's content.
 set(GBL_LANE "ci" CACHE STRING
-  "Verification lane: ci | asan | hygiene | diagnostics | local-timer0")
+  "Verification lane: ci | asan | hygiene | diagnostics | local-timer0 | local-playable0")
 set_property(CACHE GBL_LANE PROPERTY STRINGS
-  ci asan hygiene diagnostics local-timer0)
-if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics|local-timer0)$")
+  ci asan hygiene diagnostics local-timer0 local-playable0)
+if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics|local-timer0|local-playable0)$")
   message(FATAL_ERROR
-    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, diagnostics, or local-timer0)")
+    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, diagnostics, local-timer0, or local-playable0)")
 endif()
-if(GBL_LANE STREQUAL "local-timer0" AND "$ENV{CI}")
+if(GBL_LANE MATCHES "^local-(timer0|playable0)$" AND "$ENV{CI}")
   message(FATAL_ERROR
-    "gamebloke: local-timer0 lane is prohibited when CI=true")
+    "gamebloke: ${GBL_LANE} lane is prohibited when CI=true")
 endif()
 
 # Host-only determinism is the reversible local default. A nonempty environment
@@ -131,7 +131,8 @@ include(cmake/GblTests.cmake)
 
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
    GBL_LANE STREQUAL "diagnostics" OR
-   GBL_LANE STREQUAL "local-timer0")
+   GBL_LANE STREQUAL "local-timer0" OR
+   GBL_LANE STREQUAL "local-playable0")
   include(cmake/ReadLogoDigest.cmake)
   set(GBL_LOGO_AUTHORITY "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -214,6 +215,13 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       owned-timer0-pass.gba
       owned-timer0-disabled.gba)
     set(GBL_LOCAL_TIMER0_GENERATOR_ARGS --include-local-timer0)
+  elseif(GBL_LANE STREQUAL "local-playable0")
+    list(APPEND GBL_OWNED_FIXTURE_NAMES
+      owned-playable0.gba
+      owned-playable0-input-disabled.gba
+      owned-playable0-wrong-color.gba
+      owned-playable0-wrong-address.gba)
+    set(GBL_LOCAL_TIMER0_GENERATOR_ARGS --include-local-playable0)
   endif()
   set(GBL_OWNED_FIXTURE_FILES "")
   foreach(fixture IN LISTS GBL_OWNED_FIXTURE_NAMES)
@@ -480,6 +488,15 @@ elseif(GBL_LANE STREQUAL "local-timer0")
     COMMAND "${CMAKE_COMMAND}"
       "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/timer0_guest.cmake")
+elseif(GBL_LANE STREQUAL "local-playable0")
+  gbl_add_test(
+    NAME playable0_admission
+    LABELS core integration playable0 local
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=admission"
+      "-DGENERATOR=$<TARGET_FILE:gbl_instruction_image>"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/playable0_guest.cmake")
 endif()
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)

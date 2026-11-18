@@ -68,6 +68,15 @@
         "GBL_DIAGNOSTIC_STAGE": "admitted",
         "GBL_DIAGNOSTIC_GROUP": "thumb"
       }
+    },
+    {
+      "name": "local-playable0",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "local-playable0"
+      }
     }
   ],
   "buildPresets": [
@@ -82,6 +91,10 @@
     {
       "name": "diagnostics-thumb",
       "configurePreset": "diagnostics-thumb"
+    },
+    {
+      "name": "local-playable0",
+      "configurePreset": "local-playable0"
     }
   ],
   "testPresets": [
