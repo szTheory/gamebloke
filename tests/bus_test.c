@@ -1500,6 +1500,29 @@ static int run_ppu_registers(void)
     CHECK((machine->interrupt_flags & UINT16_C(0x0004)) == 0u);
     free_machine(machine);
 
+    {
+        gbl_machine *same_cycle = new_machine();
+
+        CHECK(same_cycle != NULL);
+        if (same_cycle != NULL) {
+            result = gbl_bus_write(same_cycle, UINT32_C(0x04000004), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0100));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK((same_cycle->ppu.dispstat & UINT16_C(0x0004)) == 0u);
+            CHECK(gbl_machine_advance_to(same_cycle, UINT64_C(1231)) ==
+                  GBL_TIME_STATUS_OK);
+            result = gbl_bus_write(same_cycle, UINT32_C(0x04000004), 1u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0020));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(same_cycle->ppu.line == 1u);
+            CHECK((same_cycle->ppu.dispstat & UINT16_C(0x0004)) != 0u);
+            CHECK((same_cycle->interrupt_flags & UINT16_C(0x0004)) == 0u);
+            free_machine(same_cycle);
+        }
+    }
+
     for (index = 0u; index < 3u; ++index) {
         gbl_machine *irq_machine = new_machine();
         uint16_t enable = (uint16_t)(UINT16_C(1) << index);
