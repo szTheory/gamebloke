@@ -214,14 +214,14 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     list(APPEND GBL_OWNED_FIXTURE_NAMES
       owned-timer0-pass.gba
       owned-timer0-disabled.gba)
-    set(GBL_LOCAL_TIMER0_GENERATOR_ARGS --include-local-timer0)
+    set(GBL_LOCAL_GUEST_GENERATOR_ARGS --include-local-timer0)
   elseif(GBL_LANE STREQUAL "local-playable0")
     list(APPEND GBL_OWNED_FIXTURE_NAMES
       owned-playable0.gba
       owned-playable0-input-disabled.gba
       owned-playable0-wrong-color.gba
       owned-playable0-wrong-address.gba)
-    set(GBL_LOCAL_TIMER0_GENERATOR_ARGS --include-local-playable0)
+    set(GBL_LOCAL_GUEST_GENERATOR_ARGS --include-local-playable0)
   endif()
   set(GBL_OWNED_FIXTURE_FILES "")
   foreach(fixture IN LISTS GBL_OWNED_FIXTURE_NAMES)
@@ -231,7 +231,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     OUTPUT ${GBL_OWNED_FIXTURE_FILES}
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${GBL_FIXTURE_DIR}"
     COMMAND "$<TARGET_FILE:gbl_instruction_image>" "${GBL_FIXTURE_DIR}"
-      ${GBL_LOCAL_TIMER0_GENERATOR_ARGS}
+      ${GBL_LOCAL_GUEST_GENERATOR_ARGS}
     DEPENDS gbl_instruction_image
     COMMENT "Generating original owned instruction images under the build tree"
     VERBATIM)
@@ -423,8 +423,16 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   # index. The production CLI remains bound to the canonical empty index.
   add_executable(runner_test tests/runner_test.c runner/run.c runner/result.c
     runner/sha256.c)
+  set(GBL_RUNNER_TEST_INDEX_DIR "${GBL_CONTROL_INDEX_DIR}")
+  if(GBL_LANE STREQUAL "local-playable0")
+    # The explicitly selected local guest mode needs its canonical local-only
+    # fixture row. Other lanes keep the generated synthetic control index.
+    set(GBL_RUNNER_TEST_INDEX_DIR "${GBL_PRODUCTION_INDEX_DIR}")
+    target_compile_definitions(runner_test PRIVATE
+      GBL_RUNNER_TEST_LOCAL_PLAYABLE0=1)
+  endif()
   target_include_directories(runner_test PRIVATE runner
-    "${GBL_CONTROL_INDEX_DIR}")
+    "${GBL_RUNNER_TEST_INDEX_DIR}")
   target_compile_definitions(runner_test PRIVATE
     "GBL_RUNNER_TEST_FIXTURE_DIR=\"${GBL_FIXTURE_DIR}\""
     "GBL_RUNNER_TEST_SCRATCH_DIR=\"${CMAKE_BINARY_DIR}/runner-test\""
