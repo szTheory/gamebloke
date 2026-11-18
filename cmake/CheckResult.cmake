@@ -1,4 +1,4 @@
-# Result document validator (D-02, D-09, D-10, D-11, D-12, PROF-02, EVID-05, EVID-06).
+# Result document validator (D-02, D-05, D-09, D-10, D-11, D-12, PROF-02, EVID-05, EVID-06).
 #
 #   include(cmake/CheckResult.cmake)
 #   gbl_result_check(<result-file> <manifest-prefix> <registry-prefix> <vocab-prefix>)
@@ -75,6 +75,9 @@
 #   partial-phase9-extension one or more time.dma_* members exists without phase9
 #   bad-phase9-*           phase9 model, types, channel progress, timing, provenance,
 #                          ownership, latch disclosure, or Prefetch statement is invalid
+#   partial-phase10-extension `phase10` and `raw_video` are not both absent or both present
+#   bad-phase10-*           PPU/video types, frame validity, policy provenance, output state,
+#                          digest, or HBlank-dependent dispute disclosure is inconsistent
 #   bad-timer0-request    Timer 0 IF observation has an invalid type or run-state
 #   cycles-exceed-budget  reported cycles are greater than budget_cycles
 #   bad-termination       termination is missing, unnamed, or inconsistent with status
@@ -91,6 +94,7 @@ cmake_minimum_required(VERSION 3.25)
 include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckManifest.cmake")
+set(GBL_RESULT_AGB_PROFILE_PATH "${CMAKE_CURRENT_LIST_DIR}/../profiles/agb.json")
 
 # gbl__result_digest(<kind-out> <value-out> <doc> <key>...): classifies a digest slot.
 # kind is ABSENT (key missing), NULL, HEX (64 lowercase hex), TEXT (any other string), or
@@ -856,6 +860,536 @@ function(gbl__result_decimal_add out left right)
     string(PREPEND sum "${carry}")
   endif()
   set(${out} "${sum}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__result_decimal_mul_small out value factor)
+  string(LENGTH "${value}" digits)
+  set(offset 0)
+  set(carry 0)
+  set(product "")
+  while(offset LESS digits)
+    math(EXPR index "${digits}-${offset}-1")
+    string(SUBSTRING "${value}" ${index} 1 digit)
+    math(EXPR column "${digit}*${factor}+${carry}")
+    math(EXPR output_digit "${column}%10")
+    math(EXPR carry "${column}/10")
+    string(PREPEND product "${output_digit}")
+    math(EXPR offset "${offset}+1")
+  endwhile()
+  while(carry GREATER 0)
+    math(EXPR output_digit "${carry}%10")
+    math(EXPR carry "${carry}/10")
+    string(PREPEND product "${output_digit}")
+  endwhile()
+  if("${product}" STREQUAL "")
+    set(product "0")
+  endif()
+  set(${out} "${product}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__result_phase10_require_type doc label expected code)
+  gbl_json_type(actual_type "${doc}" ${ARGN})
+  if("${actual_type}" STREQUAL "MISSING" OR
+      "${actual_type}" STREQUAL "NULL")
+    gbl_finding(result missing-field "${label}")
+  elseif(NOT "${actual_type}" STREQUAL "${expected}")
+    gbl_finding(result "${code}" "${label} must be ${expected}")
+  endif()
+endfunction()
+
+function(gbl__result_phase10_expect_string doc label expected code)
+  gbl_json_type(actual_type "${doc}" ${ARGN})
+  if("${actual_type}" STREQUAL "MISSING" OR
+      "${actual_type}" STREQUAL "NULL")
+    gbl_finding(result missing-field "${label}")
+  elseif(NOT "${actual_type}" STREQUAL "STRING")
+    gbl_finding(result "${code}" "${label} must be a string")
+  else()
+    string(JSON actual GET "${doc}" ${ARGN})
+    if(NOT "${actual}" STREQUAL "${expected}")
+      gbl_finding(result "${code}" "${label} differs from the selected policy")
+    endif()
+  endif()
+endfunction()
+
+# Phase 10's additive result extension is all-or-nothing for result/1 records.
+# The accepted timing and row-sampling claims are read from the checked-in AGB
+# profile, while frame and byte-layout constraints describe the public producer.
+function(gbl__result_phase10_check doc time_cycles result_status result_ran
+    result_reason)
+  gbl_json_type(phase10_type "${doc}" phase10)
+  gbl_json_type(raw_video_type "${doc}" raw_video)
+  if("${phase10_type}" STREQUAL "MISSING" AND
+      "${raw_video_type}" STREQUAL "MISSING")
+    return()
+  elseif("${phase10_type}" STREQUAL "MISSING" OR
+      "${raw_video_type}" STREQUAL "MISSING")
+    gbl_finding(result partial-phase10-extension
+      "phase10 and raw_video must be wholly present or absent")
+    return()
+  endif()
+
+  if(NOT "${phase10_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase10-type "phase10 must be an object")
+    return()
+  endif()
+  if(NOT "${raw_video_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase10-type "raw_video must be an object")
+    return()
+  endif()
+
+  file(READ "${GBL_RESULT_AGB_PROFILE_PATH}" profile_doc)
+  string(JSON profile_hblank GET "${profile_doc}"
+    ppu_policy hblank_event_offset_cycles)
+  string(JSON profile_line_cycles GET "${profile_doc}" timing
+    cycles_per_line value)
+  string(JSON profile_hblank_source GET "${profile_doc}"
+    ppu_policy hblank_source)
+  string(JSON profile_timing_policy GET "${profile_doc}"
+    ppu_policy policy_classification)
+  string(JSON profile_hblank_classification GET "${profile_doc}"
+    ppu_policy hblank_dependent_classification)
+  string(JSON profile_hblank_dispute GET "${profile_doc}"
+    ppu_policy hblank_dispute)
+  string(JSON profile_hardware_qualification GET "${profile_doc}"
+    ppu_policy hblank_hardware_qualification)
+  math(EXPR profile_last_line_cycle "${profile_line_cycles}-1")
+
+  gbl__result_phase10_expect_string("${doc}" "phase10.model"
+    "gamebloke-ppu-observation-1" bad-phase10-type phase10 model)
+  gbl__result_phase10_require_type("${doc}" "phase10.observed" BOOLEAN
+    bad-phase10-type phase10 observed)
+  gbl__result_phase10_require_type("${doc}" "phase10.timing" OBJECT
+    bad-phase10-type phase10 timing)
+  gbl__result_phase10_expect_string("${doc}" "phase10.timing.model"
+    "gamebloke-ppu-model-1" bad-phase10-policy phase10 timing model)
+  gbl__result_phase10_expect_string("${doc}"
+    "phase10.timing.hblank_offset_cycles" "${profile_hblank}"
+    bad-phase10-policy phase10 timing hblank_offset_cycles)
+  gbl__result_phase10_expect_string("${doc}" "phase10.timing.policy"
+    "${profile_timing_policy}" bad-phase10-policy phase10 timing policy)
+  gbl__result_phase10_expect_string("${doc}"
+    "phase10.timing.evidence_class" "${profile_hblank_source}"
+    bad-phase10-policy phase10 timing evidence_class)
+  gbl__result_phase10_expect_string("${doc}"
+    "phase10.timing.classification" "${profile_hblank_classification}"
+    bad-phase10-policy phase10 timing classification)
+  gbl__result_phase10_expect_string("${doc}" "phase10.timing.dispute_id"
+    "${profile_hblank_dispute}" bad-phase10-policy phase10 timing dispute_id)
+  gbl__result_phase10_expect_string("${doc}"
+    "phase10.timing.hardware_qualification"
+    "${profile_hardware_qualification}" bad-phase10-policy
+    phase10 timing hardware_qualification)
+
+  gbl_json_type(p10_observed_type "${doc}" phase10 observed)
+  set(p10_observed FALSE)
+  if("${p10_observed_type}" STREQUAL "BOOLEAN")
+    string(JSON p10_observed GET "${doc}" phase10 observed)
+  endif()
+  if(p10_observed)
+    foreach(field IN ITEMS raster frame controls hblank_trigger_dependency)
+      gbl__result_phase10_require_type("${doc}" "phase10.${field}" OBJECT
+        bad-phase10-type phase10 ${field})
+    endforeach()
+  else()
+    foreach(field IN ITEMS raster frame controls hblank_trigger_dependency)
+      gbl_json_type(p10_null_type "${doc}" phase10 ${field})
+      if(NOT "${p10_null_type}" STREQUAL "NULL")
+        gbl_finding(result bad-phase10-not-observed
+          "unobserved PPU fields must be null")
+      endif()
+    endforeach()
+  endif()
+
+  # The reference note is present only once a PPU observation was made. It is
+  # descriptive provenance and never a hardware qualification.
+  gbl_json_type(timing_evidence_type "${doc}" phase10 timing evidence)
+  if(p10_observed)
+    if(NOT "${timing_evidence_type}" STREQUAL "STRING")
+      gbl_finding(result bad-phase10-policy
+        "observed PPU timing needs its reference evidence note")
+    endif()
+  elseif(NOT "${timing_evidence_type}" STREQUAL "MISSING" AND
+      NOT "${timing_evidence_type}" STREQUAL "NULL")
+    gbl_finding(result bad-phase10-policy
+      "unobserved PPU timing cannot carry an evidence note")
+  endif()
+
+  if(p10_observed)
+    foreach(field IN ITEMS line line_cycle machine_cycle frame_epoch)
+      gbl_json_type(raster_${field}_type "${doc}" phase10 raster ${field})
+      if("${raster_${field}_type}" STREQUAL "MISSING")
+        gbl_finding(result missing-field "phase10.raster.${field}")
+      endif()
+    endforeach()
+    gbl__result_uint32(raster_line_valid raster_line "${doc}" 227
+      phase10 raster line)
+    if(NOT raster_line_valid)
+      gbl_finding(result bad-phase10-raster "phase10.raster.line must be 0..227")
+    endif()
+    gbl__result_uint64(raster_line_cycle_valid raster_line_cycle "${doc}"
+      phase10 raster line_cycle)
+    if(NOT raster_line_cycle_valid)
+      gbl_finding(result bad-phase10-raster
+        "phase10.raster.line_cycle must be a uint64 decimal string")
+    else()
+      gbl__result_decimal_le(line_cycle_within_line "${raster_line_cycle}"
+        "${profile_last_line_cycle}")
+      if(NOT line_cycle_within_line)
+        gbl_finding(result bad-phase10-raster
+          "phase10.raster.line_cycle exceeds one line")
+      endif()
+    endif()
+    gbl__result_uint64(raster_machine_valid raster_machine "${doc}"
+      phase10 raster machine_cycle)
+    if(NOT raster_machine_valid)
+      gbl_finding(result bad-phase10-type
+        "phase10.raster.machine_cycle must be a uint64 decimal string")
+    elseif(NOT "${raster_machine}" STREQUAL "${time_cycles}")
+      gbl_finding(result bad-phase10-machine-time
+        "phase10.raster.machine_cycle differs from time.cycles")
+    endif()
+    gbl_json_type(raster_epoch_type "${doc}" phase10 raster frame_epoch)
+    if("${raster_epoch_type}" STREQUAL "STRING")
+      gbl__result_uint64(raster_epoch_valid raster_epoch "${doc}"
+        phase10 raster frame_epoch)
+      if(NOT raster_epoch_valid)
+        gbl_finding(result bad-phase10-raster
+          "phase10.raster.frame_epoch must be a uint64 decimal string or null")
+      endif()
+    elseif(NOT "${raster_epoch_type}" STREQUAL "NULL")
+      gbl_finding(result bad-phase10-raster
+        "phase10.raster.frame_epoch must be a uint64 decimal string or null")
+    endif()
+
+    gbl__result_phase10_require_type("${doc}" "phase10.controls.supported"
+      BOOLEAN bad-phase10-type phase10 controls supported)
+    gbl__result_phase10_require_type("${doc}"
+      "phase10.frame.supported_controls" BOOLEAN bad-phase10-type
+      phase10 frame supported_controls)
+    gbl_json_type(controls_supported_type "${doc}" phase10 controls supported)
+    gbl_json_type(frame_supported_type "${doc}" phase10 frame supported_controls)
+    if("${controls_supported_type}" STREQUAL "BOOLEAN" AND
+        "${frame_supported_type}" STREQUAL "BOOLEAN")
+      string(JSON controls_supported GET "${doc}" phase10 controls supported)
+      string(JSON frame_supported GET "${doc}" phase10 frame supported_controls)
+      if(NOT controls_supported STREQUAL frame_supported)
+        gbl_finding(result bad-phase10-frame
+          "controls.supported and frame.supported_controls differ")
+      endif()
+    endif()
+
+    foreach(pair IN ITEMS "width;240" "height;160" "stride_bytes;480"
+        "byte_length;76800")
+      list(GET pair 0 field)
+      list(GET pair 1 expected)
+      gbl_json_type(frame_${field}_type "${doc}" phase10 frame ${field})
+      if("${frame_${field}_type}" STREQUAL "MISSING" OR
+          "${frame_${field}_type}" STREQUAL "NULL")
+        gbl_finding(result missing-field "phase10.frame.${field}")
+      elseif(NOT "${frame_${field}_type}" STREQUAL "NUMBER")
+        gbl_finding(result bad-phase10-type
+          "phase10.frame.${field} must be an integer")
+      else()
+        string(JSON frame_${field} GET "${doc}" phase10 frame ${field})
+        if(NOT "${frame_${field}}" MATCHES "^(0|[1-9][0-9]*)$" OR
+            NOT "${frame_${field}}" STREQUAL "${expected}")
+          gbl_finding(result bad-phase10-frame
+            "phase10.frame.${field} must be ${expected}")
+        endif()
+      endif()
+    endforeach()
+    gbl__result_phase10_expect_string("${doc}" "phase10.frame.format"
+      "bgr555-le" bad-phase10-frame phase10 frame format)
+    gbl__result_phase10_expect_string("${doc}" "phase10.frame.source"
+      "canonical-vram" bad-phase10-frame phase10 frame source)
+    gbl__result_phase10_expect_string("${doc}" "phase10.frame.latch_policy"
+      "row-start" bad-phase10-policy phase10 frame latch_policy)
+
+    gbl_json_type(frame_state_type "${doc}" phase10 frame state)
+    gbl_json_type(frame_reason_type "${doc}" phase10 frame reason)
+    if(NOT "${frame_state_type}" STREQUAL "STRING")
+      gbl_finding(result bad-phase10-type "phase10.frame.state must be a string")
+    endif()
+    if(NOT "${frame_reason_type}" STREQUAL "STRING")
+      gbl_finding(result bad-phase10-type "phase10.frame.reason must be a string")
+    endif()
+    set(frame_state "")
+    set(frame_reason "")
+    if("${frame_state_type}" STREQUAL "STRING")
+      string(JSON frame_state GET "${doc}" phase10 frame state)
+    endif()
+    if("${frame_reason_type}" STREQUAL "STRING")
+      string(JSON frame_reason GET "${doc}" phase10 frame reason)
+    endif()
+    if(NOT "${frame_state}" MATCHES "^(invalid|incomplete|valid)$")
+      gbl_finding(result bad-phase10-frame "phase10.frame.state is unknown")
+    endif()
+    if(NOT "${frame_reason}" MATCHES
+        "^(none|incomplete|unsupported-mode|bg2-disabled|forced-blank|obj-enabled|window-enabled|effect-enabled|bg2-transform-unmodeled)$")
+      gbl_finding(result bad-phase10-frame "phase10.frame.reason is unknown")
+    endif()
+
+    foreach(field IN ITEMS epoch sample_cycle completion_cycle)
+      gbl_json_type(frame_${field}_type "${doc}" phase10 frame ${field})
+      if("${frame_${field}_type}" STREQUAL "MISSING")
+        gbl_finding(result missing-field "phase10.frame.${field}")
+      endif()
+    endforeach()
+    if("${frame_state}" STREQUAL "valid")
+      if(NOT "${frame_reason}" STREQUAL "none" OR
+          NOT controls_supported OR NOT frame_supported OR
+          NOT "${raster_epoch_type}" STREQUAL "STRING")
+        gbl_finding(result bad-phase10-frame-validity
+          "valid frame needs supported controls, a started epoch, and reason none")
+      endif()
+      foreach(field IN ITEMS epoch sample_cycle completion_cycle)
+        if(NOT "${frame_${field}_type}" STREQUAL "STRING")
+          gbl_finding(result bad-phase10-frame-validity
+            "valid frame needs ${field}")
+        else()
+          gbl__result_uint64(frame_${field}_valid frame_${field} "${doc}"
+            phase10 frame ${field})
+          if(NOT frame_${field}_valid)
+            gbl_finding(result bad-phase10-frame-validity
+              "phase10.frame.${field} must be a uint64 decimal string")
+          endif()
+        endif()
+      endforeach()
+      if("${frame_epoch_type}" STREQUAL "STRING" AND
+          "${raster_epoch_type}" STREQUAL "STRING" AND
+          NOT "${frame_epoch}" STREQUAL "${raster_epoch}")
+        gbl_finding(result bad-phase10-frame-validity
+          "frame epoch differs from the raster epoch")
+      endif()
+      if(frame_sample_cycle_valid AND frame_completion_cycle_valid)
+        math(EXPR completion_offset "160 * ${profile_line_cycles}")
+        string(JSON profile_frame_cycles GET "${profile_doc}" timing
+          cycles_per_frame value)
+        gbl__result_decimal_mul_small(expected_sample "${frame_epoch}"
+          "${profile_frame_cycles}")
+        if(NOT "${frame_sample_cycle}" STREQUAL "${expected_sample}")
+          gbl_finding(result bad-phase10-frame-validity
+            "sample_cycle must start the named frame epoch")
+        endif()
+        gbl__result_decimal_add(expected_completion "${frame_sample_cycle}"
+          "${completion_offset}")
+        if(NOT "${frame_completion_cycle}" STREQUAL "${expected_completion}")
+          gbl_finding(result bad-phase10-frame-validity
+            "completion_cycle must follow 160 row samples")
+        endif()
+        gbl__result_decimal_le(completion_within_time
+          "${frame_completion_cycle}" "${time_cycles}")
+        if(NOT completion_within_time)
+          gbl_finding(result bad-phase10-frame-validity
+            "completion_cycle is later than time.cycles")
+        endif()
+      endif()
+    else()
+      if("${frame_state}" STREQUAL "incomplete")
+        if(NOT "${frame_reason}" STREQUAL "incomplete" OR
+            NOT controls_supported OR NOT frame_supported)
+          gbl_finding(result bad-phase10-frame-validity
+            "incomplete frame must retain supported controls and reason incomplete")
+        endif()
+      elseif("${frame_state}" STREQUAL "invalid" AND
+          ("${frame_reason}" STREQUAL "none" OR
+           "${frame_reason}" STREQUAL "incomplete" OR
+           controls_supported OR frame_supported))
+        gbl_finding(result bad-phase10-frame-validity
+          "invalid frame must name an unsupported control")
+      endif()
+      foreach(field IN ITEMS epoch sample_cycle completion_cycle)
+        if(NOT "${frame_${field}_type}" STREQUAL "NULL")
+          gbl_finding(result bad-phase10-frame-validity
+            "non-valid frames must keep ${field} null")
+        endif()
+      endforeach()
+    endif()
+
+    gbl_json_type(dependency_type "${doc}" phase10 hblank_trigger_dependency observed)
+    if(NOT "${dependency_type}" STREQUAL "BOOLEAN")
+      gbl_finding(result bad-phase10-type
+        "phase10.hblank_trigger_dependency.observed must be boolean")
+      set(dependency_observed FALSE)
+    else()
+      string(JSON dependency_observed GET "${doc}"
+        phase10 hblank_trigger_dependency observed)
+    endif()
+    gbl__result_phase10_expect_string("${doc}"
+      "phase10.hblank_trigger_dependency.hardware_qualification"
+      "${profile_hardware_qualification}" bad-phase10-policy
+      phase10 hblank_trigger_dependency hardware_qualification)
+    gbl_json_type(dependency_class_type "${doc}"
+      phase10 hblank_trigger_dependency classification)
+    gbl_json_type(dependency_dispute_type "${doc}"
+      phase10 hblank_trigger_dependency dispute_id)
+    if(dependency_observed)
+      if(NOT "${dependency_class_type}" STREQUAL "STRING" OR
+          NOT "${dependency_dispute_type}" STREQUAL "STRING")
+        gbl_finding(result bad-phase10-dependency
+          "observed HBlank dependency needs its disputed classification and id")
+      else()
+        string(JSON dependency_class GET "${doc}"
+          phase10 hblank_trigger_dependency classification)
+        string(JSON dependency_dispute GET "${doc}"
+          phase10 hblank_trigger_dependency dispute_id)
+        if(NOT "${dependency_class}" STREQUAL "${profile_hblank_classification}" OR
+            NOT "${dependency_dispute}" STREQUAL "${profile_hblank_dispute}")
+          gbl_finding(result bad-phase10-dependency
+            "HBlank dependency must retain the profile dispute")
+        endif()
+        gbl_json_length(disputes_count "${doc}" disputes)
+        set(dispute_disclosed FALSE)
+        if(disputes_count GREATER 0)
+          math(EXPR disputes_last "${disputes_count}-1")
+          foreach(i RANGE ${disputes_last})
+            gbl_json_string(dispute_item "${doc}" disputes ${i})
+            if("${dispute_item}" STREQUAL "${profile_hblank_dispute}")
+              set(dispute_disclosed TRUE)
+            endif()
+          endforeach()
+        endif()
+        gbl_json_length(labels_count "${doc}" labels)
+        set(disputed_label FALSE)
+        if(labels_count GREATER 0)
+          math(EXPR labels_last "${labels_count}-1")
+          foreach(i RANGE ${labels_last})
+            gbl_json_string(label_item "${doc}" labels ${i})
+            if("${label_item}" STREQUAL "disputed")
+              set(disputed_label TRUE)
+            endif()
+          endforeach()
+        endif()
+        if(NOT dispute_disclosed OR NOT disputed_label)
+          gbl_finding(result bad-phase10-dependency
+            "observed HBlank dependency must disclose its dispute")
+        endif()
+      endif()
+    elseif(NOT "${dependency_class_type}" STREQUAL "NULL" OR
+        NOT "${dependency_dispute_type}" STREQUAL "NULL")
+      gbl_finding(result bad-phase10-dependency
+        "unobserved HBlank dependency must keep classification and dispute null")
+    endif()
+  endif()
+
+  # Artifact metadata is an independent host observation. Its digest is over
+  # raw video bytes, never the ROM, fixture, or logical input timeline.
+  foreach(field IN ITEMS requested status emitted byte_length sha256 failure)
+    gbl_json_type(raw_${field}_type "${doc}" raw_video ${field})
+    if("${raw_${field}_type}" STREQUAL "MISSING")
+      gbl_finding(result missing-field "raw_video.${field}")
+    endif()
+  endforeach()
+  gbl__result_phase10_require_type("${doc}" "raw_video.requested" BOOLEAN
+    bad-phase10-type raw_video requested)
+  gbl__result_phase10_require_type("${doc}" "raw_video.emitted" BOOLEAN
+    bad-phase10-type raw_video emitted)
+  gbl_json_type(raw_requested_type "${doc}" raw_video requested)
+  gbl_json_type(raw_emitted_type "${doc}" raw_video emitted)
+  set(raw_requested FALSE)
+  set(raw_emitted FALSE)
+  if("${raw_requested_type}" STREQUAL "BOOLEAN")
+    string(JSON raw_requested GET "${doc}" raw_video requested)
+  endif()
+  if("${raw_emitted_type}" STREQUAL "BOOLEAN")
+    string(JSON raw_emitted GET "${doc}" raw_video emitted)
+  endif()
+  gbl_json_type(raw_status_type "${doc}" raw_video status)
+  set(raw_status "")
+  if("${raw_status_type}" STREQUAL "STRING")
+    string(JSON raw_status GET "${doc}" raw_video status)
+  else()
+    gbl_finding(result bad-phase10-type "raw_video.status must be a string")
+  endif()
+  if(NOT "${raw_status}" MATCHES "^(not-requested|emitted|failed|not-emitted|invalid|incomplete)$")
+    gbl_finding(result bad-phase10-video-output "raw_video.status is unknown")
+  endif()
+  gbl_json_type(raw_length_type "${doc}" raw_video byte_length)
+  gbl_json_type(raw_digest_type "${doc}" raw_video sha256)
+  gbl_json_type(raw_failure_type "${doc}" raw_video failure)
+  set(raw_length "")
+  set(raw_digest "")
+  set(raw_failure "")
+  if("${raw_length_type}" STREQUAL "NUMBER")
+    string(JSON raw_length GET "${doc}" raw_video byte_length)
+  endif()
+  if("${raw_digest_type}" STREQUAL "STRING")
+    string(JSON raw_digest GET "${doc}" raw_video sha256)
+  endif()
+  if("${raw_failure_type}" STREQUAL "STRING")
+    string(JSON raw_failure GET "${doc}" raw_video failure)
+  endif()
+  if(raw_requested_type STREQUAL "BOOLEAN" AND NOT raw_requested)
+    if(NOT "${raw_status}" STREQUAL "not-requested" OR raw_emitted OR
+        NOT "${raw_length_type}" STREQUAL "NULL" OR
+        NOT "${raw_digest_type}" STREQUAL "NULL" OR
+        NOT "${raw_failure_type}" STREQUAL "NULL")
+      gbl_finding(result bad-phase10-video-output
+        "unrequested raw video must have no output artifact or failure")
+    endif()
+  elseif(raw_requested_type STREQUAL "BOOLEAN" AND raw_requested)
+    if("${raw_status}" STREQUAL "emitted")
+      if(NOT raw_emitted OR NOT p10_observed OR
+          NOT "${frame_state}" STREQUAL "valid" OR
+          NOT "${raw_length_type}" STREQUAL "NUMBER" OR
+          NOT "${raw_length}" STREQUAL "76800" OR
+          NOT "${raw_failure_type}" STREQUAL "NULL")
+        gbl_finding(result bad-phase10-video-output
+          "emitted video needs a valid frame, 76800 bytes, and no failure")
+      endif()
+      set(raw_digest_valid FALSE)
+      if("${raw_digest_type}" STREQUAL "STRING")
+        gbl__manifest_is_hex(raw_digest_valid "${raw_digest}" 64)
+      endif()
+      if(NOT raw_digest_valid)
+        gbl_finding(result bad-phase10-video-digest
+          "emitted raw video needs a lowercase SHA-256 digest")
+      endif()
+    elseif("${raw_status}" STREQUAL "failed")
+      if(raw_emitted OR NOT "${raw_length_type}" STREQUAL "NULL" OR
+          NOT "${raw_failure_type}" STREQUAL "STRING" OR
+          NOT "${result_status}" STREQUAL "HARNESS_FAIL" OR
+          NOT "${result_reason}" STREQUAL "video-output-failed")
+        gbl_finding(result bad-phase10-video-output
+          "failed video output must be a reported harness failure")
+      endif()
+      if(NOT "${raw_failure}" MATCHES
+          "^(video-output-path-null|video-output-path-empty|video-frame-unavailable|video-frame-invalid|video-buffer-allocation-failed|video-digest-failed|video-output-already-exists|video-output-open-failed|video-output-write-failed|video-output-close-failed|video-output-cleanup-failed)$")
+        gbl_finding(result bad-phase10-video-output
+          "raw_video.failure is not a named writer error")
+      endif()
+      if(NOT "${raw_digest_type}" STREQUAL "NULL")
+        set(raw_digest_valid FALSE)
+        if("${raw_digest_type}" STREQUAL "STRING")
+          gbl__manifest_is_hex(raw_digest_valid "${raw_digest}" 64)
+        endif()
+        if(NOT raw_digest_valid)
+          gbl_finding(result bad-phase10-video-digest
+            "failed-output digest must be null or lowercase SHA-256")
+        endif()
+      endif()
+    elseif("${raw_status}" STREQUAL "not-emitted")
+      if(raw_emitted OR NOT p10_observed OR
+          NOT "${frame_state}" STREQUAL "valid" OR
+          NOT "${raw_length_type}" STREQUAL "NULL" OR
+          NOT "${raw_digest_type}" STREQUAL "NULL" OR
+          NOT "${raw_failure_type}" STREQUAL "NULL")
+        gbl_finding(result bad-phase10-video-output
+          "not-emitted requires a valid frame and no artifact metadata")
+      endif()
+    elseif("${raw_status}" STREQUAL "invalid" OR
+        "${raw_status}" STREQUAL "incomplete")
+      if(raw_emitted OR NOT p10_observed OR
+          NOT "${frame_state}" STREQUAL "${raw_status}" OR
+          NOT "${raw_length_type}" STREQUAL "NULL" OR
+          NOT "${raw_digest_type}" STREQUAL "NULL" OR
+          NOT "${raw_failure_type}" STREQUAL "NULL")
+        gbl_finding(result bad-phase10-video-output
+          "unavailable frame status must match the PPU frame and carry no artifact")
+      endif()
+    endif()
+  endif()
 endfunction()
 
 function(gbl_result_check file manifest registry vocab)
@@ -2163,6 +2697,9 @@ function(gbl_result_check file manifest registry vocab)
       endforeach()
     endif()
   endif()
+
+  gbl__result_phase10_check("${doc}" "${time_cycles}" "${status}" "${ran}"
+    "${result_reason}")
 
   set(GBL_RESULT_STATUS "${status}" PARENT_SCOPE)
 endfunction()

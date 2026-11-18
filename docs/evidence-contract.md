@@ -155,6 +155,36 @@ these fields:
   have its declared type. Any `time.dma_*` field without `phase9`, or a partial `phase9`
   object, is rejected. The illustrative `result-pass.json` shows a current producer shape;
   tests remove the whole extension and its DMA time fields to verify historical compatibility.
+- `phase10` and `raw_video` are a paired additive result extension. Historical result/1
+  records may omit both; a record with only one is rejected. Current producers include both,
+  including runs where PPU state was not observed or raw output was not requested. PPU
+  observations bind their raster machine cycle to `time.cycles`, constrain line and pixel
+  layout to the AGB profile, and keep unavailable frame epoch/sample/completion values null.
+  A valid frame requires supported Mode 3/BG2 controls, reason `none`, one started epoch,
+  all 160 visible row samples, and a completion cycle 160 profile line lengths after the
+  sample cycle. Unsupported controls cannot yield a valid frame. Row sampling follows the
+  profile's visible-line-start point; serialized pixels use a 480-byte row stride.
+- Phase 10 HBlank evidence stays qualified as a reference candidate, with selected event
+  offset 1006, source class `REF`, project-selected policy, dispute
+  `disp-hblank-flag-edge`, and hardware qualification `UNKNOWN`. If an observation depends
+  on an HBlank trigger, its classification and dispute id must match the profile and the
+  result must disclose that dispute. This timing evidence is separate from Phase 9 DMA latch
+  evidence. Automated PASS remains a fixture result; playable acceptance stays pending for
+  owner evaluation and is not inferred from automation.
+- Raw video is headerless: the layout is 160 rows of 240 little-endian BGR555 pixels,
+  480 bytes per row and 76,800 bytes total. The output
+  digest is SHA-256 over those raw video bytes, independent from the ROM digest and input
+  script digest. `requested: false` requires `not-requested`, `emitted: false`, and null
+  artifact/failure metadata. `emitted` requires a valid frame, the exact byte count, and a
+  lowercase SHA-256 digest. A named writer failure is reported as `HARNESS_FAIL` with
+  `reason: video-output-failed`; no incomplete file is claimed as emitted. The writer uses
+  exclusive create and removes a partial file after a write/close failure when cleanup
+  succeeds. The result may retain a digest computed before an output-open failure, but its
+  byte length remains null because no artifact was emitted. CLI argument/path refusals occur
+  before guest execution and before file creation.
+- A repeatable raw-video digest establishes byte repeatability for the same inputs and
+  machine state. It does not establish that the pixels match physical GBA behavior; that
+  needs a separately identified semantic oracle or hardware observation.
 - `timer0`: `{if_request}` reports Timer 0's device interrupt-request bit independently from
   the semantic mailbox and CPU state. It is a boolean after at least one committed CPU unit;
   `false` means the executed machine was observed with the request bit clear. It is `null`
@@ -220,6 +250,13 @@ The semantic/time/termination findings are:
   `bad-phase9-prefetch`: a current DMA extension has an incomplete or ill-typed observation,
   inconsistent ownership/channel state, mismatched timing contributions, unsupported
   provenance/qualification, missing dispute disclosure, or a modeled Prefetch claim.
+- `partial-phase10-extension`: `phase10` and `raw_video` do not appear together.
+- `bad-phase10-type`, `bad-phase10-raster`, `bad-phase10-machine-time`,
+  `bad-phase10-frame`, `bad-phase10-frame-validity`, `bad-phase10-policy`,
+  `bad-phase10-dependency`, `bad-phase10-video-output`, and `bad-phase10-video-digest`:
+  Phase 10 has an incomplete or ill-typed PPU/video observation, inconsistent raster/frame
+  timing, unsupported policy or hardware claims, missing HBlank dispute disclosure, or
+  contradictory raw artifact metadata.
 - `time-sum-overflow` and `bad-time-components`: the checked CPU/HALT/DMA sum exceeds uint64
   or differs from `time.cycles`.
 - `cycles-exceed-budget`: `time.cycles` is greater than `time.budget_cycles`.
@@ -237,17 +274,24 @@ The installed `gamebloke-run` interface is:
 ```text
 gamebloke-run --rom PATH (--cycles DECIMAL | --frames DECIMAL) \
   [--fixture ID] [--trace-mask INTEGER] [--trace-capacity INTEGER] \
-  [--trace-output PATH]
+  [--trace-output PATH] [--video-output PATH]
 ```
 
 `--rom` supplies one bounded input file. Exactly one of `--cycles` or `--frames` is
 required; decimal arguments are checked uint64 values, and frame budgets convert using the
 profile frame-cycle constant. `--fixture` selects validated metadata embedded at build time.
 The trace flags select implemented instruction, bus, or exception records, cap storage at
-65,536 records, and optionally write JSON Lines to the explicit output path. Usage errors
-exit 2, PASS exits 0, and valid non-PASS results exit 1. The executable does not accept a
-runtime CMake, manifest, or fixture-index path and does not need the source tree after it is
-built.
+65,536 records, and optionally write JSON Lines to the explicit output path. `--video-output`
+requests the raw BGR555 frame at the explicit path; it follows the same whole-cycle/frame
+budget and input script as guest execution, with no host-clock pacing. Repeating the flag or
+providing it without a path is rejected before execution, as are aliases to the ROM, input,
+trace, or JSON result destination. Output is created exclusively. Usage errors exit 2, PASS exits 0, and valid
+non-PASS results exit 1. The executable does not accept a runtime CMake, manifest, or
+fixture-index path and does not need the source tree after it is built.
+
+For example, `gamebloke-run --rom PATH --cycles 280896 --video-output frame.raw` requests a
+single bounded frame's raw bytes. The selected guest must reach a complete supported frame;
+unsupported modes remain a reported output failure rather than a successful empty capture.
 
 The production fixture index is generated only from `tests/fixtures/manifest.json`, which
 now admits the source-owned ARMv4T diagnostics against their exact artifact hashes
@@ -288,10 +332,12 @@ and the current Phase 5 final-check record for their exact status. Unpredictable
 stops, recognized later extensions, reserved UND and absent-coprocessor UND have
 separate causes. Explicit executing project policies and static target refusals
 are listed in the profile. Public unsupported values remain compatible without
-inventing a legal unimplemented instruction. No BIOS execution/HLE, DMA, active I/O,
-WAITCNT/prefetch, display/audio, physical input or host presentation is modeled. Timer 0
-and bus cycle observations use project-selected model behavior; region-specific hardware
-waits and timing remain unqualified.
+inventing a legal unimplemented instruction. There is no BIOS execution/HLE, audio,
+physical-controller discovery or host presentation. DMA, WAITCNT timing, and the limited
+Mode 3/BG2 display path have project-model behavior; DMA Prefetch and other display modes,
+transforms, objects, windows, and effects remain unmodeled. Timer 0 and bus cycle observations
+use project-selected model behavior; region-specific hardware waits, display timing, and
+physical-device behavior remain unqualified.
 
 The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
 undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the
