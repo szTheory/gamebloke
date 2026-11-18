@@ -722,6 +722,29 @@ static int run_video(void)
     return 1;
 }
 
+static int run_ppu_tracer(void)
+{
+    gbl_machine *machine = new_machine();
+
+    if (machine == NULL) {
+        fprintf(stderr, "ppu.tracer: host allocation failed\n");
+        return 1;
+    }
+
+    /* A fresh machine must already have the first raster boundary queued. */
+    CHECK(machine->master_cycles == 0u);
+    CHECK(machine->event_count == 1u);
+    CHECK(machine->events[0].live);
+    CHECK(machine->events[0].cycle == 0u);
+
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.tracer: initial raster boundary queued");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_state(void)
 {
     gbl_machine *machine = new_machine();
@@ -1580,7 +1603,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -1594,6 +1617,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "video") == 0) {
         return run_video();
+    }
+    if (strcmp(argv[1], "ppu.tracer") == 0) {
+        return run_ppu_tracer();
     }
     if (strcmp(argv[1], "irq.registers") == 0) {
         return run_irq_registers();
