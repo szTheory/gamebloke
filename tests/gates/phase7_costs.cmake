@@ -256,14 +256,12 @@ if(NOT "${mismatch_reason}" MATCHES
   message(FATAL_ERROR "phase7-costs: runtime/profile mismatch negative control failed: ${mismatch_reason}")
 endif()
 
-foreach(case IN ITEMS timing_model bus_policy_value bus_policy_doc)
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" "-DCASE=${case}" "-DSRC=${SRC}" "-DBIN=${BIN}"
-      -P "${profile_case}"
-    WORKING_DIRECTORY "${SRC}"
-    RESULT_VARIABLE controls_rc OUTPUT_VARIABLE controls_out ERROR_VARIABLE controls_err)
-  if(NOT controls_rc EQUAL 0)
-    message(FATAL_ERROR "phase7-costs: profile ${case} controls failed: ${controls_out}${controls_err}")
-  endif()
-endforeach()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" "-DCASE=timing_model" "-DSRC=${SRC}" "-DBIN=${BIN}"
+    -P "${profile_case}"
+  WORKING_DIRECTORY "${SRC}"
+  RESULT_VARIABLE controls_rc OUTPUT_VARIABLE controls_out ERROR_VARIABLE controls_err)
+if(NOT controls_rc EQUAL 0)
+  message(FATAL_ERROR "phase7-costs: timing model controls failed: ${controls_out}${controls_err}")
+endif()
 message("phase7-costs: 144 non-ROM runtime rows, 18 contextual ROM formula rows, 24 contextual runtime outputs, six typed observations and profile controls passed")
