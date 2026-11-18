@@ -473,6 +473,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
 elseif(GBL_LANE STREQUAL "diagnostics")
   include(tests/determinism.cmake)
 elseif(GBL_LANE STREQUAL "local-timer0")
+  include(tests/determinism.cmake)
   gbl_add_test(
     NAME timer0.guest.cli
     LABELS core integration timer

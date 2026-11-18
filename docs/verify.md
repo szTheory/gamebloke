@@ -90,7 +90,7 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 | `ci` | `cmake --workflow --preset ci` | Default lane: build, unit tests, gates, controls. |
 | `asan` | `sh scripts/linux-lane.sh asan` | AddressSanitizer and UBSan with clang-21. Linux only; the script runs it in a digest-pinned `ubuntu:26.04` container (needs Docker). |
 | `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, plus the Phase 2 evidence validators and their controls, with no compile of the product. |
-| `local-timer0` | See [the Timer 0 fixture notice](../tests/fixtures/timer0-NOTICE.md) | Local-only guest generation, indexing, and execution. Refuses to configure when `CI` is truthy; never use in hosted CI. |
+| `local-timer0` | See [the Timer 0 fixture notice](../tests/fixtures/timer0-NOTICE.md) | Local-only guest generation/indexing and Timer 0 bus-time/determinism checks. Refuses to configure when `CI` is truthy; never use in hosted CI. |
 | `local CPU fixtures` | `sh scripts/run-local-cpu-suites.sh --fetch --build-dir build/ci` | Local-only jsmolka ARM, Thumb, and memory suites; never run in hosted CI. |
 
 ## Local jsmolka CPU suites

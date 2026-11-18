@@ -629,8 +629,7 @@ function(gbl_phase9_check_order_graph)
   set(phase9_setup_names ${GBL_PHASE9_EXPECTED})
   set(phase7_required_names
     phase7.order timer.costs timer.costs.contract timer.devices
-    timer0.guest.tracer bus.timing bus.time_authority.clean
-    bus.time_authority.control)
+    timer0.guest.tracer bus.timing)
   set(phase8_required_names
     cpu.irq.refusal cpu.power.boundary bus.irq.registers bus.keypad.registers
     keypad.condition time.halt.refusal runner.input.cli runner.unit

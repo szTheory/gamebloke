@@ -1,2 +1,6 @@
+bus.time_authority.clean bus,determinism,gate,integration
+bus.time_authority.control bus,determinism,gate,integration
+determinism.interleave determinism,gate,integration
+determinism.repeat.in_process determinism,gate,integration
 inventory.junit post
 timer0.guest.cli core,integration,timer

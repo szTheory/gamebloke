@@ -27,13 +27,15 @@ set(GBL_PHASE7_REQUIRED_NAMES
   timer.costs.contract
   timer.devices
   timer0.guest.tracer
-  bus.timing
-  bus.time_authority.clean
-  bus.time_authority.control)
-# This rights-restricted guest runs only in the explicit local-timer0 lane.
-# phase7.order runs in the hosted ci and asan lanes, where it must stay absent.
+  bus.timing)
+# These checks execute the rights-restricted Timer 0 guest and are local-only.
+# phase7.order runs in CI/ASAN, where these names must remain absent.
 set(GBL_PHASE7_LOCAL_ONLY_NAMES
-  timer0.guest.cli)
+  timer0.guest.cli
+  bus.time_authority.clean
+  bus.time_authority.control
+  determinism.repeat.in_process
+  determinism.interleave)
 
 function(gbl_phase7_json_has_value json test_index property wanted output_var)
   set(found FALSE)

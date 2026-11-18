@@ -12,26 +12,6 @@ target_link_libraries(determinism_test PRIVATE gamebloke_core gbl_warnings)
 add_dependencies(determinism_test gbl_fixture_indexes)
 
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
-  foreach(case IN ITEMS clean control)
-    gbl_add_test(
-      NAME "bus.time_authority.${case}"
-      LABELS bus determinism gate integration
-      COMMAND "${CMAKE_COMMAND}"
-        "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
-        "-DCASE=${case}" "-DCANDIDATE=$<TARGET_FILE:determinism_test>"
-        -P "${CMAKE_SOURCE_DIR}/tests/gates/time_authority.cmake")
-  endforeach()
-  set_tests_properties(bus.time_authority.clean bus.time_authority.control
-    PROPERTIES RUN_SERIAL TRUE)
-
-  gbl_add_test(
-    NAME determinism.repeat.in_process
-    LABELS determinism gate integration
-    COMMAND $<TARGET_FILE:determinism_test>)
-  gbl_add_test(
-    NAME determinism.interleave
-    LABELS determinism gate integration
-    COMMAND $<TARGET_FILE:determinism_test> interleave)
   gbl_add_test(
     NAME determinism.interleave.controls
     LABELS determinism gate integration
@@ -67,6 +47,28 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
         "-DCASE=${case}"
         -P "${CMAKE_SOURCE_DIR}/tests/gates/determinism_case.cmake")
   endforeach()
+elseif(GBL_LANE STREQUAL "local-timer0")
+  # These checks execute the generated Timer 0 polling guest, which the fixture
+  # notice restricts to the explicit local-timer0 lane.
+  foreach(case IN ITEMS clean control)
+    gbl_add_test(
+      NAME "bus.time_authority.${case}"
+      LABELS bus determinism gate integration
+      COMMAND "${CMAKE_COMMAND}"
+        "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+        "-DCASE=${case}" "-DCANDIDATE=$<TARGET_FILE:determinism_test>"
+        -P "${CMAKE_SOURCE_DIR}/tests/gates/time_authority.cmake")
+  endforeach()
+  set_tests_properties(bus.time_authority.clean bus.time_authority.control
+    PROPERTIES RUN_SERIAL TRUE)
+  gbl_add_test(
+    NAME determinism.repeat.in_process
+    LABELS determinism gate integration
+    COMMAND $<TARGET_FILE:determinism_test>)
+  gbl_add_test(
+    NAME determinism.interleave
+    LABELS determinism gate integration
+    COMMAND $<TARGET_FILE:determinism_test> interleave)
 elseif(GBL_LANE STREQUAL "diagnostics")
   gbl_add_test(
     NAME diagnostics.determinism
