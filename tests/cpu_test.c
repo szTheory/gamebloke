@@ -14390,6 +14390,106 @@ static void test_irq_boundary_contract(void)
     gbl_machine_dispose(&machine);
 }
 
+static bool prepare_ppu_vblank_irq_machine(gbl_machine *machine,
+                                           uint16_t interrupt_enable,
+                                           uint16_t interrupt_master_enable,
+                                           uint32_t cpsr)
+{
+    const gbl_bus_result display = gbl_bus_write(
+        machine, UINT32_C(0x04000004), 2u,
+        GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0008));
+
+    machine->interrupt_enable = interrupt_enable;
+    machine->interrupt_master_enable = interrupt_master_enable;
+    machine->cpu.cpsr = cpsr;
+    return display.status == GBL_BUS_STATUS_OK &&
+           gbl_machine_advance_to(machine, UINT64_C(197120)) ==
+               GBL_TIME_STATUS_OK;
+}
+
+static void test_ppu_irq_projection(void)
+{
+    static const struct {
+        uint16_t ie;
+        uint16_t ime;
+        uint32_t cpsr;
+        bool accepted;
+        const char *name;
+    } cases[] = {
+        { UINT16_C(0x0001), 1u, TEST_CPSR_SYSTEM, true,
+          "eligible VBlank request is accepted at the next CPU boundary" },
+        { 0u, 1u, TEST_CPSR_SYSTEM, false,
+          "IE masks CPU acceptance but retains the PPU IF request" },
+        { UINT16_C(0x0001), 0u, TEST_CPSR_SYSTEM, false,
+          "IME masks CPU acceptance but retains the PPU IF request" },
+        { UINT16_C(0x0001), 1u,
+          TEST_CPSR_SYSTEM | UINT32_C(0x80), false,
+          "CPSR.I masks CPU acceptance but retains the PPU IF request" }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        const bool ready = prepare_irq_boundary_machine(&machine, false) &&
+            prepare_ppu_vblank_irq_machine(
+                &machine, cases[index].ie, cases[index].ime,
+                cases[index].cpsr);
+        const bool requested = ready &&
+            (machine.interrupt_flags & UINT16_C(0x0001)) != 0u &&
+            (machine.ppu.dispstat & UINT16_C(0x0001)) != 0u &&
+            !machine.cpu.irq_observation.accepted &&
+            !machine.cpu.irq_observation.entered;
+        bool cpu_result = false;
+
+        if (requested && cases[index].accepted) {
+            cpu_result = run_units(&machine, 8u, 0u, &result) &&
+                result.reason == GBL_RUN_REASON_GUEST_STOP &&
+                machine.cpu.irq_observation.accepted &&
+                machine.cpu.irq_observation.entered &&
+                machine.cpu.irq_observation.interrupt_flags == 1u;
+        } else if (requested) {
+            cpu_result = run_units(&machine, 8u, 1u, &result) &&
+                result.instructions == 1u &&
+                machine.cpu.irq_observation.sampled &&
+                !machine.cpu.irq_observation.accepted &&
+                !machine.cpu.irq_observation.entered;
+        }
+        test_case(requested && cpu_result, cases[index].name);
+        gbl_machine_dispose(&machine);
+    }
+
+    {
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        bool ready = prepare_irq_boundary_machine(&machine, false) &&
+            gbl_bus_write(&machine, UINT32_C(0x04000004), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0008)).status == GBL_BUS_STATUS_OK;
+
+        if (ready) {
+            machine.interrupt_enable = UINT16_C(0x0001);
+            machine.interrupt_master_enable = 0u;
+            machine.cpu.cpsr |= UINT32_C(0x80);
+            ready = gbl_machine_advance_to(
+                        &machine, UINT64_C(197119)) == GBL_TIME_STATUS_OK &&
+                    gbl_machine_set_power_state(
+                        &machine, GBL_MACHINE_POWER_HALTED) ==
+                        GBL_TIME_STATUS_OK;
+        }
+        ready = ready && run_units(&machine, 8u, 1u, &result);
+        test_case(ready && result.wake_cycle == UINT64_C(197120) &&
+                      result.wake_source_mask == UINT16_C(0x0001) &&
+                      result.wait_cycles == 1u &&
+                      machine.power_state == GBL_MACHINE_POWER_RUNNING &&
+                      (machine.interrupt_flags & UINT16_C(0x0001)) != 0u &&
+                      !machine.cpu.irq_observation.accepted &&
+                      !machine.cpu.irq_observation.entered,
+                  "masked PPU request wakes HALT without IRQ acceptance");
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static void test_irq_refusal_contract(void)
 {
     gbl_machine machine = { 0 };
@@ -16059,6 +16159,9 @@ static const cpu_test_function irq_boundary_functions[] = {
 static const cpu_test_function irq_refusal_functions[] = {
     test_irq_refusal_contract
 };
+static const cpu_test_function ppu_irq_functions[] = {
+    test_ppu_irq_projection
+};
 static const cpu_test_function power_boundary_functions[] = {
     test_power_boundary
 };
@@ -16066,6 +16169,7 @@ static const cpu_test_function power_boundary_functions[] = {
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("unit_boundaries", 66u, unit_boundaries_functions),
     CPU_TEST_GROUP("ppu.refusal", 1u, ppu_refusal_functions),
+    CPU_TEST_GROUP("ppu.irq", 5u, ppu_irq_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),

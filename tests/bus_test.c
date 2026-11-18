@@ -1349,6 +1349,219 @@ static int run_state(void)
     return 1;
 }
 
+static gbl_bus_result ppu_read_at(gbl_machine *machine, uint32_t address,
+                                  uint64_t completion_cycle)
+{
+    gbl_bus_result result = { 0 };
+
+    if (machine == NULL || completion_cycle == 0u ||
+        gbl_machine_advance_to(machine, completion_cycle - 1u) !=
+            GBL_TIME_STATUS_OK) {
+        result.status = GBL_BUS_STATUS_TIME_REFUSAL;
+        return result;
+    }
+    return gbl_bus_read(machine, address, 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL);
+}
+
+static int run_ppu_boundary(void)
+{
+    gbl_machine *hblank = new_machine();
+    gbl_machine *raster = new_machine();
+    gbl_bus_result result;
+    static const struct {
+        uint64_t cycle;
+        uint16_t line;
+        bool vblank;
+        bool vcount_match;
+    } lines[] = {
+        { UINT64_C(1), 0u, false, true },
+        { UINT64_C(1232), 1u, false, false },
+        { UINT64_C(195888), 159u, false, false },
+        { UINT64_C(197120), 160u, true, false },
+        { UINT64_C(279664), 227u, true, false },
+        { UINT64_C(280896), 0u, false, true }
+    };
+    size_t index;
+
+    if (hblank == NULL || raster == NULL) {
+        fprintf(stderr, "ppu.boundary: host allocation failed\n");
+        free_machine(raster);
+        free_machine(hblank);
+        return 1;
+    }
+
+    result = ppu_read_at(hblank, UINT32_C(0x04000004), UINT64_C(1005));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((result.value & UINT32_C(0x0002)) == 0u);
+    result = ppu_read_at(hblank, UINT32_C(0x04000004), UINT64_C(1006));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((result.value & UINT32_C(0x0002)) != 0u);
+    result = ppu_read_at(hblank, UINT32_C(0x04000004), UINT64_C(1007));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((result.value & UINT32_C(0x0002)) != 0u);
+
+    for (index = 0u; index < sizeof(lines) / sizeof(lines[0]); ++index) {
+        result = ppu_read_at(raster, UINT32_C(0x04000006),
+                             lines[index].cycle);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(result.value == lines[index].line);
+        result = gbl_bus_read(raster, UINT32_C(0x04000004), 2u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(((result.value & UINT32_C(0x0001)) != 0u) ==
+              lines[index].vblank);
+        CHECK(((result.value & UINT32_C(0x0004)) != 0u) ==
+              lines[index].vcount_match);
+        if (index == 4u) {
+            CHECK(gbl_machine_advance_to(raster, UINT64_C(280669)) ==
+                  GBL_TIME_STATUS_OK);
+            result = gbl_bus_read(raster, UINT32_C(0x04000004), 2u,
+                                  GBL_BUS_CLASS_NONSEQUENTIAL);
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(raster->ppu.line == 227u);
+            CHECK((result.value & UINT32_C(0x0003)) == UINT32_C(0x0002));
+        }
+    }
+    printf("{\"type\":\"ppu.boundary\",\"line_cycles\":1232,\"hblank_offset\":1006,\"hblank_provenance\":\"project-selected/REF\",\"hblank_dispute\":\"disp-hblank-flag-edge\",\"hardware_qualification\":\"UNKNOWN\"}\n");
+
+    free_machine(raster);
+    free_machine(hblank);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.boundary: timed status reads follow all raster edges");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_registers(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+    size_t index;
+
+    if (machine == NULL) {
+        fprintf(stderr, "ppu.registers: host allocation failed\n");
+        return 1;
+    }
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFFFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->dispcnt == UINT16_C(0xFFFF));
+    result = gbl_bus_read(machine, UINT32_C(0x04000000), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.value == UINT32_C(0xFFFF));
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000004), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x00C0)) == 0u);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0038)) == UINT16_C(0x0038));
+    result = gbl_bus_write(machine, UINT32_C(0x04000005), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->ppu.compare == UINT16_C(0x00FF));
+    result = gbl_bus_read(machine, UINT32_C(0x04000004), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((result.value & UINT32_C(0xFF38)) == UINT32_C(0xFF38));
+    CHECK((result.value & UINT32_C(0x00C0)) == 0u);
+    CHECK((result.value & UINT32_C(0x0004)) == 0u);
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000006), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1234));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_read(machine, UINT32_C(0x04000006), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.value == machine->ppu.line);
+
+    /* The wide transaction crosses DISPSTAT into write-ignored VCOUNT lanes.
+     * Its compare changes to line zero once, after the old transaction state. */
+    result = gbl_bus_write(machine, UINT32_C(0x04000004), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0xDEAD0038));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->ppu.compare == 0u);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0038)) == UINT16_C(0x0038));
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0004)) != 0u);
+    CHECK((machine->interrupt_flags & UINT16_C(0x0004)) != 0u);
+    CHECK(machine->ppu.dispstat ==
+          (uint16_t)(machine->ppu.dispstat & UINT16_C(0xFF3F)));
+
+    /* Enable while the current line is already matched: no synthetic edge. */
+    machine->interrupt_flags = 0u;
+    result = gbl_bus_write(machine, UINT32_C(0x04000004), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x20));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0004)) != 0u);
+    CHECK((machine->interrupt_flags & UINT16_C(0x0004)) == 0u);
+    free_machine(machine);
+
+    for (index = 0u; index < 3u; ++index) {
+        gbl_machine *irq_machine = new_machine();
+        uint16_t enable = (uint16_t)(UINT16_C(1) << index);
+        uint16_t irq_control = (uint16_t)(UINT16_C(1) << (index + 3u));
+        uint64_t edge = index == 0u ? UINT64_C(197120)
+                          : index == 1u ? UINT64_C(1006)
+                                        : UINT64_C(1232);
+
+        if (irq_machine == NULL) {
+            fprintf(stderr, "ppu.registers: IRQ machine allocation failed\n");
+            return 1;
+        }
+        if (index == 2u) {
+            irq_control = (uint16_t)(irq_control | UINT16_C(0x0100));
+        }
+        result = gbl_bus_write(irq_machine, UINT32_C(0x04000004), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, irq_control);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(gbl_machine_advance_to(irq_machine, edge) ==
+              GBL_TIME_STATUS_OK);
+        CHECK((irq_machine->interrupt_flags & enable) != 0u);
+        if (index == 0u) {
+            CHECK((irq_machine->ppu.dispstat & UINT16_C(0x0001)) != 0u);
+        } else if (index == 1u) {
+            CHECK((irq_machine->ppu.dispstat & UINT16_C(0x0002)) != 0u);
+        } else {
+            CHECK((irq_machine->ppu.dispstat & UINT16_C(0x0004)) != 0u);
+        }
+        free_machine(irq_machine);
+    }
+
+    {
+        gbl_machine *ack = new_machine();
+
+        CHECK(ack != NULL);
+        if (ack != NULL) {
+            result = gbl_bus_write(ack, UINT32_C(0x04000004), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0010));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(gbl_machine_advance_to(ack, UINT64_C(1006)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK((ack->interrupt_flags & UINT16_C(0x0002)) != 0u);
+            result = gbl_bus_write(ack, UINT32_C(0x04000202), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0002));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK((ack->interrupt_flags & UINT16_C(0x0002)) == 0u);
+            CHECK(gbl_machine_advance_to(ack, UINT64_C(2238)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK((ack->interrupt_flags & UINT16_C(0x0002)) != 0u);
+            free_machine(ack);
+        }
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.registers: display lanes and requests follow project policy");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_irq_registers(void)
 {
     gbl_machine *machine = new_machine();
@@ -2043,7 +2256,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -2063,6 +2276,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.refusal") == 0) {
         return run_ppu_refusal();
+    }
+    if (strcmp(argv[1], "ppu.boundary") == 0) {
+        return run_ppu_boundary();
+    }
+    if (strcmp(argv[1], "ppu.registers") == 0) {
+        return run_ppu_registers();
     }
     if (strcmp(argv[1], "irq.registers") == 0) {
         return run_irq_registers();
