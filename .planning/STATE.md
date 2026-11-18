@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 4
+current_plan: 5
 status: executing
-stopped_at: Completed 10-03-PLAN.md
-last_updated: "2026-11-18T20:03:20.292Z"
+stopped_at: Completed 10-04-PLAN.md
+last_updated: "2026-11-18T20:55:27.865Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: efc482995a93d5047c29f795ad2bc45ddd608ee2
+state_head: 45db2e5d5bb215704e9eed905b34552dc1c0becc
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 31
-  completed_plans: 25
+  completed_plans: 26
   percent: 75
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 ## Current Position
 
 Phase: 10 — PPU Timing and First Pixels
-Current Plan: 4
+Current Plan: 5
 Total Plans in Phase: 9
 Status: Ready to execute
 Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
@@ -157,6 +157,7 @@ Progress: [████████░░] 75%
 | Phase 10 P01 | 42min | 2 tasks | 7 files |
 | Phase 10 P02 | 38 min | 2 tasks | 11 files |
 | Phase 10 P3 | 39min | 2 tasks | 9 files |
+| Phase 10 P04 | 33 min from first task commit; start time unrecorded | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -391,6 +392,8 @@ Recent decisions affecting current work:
 - [Phase 10]: VBlank requests at line 160 and selected HBlank requests at +1006 on visible lines use the shared event scheduler and existing DMA arbiter.
 - [Phase 10]: HBlank-dependent results remain linked to disp-hblank-flag-edge and hardware qualification UNKNOWN, independently of the DMA latch dispute.
 - [Phase 10]: Task 2 stayed test-only because its transactional refusal and collision behavior already passed after Task 1.
+- [Phase 10]: Keep the selected +1006-cycle HBlank event separate from the unknown hardware edge; retain the open disp-hblank-flag-edge dispute and UNKNOWN qualification.
+- [Phase 10]: Use typed ppu.tracer and ppu.boundary observations for runtime values, and require the ppu.registers selector's exact success summary.
 
 ### Pending Todos
 
@@ -441,8 +444,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T20:03:19.875Z
-Stopped at: Completed 10-03-PLAN.md
+Last session: 2026-11-18T20:55:27.591Z
+Stopped at: Completed 10-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
