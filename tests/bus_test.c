@@ -1058,6 +1058,14 @@ static int run_ppu_refusal(void)
         } else {
             preview_equality_detects_plan = false;
         }
+        changed_preview = preview;
+        changed_preview.ppu.frame_epoch++;
+        preview_equality_detects_plan = preview_equality_detects_plan &&
+            !gbl_test_time_preview_equal(&preview, &changed_preview);
+        changed_preview = preview;
+        changed_preview.ppu_clear_video = true;
+        preview_equality_detects_plan = preview_equality_detects_plan &&
+            !gbl_test_time_preview_equal(&preview, &changed_preview);
         *before = *machine;
         CHECK(gbl_machine_prepare_operations(machine, operations, 2u,
                                              &repeated) ==

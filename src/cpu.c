@@ -4118,7 +4118,9 @@ static bool gbl_cpu_time_preview_matches_machine(
         memcmp(machine->ppu.row_coverage, preview->ppu.row_coverage,
                sizeof(machine->ppu.row_coverage)) != 0 ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
-        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX) {
+        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX ||
+        (preview->ppu_clear_video &&
+         preview->ppu_row_capture_count != preview->ppu.captured_rows)) {
         return false;
     }
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -4185,14 +4187,32 @@ static bool gbl_cpu_time_preview_matches_machine(
         const gbl_ppu_row_capture *capture =
             &preview->ppu_row_captures[index];
         const size_t offset = (size_t)capture->line * GBL_PPU_ROW_BYTES;
+        const uint64_t line_offset =
+            (uint64_t)capture->line * GBL_PPU_LINE_CYCLES;
+        uint64_t frame_offset;
+        uint64_t expected_cycle;
         uint64_t digest = UINT64_C(14695981039346656037);
         size_t pixel;
 
         if (capture->line >= GBL_PPU_VISIBLE_LINES ||
-            capture->frame_epoch != machine->ppu.frame_epoch ||
+            capture->frame_epoch != preview->ppu.frame_epoch ||
+            capture->frame_epoch > UINT64_MAX / GBL_PPU_FRAME_CYCLES ||
             (machine->ppu.row_coverage[capture->line >> 3u] &
              (uint8_t)(UINT8_C(1) << (capture->line & 7u))) == 0u ||
             capture->prior_write_count > preview->ppu_vram_write_count) {
+            return false;
+        }
+        frame_offset = capture->frame_epoch * GBL_PPU_FRAME_CYCLES;
+        if (frame_offset > UINT64_MAX - line_offset) {
+            return false;
+        }
+        expected_cycle = frame_offset + line_offset;
+        if (capture->cycle != expected_cycle ||
+            (index > 0u &&
+             (preview->ppu_row_captures[index - 1u].cycle >=
+                  capture->cycle ||
+              preview->ppu_row_captures[index - 1u].prior_write_count >
+                  capture->prior_write_count))) {
             return false;
         }
         for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
@@ -4201,6 +4221,32 @@ static bool gbl_cpu_time_preview_matches_machine(
         }
         if (digest != capture->pixel_digest) {
             return false;
+        }
+    }
+    for (index = 0u; index < preview->ppu_vram_write_count; ++index) {
+        const uint8_t width = preview->ppu_vram_writes[index].width;
+
+        if (width != 1u && width != 2u && width != 4u) {
+            return false;
+        }
+    }
+    if (preview->ppu_clear_video) {
+        size_t line;
+
+        for (line = 0u; line < GBL_PPU_VISIBLE_LINES; ++line) {
+            const uint8_t mask =
+                (uint8_t)(UINT8_C(1) << (line & 7u));
+            size_t pixel;
+
+            if ((preview->ppu.row_coverage[line >> 3u] & mask) != 0u) {
+                continue;
+            }
+            for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
+                if (machine->video_frame[line * GBL_PPU_ROW_BYTES + pixel] !=
+                    0u) {
+                    return false;
+                }
+            }
         }
     }
     return true;

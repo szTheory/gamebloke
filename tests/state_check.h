@@ -64,6 +64,44 @@ static bool gbl_test_input_event_equal(const gbl_input_event *left,
            left->pressed_mask == right->pressed_mask;
 }
 
+static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
+                               const gbl_ppu_timing_state *right)
+{
+    return left->line_origin == right->line_origin &&
+           left->generation == right->generation &&
+           left->frame_epoch == right->frame_epoch &&
+           left->line == right->line &&
+           left->scheduled_line == right->scheduled_line &&
+           left->dispcnt == right->dispcnt &&
+           left->dispstat == right->dispstat &&
+           left->compare == right->compare &&
+           left->captured_rows == right->captured_rows &&
+           left->capture_state == right->capture_state &&
+           left->next_boundary_hblank == right->next_boundary_hblank &&
+           left->frame_started == right->frame_started &&
+           gbl_test_bytes_equal(left->row_coverage, right->row_coverage,
+                                sizeof(left->row_coverage));
+}
+
+static bool gbl_test_ppu_row_capture_equal(
+    const gbl_ppu_row_capture *left, const gbl_ppu_row_capture *right)
+{
+    return left->cycle == right->cycle &&
+           left->frame_epoch == right->frame_epoch &&
+           left->pixel_digest == right->pixel_digest &&
+           left->line == right->line &&
+           left->prior_write_count == right->prior_write_count;
+}
+
+static bool gbl_test_ppu_vram_write_equal(
+    const gbl_ppu_vram_write *left, const gbl_ppu_vram_write *right)
+{
+    return left->address == right->address &&
+           left->value == right->value &&
+           left->dispcnt == right->dispcnt &&
+           left->width == right->width;
+}
+
 static bool gbl_test_timer_equal(const gbl_timer_state *left,
                                 const gbl_timer_state *right)
 {
@@ -106,6 +144,7 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
         left->interrupt_enable != right->interrupt_enable ||
         left->interrupt_master_enable != right->interrupt_master_enable ||
         left->waitcnt != right->waitcnt ||
+        !gbl_test_ppu_equal(&left->ppu, &right->ppu) ||
         left->bus_owner != right->bus_owner ||
         left->dma_last_channel != right->dma_last_channel ||
         left->dma_last_width != right->dma_last_width ||
@@ -167,6 +206,7 @@ static bool gbl_test_time_preview_equal(
         left->interrupt_enable != right->interrupt_enable ||
         left->interrupt_master_enable != right->interrupt_master_enable ||
         left->waitcnt != right->waitcnt ||
+        !gbl_test_ppu_equal(&left->ppu, &right->ppu) ||
         left->bus_owner != right->bus_owner ||
         left->dma_last_channel != right->dma_last_channel ||
         left->dma_last_width != right->dma_last_width ||
@@ -183,7 +223,14 @@ static bool gbl_test_time_preview_equal(
         left->input_event_count != right->input_event_count ||
         left->input_event_cursor != right->input_event_cursor ||
         left->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
-        left->input_event_cursor > left->input_event_count) {
+        left->input_event_cursor > left->input_event_count ||
+        left->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
+        right->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
+        left->ppu_vram_write_count > GBL_TIME_OPERATION_MAX ||
+        right->ppu_vram_write_count > GBL_TIME_OPERATION_MAX ||
+        left->ppu_clear_video != right->ppu_clear_video ||
+        left->ppu_row_capture_count != right->ppu_row_capture_count ||
+        left->ppu_vram_write_count != right->ppu_vram_write_count) {
         return false;
     }
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -210,6 +257,18 @@ static bool gbl_test_time_preview_equal(
             return false;
         }
     }
+    for (index = 0u; index < left->ppu_row_capture_count; ++index) {
+        if (!gbl_test_ppu_row_capture_equal(&left->ppu_row_captures[index],
+                                            &right->ppu_row_captures[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < left->ppu_vram_write_count; ++index) {
+        if (!gbl_test_ppu_vram_write_equal(&left->ppu_vram_writes[index],
+                                           &right->ppu_vram_writes[index])) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -231,6 +290,7 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.interrupt_enable = machine->interrupt_enable;
     machine_time.interrupt_master_enable = machine->interrupt_master_enable;
     machine_time.waitcnt = machine->waitcnt;
+    machine_time.ppu = machine->ppu;
     machine_time.bus_owner = machine->bus_owner;
     machine_time.dma_last_channel = machine->dma_last_channel;
     machine_time.dma_last_width = machine->dma_last_width;
@@ -402,6 +462,7 @@ static bool gbl_test_canonical_equal(const gbl_machine *left,
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
         !gbl_test_time_state_equal(left, right) ||
+        !gbl_test_ppu_equal(&left->ppu, &right->ppu) ||
         !gbl_test_cpu_equal(&left->cpu, &right->cpu) ||
         !gbl_test_diagnostics_equal(&left->header_diagnostics,
                                     &right->header_diagnostics) ||
@@ -413,6 +474,8 @@ static bool gbl_test_canonical_equal(const gbl_machine *left,
         !gbl_test_bytes_equal(left->iwram, right->iwram, GBL_IWRAM_SIZE) ||
         !gbl_test_bytes_equal(left->pram, right->pram, GBL_PRAM_SIZE) ||
         !gbl_test_bytes_equal(left->vram, right->vram, GBL_VRAM_SIZE) ||
+        !gbl_test_bytes_equal(left->video_frame, right->video_frame,
+                              GBL_PPU_VIDEO_BYTES) ||
         !gbl_test_bytes_equal(left->oam, right->oam, GBL_OAM_SIZE)) {
         return false;
     }
@@ -619,6 +682,23 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_u64(digest, machine->dma_last_destination);
     digest = gbl_test_digest_byte(digest,
                                   machine->dma_stream_valid ? 1u : 0u);
+    digest = gbl_test_digest_u64(digest, machine->ppu.line_origin);
+    digest = gbl_test_digest_u64(digest, machine->ppu.generation);
+    digest = gbl_test_digest_u64(digest, machine->ppu.frame_epoch);
+    digest = gbl_test_digest_u64(digest, machine->ppu.line);
+    digest = gbl_test_digest_u64(digest, machine->ppu.scheduled_line);
+    digest = gbl_test_digest_u64(digest, machine->ppu.dispcnt);
+    digest = gbl_test_digest_u64(digest, machine->ppu.dispstat);
+    digest = gbl_test_digest_u64(digest, machine->ppu.compare);
+    digest = gbl_test_digest_u64(digest, machine->ppu.captured_rows);
+    digest = gbl_test_digest_u64(digest,
+                                 (uint64_t)machine->ppu.capture_state);
+    digest = gbl_test_digest_byte(
+        digest, machine->ppu.next_boundary_hblank ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, machine->ppu.frame_started ? 1u : 0u);
+    digest = gbl_test_digest_bytes(digest, machine->ppu.row_coverage,
+                                   sizeof(machine->ppu.row_coverage));
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         const gbl_dma_channel_state *dma = &machine->dma_channels[index];
 
@@ -722,6 +802,8 @@ static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
     digest = gbl_test_digest_bytes(digest, machine->iwram, GBL_IWRAM_SIZE);
     digest = gbl_test_digest_bytes(digest, machine->pram, GBL_PRAM_SIZE);
     digest = gbl_test_digest_bytes(digest, machine->vram, GBL_VRAM_SIZE);
+    digest = gbl_test_digest_bytes(digest, machine->video_frame,
+                                   GBL_PPU_VIDEO_BYTES);
     digest = gbl_test_digest_bytes(digest, machine->oam, GBL_OAM_SIZE);
     digest = gbl_test_digest_byte(
         digest, (uint8_t)(machine->rom == NULL ? 0u : 1u));
