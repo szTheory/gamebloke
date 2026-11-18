@@ -4,19 +4,19 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-11-18T18:24:28.766Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-11-18T19:18:41.050Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: ef998a4763882ad23dbcd9aec90605fdc8fd394c
+state_head: 9eae932df069f4d8ea43a4325376a062661317a5
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 31
-  completed_plans: 23
-  percent: 74
+  completed_plans: 24
+  percent: 75
 ---
 
 # Project State
@@ -32,12 +32,12 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 ## Current Position
 
 Phase: 10 — PPU Timing and First Pixels
-Current Plan: 2
+Current Plan: 3
 Total Plans in Phase: 9
 Status: Ready to execute
 Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
 
-Progress: [███████░░░] 74%
+Progress: [████████░░] 75%
 
 
 ## Performance Metrics
@@ -155,6 +155,7 @@ Progress: [███████░░░] 74%
 | Phase 09 P07 | 31m from first task commit | 2 tasks | 8 files |
 | Phase 09 P08 | 2h | 2 tasks | 23 files |
 | Phase 10 P01 | 42min | 2 tasks | 7 files |
+| Phase 10 P02 | 38 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -381,6 +382,11 @@ Recent decisions affecting current work:
 - [Phase 10]: The 1006-cycle HBlank offset remains project-selected/REF and disputed; hardware qualification stays UNKNOWN.
 - [Phase 10]: Bounded row capture plans and ordered VRAM overlays materialize only on successful commit under caller-owned synchronization.
 - [Phase 10]: PPU-01 and PPU-02 remain pending until the remaining Phase 10 work satisfies their full requirements.
+- [Phase 10]: Keep the 1006-cycle HBlank edge project-selected/REF, preserve the open dispute, and retain UNKNOWN hardware qualification.
+- [Phase 10]: Keep VCOUNT and DISPSTAT status read-only; use DISPSTAT writable mask 0xFF38 and ignore VCOUNT writes.
+- [Phase 10]: Publish frame validity only at line 160 after complete coverage of 160 supported rows in one epoch.
+- [Phase 10]: Preserve full DISPCNT; this raw mode-3 renderer consumes mode, BG2, forced blank, OBJ, and window enables while leaving other bits unmodeled.
+- [Phase 10]: Keep PPU-01 and PPU-02 pending until remaining Phase 10 plans satisfy the full requirements.
 
 ### Pending Todos
 
@@ -431,8 +437,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T18:24:28.493Z
-Stopped at: Completed 10-01-PLAN.md
+Last session: 2026-11-18T19:18:40.735Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

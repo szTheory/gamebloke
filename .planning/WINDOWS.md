@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 4
 waived_count: 0
-fixed_count: 23
-total_count: 27
-last_updated: 2026-11-17T00:28:45.212Z
+fixed_count: 25
+total_count: 29
+last_updated: 2026-11-18T19:16:06.421Z
 ---
 
 # Broken Windows Ledger
@@ -42,6 +42,8 @@ last_updated: 2026-11-17T00:28:45.212Z
 | 25 | 07 | deviation | src/cpu.c |  | Exception units now use the shared calculator for their internal-cycle attribution; determinism control and canonical workflow pass. | fixed |  | 2026-11-16T07:56:14.967Z | 2026-11-16T07:56:39.863Z |
 | 26 | 07 | skipped-test | tests/diagnostics.cmake | 37 | The local full workflow skipped 726 ARM/Thumb diagnostic cases because arm-toolchain-absent; DIAG-04 remains open. | open |  | 2026-11-16T13:37:35.583Z |  |
 | 27 | 8 | deviation | tests/determinism_test.c |  | Converted stale positional run-result initializers so the Phase 8 determinism target builds with warnings as errors. | fixed |  | 2026-11-17T00:28:03.040Z | 2026-11-17T00:28:45.212Z |
+| 28 | 10 | deviation | src/cpu.c |  | Added PPU boundaries to the CPU live-event scan so a masked PPU IF request wakes HALT without becoming IRQ acceptance. | fixed |  | 2026-11-18T19:15:57.608Z | 2026-11-18T19:16:06.312Z |
+| 29 | 10 | deviation | tests/bus_test.c |  | Corrected stale PPU/video fixtures for full DISPCNT preservation, cycle-zero supported sampling, VBlank/HBlank masks, and the new capture-reason baseline; focused selectors pass. | fixed |  | 2026-11-18T19:16:03.766Z | 2026-11-18T19:16:06.421Z |
 
 ````json
 [
@@ -394,6 +396,32 @@ last_updated: 2026-11-17T00:28:45.212Z
     "reason": "",
     "recorded_at": "2026-11-17T00:28:03.040Z",
     "resolved_at": "2026-11-17T00:28:45.212Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 28,
+    "kind": "deviation",
+    "phase": "10",
+    "file": "src/cpu.c",
+    "line": null,
+    "description": "Added PPU boundaries to the CPU live-event scan so a masked PPU IF request wakes HALT without becoming IRQ acceptance.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-18T19:15:57.608Z",
+    "resolved_at": "2026-11-18T19:16:06.312Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 29,
+    "kind": "deviation",
+    "phase": "10",
+    "file": "tests/bus_test.c",
+    "line": null,
+    "description": "Corrected stale PPU/video fixtures for full DISPCNT preservation, cycle-zero supported sampling, VBlank/HBlank masks, and the new capture-reason baseline; focused selectors pass.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-18T19:16:03.766Z",
+    "resolved_at": "2026-11-18T19:16:06.421Z",
     "milestone": "v2.0"
   }
 ]
