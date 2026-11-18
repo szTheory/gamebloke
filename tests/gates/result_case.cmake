@@ -494,6 +494,14 @@ elseif(CASE STREQUAL "phase9")
   result_add_phase9_dma_transfer("${r}")
   expect_ok(PASS "${r}")
 
+  result_copy(r current_phase9_reactivated_channel)
+  result_add_phase9_dma_transfer("${r}")
+  # The final channel snapshot describes its latest activation, while the
+  # run-level total includes both activations of the same channel.
+  gbl_json_mutate_set("${r}" "\"2\"" time dma_completed_units)
+  gbl_json_mutate_set("${r}" "\"2\"" phase9 timing dma_completed_units)
+  expect_ok(PASS "${r}")
+
   result_copy(r current_phase9_pending_dma_startup)
   result_add_phase9_extension("${r}")
   gbl_json_mutate_set("${r}" "32768" phase9 channels 3 control)
@@ -561,12 +569,12 @@ elseif(CASE STREQUAL "phase9_negative")
   gbl_json_mutate_set("${r}" "true" phase9 channels 3 active)
   expect_detail(bad-phase9-progress "phase9.channels" "${r}")
 
-  result_copy(r phase9_completed_unit_sum)
+  result_copy(r phase9_completed_unit_total_mismatch)
   result_add_phase9_dma_transfer("${r}")
   gbl_json_mutate_set("${r}" "\"2\"" time dma_completed_units)
-  gbl_json_mutate_set("${r}" "\"2\"" phase9 timing dma_completed_units)
-  expect_detail(bad-phase9-progress
-    "channel completed_units do not sum to time.dma_completed_units" "${r}")
+  gbl_json_mutate_set("${r}" "\"3\"" phase9 timing dma_completed_units)
+  expect_detail(bad-phase9-timing
+    "phase9.timing.dma_completed_units differs from time.dma_completed_units" "${r}")
 
   result_copy(r phase9_inconsistent_component)
   result_add_phase9_extension("${r}")

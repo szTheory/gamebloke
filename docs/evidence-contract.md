@@ -133,9 +133,11 @@ these fields:
   Current `phase9` results also require the phase 8 timing observation; duplicated
   `time.wait_cycles` and `phase8.wait_cycles` must agree.
   When no machine execution was observed, those snapshot fields are null. The timing object
-  repeats the five DMA counters in `time`; duplicate values must match, machine cycles must
-  equal `time.cycles`, and summed channel completions must equal
-  `time.dma_completed_units`. Channel count, bounds, and progress flags are checked together.
+  repeats the five DMA counters in `time`; duplicate values must match and machine cycles must
+  equal `time.cycles`. `time.dma_completed_units` counts every completed transfer in the run;
+  each channel's `completed_units` is progress for its latest activation, so reactivating a
+  channel can make the run total larger than the sum of the final channel snapshots. Channel
+  count, bounds, and progress flags are checked together.
   The terminal `cpu_paused` and owner fields describe the observed machine state; instruction
   totals do not claim CPU retirement during paused DMA cycles.
 - Phase 9 provenance stays explicit. Documented Game Pak wait values point to
