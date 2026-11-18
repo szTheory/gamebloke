@@ -14173,6 +14173,93 @@ done:
     return valid;
 }
 
+static bool cpu_ppu_dma_pause_resume(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_trace_record records[2] = { { 0 }, { 0 } };
+    gbl_trace_buffer trace = { records, 2u, 0u, 0u };
+    gbl_input_event input;
+    gbl_bus_result bus_result;
+    bool valid;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE3A07042));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    valid = machine_load(&machine, image);
+    machine.dispcnt = UINT16_C(0x0403);
+    machine.ppu.dispcnt = machine.dispcnt;
+    machine.ewram[0x80u] = UINT8_C(0x10);
+    machine.ewram[0x81u] = UINT8_C(0x42);
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000B0), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x02000080));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000B4), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x060001E0));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000B8), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000BA), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0xA000));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    valid = valid &&
+            gbl_machine_advance_to(&machine, GBL_PPU_HBLANK_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            machine.dma_channels[0].pending;
+    input = (gbl_input_event){ machine.master_cycles + 4u,
+                               UINT16_C(0x0010) };
+    valid = valid && gbl_machine_set_input_timeline(&machine, &input, 1u) ==
+                         GBL_TIME_STATUS_OK;
+    options.cycle_budget = UINT64_C(64);
+    options.unit_limit = 1u;
+    options.category_mask = (uint32_t)GBL_TRACE_DMA;
+    options.trace_buffer = &trace;
+    valid = valid &&
+            gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK &&
+            result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+            result.instructions == 0u && machine.cpu.r0_7[7] == 0u &&
+            machine.dma_channels[0].completed_units == 1u &&
+            machine.pressed_keys == UINT16_C(0x0010) &&
+            machine.input_event_cursor == 1u && trace.count == 2u &&
+            records[0].dma_channel == 0u &&
+            records[0].dma_startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+            records[1].dma_destination_address == UINT32_C(0x060001E0) &&
+            records[1].dma_value == UINT32_C(0x4210) &&
+            gbl_machine_advance_to(&machine, GBL_PPU_LINE_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            machine.video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x10) &&
+            machine.video_frame[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x42);
+    if (valid) {
+        options.unit_limit = 1u;
+        valid = gbl_cpu_run(&machine, &options, &result) == GBL_RUN_STATUS_OK &&
+                result.instructions == 1u && machine.cpu.r0_7[7] == 0x42u &&
+                machine.cpu.retired_instructions == 1u &&
+                machine.bus_owner == GBL_MACHINE_BUS_OWNER_CPU;
+    }
+    gbl_machine_dispose(&machine);
+    return valid;
+}
+
+static void test_ppu_dma(void)
+{
+    test_case(cpu_ppu_dma_pause_resume(),
+              "PPU-triggered DMA advances input and VRAM while the CPU pauses, then the CPU resumes through the canonical coordinator");
+}
+
 static void test_ppu_refusal(void)
 {
     test_case(cpu_ppu_budget_refusal_is_atomic(),
@@ -16237,6 +16324,9 @@ static const cpu_test_function unit_boundaries_functions[] = {
     test_time_preflight_unit_boundaries,
     test_cycle_attribution_api
 };
+static const cpu_test_function ppu_dma_functions[] = {
+    test_ppu_dma
+};
 static const cpu_test_function ppu_refusal_functions[] = {
     test_ppu_refusal
 };
@@ -16259,6 +16349,7 @@ static const cpu_test_function power_boundary_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("unit_boundaries", 66u, unit_boundaries_functions),
+    CPU_TEST_GROUP("ppu.dma", 1u, ppu_dma_functions),
     CPU_TEST_GROUP("ppu.refusal", 1u, ppu_refusal_functions),
     CPU_TEST_GROUP("ppu.irq", 5u, ppu_irq_functions),
     CPU_TEST_GROUP("ppu.latch", 2u, ppu_latch_functions),

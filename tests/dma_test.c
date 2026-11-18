@@ -909,6 +909,144 @@ static bool test_dma_events_during_startup_and_unit(void)
     return true;
 }
 
+static bool test_ppu_blank_triggers_and_video_row(void)
+{
+    gbl_machine *vblank = new_machine();
+    gbl_machine *hblank = new_machine();
+    gbl_dma_step_result step = { 0 };
+    uint8_t channel;
+    bool valid = vblank != NULL && hblank != NULL;
+
+    if (!valid) {
+        free_machine(vblank);
+        free_machine(hblank);
+        return false;
+    }
+    for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        const uint32_t source = UINT32_C(0x02000020) +
+                                (uint32_t)channel * 2u;
+        const uint32_t destination = UINT32_C(0x03000100) +
+                                     (uint32_t)channel * 2u;
+
+        vblank->ewram[0x20u + (size_t)channel * 2u] =
+            (uint8_t)(UINT8_C(0x30) + channel);
+        valid = valid && configure_dma(vblank, channel, source, destination,
+                                       1u, UINT16_C(0x9000));
+    }
+    valid = valid &&
+        gbl_machine_advance_to(
+            vblank,
+            (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES) ==
+            GBL_TIME_STATUS_OK;
+    for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        valid = valid && vblank->dma_channels[channel].pending &&
+                !vblank->dma_channels[channel].armed;
+    }
+
+    hblank->dispcnt = UINT16_C(0x0403);
+    hblank->ppu.dispcnt = hblank->dispcnt;
+    hblank->ewram[0x40u] = UINT8_C(0x10);
+    hblank->ewram[0x41u] = UINT8_C(0x42);
+    for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        const uint32_t source = channel == 0u
+                                    ? UINT32_C(0x02000040)
+                                    : UINT32_C(0x02000020) +
+                                          (uint32_t)channel * 2u;
+        const uint32_t destination = channel == 0u
+                                         ? UINT32_C(0x060001E0)
+                                         : UINT32_C(0x03000200) +
+                                               (uint32_t)channel * 2u;
+        const uint16_t control = channel == 0u
+                                     ? UINT16_C(0xA200)
+                                     : UINT16_C(0xA000);
+
+        valid = valid && configure_dma(hblank, channel, source, destination,
+                                       1u, control);
+    }
+    valid = valid &&
+            gbl_machine_advance_to(hblank, GBL_PPU_HBLANK_CYCLES) ==
+                GBL_TIME_STATUS_OK;
+    for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        valid = valid && hblank->dma_channels[channel].pending &&
+                !hblank->dma_channels[channel].armed;
+    }
+    valid = valid && hblank->ppu.line == 0u &&
+            (hblank->ppu.dispstat & UINT16_C(0x0002)) != 0u &&
+            hblank->event_count == 1u &&
+            gbl_machine_advance_to(hblank, GBL_PPU_HBLANK_CYCLES) ==
+                GBL_TIME_STATUS_OK && hblank->event_count == 1u &&
+            hblank->dma_channels[0].pending;
+    valid = valid &&
+            gbl_machine_dma_step(hblank, GBL_DMA_STARTUP_CYCLES, &step) ==
+                GBL_DMA_STATUS_OK &&
+            step.channel == 0u && !step.unit_completed &&
+            step.startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+            gbl_machine_dma_step(hblank, UINT64_C(64), &step) ==
+                GBL_DMA_STATUS_OK && step.channel == 0u &&
+            step.unit_completed && step.value == UINT32_C(0x4210) &&
+            hblank->dma_channels[0].armed &&
+            gbl_machine_advance_to(hblank, GBL_PPU_LINE_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            hblank->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x10) &&
+            hblank->video_frame[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x42) &&
+            gbl_machine_advance_to(
+                hblank, GBL_PPU_LINE_CYCLES + GBL_PPU_HBLANK_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            hblank->dma_channels[0].pending &&
+            !hblank->dma_channels[0].armed &&
+            hblank->dma_channels[0].completed_units == 1u;
+
+    test_case(valid,
+              "VBlank and visible HBlank trigger all channels once, retain timed startup, update a later VRAM row, and re-arm repeats");
+    free_machine(vblank);
+    free_machine(hblank);
+    return valid;
+}
+
+static bool test_ppu_same_cycle_input_order(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_input_event input = { GBL_PPU_HBLANK_CYCLES, UINT16_C(0x0020) };
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000020),
+                          UINT32_C(0x03000100), 1u, UINT16_C(0xA000)) &&
+            gbl_machine_set_input_timeline(machine, &input, 1u) ==
+                GBL_TIME_STATUS_OK &&
+            gbl_machine_advance_to(machine, GBL_PPU_HBLANK_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            machine->pressed_keys == UINT16_C(0x0020) &&
+            machine->input_event_cursor == 1u &&
+            machine->dma_channels[0].pending &&
+            (machine->ppu.dispstat & UINT16_C(0x0002)) != 0u &&
+            machine->dma_channels[0].completed_units == 0u;
+    test_case(valid,
+              "same-cycle keypad input precedes the PPU cause and resulting DMA readiness without consuming a transfer unit");
+    free_machine(machine);
+    return valid;
+}
+
+static bool run_ppu_triggers(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..1\n");
+    (void)test_ppu_blank_triggers_and_video_row();
+    return failure_count == 0u ? 0 : 1;
+}
+
+static bool run_ppu_order(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..1\n");
+    (void)test_ppu_same_cycle_input_order();
+    return failure_count == 0u ? 0 : 1;
+}
+
 static bool run_registers(void)
 {
     check_count = 0u;
@@ -978,6 +1116,12 @@ static bool run_controls(void)
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "ppu.triggers") == 0) {
+        return run_ppu_triggers();
+    }
+    if (argc == 2 && strcmp(argv[1], "ppu.order") == 0) {
+        return run_ppu_order();
+    }
     if (argc == 2 && strcmp(argv[1], "registers") == 0) {
         return run_registers();
     }
