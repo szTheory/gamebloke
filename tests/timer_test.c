@@ -771,6 +771,25 @@ static int run_event_refusal(void)
     CHECK(preview_equal(&preview, &sentinel));
     take_time_snapshot(machine, &snapshot);
     {
+        gbl_time_operation oversized[GBL_TIME_OPERATION_MAX + 1u];
+        size_t operation_index;
+
+        for (operation_index = 0u;
+             operation_index < GBL_TIME_OPERATION_MAX + 1u;
+             ++operation_index) {
+            oversized[operation_index] = (gbl_time_operation){
+                .kind = GBL_TIME_OPERATION_INTERNAL,
+                .cycles = 0u
+            };
+        }
+        preview = sentinel;
+        CHECK(gbl_machine_prepare_operations(
+                  machine, oversized, GBL_TIME_OPERATION_MAX + 1u,
+                  &preview) == GBL_TIME_STATUS_INVALID_ARGUMENT);
+        CHECK(preview_equal(&preview, &sentinel));
+        CHECK(time_matches_snapshot(machine, &snapshot));
+    }
+    {
         const gbl_time_operation operations[2] = {
             { .kind = GBL_TIME_OPERATION_INTERNAL,
               .cycles = (uint64_t)GBL_MACHINE_MAX_EVENT_DISPATCH },
