@@ -14490,6 +14490,94 @@ static void test_ppu_irq_projection(void)
     }
 }
 
+static void test_ppu_latch_cpu_paths(void)
+{
+    {
+        gbl_machine machine = { 0 };
+        gbl_run_result result = { 0 };
+        gbl_trace_record records[32] = { { 0 } };
+        gbl_trace_buffer trace = { records, 32u, 0u, 1u };
+        const uint64_t row_start = UINT64_C(159) * UINT64_C(1232);
+        const uint32_t row_address =
+            UINT32_C(0x06000000) + UINT32_C(159) * UINT32_C(480);
+        const uint64_t cpu_start = row_start - UINT64_C(2);
+        bool valid = prepare_irq_boundary_machine(&machine, false);
+
+        if (valid) {
+            machine.dispcnt = UINT16_C(0x0403);
+            machine.ppu.dispcnt = UINT16_C(0x0403);
+            valid = gbl_machine_advance_to(&machine, cpu_start) ==
+                    GBL_TIME_STATUS_OK;
+        }
+        if (valid) {
+            machine.cpu.r0_7[0] = row_address;
+            machine.cpu.r0_7[1] = UINT32_C(0x22222222);
+            machine.cpu.r0_7[2] = UINT32_C(0x33333333);
+            valid = run_arm_instruction_with_trace(
+                &machine, UINT32_C(0xE8A00006), TEST_CPSR_SYSTEM,
+                UINT64_C(64), &trace, &result);
+        }
+        test_case(valid && result.instructions == 1u &&
+                      result.termination == GBL_RUN_PROGRESS &&
+                      machine.master_cycles < UINT64_C(197120) &&
+                      machine.ppu.capture_state ==
+                          GBL_VIDEO_CAPTURE_INCOMPLETE &&
+                      machine.video_frame[
+                          (size_t)159u * GBL_PPU_ROW_BYTES] ==
+                          UINT8_C(0x22) &&
+                      machine.video_frame[
+                          (size_t)159u * GBL_PPU_ROW_BYTES + 1u] ==
+                          UINT8_C(0x22) &&
+                      machine.video_frame[
+                          (size_t)159u * GBL_PPU_ROW_BYTES + 4u] == 0u &&
+                      machine.video_frame[
+                          (size_t)159u * GBL_PPU_ROW_BYTES + 5u] == 0u,
+                  "ARM STM crossing the final visible row keeps the frame incomplete until line 160");
+        gbl_machine_dispose(&machine);
+    }
+
+    {
+        gbl_machine machine = { 0 };
+        gbl_machine_time_preview preview = { 0 };
+        const gbl_time_operation operations[3] = {
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u,
+              UINT32_C(0x060001E0), UINT32_C(0x2468), UINT64_C(1) },
+            { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u,
+              UINT32_C(0x060001E2), UINT32_C(0xACE0), UINT64_C(1) }
+        };
+        bool valid = prepare_irq_boundary_machine(&machine, false);
+
+        if (valid) {
+            machine.dispcnt = UINT16_C(0x0403);
+            machine.ppu.dispcnt = UINT16_C(0x0403);
+            machine.vram[GBL_PPU_ROW_BYTES] = UINT8_C(0xAA);
+            machine.vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0xAA);
+            machine.vram[GBL_PPU_ROW_BYTES + 2u] = UINT8_C(0xBB);
+            machine.vram[GBL_PPU_ROW_BYTES + 3u] = UINT8_C(0xBB);
+            valid = gbl_machine_advance_to(&machine, UINT64_C(1230)) ==
+                    GBL_TIME_STATUS_OK;
+        }
+        valid = valid &&
+            gbl_machine_prepare_operations(&machine, operations, 3u,
+                                           &preview) == GBL_TIME_STATUS_OK;
+        if (valid) {
+            gbl_machine_commit_time(&machine, &preview);
+        }
+        test_case(valid &&
+                      machine.video_frame[GBL_PPU_ROW_BYTES] ==
+                          UINT8_C(0x68) &&
+                      machine.video_frame[GBL_PPU_ROW_BYTES + 1u] ==
+                          UINT8_C(0x24) &&
+                      machine.video_frame[GBL_PPU_ROW_BYTES + 2u] ==
+                          UINT8_C(0xBB) &&
+                      machine.video_frame[GBL_PPU_ROW_BYTES + 3u] ==
+                          UINT8_C(0x3B),
+                  "ordered preflight exposes earlier writes and excludes later writes at row sampling");
+        gbl_machine_dispose(&machine);
+    }
+}
+
 static void test_irq_refusal_contract(void)
 {
     gbl_machine machine = { 0 };
@@ -16162,6 +16250,9 @@ static const cpu_test_function irq_refusal_functions[] = {
 static const cpu_test_function ppu_irq_functions[] = {
     test_ppu_irq_projection
 };
+static const cpu_test_function ppu_latch_functions[] = {
+    test_ppu_latch_cpu_paths
+};
 static const cpu_test_function power_boundary_functions[] = {
     test_power_boundary
 };
@@ -16170,6 +16261,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("unit_boundaries", 66u, unit_boundaries_functions),
     CPU_TEST_GROUP("ppu.refusal", 1u, ppu_refusal_functions),
     CPU_TEST_GROUP("ppu.irq", 5u, ppu_irq_functions),
+    CPU_TEST_GROUP("ppu.latch", 2u, ppu_latch_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),

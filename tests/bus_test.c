@@ -1026,6 +1026,8 @@ static int run_ppu_refusal(void)
     CHECK_PPU_MUTATION(changed->ppu.captured_rows++);
     CHECK_PPU_MUTATION(changed->ppu.capture_state =
                            GBL_VIDEO_CAPTURE_VALID);
+    CHECK_PPU_MUTATION(changed->ppu.capture_reason =
+                           GBL_VIDEO_INVALID_REASON_INCOMPLETE);
     CHECK_PPU_MUTATION(changed->ppu.next_boundary_hblank = true);
     CHECK_PPU_MUTATION(changed->ppu.frame_started = false);
     CHECK_PPU_MUTATION(changed->ppu.row_coverage[0] ^= UINT8_C(0x80));
@@ -1602,6 +1604,384 @@ static int run_ppu_registers(void)
 
     if (CHECK_DONE() == 0) {
         puts("ppu.registers: display lanes and requests follow project policy");
+        return 0;
+    }
+    return 1;
+}
+
+static uint16_t ppu_pattern_color(uint16_t x, uint16_t y)
+{
+    static const uint16_t colors[4] = {
+        UINT16_C(0x001F), UINT16_C(0x03E0),
+        UINT16_C(0x7C00), UINT16_C(0xFFFF)
+    };
+
+    return (uint16_t)(colors[(x + y) & 3u] & UINT16_C(0x7FFF));
+}
+
+static void ppu_seed_supported_frame(gbl_machine *machine)
+{
+    uint16_t y;
+
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = UINT16_C(0x0403);
+    for (y = 0u; y < GBL_PPU_VISIBLE_LINES; ++y) {
+        uint16_t x;
+
+        for (x = 0u; x < GBL_PPU_WIDTH; ++x) {
+            const uint16_t color = ppu_pattern_color(x, y);
+            const size_t offset =
+                (size_t)y * GBL_PPU_ROW_BYTES + (size_t)x * 2u;
+
+            machine->vram[offset] = (uint8_t)color;
+            machine->vram[offset + 1u] = (uint8_t)(color >> 8u);
+        }
+    }
+}
+
+static bool ppu_frame_matches_pattern(const uint8_t *frame)
+{
+    uint16_t y;
+
+    if (frame == NULL) {
+        return false;
+    }
+    for (y = 0u; y < GBL_PPU_VISIBLE_LINES; ++y) {
+        uint16_t x;
+
+        for (x = 0u; x < GBL_PPU_WIDTH; ++x) {
+            const uint16_t expected = ppu_pattern_color(x, y);
+            const size_t offset =
+                (size_t)y * GBL_PPU_ROW_BYTES + (size_t)x * 2u;
+
+            if (frame[offset] != (uint8_t)expected ||
+                frame[offset + 1u] != (uint8_t)(expected >> 8u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool ppu_pixel_matches(const uint8_t *frame, uint16_t y,
+                              uint16_t x, uint16_t expected)
+{
+    const size_t offset =
+        (size_t)y * GBL_PPU_ROW_BYTES + (size_t)x * 2u;
+    const uint16_t actual = (uint16_t)(
+        (uint16_t)frame[offset] |
+        (uint16_t)((uint16_t)frame[offset + 1u] << 8u));
+
+    return actual == expected;
+}
+
+static int run_ppu_latch(void)
+{
+    static const uint64_t completion_cycles[3] = {
+        UINT64_C(1231), UINT64_C(1232), UINT64_C(1233)
+    };
+    size_t timing;
+
+    for (timing = 0u; timing < 3u; ++timing) {
+        gbl_machine *machine = new_machine();
+        const uint64_t sample_cycle = UINT64_C(1232);
+        gbl_bus_result result;
+        const uint16_t expected =
+            timing == 0u ? UINT16_C(0x5A5A) : UINT16_C(0x1234);
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
+        machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
+        result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0403));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(gbl_machine_advance_to(
+                  machine, completion_cycles[timing] - 1u) ==
+              GBL_TIME_STATUS_OK);
+        if (timing == 2u) {
+            CHECK(gbl_machine_advance_to(machine, sample_cycle) ==
+                  GBL_TIME_STATUS_OK);
+        }
+        result = gbl_bus_write(machine, UINT32_C(0x060001E0), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x5A));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(machine->master_cycles == completion_cycles[timing]);
+        if (timing == 0u) {
+            CHECK(gbl_machine_advance_to(machine, sample_cycle) ==
+                  GBL_TIME_STATUS_OK);
+        }
+        CHECK(ppu_pixel_matches(machine->video_frame, 1u, 0u, expected));
+        if (timing == 1u) {
+            uint8_t wrong_order_pixel[2] = { UINT8_C(0x5A), UINT8_C(0x5A) };
+
+            CHECK(ppu_pixel_matches(machine->video_frame, 1u, 0u,
+                                    UINT16_C(0x1234)));
+            CHECK(!ppu_pixel_matches(wrong_order_pixel, 0u, 0u,
+                                     UINT16_C(0x1234)));
+            puts("ppu.latch control: same-cycle write is rejected as visible");
+        }
+        free_machine(machine);
+    }
+
+    for (timing = 0u; timing < 3u; ++timing) {
+        gbl_machine *machine = new_machine();
+        const uint64_t sample_cycle = UINT64_C(1232);
+        const uint64_t completion = completion_cycles[timing];
+        const bool sampled = timing == 0u;
+        gbl_bus_result result;
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
+        machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
+        if (timing == 2u) {
+            CHECK(gbl_machine_advance_to(machine, sample_cycle) ==
+                  GBL_TIME_STATUS_OK);
+        } else {
+            CHECK(gbl_machine_advance_to(machine, completion - 1u) ==
+                  GBL_TIME_STATUS_OK);
+        }
+        result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0403));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        if (timing == 0u) {
+            CHECK(gbl_machine_advance_to(machine, sample_cycle) ==
+                  GBL_TIME_STATUS_OK);
+        }
+        CHECK((machine->ppu.captured_rows == 1u) == sampled);
+        CHECK(ppu_pixel_matches(machine->video_frame, 1u, 0u,
+                                sampled ? UINT16_C(0x1234) : 0u));
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *alias = new_machine();
+        const size_t row = (size_t)137u * GBL_PPU_ROW_BYTES;
+        const uint64_t sample_cycle = UINT64_C(137) * UINT64_C(1232);
+        gbl_bus_result result;
+
+        CHECK(alias != NULL);
+        if (alias != NULL) {
+            ppu_seed_supported_frame(alias);
+            alias->vram[row] = 0u;
+            alias->vram[row + 1u] = 0u;
+            CHECK(gbl_machine_advance_to(alias, sample_cycle - 2u) ==
+                  GBL_TIME_STATUS_OK);
+            result = gbl_bus_write(alias, UINT32_C(0x060180E0), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x4567));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(gbl_machine_advance_to(alias, sample_cycle) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(alias->vram[row] == UINT8_C(0x67));
+            CHECK(alias->vram[row + 1u] == UINT8_C(0x45));
+            CHECK(ppu_pixel_matches(alias->video_frame, 137u, 0u,
+                                    UINT16_C(0x4567)));
+            free_machine(alias);
+        }
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.latch: timed display and VRAM writes follow the row sample");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_frame(void)
+{
+    gbl_machine *first = new_machine();
+    gbl_machine *second = new_machine();
+    uint8_t *control = malloc(GBL_PPU_VIDEO_BYTES);
+    uint8_t row_scratch[GBL_PPU_ROW_BYTES];
+
+    if (first == NULL || second == NULL || control == NULL) {
+        fprintf(stderr, "ppu.frame: allocation failed\n");
+        free(control);
+        free_machine(second);
+        free_machine(first);
+        return 1;
+    }
+    ppu_seed_supported_frame(first);
+    ppu_seed_supported_frame(second);
+    CHECK(gbl_machine_advance_to(first, UINT64_C(197119)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(first->ppu.captured_rows == GBL_PPU_VISIBLE_LINES);
+    CHECK(first->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+    CHECK(first->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+    CHECK(gbl_machine_advance_to(second, UINT64_C(100000)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(first, UINT64_C(197120)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(first->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+    CHECK(first->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE);
+    CHECK(gbl_machine_advance_to(second, UINT64_C(197120)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(second->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+    CHECK(second->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE);
+    CHECK(first->ppu.frame_epoch == 0u);
+    CHECK(second->ppu.frame_epoch == 0u);
+    CHECK(memcmp(first->video_frame, second->video_frame,
+                 GBL_PPU_VIDEO_BYTES) == 0);
+    CHECK(ppu_frame_matches_pattern(first->video_frame));
+    CHECK(first->video_frame[0] == UINT8_C(0x1F));
+    CHECK(first->video_frame[1] == 0u);
+    CHECK(first->video_frame[2] == UINT8_C(0xE0));
+    CHECK(first->video_frame[3] == UINT8_C(0x03));
+    CHECK(first->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0xE0));
+    CHECK(first->video_frame[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x03));
+    CHECK(first->video_frame[GBL_PPU_VIDEO_BYTES - 2u] == 0u);
+    CHECK(first->video_frame[GBL_PPU_VIDEO_BYTES - 1u] == UINT8_C(0x7C));
+
+    memcpy(control, first->video_frame, GBL_PPU_VIDEO_BYTES);
+    CHECK(ppu_frame_matches_pattern(control));
+    control[0] = UINT8_C(0xE0);
+    control[1] = UINT8_C(0x03);
+    CHECK(!ppu_frame_matches_pattern(control));
+    puts("ppu.frame control: wrong color is rejected by pixel expectations");
+    memcpy(control, first->video_frame, GBL_PPU_VIDEO_BYTES);
+    memcpy(row_scratch, control, GBL_PPU_ROW_BYTES);
+    memcpy(control, control + GBL_PPU_ROW_BYTES, GBL_PPU_ROW_BYTES);
+    memcpy(control + GBL_PPU_ROW_BYTES, row_scratch, GBL_PPU_ROW_BYTES);
+    CHECK(!ppu_frame_matches_pattern(control));
+    puts("ppu.frame control: wrong row address is rejected semantically");
+    memcpy(control, first->video_frame, GBL_PPU_VIDEO_BYTES);
+    control[GBL_PPU_VIDEO_BYTES - 2u] ^= UINT8_C(0x01);
+    CHECK(!ppu_frame_matches_pattern(control));
+    puts("ppu.frame control: one raw byte mutation is rejected semantically");
+
+    CHECK(gbl_machine_advance_to(first, UINT64_C(280896)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(first->ppu.frame_epoch == 1u);
+    CHECK(first->ppu.captured_rows == 1u);
+    CHECK(first->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+    CHECK(first->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+    CHECK(bytes_are_zero(first->video_frame + GBL_PPU_ROW_BYTES,
+                         GBL_PPU_VIDEO_BYTES - GBL_PPU_ROW_BYTES));
+
+    printf("{\"type\":\"ppu.frame\",\"width\":240,\"height\":160,\"format\":\"BGR555_LE\",\"bytes\":76800,\"valid_cycle\":197120}\n");
+    free(control);
+    free_machine(second);
+    free_machine(first);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.frame: full supported epochs publish exact raw bytes");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_controls(void)
+{
+    static const struct {
+        uint16_t dispcnt;
+        gbl_video_invalid_reason reason;
+        const char *name;
+    } unsupported[] = {
+        { UINT16_C(0x0402), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
+          "mode 2 is unsupported" },
+        { UINT16_C(0x0003), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
+          "missing BG2 is unsupported" },
+        { UINT16_C(0x0483), GBL_VIDEO_INVALID_REASON_FORCED_BLANK,
+          "forced blank is unsupported" },
+        { UINT16_C(0x1403), GBL_VIDEO_INVALID_REASON_OBJ_ENABLED,
+          "OBJ is unsupported" },
+        { UINT16_C(0x2403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
+          "OBJ window is unsupported" },
+        { UINT16_C(0x4403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
+          "window 0 is unsupported" },
+        { UINT16_C(0x8403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
+          "window 1 is unsupported" }
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof(unsupported) / sizeof(unsupported[0]);
+         ++index) {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        fprintf(stderr, "ppu.controls case: %s\n", unsupported[index].name);
+        machine->dispcnt = unsupported[index].dispcnt;
+        machine->ppu.dispcnt = unsupported[index].dispcnt;
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_reason == unsupported[index].reason);
+        CHECK(machine->ppu.captured_rows == 0u);
+        machine->dispcnt = UINT16_C(0x0403);
+        machine->ppu.dispcnt = UINT16_C(0x0403);
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(1232)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_reason == unsupported[index].reason);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *effects = new_machine();
+        gbl_machine *affine = new_machine();
+        gbl_bus_result result;
+
+        CHECK(effects != NULL && affine != NULL);
+        if (effects != NULL) {
+            effects->dispcnt = UINT16_C(0x0403);
+            effects->ppu.dispcnt = UINT16_C(0x0403);
+            CHECK(gbl_machine_advance_to(effects, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            result = gbl_bus_write(effects, UINT32_C(0x04000050), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0001));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(effects->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
+            free_machine(effects);
+        }
+        if (affine != NULL) {
+            affine->dispcnt = UINT16_C(0x0403);
+            affine->ppu.dispcnt = UINT16_C(0x0403);
+            CHECK(gbl_machine_advance_to(affine, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            result = gbl_bus_write(affine, UINT32_C(0x04000020), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0100));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(affine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(affine->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
+            free_machine(affine);
+        }
+    }
+
+    {
+        gbl_machine *inert = new_machine();
+
+        CHECK(inert != NULL);
+        if (inert != NULL) {
+            inert->dispcnt = UINT16_C(0x0F63);
+            inert->ppu.dispcnt = UINT16_C(0x0F63);
+            CHECK(gbl_machine_advance_to(inert, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(inert->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(inert->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+            CHECK(inert->ppu.captured_rows == 1u);
+            free_machine(inert);
+        }
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.controls: unsupported display controls invalidate the epoch");
         return 0;
     }
     return 1;
@@ -2301,7 +2681,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -2327,6 +2707,15 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.registers") == 0) {
         return run_ppu_registers();
+    }
+    if (strcmp(argv[1], "ppu.latch") == 0) {
+        return run_ppu_latch();
+    }
+    if (strcmp(argv[1], "ppu.frame") == 0) {
+        return run_ppu_frame();
+    }
+    if (strcmp(argv[1], "ppu.controls") == 0) {
+        return run_ppu_controls();
     }
     if (strcmp(argv[1], "irq.registers") == 0) {
         return run_irq_registers();

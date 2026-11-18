@@ -88,6 +88,18 @@ typedef enum gbl_video_capture_state {
     GBL_VIDEO_CAPTURE_VALID = 2
 } gbl_video_capture_state;
 
+typedef enum gbl_video_invalid_reason {
+    GBL_VIDEO_INVALID_REASON_NONE = 0,
+    GBL_VIDEO_INVALID_REASON_INCOMPLETE = 1,
+    GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE = 2,
+    GBL_VIDEO_INVALID_REASON_BG2_DISABLED = 3,
+    GBL_VIDEO_INVALID_REASON_FORCED_BLANK = 4,
+    GBL_VIDEO_INVALID_REASON_OBJ_ENABLED = 5,
+    GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED = 6,
+    GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED = 7,
+    GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED = 8
+} gbl_video_invalid_reason;
+
 /* Compact deterministic PPU transaction state. The machine owns the one
  * frame-sized video buffer separately; previews carry only timing/coverage
  * state and bounded row/write plans. */
@@ -102,6 +114,7 @@ typedef struct gbl_ppu_timing_state {
     uint16_t compare;
     uint16_t captured_rows;
     gbl_video_capture_state capture_state;
+    gbl_video_invalid_reason capture_reason;
     bool next_boundary_hblank;
     bool frame_started;
     uint8_t row_coverage[GBL_PPU_ROW_COVERAGE_BYTES];

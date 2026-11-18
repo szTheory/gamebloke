@@ -77,6 +77,7 @@ static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
            left->compare == right->compare &&
            left->captured_rows == right->captured_rows &&
            left->capture_state == right->capture_state &&
+           left->capture_reason == right->capture_reason &&
            left->next_boundary_hblank == right->next_boundary_hblank &&
            left->frame_started == right->frame_started &&
            gbl_test_bytes_equal(left->row_coverage, right->row_coverage,
@@ -693,6 +694,8 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_u64(digest, machine->ppu.captured_rows);
     digest = gbl_test_digest_u64(digest,
                                  (uint64_t)machine->ppu.capture_state);
+    digest = gbl_test_digest_u64(digest,
+                                 (uint64_t)machine->ppu.capture_reason);
     digest = gbl_test_digest_byte(
         digest, machine->ppu.next_boundary_hblank ? 1u : 0u);
     digest = gbl_test_digest_byte(
