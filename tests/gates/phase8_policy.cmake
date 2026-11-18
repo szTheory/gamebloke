@@ -90,7 +90,12 @@ function(gbl_phase8_check_runtime profile cpu keypad power reason_out)
   gbl_phase8_json_get(following_address "${cpu}" following_address)
   gbl_phase8_json_get(mask_if "${profile}" irq_input_power_policy if_ie_mask)
   gbl_phase8_json_get(mask_ime "${profile}" irq_input_power_policy ime_mask)
-  if(NOT sample_cycle STREQUAL "1" OR
+  # The absolute observation cycle includes the ROM fetch cost selected by
+  # WAITCNT. The runtime selector measures that boundary and asserts adjacent
+  # sampling/entry; this policy gate checks the contextual cycle pair instead
+  # of freezing the Phase 8 pre-WAITCNT cycle count.
+  if(NOT sample_cycle MATCHES "^[1-9][0-9]*$" OR
+      NOT entry_cycle MATCHES "^[1-9][0-9]*$" OR
       NOT next_address STREQUAL "134217732" OR
       NOT following_address STREQUAL "134217736")
     set(${reason_out} cpu-sample-boundary-runtime-mismatch PARENT_SCOPE)

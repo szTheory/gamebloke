@@ -186,6 +186,11 @@ static void check_decode_boundaries(gbl_machine *machine)
          ++case_index) {
         const uint32_t latch = 0xA1B2C3D4u;
         uint64_t before_cycles = machine->master_cycles;
+        const uint64_t expected_cycles =
+            cases[case_index].outcome == GBL_BUS_OUTCOME_ROM ||
+                    cases[case_index].outcome == GBL_BUS_OUTCOME_ROM_TAIL
+                ? 5u
+                : 1u;
         gbl_bus_result result;
 
         CHECK(cases[case_index].reference_section[0] != '\0');
@@ -194,9 +199,9 @@ static void check_decode_boundaries(gbl_machine *machine)
                               GBL_BUS_CLASS_NONSEQUENTIAL);
         CHECK(result.status == GBL_BUS_STATUS_OK);
         CHECK(result.outcome == cases[case_index].outcome);
-        CHECK(result.cycles == 1u);
+        CHECK(result.cycles == expected_cycles);
         CHECK(result.access_class == GBL_BUS_CLASS_NONSEQUENTIAL);
-        CHECK(machine->master_cycles == before_cycles + 1u);
+        CHECK(machine->master_cycles == before_cycles + expected_cycles);
         if (cases[case_index].outcome == GBL_BUS_OUTCOME_BIOS_ABSENT ||
             cases[case_index].outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED ||
             cases[case_index].outcome == GBL_BUS_OUTCOME_ROM_TAIL ||
@@ -436,8 +441,8 @@ static int run_decode(void)
     CHECK(result.value == ((uint32_t)image[0] | ((uint32_t)image[1] << 8u) |
                            ((uint32_t)image[2] << 16u) |
                            ((uint32_t)image[3] << 24u)));
-    CHECK(result.cycles == 1u);
-    CHECK(machine->master_cycles == 1u);
+    CHECK(result.cycles == 8u);
+    CHECK(machine->master_cycles == 8u);
 
     result = gbl_bus_read(machine, 0x0A000020u, 1u,
                           GBL_BUS_CLASS_SEQUENTIAL);

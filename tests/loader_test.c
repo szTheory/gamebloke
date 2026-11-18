@@ -888,7 +888,7 @@ static void run_integration_bus_step(gbl_machine *machine,
                               GBL_BUS_CLASS_NONSEQUENTIAL);
         check_integration_bus_result(
             machine, result, GBL_BUS_OUTCOME_ROM,
-            integration_rom_value(image, 0x20u, 4u), 1u,
+            integration_rom_value(image, 0x20u, 4u), 8u,
             GBL_BUS_CLASS_NONSEQUENTIAL, previous_cycles);
         break;
     case 1u:
@@ -896,7 +896,7 @@ static void run_integration_bus_step(gbl_machine *machine,
                               GBL_BUS_CLASS_SEQUENTIAL);
         check_integration_bus_result(
             machine, result, GBL_BUS_OUTCOME_ROM,
-            integration_rom_value(image, 0x20u, 2u), 1u,
+            integration_rom_value(image, 0x20u, 2u), 5u,
             GBL_BUS_CLASS_SEQUENTIAL, previous_cycles);
         break;
     case 2u:
@@ -904,7 +904,7 @@ static void run_integration_bus_step(gbl_machine *machine,
                               GBL_BUS_CLASS_NONSEQUENTIAL);
         check_integration_bus_result(
             machine, result, GBL_BUS_OUTCOME_ROM,
-            integration_rom_value(image, 0x20u, 1u), 1u,
+            integration_rom_value(image, 0x20u, 1u), 5u,
             GBL_BUS_CLASS_NONSEQUENTIAL, previous_cycles);
         break;
     case 3u:
@@ -1071,9 +1071,9 @@ static int run_integration(void)
         run_integration_bus_step(machines[1], expected, step);
         run_integration_bus_step(machines[2], expected, step);
     }
-    CHECK(machines[0]->master_cycles == 21u);
-    CHECK(machines[1]->master_cycles == 21u);
-    CHECK(machines[2]->master_cycles == 21u);
+    CHECK(machines[0]->master_cycles == 36u);
+    CHECK(machines[1]->master_cycles == 36u);
+    CHECK(machines[2]->master_cycles == 36u);
     CHECK(gbl_test_canonical_equal(machines[0], machines[1]));
     CHECK(gbl_test_canonical_equal(machines[0], machines[2]));
     CHECK(gbl_test_canonical_digest(machines[0]) ==
