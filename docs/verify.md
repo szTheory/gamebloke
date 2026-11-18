@@ -686,3 +686,88 @@ BIOS handler ran. These tests do not establish GBA IRQ latency, physical input
 behavior, broad game compatibility, or hardware qualification. BIOS-stub or
 IRQ-driven playable work remains behind G4. `DIAG-04` and `DET-02` remain open
 evidence carryovers; local checks do not authorize hosted CI or publication.
+
+## Phase 9 WAITCNT and DMA checks
+
+Configure the existing `ci` build before using the fast script:
+
+```sh
+cmake --preset ci
+scripts/verify-phase9-fast.sh
+```
+
+The script requires a configured `build/ci` whose CMake source root is this
+checkout. To reuse another configured build for this checkout, pass
+`scripts/verify-phase9-fast.sh --bin DIR`. A missing or foreign build, missing
+test executable, wrong CTest selection, skipped/not-run required check, or
+failing predecessor exits nonzero. The script builds only `bus_test` and
+`dma_test`, runs the Phase 8 fast script on the same build, binds the current
+source/build with `phase9_selection.cmake CASE=verify`, then runs this exact
+seven-test Phase 9 predecessor set:
+
+- `bus.waitcnt.matrix`
+- `bus.waitcnt.boundary`
+- `dma.registers`
+- `dma.events`
+- `phase9.policy`
+- `phase9.dispute`
+- `phase9.selection.control`
+
+The Phase 8 script also checks its exact five cases and the Phase 7
+prerequisites. These focused commands exclude automatic fixture insertion for
+the already-passed Phase 7/8 fast fixtures; normal `ci` and ASan inventories
+retain their configured fixture graphs. Before a longer run, the direct order
+gate checks exact membership, test commands, labels, inventories, and that a
+failed predecessor blocks dependent Phase 9 cases:
+
+```sh
+cmake -DSRC=. -DBIN=build/ci -DCASE=order -P tests/gates/phase9_selection.cmake
+```
+
+`CASE=verify` checks the configured CTest selection; `CASE=control` exercises
+causal selection and ordering failures. A successful script prints
+`verify-phase9-fast: exact-seven passed`. A selected check that CTest reports
+as skipped or not run is rejected; the full workflow separately reports all
+allowed optional skips and their reasons in its inventory summary.
+
+The longer semantic checks stay in the existing inventories. CI and ASan share
+these registered selectors:
+
+- `bus.waitcnt.registers`, `cpu.waitcnt`
+- `cpu.dma.cpu`, `cpu.dma.refusal`, `cpu.dma.tracer`, `cpu.dma.waitcnt`
+- `dma.arbitration`, `dma.controls`, `dma.events`, `dma.latch`,
+  `dma.refusal`, `dma.registers`
+- `determinism.phase9`, `determinism.phase9.controls`
+- `phase9.dispute`, `phase9.dispute.control`, `phase9.order`,
+  `phase9.policy`, `phase9.policy.control`, `phase9.selection.control`
+
+The `result.pos.phase9` and `result.nc.phase9` typed-result cases are CI-only.
+The required CI command also runs the existing inventory post-check, which
+reports allowed lane skips and their declared reasons.
+
+The unchanged canonical local and required CI command is:
+
+```sh
+cmake --workflow --preset ci
+```
+
+It configures, builds, runs the required CI inventory, and checks the JUnit
+inventory. Run it once as the final local witness after the cheap Phase 9
+policy, dispute, selection, and order checks. The Phase 9 additions stay in the
+existing CI workflow and configured build; no separate lane is added.
+
+Read the results as distinct observations. The model's elapsed cycles, DMA
+startup/source/destination costs, completed units, and the reported CPU pause
+are separate fields; CPU pause is explanatory and is not added to elapsed time.
+Semantic transfer bytes and addresses, channel ownership, and device IF/events
+are checked independently. A passing guest transfer does not prove hardware
+latency. The manual-backed WAITCNT rows, project-selected costs, and the
+community-sourced 128 KiB forced-N boundary keep their separate provenance;
+hardware mapping remains `UNKNOWN`. Prefetch execution is unmodeled. The
+per-channel retained DMA latch remains project-selected and disputed under
+`disp-dma-latch`; all dependent observations retain that dispute link.
+
+This local command does not run hosted CI, read BIOS or ROM content, qualify
+physical hardware, close `DIAG-04`/`DET-02`, or authorize content use or
+publication. G4 and the existing rights, carryover, and owner gates remain in
+force.
