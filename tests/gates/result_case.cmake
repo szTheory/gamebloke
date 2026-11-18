@@ -583,6 +583,13 @@ elseif(CASE STREQUAL "phase9_negative")
   expect_detail(bad-phase9-timing
     "phase9.timing.dma_completed_units differs from time.dma_completed_units" "${r}")
 
+  result_copy(r phase9_final_channel_total_exceeds_run)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"0\"" time dma_completed_units)
+  gbl_json_mutate_set("${r}" "\"0\"" phase9 timing dma_completed_units)
+  expect_detail(bad-phase9-progress
+    "final channel activation completions exceed time.dma_completed_units" "${r}")
+
   result_copy(r phase9_inconsistent_component)
   result_add_phase9_extension("${r}")
   gbl_json_mutate_set("${r}" "\"6\"" phase9 timing dma_source_cycles)
