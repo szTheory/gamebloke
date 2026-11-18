@@ -856,15 +856,17 @@ static int run_ppu_tracer(void)
                                          &preview) ==
           GBL_TIME_STATUS_SEQUENCE_EXHAUSTED);
     CHECK(memcmp(&preview, &preview_sentinel, sizeof(preview)) == 0);
-    CHECK(memcmp(refusal_machine, refusal_snapshot,
-                 sizeof(*refusal_machine)) == 0);
+    CHECK(gbl_test_canonical_equal(refusal_machine, refusal_snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(refusal_machine,
+                                                refusal_snapshot));
     result = gbl_bus_write(refusal_machine, crossing_write.address,
                            crossing_write.width,
                            GBL_BUS_CLASS_NONSEQUENTIAL,
                            crossing_write.value);
     CHECK(result.status == GBL_BUS_STATUS_TIME_REFUSAL);
-    CHECK(memcmp(refusal_machine, refusal_snapshot,
-                 sizeof(*refusal_machine)) == 0);
+    CHECK(gbl_test_canonical_equal(refusal_machine, refusal_snapshot));
+    CHECK(gbl_test_same_instance_identity_equal(refusal_machine,
+                                                refusal_snapshot));
 
     /* The CPU executes a real instruction whose fetch crosses the next
      * visible-line start; its compact preview must commit the same row. */
@@ -933,6 +935,243 @@ static int run_ppu_tracer(void)
     free_machine(refusal_machine);
     if (CHECK_DONE() == 0) {
         puts("ppu.tracer: timed bus and CPU paths captured mode-3 rows");
+        return 0;
+    }
+    return 1;
+}
+
+static bool prime_ppu_refusal_machine(gbl_machine *machine)
+{
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = UINT16_C(0x0403);
+    machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
+    machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
+    return gbl_machine_advance_to(machine, UINT64_C(1231)) ==
+           GBL_TIME_STATUS_OK;
+}
+
+static bool ppu_prepare_refusal_is_atomic(
+    gbl_machine *machine, const gbl_time_operation *operations,
+    size_t operation_count, bool prepare_time, uint64_t target,
+    gbl_time_status expected)
+{
+    gbl_machine *before = malloc(sizeof(*before));
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview sentinel;
+    gbl_time_status status;
+    bool valid;
+
+    if (before == NULL) {
+        return false;
+    }
+    *before = *machine;
+    memset(&preview, 0xA5, sizeof(preview));
+    memcpy(&sentinel, &preview, sizeof(sentinel));
+    status = prepare_time
+        ? gbl_machine_prepare_time(machine, target, &preview)
+        : gbl_machine_prepare_operations(machine, operations,
+                                         operation_count, &preview);
+    valid = status == expected &&
+            memcmp(&preview, &sentinel, sizeof(preview)) == 0 &&
+            gbl_test_canonical_equal(before, machine) &&
+            gbl_test_same_instance_identity_equal(before, machine);
+    free(before);
+    return valid;
+}
+
+static int run_ppu_refusal(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *clean_twin = new_machine();
+    gbl_machine *changed = malloc(sizeof(*changed));
+    gbl_machine *before = malloc(sizeof(*before));
+    gbl_machine_time_preview preview = { 0 };
+    gbl_machine_time_preview repeated;
+    gbl_machine_time_preview changed_preview;
+    const gbl_time_operation cross_line = {
+        GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+    };
+    bool equality_detects_ppu;
+    bool preview_equality_detects_plan = false;
+
+    if (machine == NULL || clean_twin == NULL || changed == NULL ||
+        before == NULL) {
+        fprintf(stderr, "ppu.refusal: host allocation failed\n");
+        free(before);
+        free(changed);
+        free_machine(clean_twin);
+        free_machine(machine);
+        return 1;
+    }
+    CHECK(prime_ppu_refusal_machine(machine));
+    equality_detects_ppu = true;
+#define CHECK_PPU_MUTATION(change)                                          \
+    do {                                                                     \
+        memcpy(changed, machine, sizeof(*changed));                          \
+        change;                                                              \
+        if (gbl_test_canonical_equal(machine, changed) ||                    \
+            gbl_test_canonical_digest(machine) ==                            \
+                gbl_test_canonical_digest(changed)) {                        \
+            equality_detects_ppu = false;                                    \
+        }                                                                    \
+    } while (0)
+    CHECK_PPU_MUTATION(changed->ppu.line_origin++);
+    CHECK_PPU_MUTATION(changed->ppu.generation++);
+    CHECK_PPU_MUTATION(changed->ppu.frame_epoch++);
+    CHECK_PPU_MUTATION(changed->ppu.line++);
+    CHECK_PPU_MUTATION(changed->ppu.scheduled_line++);
+    CHECK_PPU_MUTATION(changed->ppu.dispcnt ^= UINT16_C(1));
+    CHECK_PPU_MUTATION(changed->ppu.dispstat ^= UINT16_C(1));
+    CHECK_PPU_MUTATION(changed->ppu.compare++);
+    CHECK_PPU_MUTATION(changed->ppu.captured_rows++);
+    CHECK_PPU_MUTATION(changed->ppu.capture_state =
+                           GBL_VIDEO_CAPTURE_VALID);
+    CHECK_PPU_MUTATION(changed->ppu.next_boundary_hblank = true);
+    CHECK_PPU_MUTATION(changed->ppu.frame_started = false);
+    CHECK_PPU_MUTATION(changed->ppu.row_coverage[0] ^= UINT8_C(0x80));
+    CHECK_PPU_MUTATION(changed->events[0].generation++);
+    CHECK_PPU_MUTATION(changed->video_frame[0] ^= UINT8_C(0x01));
+#undef CHECK_PPU_MUTATION
+    CHECK(equality_detects_ppu);
+
+    {
+        const gbl_time_operation operations[2] = {
+            { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u,
+              UINT32_C(0x060001E0), UINT32_C(0xABCD), UINT64_C(1) }
+        };
+
+        CHECK(gbl_machine_prepare_operations(machine, operations, 2u,
+                                             &preview) ==
+              GBL_TIME_STATUS_OK);
+        changed_preview = preview;
+        if (changed_preview.ppu_row_capture_count != 0u) {
+            changed_preview.ppu_row_captures[0].cycle++;
+            preview_equality_detects_plan =
+                !gbl_test_time_preview_equal(&preview, &changed_preview);
+        }
+        if (preview.ppu_vram_write_count != 0u) {
+            changed_preview = preview;
+            changed_preview.ppu_vram_writes[0].value ^= UINT32_C(1);
+            preview_equality_detects_plan = preview_equality_detects_plan &&
+                !gbl_test_time_preview_equal(&preview, &changed_preview);
+        } else {
+            preview_equality_detects_plan = false;
+        }
+        *before = *machine;
+        CHECK(gbl_machine_prepare_operations(machine, operations, 2u,
+                                             &repeated) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_test_time_preview_equal(&preview, &repeated));
+        CHECK(gbl_test_canonical_equal(before, machine));
+        CHECK(preview_equality_detects_plan);
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(machine->master_cycles == UINT64_C(1233));
+        CHECK(machine->ppu.line == 1u);
+        CHECK(machine->ppu.captured_rows == 2u);
+        CHECK(machine->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34));
+        CHECK(machine->video_frame[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x12));
+    }
+
+    CHECK(ppu_prepare_refusal_is_atomic(
+        machine, NULL, 0u, true, UINT64_C(1230),
+        GBL_TIME_STATUS_BACKWARD));
+    {
+        const gbl_time_operation overflow = {
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+        };
+        machine->master_cycles = UINT64_MAX;
+        CHECK(ppu_prepare_refusal_is_atomic(
+            machine, &overflow, 1u, false, 0u,
+            GBL_TIME_STATUS_CYCLE_OVERFLOW));
+    }
+
+    free_machine(machine);
+    machine = new_machine();
+    CHECK(machine != NULL && prime_ppu_refusal_machine(machine));
+    if (machine != NULL) {
+        const gbl_time_operation advance = {
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+        };
+        machine->next_event_sequence = UINT64_MAX;
+        CHECK(ppu_prepare_refusal_is_atomic(
+            machine, &advance, 1u, false, 0u,
+            GBL_TIME_STATUS_SEQUENCE_EXHAUSTED));
+    }
+
+    free_machine(machine);
+    machine = new_machine();
+    CHECK(machine != NULL && prime_ppu_refusal_machine(machine));
+    if (machine != NULL) {
+        const gbl_time_operation advance = {
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1235)
+        };
+        machine->ppu.generation = UINT64_MAX - UINT64_C(2);
+        machine->events[0].generation = machine->ppu.generation;
+        CHECK(ppu_prepare_refusal_is_atomic(
+            machine, &advance, 1u, false, 0u,
+            GBL_TIME_STATUS_GENERATION_EXHAUSTED));
+    }
+
+    free_machine(machine);
+    machine = new_machine();
+    CHECK(machine != NULL && prime_ppu_refusal_machine(machine));
+    if (machine != NULL) {
+        const gbl_time_operation operations[2] = {
+            { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u,
+              UINT32_C(0x04000102), UINT32_C(0x0080), UINT64_C(1) }
+        };
+        gbl_event ppu_event = machine->events[0];
+        size_t index;
+
+        machine->event_count = GBL_EVENT_CAPACITY;
+        machine->events[0] = ppu_event;
+        for (index = 1u; index < GBL_EVENT_CAPACITY; ++index) {
+            machine->events[index] = (gbl_event){
+                .cycle = UINT64_MAX,
+                .sequence = (uint64_t)index,
+                .generation = 0u,
+                .priority = 1u,
+                .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+                .timer_index = 1u,
+                .live = true
+            };
+        }
+        machine->next_event_sequence = GBL_EVENT_CAPACITY;
+        CHECK(ppu_prepare_refusal_is_atomic(
+            machine, operations, 2u, false, 0u,
+            GBL_TIME_STATUS_EVENT_CAPACITY));
+    }
+
+    free_machine(machine);
+    machine = new_machine();
+    CHECK(machine != NULL && prime_ppu_refusal_machine(machine));
+    if (machine != NULL) {
+        const uint64_t target =
+            (uint64_t)GBL_PPU_LINE_CYCLES *
+            (uint64_t)GBL_PPU_TOTAL_LINES * UINT64_C(10);
+        CHECK(ppu_prepare_refusal_is_atomic(
+            machine, NULL, 0u, true, target,
+            GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT));
+    }
+
+    CHECK(prime_ppu_refusal_machine(clean_twin));
+    CHECK(gbl_machine_prepare_operations(clean_twin, &cross_line, 1u,
+                                         &preview) == GBL_TIME_STATUS_OK);
+    CHECK(clean_twin->master_cycles == UINT64_C(1231));
+    gbl_machine_commit_time(clean_twin, &preview);
+    CHECK(clean_twin->master_cycles == UINT64_C(1232));
+    CHECK(clean_twin->ppu.line == 1u);
+    CHECK(clean_twin->ppu.captured_rows == 2u);
+    CHECK(clean_twin->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34));
+
+    free(changed);
+    free(before);
+    free_machine(machine);
+    free_machine(clean_twin);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.refusal: raster previews preserve machine and output state");
         return 0;
     }
     return 1;
@@ -1796,7 +2035,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -1813,6 +2052,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.tracer") == 0) {
         return run_ppu_tracer();
+    }
+    if (strcmp(argv[1], "ppu.refusal") == 0) {
+        return run_ppu_refusal();
     }
     if (strcmp(argv[1], "irq.registers") == 0) {
         return run_irq_registers();

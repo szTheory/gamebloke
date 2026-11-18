@@ -14095,6 +14095,90 @@ static bool cpu_time_zero_and_invalid_operations_preserve_state(void)
     return valid;
 }
 
+static bool cpu_ppu_budget_refusal_is_atomic(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine *machine = calloc(1u, sizeof(*machine));
+    gbl_machine *before = NULL;
+    gbl_machine *clean_twin = calloc(1u, sizeof(*clean_twin));
+    gbl_run_result refusal_result = { 0 };
+    gbl_run_result clean_result = { 0 };
+    bool refusal_run_ok = false;
+    bool clean_run_ok = false;
+    bool loaded = false;
+    bool valid = false;
+
+    make_program(image);
+    if (machine == NULL || clean_twin == NULL) {
+        goto done;
+    }
+    loaded = machine_load(machine, image) && machine_load(clean_twin, image);
+    if (!loaded) {
+        goto done;
+    }
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = UINT16_C(0x0403);
+    machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x67);
+    machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x45);
+    machine->video_frame[GBL_PPU_ROW_BYTES] = UINT8_C(0xA5);
+    machine->open_bus = UINT32_C(0xCAFEBABE);
+    machine->interrupt_flags = UINT16_C(0x0008);
+    if (gbl_machine_advance_to(machine, UINT64_C(1231)) !=
+        GBL_TIME_STATUS_OK) {
+        goto done;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        goto done;
+    }
+    *before = *machine;
+    refusal_run_ok = run_units(machine, UINT64_C(1), UINT64_C(1),
+                               &refusal_result);
+    valid = refusal_run_ok &&
+        refusal_result.termination == GBL_RUN_TIMEOUT &&
+        refusal_result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+        gbl_test_canonical_equal(before, machine) &&
+        gbl_test_same_instance_identity_equal(before, machine);
+
+    clean_twin->dispcnt = UINT16_C(0x0403);
+    clean_twin->ppu.dispcnt = UINT16_C(0x0403);
+    clean_twin->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x67);
+    clean_twin->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x45);
+    if (gbl_machine_advance_to(clean_twin, UINT64_C(1231)) !=
+        GBL_TIME_STATUS_OK) {
+        valid = false;
+        goto done;
+    }
+    clean_run_ok = run_units(clean_twin, UINT64_C(64), UINT64_C(2),
+                             &clean_result);
+    valid = valid && clean_run_ok &&
+        clean_result.termination == GBL_RUN_PROGRESS &&
+        clean_result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
+        clean_result.instructions == UINT64_C(1) &&
+        clean_twin->master_cycles > UINT64_C(1232) &&
+        clean_twin->ppu.line == 1u &&
+        clean_twin->ppu.captured_rows >= 2u &&
+        clean_twin->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x67) &&
+        clean_twin->video_frame[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x45);
+done:
+    free(before);
+    if (machine != NULL) {
+        if (loaded) gbl_machine_dispose(machine);
+        free(machine);
+    }
+    if (clean_twin != NULL) {
+        if (loaded) gbl_machine_dispose(clean_twin);
+        free(clean_twin);
+    }
+    return valid;
+}
+
+static void test_ppu_refusal(void)
+{
+    test_case(cpu_ppu_budget_refusal_is_atomic(),
+              "CPU budget refusal before a PPU row preserves machine and captured video; a clean twin commits it");
+}
+
 static void test_time_preflight_unit_boundaries(void)
 {
     test_case(cpu_timer_refusal_is_atomic(TEST_MOV_R1_R0, UINT8_MAX, true,
@@ -15965,6 +16049,9 @@ static const cpu_test_function unit_boundaries_functions[] = {
     test_time_preflight_unit_boundaries,
     test_cycle_attribution_api
 };
+static const cpu_test_function ppu_refusal_functions[] = {
+    test_ppu_refusal
+};
 static const cpu_test_function irq_boundary_functions[] = {
     test_irq_boundary_contract,
     test_irq_timer_boundary_adjacency
@@ -15978,6 +16065,7 @@ static const cpu_test_function power_boundary_functions[] = {
 
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("unit_boundaries", 66u, unit_boundaries_functions),
+    CPU_TEST_GROUP("ppu.refusal", 1u, ppu_refusal_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),
