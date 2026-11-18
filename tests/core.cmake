@@ -89,6 +89,12 @@ gbl_add_test(
   NAME bus.keypad.registers
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> keypad.registers)
+foreach(selector IN ITEMS waitcnt.matrix waitcnt.boundary waitcnt.registers)
+  gbl_add_test(
+    NAME bus.${selector}
+    LABELS bus core unit
+    COMMAND $<TARGET_FILE:bus_test> ${selector})
+endforeach()
 
 add_executable(timer_test tests/timer_test.c)
 target_link_libraries(timer_test PRIVATE gamebloke_core gbl_warnings)
@@ -148,6 +154,34 @@ gbl_add_test(
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_policy.cmake")
 
+set(GBL_PHASE9_POLICY_GATE "${CMAKE_SOURCE_DIR}/tests/gates/phase9_policy.cmake")
+gbl_add_test(
+  NAME phase9.policy
+  LABELS gate profile time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=verify -P "${GBL_PHASE9_POLICY_GATE}")
+gbl_add_test(
+  NAME phase9.policy.control
+  LABELS gate profile time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${GBL_PHASE9_POLICY_GATE}")
+
+set(GBL_PHASE9_DISPUTE_GATE "${CMAKE_SOURCE_DIR}/tests/gates/phase9_dispute.cmake")
+gbl_add_test(
+  NAME phase9.dispute
+  LABELS gate profile registry
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=verify -P "${GBL_PHASE9_DISPUTE_GATE}")
+gbl_add_test(
+  NAME phase9.dispute.control
+  LABELS gate profile registry
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${GBL_PHASE9_DISPUTE_GATE}")
+
 add_executable(cpu_test tests/cpu_test.c)
 target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)
 add_executable(dma_test tests/dma_test.c)
@@ -179,6 +213,14 @@ foreach(selector IN ITEMS arithmetic arm_alu arm_block arm_block_banks arm_block
     LABELS cpu core unit
     COMMAND $<TARGET_FILE:cpu_test> ${selector})
 endforeach()
+gbl_add_test(
+  NAME cpu.waitcnt
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> waitcnt.cpu)
+gbl_add_test(
+  NAME cpu.dma.waitcnt
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> dma.waitcnt)
 
 # The Phase 09 DMA selectors are declared now and enter CTest when their lane
 # inventory rows are added by plan 09-07. Until then they remain directly

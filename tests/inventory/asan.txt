@@ -12,6 +12,9 @@ bus.time_authority.clean bus,determinism,gate,integration
 bus.time_authority.control bus,determinism,gate,integration
 bus.timing bus,core,unit
 bus.video bus,core,unit
+bus.waitcnt.boundary bus,core,unit
+bus.waitcnt.matrix bus,core,unit
+bus.waitcnt.registers bus,core,unit
 core.nc.comment control,core
 core.nc.computed control,core
 core.nc.continuation control,core
@@ -36,8 +39,10 @@ cpu.arm_subword_alignment core,cpu,unit
 cpu.arm_transfer core,cpu,unit
 cpu.budget core,cpu,unit
 cpu.decode core,cpu,unit
+cpu.dma.cpu core,cpu,unit
 cpu.dma.refusal core,cpu,unit
 cpu.dma.tracer core,cpu,unit
+cpu.dma.waitcnt core,cpu,unit
 cpu.exceptions core,cpu,unit
 cpu.irq.boundary core,cpu,unit
 cpu.irq.refusal core,cpu,unit
@@ -82,10 +87,13 @@ cpu.trace core,cpu,unit
 cpu.trace_capacity core,cpu,unit
 cpu.tracer core,cpu,unit
 cpu.unit_boundaries core,cpu,unit
+cpu.waitcnt core,cpu,unit
 determinism.interleave determinism,gate,integration
 determinism.interleave.controls determinism,gate,integration
 determinism.phase8 determinism,gate,integration
 determinism.phase8.controls determinism,gate,integration
+determinism.phase9 determinism,gate,integration
+determinism.phase9.controls determinism,gate,integration
 determinism.repeat.controls determinism,gate,integration
 determinism.repeat.in_process determinism,gate,integration
 determinism.repeat.process determinism,gate,integration
@@ -833,6 +841,12 @@ diagnostics.case.thumb-stop-737278802 diagnostics,integration skip-ok
 diagnostics.dependency.controls control,diagnostics
 diagnostics.execute diagnostics,integration skip-ok
 diagnostics.execution_set diagnostics,gate,integration skip-ok
+dma.arbitration core,dma,unit
+dma.controls core,dma,unit
+dma.events core,dma,unit
+dma.latch core,dma,unit
+dma.refusal core,dma,unit
+dma.registers core,dma,unit
 inventory.junit post
 keypad.condition core,time,timer,unit
 keypad.refusal core,time,timer,unit
@@ -859,6 +873,10 @@ phase7.selection.control gate,time,timer
 phase8.order gate,time,timer
 phase8.policy gate,profile,time
 phase8.selection.control gate,time,timer
+phase9.dispute gate,profile,registry
+phase9.dispute.control gate,profile,registry
+phase9.policy gate,profile,time
+phase9.policy.control gate,profile,time
 runner.hash runner,unit
 runner.help runner,unit
 runner.input.cli gate,integration,runner

@@ -413,6 +413,15 @@ gbl_add_test(
   LABELS positive result
   COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase_positive" -P "${GBL_RESULT_CASE}")
 
+gbl_add_test(
+  NAME result.nc.phase9
+  LABELS control result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase9_negative" -P "${GBL_RESULT_CASE}")
+gbl_add_test(
+  NAME result.pos.phase9
+  LABELS positive result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase9" -P "${GBL_RESULT_CASE}")
+
 # ---- strict JSON loader (Phase 2) -------------------------------------------
 # One negative control per loader reason code, plus the two helper controls
 # (`mutate: no-match`, `no-echo: leaked`), and positives on tricky and real input.
