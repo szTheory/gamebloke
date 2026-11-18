@@ -554,6 +554,11 @@ audits; it never manufactures a successful guest or hosted-proof receipt.
 
 ## Slow-lane checks
 
+- `sh scripts/linux-lane.sh asan`: runs the sanitizer workflow in the project's
+  digest-pinned Ubuntu container and installs `clang-21` plus its sanitizer
+  runtime there; host Clang is not required. The container uses the host's
+  native architecture, so Apple Silicon runs ARM64 and does not replace the
+  hosted x86_64 CI result.
 - `sh scripts/linux-lane.sh <preset>`: about 5 to 15 minutes, needs Docker. Without
   Docker the first Linux proof is the CI run.
 - CMake 3.25 floor: download the official Kitware `cmake-3.25.3` tarball, verify its
