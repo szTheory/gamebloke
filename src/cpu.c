@@ -1,5 +1,7 @@
 #include "gamebloke/gamebloke.h"
 
+#include <string.h>
+
 #include "cpu_helpers.h"
 
 #include <limits.h>
@@ -4090,6 +4092,7 @@ static bool gbl_cpu_time_preview_matches_machine(
         machine->interrupt_master_enable !=
             preview->interrupt_master_enable ||
         machine->waitcnt != preview->waitcnt ||
+        machine->dispcnt != preview->ppu.dispcnt ||
         machine->bus_owner != preview->bus_owner ||
         machine->pressed_keys != preview->pressed_keys ||
         machine->key_control != preview->key_control ||
@@ -4098,7 +4101,24 @@ static bool gbl_cpu_time_preview_matches_machine(
         machine->input_generation != preview->input_generation ||
         machine->input_event_count != preview->input_event_count ||
         machine->input_event_cursor != preview->input_event_cursor ||
-        machine->event_count != preview->event_count) {
+        machine->event_count != preview->event_count ||
+        machine->ppu.line_origin != preview->ppu.line_origin ||
+        machine->ppu.generation != preview->ppu.generation ||
+        machine->ppu.frame_epoch != preview->ppu.frame_epoch ||
+        machine->ppu.line != preview->ppu.line ||
+        machine->ppu.scheduled_line != preview->ppu.scheduled_line ||
+        machine->ppu.dispcnt != preview->ppu.dispcnt ||
+        machine->ppu.dispstat != preview->ppu.dispstat ||
+        machine->ppu.compare != preview->ppu.compare ||
+        machine->ppu.captured_rows != preview->ppu.captured_rows ||
+        machine->ppu.capture_state != preview->ppu.capture_state ||
+        machine->ppu.next_boundary_hblank !=
+            preview->ppu.next_boundary_hblank ||
+        machine->ppu.frame_started != preview->ppu.frame_started ||
+        memcmp(machine->ppu.row_coverage, preview->ppu.row_coverage,
+               sizeof(machine->ppu.row_coverage)) != 0 ||
+        preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
+        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX) {
         return false;
     }
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -4111,6 +4131,7 @@ static bool gbl_cpu_time_preview_matches_machine(
             actual->priority != expected->priority ||
             actual->kind != expected->kind ||
             actual->timer_index != expected->timer_index ||
+            actual->dma_channel != expected->dma_channel ||
             actual->live != expected->live ||
             actual->input_index != expected->input_index) {
             return false;
@@ -4157,6 +4178,28 @@ static bool gbl_cpu_time_preview_matches_machine(
 
         if (actual->cycle != expected->cycle ||
             actual->pressed_mask != expected->pressed_mask) {
+            return false;
+        }
+    }
+    for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
+        const gbl_ppu_row_capture *capture =
+            &preview->ppu_row_captures[index];
+        const size_t offset = (size_t)capture->line * GBL_PPU_ROW_BYTES;
+        uint64_t digest = UINT64_C(14695981039346656037);
+        size_t pixel;
+
+        if (capture->line >= GBL_PPU_VISIBLE_LINES ||
+            capture->frame_epoch != machine->ppu.frame_epoch ||
+            (machine->ppu.row_coverage[capture->line >> 3u] &
+             (uint8_t)(UINT8_C(1) << (capture->line & 7u))) == 0u ||
+            capture->prior_write_count > preview->ppu_vram_write_count) {
+            return false;
+        }
+        for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
+            digest ^= machine->video_frame[offset + pixel];
+            digest *= UINT64_C(1099511628211);
+        }
+        if (digest != capture->pixel_digest) {
             return false;
         }
     }

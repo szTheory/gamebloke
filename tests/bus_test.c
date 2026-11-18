@@ -499,7 +499,7 @@ static void check_video_mode_threshold(gbl_machine *machine, uint8_t mode,
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
     CHECK(result.cycles == 1u);
-    CHECK(machine->dispcnt == (uint16_t)mode);
+    CHECK((machine->dispcnt & UINT16_C(0x0007)) == (uint16_t)mode);
     result = gbl_bus_read(machine, 0x04000000u, 1u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
@@ -508,7 +508,7 @@ static void check_video_mode_threshold(gbl_machine *machine, uint8_t mode,
     result = gbl_bus_read(machine, 0x04000001u, 1u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
-    CHECK(result.value == 0u);
+    CHECK(result.value == ((uint32_t)(machine->dispcnt >> 8u) & 0x07u));
 
     for (boundary_number = 0u;
          boundary_number < sizeof(boundaries) / sizeof(boundaries[0]);
@@ -666,22 +666,22 @@ static int run_video(void)
     result = gbl_bus_write(machine, 0x04000000u, 1u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFu);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
-    CHECK(machine->dispcnt == 7u);
+    CHECK(machine->dispcnt == UINT16_C(0x0087));
     result = gbl_bus_write(machine, 0x04000001u, 1u,
                            GBL_BUS_CLASS_SEQUENTIAL, 0xFFu);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
-    CHECK(machine->dispcnt == 7u);
+    CHECK(machine->dispcnt == UINT16_C(0x0787));
     machine->open_bus = 0xAABBCCDDu;
     result = gbl_bus_write(machine, 0x04000000u, 4u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0x44332203u);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
     CHECK(result.cycles == 1u);
-    CHECK(machine->dispcnt == 3u);
+    CHECK(machine->dispcnt == UINT16_C(0x0203));
     CHECK(machine->open_bus == 0xAABBCCDDu);
     result = gbl_bus_read(machine, 0x04000000u, 4u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
-    CHECK(result.value == 0xAABB0003u);
+    CHECK(result.value == UINT32_C(0xAABB0203));
     CHECK(machine->open_bus == 0xAABBCCDDu);
 
     /* GBATEK 3.06 "LCD I/O Display Control" locates DISPCNT at 0x04000000. */
@@ -725,21 +725,214 @@ static int run_video(void)
 static int run_ppu_tracer(void)
 {
     gbl_machine *machine = new_machine();
+    gbl_machine *cpu_machine = new_machine();
+    gbl_machine *refusal_machine = new_machine();
+    gbl_machine *refusal_snapshot = NULL;
+    gbl_bus_result result;
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview preview_sentinel;
+    const gbl_time_operation crossing_write = {
+        GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x060001E0),
+        UINT32_C(0x4321), UINT64_C(1)
+    };
+    gbl_run_options options = { 0 };
+    gbl_run_result run = { 0 };
+    gbl_run_status run_status;
+    uint32_t row0_pixel;
 
-    if (machine == NULL) {
+    if (machine == NULL || cpu_machine == NULL || refusal_machine == NULL) {
         fprintf(stderr, "ppu.tracer: host allocation failed\n");
+        free_machine(refusal_machine);
+        free_machine(cpu_machine);
+        free_machine(machine);
         return 1;
     }
 
-    /* A fresh machine must already have the first raster boundary queued. */
+    /* A fresh machine has exactly one queued line-start event at cycle zero. */
     CHECK(machine->master_cycles == 0u);
     CHECK(machine->event_count == 1u);
     CHECK(machine->events[0].live);
     CHECK(machine->events[0].cycle == 0u);
+    CHECK(machine->events[0].kind ==
+          (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY);
+    CHECK(machine->events[0].priority == 9u);
+
+    result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x0403));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->dispcnt == UINT16_C(0x0403));
+    CHECK(machine->ppu.dispcnt == UINT16_C(0x0403));
+    result = gbl_bus_write(machine, UINT32_C(0x060001E0), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x1234));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x060003BE), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x9234));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x060003C0), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x7C00));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1005)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->ppu.line_origin == 0u);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) == 0u);
+    CHECK(machine->event_count == 1u);
+    CHECK(machine->events[0].cycle == UINT64_C(1006));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1006)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) != 0u);
+    CHECK(machine->events[0].cycle == UINT64_C(1232));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1231)) ==
+          GBL_TIME_STATUS_OK);
+
+    /* A write completing on the row-start cycle follows the PPU sample.
+     * Line zero was sampled disabled at reset; the cycle-1232 boundary is
+     * visible line one. */
+    result = gbl_bus_write(machine, UINT32_C(0x060001E0), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x4321));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->master_cycles == UINT64_C(1232));
+    CHECK(machine->ppu.line == 1u);
+    CHECK(machine->ppu.line_origin == UINT64_C(1232));
+    CHECK(machine->ppu.captured_rows == 1u);
+    CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+    CHECK((machine->ppu.row_coverage[0] & UINT8_C(0x02)) != 0u);
+    CHECK(machine->vram[GBL_PPU_ROW_BYTES] == UINT8_C(0x21));
+    CHECK(machine->vram[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x43));
+    CHECK(machine->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34));
+    CHECK(machine->video_frame[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x12));
+    CHECK(machine->video_frame[2u * GBL_PPU_ROW_BYTES - 2u] ==
+          UINT8_C(0x34));
+    CHECK(machine->video_frame[2u * GBL_PPU_ROW_BYTES - 1u] ==
+          UINT8_C(0x12));
+
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(2237)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) == 0u);
+    CHECK(machine->events[0].cycle == UINT64_C(2238));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(2238)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) != 0u);
+    CHECK(machine->events[0].cycle == UINT64_C(2464));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(2464)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->ppu.line == 2u);
+    CHECK(machine->ppu.line_origin == UINT64_C(2464));
+    CHECK(machine->ppu.captured_rows == 2u);
+    CHECK(machine->video_frame[2u * GBL_PPU_ROW_BYTES] == UINT8_C(0x00));
+    CHECK(machine->video_frame[2u * GBL_PPU_ROW_BYTES + 1u] ==
+          UINT8_C(0x7C));
+
+    /* A transaction that would sample a row and then exhausts event sequence
+     * capacity leaves both canonical video and the caller preview untouched. */
+    result = gbl_bus_write(refusal_machine, UINT32_C(0x04000000), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x0403));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(refusal_machine, UINT32_C(0x060001E0), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x1357));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(gbl_machine_advance_to(refusal_machine, UINT64_C(1231)) ==
+          GBL_TIME_STATUS_OK);
+    refusal_machine->next_event_sequence = UINT64_MAX;
+    refusal_snapshot = malloc(sizeof(*refusal_snapshot));
+    if (refusal_snapshot == NULL) {
+        fprintf(stderr, "ppu.tracer: refusal snapshot allocation failed\n");
+        free_machine(refusal_machine);
+        free_machine(cpu_machine);
+        free_machine(machine);
+        return 1;
+    }
+    memcpy(refusal_snapshot, refusal_machine, sizeof(*refusal_snapshot));
+    memset(&preview, 0xA5, sizeof(preview));
+    memcpy(&preview_sentinel, &preview, sizeof(preview_sentinel));
+    CHECK(gbl_machine_prepare_operations(refusal_machine, &crossing_write, 1u,
+                                         &preview) ==
+          GBL_TIME_STATUS_SEQUENCE_EXHAUSTED);
+    CHECK(memcmp(&preview, &preview_sentinel, sizeof(preview)) == 0);
+    CHECK(memcmp(refusal_machine, refusal_snapshot,
+                 sizeof(*refusal_machine)) == 0);
+    result = gbl_bus_write(refusal_machine, crossing_write.address,
+                           crossing_write.width,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           crossing_write.value);
+    CHECK(result.status == GBL_BUS_STATUS_TIME_REFUSAL);
+    CHECK(memcmp(refusal_machine, refusal_snapshot,
+                 sizeof(*refusal_machine)) == 0);
+
+    /* The CPU executes a real instruction whose fetch crosses the next
+     * visible-line start; its compact preview must commit the same row. */
+    result = gbl_bus_write(cpu_machine, UINT32_C(0x04000000), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x0403));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(cpu_machine, UINT32_C(0x060001E0), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x4567));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    cpu_machine->rom = malloc(64u);
+    if (cpu_machine->rom == NULL) {
+        fprintf(stderr, "ppu.tracer: synthetic ROM allocation failed\n");
+        free_machine(cpu_machine);
+        free_machine(machine);
+        return 1;
+    }
+    cpu_machine->rom_length = 64u;
+    cpu_machine->allocator.context = NULL;
+    cpu_machine->allocator.allocate = rom_allocate;
+    cpu_machine->allocator.release = rom_release;
+    {
+        size_t byte_index;
+
+        for (byte_index = 0u; byte_index < cpu_machine->rom_length;
+             byte_index += 4u) {
+            cpu_machine->rom[byte_index] = UINT8_C(0x00);
+            cpu_machine->rom[byte_index + 1u] = UINT8_C(0x00);
+            cpu_machine->rom[byte_index + 2u] = UINT8_C(0xA0);
+            cpu_machine->rom[byte_index + 3u] = UINT8_C(0xE1);
+        }
+    }
+    CHECK(gbl_machine_advance_to(cpu_machine, UINT64_C(1228)) ==
+          GBL_TIME_STATUS_OK);
+    cpu_machine->cpu.execution_address = UINT32_C(0x08000000);
+    cpu_machine->cpu.cpsr = UINT32_C(0x000000DF);
+    cpu_machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), UINT32_C(0xE1A00000), 4u, true
+    };
+    cpu_machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+    };
+    cpu_machine->cpu.next_fetch_sequential = true;
+    options.cycle_budget = UINT64_C(32);
+    options.unit_limit = 1u;
+    run_status = gbl_cpu_run(cpu_machine, &options, &run);
+    row0_pixel = (uint32_t)cpu_machine->video_frame[GBL_PPU_ROW_BYTES] |
+                 ((uint32_t)cpu_machine->video_frame[
+                      GBL_PPU_ROW_BYTES + 1u] << 8u);
+    CHECK(run_status == GBL_RUN_STATUS_OK);
+    CHECK(run.termination == GBL_RUN_PROGRESS);
+    CHECK(run.reason == GBL_RUN_REASON_UNIT_LIMIT);
+    CHECK(run.instructions == 1u);
+    CHECK(cpu_machine->master_cycles > UINT64_C(1232));
+    CHECK(cpu_machine->ppu.line == 1u);
+    CHECK(cpu_machine->ppu.line_origin == UINT64_C(1232));
+    CHECK(row0_pixel == UINT32_C(0x4567));
+
+    printf("{\"type\":\"ppu.tracer\",\"line\":1,\"boundary_cycle\":1232,\"hblank_offset\":1006,\"hblank_provenance\":\"project-selected/REF\",\"hblank_dispute\":\"disp-hblank-flag-edge\",\"hardware_qualification\":\"UNKNOWN\",\"semantic_pixel\":4660,\"cpu_cycle\":%llu}\n",
+           (unsigned long long)cpu_machine->master_cycles);
 
     free_machine(machine);
+    free_machine(cpu_machine);
+    free(refusal_snapshot);
+    free_machine(refusal_machine);
     if (CHECK_DONE() == 0) {
-        puts("ppu.tracer: initial raster boundary queued");
+        puts("ppu.tracer: timed bus and CPU paths captured mode-3 rows");
         return 0;
     }
     return 1;

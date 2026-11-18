@@ -42,6 +42,19 @@ typedef enum gbl_bus_status {
 #define GBL_EVENT_CAPACITY 16u
 #define GBL_INPUT_EVENT_CAPACITY 256u
 #define GBL_MACHINE_MAX_EVENT_DISPATCH 4096u
+#define GBL_PPU_WIDTH 240u
+#define GBL_PPU_VISIBLE_LINES 160u
+#define GBL_PPU_TOTAL_LINES 228u
+#define GBL_PPU_LINE_CYCLES UINT64_C(1232)
+/* This is a disputed project choice, not hardware qualification. */
+#define GBL_PPU_HBLANK_CYCLES UINT64_C(1006)
+#define GBL_PPU_FRAME_CYCLES \
+    (GBL_PPU_LINE_CYCLES * (uint64_t)GBL_PPU_TOTAL_LINES)
+#define GBL_PPU_ROW_BYTES (GBL_PPU_WIDTH * 2u)
+#define GBL_PPU_VIDEO_BYTES \
+    (GBL_PPU_ROW_BYTES * GBL_PPU_VISIBLE_LINES)
+#define GBL_PPU_ROW_COVERAGE_BYTES ((GBL_PPU_VISIBLE_LINES + 7u) / 8u)
+#define GBL_PPU_ROW_CAPTURE_MAX GBL_PPU_VISIBLE_LINES
 #define GBL_CPU_FETCH_SLOT_MAX 2u
 #define GBL_CPU_DATA_SLOT_MAX 16u
 #define GBL_TIME_OPERATION_MAX \
@@ -65,8 +78,49 @@ typedef enum gbl_time_status {
 typedef enum gbl_event_kind {
     GBL_EVENT_KIND_TIMER_OVERFLOW = 1,
     GBL_EVENT_KIND_KEYPAD_INPUT = 2,
-    GBL_EVENT_KIND_DMA_READY = 3
+    GBL_EVENT_KIND_DMA_READY = 3,
+    GBL_EVENT_KIND_PPU_BOUNDARY = 4
 } gbl_event_kind;
+
+typedef enum gbl_video_capture_state {
+    GBL_VIDEO_CAPTURE_INVALID = 0,
+    GBL_VIDEO_CAPTURE_INCOMPLETE = 1,
+    GBL_VIDEO_CAPTURE_VALID = 2
+} gbl_video_capture_state;
+
+/* Compact deterministic PPU transaction state. The machine owns the one
+ * frame-sized video buffer separately; previews carry only timing/coverage
+ * state and bounded row/write plans. */
+typedef struct gbl_ppu_timing_state {
+    uint64_t line_origin;
+    uint64_t generation;
+    uint64_t frame_epoch;
+    uint16_t line;
+    uint16_t scheduled_line;
+    uint16_t dispcnt;
+    uint16_t dispstat;
+    uint16_t compare;
+    uint16_t captured_rows;
+    gbl_video_capture_state capture_state;
+    bool next_boundary_hblank;
+    bool frame_started;
+    uint8_t row_coverage[GBL_PPU_ROW_COVERAGE_BYTES];
+} gbl_ppu_timing_state;
+
+typedef struct gbl_ppu_row_capture {
+    uint64_t cycle;
+    uint64_t frame_epoch;
+    uint64_t pixel_digest;
+    uint16_t line;
+    uint16_t prior_write_count;
+} gbl_ppu_row_capture;
+
+typedef struct gbl_ppu_vram_write {
+    uint32_t address;
+    uint32_t value;
+    uint16_t dispcnt;
+    uint8_t width;
+} gbl_ppu_vram_write;
 
 typedef struct gbl_input_event {
     uint64_t cycle;
@@ -163,8 +217,11 @@ typedef enum gbl_machine_power_state {
     GBL_MACHINE_POWER_STOPPED = 2
 } gbl_machine_power_state;
 
-/* A small transactional copy used to preflight time and timer I/O before a
- * bus transaction mutates open bus, memory, or device state. */
+/* A bounded transactional copy used to preflight time and device I/O before a
+ * bus transaction mutates open bus, memory, or device state. PPU row captures
+ * and ordered VRAM overlays remain candidates until commit. Callers must not
+ * mutate the canonical machine between prepare and commit; the caller owns
+ * synchronization across that interval. */
 typedef struct gbl_machine_time_preview {
     uint64_t master_cycles;
     uint64_t next_event_sequence;
@@ -172,6 +229,7 @@ typedef struct gbl_machine_time_preview {
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
     uint16_t waitcnt;
+    gbl_ppu_timing_state ppu;
     gbl_machine_bus_owner bus_owner;
     uint8_t dma_last_channel;
     uint8_t dma_last_width;
@@ -190,6 +248,11 @@ typedef struct gbl_machine_time_preview {
     size_t input_event_count;
     size_t input_event_cursor;
     gbl_input_event input_events[GBL_INPUT_EVENT_CAPACITY];
+    bool ppu_clear_video;
+    size_t ppu_row_capture_count;
+    gbl_ppu_row_capture ppu_row_captures[GBL_PPU_ROW_CAPTURE_MAX];
+    size_t ppu_vram_write_count;
+    gbl_ppu_vram_write ppu_vram_writes[GBL_TIME_OPERATION_MAX];
 } gbl_machine_time_preview;
 
 typedef enum gbl_time_operation_kind {
@@ -627,6 +690,7 @@ typedef struct gbl_machine {
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
     uint16_t waitcnt;
+    gbl_ppu_timing_state ppu;
     gbl_machine_bus_owner bus_owner;
     uint8_t dma_last_channel;
     uint8_t dma_last_width;
@@ -650,6 +714,7 @@ typedef struct gbl_machine {
     uint8_t iwram[GBL_IWRAM_SIZE];
     uint8_t pram[GBL_PRAM_SIZE];
     uint8_t vram[GBL_VRAM_SIZE];
+    uint8_t video_frame[GBL_PPU_VIDEO_BYTES];
     uint8_t oam[GBL_OAM_SIZE];
     uint8_t *rom;
     size_t rom_length;
@@ -702,6 +767,13 @@ bool gbl_bus_project_read(
     uint8_t width, gbl_bus_access_class sequence, gbl_bus_access_role role,
     uint32_t open_bus, gbl_bus_result *result_out,
     uint32_t *open_bus_out);
+/* Shared physical VRAM lane projection used by canonical bus writes and
+ * commit-only PPU row capture. `window_offset` is a physical VRAM offset;
+ * bytes outside the supplied bounded window are ignored. */
+gbl_bus_outcome gbl_bus_project_vram_lane(
+    uint8_t *window, size_t window_length, uint32_t window_offset,
+    uint16_t dispcnt, uint32_t address, uint8_t value,
+    uint8_t request_width);
 bool gbl_bus_quote_observed(
     const gbl_machine *machine, uint32_t address,
     gbl_bus_direction direction, uint8_t width,

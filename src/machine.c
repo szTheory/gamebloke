@@ -1,10 +1,13 @@
 #include "gamebloke/gamebloke.h"
 
+#include <string.h>
+
 #define GBL_KEYPAD_INPUT_MASK UINT16_C(0x03FF)
 #define GBL_KEYPAD_CONTROL_MASK UINT16_C(0xC3FF)
 #define GBL_KEYPAD_IRQ_BIT UINT16_C(0x1000)
 #define GBL_KEYPAD_EVENT_PRIORITY 4u
 #define GBL_DMA_EVENT_PRIORITY_BASE 5u
+#define GBL_PPU_EVENT_PRIORITY 9u
 
 static bool gbl_event_precedes(const gbl_event *left,
                                const gbl_event *right)
@@ -199,6 +202,220 @@ static gbl_time_status gbl_preview_insert_dma_event(
     return GBL_TIME_STATUS_OK;
 }
 
+static gbl_time_status gbl_preview_insert_ppu_event(
+    gbl_machine_time_preview *preview, uint64_t cycle)
+{
+    gbl_event event = { 0 };
+    size_t position;
+    size_t index;
+
+    if (preview->event_count >= GBL_EVENT_CAPACITY) {
+        return GBL_TIME_STATUS_EVENT_CAPACITY;
+    }
+    if (preview->next_event_sequence == UINT64_MAX) {
+        return GBL_TIME_STATUS_SEQUENCE_EXHAUSTED;
+    }
+    if (cycle < preview->master_cycles || preview->ppu.generation == 0u) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    for (index = 0u; index < preview->event_count; ++index) {
+        const gbl_event *existing = &preview->events[index];
+
+        if (existing->kind == (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY &&
+            existing->generation == preview->ppu.generation) {
+            return GBL_TIME_STATUS_INPUT_OVERLAP;
+        }
+    }
+    event.cycle = cycle;
+    event.sequence = preview->next_event_sequence;
+    event.generation = preview->ppu.generation;
+    event.priority = GBL_PPU_EVENT_PRIORITY;
+    event.kind = (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY;
+    event.live = true;
+    ++preview->next_event_sequence;
+
+    position = preview->event_count;
+    while (position > 0u &&
+           gbl_event_precedes(&event, &preview->events[position - 1u])) {
+        preview->events[position] = preview->events[position - 1u];
+        --position;
+    }
+    preview->events[position] = event;
+    ++preview->event_count;
+    return GBL_TIME_STATUS_OK;
+}
+
+static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length)
+{
+    uint64_t digest = UINT64_C(14695981039346656037);
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        digest ^= bytes[index];
+        digest *= UINT64_C(1099511628211);
+    }
+    return digest;
+}
+
+static void gbl_ppu_project_row(const gbl_machine *machine,
+                                const gbl_machine_time_preview *preview,
+                                uint16_t line, uint16_t prior_write_count,
+                                uint8_t row[GBL_PPU_ROW_BYTES])
+{
+    const uint32_t row_offset = (uint32_t)line * GBL_PPU_ROW_BYTES;
+    size_t write_index;
+    uint32_t pixel;
+
+    for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
+        row[pixel] = machine->vram[row_offset + pixel];
+    }
+    for (write_index = 0u;
+         write_index < (size_t)prior_write_count &&
+         write_index < preview->ppu_vram_write_count;
+         ++write_index) {
+        const gbl_ppu_vram_write *write =
+            &preview->ppu_vram_writes[write_index];
+        uint32_t lane;
+
+        for (lane = 0u; lane < (uint32_t)write->width; ++lane) {
+            (void)gbl_bus_project_vram_lane(
+                row, GBL_PPU_ROW_BYTES, row_offset, write->dispcnt,
+                write->address + lane,
+                (uint8_t)((write->value >> (lane * 8u)) & UINT32_C(0xFF)),
+                write->width);
+        }
+    }
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const uint32_t offset = pixel * 2u;
+        const uint16_t color = (uint16_t)(
+            ((uint16_t)row[offset]) |
+            (uint16_t)((uint16_t)row[offset + 1u] << 8u));
+        const uint16_t visible_color = (uint16_t)(color & UINT16_C(0x7FFF));
+
+        row[offset] = (uint8_t)(visible_color & UINT16_C(0x00FF));
+        row[offset + 1u] = (uint8_t)(visible_color >> 8u);
+    }
+}
+
+static bool gbl_ppu_rendering_enabled(const gbl_ppu_timing_state *ppu)
+{
+    return (ppu->dispcnt & UINT16_C(0x0007)) == UINT16_C(3) &&
+           (ppu->dispcnt & UINT16_C(0x0400)) != 0u &&
+           (ppu->dispcnt & UINT16_C(0x0080)) == 0u;
+}
+
+static gbl_time_status gbl_ppu_capture_row(
+    const gbl_machine *machine, gbl_machine_time_preview *preview)
+{
+    gbl_ppu_row_capture *capture;
+    uint8_t row[GBL_PPU_ROW_BYTES];
+    const uint16_t line = preview->ppu.line;
+    const uint8_t mask = (uint8_t)(UINT8_C(1) << (line & 7u));
+    const size_t coverage_index = (size_t)(line >> 3u);
+
+    if (line >= GBL_PPU_VISIBLE_LINES ||
+        !gbl_ppu_rendering_enabled(&preview->ppu)) {
+        return GBL_TIME_STATUS_OK;
+    }
+    if ((preview->ppu.row_coverage[coverage_index] & mask) != 0u) {
+        return GBL_TIME_STATUS_OK;
+    }
+    if (preview->ppu_row_capture_count >= GBL_PPU_ROW_CAPTURE_MAX ||
+        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX) {
+        return GBL_TIME_STATUS_EVENT_CAPACITY;
+    }
+    capture = &preview->ppu_row_captures[preview->ppu_row_capture_count];
+    capture->cycle = preview->ppu.line_origin;
+    capture->frame_epoch = preview->ppu.frame_epoch;
+    capture->line = line;
+    capture->prior_write_count = (uint16_t)preview->ppu_vram_write_count;
+    gbl_ppu_project_row(machine, preview, line, capture->prior_write_count,
+                        row);
+    capture->pixel_digest = gbl_ppu_row_digest(row, sizeof(row));
+    ++preview->ppu_row_capture_count;
+    preview->ppu.row_coverage[coverage_index] |= mask;
+    ++preview->ppu.captured_rows;
+    preview->ppu.capture_state =
+        preview->ppu.captured_rows >= GBL_PPU_VISIBLE_LINES
+            ? GBL_VIDEO_CAPTURE_VALID
+            : GBL_VIDEO_CAPTURE_INCOMPLETE;
+    return GBL_TIME_STATUS_OK;
+}
+
+static gbl_time_status gbl_preview_dispatch_ppu_event(
+    const gbl_machine *machine, gbl_machine_time_preview *preview,
+    const gbl_event *event)
+{
+    uint64_t next_cycle;
+    gbl_time_status status;
+
+    if (!event->live || event->generation != preview->ppu.generation) {
+        return GBL_TIME_STATUS_OK;
+    }
+    if (preview->ppu.generation == UINT64_MAX) {
+        return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
+    }
+    if (!preview->ppu.next_boundary_hblank) {
+        const uint16_t line = preview->ppu.scheduled_line;
+
+        if (line >= GBL_PPU_TOTAL_LINES) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        if (line == 0u && preview->ppu.frame_started) {
+            if (preview->ppu.frame_epoch == UINT64_MAX) {
+                return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
+            }
+            ++preview->ppu.frame_epoch;
+            preview->ppu_clear_video = true;
+            preview->ppu_row_capture_count = 0u;
+            preview->ppu.captured_rows = 0u;
+            preview->ppu.capture_state = GBL_VIDEO_CAPTURE_INVALID;
+            memset(preview->ppu.row_coverage, 0,
+                   sizeof(preview->ppu.row_coverage));
+        }
+        preview->ppu.frame_started = true;
+        preview->ppu.line = line;
+        preview->ppu.line_origin = event->cycle;
+        preview->ppu.dispstat &= (uint16_t)~UINT16_C(0x0001);
+        if (line >= GBL_PPU_VISIBLE_LINES) {
+            preview->ppu.dispstat |= UINT16_C(0x0002);
+        } else {
+            preview->ppu.dispstat &= (uint16_t)~UINT16_C(0x0002);
+        }
+        if (line == preview->ppu.compare) {
+            preview->ppu.dispstat |= UINT16_C(0x0004);
+        } else {
+            preview->ppu.dispstat &= (uint16_t)~UINT16_C(0x0004);
+        }
+        status = gbl_ppu_capture_row(machine, preview);
+        if (status != GBL_TIME_STATUS_OK) {
+            return status;
+        }
+        if (event->cycle > UINT64_MAX - GBL_PPU_HBLANK_CYCLES) {
+            return GBL_TIME_STATUS_CYCLE_OVERFLOW;
+        }
+        next_cycle = event->cycle + GBL_PPU_HBLANK_CYCLES;
+        preview->ppu.next_boundary_hblank = true;
+    } else {
+        if (preview->ppu.line >= GBL_PPU_TOTAL_LINES) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        preview->ppu.dispstat |= UINT16_C(0x0001);
+        preview->ppu.scheduled_line = (uint16_t)(
+            (preview->ppu.line + 1u) % GBL_PPU_TOTAL_LINES);
+        if (event->cycle > UINT64_MAX -
+                               (GBL_PPU_LINE_CYCLES -
+                                GBL_PPU_HBLANK_CYCLES)) {
+            return GBL_TIME_STATUS_CYCLE_OVERFLOW;
+        }
+        next_cycle = event->cycle +
+                     (GBL_PPU_LINE_CYCLES - GBL_PPU_HBLANK_CYCLES);
+        preview->ppu.next_boundary_hblank = false;
+    }
+    ++preview->ppu.generation;
+    return gbl_preview_insert_ppu_event(preview, next_cycle);
+}
+
 static gbl_time_status gbl_preview_schedule_next_input(
     gbl_machine_time_preview *preview)
 {
@@ -345,11 +562,15 @@ static void gbl_preview_evaluate_keypad(gbl_machine_time_preview *preview)
 }
 
 static gbl_time_status gbl_preview_dispatch_event(
-    gbl_machine_time_preview *preview, const gbl_event *event)
+    const gbl_machine *machine, gbl_machine_time_preview *preview,
+    const gbl_event *event)
 {
     gbl_timer_state *timer;
     gbl_time_status status;
 
+    if (event->kind == (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) {
+        return gbl_preview_dispatch_ppu_event(machine, preview, event);
+    }
     if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY) {
         gbl_dma_channel_state *channel;
 
@@ -422,6 +643,8 @@ static void gbl_machine_time_copy_preview(
     preview->interrupt_enable = machine->interrupt_enable;
     preview->interrupt_master_enable = machine->interrupt_master_enable;
     preview->waitcnt = machine->waitcnt;
+    preview->ppu = machine->ppu;
+    preview->ppu.dispcnt = machine->dispcnt;
     preview->bus_owner = machine->bus_owner;
     preview->dma_last_channel = machine->dma_last_channel;
     preview->dma_last_width = machine->dma_last_width;
@@ -584,7 +807,8 @@ static gbl_time_status gbl_preview_dma_register_write(
 }
 
 static gbl_time_status gbl_preview_advance_to(
-    gbl_machine_time_preview *preview, uint64_t target,
+    const gbl_machine *machine, gbl_machine_time_preview *preview,
+    uint64_t target,
     size_t *dispatched)
 {
     gbl_machine_time_preview candidate;
@@ -628,7 +852,8 @@ static gbl_time_status gbl_preview_advance_to(
             if (event.dma_channel >= GBL_DMA_CHANNEL_COUNT) {
                 return GBL_TIME_STATUS_INVALID_ARGUMENT;
             }
-        } else if (event.kind != (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
+        } else if (event.kind != (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
+                   event.kind != (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) {
             return GBL_TIME_STATUS_INVALID_ARGUMENT;
         }
         if (event.cycle < candidate.master_cycles) {
@@ -637,6 +862,9 @@ static gbl_time_status gbl_preview_advance_to(
                     ? candidate.timers[event.timer_index].generation
                     : event.kind == (uint8_t)GBL_EVENT_KIND_DMA_READY
                           ? candidate.dma_channels[event.dma_channel].generation
+                          : event.kind ==
+                                    (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY
+                                ? candidate.ppu.generation
                           : candidate.input_generation;
 
             if (event.generation == generation) {
@@ -646,7 +874,7 @@ static gbl_time_status gbl_preview_advance_to(
         if (event.cycle > candidate.master_cycles) {
             candidate.master_cycles = event.cycle;
         }
-        status = gbl_preview_dispatch_event(&candidate, &event);
+        status = gbl_preview_dispatch_event(machine, &candidate, &event);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
@@ -672,7 +900,7 @@ gbl_time_status gbl_machine_prepare_time(
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     gbl_machine_time_copy_preview(machine, &candidate);
-    status = gbl_preview_advance_to(&candidate, target, &dispatched);
+    status = gbl_preview_advance_to(machine, &candidate, target, &dispatched);
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
@@ -696,6 +924,7 @@ static gbl_time_status gbl_preview_bus_write(
     uint16_t interrupt_enable = preview->interrupt_enable;
     uint16_t interrupt_master_enable = preview->interrupt_master_enable;
     uint16_t waitcnt = preview->waitcnt;
+    uint16_t dispcnt = preview->ppu.dispcnt;
     uint16_t key_control = preview->key_control;
     bool key_control_written = false;
     bool waitcnt_written = false;
@@ -706,7 +935,15 @@ static gbl_time_status gbl_preview_bus_write(
         const uint8_t byte_value =
             (uint8_t)((value >> (lane * 8u)) & UINT32_C(0xFF));
 
-        if (lane_address >= UINT32_C(0x04000100) &&
+        if (lane_address == UINT32_C(0x04000000)) {
+            dispcnt = (uint16_t)(
+                (dispcnt & UINT16_C(0xFF00)) |
+                (uint16_t)(byte_value & UINT8_C(0x87)));
+        } else if (lane_address == UINT32_C(0x04000001)) {
+            dispcnt = (uint16_t)(
+                (dispcnt & UINT16_C(0x00FF)) |
+                (uint16_t)((uint16_t)(byte_value & UINT8_C(0x07)) << 8u));
+        } else if (lane_address >= UINT32_C(0x04000100) &&
             lane_address <= UINT32_C(0x0400010F)) {
             const uint32_t offset =
                 lane_address - UINT32_C(0x04000100);
@@ -795,6 +1032,7 @@ static gbl_time_status gbl_preview_bus_write(
     if (waitcnt_written) {
         preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x5FFF));
     }
+    preview->ppu.dispcnt = dispcnt;
     if (key_control_written) {
         preview->key_control =
             (uint16_t)(key_control & GBL_KEYPAD_CONTROL_MASK);
@@ -844,11 +1082,21 @@ gbl_time_status gbl_machine_prepare_operations(
             return GBL_TIME_STATUS_CYCLE_OVERFLOW;
         }
         target = candidate.master_cycles + operation->cycles;
-        status = gbl_preview_advance_to(&candidate, target, &dispatched);
+        status = gbl_preview_advance_to(machine, &candidate, target,
+                                        &dispatched);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
         if (operation->kind == GBL_TIME_OPERATION_BUS_WRITE) {
+            if (candidate.ppu_vram_write_count >=
+                GBL_TIME_OPERATION_MAX) {
+                return GBL_TIME_STATUS_EVENT_CAPACITY;
+            }
+            candidate.ppu_vram_writes[candidate.ppu_vram_write_count++] =
+                (gbl_ppu_vram_write){
+                    operation->address, operation->value,
+                    candidate.ppu.dispcnt, operation->width
+                };
             status = gbl_preview_bus_write(&candidate, operation->address,
                                            operation->width,
                                            operation->value);
@@ -861,6 +1109,30 @@ gbl_time_status gbl_machine_prepare_operations(
     return GBL_TIME_STATUS_OK;
 }
 
+static void gbl_ppu_materialize_capture_plan(
+    gbl_machine *machine, const gbl_machine_time_preview *preview)
+{
+    size_t index;
+
+    if (preview->ppu_clear_video) {
+        memset(machine->video_frame, 0, sizeof(machine->video_frame));
+    }
+    for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
+        const gbl_ppu_row_capture *capture =
+            &preview->ppu_row_captures[index];
+        uint8_t *row;
+
+        if (capture->line >= GBL_PPU_VISIBLE_LINES ||
+            capture->prior_write_count > preview->ppu_vram_write_count) {
+            continue;
+        }
+        row = &machine->video_frame[
+            (size_t)capture->line * GBL_PPU_ROW_BYTES];
+        gbl_ppu_project_row(machine, preview, capture->line,
+                            capture->prior_write_count, row);
+    }
+}
+
 void gbl_machine_commit_time(gbl_machine *machine,
                             const gbl_machine_time_preview *preview)
 {
@@ -869,15 +1141,20 @@ void gbl_machine_commit_time(gbl_machine *machine,
     if (machine == NULL || !machine->initialized || preview == NULL ||
         preview->event_count > GBL_EVENT_CAPACITY ||
         preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
-        preview->input_event_cursor > preview->input_event_count) {
+        preview->input_event_cursor > preview->input_event_count ||
+        preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
+        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX) {
         return;
     }
+    gbl_ppu_materialize_capture_plan(machine, preview);
     machine->master_cycles = preview->master_cycles;
     machine->next_event_sequence = preview->next_event_sequence;
     machine->interrupt_flags = preview->interrupt_flags;
     machine->interrupt_enable = preview->interrupt_enable;
     machine->interrupt_master_enable = preview->interrupt_master_enable;
     machine->waitcnt = preview->waitcnt;
+    machine->dispcnt = preview->ppu.dispcnt;
+    machine->ppu = preview->ppu;
     machine->bus_owner = preview->bus_owner;
     machine->dma_last_channel = preview->dma_last_channel;
     machine->dma_last_width = preview->dma_last_width;
@@ -1399,6 +1676,18 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine->events[index] = (gbl_event){ 0 };
     }
+    machine->ppu = (gbl_ppu_timing_state){ 0 };
+    machine->ppu.generation = UINT64_C(1);
+    machine->events[0] = (gbl_event){
+        .cycle = 0u,
+        .sequence = 0u,
+        .generation = UINT64_C(1),
+        .priority = GBL_PPU_EVENT_PRIORITY,
+        .kind = (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY,
+        .live = true
+    };
+    machine->event_count = 1u;
+    machine->next_event_sequence = 1u;
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         machine->timers[index] = (gbl_timer_state){ 0 };
         machine->timers[index].divisor = 1u;
@@ -1423,6 +1712,9 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     }
     for (index = 0u; index < GBL_VRAM_SIZE; ++index) {
         machine->vram[index] = 0u;
+    }
+    for (index = 0u; index < GBL_PPU_VIDEO_BYTES; ++index) {
+        machine->video_frame[index] = 0u;
     }
     for (index = 0u; index < GBL_OAM_SIZE; ++index) {
         machine->oam[index] = 0u;

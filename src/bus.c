@@ -291,6 +291,48 @@ static uint32_t gbl_bus_physical_vram_offset(uint32_t address)
     return offset;
 }
 
+gbl_bus_outcome gbl_bus_project_vram_lane(
+    uint8_t *window, size_t window_length, uint32_t window_offset,
+    uint16_t dispcnt, uint32_t address, uint8_t value,
+    uint8_t request_width)
+{
+    const uint32_t index = gbl_bus_physical_vram_offset(address);
+    uint32_t first = index;
+    uint32_t last = index + 1u;
+    const uint32_t mode = dispcnt & UINT16_C(0x0007);
+    const uint32_t obj_base = mode <= 2u ? UINT32_C(0x10000)
+                                         : UINT32_C(0x14000);
+    gbl_bus_outcome outcome = request_width == 1u && mode >= 6u
+                                  ? GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY
+                                  : GBL_BUS_OUTCOME_RAM;
+    uint64_t window_end;
+    uint32_t offset;
+
+    if (window == NULL ||
+        gbl_bus_region_for_address(address) != GBL_BUS_REGION_VRAM ||
+        (request_width != 1u && request_width != 2u &&
+         request_width != 4u) ||
+        window_offset > GBL_VRAM_SIZE ||
+        window_length > (size_t)(GBL_VRAM_SIZE - window_offset)) {
+        return GBL_BUS_OUTCOME_NONE;
+    }
+    if (request_width == 1u) {
+        if (index >= obj_base) {
+            return outcome;
+        }
+        first = index & ~UINT32_C(1);
+        last = first + 2u;
+    }
+    window_end = (uint64_t)window_offset + (uint64_t)window_length;
+    for (offset = first; offset < last; ++offset) {
+        if ((uint64_t)offset >= (uint64_t)window_offset &&
+            (uint64_t)offset < window_end) {
+            window[offset - window_offset] = value;
+        }
+    }
+    return outcome;
+}
+
 static uint8_t *gbl_bus_memory_byte(gbl_machine *machine,
                                    gbl_bus_region region,
                                    uint32_t address)
@@ -515,8 +557,10 @@ static bool gbl_bus_read_lane(
         if (gbl_bus_is_dispcnt_byte(address)) {
             *outcome = GBL_BUS_OUTCOME_IO_MODE_SUBSET;
             *value = address == 0x04000000u
-                         ? (uint8_t)(machine->dispcnt & 0x0007u)
-                         : (uint8_t)(machine->dispcnt >> 8u);
+                         ? (uint8_t)(time_preview->ppu.dispcnt &
+                                     UINT16_C(0x0087))
+                         : (uint8_t)((time_preview->ppu.dispcnt >> 8u) &
+                                     UINT16_C(0x0007));
             return true;
         }
         if (gbl_bus_is_dma_byte(address)) {
@@ -667,25 +711,9 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
         }
         return GBL_BUS_OUTCOME_RAM;
     case GBL_BUS_REGION_VRAM:
-        memory_byte = gbl_bus_memory_byte(machine, region, address);
-        if (request_width == 1u) {
-            uint32_t mode = machine->dispcnt & 0x0007u;
-            uint32_t obj_base = mode <= 2u ? 0x10000u : 0x14000u;
-            uint32_t index = gbl_bus_physical_vram_offset(address);
-            gbl_bus_outcome outcome =
-                mode >= 6u ? GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY
-                           : GBL_BUS_OUTCOME_RAM;
-
-            if (index < obj_base) {
-                uint32_t halfword_index = index & ~1u;
-
-                machine->vram[halfword_index] = value;
-                machine->vram[halfword_index + 1u] = value;
-            }
-            return outcome;
-        }
-        *memory_byte = value;
-        return GBL_BUS_OUTCOME_RAM;
+        return gbl_bus_project_vram_lane(
+            machine->vram, GBL_VRAM_SIZE, 0u, machine->dispcnt, address,
+            value, request_width);
     case GBL_BUS_REGION_OAM:
         if (request_width == 1u) {
             return GBL_BUS_OUTCOME_RAM;
@@ -698,8 +726,15 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
     case GBL_BUS_REGION_IO:
         if (gbl_bus_is_dispcnt_byte(address)) {
             if (address == 0x04000000u) {
-                machine->dispcnt = (uint16_t)(value & 0x07u);
+                machine->dispcnt = (uint16_t)(
+                    (machine->dispcnt & UINT16_C(0xFF00)) |
+                    (uint16_t)(value & UINT8_C(0x87)));
+            } else if (address == 0x04000001u) {
+                machine->dispcnt = (uint16_t)(
+                    (machine->dispcnt & UINT16_C(0x00FF)) |
+                    (uint16_t)((uint16_t)(value & UINT8_C(0x07)) << 8u));
             }
+            machine->ppu.dispcnt = machine->dispcnt;
             return GBL_BUS_OUTCOME_IO_MODE_SUBSET;
         }
         if (gbl_bus_is_timer_byte(address)) {

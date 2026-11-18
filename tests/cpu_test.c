@@ -13546,7 +13546,75 @@ static void unit_boundary_seed_memory(gbl_machine *machine)
         }
     }
     machine->dispcnt = UINT16_C(0x1234);
+    machine->ppu.dispcnt = machine->dispcnt;
     machine->open_bus = UINT32_C(0xD00DF00D);
+}
+
+static void unit_boundary_seed_ppu_time(gbl_machine *machine,
+                                        uint64_t cycle)
+{
+    const uint64_t line_offset = cycle % GBL_PPU_LINE_CYCLES;
+    const uint64_t line_origin = cycle - line_offset;
+    const uint16_t line = (uint16_t)(
+        (cycle / GBL_PPU_LINE_CYCLES) % GBL_PPU_TOTAL_LINES);
+    uint64_t boundary_cycle;
+    uint64_t boundary_generation = UINT64_C(2);
+    size_t index;
+
+    machine->ppu = (gbl_ppu_timing_state){ 0 };
+    machine->ppu.line_origin = line_origin;
+    machine->ppu.generation = UINT64_C(2);
+    machine->ppu.frame_epoch = cycle / GBL_PPU_FRAME_CYCLES;
+    machine->ppu.line = line;
+    machine->ppu.dispcnt = machine->dispcnt;
+    machine->ppu.frame_started = true;
+    machine->ppu.next_boundary_hblank =
+        line_offset < GBL_PPU_HBLANK_CYCLES;
+    if (machine->ppu.next_boundary_hblank) {
+        machine->ppu.scheduled_line = line;
+        if (line_origin > UINT64_MAX - GBL_PPU_HBLANK_CYCLES) {
+            boundary_cycle = UINT64_MAX;
+            boundary_generation = UINT64_C(1);
+        } else {
+            boundary_cycle = line_origin + GBL_PPU_HBLANK_CYCLES;
+        }
+    } else {
+        machine->ppu.scheduled_line = (uint16_t)(
+            (line + 1u) % GBL_PPU_TOTAL_LINES);
+        if (line_origin > UINT64_MAX - GBL_PPU_LINE_CYCLES) {
+            boundary_cycle = UINT64_MAX;
+            boundary_generation = UINT64_C(1);
+        } else {
+            boundary_cycle = line_origin + GBL_PPU_LINE_CYCLES;
+        }
+        machine->ppu.dispstat |= UINT16_C(0x0001);
+    }
+    /* Near UINT64_MAX there is no representable successor after the next
+     * raster edge. Keep one stale terminal event queued so CPU overflow and
+     * counter-boundary tests do not bypass or invent PPU timing. */
+    if (cycle > UINT64_MAX - GBL_PPU_LINE_CYCLES) {
+        boundary_cycle = UINT64_MAX;
+        boundary_generation = machine->ppu.generation - UINT64_C(1);
+    }
+    if (line >= GBL_PPU_VISIBLE_LINES) {
+        machine->ppu.dispstat |= UINT16_C(0x0002);
+    }
+    if (line == machine->ppu.compare) {
+        machine->ppu.dispstat |= UINT16_C(0x0004);
+    }
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        machine->events[index] = (gbl_event){ 0 };
+    }
+    machine->events[0] = (gbl_event){
+        .cycle = boundary_cycle,
+        .sequence = 0u,
+        .generation = boundary_generation,
+        .priority = 9u,
+        .kind = (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY,
+        .live = true
+    };
+    machine->event_count = 1u;
+    machine->next_event_sequence = 1u;
 }
 
 static bool unit_boundary_run(const unit_boundary_case *spec,
@@ -13646,6 +13714,7 @@ static bool unit_boundary_run(const unit_boundary_case *spec,
         write_word(machine.iwram, 0x800u, UINT32_C(0x87654321));
     }
     machine.master_cycles = start_cycles;
+    unit_boundary_seed_ppu_time(&machine, start_cycles);
     machine.cpu.retired_instructions = retired;
     memcpy(original_rom, machine.rom, TEST_IMAGE_SIZE);
     for (index = 0u; index < 23u; ++index) {
