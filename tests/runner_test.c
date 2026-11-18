@@ -646,6 +646,51 @@ static bool gbl_test_video_file_matches(const char *path,
     return okay;
 }
 
+static bool gbl_test_ppu_write_limit(const char *rom_path,
+                                     const char *video_path)
+{
+    const gbl_input_event pressed_a = { 0u, UINT16_C(0x0001) };
+    struct rlimit limit;
+    pid_t child;
+    int child_status;
+
+    (void)remove(video_path);
+    child = fork();
+    if (child < 0) {
+        return false;
+    }
+    if (child == 0) {
+        gbl_runner_result result = { 0 };
+        gbl_runner_status status;
+        bool okay;
+
+        limit.rlim_cur = (rlim_t)0;
+        limit.rlim_max = (rlim_t)0;
+        if (setrlimit(RLIMIT_FSIZE, &limit) != 0 ||
+            signal(SIGXFSZ, SIG_IGN) == SIG_ERR) {
+            _exit(2);
+        }
+        status = gbl_test_execute_ppu(
+            rom_path, video_path, &pressed_a, 1u, true, UINT64_C(500000),
+            (gbl_runner_allocator){ 0 }, &result);
+        okay = status == GBL_RUNNER_HARNESS_FAIL &&
+               result.status == GBL_RUNNER_HARNESS_FAIL &&
+               result.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+               !result.phase10.video_emitted &&
+               (strcmp(result.phase10.video_output_error,
+                       "video-output-write-failed") == 0 ||
+                strcmp(result.phase10.video_output_error,
+                       "video-output-close-failed") == 0) &&
+               access(video_path, F_OK) != 0 && errno == ENOENT;
+        gbl_runner_result_dispose(&result);
+        _exit(okay ? 0 : 1);
+    }
+    if (waitpid(child, &child_status, 0) != child) {
+        return false;
+    }
+    return WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0;
+}
+
 static bool gbl_test_runner_ppu_output(const char *scratch_directory)
 {
     const gbl_input_event pressed_a = { 0u, UINT16_C(0x0001) };
@@ -749,6 +794,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     gbl_runner_result allocation = { 0 };
     gbl_runner_result incomplete = { 0 };
     gbl_runner_result invalid_path = { 0 };
+    gbl_runner_result not_requested = { 0 };
+    gbl_runner_result owned = { 0 };
     gbl_test_allocator_state allocator_state = { 0 };
     gbl_runner_allocator allocator;
     char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
@@ -756,6 +803,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     char bad_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char allocation_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char incomplete_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char write_limit_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char owned_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char existing_bytes[8] = { 0 };
     FILE *file;
     bool okay;
@@ -770,6 +819,10 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                        scratch_directory, "ppu-output-allocation.raw") ||
         !gbl_test_path(incomplete_path, sizeof incomplete_path,
                        scratch_directory, "ppu-output-incomplete.raw") ||
+        !gbl_test_path(write_limit_path, sizeof write_limit_path,
+                       scratch_directory, "ppu-output-write-limit.raw") ||
+        !gbl_test_path(owned_path, sizeof owned_path, scratch_directory,
+                       "ppu-output-owned.raw") ||
         !gbl_test_write_ppu_guest(rom_path) ||
         !gbl_test_write_file(existing_path, 0u, 0u)) {
         return false;
@@ -788,6 +841,7 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                GBL_RUNNER_HARNESS_FAIL &&
            existing.status == GBL_RUNNER_HARNESS_FAIL &&
            strcmp(existing.reason, "video-output-failed") == 0 &&
+           strcmp(existing.termination, "timeout") == 0 &&
            strcmp(existing.phase10.video_output_error,
                   "video-output-already-exists") == 0 &&
            existing.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
@@ -803,7 +857,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                GBL_RUNNER_HARNESS_FAIL &&
            strcmp(bad_parent.phase10.video_output_error,
                   "video-output-open-failed") == 0 &&
-           !bad_parent.phase10.video_emitted;
+           !bad_parent.phase10.video_emitted &&
+           access(bad_path, F_OK) != 0 && errno == ENOENT;
 
     memset(&allocator_state, 0, sizeof allocator_state);
     allocator_state.fail_at = 4u;
@@ -817,6 +872,7 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                   "video-buffer-allocation-failed") == 0 &&
            allocation.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
            !allocation.phase10.video_emitted &&
+           access(allocation_path, F_OK) != 0 && errno == ENOENT &&
            allocator_state.successes == allocator_state.releases;
 
     okay = okay &&
@@ -826,7 +882,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                GBL_RUNNER_HARNESS_FAIL &&
            strcmp(incomplete.phase10.video_output_error,
                   "video-frame-unavailable") == 0 &&
-           !incomplete.phase10.video_emitted;
+           !incomplete.phase10.video_emitted &&
+           access(incomplete_path, F_OK) != 0 && errno == ENOENT;
 
     {
         gbl_runner_options options = { 0 };
@@ -838,8 +895,53 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                    GBL_RUNNER_REFUSED &&
                invalid_path.status == GBL_RUNNER_REFUSED &&
                strcmp(invalid_path.reason, "invalid-runner-options") == 0 &&
+               strcmp(invalid_path.phase10.video_output_error,
+                      "video-output-path-empty") == 0 &&
                !invalid_path.ran;
     }
+    okay = okay &&
+           !gbl_runner_write_video(NULL, &invalid_path) &&
+           strcmp(invalid_path.phase10.video_output_error,
+                  "video-output-path-null") == 0 &&
+           !gbl_runner_write_video("", &invalid_path) &&
+           strcmp(invalid_path.phase10.video_output_error,
+                  "video-output-path-empty") == 0;
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator_state.fail_at = 4u;
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, NULL, &pressed_a, 1u, true,
+                                UINT64_C(100), allocator,
+                                &not_requested) == GBL_RUNNER_TIMEOUT &&
+           not_requested.ran && !not_requested.phase10.video_requested &&
+           not_requested.phase10.video_bytes == NULL &&
+           allocator_state.calls == 3u;
+    gbl_runner_result_dispose(&not_requested);
+    okay = okay &&
+           allocator_state.successes == allocator_state.releases &&
+           gbl_test_ppu_write_limit(rom_path, write_limit_path);
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, owned_path, &pressed_a, 1u, true,
+                                UINT64_C(500000), allocator, &owned) ==
+               GBL_RUNNER_TIMEOUT &&
+           owned.phase10.video_emitted && owned.phase10.video_bytes != NULL &&
+           allocator_state.successes == allocator_state.releases + 1u;
+    gbl_runner_result_dispose(&owned);
+    {
+        const size_t releases_after_dispose = allocator_state.releases;
+
+        okay = okay && allocator_state.successes == releases_after_dispose &&
+               owned.phase10.video_bytes == NULL;
+        gbl_runner_result_dispose(&owned);
+        okay = okay && allocator_state.releases == releases_after_dispose;
+    }
+
     okay = okay && !existing.phase10.video_emitted &&
            !bad_parent.phase10.video_emitted &&
            !allocation.phase10.video_emitted &&

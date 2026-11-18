@@ -693,6 +693,49 @@ static void gbl_runner_phase10_observe(gbl_runner_result *result,
     }
 }
 
+static void gbl_runner_set_video_error(gbl_runner_result *result,
+                                      const char *error)
+{
+    size_t length = strlen(error);
+
+    if (length >= sizeof result->phase10.video_output_error) {
+        return;
+    }
+    memcpy(result->phase10.video_output_error, error, length + 1u);
+}
+
+static bool gbl_runner_phase10_capture_video(
+    const gbl_runner_options *options, gbl_runner_result *result,
+    const gbl_machine *machine)
+{
+    gbl_runner_phase10_observe(result, machine);
+    if (!result->phase10.video_requested) {
+        return true;
+    }
+    if (result->phase10.capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        !result->phase10.has_sample_cycle ||
+        !result->phase10.has_completion_cycle) {
+        gbl_runner_set_video_error(result, "video-frame-unavailable");
+        return false;
+    }
+    result->phase10.video_bytes = result->allocator.allocate(
+        result->allocator.context, GBL_RUNNER_VIDEO_BYTES);
+    if (result->phase10.video_bytes == NULL) {
+        gbl_runner_set_video_error(result, "video-buffer-allocation-failed");
+        return false;
+    }
+    result->phase10.video_length = GBL_RUNNER_VIDEO_BYTES;
+    memcpy(result->phase10.video_bytes, machine->video_frame,
+           GBL_RUNNER_VIDEO_BYTES);
+    return gbl_runner_write_video(options->video_output_path, result);
+}
+
+static void gbl_runner_video_output_failed(gbl_runner_result *result)
+{
+    result->status = GBL_RUNNER_HARNESS_FAIL;
+    gbl_runner_set_reason(result, "video-output-failed");
+}
+
 static bool gbl_runner_u64_add(uint64_t left, uint64_t right,
                                uint64_t *sum_out)
 {
@@ -885,6 +928,10 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         (options->video_output_path != NULL &&
          options->video_output_path[0] == '\0') ||
         !gbl_runner_trace_options_valid(options)) {
+        if (options->video_output_path != NULL &&
+            options->video_output_path[0] == '\0') {
+            gbl_runner_set_video_error(result, "video-output-path-empty");
+        }
         gbl_runner_set_reason(result, "invalid-runner-options");
         gbl_runner_set_refusal(result, "invalid-runner-options",
                                "guest-not-executed");
@@ -1124,7 +1171,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                 gbl_runner_set_termination(result, "not-started");
             }
             gbl_runner_phase9_observe(result, machine);
-            gbl_runner_phase10_observe(result, machine);
+            (void)gbl_runner_phase10_capture_video(options, result, machine);
             gbl_machine_dispose(machine);
             result->allocator.release(result->allocator.context, machine,
                                       sizeof *machine);
@@ -1145,7 +1192,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                                "guest-not-run");
         gbl_runner_set_termination(result, "refused-before-run");
         gbl_runner_phase9_observe(result, machine);
-        gbl_runner_phase10_observe(result, machine);
+        (void)gbl_runner_phase10_capture_video(options, result, machine);
         gbl_machine_dispose(machine);
         result->allocator.release(result->allocator.context, machine,
                                   sizeof *machine);
@@ -1165,7 +1212,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_runner_set_reason(result, "rom-copy-identity-failed");
         gbl_runner_set_termination(result, "not-started");
         gbl_runner_phase9_observe(result, machine);
-        gbl_runner_phase10_observe(result, machine);
+        (void)gbl_runner_phase10_capture_video(options, result, machine);
         gbl_machine_dispose(machine);
         result->allocator.release(result->allocator.context, machine,
                                   sizeof *machine);
@@ -1343,7 +1390,10 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     }
     (void)gbl_runner_write_trace_if_requested(options, result);
     gbl_runner_phase9_observe(result, machine);
-    gbl_runner_phase10_observe(result, machine);
+    if (!gbl_runner_phase10_capture_video(options, result, machine) &&
+        result->ran) {
+        gbl_runner_video_output_failed(result);
+    }
     if (has_committed_unit) {
         result->has_timer0_if_request = true;
         result->timer0_if_request =

@@ -1,5 +1,6 @@
 #include "run.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <string.h>
 
@@ -292,6 +293,89 @@ bool gbl_runner_write_trace(const char *path,
         okay = false;
     }
     return okay;
+}
+
+static void gbl_runner_set_video_error(gbl_runner_result *result,
+                                      const char *error)
+{
+    const size_t length = strlen(error);
+
+    if (length >= sizeof result->phase10.video_output_error) {
+        return;
+    }
+    memcpy(result->phase10.video_output_error, error, length + 1u);
+}
+
+bool gbl_runner_write_video(const char *path, gbl_runner_result *result)
+{
+    FILE *output;
+    bool write_okay;
+    bool close_okay;
+    const char *failure;
+
+    if (result == NULL) {
+        return false;
+    }
+    result->phase10.video_emitted = false;
+    result->phase10.video_output_error[0] = '\0';
+    if (path == NULL) {
+        gbl_runner_set_video_error(result, "video-output-path-null");
+        return false;
+    }
+    if (path[0] == '\0') {
+        gbl_runner_set_video_error(result, "video-output-path-empty");
+        return false;
+    }
+    if (!result->phase10.video_requested || !result->phase10.observed ||
+        result->phase10.capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        !result->phase10.has_sample_cycle ||
+        !result->phase10.has_completion_cycle) {
+        gbl_runner_set_video_error(result, "video-frame-unavailable");
+        return false;
+    }
+    if (result->phase10.video_bytes == NULL ||
+        result->phase10.video_length != GBL_RUNNER_VIDEO_BYTES) {
+        gbl_runner_set_video_error(result, "video-frame-invalid");
+        return false;
+    }
+    if (!gbl_sha256_span(result->phase10.video_bytes,
+                         result->phase10.video_length,
+                         result->phase10.video_sha256)) {
+        result->phase10.has_video_sha256 = false;
+        gbl_runner_set_video_error(result, "video-digest-failed");
+        return false;
+    }
+    result->phase10.has_video_sha256 = true;
+
+    errno = 0;
+    output = fopen(path, "wbx");
+    if (output == NULL) {
+        gbl_runner_set_video_error(
+            result, errno == EEXIST ? "video-output-already-exists"
+                                    : "video-output-open-failed");
+        return false;
+    }
+    write_okay = fwrite(result->phase10.video_bytes, 1u,
+                        result->phase10.video_length, output) ==
+                     result->phase10.video_length &&
+                 ferror(output) == 0;
+    if (write_okay && fflush(output) != 0) {
+        write_okay = false;
+    }
+    close_okay = fclose(output) == 0;
+    if (!write_okay || !close_okay) {
+        failure = write_okay ? "video-output-close-failed"
+                             : "video-output-write-failed";
+        if (remove(path) != 0) {
+            gbl_runner_set_video_error(result,
+                                       "video-output-cleanup-failed");
+        } else {
+            gbl_runner_set_video_error(result, failure);
+        }
+        return false;
+    }
+    result->phase10.video_emitted = true;
+    return true;
 }
 
 static bool gbl_runner_write_evidence(FILE *output,
@@ -736,13 +820,15 @@ static bool gbl_runner_write_raw_video(FILE *output,
     const gbl_runner_phase10_observation *obs = &result->phase10;
     const char *status = !obs->video_requested
                              ? "not-requested"
-                             : (obs->video_emitted
-                                    ? "emitted"
-                                    : (obs->capture_state ==
-                                               GBL_VIDEO_CAPTURE_VALID
-                                           ? "not-emitted"
-                                           : gbl_runner_video_state_name(
-                                                 obs->capture_state)));
+                             : (obs->video_output_error[0] != '\0'
+                                    ? "failed"
+                                    : (obs->video_emitted
+                                           ? "emitted"
+                                           : (obs->capture_state ==
+                                                      GBL_VIDEO_CAPTURE_VALID
+                                                  ? "not-emitted"
+                                                  : gbl_runner_video_state_name(
+                                                        obs->capture_state))));
 
     if (fputs("{\"requested\":", output) == EOF ||
         fputs(obs->video_requested ? "true" : "false", output) == EOF ||
