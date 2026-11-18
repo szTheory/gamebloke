@@ -118,6 +118,50 @@ elseif(CASE STREQUAL "ppu_policy")
   gbl_json_mutate_remove("${p}" ppu_policy)
   expect_detail(ppu-policy-missing "ppu_policy" "${p}")
 
+  set(ppu_policy_fields
+    geometry line_cycles nominal_visible_dot_cycles recurrence line_transitions
+    same_cycle_order dispcnt_writable_mask dispstat_writable_mask
+    vcount_write_policy compare_write_policy hblank_event_offset_cycles
+    hblank_source hblank_source_reference hblank_provenance
+    hblank_dependent_classification hblank_dispute
+    hblank_hardware_qualification row_sample_point
+    row_same_cycle_write_policy pixel_format frame_validity
+    supported_controls unmodeled_controls interrupt_if_bits
+    blank_dma_eligibility hardware_qualification)
+  foreach(field IN LISTS ppu_policy_fields)
+    profile_copy(p mutated_${field})
+    gbl_json_mutate_set("${p}" [=["control-drift"]=] ppu_policy ${field})
+    string(REPLACE "." "\\." expected_path "ppu_policy.${field}")
+    expect_detail(ppu-policy-value "${expected_path}" "${p}")
+  endforeach()
+
+  profile_copy(p false_hblank_qualification)
+  gbl_json_mutate_set("${p}" [=["QUALIFIED"]=]
+    ppu_policy hblank_hardware_qualification)
+  expect_detail(ppu-policy-value
+    "ppu_policy\\.hblank_hardware_qualification" "${p}")
+
+  profile_copy(p missing_hblank_dispute)
+  gbl_json_mutate_remove("${p}" ppu_policy hblank_dispute)
+  expect_detail(ppu-policy-value "ppu_policy\\.hblank_dispute" "${p}")
+
+  profile_copy(p wrong_hblank_offset)
+  gbl_json_mutate_set("${p}" "1007" ppu_policy hblank_event_offset_cycles)
+  expect_detail(ppu-policy-value
+    "ppu_policy\\.hblank_event_offset_cycles" "${p}")
+
+  profile_copy(p wrong_row_sample)
+  gbl_json_mutate_set("${p}" [=["after-line-end"]=]
+    ppu_policy row_sample_point)
+  expect_detail(ppu-policy-value "ppu_policy\\.row_sample_point" "${p}")
+
+  profile_copy(p stale_ppu_doc)
+  doc_copy(d stale_ppu_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.row_sample_point` | visible-line-start |"
+    "| `ppu_policy.row_sample_point` | after-line-end |")
+  expect_detail(ppu-policy-doc "ppu_policy: missing or stale row" "${p}" "${d}")
+
 elseif(CASE STREQUAL "cpu_policy_value")
   if(NOT PROFILE_VERSION GREATER_EQUAL 6)
     message(FATAL_ERROR "profile-case: expanded CPU contract requires profile version 6 or later")
