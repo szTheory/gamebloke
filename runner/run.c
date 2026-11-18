@@ -645,6 +645,54 @@ static void gbl_runner_phase9_observe(gbl_runner_result *result,
     observation->latch_fallback_observed = latch_fallback_observed;
 }
 
+static void gbl_runner_phase10_observe(gbl_runner_result *result,
+                                       const gbl_machine *machine)
+{
+    gbl_runner_phase10_observation *observation = &result->phase10;
+    uint64_t frame_start_cycle;
+    uint64_t completion_offset =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    size_t index;
+
+    observation->observed = true;
+    observation->frame_started = machine->ppu.frame_started;
+    observation->line = machine->ppu.line;
+    observation->line_cycle = machine->master_cycles >= machine->ppu.line_origin
+                                  ? machine->master_cycles -
+                                        machine->ppu.line_origin
+                                  : 0u;
+    observation->machine_cycles = machine->master_cycles;
+    observation->frame_epoch = machine->ppu.frame_epoch;
+    observation->has_frame_epoch = machine->ppu.frame_started;
+    observation->capture_state = machine->ppu.capture_state;
+    observation->capture_reason = machine->ppu.capture_reason;
+    observation->supported_controls =
+        machine->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE ||
+        machine->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_INCOMPLETE;
+    observation->video_requested = result->phase10.video_requested;
+
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        const gbl_dma_channel_state *channel = &machine->dma_channels[index];
+
+        if (channel->trigger_origin == GBL_DMA_TRIGGER_ORIGIN_HBLANK ||
+            channel->trigger_dispute == GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE) {
+            observation->hblank_trigger_dependency = true;
+            break;
+        }
+    }
+
+    if (machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+        machine->ppu.frame_started &&
+        machine->ppu.frame_epoch <=
+            (UINT64_MAX - completion_offset) / GBL_PPU_FRAME_CYCLES) {
+        frame_start_cycle = machine->ppu.frame_epoch * GBL_PPU_FRAME_CYCLES;
+        observation->sample_cycle = frame_start_cycle;
+        observation->has_sample_cycle = true;
+        observation->completion_cycle = frame_start_cycle + completion_offset;
+        observation->has_completion_cycle = true;
+    }
+}
+
 static bool gbl_runner_u64_add(uint64_t left, uint64_t right,
                                uint64_t *sum_out)
 {
@@ -826,6 +874,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     result->budget_cycles = options->cycle_budget;
     result->trace_mask = options->trace_mask;
     result->trace_capacity = options->trace_capacity;
+    result->phase10.video_requested = options->video_output_path != NULL;
     has_fixture_argument = options->fixture_id != NULL;
     if ((has_fixture_argument &&
          !gbl_runner_copy_text(requested_fixture_id,
@@ -833,6 +882,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                                options->fixture_id)) ||
         (options->trace_output_path != NULL &&
          options->trace_output_path[0] == '\0') ||
+        (options->video_output_path != NULL &&
+         options->video_output_path[0] == '\0') ||
         !gbl_runner_trace_options_valid(options)) {
         gbl_runner_set_reason(result, "invalid-runner-options");
         gbl_runner_set_refusal(result, "invalid-runner-options",
@@ -1073,6 +1124,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                 gbl_runner_set_termination(result, "not-started");
             }
             gbl_runner_phase9_observe(result, machine);
+            gbl_runner_phase10_observe(result, machine);
             gbl_machine_dispose(machine);
             result->allocator.release(result->allocator.context, machine,
                                       sizeof *machine);
@@ -1093,6 +1145,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                                "guest-not-run");
         gbl_runner_set_termination(result, "refused-before-run");
         gbl_runner_phase9_observe(result, machine);
+        gbl_runner_phase10_observe(result, machine);
         gbl_machine_dispose(machine);
         result->allocator.release(result->allocator.context, machine,
                                   sizeof *machine);
@@ -1112,6 +1165,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         gbl_runner_set_reason(result, "rom-copy-identity-failed");
         gbl_runner_set_termination(result, "not-started");
         gbl_runner_phase9_observe(result, machine);
+        gbl_runner_phase10_observe(result, machine);
         gbl_machine_dispose(machine);
         result->allocator.release(result->allocator.context, machine,
                                   sizeof *machine);
@@ -1289,6 +1343,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     }
     (void)gbl_runner_write_trace_if_requested(options, result);
     gbl_runner_phase9_observe(result, machine);
+    gbl_runner_phase10_observe(result, machine);
     if (has_committed_unit) {
         result->has_timer0_if_request = true;
         result->timer0_if_request =

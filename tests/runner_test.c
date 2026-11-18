@@ -559,7 +559,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
         return false;
     }
     options.rom_path = rom_path;
-    options.cycle_budget = UINT64_C(600000);
+    options.cycle_budget = UINT64_C(500000);
     options.input_timeline_present = true;
     options.input_events = &input_event;
     options.input_event_count = 1u;
@@ -575,12 +575,15 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
         okay = strstr(json, "\"phase10\":{") != NULL &&
                strstr(json, "\"line_cycle\":") != NULL &&
                strstr(json, "\"frame_epoch\":") != NULL &&
+               strstr(json, "\"state\":\"valid\"") != NULL &&
+               strstr(json, "\"completion_cycle\":\"") != NULL &&
                strstr(json, "\"classification\":\"disputed\"") != NULL &&
                strstr(json, "\"dispute_id\":\"disp-hblank-flag-edge\"") != NULL &&
                strstr(json, "\"hardware_qualification\":\"UNKNOWN\"") != NULL &&
                strstr(json, "\"raw_video\":") != NULL &&
                strstr(json, "\"cycles\":") != NULL &&
-               strstr(json, "\"input_timeline_sha256\":") != NULL;
+               strstr(json,
+                      "\"input_timeline\":{\"kind\":\"script\",\"sha256\":") != NULL;
     }
     gbl_runner_result_dispose(&result);
     return okay;

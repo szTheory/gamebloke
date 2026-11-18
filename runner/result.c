@@ -604,6 +604,177 @@ static bool gbl_runner_write_phase9(
     return true;
 }
 
+static const char *gbl_runner_video_state_name(gbl_video_capture_state state)
+{
+    switch (state) {
+    case GBL_VIDEO_CAPTURE_INVALID: return "invalid";
+    case GBL_VIDEO_CAPTURE_INCOMPLETE: return "incomplete";
+    case GBL_VIDEO_CAPTURE_VALID: return "valid";
+    }
+    return "invalid";
+}
+
+static const char *gbl_runner_video_reason_name(gbl_video_invalid_reason reason)
+{
+    switch (reason) {
+    case GBL_VIDEO_INVALID_REASON_NONE: return "none";
+    case GBL_VIDEO_INVALID_REASON_INCOMPLETE: return "incomplete";
+    case GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE: return "unsupported-mode";
+    case GBL_VIDEO_INVALID_REASON_BG2_DISABLED: return "bg2-disabled";
+    case GBL_VIDEO_INVALID_REASON_FORCED_BLANK: return "forced-blank";
+    case GBL_VIDEO_INVALID_REASON_OBJ_ENABLED: return "obj-enabled";
+    case GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED: return "window-enabled";
+    case GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED: return "effect-enabled";
+    case GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED:
+        return "bg2-transform-unmodeled";
+    }
+    return "unknown";
+}
+
+static bool gbl_runner_write_phase10(FILE *output,
+                                     const gbl_runner_result *result)
+{
+    const gbl_runner_phase10_observation *obs = &result->phase10;
+
+    if (fputs("{\"model\":\"gamebloke-ppu-observation-1\",\"observed\":",
+              output) == EOF ||
+        fputs(obs->observed ? "true" : "false", output) == EOF) {
+        return false;
+    }
+    if (!obs->observed) {
+        return fputs(",\"raster\":null,\"frame\":null,\"controls\":null,"
+                     "\"timing\":{\"model\":\"gamebloke-ppu-model-1\","
+                     "\"hblank_offset_cycles\":\"1006\","
+                     "\"policy\":\"project-selected\","
+                     "\"evidence_class\":\"REF\","
+                     "\"classification\":\"disputed\","
+                     "\"dispute_id\":\"disp-hblank-flag-edge\","
+                     "\"hardware_qualification\":\"UNKNOWN\"},"
+                     "\"hblank_trigger_dependency\":null}",
+                     output) != EOF;
+    }
+    if (fprintf(output,
+                ",\"raster\":{\"line\":%u,\"line_cycle\":\"%" PRIu64
+                "\",\"machine_cycle\":\"%" PRIu64 "\",\"frame_epoch\":",
+                (unsigned int)obs->line, obs->line_cycle,
+                obs->machine_cycles) < 0) {
+        return false;
+    }
+    if (obs->has_frame_epoch) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->frame_epoch) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fprintf(output,
+                "},\"frame\":{\"state\":\"%s\",\"reason\":\"%s\","
+                "\"supported_controls\":%s,\"epoch\":",
+                gbl_runner_video_state_name(obs->capture_state),
+                gbl_runner_video_reason_name(obs->capture_reason),
+                obs->supported_controls ? "true" : "false") < 0) {
+        return false;
+    }
+    if (obs->capture_state == GBL_VIDEO_CAPTURE_VALID &&
+        obs->has_frame_epoch) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->frame_epoch) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"sample_cycle\":", output) == EOF) return false;
+    if (obs->has_sample_cycle) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->sample_cycle) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"completion_cycle\":", output) == EOF) return false;
+    if (obs->has_completion_cycle) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->completion_cycle) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"width\":240,\"height\":160,\"stride_bytes\":480,"
+              "\"format\":\"bgr555-le\",\"byte_length\":76800,"
+              "\"source\":\"canonical-vram\","
+              "\"latch_policy\":\"row-start\"},\"controls\":{"
+              "\"supported\":",
+              output) == EOF ||
+        fputs(obs->supported_controls ? "true" : "false", output) == EOF ||
+        fputs("},\"timing\":{\"model\":\"gamebloke-ppu-model-1\","
+              "\"hblank_offset_cycles\":\"1006\","
+              "\"policy\":\"project-selected\","
+              "\"evidence_class\":\"REF\","
+              "\"evidence\":\"GBATEK direct reference candidate; exact hardware edge unresolved\","
+              "\"classification\":\"disputed\","
+              "\"dispute_id\":\"disp-hblank-flag-edge\","
+              "\"hardware_qualification\":\"UNKNOWN\"},"
+              "\"hblank_trigger_dependency\":{\"observed\":",
+              output) == EOF ||
+        fputs(obs->hblank_trigger_dependency ? "true" : "false", output) == EOF) {
+        return false;
+    }
+    if (obs->hblank_trigger_dependency) {
+        return fputs(",\"classification\":\"disputed\","
+                     "\"dispute_id\":\"disp-hblank-flag-edge\","
+                     "\"hardware_qualification\":\"UNKNOWN\"}}",
+                     output) != EOF;
+    }
+    return fputs(",\"classification\":null,\"dispute_id\":null,"
+                 "\"hardware_qualification\":\"UNKNOWN\"}}",
+                 output) != EOF;
+}
+
+static bool gbl_runner_write_raw_video(FILE *output,
+                                       const gbl_runner_result *result)
+{
+    const gbl_runner_phase10_observation *obs = &result->phase10;
+    const char *status = !obs->video_requested
+                             ? "not-requested"
+                             : (obs->video_emitted
+                                    ? "emitted"
+                                    : (obs->capture_state ==
+                                               GBL_VIDEO_CAPTURE_VALID
+                                           ? "not-emitted"
+                                           : gbl_runner_video_state_name(
+                                                 obs->capture_state)));
+
+    if (fputs("{\"requested\":", output) == EOF ||
+        fputs(obs->video_requested ? "true" : "false", output) == EOF ||
+        fputs(",\"status\":", output) == EOF ||
+        !gbl_runner_json_string(output, status) ||
+        fputs(",\"emitted\":", output) == EOF ||
+        fputs(obs->video_emitted ? "true" : "false", output) == EOF ||
+        fputs(",\"byte_length\":", output) == EOF) {
+        return false;
+    }
+    if (obs->video_emitted) {
+        if (fprintf(output, "%zu", obs->video_length) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"sha256\":", output) == EOF) return false;
+    if (obs->has_video_sha256) {
+        if (!gbl_runner_json_string(output, obs->video_sha256)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"failure\":", output) == EOF) return false;
+    if (obs->video_output_error[0] != '\0') {
+        if (!gbl_runner_json_string(output, obs->video_output_error)) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    return fputc('}', output) != EOF;
+}
+
 bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
 {
     const char *reason;
@@ -794,6 +965,10 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
         !gbl_runner_write_phase8(output, &result->phase8) ||
         fputs(",\"phase9\":", output) == EOF ||
         !gbl_runner_write_phase9(output, result) ||
+        fputs(",\"phase10\":", output) == EOF ||
+        !gbl_runner_write_phase10(output, result) ||
+        fputs(",\"raw_video\":", output) == EOF ||
+        !gbl_runner_write_raw_video(output, result) ||
         fputs(",\"termination\":", output) == EOF ||
         !gbl_runner_json_string(output, result->termination)) {
         return false;
@@ -831,6 +1006,12 @@ void gbl_runner_result_dispose(gbl_runner_result *result)
         result->allocator.release(
             result->allocator.context, result->trace_records,
             result->trace_capacity * sizeof(*result->trace_records));
+    }
+    if (result->phase10.video_bytes != NULL &&
+        result->allocator.release != NULL) {
+        result->allocator.release(result->allocator.context,
+                                  result->phase10.video_bytes,
+                                  result->phase10.video_length);
     }
     memset(result, 0, sizeof *result);
 }

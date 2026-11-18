@@ -15,6 +15,7 @@
 #define GBL_RUNNER_FIXTURE_ID_CAPACITY 128u
 #define GBL_RUNNER_SOURCE_COMMIT_CAPACITY 41u
 #define GBL_RUNNER_FRAME_CYCLES UINT64_C(280896)
+#define GBL_RUNNER_VIDEO_BYTES ((size_t)GBL_PPU_VIDEO_BYTES)
 
 typedef void *(*gbl_runner_allocate_fn)(void *context, size_t size);
 typedef void (*gbl_runner_release_fn)(void *context, void *pointer,
@@ -41,6 +42,8 @@ typedef struct gbl_runner_options {
     bool input_timeline_present;
     const gbl_input_event *input_events;
     size_t input_event_count;
+    /* A non-NULL path requests one valid raw mode-3 frame. */
+    const char *video_output_path;
     /* Both callbacks must be supplied together. Both NULL selects malloc/free. */
     gbl_runner_allocator allocator;
 } gbl_runner_options;
@@ -88,6 +91,31 @@ typedef struct gbl_runner_phase9_observation {
     bool latch_fallback_observed;
 } gbl_runner_phase9_observation;
 
+typedef struct gbl_runner_phase10_observation {
+    bool observed;
+    bool frame_started;
+    uint16_t line;
+    uint64_t line_cycle;
+    uint64_t machine_cycles;
+    uint64_t frame_epoch;
+    bool has_frame_epoch;
+    bool supported_controls;
+    gbl_video_capture_state capture_state;
+    gbl_video_invalid_reason capture_reason;
+    uint64_t sample_cycle;
+    bool has_sample_cycle;
+    uint64_t completion_cycle;
+    bool has_completion_cycle;
+    bool hblank_trigger_dependency;
+    bool video_requested;
+    bool video_emitted;
+    bool has_video_sha256;
+    char video_sha256[GBL_SHA256_HEX_CAPACITY];
+    char video_output_error[64];
+    uint8_t *video_bytes;
+    size_t video_length;
+} gbl_runner_phase10_observation;
+
 typedef enum gbl_runner_status {
     GBL_RUNNER_PASS = 0,
     GBL_RUNNER_GUEST_FAIL,
@@ -134,6 +162,7 @@ typedef struct gbl_runner_result {
     char input_timeline_sha256[GBL_SHA256_HEX_CAPACITY];
     gbl_runner_phase8_observation phase8;
     gbl_runner_phase9_observation phase9;
+    gbl_runner_phase10_observation phase10;
     bool has_timer0_if_request;
     bool timer0_if_request;
     char termination[64];
@@ -168,6 +197,10 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result);
  * explicit path. Existing files are never truncated. */
 bool gbl_runner_write_trace(const char *path,
                             const gbl_runner_result *result);
+
+/* Writes one exact valid raw BGR555 frame to a newly created explicit path. */
+bool gbl_runner_write_video(const char *path,
+                            gbl_runner_result *result);
 
 void gbl_runner_result_dispose(gbl_runner_result *result);
 
