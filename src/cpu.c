@@ -4165,6 +4165,9 @@ static bool gbl_cpu_time_preview_matches_machine(
             actual->current_destination != expected->current_destination ||
             actual->read_latch != expected->read_latch ||
             actual->completed_units != expected->completed_units ||
+            actual->trigger_cycle != expected->trigger_cycle ||
+            actual->trigger_origin != expected->trigger_origin ||
+            actual->trigger_dispute != expected->trigger_dispute ||
             actual->count != expected->count ||
             actual->control != expected->control ||
             actual->remaining != expected->remaining ||

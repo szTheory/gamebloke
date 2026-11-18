@@ -195,8 +195,16 @@ typedef enum gbl_dma_result_classification {
 
 typedef enum gbl_dma_dispute_id {
     GBL_DMA_DISPUTE_NONE = 0,
-    GBL_DMA_DISPUTE_LATCH = 1
+    GBL_DMA_DISPUTE_LATCH = 1,
+    GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE = 2
 } gbl_dma_dispute_id;
+
+typedef enum gbl_dma_trigger_origin {
+    GBL_DMA_TRIGGER_ORIGIN_NONE = 0,
+    GBL_DMA_TRIGGER_ORIGIN_EXPLICIT_REQUEST = 1,
+    GBL_DMA_TRIGGER_ORIGIN_VBLANK = 2,
+    GBL_DMA_TRIGGER_ORIGIN_HBLANK = 3
+} gbl_dma_trigger_origin;
 
 typedef enum gbl_hardware_qualification {
     GBL_HARDWARE_QUALIFICATION_UNSPECIFIED = 0,
@@ -213,6 +221,9 @@ typedef struct gbl_dma_channel_state {
     uint32_t read_latch;
     uint64_t completed_units;
     uint64_t generation;
+    uint64_t trigger_cycle;
+    gbl_dma_trigger_origin trigger_origin;
+    gbl_dma_dispute_id trigger_dispute;
     uint16_t count;
     uint16_t control;
     uint32_t remaining;
@@ -750,6 +761,9 @@ typedef struct gbl_dma_step_result {
     uint32_t remaining;
     uint64_t completed;
     uint64_t completion_cycle;
+    uint64_t trigger_cycle;
+    gbl_dma_trigger_origin trigger_origin;
+    gbl_dma_dispute_id trigger_dispute;
     bool unit_completed;
     bool used_channel_latch;
     gbl_dma_value_provenance value_provenance;

@@ -125,6 +125,9 @@ static bool gbl_test_dma_channel_equal(const gbl_dma_channel_state *left,
            left->read_latch == right->read_latch &&
            left->completed_units == right->completed_units &&
            left->generation == right->generation &&
+           left->trigger_cycle == right->trigger_cycle &&
+           left->trigger_origin == right->trigger_origin &&
+           left->trigger_dispute == right->trigger_dispute &&
            left->count == right->count && left->control == right->control &&
            left->remaining == right->remaining &&
            left->pending == right->pending && left->armed == right->armed &&
@@ -712,6 +715,11 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
         digest = gbl_test_digest_u64(digest, dma->read_latch);
         digest = gbl_test_digest_u64(digest, dma->completed_units);
         digest = gbl_test_digest_u64(digest, dma->generation);
+        digest = gbl_test_digest_u64(digest, dma->trigger_cycle);
+        digest = gbl_test_digest_byte(digest,
+                                      (uint8_t)dma->trigger_origin);
+        digest = gbl_test_digest_byte(digest,
+                                      (uint8_t)dma->trigger_dispute);
         digest = gbl_test_digest_u64(digest, dma->count);
         digest = gbl_test_digest_u64(digest, dma->control);
         digest = gbl_test_digest_u64(digest, dma->remaining);

@@ -913,13 +913,18 @@ static bool test_ppu_blank_triggers_and_video_row(void)
 {
     gbl_machine *vblank = new_machine();
     gbl_machine *hblank = new_machine();
+    gbl_machine *unsupported = new_machine();
+    gbl_machine *nonvisible = new_machine();
     gbl_dma_step_result step = { 0 };
     uint8_t channel;
-    bool valid = vblank != NULL && hblank != NULL;
+    bool valid = vblank != NULL && hblank != NULL && unsupported != NULL &&
+                 nonvisible != NULL;
 
     if (!valid) {
         free_machine(vblank);
         free_machine(hblank);
+        free_machine(unsupported);
+        free_machine(nonvisible);
         return false;
     }
     for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
@@ -940,7 +945,14 @@ static bool test_ppu_blank_triggers_and_video_row(void)
             GBL_TIME_STATUS_OK;
     for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
         valid = valid && vblank->dma_channels[channel].pending &&
-                !vblank->dma_channels[channel].armed;
+                !vblank->dma_channels[channel].armed &&
+                vblank->dma_channels[channel].trigger_origin ==
+                    GBL_DMA_TRIGGER_ORIGIN_VBLANK &&
+                vblank->dma_channels[channel].trigger_cycle ==
+                    (uint64_t)GBL_PPU_VISIBLE_LINES *
+                        GBL_PPU_LINE_CYCLES &&
+                vblank->dma_channels[channel].trigger_dispute ==
+                    GBL_DMA_DISPUTE_NONE;
     }
 
     hblank->dispcnt = UINT16_C(0x0403);
@@ -968,7 +980,13 @@ static bool test_ppu_blank_triggers_and_video_row(void)
                 GBL_TIME_STATUS_OK;
     for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
         valid = valid && hblank->dma_channels[channel].pending &&
-                !hblank->dma_channels[channel].armed;
+                !hblank->dma_channels[channel].armed &&
+                hblank->dma_channels[channel].trigger_origin ==
+                    GBL_DMA_TRIGGER_ORIGIN_HBLANK &&
+                hblank->dma_channels[channel].trigger_cycle ==
+                    GBL_PPU_HBLANK_CYCLES &&
+                hblank->dma_channels[channel].trigger_dispute ==
+                    GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE;
     }
     valid = valid && hblank->ppu.line == 0u &&
             (hblank->ppu.dispstat & UINT16_C(0x0002)) != 0u &&
@@ -981,6 +999,13 @@ static bool test_ppu_blank_triggers_and_video_row(void)
                 GBL_DMA_STATUS_OK &&
             step.channel == 0u && !step.unit_completed &&
             step.startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+            step.trigger_origin == GBL_DMA_TRIGGER_ORIGIN_HBLANK &&
+            step.trigger_cycle == GBL_PPU_HBLANK_CYCLES &&
+            step.trigger_dispute == GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE &&
+            step.result_classification ==
+                GBL_DMA_RESULT_CLASSIFICATION_DISPUTED &&
+            step.hardware_qualification ==
+                GBL_HARDWARE_QUALIFICATION_UNKNOWN &&
             gbl_machine_dma_step(hblank, UINT64_C(64), &step) ==
                 GBL_DMA_STATUS_OK && step.channel == 0u &&
             step.unit_completed && step.value == UINT32_C(0x4210) &&
@@ -996,10 +1021,48 @@ static bool test_ppu_blank_triggers_and_video_row(void)
             !hblank->dma_channels[0].armed &&
             hblank->dma_channels[0].completed_units == 1u;
 
+    for (channel = 1u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        valid = valid && configure_dma(
+                            unsupported, channel,
+                            UINT32_C(0x02000060) +
+                                (uint32_t)channel * 2u,
+                            UINT32_C(0x03000300) +
+                                (uint32_t)channel * 2u,
+                            1u, UINT16_C(0xB000));
+    }
+    valid = valid &&
+            gbl_machine_advance_to(
+                unsupported,
+                (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES +
+                    GBL_PPU_HBLANK_CYCLES) == GBL_TIME_STATUS_OK;
+    for (channel = 1u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        valid = valid && unsupported->dma_channels[channel].armed &&
+                !unsupported->dma_channels[channel].pending &&
+                unsupported->dma_channels[channel].trigger_origin ==
+                    GBL_DMA_TRIGGER_ORIGIN_NONE;
+    }
+    valid = valid &&
+            gbl_machine_advance_to(
+                nonvisible,
+                (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            configure_dma(nonvisible, 0u, UINT32_C(0x02000080),
+                          UINT32_C(0x03000380), 1u, UINT16_C(0xA000)) &&
+            gbl_machine_advance_to(
+                nonvisible,
+                (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES +
+                    GBL_PPU_HBLANK_CYCLES) == GBL_TIME_STATUS_OK &&
+            nonvisible->dma_channels[0].armed &&
+            !nonvisible->dma_channels[0].pending &&
+            nonvisible->dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_NONE;
+
     test_case(valid,
               "VBlank and visible HBlank trigger all channels once, retain timed startup, update a later VRAM row, and re-arm repeats");
     free_machine(vblank);
     free_machine(hblank);
+    free_machine(unsupported);
+    free_machine(nonvisible);
     return valid;
 }
 
@@ -1021,6 +1084,12 @@ static bool test_ppu_same_cycle_input_order(void)
             machine->pressed_keys == UINT16_C(0x0020) &&
             machine->input_event_cursor == 1u &&
             machine->dma_channels[0].pending &&
+            machine->dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_HBLANK &&
+            machine->dma_channels[0].trigger_cycle ==
+                GBL_PPU_HBLANK_CYCLES &&
+            machine->dma_channels[0].trigger_dispute ==
+                GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE &&
             (machine->ppu.dispstat & UINT16_C(0x0002)) != 0u &&
             machine->dma_channels[0].completed_units == 0u;
     test_case(valid,

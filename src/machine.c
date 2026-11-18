@@ -155,7 +155,9 @@ static gbl_time_status gbl_preview_insert_input_event(
 
 static gbl_time_status gbl_preview_insert_dma_event(
     gbl_machine_time_preview *preview, uint8_t channel_index,
-    uint64_t cycle, uint64_t generation)
+    uint64_t cycle, uint64_t generation,
+    gbl_dma_trigger_origin trigger_origin,
+    gbl_dma_dispute_id trigger_dispute)
 {
     gbl_event event = { 0 };
     size_t position;
@@ -199,6 +201,42 @@ static gbl_time_status gbl_preview_insert_dma_event(
     }
     preview->events[position] = event;
     ++preview->event_count;
+    preview->dma_channels[channel_index].trigger_origin = trigger_origin;
+    preview->dma_channels[channel_index].trigger_cycle = cycle;
+    preview->dma_channels[channel_index].trigger_dispute = trigger_dispute;
+    return GBL_TIME_STATUS_OK;
+}
+
+static gbl_time_status gbl_preview_queue_ppu_dma(
+    gbl_machine_time_preview *preview, uint64_t cycle, bool vblank)
+{
+    const uint8_t start_mode = vblank ? 1u : 2u;
+    const gbl_dma_trigger_origin origin =
+        vblank ? GBL_DMA_TRIGGER_ORIGIN_VBLANK
+               : GBL_DMA_TRIGGER_ORIGIN_HBLANK;
+    const gbl_dma_dispute_id dispute =
+        vblank ? GBL_DMA_DISPUTE_NONE
+               : GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE;
+    uint8_t channel_index;
+
+    for (channel_index = 0u; channel_index < GBL_DMA_CHANNEL_COUNT;
+         ++channel_index) {
+        const gbl_dma_channel_state *channel =
+            &preview->dma_channels[channel_index];
+        gbl_time_status status;
+
+        if (!channel->armed ||
+            (channel->control & UINT16_C(0x8000)) == 0u ||
+            ((channel->control >> 12u) & 3u) != start_mode) {
+            continue;
+        }
+        status = gbl_preview_insert_dma_event(
+            preview, channel_index, cycle, channel->generation, origin,
+            dispute);
+        if (status != GBL_TIME_STATUS_OK) {
+            return status;
+        }
+    }
     return GBL_TIME_STATUS_OK;
 }
 
@@ -503,6 +541,12 @@ static gbl_time_status gbl_preview_dispatch_ppu_event(
             }
             gbl_ppu_apply_status(preview, next_status);
         }
+        if (line == GBL_PPU_VISIBLE_LINES) {
+            status = gbl_preview_queue_ppu_dma(preview, event->cycle, true);
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
+        }
         status = gbl_ppu_capture_row(machine, preview);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
@@ -522,6 +566,12 @@ static gbl_time_status gbl_preview_dispatch_ppu_event(
         gbl_ppu_apply_status(
             preview,
             (uint16_t)(preview->ppu.dispstat | UINT16_C(0x0002)));
+        if (preview->ppu.line < GBL_PPU_VISIBLE_LINES) {
+            status = gbl_preview_queue_ppu_dma(preview, event->cycle, false);
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
+        }
         preview->ppu.scheduled_line = (uint16_t)(
             (preview->ppu.line + 1u) % GBL_PPU_TOTAL_LINES);
         if (event->cycle > UINT64_MAX -
@@ -840,6 +890,9 @@ static void gbl_dma_activate(gbl_dma_channel_state *channel,
                                               : UINT32_C(0x4000))
                                        : count;
 
+    channel->trigger_origin = GBL_DMA_TRIGGER_ORIGIN_NONE;
+    channel->trigger_cycle = 0u;
+    channel->trigger_dispute = GBL_DMA_DISPUTE_NONE;
     channel->current_source =
         (channel->source_address & source_mask) & ~(width - 1u);
     channel->current_destination =
@@ -915,6 +968,9 @@ static gbl_time_status gbl_preview_dma_register_write(
             channel->active = false;
             channel->startup_complete = false;
             channel->remaining = 0u;
+            channel->trigger_origin = GBL_DMA_TRIGGER_ORIGIN_NONE;
+            channel->trigger_cycle = 0u;
+            channel->trigger_dispute = GBL_DMA_DISPUTE_NONE;
         } else if ((previous_control & UINT16_C(0x8000)) == 0u) {
             if (channel->generation == UINT64_MAX) {
                 return GBL_TIME_STATUS_GENERATION_EXHAUSTED;
@@ -1371,6 +1427,18 @@ static gbl_dma_status gbl_dma_status_from_time(gbl_time_status status)
     return GBL_DMA_STATUS_UNIT_REFUSAL;
 }
 
+static void gbl_dma_project_trigger_observation(
+    const gbl_dma_channel_state *channel, gbl_dma_step_result *step)
+{
+    step->trigger_origin = channel->trigger_origin;
+    step->trigger_cycle = channel->trigger_cycle;
+    step->trigger_dispute = channel->trigger_dispute;
+    if (channel->trigger_dispute != GBL_DMA_DISPUTE_NONE) {
+        step->result_classification = GBL_DMA_RESULT_CLASSIFICATION_DISPUTED;
+        step->hardware_qualification = GBL_HARDWARE_QUALIFICATION_UNKNOWN;
+    }
+}
+
 static bool gbl_dma_other_channel_ready(const gbl_machine *machine,
                                        uint8_t excluded_channel)
 {
@@ -1409,8 +1477,9 @@ gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     gbl_machine_time_copy_preview(machine, &candidate);
-    status = gbl_preview_insert_dma_event(&candidate, channel_index, cycle,
-                                          generation);
+    status = gbl_preview_insert_dma_event(
+        &candidate, channel_index, cycle, generation,
+        GBL_DMA_TRIGGER_ORIGIN_EXPLICIT_REQUEST, GBL_DMA_DISPUTE_NONE);
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
@@ -1455,6 +1524,7 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
     step.channel = channel_index;
     step.remaining = channel->remaining;
     step.completed = channel->completed_units;
+    gbl_dma_project_trigger_observation(channel, &step);
     if ((channel->control & UINT16_C(0x8000)) == 0u ||
         channel->remaining == 0u ||
         !gbl_dma_control_valid(channel_index, channel->control)) {
@@ -1491,6 +1561,8 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
         step.remaining = machine->dma_channels[channel_index].remaining;
         step.completed = machine->dma_channels[channel_index].completed_units;
         step.completion_cycle = machine->master_cycles;
+        gbl_dma_project_trigger_observation(
+            &machine->dma_channels[channel_index], &step);
         *result = step;
         return step.status;
     }
@@ -1515,6 +1587,8 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
     }
     step.status = gbl_bus_dma_transfer_unit(machine, channel_index,
                                              cycle_budget, &step);
+    channel = &machine->dma_channels[channel_index];
+    gbl_dma_project_trigger_observation(channel, &step);
     if (step.status == GBL_DMA_STATUS_OK && step.unit_completed) {
         const uint32_t width =
             (channel->control & UINT16_C(0x0400)) != 0u ? 4u : 2u;

@@ -14233,6 +14233,12 @@ static bool cpu_ppu_dma_pause_resume(void)
             result.reason == GBL_RUN_REASON_UNIT_LIMIT &&
             result.instructions == 0u && machine.cpu.r0_7[7] == 0u &&
             machine.dma_channels[0].completed_units == 1u &&
+            machine.dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_HBLANK &&
+            machine.dma_channels[0].trigger_cycle ==
+                GBL_PPU_HBLANK_CYCLES &&
+            machine.dma_channels[0].trigger_dispute ==
+                GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE &&
             machine.pressed_keys == UINT16_C(0x0010) &&
             machine.input_event_cursor == 1u && trace.count == 2u &&
             records[0].dma_channel == 0u &&
