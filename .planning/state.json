@@ -21,13 +21,13 @@
     {
       "number": "10",
       "name": "PPU Timing and First Pixels",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step (plan phase 10)",
-    "reason": "Phase 4 of 4 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 4 of 4 · 74% · executing"
   },
-  "updated_at": "2026-11-18T16:46:00.921Z"
+  "updated_at": "2026-11-18T18:24:02.012Z"
 }

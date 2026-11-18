@@ -4,19 +4,19 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: Not started
-status: planning
-stopped_at: Phase 9 complete, ready to plan Phase 10
-last_updated: "2026-11-18T16:46:00.905Z"
+current_plan: 2
+status: executing
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-11-18T18:24:28.766Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: 6b1a564c061606ef4137b5635c0647ba28cda15e
+state_head: ef998a4763882ad23dbcd9aec90605fdc8fd394c
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 22
-  completed_plans: 22
-  percent: 75
+  total_plans: 31
+  completed_plans: 23
+  percent: 74
 ---
 
 # Project State
@@ -32,12 +32,12 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 ## Current Position
 
 Phase: 10 — PPU Timing and First Pixels
-Current Plan: Not started
-Total Plans in Phase: TBD
-Status: Ready to plan
+Current Plan: 2
+Total Plans in Phase: 9
+Status: Ready to execute
 Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
 
-Progress: [████████░░] 75%
+Progress: [███████░░░] 74%
 
 
 ## Performance Metrics
@@ -154,6 +154,7 @@ Progress: [████████░░] 75%
 | Phase 09 P06 | 55min | 3 tasks | 8 files |
 | Phase 09 P07 | 31m from first task commit | 2 tasks | 8 files |
 | Phase 09 P08 | 2h | 2 tasks | 23 files |
+| Phase 10 P01 | 42min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -376,6 +377,10 @@ Recent decisions affecting current work:
 - [Phase 09]: Scope Timer 0 fixture-dependent selectors to the guarded local-timer0 lane and exclude them from CI/ASAN.
 - [Phase 09]: Run the unchanged canonical local CI workflow once after all current inputs and cheap checks are settled.
 - [Phase 09]: Treat local passes as implementation evidence only; hardware, hosted, rights, and publication gates remain separate.
+- [Phase 10]: The PPU scheduler uses one recurring priority-9 event that alternates line starts and HBlank.
+- [Phase 10]: The 1006-cycle HBlank offset remains project-selected/REF and disputed; hardware qualification stays UNKNOWN.
+- [Phase 10]: Bounded row capture plans and ordered VRAM overlays materialize only on successful commit under caller-owned synchronization.
+- [Phase 10]: PPU-01 and PPU-02 remain pending until the remaining Phase 10 work satisfies their full requirements.
 
 ### Pending Todos
 
@@ -426,8 +431,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T05:01:51.799Z
-Stopped at: Phase 9 complete, ready to plan Phase 10
+Last session: 2026-11-18T18:24:28.493Z
+Stopped at: Completed 10-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
