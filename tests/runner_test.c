@@ -507,6 +507,85 @@ static bool gbl_test_write_dma_guest(const char *path)
     return okay;
 }
 
+static bool gbl_test_write_ppu_guest(const char *path)
+{
+    uint8_t image[0xC0u] = { 0u };
+    const size_t literal_offset = 0x80u;
+    const uint32_t literals[] = {
+        UINT32_C(0x04000000), UINT32_C(0x0403),
+        UINT32_C(0x06000000), UINT32_C(0x001F)
+    };
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u, literal_offset + 8u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 3u, literal_offset + 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5823000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, literal_offset + index * 4u,
+                            literals[index]);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
+{
+    const gbl_input_event input_event = { 0u, UINT16_C(0x0001) };
+    gbl_runner_options options = { 0 };
+    gbl_runner_result result = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[8192];
+    size_t json_length = 0u;
+    bool okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "ppu-observation.gba") ||
+        !gbl_test_write_ppu_guest(rom_path)) {
+        return false;
+    }
+    options.rom_path = rom_path;
+    options.cycle_budget = UINT64_C(600000);
+    options.input_timeline_present = true;
+    options.input_events = &input_event;
+    options.input_event_count = 1u;
+    okay = gbl_runner_execute(&options, &result) == result.status &&
+           result.ran && result.cycles > 0u &&
+           result.phase8.observed &&
+           result.phase8.applied_input_events == 1u &&
+           result.semantic.status != GBL_MAILBOX_PASS &&
+           gbl_test_serialize_result(&result, json, sizeof json) &&
+           (json_length = strlen(json)) > 0u;
+    if (okay) {
+        json[json_length] = '\0';
+        okay = strstr(json, "\"phase10\":{") != NULL &&
+               strstr(json, "\"line_cycle\":") != NULL &&
+               strstr(json, "\"frame_epoch\":") != NULL &&
+               strstr(json, "\"classification\":\"disputed\"") != NULL &&
+               strstr(json, "\"dispute_id\":\"disp-hblank-flag-edge\"") != NULL &&
+               strstr(json, "\"hardware_qualification\":\"UNKNOWN\"") != NULL &&
+               strstr(json, "\"raw_video\":") != NULL &&
+               strstr(json, "\"cycles\":") != NULL &&
+               strstr(json, "\"input_timeline_sha256\":") != NULL;
+    }
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
 static bool gbl_test_runner_dma_observation(const char *scratch_directory)
 {
     char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
@@ -2109,10 +2188,22 @@ int main(int argc, char **argv)
             "runner-dma-production: guest mailbox follows a real DMA transfer and result exposes phase9");
         return gbl_test_failures == 0u ? 0 : 1;
     }
+    if (argc == 3 && strcmp(argv[1], "ppu.observation") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: PPU scratch directory setup failed\n", stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(gbl_test_runner_ppu_observation(argv[2]),
+                      "runner-ppu-observation: production metadata separates raster, disputed timing, input, cycles, and guest state");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
         fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH | "
-              "runner_test prepare DIR | runner_test dma SCRATCH_DIR\n",
+              "runner_test prepare DIR | runner_test dma SCRATCH_DIR | "
+              "runner_test ppu.observation SCRATCH_DIR\n",
               stderr);
         return 2;
     }
