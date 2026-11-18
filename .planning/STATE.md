@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 3
+current_plan: 4
 status: executing
-stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-11-18T19:18:41.050Z"
+stopped_at: Completed 10-03-PLAN.md
+last_updated: "2026-11-18T20:03:20.292Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: 9eae932df069f4d8ea43a4325376a062661317a5
+state_head: efc482995a93d5047c29f795ad2bc45ddd608ee2
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 31
-  completed_plans: 24
+  completed_plans: 25
   percent: 75
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 ## Current Position
 
 Phase: 10 — PPU Timing and First Pixels
-Current Plan: 3
+Current Plan: 4
 Total Plans in Phase: 9
 Status: Ready to execute
 Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
@@ -156,6 +156,7 @@ Progress: [████████░░] 75%
 | Phase 09 P08 | 2h | 2 tasks | 23 files |
 | Phase 10 P01 | 42min | 2 tasks | 7 files |
 | Phase 10 P02 | 38 min | 2 tasks | 11 files |
+| Phase 10 P3 | 39min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -387,6 +388,9 @@ Recent decisions affecting current work:
 - [Phase 10]: Publish frame validity only at line 160 after complete coverage of 160 supported rows in one epoch.
 - [Phase 10]: Preserve full DISPCNT; this raw mode-3 renderer consumes mode, BG2, forced blank, OBJ, and window enables while leaving other bits unmodeled.
 - [Phase 10]: Keep PPU-01 and PPU-02 pending until remaining Phase 10 plans satisfy the full requirements.
+- [Phase 10]: VBlank requests at line 160 and selected HBlank requests at +1006 on visible lines use the shared event scheduler and existing DMA arbiter.
+- [Phase 10]: HBlank-dependent results remain linked to disp-hblank-flag-edge and hardware qualification UNKNOWN, independently of the DMA latch dispute.
+- [Phase 10]: Task 2 stayed test-only because its transactional refusal and collision behavior already passed after Task 1.
 
 ### Pending Todos
 
@@ -437,8 +441,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T19:18:40.735Z
-Stopped at: Completed 10-02-PLAN.md
+Last session: 2026-11-18T20:03:19.875Z
+Stopped at: Completed 10-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -31,8 +31,8 @@
 
 ### PPU and first pixels
 
-- [ ] **PPU-01**: PPU line/dot events update VCOUNT and DISPSTAT and request VBlank, HBlank, and VCOUNT interrupts or DMA triggers at explicit boundaries. The HBlank edge remains labeled with its evidence and dispute status; tests assert the chosen project behavior without overstating hardware qualification.
-- [ ] **PPU-02**: A deterministic mode-3 renderer produces raw BGR555 pixels from the canonical machine state. Register and memory effects use an explicit latch-point policy, and tests check semantic line/pixel behavior as well as repeatable frame bytes.
+- [x] **PPU-01**: PPU line/dot events update VCOUNT and DISPSTAT and request VBlank, HBlank, and VCOUNT interrupts or DMA triggers at explicit boundaries. The HBlank edge remains labeled with its evidence and dispute status; tests assert the chosen project behavior without overstating hardware qualification.
+- [x] **PPU-02**: A deterministic mode-3 renderer produces raw BGR555 pixels from the canonical machine state. Register and memory effects use an explicit latch-point policy, and tests check semantic line/pixel behavior as well as repeatable frame bytes.
 - [ ] **PLAY-01**: An original in-tree BIOS-free polling scenario exercises mode-3 output as Playable 0, with guest progress, machine time, and raw video observed separately. Playability is accepted only by the owner's judgment (G6). An IRQ-driven variant is deferred until its BIOS requirements are authorized.
 
 ### Verification
@@ -82,8 +82,8 @@ Every current v2.0 requirement maps to exactly one phase. Status changes only wh
 | BUS-06 | Phase 7 | Complete |
 | INPUT-01 | Phase 8 | Complete |
 | DMA-01 | Phase 9 | Complete |
-| PPU-01 | Phase 10 | Pending |
-| PPU-02 | Phase 10 | Pending |
+| PPU-01 | Phase 10 | Complete |
+| PPU-02 | Phase 10 | Complete |
 | PLAY-01 | Phase 10 | Pending |
 | VERIF-08 | Phase 7 | Complete |
 
