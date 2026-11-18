@@ -558,3 +558,32 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     endif()
   endforeach()
 endif()
+
+# The Phase 9 exact WAITCNT/DMA policy checks gate all longer Phase 9 CPU,
+# DMA, result, and determinism cases. Keep the earlier Phase 7/8 fixture graph
+# intact; this adds a third causal prerequisite without repeating its setup.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase9_fast_setup_tests
+    phase9.policy
+    phase9.dispute
+    bus.waitcnt.matrix
+    bus.waitcnt.boundary
+    dma.registers
+    dma.events
+    phase9.selection.control)
+  foreach(test_name IN LISTS gbl_phase9_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase9_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase9_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(bus[.]waitcnt[.].*|cpu[.]dma[.].*|cpu[.]waitcnt|dma[.].*|phase9[.].*|determinism[.]phase9([.]controls)?|result[.](nc|pos)[.]phase9)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase9_fast)
+    endif()
+  endforeach()
+endif()

@@ -181,6 +181,19 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}"
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     -DCASE=control -P "${GBL_PHASE9_DISPUTE_GATE}")
+gbl_add_test(
+  NAME phase9.selection.control
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${CMAKE_SOURCE_DIR}/tests/gates/phase9_selection.cmake")
+gbl_add_test(
+  NAME phase9.order
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=order -P "${CMAKE_SOURCE_DIR}/tests/gates/phase9_selection.cmake")
 
 add_executable(cpu_test tests/cpu_test.c)
 target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)

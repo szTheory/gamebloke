@@ -875,8 +875,10 @@ phase8.policy gate,profile,time
 phase8.selection.control gate,time,timer
 phase9.dispute gate,profile,registry
 phase9.dispute.control gate,profile,registry
+phase9.order gate,time,timer
 phase9.policy gate,profile,time
 phase9.policy.control gate,profile,time
+phase9.selection.control gate,time,timer
 runner.hash runner,unit
 runner.help runner,unit
 runner.input.cli gate,integration,runner
