@@ -513,7 +513,8 @@ static bool gbl_test_write_ppu_guest(const char *path)
     const size_t literal_offset = 0x80u;
     const uint32_t literals[] = {
         UINT32_C(0x04000000), UINT32_C(0x0403),
-        UINT32_C(0x06000000), UINT32_C(0x001F)
+        UINT32_C(0x04000130), UINT32_C(0x06000000),
+        UINT32_C(0x001F), UINT32_C(0x03E0)
     };
     size_t offset = 0u;
     size_t index;
@@ -523,9 +524,14 @@ static bool gbl_test_write_ppu_guest(const char *path)
     gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset);
     gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 4u);
     gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
-    gbl_test_emit_arm_ldr_literal(image, &offset, 2u, literal_offset + 8u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset + 8u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5900000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3100001));
     gbl_test_emit_arm_ldr_literal(image, &offset, 3u, literal_offset + 12u);
-    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5823000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 16u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u, literal_offset + 20u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x15831000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x05832000));
     gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
     for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
         gbl_test_write_le32(image, literal_offset + index * 4u,
@@ -586,6 +592,264 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
                       "\"input_timeline\":{\"kind\":\"script\",\"sha256\":") != NULL;
     }
     gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static gbl_runner_status gbl_test_execute_ppu(
+    const char *rom_path, const char *video_path,
+    const gbl_input_event *events, size_t event_count,
+    bool timeline_present, uint64_t budget,
+    gbl_runner_allocator allocator, gbl_runner_result *result)
+{
+    gbl_runner_options options = { 0 };
+
+    options.rom_path = rom_path;
+    options.cycle_budget = budget;
+    options.input_timeline_present = timeline_present;
+    options.input_events = events;
+    options.input_event_count = event_count;
+    options.video_output_path = video_path;
+    options.allocator = allocator;
+    return gbl_runner_execute(&options, result);
+}
+
+static bool gbl_test_video_file_matches(const char *path,
+                                       const uint8_t *expected,
+                                       size_t expected_length)
+{
+    FILE *file;
+    uint8_t *actual;
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (path == NULL || expected == NULL || expected_length == 0u) {
+        return false;
+    }
+    actual = malloc(expected_length);
+    if (actual == NULL) {
+        return false;
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) {
+        free(actual);
+        return false;
+    }
+    length = fread(actual, 1u, expected_length, file);
+    extra = fgetc(file);
+    okay = length == expected_length && extra == EOF && ferror(file) == 0 &&
+           memcmp(actual, expected, expected_length) == 0;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    free(actual);
+    return okay;
+}
+
+static bool gbl_test_runner_ppu_output(const char *scratch_directory)
+{
+    const gbl_input_event pressed_a = { 0u, UINT16_C(0x0001) };
+    const gbl_input_event pressed_b = { 0u, UINT16_C(0x0002) };
+    gbl_runner_result first = { 0 };
+    gbl_runner_result repeated = { 0 };
+    gbl_runner_result changed = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char first_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char repeated_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char changed_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[8192];
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    bool okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "ppu-output.gba") ||
+        !gbl_test_path(first_path, sizeof first_path, scratch_directory,
+                       "ppu-output-first.raw") ||
+        !gbl_test_path(repeated_path, sizeof repeated_path, scratch_directory,
+                       "ppu-output-repeat.raw") ||
+        !gbl_test_path(changed_path, sizeof changed_path, scratch_directory,
+                       "ppu-output-changed.raw") ||
+        !gbl_test_write_ppu_guest(rom_path)) {
+        return false;
+    }
+    (void)remove(first_path);
+    (void)remove(repeated_path);
+    (void)remove(changed_path);
+    okay = gbl_test_execute_ppu(rom_path, first_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &first) ==
+               first.status &&
+           first.ran && first.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           first.phase10.video_requested && first.phase10.video_emitted &&
+           first.phase10.video_bytes != NULL &&
+           first.phase10.video_length == GBL_RUNNER_VIDEO_BYTES &&
+           first.phase10.has_video_sha256 && first.phase8.observed &&
+           first.phase8.applied_input_events == 1u &&
+           first.semantic.status != GBL_MAILBOX_PASS &&
+           first.phase10.video_bytes[0] == UINT8_C(0xE0) &&
+           first.phase10.video_bytes[1] == UINT8_C(0x03) &&
+           gbl_test_video_file_matches(first_path, first.phase10.video_bytes,
+                                       GBL_RUNNER_VIDEO_BYTES) &&
+           gbl_sha256_span(first.phase10.video_bytes,
+                           first.phase10.video_length, digest) &&
+           strcmp(digest, first.phase10.video_sha256) == 0 &&
+           gbl_test_serialize_result(&first, json, sizeof json) &&
+           strstr(json, "\"raw_video\":{\"requested\":true,"
+                        "\"status\":\"emitted\",\"emitted\":true,") != NULL &&
+           strstr(json, first.phase10.video_sha256) != NULL &&
+           strstr(json, "\"pixels\":") == NULL;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, repeated_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &repeated) ==
+               repeated.status &&
+           repeated.phase10.video_emitted &&
+           repeated.phase10.video_bytes != NULL &&
+           repeated.phase10.video_length == GBL_RUNNER_VIDEO_BYTES &&
+           repeated.phase10.has_video_sha256 &&
+           strcmp(first.phase10.video_sha256,
+                  repeated.phase10.video_sha256) == 0 &&
+           memcmp(first.phase10.video_bytes, repeated.phase10.video_bytes,
+                  GBL_RUNNER_VIDEO_BYTES) == 0 &&
+           gbl_test_video_file_matches(repeated_path,
+                                       repeated.phase10.video_bytes,
+                                       GBL_RUNNER_VIDEO_BYTES);
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, changed_path, &pressed_b, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &changed) ==
+               changed.status &&
+           changed.phase10.video_emitted &&
+           changed.phase10.video_bytes != NULL &&
+           changed.phase10.video_bytes[0] == UINT8_C(0x1F) &&
+           changed.phase10.video_bytes[1] == UINT8_C(0x00) &&
+           changed.phase10.has_video_sha256 &&
+           strcmp(first.phase10.video_sha256,
+                  changed.phase10.video_sha256) != 0 &&
+           memcmp(first.phase10.video_bytes, changed.phase10.video_bytes,
+                  GBL_RUNNER_VIDEO_BYTES) != 0 &&
+           gbl_test_video_file_matches(changed_path,
+                                       changed.phase10.video_bytes,
+                                       GBL_RUNNER_VIDEO_BYTES);
+
+    gbl_runner_result_dispose(&first);
+    gbl_runner_result_dispose(&repeated);
+    gbl_runner_result_dispose(&changed);
+    return okay;
+}
+
+static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
+{
+    const gbl_input_event pressed_a = { 0u, UINT16_C(0x0001) };
+    const uint8_t sentinel[] = { UINT8_C(0x71), UINT8_C(0x22), UINT8_C(0xA5) };
+    gbl_runner_result existing = { 0 };
+    gbl_runner_result bad_parent = { 0 };
+    gbl_runner_result allocation = { 0 };
+    gbl_runner_result incomplete = { 0 };
+    gbl_runner_result invalid_path = { 0 };
+    gbl_test_allocator_state allocator_state = { 0 };
+    gbl_runner_allocator allocator;
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char existing_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char bad_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char allocation_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char incomplete_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char existing_bytes[8] = { 0 };
+    FILE *file;
+    bool okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "ppu-output-controls.gba") ||
+        !gbl_test_path(existing_path, sizeof existing_path, scratch_directory,
+                       "ppu-output-existing.raw") ||
+        !gbl_test_path(bad_path, sizeof bad_path, scratch_directory,
+                       "ppu-output-no-parent/output.raw") ||
+        !gbl_test_path(allocation_path, sizeof allocation_path,
+                       scratch_directory, "ppu-output-allocation.raw") ||
+        !gbl_test_path(incomplete_path, sizeof incomplete_path,
+                       scratch_directory, "ppu-output-incomplete.raw") ||
+        !gbl_test_write_ppu_guest(rom_path) ||
+        !gbl_test_write_file(existing_path, 0u, 0u)) {
+        return false;
+    }
+    file = fopen(existing_path, "wb");
+    if (file == NULL || fwrite(sentinel, 1u, sizeof sentinel, file) !=
+                            sizeof sentinel) {
+        if (file != NULL) (void)fclose(file);
+        return false;
+    }
+    if (fclose(file) != 0) return false;
+
+    okay = gbl_test_execute_ppu(rom_path, existing_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &existing) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           existing.status == GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(existing.reason, "video-output-failed") == 0 &&
+           strcmp(existing.phase10.video_output_error,
+                  "video-output-already-exists") == 0 &&
+           existing.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           !existing.phase10.video_emitted &&
+           gbl_test_read_file(existing_path, existing_bytes,
+                              sizeof existing_bytes) &&
+           memcmp(existing_bytes, sentinel, sizeof sentinel) == 0;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, bad_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &bad_parent) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(bad_parent.phase10.video_output_error,
+                  "video-output-open-failed") == 0 &&
+           !bad_parent.phase10.video_emitted;
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator_state.fail_at = 4u;
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, allocation_path, &pressed_a, 1u,
+                                true, UINT64_C(500000), allocator,
+                                &allocation) == GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(allocation.phase10.video_output_error,
+                  "video-buffer-allocation-failed") == 0 &&
+           allocation.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           !allocation.phase10.video_emitted &&
+           allocator_state.successes == allocator_state.releases;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, incomplete_path, &pressed_a, 1u,
+                                true, UINT64_C(100),
+                                (gbl_runner_allocator){ 0 }, &incomplete) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(incomplete.phase10.video_output_error,
+                  "video-frame-unavailable") == 0 &&
+           !incomplete.phase10.video_emitted;
+
+    {
+        gbl_runner_options options = { 0 };
+        options.rom_path = rom_path;
+        options.cycle_budget = 100u;
+        options.video_output_path = "";
+        okay = okay &&
+               gbl_runner_execute(&options, &invalid_path) ==
+                   GBL_RUNNER_REFUSED &&
+               invalid_path.status == GBL_RUNNER_REFUSED &&
+               strcmp(invalid_path.reason, "invalid-runner-options") == 0 &&
+               !invalid_path.ran;
+    }
+    okay = okay && !existing.phase10.video_emitted &&
+           !bad_parent.phase10.video_emitted &&
+           !allocation.phase10.video_emitted &&
+           !incomplete.phase10.video_emitted;
+
+    gbl_runner_result_dispose(&existing);
+    gbl_runner_result_dispose(&bad_parent);
+    gbl_runner_result_dispose(&allocation);
+    gbl_runner_result_dispose(&incomplete);
+    gbl_runner_result_dispose(&invalid_path);
     return okay;
 }
 
@@ -2202,11 +2466,38 @@ int main(int argc, char **argv)
                       "runner-ppu-observation: production metadata separates raster, disputed timing, input, cycles, and guest state");
         return gbl_test_failures == 0u ? 0 : 1;
     }
+    if (argc == 3 && strcmp(argv[1], "ppu.output") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: PPU output scratch directory setup failed\n",
+                  stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(gbl_test_runner_ppu_output(argv[2]),
+                      "runner-ppu-output: exact frame bytes persist after disposal, repeat identically, and respond to input");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "ppu.output-controls") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: PPU output controls scratch setup failed\n",
+                  stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(
+            gbl_test_runner_ppu_output_controls(argv[2]),
+            "runner-ppu-output-controls: refusals preserve files, capture state, allocation balance, and emitted=false");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
         fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH | "
               "runner_test prepare DIR | runner_test dma SCRATCH_DIR | "
-              "runner_test ppu.observation SCRATCH_DIR\n",
+              "runner_test ppu.observation SCRATCH_DIR | "
+              "runner_test ppu.output SCRATCH_DIR | "
+              "runner_test ppu.output-controls SCRATCH_DIR\n",
               stderr);
         return 2;
     }
