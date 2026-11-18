@@ -106,6 +106,18 @@ if(CASE STREQUAL "copy")
   gbl_expect_pass(COMMAND ${cmd}
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
+elseif(CASE STREQUAL "ppu_policy")
+  profile_copy(p clean_ppu_policy)
+  doc_copy(d clean_ppu_policy)
+  check_command(cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${cmd}
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
+
+  profile_copy(p missing_ppu_policy)
+  gbl_json_mutate_set("${p}" [=[{"placeholder": "temporary control value"}]=] ppu_policy)
+  gbl_json_mutate_remove("${p}" ppu_policy)
+  expect_detail(ppu-policy-missing "ppu_policy" "${p}")
+
 elseif(CASE STREQUAL "cpu_policy_value")
   if(NOT PROFILE_VERSION GREATER_EQUAL 6)
     message(FATAL_ERROR "profile-case: expanded CPU contract requires profile version 6 or later")
