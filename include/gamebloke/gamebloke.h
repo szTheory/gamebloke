@@ -277,7 +277,8 @@ typedef enum gbl_time_operation_kind {
 /* Bounded description of one ordered time contribution. Internal operations
  * carry an interval in cycles. Bus operations carry the quoted positive cycle
  * count; writes retain their captured address, width, and value so timer/IF
- * effects can be previewed without reading guest memory or mutating state. */
+ * and PPU validity effects can be previewed without reading guest memory or
+ * mutating state. */
 typedef struct gbl_time_operation {
     gbl_time_operation_kind kind;
     uint8_t width;
@@ -870,9 +871,9 @@ gbl_time_status gbl_machine_prepare_time(
     gbl_machine_time_preview *preview);
 /* Preview an ordered bounded unit before any CPU effects. INTERNAL operations
  * may carry zero cycles and then do no work; reads/writes require widths 1, 2,
- * or 4 and a positive quoted cost. Only timer/IF write effects are modeled;
- * bus reads are never performed. Invalid input or any time/event/timer
- * refusal leaves both machine and preview unchanged. */
+ * or 4 and a positive quoted cost. Timer/IF writes and unsupported PPU capture
+ * controls are staged; bus reads are never performed. Invalid input or any
+ * time/event/timer refusal leaves both machine and preview unchanged. */
 gbl_time_status gbl_machine_prepare_operations(
     const gbl_machine *machine,
     const gbl_time_operation *operations,

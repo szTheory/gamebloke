@@ -508,7 +508,7 @@ static void check_video_mode_threshold(gbl_machine *machine, uint8_t mode,
     result = gbl_bus_read(machine, 0x04000001u, 1u,
                           GBL_BUS_CLASS_NONSEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
-    CHECK(result.value == ((uint32_t)(machine->dispcnt >> 8u) & 0x07u));
+    CHECK(result.value == (uint32_t)(machine->dispcnt >> 8u));
 
     for (boundary_number = 0u;
          boundary_number < sizeof(boundaries) / sizeof(boundaries[0]);
@@ -661,27 +661,26 @@ static int run_video(void)
     CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
     CHECK(result.value == 0x89ABCDEFu);
 
-    /* The mode subset retains only DISPCNT mode bits. Addresses above its
-     * two-byte portion remain distinct unsupported I/O. */
+    /* DISPCNT retains its full control word; adjacent I/O remains unsupported. */
     result = gbl_bus_write(machine, 0x04000000u, 1u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0xFFu);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
-    CHECK(machine->dispcnt == UINT16_C(0x0087));
+    CHECK(machine->dispcnt == UINT16_C(0x00FF));
     result = gbl_bus_write(machine, 0x04000001u, 1u,
                            GBL_BUS_CLASS_SEQUENTIAL, 0xFFu);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET);
-    CHECK(machine->dispcnt == UINT16_C(0x0787));
+    CHECK(machine->dispcnt == UINT16_C(0xFFFF));
     machine->open_bus = 0xAABBCCDDu;
     result = gbl_bus_write(machine, 0x04000000u, 4u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, 0x44332203u);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
     CHECK(result.cycles == 1u);
-    CHECK(machine->dispcnt == UINT16_C(0x0203));
+    CHECK(machine->dispcnt == UINT16_C(0x2203));
     CHECK(machine->open_bus == 0xAABBCCDDu);
     result = gbl_bus_read(machine, 0x04000000u, 4u,
                           GBL_BUS_CLASS_SEQUENTIAL);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
-    CHECK(result.value == UINT32_C(0xAABB0203));
+    CHECK(result.value == UINT32_C(0xAABB2203));
     CHECK(machine->open_bus == 0xAABBCCDDu);
 
     /* GBATEK 3.06 "LCD I/O Display Control" locates DISPCNT at 0x04000000. */
@@ -757,6 +756,9 @@ static int run_ppu_tracer(void)
           (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY);
     CHECK(machine->events[0].priority == 9u);
 
+    /* Start in the supported model before the cycle-zero row sample. */
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = UINT16_C(0x0403);
     result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL,
                            UINT32_C(0x0403));
@@ -779,19 +781,17 @@ static int run_ppu_tracer(void)
     CHECK(gbl_machine_advance_to(machine, UINT64_C(1005)) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->ppu.line_origin == 0u);
-    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) == 0u);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0002)) == 0u);
     CHECK(machine->event_count == 1u);
     CHECK(machine->events[0].cycle == UINT64_C(1006));
     CHECK(gbl_machine_advance_to(machine, UINT64_C(1006)) ==
           GBL_TIME_STATUS_OK);
-    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) != 0u);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0002)) != 0u);
     CHECK(machine->events[0].cycle == UINT64_C(1232));
     CHECK(gbl_machine_advance_to(machine, UINT64_C(1231)) ==
           GBL_TIME_STATUS_OK);
 
-    /* A write completing on the row-start cycle follows the PPU sample.
-     * Line zero was sampled disabled at reset; the cycle-1232 boundary is
-     * visible line one. */
+    /* A write completing on the row-start cycle follows the PPU sample. */
     result = gbl_bus_write(machine, UINT32_C(0x060001E0), 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL,
                            UINT32_C(0x4321));
@@ -799,9 +799,9 @@ static int run_ppu_tracer(void)
     CHECK(machine->master_cycles == UINT64_C(1232));
     CHECK(machine->ppu.line == 1u);
     CHECK(machine->ppu.line_origin == UINT64_C(1232));
-    CHECK(machine->ppu.captured_rows == 1u);
+    CHECK(machine->ppu.captured_rows == 2u);
     CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
-    CHECK((machine->ppu.row_coverage[0] & UINT8_C(0x02)) != 0u);
+    CHECK((machine->ppu.row_coverage[0] & UINT8_C(0x03)) == UINT8_C(0x03));
     CHECK(machine->vram[GBL_PPU_ROW_BYTES] == UINT8_C(0x21));
     CHECK(machine->vram[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x43));
     CHECK(machine->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34));
@@ -813,23 +813,25 @@ static int run_ppu_tracer(void)
 
     CHECK(gbl_machine_advance_to(machine, UINT64_C(2237)) ==
           GBL_TIME_STATUS_OK);
-    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) == 0u);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0002)) == 0u);
     CHECK(machine->events[0].cycle == UINT64_C(2238));
     CHECK(gbl_machine_advance_to(machine, UINT64_C(2238)) ==
           GBL_TIME_STATUS_OK);
-    CHECK((machine->ppu.dispstat & UINT16_C(0x0001)) != 0u);
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0002)) != 0u);
     CHECK(machine->events[0].cycle == UINT64_C(2464));
     CHECK(gbl_machine_advance_to(machine, UINT64_C(2464)) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->ppu.line == 2u);
     CHECK(machine->ppu.line_origin == UINT64_C(2464));
-    CHECK(machine->ppu.captured_rows == 2u);
+    CHECK(machine->ppu.captured_rows == 3u);
     CHECK(machine->video_frame[2u * GBL_PPU_ROW_BYTES] == UINT8_C(0x00));
     CHECK(machine->video_frame[2u * GBL_PPU_ROW_BYTES + 1u] ==
           UINT8_C(0x7C));
 
     /* A transaction that would sample a row and then exhausts event sequence
      * capacity leaves both canonical video and the caller preview untouched. */
+    refusal_machine->dispcnt = UINT16_C(0x0403);
+    refusal_machine->ppu.dispcnt = UINT16_C(0x0403);
     result = gbl_bus_write(refusal_machine, UINT32_C(0x04000000), 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL,
                            UINT32_C(0x0403));
@@ -870,6 +872,8 @@ static int run_ppu_tracer(void)
 
     /* The CPU executes a real instruction whose fetch crosses the next
      * visible-line start; its compact preview must commit the same row. */
+    cpu_machine->dispcnt = UINT16_C(0x0403);
+    cpu_machine->ppu.dispcnt = UINT16_C(0x0403);
     result = gbl_bus_write(cpu_machine, UINT32_C(0x04000000), 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL,
                            UINT32_C(0x0403));
@@ -1027,7 +1031,7 @@ static int run_ppu_refusal(void)
     CHECK_PPU_MUTATION(changed->ppu.capture_state =
                            GBL_VIDEO_CAPTURE_VALID);
     CHECK_PPU_MUTATION(changed->ppu.capture_reason =
-                           GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+                           GBL_VIDEO_INVALID_REASON_NONE);
     CHECK_PPU_MUTATION(changed->ppu.next_boundary_hblank = true);
     CHECK_PPU_MUTATION(changed->ppu.frame_started = false);
     CHECK_PPU_MUTATION(changed->ppu.row_coverage[0] ^= UINT8_C(0x80));
@@ -1693,6 +1697,8 @@ static int run_ppu_latch(void)
         if (machine == NULL) {
             continue;
         }
+        machine->dispcnt = UINT16_C(0x0403);
+        machine->ppu.dispcnt = UINT16_C(0x0403);
         machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
         machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
         result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
@@ -1732,13 +1738,15 @@ static int run_ppu_latch(void)
         gbl_machine *machine = new_machine();
         const uint64_t sample_cycle = UINT64_C(1232);
         const uint64_t completion = completion_cycles[timing];
-        const bool sampled = timing == 0u;
+        const bool sampled = timing != 0u;
         gbl_bus_result result;
 
         CHECK(machine != NULL);
         if (machine == NULL) {
             continue;
         }
+        machine->dispcnt = UINT16_C(0x0403);
+        machine->ppu.dispcnt = UINT16_C(0x0403);
         machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
         machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
         if (timing == 2u) {
@@ -1750,13 +1758,13 @@ static int run_ppu_latch(void)
         }
         result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
                                GBL_BUS_CLASS_NONSEQUENTIAL,
-                               UINT32_C(0x0403));
+                               UINT32_C(0x0003));
         CHECK(result.status == GBL_BUS_STATUS_OK);
         if (timing == 0u) {
             CHECK(gbl_machine_advance_to(machine, sample_cycle) ==
                   GBL_TIME_STATUS_OK);
         }
-        CHECK((machine->ppu.captured_rows == 1u) == sampled);
+        CHECK(machine->ppu.captured_rows == (uint16_t)(1u + sampled));
         CHECK(ppu_pixel_matches(machine->video_frame, 1u, 0u,
                                 sampled ? UINT16_C(0x1234) : 0u));
         free_machine(machine);
@@ -1928,10 +1936,11 @@ static int run_ppu_controls(void)
 
     {
         gbl_machine *effects = new_machine();
+        gbl_machine *mosaic = new_machine();
         gbl_machine *affine = new_machine();
         gbl_bus_result result;
 
-        CHECK(effects != NULL && affine != NULL);
+        CHECK(effects != NULL && mosaic != NULL && affine != NULL);
         if (effects != NULL) {
             effects->dispcnt = UINT16_C(0x0403);
             effects->ppu.dispcnt = UINT16_C(0x0403);
@@ -1944,7 +1953,23 @@ static int run_ppu_controls(void)
             CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
             CHECK(effects->ppu.capture_reason ==
                   GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
+            puts("ppu.controls control: blending registers are unsupported");
             free_machine(effects);
+        }
+        if (mosaic != NULL) {
+            mosaic->dispcnt = UINT16_C(0x0403);
+            mosaic->ppu.dispcnt = UINT16_C(0x0403);
+            CHECK(gbl_machine_advance_to(mosaic, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            result = gbl_bus_write(mosaic, UINT32_C(0x0400004C), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0001));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(mosaic->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(mosaic->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
+            puts("ppu.controls control: MOSAIC is unsupported");
+            free_machine(mosaic);
         }
         if (affine != NULL) {
             affine->dispcnt = UINT16_C(0x0403);
@@ -1958,6 +1983,7 @@ static int run_ppu_controls(void)
             CHECK(affine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
             CHECK(affine->ppu.capture_reason ==
                   GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
+            puts("ppu.controls control: BG2 affine state is unsupported");
             free_machine(affine);
         }
     }

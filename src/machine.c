@@ -337,11 +337,54 @@ static void gbl_ppu_project_row(const gbl_machine *machine,
     }
 }
 
-static bool gbl_ppu_rendering_enabled(const gbl_ppu_timing_state *ppu)
+static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
+    uint16_t dispcnt)
 {
-    return (ppu->dispcnt & UINT16_C(0x0007)) == UINT16_C(3) &&
-           (ppu->dispcnt & UINT16_C(0x0400)) != 0u &&
-           (ppu->dispcnt & UINT16_C(0x0080)) == 0u;
+    if ((dispcnt & UINT16_C(0x0007)) != UINT16_C(3)) {
+        return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
+    }
+    if ((dispcnt & UINT16_C(0x0400)) == 0u) {
+        return GBL_VIDEO_INVALID_REASON_BG2_DISABLED;
+    }
+    if ((dispcnt & UINT16_C(0x0080)) != 0u) {
+        return GBL_VIDEO_INVALID_REASON_FORCED_BLANK;
+    }
+    if ((dispcnt & UINT16_C(0x1000)) != 0u) {
+        return GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
+    }
+    if ((dispcnt & UINT16_C(0xE000)) != 0u) {
+        return GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED;
+    }
+    return GBL_VIDEO_INVALID_REASON_NONE;
+}
+
+static void gbl_ppu_invalidate_capture(
+    gbl_machine_time_preview *preview,
+    gbl_video_invalid_reason reason)
+{
+    if (reason == GBL_VIDEO_INVALID_REASON_NONE) {
+        return;
+    }
+    if (preview->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE ||
+        preview->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_INCOMPLETE) {
+        preview->ppu.capture_reason = reason;
+    }
+    preview->ppu.capture_state = GBL_VIDEO_CAPTURE_INVALID;
+}
+
+static bool gbl_ppu_all_rows_captured(const gbl_ppu_timing_state *ppu)
+{
+    size_t index;
+
+    if (ppu->captured_rows != GBL_PPU_VISIBLE_LINES) {
+        return false;
+    }
+    for (index = 0u; index < GBL_PPU_ROW_COVERAGE_BYTES; ++index) {
+        if (ppu->row_coverage[index] != UINT8_MAX) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static gbl_time_status gbl_ppu_capture_row(
@@ -352,9 +395,18 @@ static gbl_time_status gbl_ppu_capture_row(
     const uint16_t line = preview->ppu.line;
     const uint8_t mask = (uint8_t)(UINT8_C(1) << (line & 7u));
     const size_t coverage_index = (size_t)(line >> 3u);
+    const gbl_video_invalid_reason reason =
+        gbl_ppu_dispcnt_invalid_reason(preview->ppu.dispcnt);
 
-    if (line >= GBL_PPU_VISIBLE_LINES ||
-        !gbl_ppu_rendering_enabled(&preview->ppu)) {
+    if (line >= GBL_PPU_VISIBLE_LINES) {
+        return GBL_TIME_STATUS_OK;
+    }
+    if (reason != GBL_VIDEO_INVALID_REASON_NONE) {
+        gbl_ppu_invalidate_capture(preview, reason);
+        return GBL_TIME_STATUS_OK;
+    }
+    if (preview->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID &&
+        preview->ppu.capture_reason != GBL_VIDEO_INVALID_REASON_NONE) {
         return GBL_TIME_STATUS_OK;
     }
     if ((preview->ppu.row_coverage[coverage_index] & mask) != 0u) {
@@ -375,11 +427,31 @@ static gbl_time_status gbl_ppu_capture_row(
     ++preview->ppu_row_capture_count;
     preview->ppu.row_coverage[coverage_index] |= mask;
     ++preview->ppu.captured_rows;
-    preview->ppu.capture_state =
-        preview->ppu.captured_rows >= GBL_PPU_VISIBLE_LINES
-            ? GBL_VIDEO_CAPTURE_VALID
-            : GBL_VIDEO_CAPTURE_INCOMPLETE;
+    if (preview->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID) {
+        preview->ppu.capture_state = GBL_VIDEO_CAPTURE_INCOMPLETE;
+        if (preview->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE) {
+            preview->ppu.capture_reason = GBL_VIDEO_INVALID_REASON_INCOMPLETE;
+        }
+    }
     return GBL_TIME_STATUS_OK;
+}
+
+static void gbl_ppu_publish_if_complete(
+    gbl_machine_time_preview *preview)
+{
+    if (preview->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID &&
+        preview->ppu.capture_reason != GBL_VIDEO_INVALID_REASON_NONE) {
+        return;
+    }
+    if (gbl_ppu_all_rows_captured(&preview->ppu)) {
+        preview->ppu.capture_state = GBL_VIDEO_CAPTURE_VALID;
+        preview->ppu.capture_reason = GBL_VIDEO_INVALID_REASON_NONE;
+    } else {
+        preview->ppu.capture_state = GBL_VIDEO_CAPTURE_INCOMPLETE;
+        if (preview->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE) {
+            preview->ppu.capture_reason = GBL_VIDEO_INVALID_REASON_INCOMPLETE;
+        }
+    }
 }
 
 static gbl_time_status gbl_preview_dispatch_ppu_event(
@@ -409,7 +481,9 @@ static gbl_time_status gbl_preview_dispatch_ppu_event(
             preview->ppu_clear_video = true;
             preview->ppu_row_capture_count = 0u;
             preview->ppu.captured_rows = 0u;
-            preview->ppu.capture_state = GBL_VIDEO_CAPTURE_INVALID;
+            preview->ppu.capture_state = GBL_VIDEO_CAPTURE_INCOMPLETE;
+            preview->ppu.capture_reason =
+                GBL_VIDEO_INVALID_REASON_INCOMPLETE;
             memset(preview->ppu.row_coverage, 0,
                    sizeof(preview->ppu.row_coverage));
         }
@@ -432,6 +506,9 @@ static gbl_time_status gbl_preview_dispatch_ppu_event(
         status = gbl_ppu_capture_row(machine, preview);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
+        }
+        if (line == GBL_PPU_VISIBLE_LINES) {
+            gbl_ppu_publish_if_complete(preview);
         }
         if (event->cycle > UINT64_MAX - GBL_PPU_HBLANK_CYCLES) {
             return GBL_TIME_STATUS_CYCLE_OVERFLOW;
@@ -976,6 +1053,10 @@ static gbl_time_status gbl_preview_bus_write(
     bool key_control_written = false;
     bool waitcnt_written = false;
     bool dispstat_written = false;
+    bool dispcnt_written = false;
+    bool unsupported_effect_write = false;
+    bool unsupported_transform_write = false;
+    bool window_register_write = false;
     uint32_t lane;
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
@@ -987,10 +1068,28 @@ static gbl_time_status gbl_preview_bus_write(
             dispcnt = (uint16_t)(
                 (dispcnt & UINT16_C(0xFF00)) |
                 (uint16_t)byte_value);
+            dispcnt_written = true;
         } else if (lane_address == UINT32_C(0x04000001)) {
             dispcnt = (uint16_t)(
                 (dispcnt & UINT16_C(0x00FF)) |
                 (uint16_t)((uint16_t)byte_value << 8u));
+            dispcnt_written = true;
+        } else if (lane_address >= UINT32_C(0x04000020) &&
+                   lane_address <= UINT32_C(0x0400002F)) {
+            unsupported_transform_write = true;
+        } else if (lane_address >= UINT32_C(0x04000040) &&
+                   lane_address <= UINT32_C(0x0400004B)) {
+            window_register_write = true;
+        } else if (lane_address >= UINT32_C(0x0400004C) &&
+                   lane_address <= UINT32_C(0x0400004D)) {
+            if (byte_value != 0u) {
+                unsupported_effect_write = true;
+            }
+        } else if (lane_address >= UINT32_C(0x04000050) &&
+                   lane_address <= UINT32_C(0x04000055)) {
+            if (byte_value != 0u) {
+                unsupported_effect_write = true;
+            }
         } else if (lane_address == UINT32_C(0x04000004)) {
             dispstat_control = (uint16_t)(
                 (dispstat_control & (uint16_t)~UINT16_C(0x0038)) |
@@ -1089,6 +1188,21 @@ static gbl_time_status gbl_preview_bus_write(
         preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x5FFF));
     }
     preview->ppu.dispcnt = dispcnt;
+    if (dispcnt_written) {
+        gbl_ppu_invalidate_capture(
+            preview, gbl_ppu_dispcnt_invalid_reason(dispcnt));
+    }
+    if (unsupported_transform_write) {
+        gbl_ppu_invalidate_capture(
+            preview, GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
+    } else if (unsupported_effect_write) {
+        gbl_ppu_invalidate_capture(
+            preview, GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
+    } else if (window_register_write &&
+               (dispcnt & UINT16_C(0xE000)) != 0u) {
+        gbl_ppu_invalidate_capture(
+            preview, GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED);
+    }
     if (dispstat_written) {
         preview->ppu.dispstat = (uint16_t)(
             (preview->ppu.dispstat & UINT16_C(0x0007)) |
@@ -1741,6 +1855,8 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     }
     machine->ppu = (gbl_ppu_timing_state){ 0 };
     machine->ppu.generation = UINT64_C(1);
+    machine->ppu.capture_state = GBL_VIDEO_CAPTURE_INCOMPLETE;
+    machine->ppu.capture_reason = GBL_VIDEO_INVALID_REASON_INCOMPLETE;
     machine->events[0] = (gbl_event){
         .cycle = 0u,
         .sequence = 0u,
