@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 8
+profile_version: 9
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -77,10 +77,50 @@ lines per frame give the cycles per frame, and the clock is 2 to the power 24.
 The printed refresh rate is a derived figure: 16,777,216 divided by 280,896 is
 about 59.7275 Hz (INF). Rates printed in other sources are not used here.
 
-The cycle at which the HBlank flag changes is not recorded. Sources disagree
-(1,006, 1,007, and 1,008 cycles appear), and 960 cycles is the visible drawing
-time, not the flag edge. The constant stays null with label UNK until the dispute
-is settled by evidence.
+The hardware cycle at which the HBlank flag changes remains unrecorded: sources
+disagree (1,006, 1,007, and 1,008 cycles appear), and 960 cycles is nominal
+visible-dot time, not the flag edge. The profile keeps
+`timing.hblank_flag_edge_cycle.value` null with label UNK. The separate
+project-selected model event is at 1,006 cycles, remains disputed under
+`disp-hblank-flag-edge`, and has hardware qualification UNKNOWN.
+
+## PPU behavior policy
+
+The source-backed geometry and selected Gamebloke model behavior are recorded
+separately. These values describe the supported deterministic subset; they do
+not qualify the PPU against hardware.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.policy_classification` | project-selected |
+| `ppu_policy.hardware_qualification` | UNKNOWN |
+| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2 and 5.1 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| `ppu_policy.geometry` | 240x160 visible pixels, 308 dots per line, 228 lines per frame |
+| `ppu_policy.line_cycles` | 1232 |
+| `ppu_policy.nominal_visible_dot_cycles` | 960 |
+| `ppu_policy.recurrence` | one recurring priority-9 event alternates line-start and HBlank boundaries |
+| `ppu_policy.event_priority` | 9 |
+| `ppu_policy.line_transitions` | VCOUNT advances 0-227 modulo 228, visible lines are 0-159, VBlank sets at 160 and clears at 0 |
+| `ppu_policy.same_cycle_order` | due machine events precede timed bus effects, row sample precedes a bus write completing on the same cycle |
+| `ppu_policy.dispcnt_writable_mask` | 0xFFFF |
+| `ppu_policy.dispstat_writable_mask` | 0xFF38 |
+| `ppu_policy.vcount_write_policy` | ignored |
+| `ppu_policy.compare_write_policy` | recompute at write completion after due events |
+| `ppu_policy.hblank_event_offset_cycles` | 1006 |
+| `ppu_policy.hblank_source` | REF |
+| `ppu_policy.hblank_source_reference` | GBATEK, LCD I/O Interrupts and Status, states the flag is 0 for 1,006 cycles, source text is not a project hardware measurement |
+| `ppu_policy.hblank_provenance` | project-selected |
+| `ppu_policy.hblank_dependent_classification` | disputed |
+| `ppu_policy.hblank_dispute` | disp-hblank-flag-edge |
+| `ppu_policy.hblank_hardware_qualification` | UNKNOWN |
+| `ppu_policy.row_sample_point` | visible-line-start |
+| `ppu_policy.row_same_cycle_write_policy` | PPU sample precedes a bus write completing on the sample cycle |
+| `ppu_policy.pixel_format` | BGR555 little-endian |
+| `ppu_policy.frame_validity` | complete coverage of 160 supported rows in one frame epoch, published at line 160 |
+| `ppu_policy.supported_controls` | mode 3 and BG2 enabled, forced blank, OBJ, windows, and effects disabled |
+| `ppu_policy.unmodeled_controls` | other modes, disabled BG2, forced blank, OBJ, windows, effects, and BG2 transforms |
+| `ppu_policy.interrupt_if_bits` | VBlank 0, HBlank 1, VCOUNT-match 2 |
+| `ppu_policy.blank_dma_eligibility` | HBlank on visible lines 0-159, VBlank at the line 160 transition |
 
 ## Timing model scope
 
@@ -621,12 +661,12 @@ must not claim the behavior of anything in this table.
 | `prefetch` | Game Pak prefetch fill/hit execution is unmodeled; WAITCNT bit 14 is register state only. |
 | `waitcnt` | Documented wait choices drive contextual ROM beat quotes, but hardware qualification remains UNKNOWN and the 128 KiB mapping has secondary provenance. |
 | `bus-costs` | Non-ROM values remain project-selected and all modeled bus costs remain hardware-unqualified. |
-| `hblank-flag-edge` | The cycle at which the HBlank flag changes; disputed, see disp-hblank-flag-edge. |
-| `ppu` | Picture processing. |
+| `hblank-flag-edge` | Hardware timing for the HBlank flag change remains unknown and disputed under disp-hblank-flag-edge; the selected 1,006-cycle model event is in ppu_policy and is not a hardware resolution. |
+| `ppu` | The deterministic timing, status, and supported mode-3 subset is in ppu_policy; other video modes and listed controls remain unsupported, and no PPU hardware qualification is claimed. |
 | `audio` | Sound. |
-| `dma` | The deterministic subset follows project policy; hardware qualification is UNKNOWN, latch selection remains disputed/open, and deferred trigger producers are unmodeled. |
+| `dma` | The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled. |
 | `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |
 | `irq-controller` | A complete hardware-qualified GBA interrupt controller. The deterministic IF/IE/IME and CPU-boundary subset is implemented under `irq_input_power_policy`; exact GBA IRQ latency and BIOS-handler behavior remain unqualified. |
 | `backup-media` | Cartridge backup storage (save memory). |
 | `bios-protection` | CPU fetches participate in BIOS protection checks, but region/state-specific open-bus behavior and Game Pak prefetch are not qualified or emulated. |
-| `io-devices` | Complete I/O device register semantics remain incomplete and hardware-unqualified. The timer, IF/IE/IME, KEYINPUT, and KEYCNT subset is described by the timer and `irq_input_power_policy` entries; unsupported reads still use the project-policy placeholder. |
+| `io-devices` | I/O register semantics remain incomplete and hardware-unqualified. Timer, IF/IE/IME, KEYINPUT/KEYCNT, and the VCOUNT/DISPSTAT/DISPCNT subset is described by the timer, `irq_input_power_policy`, and `ppu_policy` entries; unsupported reads still use the project-policy placeholder. |

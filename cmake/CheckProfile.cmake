@@ -29,6 +29,10 @@
 #                          lines_visible + lines_vblank = lines_per_frame; cycles_per_line *
 #                          lines_per_frame = cycles_per_frame; master_clock_hz = 2^24
 #   hblank-edge-hardcoded  hblank_flag_edge_cycle.value is anything but null
+#   ppu-policy-missing    ppu_policy is absent, null, or not an object
+#   ppu-policy-value      a selected PPU policy value, provenance, dispute, or
+#                          hardware qualification differs from its contract
+#   ppu-policy-doc        the PPU policy table is absent, stale, duplicated, or malformed
 #   unmodeled-missing      one finding per required unmodeled id that is absent
 #   unmodeled-bad-entry    an entry that is not an object; an id that is not
 #                          ^[a-z0-9][a-z0-9-]*$ or is duplicated; a status other than
@@ -74,6 +78,36 @@ set(GBL_PROFILE_REQUIRED_UNMODELED
   hblank-flag-edge ppu audio dma irq-controller backup-media bios-protection
   io-devices)
 set(GBL_PROFILE_HBLANK_DISPUTE disp-hblank-flag-edge)
+set(GBL_PROFILE_PPU_POLICY_ROWS
+  "policy_classification|project-selected|STRING"
+  "hardware_qualification|UNKNOWN|STRING"
+  "hardware_source_reference|Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2 and 5.1 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)|STRING"
+  "geometry|240x160 visible pixels, 308 dots per line, 228 lines per frame|STRING"
+  "line_cycles|1232|NUMBER"
+  "nominal_visible_dot_cycles|960|NUMBER"
+  "recurrence|one recurring priority-9 event alternates line-start and HBlank boundaries|STRING"
+  "event_priority|9|NUMBER"
+  "line_transitions|VCOUNT advances 0-227 modulo 228, visible lines are 0-159, VBlank sets at 160 and clears at 0|STRING"
+  "same_cycle_order|due machine events precede timed bus effects, row sample precedes a bus write completing on the same cycle|STRING"
+  "dispcnt_writable_mask|0xFFFF|STRING"
+  "dispstat_writable_mask|0xFF38|STRING"
+  "vcount_write_policy|ignored|STRING"
+  "compare_write_policy|recompute at write completion after due events|STRING"
+  "hblank_event_offset_cycles|1006|NUMBER"
+  "hblank_source|REF|STRING"
+  "hblank_source_reference|GBATEK, LCD I/O Interrupts and Status, states the flag is 0 for 1,006 cycles, source text is not a project hardware measurement|STRING"
+  "hblank_provenance|project-selected|STRING"
+  "hblank_dependent_classification|disputed|STRING"
+  "hblank_dispute|disp-hblank-flag-edge|STRING"
+  "hblank_hardware_qualification|UNKNOWN|STRING"
+  "row_sample_point|visible-line-start|STRING"
+  "row_same_cycle_write_policy|PPU sample precedes a bus write completing on the sample cycle|STRING"
+  "pixel_format|BGR555 little-endian|STRING"
+  "frame_validity|complete coverage of 160 supported rows in one frame epoch, published at line 160|STRING"
+  "supported_controls|mode 3 and BG2 enabled, forced blank, OBJ, windows, and effects disabled|STRING"
+  "unmodeled_controls|other modes, disabled BG2, forced blank, OBJ, windows, effects, and BG2 transforms|STRING"
+  "interrupt_if_bits|VBlank 0, HBlank 1, VCOUNT-match 2|STRING"
+  "blank_dma_eligibility|HBlank on visible lines 0-159, VBlank at the line 160 transition|STRING")
 set(GBL_PROFILE_INT64_MAX 9223372036854775807)
 set(GBL_PROFILE_BUS_REQUEST_KEYS bios ewram iwram io pram vram oam rom unmapped)
 set(GBL_PROFILE_BUS_REGIONS bios ewram iwram io pram vram oam rom unmapped)
@@ -1226,6 +1260,56 @@ function(gbl__profile_timing doc)
   endif()
 endfunction()
 
+function(gbl__profile_ppu_policy doc)
+  gbl_json_type(policy_type "${doc}" ppu_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ppu-policy-missing
+      "ppu_policy: missing or not an object")
+    return()
+  endif()
+
+  string(JSON policy_version ERROR_VARIABLE version_error GET
+    "${doc}" profile_version)
+  if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
+      policy_version LESS 9)
+    gbl_finding(profile ppu-policy-value
+      "profile_version: expected 9 or later for PPU policy")
+  endif()
+
+  list(LENGTH GBL_PROFILE_PPU_POLICY_ROWS expected_field_count)
+  string(JSON actual_field_count LENGTH "${doc}" ppu_policy)
+  if(NOT actual_field_count EQUAL expected_field_count)
+    gbl_finding(profile ppu-policy-value
+      "ppu_policy: expected ${expected_field_count} fields, found ${actual_field_count}")
+  endif()
+
+  foreach(pair IN LISTS GBL_PROFILE_PPU_POLICY_ROWS)
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected_value)
+    list(GET fields 2 expected_type)
+    set(path "ppu_policy.${key}")
+    gbl_json_type(actual_type "${doc}" ppu_policy "${key}")
+    if(NOT "${actual_type}" STREQUAL "${expected_type}")
+      gbl_finding(profile ppu-policy-value
+        "${path}: expected ${expected_type}, found ${actual_type}")
+      continue()
+    endif()
+    string(JSON actual_value ERROR_VARIABLE value_error GET
+      "${doc}" ppu_policy "${key}")
+    if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+        NOT "${value_error}" STREQUAL "")
+      gbl_finding(profile ppu-policy-value "${path}: unreadable value")
+    elseif(NOT "${actual_value}" STREQUAL "${expected_value}")
+      gbl_finding(profile ppu-policy-value
+        "${path}: expected ${expected_value}")
+    endif()
+  endforeach()
+
+  gbl__profile_dispute("${doc}" "ppu_policy.hblank_dispute"
+    ppu_policy hblank_dispute)
+endfunction()
+
 # gbl__profile_unmodeled(<out-ids> <doc>): validate the unmodeled list and set
 # <out-ids> to the entry ids in file order (duplicates kept).
 function(gbl__profile_unmodeled out doc)
@@ -2075,6 +2159,39 @@ function(gbl__profile_doc_timing_sync normalized_text profile)
     "Key;Classification;Hardware qualification;Affected shapes;Citation" timing-model-doc 5)
 endfunction()
 
+# Build the policy table from the profile's ordered PPU fields. The semantic
+# checker owns the exact field set and values; this binds the canonical prose
+# table to those same values without allowing a matching row elsewhere.
+function(gbl__profile_doc_ppu_sync normalized_text profile)
+  gbl_json_type(policy_type "${profile}" ppu_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    return()
+  endif()
+
+  set(ppu_rows)
+  foreach(pair IN LISTS GBL_PROFILE_PPU_POLICY_ROWS)
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    gbl_json_type(value_type "${profile}" ppu_policy "${key}")
+    if("${value_type}" STREQUAL "MISSING")
+      set(value "<missing>")
+    else()
+      string(JSON value ERROR_VARIABLE value_error GET
+        "${profile}" ppu_policy "${key}")
+      if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+          NOT "${value_error}" STREQUAL "")
+        set(value "<invalid>")
+      endif()
+    endif()
+    string(REPLACE ";" "\\;" value_row "${value}")
+    list(APPEND ppu_rows "| `ppu_policy.${key}` | ${value_row} |")
+  endforeach()
+  list(LENGTH ppu_rows ppu_count)
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## PPU behavior policy" ppu_policy ${ppu_count} ppu_rows
+    "Setting;Value" ppu-policy-doc 2)
+endfunction()
+
 # gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the canonical
 # profile narrative must agree with the JSON. Normalize once before any
 # metadata, heading, section, or table lookup. <version-text> is empty when the
@@ -2286,6 +2403,7 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     2 irq_source_rows "Fact;Evidence;Label;Citation" irq-policy-doc)
 
   gbl__profile_doc_timing_sync("${normalized_text}" "${profile}")
+  gbl__profile_doc_ppu_sync("${normalized_text}" "${profile}")
 
   string(FIND "${normalized_text}" "\n## Unmodeled\n" at)
   set(doc_ids "")
@@ -2432,6 +2550,7 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
     gbl__profile_timing("${doc}")
   endif()
 
+  gbl__profile_ppu_policy("${doc}")
   gbl__profile_bus_policy("${doc}")
   gbl__profile_waitcnt_policy("${doc}")
   gbl__profile_dma_policy("${doc}")

@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 8,
+  "profile_version": 9,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -64,6 +64,37 @@
       "source": "UNK",
       "dispute": "disp-hblank-flag-edge"
     }
+  },
+  "ppu_policy": {
+    "policy_classification": "project-selected",
+    "hardware_qualification": "UNKNOWN",
+    "hardware_source_reference": "Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2 and 5.1 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+    "geometry": "240x160 visible pixels, 308 dots per line, 228 lines per frame",
+    "line_cycles": 1232,
+    "nominal_visible_dot_cycles": 960,
+    "recurrence": "one recurring priority-9 event alternates line-start and HBlank boundaries",
+    "event_priority": 9,
+    "line_transitions": "VCOUNT advances 0-227 modulo 228, visible lines are 0-159, VBlank sets at 160 and clears at 0",
+    "same_cycle_order": "due machine events precede timed bus effects, row sample precedes a bus write completing on the same cycle",
+    "dispcnt_writable_mask": "0xFFFF",
+    "dispstat_writable_mask": "0xFF38",
+    "vcount_write_policy": "ignored",
+    "compare_write_policy": "recompute at write completion after due events",
+    "hblank_event_offset_cycles": 1006,
+    "hblank_source": "REF",
+    "hblank_source_reference": "GBATEK, LCD I/O Interrupts and Status, states the flag is 0 for 1,006 cycles, source text is not a project hardware measurement",
+    "hblank_provenance": "project-selected",
+    "hblank_dependent_classification": "disputed",
+    "hblank_dispute": "disp-hblank-flag-edge",
+    "hblank_hardware_qualification": "UNKNOWN",
+    "row_sample_point": "visible-line-start",
+    "row_same_cycle_write_policy": "PPU sample precedes a bus write completing on the sample cycle",
+    "pixel_format": "BGR555 little-endian",
+    "frame_validity": "complete coverage of 160 supported rows in one frame epoch, published at line 160",
+    "supported_controls": "mode 3 and BG2 enabled, forced blank, OBJ, windows, and effects disabled",
+    "unmodeled_controls": "other modes, disabled BG2, forced blank, OBJ, windows, effects, and BG2 transforms",
+    "interrupt_if_bits": "VBlank 0, HBlank 1, VCOUNT-match 2",
+    "blank_dma_eligibility": "HBlank on visible lines 0-159, VBlank at the line 160 transition"
   },
   "bus_policy": {
     "source": "IMPL",
@@ -234,13 +265,13 @@
     {
       "id": "hblank-flag-edge",
       "status": "unmodeled",
-      "reason": "Sources disagree on the cycle at which the HBlank flag changes: values of 1,006, 1,007, and 1,008 cycles appear in different sources, and 960 is the visible drawing time, not the flag edge. The profile carries no number for it.",
+      "reason": "The hardware HBlank flag edge remains unknown and disputed across 1,006, 1,007, and 1,008 cycle reports; 960 is nominal visible-dot time. The selected 1,006-cycle model event is in ppu_policy, not a hardware resolution.",
       "dispute": "disp-hblank-flag-edge"
     },
     {
       "id": "ppu",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim PPU behavior."
+      "reason": "The deterministic timing, status, and supported mode-3 subset is in ppu_policy; other video modes and listed controls remain unsupported, and no PPU hardware qualification is claimed."
     },
     {
       "id": "audio",
@@ -250,7 +281,7 @@
     {
       "id": "dma",
       "status": "unmodeled",
-      "reason": "A deterministic project DMA subset is implemented under dma_policy; hardware qualification remains UNKNOWN, the latch interpretation is disputed, and deferred trigger producers remain unmodeled."
+      "reason": "The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled."
     },
     {
       "id": "timer-edge-qualification",
@@ -280,7 +311,7 @@
     {
       "id": "io-devices",
       "status": "unmodeled",
-      "reason": "I/O device register semantics remain incomplete and hardware-unqualified. The timer, IF/IE/IME, KEYINPUT, and KEYCNT subset is described by the timer and irq_input_power_policy entries; unsupported reads still use the project-policy placeholder."
+      "reason": "I/O register semantics remain incomplete and hardware-unqualified. Timer, IF/IE/IME, KEYINPUT/KEYCNT, and the VCOUNT/DISPSTAT/DISPCNT subset is described by the timer, irq_input_power_policy, and ppu_policy entries; unsupported reads still use the project-policy placeholder."
     }
   ],
   "timing_model": {

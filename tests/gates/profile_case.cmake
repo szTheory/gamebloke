@@ -119,7 +119,9 @@ elseif(CASE STREQUAL "ppu_policy")
   expect_detail(ppu-policy-missing "ppu_policy" "${p}")
 
   set(ppu_policy_fields
-    geometry line_cycles nominal_visible_dot_cycles recurrence line_transitions
+    policy_classification hardware_qualification hardware_source_reference
+    geometry line_cycles nominal_visible_dot_cycles recurrence event_priority
+    line_transitions
     same_cycle_order dispcnt_writable_mask dispstat_writable_mask
     vcount_write_policy compare_write_policy hblank_event_offset_cycles
     hblank_source hblank_source_reference hblank_provenance
@@ -127,7 +129,7 @@ elseif(CASE STREQUAL "ppu_policy")
     hblank_hardware_qualification row_sample_point
     row_same_cycle_write_policy pixel_format frame_validity
     supported_controls unmodeled_controls interrupt_if_bits
-    blank_dma_eligibility hardware_qualification)
+    blank_dma_eligibility)
   foreach(field IN LISTS ppu_policy_fields)
     profile_copy(p mutated_${field})
     gbl_json_mutate_set("${p}" [=["control-drift"]=] ppu_policy ${field})
