@@ -412,8 +412,8 @@ static bool make_playable0_image(uint8_t image[PLAYABLE0_IMAGE_SIZE],
     arm_emit(&builder, UINT32_C(0xE2833002));
     arm_emit(&builder, UINT32_C(0xE2522001));
     arm_branch(&builder, ARM_CONDITION_NE, ARM_LABEL_DRAW_PIXEL, false);
-    arm_emit(&builder, UINT32_C(0xE28330D0));
-    arm_emit(&builder, UINT32_C(0xE28330FF));
+    /* Advance by 480 bytes after the eight-pixel row has already added 16. */
+    arm_emit(&builder, UINT32_C(0xE2833F74));
     arm_emit(&builder, UINT32_C(0xE2511001));
     arm_branch(&builder, ARM_CONDITION_NE, ARM_LABEL_DRAW_ROW, false);
     arm_emit(&builder, UINT32_C(0xE12FFF1E));
