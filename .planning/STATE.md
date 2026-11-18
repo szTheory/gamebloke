@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 6
+current_plan: 7
 status: executing
-stopped_at: Completed 10-05-PLAN.md
-last_updated: "2026-11-18T21:37:39.497Z"
+stopped_at: Completed 10-06-PLAN.md
+last_updated: "2026-11-18T22:27:42.951Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: a09acb87f6287ad4023550ebe3713e1a584627d3
+state_head: b3c64e265ed1aa033967a73f6487049b49d8757a
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 31
-  completed_plans: 27
+  completed_plans: 28
   percent: 75
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 ## Current Position
 
 Phase: 10 — PPU Timing and First Pixels
-Current Plan: 6
+Current Plan: 7
 Total Plans in Phase: 9
 Status: Ready to execute
 Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
@@ -159,6 +159,7 @@ Progress: [████████░░] 75%
 | Phase 10 P3 | 39min | 2 tasks | 9 files |
 | Phase 10 P04 | 33 min from first task commit; start time unrecorded | 2 tasks | 5 files |
 | Phase 10 P05 | 40 min | 2 tasks | 8 files |
+| Phase 10 P06 | 44m | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -398,6 +399,9 @@ Recent decisions affecting current work:
 - [Phase 10]: Keep the +1006-cycle HBlank selection project-selected/REF, disputed under disp-hblank-flag-edge, with hardware qualification UNKNOWN.
 - [Phase 10]: Copy raw frame bytes only for a requested complete supported epoch; keep artifact status and digest separate from guest semantics and machine time.
 - [Phase 10]: Keep PLAY-01 and G6 Playable 0 acceptance pending; synthetic runner evidence does not satisfy the owner judgment gate.
+- [Phase 10]: Accept historical result/1 records only when both phase10 and raw_video are absent; require both for current producers.
+- [Phase 10]: Keep HBlank at the profile-selected +1006-cycle REF candidate, disputed under disp-hblank-flag-edge, with hardware qualification UNKNOWN.
+- [Phase 10]: Keep playable acceptance pending; automation does not supply the owner's G6 judgment.
 
 ### Pending Todos
 
@@ -448,8 +452,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T21:34:44.152Z
-Stopped at: Completed 10-05-PLAN.md
+Last session: 2026-11-18T22:27:42.645Z
+Stopped at: Completed 10-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
