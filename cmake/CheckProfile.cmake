@@ -81,9 +81,30 @@ set(GBL_PROFILE_BUS_DIRECTIONS read write)
 set(GBL_PROFILE_BUS_WIDTHS 1 2 4)
 set(GBL_PROFILE_BUS_SEQUENCE_CLASSES nonsequential sequential)
 set(GBL_PROFILE_BUS_ROLES fetch data)
+set(GBL_PROFILE_WAITCNT_WINDOWS ws0 ws1 ws2)
 set(GBL_PROFILE_TIMING_MODEL_ID gamebloke-timer-model-1)
 set(GBL_PROFILE_TIMING_EXECUTION_CITE
-  "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified.")
+  "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified.")
+set(GBL_PROFILE_TIMING_ROM_FORMULA
+  "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)")
+set(GBL_PROFILE_TIMING_ROM_EXECUTION_CITE
+  "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN.")
+set(GBL_PROFILE_TIMING_NINTENDO_CITE
+  "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)")
+set(GBL_PROFILE_WAITCNT_REG_CITE
+  "Gamebloke WAITCNT register implementation in src/machine.c and src/bus.c; the retained mask and reset initialization are project policy.")
+set(GBL_PROFILE_WAITCNT_BOUNDARY_PROVENANCE
+  "GBATEK 3.06, Game Pak 128 KiB sequential boundary; secondary/community source only.")
+set(GBL_PROFILE_DMA_CITE
+  "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)")
+set(GBL_PROFILE_DMA_TRIGGER_CITE
+  "Gamebloke DMA model in src/machine.c; PPU/audio/DRQ trigger producers remain deferred.")
+set(GBL_PROFILE_DMA_STARTUP_CITE
+  "Gamebloke project mapping in include/gamebloke/gamebloke.h; manual activation wording does not qualify a master-cycle conversion.")
+set(GBL_PROFILE_DMA_ARBITRATION_CITE
+  "Gamebloke selected DMA policy in src/machine.c; project tests establish implementation behavior only.")
+set(GBL_PROFILE_DMA_LATCH_CITE
+  "registry/disputes.json entry disp-dma-latch; competing observations remain unresolved.")
 set(GBL_PROFILE_TIMING_ROM_HARDWARE_CITE
   "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.")
 set(GBL_PROFILE_TIMING_OTHER_HARDWARE_CITE
@@ -93,7 +114,7 @@ set(GBL_PROFILE_TIMING_ARM_CITE
 set(GBL_PROFILE_TIMING_EDGE_CITE
   "Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source.")
 set(GBL_PROFILE_BUS_CITE
-  "Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim.")
+  "Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled.")
 set(GBL_PROFILE_INIT_CITE
   "Gamebloke deterministic project policy: zero initialize state; hardware power-on RAM values remain unknown.")
 set(GBL_PROFILE_READ_CITE
@@ -241,12 +262,21 @@ function(gbl__profile_bus_policy doc)
     endif()
     foreach(k IN LISTS GBL_PROFILE_BUS_REQUEST_KEYS)
       gbl_json_type(vty "${doc}" bus_policy request_cycles ${k})
-      if(NOT "${vty}" STREQUAL "NUMBER")
-        gbl_finding(profile bus-policy-value "bus_policy.request_cycles.${k}: expected 1")
+      if(k STREQUAL "rom")
+        gbl_json_string(value "${doc}" bus_policy request_cycles rom)
+        if(NOT "${vty}" STREQUAL "STRING" OR
+           NOT "${value}" STREQUAL "contextual-waitcnt-halfword-beats")
+          gbl_finding(profile bus-policy-value
+            "bus_policy.request_cycles.rom: expected contextual WAITCNT beat formula")
+        endif()
       else()
-        string(JSON value GET "${doc}" bus_policy request_cycles ${k})
-        if(NOT "${value}" STREQUAL "1")
+        if(NOT "${vty}" STREQUAL "NUMBER")
           gbl_finding(profile bus-policy-value "bus_policy.request_cycles.${k}: expected 1")
+        else()
+          string(JSON value GET "${doc}" bus_policy request_cycles ${k})
+          if(NOT "${value}" STREQUAL "1")
+            gbl_finding(profile bus-policy-value "bus_policy.request_cycles.${k}: expected 1")
+          endif()
         endif()
       endif()
     endforeach()
@@ -301,6 +331,163 @@ function(gbl__profile_bus_policy doc)
     if(NOT "${unit}" STREQUAL "1")
       gbl_finding(profile bus-policy-value "bus_policy.internal_cycle_unit: expected 1")
     endif()
+  endif()
+endfunction()
+
+# WAITCNT values are quoted from the manual, while register reset/masking and
+# the secondary 128 KiB boundary rule retain their explicit project provenance.
+function(gbl__profile_waitcnt_policy doc)
+  gbl_json_type(policy_type "${doc}" waitcnt_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile waitcnt-policy "waitcnt_policy: missing or not an object")
+    return()
+  endif()
+  string(JSON policy_fields LENGTH "${doc}" waitcnt_policy)
+  if(NOT policy_fields EQUAL 7)
+    gbl_finding(profile waitcnt-policy "waitcnt_policy: expected 7 fields")
+  endif()
+  foreach(pair IN ITEMS "address;0x04000204" "retained_mask;0x5FFF" "reset_value;0x0000")
+    list(GET pair 0 field)
+    list(GET pair 1 expected)
+    gbl_json_string(value "${doc}" waitcnt_policy register ${field})
+    if(NOT "${value}" STREQUAL "${expected}")
+      gbl_finding(profile waitcnt-policy "waitcnt_policy.register.${field}: expected ${expected}")
+    endif()
+  endforeach()
+  gbl_json_string(classification "${doc}" waitcnt_policy register classification)
+  gbl_json_string(citation "${doc}" waitcnt_policy register cite)
+  if(NOT "${classification}" STREQUAL "project-selected" OR
+     NOT "${citation}" STREQUAL "${GBL_PROFILE_WAITCNT_REG_CITE}")
+    gbl_finding(profile waitcnt-policy "WAITCNT reset/mask must remain explicit project policy")
+  endif()
+
+  gbl_json_length(window_count "${doc}" waitcnt_policy windows)
+  if(NOT window_count EQUAL 3)
+    gbl_finding(profile waitcnt-policy "expected three WAITCNT Game Pak windows")
+  endif()
+  set(window_ids)
+  if(window_count GREATER 0)
+    math(EXPR last_window "${window_count}-1")
+    foreach(i RANGE ${last_window})
+      gbl_json_string(id "${doc}" waitcnt_policy windows ${i} id)
+      gbl_json_string(classification "${doc}" waitcnt_policy windows ${i} classification)
+      gbl_json_string(citation "${doc}" waitcnt_policy windows ${i} cite)
+      if("${id}" IN_LIST window_ids)
+        gbl_finding(profile waitcnt-policy "duplicate window ${id}")
+      endif()
+      list(APPEND window_ids "${id}")
+      if(NOT "${id}" IN_LIST GBL_PROFILE_WAITCNT_WINDOWS OR
+         NOT "${classification}" STREQUAL "source-backed" OR
+         NOT "${citation}" STREQUAL "${GBL_PROFILE_TIMING_NINTENDO_CITE}")
+        gbl_finding(profile waitcnt-policy "${id}: expected source-backed manual WAITCNT facts")
+      endif()
+    endforeach()
+  endif()
+  foreach(id IN ITEMS ws0 ws1 ws2)
+    if(NOT "${id}" IN_LIST window_ids)
+      gbl_finding(profile waitcnt-policy "missing WAITCNT window ${id}")
+    endif()
+  endforeach()
+
+  gbl_json_string(formula "${doc}" waitcnt_policy beat_policy cycle_formula)
+  gbl_json_string(beat_class "${doc}" waitcnt_policy beat_policy classification)
+  if(NOT "${formula}" STREQUAL "${GBL_PROFILE_TIMING_ROM_FORMULA}" OR
+     NOT "${beat_class}" STREQUAL "source-backed")
+    gbl_finding(profile waitcnt-policy "beat policy must preserve the contextual halfword formula")
+  endif()
+  gbl_json_string(boundary_rule "${doc}" waitcnt_policy boundary rule)
+  gbl_json_string(boundary_class "${doc}" waitcnt_policy boundary classification)
+  gbl_json_string(boundary_status "${doc}" waitcnt_policy boundary hardware_qualification)
+  gbl_json_string(boundary_provenance "${doc}" waitcnt_policy boundary provenance)
+  if(NOT "${boundary_class}" STREQUAL "secondary-community" OR
+     NOT "${boundary_status}" STREQUAL "UNKNOWN" OR
+     NOT "${boundary_provenance}" STREQUAL "${GBL_PROFILE_WAITCNT_BOUNDARY_PROVENANCE}" OR
+     NOT "${boundary_rule}" STREQUAL "address-aligned beat at a 128 KiB boundary forces effective nonsequential timing")
+    gbl_finding(profile waitcnt-policy "128 KiB boundary must remain secondary and UNKNOWN")
+  endif()
+  gbl_json_string(prefetch_execution "${doc}" waitcnt_policy prefetch execution)
+  gbl_json_string(prefetch_status "${doc}" waitcnt_policy prefetch hardware_qualification)
+  if(NOT "${prefetch_execution}" STREQUAL "unmodeled" OR NOT "${prefetch_status}" STREQUAL "UNKNOWN")
+    gbl_finding(profile waitcnt-policy "prefetch execution must remain unmodeled and UNKNOWN")
+  endif()
+  gbl_json_string(qualification "${doc}" waitcnt_policy hardware_qualification)
+  if(NOT "${qualification}" STREQUAL "UNKNOWN")
+    gbl_finding(profile waitcnt-policy "WAITCNT hardware qualification must remain UNKNOWN")
+  endif()
+endfunction()
+
+# Keep the manual-derived register/transfer facts distinct from selected
+# startup/arbitration/latch policies and from deferred trigger producers.
+function(gbl__profile_dma_policy doc)
+  gbl_json_type(policy_type "${doc}" dma_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile dma-policy "dma_policy: missing or not an object")
+    return()
+  endif()
+  string(JSON policy_fields LENGTH "${doc}" dma_policy)
+  if(NOT policy_fields EQUAL 9)
+    gbl_finding(profile dma-policy "dma_policy: expected 9 fields")
+  endif()
+  gbl_json_string(base "${doc}" dma_policy registers base)
+  gbl_json_string(last "${doc}" dma_policy registers last)
+  gbl_json_string(control_mask "${doc}" dma_policy registers control_mask)
+  gbl_json_string(reg_class "${doc}" dma_policy registers classification)
+  gbl_json_string(reg_cite "${doc}" dma_policy registers cite)
+  if(NOT "${base}" STREQUAL "0x040000B0" OR NOT "${last}" STREQUAL "0x040000DF" OR
+     NOT "${control_mask}" STREQUAL "0xFFE0" OR NOT "${reg_class}" STREQUAL "source-backed" OR
+     NOT "${reg_cite}" STREQUAL "${GBL_PROFILE_DMA_CITE}")
+    gbl_finding(profile dma-policy "DMA register facts must retain their manual source")
+  endif()
+  gbl_json_string(facts_class "${doc}" dma_policy source_facts classification)
+  gbl_json_string(facts_cite "${doc}" dma_policy source_facts cite)
+  if(NOT "${facts_class}" STREQUAL "source-backed" OR NOT "${facts_cite}" STREQUAL "${GBL_PROFILE_DMA_CITE}")
+    gbl_finding(profile dma-policy "DMA masks/count/width facts must retain their manual source")
+  endif()
+  gbl_json_string(trigger_class "${doc}" dma_policy trigger_policy classification)
+  gbl_json_string(trigger_cite "${doc}" dma_policy trigger_policy cite)
+  gbl_json_string(trigger_refusal "${doc}" dma_policy trigger_policy channel0_mode3)
+  gbl_json_string(trigger_deferred "${doc}" dma_policy trigger_policy deferred_behavior)
+  if(NOT "${trigger_class}" STREQUAL "project-selected" OR
+     NOT "${trigger_cite}" STREQUAL "${GBL_PROFILE_DMA_TRIGGER_CITE}" OR
+     NOT "${trigger_refusal}" STREQUAL "refused" OR
+     NOT "${trigger_deferred}" MATCHES "remain armed;.*trigger producers are deferred")
+    gbl_finding(profile dma-policy "trigger producer and refusal policy is missing or stale")
+  endif()
+  gbl_json_type(startup_cycles_type "${doc}" dma_policy startup_policy master_cycles)
+  set(startup_cycles "")
+  if("${startup_cycles_type}" STREQUAL "NUMBER")
+    string(JSON startup_cycles GET "${doc}" dma_policy startup_policy master_cycles)
+  endif()
+  gbl_json_string(startup_class "${doc}" dma_policy startup_policy classification)
+  gbl_json_string(startup_status "${doc}" dma_policy startup_policy hardware_qualification)
+  gbl_json_string(startup_cite "${doc}" dma_policy startup_policy cite)
+  if(NOT "${startup_cycles}" STREQUAL "2" OR NOT "${startup_class}" STREQUAL "project-selected" OR
+     NOT "${startup_status}" STREQUAL "UNKNOWN" OR NOT "${startup_cite}" STREQUAL "${GBL_PROFILE_DMA_STARTUP_CITE}")
+    gbl_finding(profile dma-policy "DMA startup conversion must remain project-selected and UNKNOWN")
+  endif()
+  gbl_json_string(arb_class "${doc}" dma_policy arbitration_policy classification)
+  gbl_json_string(arb_status "${doc}" dma_policy arbitration_policy hardware_qualification)
+  gbl_json_string(arb_boundary "${doc}" dma_policy arbitration_policy unit_boundary)
+  gbl_json_string(arb_finer "${doc}" dma_policy arbitration_policy finer_boundary)
+  gbl_json_string(arb_cite "${doc}" dma_policy arbitration_policy cite)
+  if(NOT "${arb_class}" STREQUAL "project-selected" OR NOT "${arb_status}" STREQUAL "UNKNOWN" OR
+     NOT "${arb_boundary}" STREQUAL "one source access plus one destination access" OR
+     NOT "${arb_finer}" STREQUAL "unmodeled" OR NOT "${arb_cite}" STREQUAL "${GBL_PROFILE_DMA_ARBITRATION_CITE}")
+    gbl_finding(profile dma-policy "DMA arbitration policy must remain project-selected and UNKNOWN")
+  endif()
+  gbl_json_string(latch_class "${doc}" dma_policy latch_policy result_classification)
+  gbl_json_string(latch_dispute "${doc}" dma_policy latch_policy dispute_id)
+  gbl_json_string(latch_status "${doc}" dma_policy latch_policy dispute_status)
+  gbl_json_string(latch_hw "${doc}" dma_policy latch_policy hardware_qualification)
+  gbl_json_string(latch_cite "${doc}" dma_policy latch_policy cite)
+  if(NOT "${latch_class}" STREQUAL "disputed" OR NOT "${latch_dispute}" STREQUAL "disp-dma-latch" OR
+     NOT "${latch_status}" STREQUAL "open" OR NOT "${latch_hw}" STREQUAL "UNKNOWN" OR
+     NOT "${latch_cite}" STREQUAL "${GBL_PROFILE_DMA_LATCH_CITE}")
+    gbl_finding(profile dma-policy "DMA latch dispute must remain open, disputed, and UNKNOWN")
+  endif()
+  gbl_json_string(qualification "${doc}" dma_policy hardware_qualification)
+  if(NOT "${qualification}" STREQUAL "UNKNOWN")
+    gbl_finding(profile dma-policy "DMA hardware qualification must remain UNKNOWN")
   endif()
 endfunction()
 
@@ -394,20 +581,28 @@ function(gbl__profile_timing_model doc)
         gbl_finding(profile timing-model-execution "${key}: execution policy missing")
       else()
         string(JSON execution_fields LENGTH "${doc}" timing_model bus_access_costs ${i} execution)
-        if(NOT execution_fields EQUAL 3)
-          gbl_finding(profile timing-model-execution "${key}: execution field count")
-        endif()
         gbl_json_string(execution_class "${doc}" timing_model bus_access_costs ${i} execution classification)
         gbl_json_type(execution_cost_type "${doc}" timing_model bus_access_costs ${i} execution cost_cycles)
         if("${execution_cost_type}" STREQUAL "NUMBER")
           string(JSON execution_cost GET "${doc}" timing_model bus_access_costs ${i} execution cost_cycles)
         endif()
         gbl_json_string(execution_cite "${doc}" timing_model bus_access_costs ${i} execution citation)
-        if(NOT "${execution_class}" STREQUAL "project-selected" OR
+        if(region STREQUAL "rom")
+          gbl_json_string(execution_formula "${doc}" timing_model bus_access_costs ${i} execution formula)
+          if(NOT execution_fields EQUAL 4 OR
+             NOT "${execution_class}" STREQUAL "source-backed" OR
+             NOT "${execution_cost_type}" STREQUAL "NULL" OR
+             NOT "${execution_formula}" STREQUAL "${GBL_PROFILE_TIMING_ROM_FORMULA}" OR
+             NOT "${execution_cite}" STREQUAL "${GBL_PROFILE_TIMING_ROM_EXECUTION_CITE}")
+            gbl_finding(profile timing-model-execution
+              "${key}: expected contextual WAITCNT source-backed beat formula")
+          endif()
+        elseif(NOT execution_fields EQUAL 3 OR
+           NOT "${execution_class}" STREQUAL "project-selected" OR
            NOT "${execution_cost_type}" STREQUAL "NUMBER" OR
            NOT "${execution_cost}" STREQUAL "1" OR
            NOT "${execution_cite}" STREQUAL "${GBL_PROFILE_TIMING_EXECUTION_CITE}")
-          gbl_finding(profile timing-model-execution "${key}: expected selected one-cycle execution row")
+          gbl_finding(profile timing-model-execution "${key}: expected selected non-ROM one-cycle execution row")
         endif()
       endif()
 
@@ -465,7 +660,8 @@ function(gbl__profile_timing_model doc)
 
       # bus_policy is a compatibility summary; it may not disagree with any
       # keyed row that the runtime actually executes.
-      if("${region}" IN_LIST GBL_PROFILE_BUS_REGIONS AND NOT "${execution_cost}" STREQUAL "")
+      if("${region}" IN_LIST GBL_PROFILE_BUS_REGIONS AND
+         NOT region STREQUAL "rom" AND NOT "${execution_cost}" STREQUAL "")
         gbl_json_type(compatibility_type "${doc}" bus_policy request_cycles ${region})
         if(NOT "${compatibility_type}" STREQUAL "NUMBER")
           gbl_finding(profile timing-model-execution "${key}: bus_policy compatibility row missing")
@@ -485,8 +681,8 @@ function(gbl__profile_timing_model doc)
   endforeach()
 
   gbl_json_length(cpu_count "${doc}" timing_model cpu_composition)
-  if(NOT cpu_count EQUAL 3)
-    gbl_finding(profile timing-model-cpu-composition "expected 3 separate CPU composition provenance rows")
+  if(NOT cpu_count EQUAL 4)
+    gbl_finding(profile timing-model-cpu-composition "expected 4 separate CPU composition provenance rows")
   endif()
   if(cpu_count GREATER 0)
     math(EXPR last_cpu "${cpu_count}-1")
@@ -503,7 +699,14 @@ function(gbl__profile_timing_model doc)
            NOT "${citation}" STREQUAL "${GBL_PROFILE_TIMING_ARM_CITE}")
           gbl_finding(profile timing-model-cpu-composition "${id}: ARM source-backed rule has inflated or stale provenance")
         endif()
-      elseif(NOT "${classification}" STREQUAL "unmodeled")
+      elseif(i EQUAL 2)
+        if(NOT "${id}" STREQUAL "gba-waitcnt-wait-selection" OR
+           NOT "${classification}" STREQUAL "source-backed" OR
+           NOT "${citation}" STREQUAL "${GBL_PROFILE_TIMING_NINTENDO_CITE}")
+          gbl_finding(profile timing-model-cpu-composition "${id}: WAITCNT source rule has inflated or stale provenance")
+        endif()
+      elseif(NOT "${id}" STREQUAL "gba-prefetch-execution" OR
+             NOT "${classification}" STREQUAL "unmodeled")
         gbl_finding(profile timing-model-cpu-composition "${id}: GBA wait mapping must remain unmodeled")
       endif()
     endforeach()
@@ -1727,6 +1930,7 @@ endfunction()
 
 function(gbl__profile_doc_timing_sync normalized_text profile)
   foreach(heading IN ITEMS "## Timing model scope" "## Timing model costs"
+      "## WAITCNT policy" "## DMA policy"
       "## CPU cycle composition" "## Timer edge policy"
       "## Timer 0 guest-path coverage" "## Unmodeled hardware cost gaps")
     string(FIND "${normalized_text}" "\n${heading}\n" heading_at)
@@ -1748,8 +1952,15 @@ function(gbl__profile_doc_timing_sync normalized_text profile)
     math(EXPR last_bus "${bus_count}-1")
     foreach(i RANGE ${last_bus})
       gbl_json_string(key "${profile}" timing_model bus_access_costs ${i} key)
+      gbl_json_string(region "${profile}" timing_model bus_access_costs ${i} region)
       gbl_json_string(exec_class "${profile}" timing_model bus_access_costs ${i} execution classification)
-      string(JSON exec_cycles GET "${profile}" timing_model bus_access_costs ${i} execution cost_cycles)
+      gbl_json_type(exec_cost_type "${profile}" timing_model bus_access_costs ${i} execution cost_cycles)
+      if("${exec_cost_type}" STREQUAL "NULL")
+        gbl_json_string(exec_formula "${profile}" timing_model bus_access_costs ${i} execution formula)
+        set(exec_cycles "formula: ${exec_formula}")
+      else()
+        string(JSON exec_cycles GET "${profile}" timing_model bus_access_costs ${i} execution cost_cycles)
+      endif()
       gbl_json_string(exec_cite "${profile}" timing_model bus_access_costs ${i} execution citation)
       gbl_json_string(hw_class "${profile}" timing_model bus_access_costs ${i} hardware_cost classification)
       gbl_json_string(hw_cite "${profile}" timing_model bus_access_costs ${i} hardware_cost citation)
@@ -1771,8 +1982,27 @@ function(gbl__profile_doc_timing_sync normalized_text profile)
   endif()
   gbl__profile_doc_policy_table("${normalized_text}" "## Timing model costs"
     timing_model ${bus_count} bus_rows
-    "Key;Execution class;Execution cycles;Execution citation;Hardware-cost class;Hardware cycles;Hardware citation;Unmodeled limits"
+    "Key;Execution class;Execution cycles / formula;Execution citation;Hardware-cost class;Hardware cycles;Hardware citation;Unmodeled limits"
     timing-model-doc 8)
+
+  foreach(section_key IN ITEMS
+      "waitcnt_policy.register" "waitcnt_policy.window.ws0" "waitcnt_policy.window.ws1"
+      "waitcnt_policy.window.ws2" "waitcnt_policy.beat_policy" "waitcnt_policy.boundary"
+      "waitcnt_policy.prefetch" "waitcnt_policy.hardware_qualification"
+      "dma_policy.registers" "dma_policy.source_facts" "dma_policy.trigger_policy"
+      "dma_policy.completion_policy" "dma_policy.startup_policy"
+      "dma_policy.arbitration_policy" "dma_policy.latch_policy"
+      "dma_policy.hardware_qualification")
+    string(FIND "${normalized_text}" "| ${section_key} |" section_row)
+    if(section_row EQUAL -1)
+      gbl_finding(profile timing-model-doc "missing policy table row ${section_key}")
+    endif()
+  endforeach()
+  string(FIND "${normalized_text}" "| waitcnt_policy.hardware_qualification | UNKNOWN | unmodeled |" waitcnt_qualification)
+  string(FIND "${normalized_text}" "| dma_policy.hardware_qualification | UNKNOWN | unmodeled |" dma_qualification)
+  if(waitcnt_qualification EQUAL -1 OR dma_qualification EQUAL -1)
+    gbl_finding(profile timing-model-doc "WAITCNT and DMA hardware qualification must remain UNKNOWN in the document")
+  endif()
 
   gbl_json_length(cpu_count "${profile}" timing_model cpu_composition)
   set(cpu_rows)
@@ -1925,7 +2155,12 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
   string(REPLACE ";" "\\;" bus_cite_row "${bus_cite}")
   set(bus_rows)
   foreach(k IN LISTS GBL_PROFILE_BUS_REQUEST_KEYS)
-    list(APPEND bus_rows "| bus_policy.request_cycles.${k} | 1 | ${bus_source} | ${bus_cite_row} |")
+    if(k STREQUAL "rom")
+      set(request_cycles "contextual-waitcnt-halfword-beats")
+    else()
+      set(request_cycles 1)
+    endif()
+    list(APPEND bus_rows "| bus_policy.request_cycles.${k} | ${request_cycles} | ${bus_source} | ${bus_cite_row} |")
   endforeach()
   list(APPEND bus_rows
     "| bus_policy.widths_bytes | [1, 2, 4] | ${bus_source} | ${bus_cite_row} |"
@@ -2198,6 +2433,8 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   endif()
 
   gbl__profile_bus_policy("${doc}")
+  gbl__profile_waitcnt_policy("${doc}")
+  gbl__profile_dma_policy("${doc}")
   gbl__profile_timing_model("${doc}")
   gbl__profile_initialization_policy("${doc}")
   gbl__profile_read_policy("${doc}")

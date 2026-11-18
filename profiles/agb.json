@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 7,
+  "profile_version": 8,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -67,7 +67,7 @@
   },
   "bus_policy": {
     "source": "IMPL",
-    "cite": "Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim.",
+    "cite": "Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled.",
     "request_cycles": {
       "bios": 1,
       "ewram": 1,
@@ -76,7 +76,7 @@
       "pram": 1,
       "vram": 1,
       "oam": 1,
-      "rom": 1,
+      "rom": "contextual-waitcnt-halfword-beats",
       "unmapped": 1
     },
     "widths_bytes": [
@@ -224,12 +224,12 @@
     {
       "id": "waitcnt",
       "status": "unmodeled",
-      "reason": "WAITCNT-dependent Game Pak hardware waits are not implemented or qualified; every ROM row keeps a null hardware cost even though the selected execution model uses one cycle."
+      "reason": "The implementation applies documented WAITCNT wait choices to Game Pak halfword beats, but hardware timing qualification remains UNKNOWN; the 128 KiB boundary mapping also has secondary/community provenance."
     },
     {
       "id": "bus-costs",
       "status": "unmodeled",
-      "reason": "A complete hardware bus-cost mapping by direction, region, width, sequential class and fetch/data role is not modeled; all current execution values remain project-selected."
+      "reason": "Non-ROM bus costs remain project-selected one-cycle values; contextual Game Pak quotes use documented WAITCNT choices but the complete profile remains hardware-unqualified."
     },
     {
       "id": "hblank-flag-edge",
@@ -250,7 +250,7 @@
     {
       "id": "dma",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim DMA behavior or DMA timing."
+      "reason": "A deterministic project DMA subset is implemented under dma_policy; hardware qualification remains UNKNOWN, the latch interpretation is disputed, and deferred trigger producers remain unmodeled."
     },
     {
       "id": "timer-edge-qualification",
@@ -297,7 +297,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -318,7 +318,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -339,7 +339,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -360,7 +360,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -381,7 +381,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -402,7 +402,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -423,7 +423,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -444,7 +444,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -465,7 +465,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -486,7 +486,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -507,7 +507,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -528,7 +528,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -549,7 +549,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -570,7 +570,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -591,7 +591,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -612,7 +612,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -633,7 +633,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -654,7 +654,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -675,7 +675,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -696,7 +696,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -717,7 +717,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -738,7 +738,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -759,7 +759,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -780,7 +780,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -801,7 +801,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -822,7 +822,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -843,7 +843,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -864,7 +864,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -885,7 +885,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -906,7 +906,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -927,7 +927,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -948,7 +948,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -969,7 +969,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -990,7 +990,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1011,7 +1011,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1032,7 +1032,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1053,7 +1053,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1074,7 +1074,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1095,7 +1095,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1116,7 +1116,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1137,7 +1137,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1158,7 +1158,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1179,7 +1179,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1200,7 +1200,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1221,7 +1221,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1242,7 +1242,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1263,7 +1263,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1284,7 +1284,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1305,7 +1305,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1326,7 +1326,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1347,7 +1347,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1368,7 +1368,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1389,7 +1389,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1410,7 +1410,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1431,7 +1431,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1452,7 +1452,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1473,7 +1473,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1494,7 +1494,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1515,7 +1515,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1536,7 +1536,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1557,7 +1557,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1578,7 +1578,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1599,7 +1599,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1620,7 +1620,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1641,7 +1641,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1662,7 +1662,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1683,7 +1683,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1704,7 +1704,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1725,7 +1725,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1746,7 +1746,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1767,7 +1767,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1788,7 +1788,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1809,7 +1809,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1830,7 +1830,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1851,7 +1851,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1872,7 +1872,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1893,7 +1893,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1914,7 +1914,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1935,7 +1935,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1956,7 +1956,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1977,7 +1977,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -1998,7 +1998,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2019,7 +2019,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2040,7 +2040,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2059,9 +2059,10 @@
         "sequence": "nonsequential",
         "role": "fetch",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2082,9 +2083,10 @@
         "sequence": "nonsequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2104,9 +2106,10 @@
         "sequence": "sequential",
         "role": "fetch",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2127,9 +2130,10 @@
         "sequence": "sequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2149,9 +2153,10 @@
         "sequence": "nonsequential",
         "role": "fetch",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2172,9 +2177,10 @@
         "sequence": "nonsequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2194,9 +2200,10 @@
         "sequence": "sequential",
         "role": "fetch",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2217,9 +2224,10 @@
         "sequence": "sequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2239,9 +2247,10 @@
         "sequence": "nonsequential",
         "role": "fetch",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2262,9 +2271,10 @@
         "sequence": "nonsequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2284,9 +2294,10 @@
         "sequence": "sequential",
         "role": "fetch",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2307,9 +2318,10 @@
         "sequence": "sequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2331,7 +2343,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2352,7 +2364,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2373,7 +2385,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2394,7 +2406,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2415,7 +2427,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2436,7 +2448,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2457,7 +2469,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2478,7 +2490,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2499,7 +2511,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2520,7 +2532,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2541,7 +2553,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2562,7 +2574,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2583,7 +2595,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2604,7 +2616,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2625,7 +2637,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2646,7 +2658,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2667,7 +2679,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2688,7 +2700,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2709,7 +2721,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2730,7 +2742,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2751,7 +2763,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2772,7 +2784,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2793,7 +2805,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2814,7 +2826,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2835,7 +2847,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2856,7 +2868,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2877,7 +2889,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2898,7 +2910,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2919,7 +2931,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2940,7 +2952,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2961,7 +2973,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -2982,7 +2994,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3003,7 +3015,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3024,7 +3036,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3045,7 +3057,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3066,7 +3078,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3087,7 +3099,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3108,7 +3120,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3129,7 +3141,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3150,7 +3162,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3171,7 +3183,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3192,7 +3204,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3213,7 +3225,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3234,7 +3246,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3255,7 +3267,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3276,7 +3288,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3297,7 +3309,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3318,7 +3330,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3339,7 +3351,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3360,7 +3372,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3381,7 +3393,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3402,7 +3414,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3423,7 +3435,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3444,7 +3456,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3463,9 +3475,10 @@
         "sequence": "nonsequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3485,9 +3498,10 @@
         "sequence": "sequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3507,9 +3521,10 @@
         "sequence": "nonsequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3529,9 +3544,10 @@
         "sequence": "sequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3551,9 +3567,10 @@
         "sequence": "nonsequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3573,9 +3590,10 @@
         "sequence": "sequential",
         "role": "data",
         "execution": {
-          "classification": "project-selected",
-          "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3597,7 +3615,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3618,7 +3636,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3639,7 +3657,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3660,7 +3678,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3681,7 +3699,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3702,7 +3720,7 @@
         "execution": {
           "classification": "project-selected",
           "cost_cycles": 1,
-          "citation": "Gamebloke policy: one model cycle per successful supported bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
         },
         "hardware_cost": {
           "classification": "unmodeled",
@@ -3728,10 +3746,16 @@
         "citation": "Arm ARM7TDMI Technical Reference Manual DDI 0210C §§3.3 and 6.20 Table 6-23 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819)"
       },
       {
-        "id": "gba-memory-wait-mapping",
+        "id": "gba-waitcnt-wait-selection",
+        "classification": "source-backed",
+        "rule": "The WAITCNT register selects the documented nonsequential and sequential wait states for three Game Pak windows; each quoted halfword beat adds one base cycle. Prefetch execution is separate and remains unmodeled.",
+        "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      },
+      {
+        "id": "gba-prefetch-execution",
         "classification": "unmodeled",
-        "rule": "The mapping from CPU cycle classes to each GBA region, width, sequence class and fetch/data role is incomplete; configurable Game Pak waits and prefetch remain outside this profile.",
-        "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled."
+        "rule": "Game Pak prefetch fill/hit execution remains unmodeled. The WAITCNT prefetch bit is retained as register state only; no hardware qualification is claimed.",
+        "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
       }
     ],
     "timer_edge_policies": [
@@ -3815,23 +3839,270 @@
         "id": "bus-costs",
         "classification": "unmodeled",
         "hardware_qualification": "UNKNOWN",
-        "affected_shapes": "All direction, region, width, sequence-class and fetch/data rows.",
+        "affected_shapes": "Non-ROM rows remain project-selected one-cycle policy; all modeled and contextual bus values remain unqualified on hardware.",
         "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role."
       },
       {
         "id": "waitcnt",
         "classification": "unmodeled",
         "hardware_qualification": "UNKNOWN",
-        "affected_shapes": "All ROM reads and writes, widths 1/2/4, both sequence classes, and supported fetch/data roles.",
+        "affected_shapes": "ROM read/write values are computed from source-backed WAITCNT choices and beat formulas; the resulting implementation and boundary mapping have no hardware qualification.",
         "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled."
       },
       {
         "id": "prefetch",
         "classification": "unmodeled",
         "hardware_qualification": "UNKNOWN",
-        "affected_shapes": "ROM instruction-fetch rows, widths 1/2/4 and both sequence classes.",
+        "affected_shapes": "Game Pak prefetch fill/hit execution; bit 14 may be retained as register state but does not enable modeled prefetch.",
         "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled."
       }
     ]
+  },
+  "waitcnt_policy": {
+    "register": {
+      "address": "0x04000204",
+      "retained_mask": "0x5FFF",
+      "reset_value": "0x0000",
+      "classification": "project-selected",
+      "prefetch_bit": 14,
+      "cite": "Gamebloke WAITCNT register implementation in src/machine.c and src/bus.c; the retained mask and reset initialization are project policy."
+    },
+    "windows": [
+      {
+        "id": "ws0",
+        "first": "0x08000000",
+        "last": "0x09FFFFFF",
+        "nonsequential_bits": [
+          2,
+          3
+        ],
+        "nonsequential_wait_choices": [
+          4,
+          3,
+          2,
+          8
+        ],
+        "sequential_bit": 4,
+        "sequential_wait_choices": [
+          2,
+          1
+        ],
+        "classification": "source-backed",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      },
+      {
+        "id": "ws1",
+        "first": "0x0A000000",
+        "last": "0x0BFFFFFF",
+        "nonsequential_bits": [
+          5,
+          6
+        ],
+        "nonsequential_wait_choices": [
+          4,
+          3,
+          2,
+          8
+        ],
+        "sequential_bit": 7,
+        "sequential_wait_choices": [
+          4,
+          1
+        ],
+        "classification": "source-backed",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      },
+      {
+        "id": "ws2",
+        "first": "0x0C000000",
+        "last": "0x0DFFFFFF",
+        "nonsequential_bits": [
+          8,
+          9
+        ],
+        "nonsequential_wait_choices": [
+          4,
+          3,
+          2,
+          8
+        ],
+        "sequential_bit": 10,
+        "sequential_wait_choices": [
+          8,
+          1
+        ],
+        "classification": "source-backed",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      }
+    ],
+    "beat_policy": {
+      "bus_width_bits": 16,
+      "supported_access_widths_bytes": [
+        1,
+        2,
+        4
+      ],
+      "beat_width_bytes": 2,
+      "byte_or_halfword_beats": 1,
+      "word_beats": 2,
+      "word_second_beat_sequence": "sequential",
+      "base_cycles_per_beat": 1,
+      "cycle_formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+      "role_scope": [
+        "fetch",
+        "data"
+      ],
+      "direction_scope": [
+        "read",
+        "write"
+      ],
+      "effective_sequence_rule": "first beat uses requested N/S; later word beats request S; each beat address is checked independently for a 128 KiB boundary",
+      "classification": "source-backed",
+      "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 plus the tested Gamebloke 16-bit quote path."
+    },
+    "boundary": {
+      "bytes": 131072,
+      "rule": "address-aligned beat at a 128 KiB boundary forces effective nonsequential timing",
+      "classification": "secondary-community",
+      "source_label": "SRC",
+      "provenance": "GBATEK 3.06, Game Pak 128 KiB sequential boundary; secondary/community source only.",
+      "hardware_qualification": "UNKNOWN"
+    },
+    "prefetch": {
+      "bit": 14,
+      "register_state": "retained",
+      "execution": "unmodeled",
+      "hardware_qualification": "UNKNOWN",
+      "classification": "unmodeled",
+      "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2; execution remains intentionally unmodeled."
+    },
+    "hardware_qualification": "UNKNOWN",
+    "hardware_qualification_cite": "No physical hardware evidence was produced by this plan; qualification remains UNKNOWN."
+  },
+  "dma_policy": {
+    "registers": {
+      "base": "0x040000B0",
+      "last": "0x040000DF",
+      "channel_count": 4,
+      "channel_stride_bytes": 12,
+      "control_mask": "0xFFE0",
+      "classification": "source-backed",
+      "cite": "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+    },
+    "source_facts": {
+      "source_address_masks": [
+        "0x07FFFFFF",
+        "0x0FFFFFFF",
+        "0x0FFFFFFF",
+        "0x0FFFFFFF"
+      ],
+      "destination_address_masks": [
+        "0x07FFFFFF",
+        "0x07FFFFFF",
+        "0x07FFFFFF",
+        "0x0FFFFFFF"
+      ],
+      "count_masks": [
+        "0x3FFF",
+        "0x3FFF",
+        "0x3FFF",
+        "0xFFFF"
+      ],
+      "zero_count_expansions": [
+        16384,
+        16384,
+        16384,
+        65536
+      ],
+      "transfer_width_bit": 10,
+      "transfer_width_bytes": [
+        2,
+        4
+      ],
+      "source_modes": [
+        "increment",
+        "decrement",
+        "fixed",
+        "unsupported"
+      ],
+      "destination_modes": [
+        "increment",
+        "decrement",
+        "fixed",
+        "increment-and-reload-channel-3-only"
+      ],
+      "repeat_bit": 9,
+      "completion_irq_bit": 14,
+      "completion_if_bits": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "cite": "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+      "classification": "source-backed"
+    },
+    "trigger_policy": {
+      "enable_bit": 15,
+      "immediate_mode": 0,
+      "immediate_start": "rising enable edge",
+      "immediate_repeat": "one-shot",
+      "deferred_modes": [
+        1,
+        2,
+        3
+      ],
+      "deferred_behavior": "remain armed; VBlank/HBlank/audio/DRQ trigger producers are deferred",
+      "channel0_mode3": "refused",
+      "classification": "project-selected",
+      "cite": "Gamebloke DMA model in src/machine.c; PPU/audio/DRQ trigger producers remain deferred."
+    },
+    "completion_policy": {
+      "one_shot_enable": "cleared on completion",
+      "delayed_repeat": "remain armed and reload count",
+      "destination_reload": "channel 3 mode 3 only",
+      "completion_irq": "set the channel IF bit when control bit 14 is enabled",
+      "classification": "source-backed",
+      "cite": "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+    },
+    "startup_policy": {
+      "source_statement": "manual describes a startup wait; conversion to the project master-cycle clock is a separate mapping",
+      "master_cycles": 2,
+      "classification": "project-selected",
+      "hardware_qualification": "UNKNOWN",
+      "cite": "Gamebloke project mapping in include/gamebloke/gamebloke.h; manual activation wording does not qualify a master-cycle conversion."
+    },
+    "arbitration_policy": {
+      "priority_order": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "ownership": "active DMA pauses CPU execution",
+      "unit_boundary": "one source access plus one destination access",
+      "reconsider_priority": "after each complete transfer unit",
+      "sequence_restart_after_suspension": "nonsequential",
+      "event_order": [
+        "timer0-3",
+        "keypad",
+        "dma-ready0-3"
+      ],
+      "finer_boundary": "unmodeled",
+      "classification": "project-selected",
+      "hardware_qualification": "UNKNOWN",
+      "cite": "Gamebloke selected DMA policy in src/machine.c; project tests establish implementation behavior only."
+    },
+    "latch_policy": {
+      "selection": "per-channel",
+      "selection_classification": "project-selected",
+      "result_classification": "disputed",
+      "dispute_id": "disp-dma-latch",
+      "dispute_status": "open",
+      "hardware_qualification": "UNKNOWN",
+      "cite": "registry/disputes.json entry disp-dma-latch; competing observations remain unresolved."
+    },
+    "hardware_qualification": "UNKNOWN",
+    "hardware_qualification_cite": "No physical hardware evidence was produced by this plan; qualification remains UNKNOWN."
   }
 }

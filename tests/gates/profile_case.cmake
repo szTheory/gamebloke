@@ -334,6 +334,31 @@ elseif(CASE STREQUAL "timing_model")
     timing_model qualification)
   expect_detail(timing-model-qualification "timing_model\\.qualification must be project-model-only" "${p}")
 
+  profile_copy(p timing_model_rom_fixed_cost)
+  file(READ "${p}" json)
+  string(JSON row_count LENGTH "${json}" timing_model bus_access_costs)
+  set(rom_row -1)
+  math(EXPR last_row "${row_count}-1")
+  foreach(i RANGE ${last_row})
+    string(JSON row_key GET "${json}" timing_model bus_access_costs ${i} key)
+    if(row_key STREQUAL "read/rom/1/n/fetch")
+      set(rom_row "${i}")
+    endif()
+  endforeach()
+  if(rom_row LESS 0)
+    message(FATAL_ERROR "profile-case: ROM formula control anchor missing")
+  endif()
+  gbl_json_mutate_set("${p}" "1" timing_model bus_access_costs ${rom_row} execution cost_cycles)
+  expect_detail(timing-model-execution "read/rom/1/n/fetch: expected contextual WAITCNT source-backed beat formula" "${p}")
+
+  profile_copy(p waitcnt_prefetch_modeled)
+  gbl_json_mutate_set("${p}" "\"modeled\"" waitcnt_policy prefetch execution)
+  expect_detail(waitcnt-policy "prefetch execution must remain unmodeled and UNKNOWN" "${p}")
+
+  profile_copy(p dma_latch_closed)
+  gbl_json_mutate_set("${p}" "\"resolved\"" dma_policy latch_policy dispute_status)
+  expect_detail(dma-policy "DMA latch dispute must remain open, disputed, and UNKNOWN" "${p}")
+
 elseif(CASE STREQUAL "bus_policy_missing")
   profile_copy(p missing_bus_policy)
   gbl_json_mutate_remove("${p}" bus_policy)
@@ -342,7 +367,7 @@ elseif(CASE STREQUAL "bus_policy_missing")
 elseif(CASE STREQUAL "bus_policy_value")
   profile_copy(p request_cost)
   gbl_json_mutate_set("${p}" "2" bus_policy request_cycles rom)
-  expect_detail(bus-policy-value "bus_policy\\.request_cycles\\.rom: expected 1" "${p}")
+  expect_detail(bus-policy-value "bus_policy\\.request_cycles\\.rom: expected contextual WAITCNT beat formula" "${p}")
   profile_copy(p widths)
   gbl_json_mutate_set("${p}" "[1, 2]" bus_policy widths_bytes)
   expect_detail(bus-policy-value "bus_policy\\.widths_bytes: expected \\[1, 2, 4\\]" "${p}")
@@ -374,22 +399,22 @@ elseif(CASE STREQUAL "bus_policy_doc")
       set(row "#${row}")
     endif()
     gbl_text_mutate("${d}"
-      "| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-      "| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n${row}")
+      "| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+      "| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n${row}")
     expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
   endforeach()
   profile_copy(p stale_value)
   doc_copy(d stale_value)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
   expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
   # A complete but hidden copy must not stand in for the stale rendered table.
   profile_copy(p commented_stale_value)
   doc_copy(d commented_stale_value)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
   file(READ "${SRC}/docs/profile-agb.md" source_doc)
   string(FIND "${source_doc}" "| Setting | Value | Label | Citation |" table_start)
   string(FIND "${source_doc}" "\n## Initialization policy" table_end)
@@ -404,8 +429,8 @@ elseif(CASE STREQUAL "bus_policy_doc")
   profile_copy(p raw_html_table)
   doc_copy(d raw_html_table)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
   file(READ "${SRC}/docs/profile-agb.md" source_doc)
   string(FIND "${source_doc}" "| Setting | Value | Label | Citation |" table_start)
   string(FIND "${source_doc}" "\n## Initialization policy" table_end)
@@ -489,21 +514,21 @@ elseif(CASE STREQUAL "bus_policy_doc")
   profile_copy(p extra_row)
   doc_copy(d extra_row)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-    "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
+    "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+    "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
   expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 13" "${p}" "${d}")
   profile_copy(p unexpected_policy_row)
   doc_copy(d unexpected_policy_row)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
+    "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
     "| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
   expect_detail(bus-policy-doc
     "bus_policy: unexpected policy row bus_policy.request_cycles.extra" "${p}" "${d}")
   profile_copy(p wrong_policy_body_cells)
   doc_copy(d wrong_policy_body_cells)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. | extra |")
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. | extra |")
   expect_detail(bus-policy-doc
     "bus_policy: expected 4 cells per body row, found 5" "${p}" "${d}")
   profile_copy(p wrong_unmodeled_body_cells)
@@ -521,32 +546,32 @@ elseif(CASE STREQUAL "bus_policy_doc")
   profile_copy(p section_scope)
   doc_copy(d section_scope)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+    "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
   gbl_text_mutate("${d}" "## Machine\n"
-    "## Machine\n| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n")
+    "## Machine\n| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n")
   expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
   profile_copy(p same_section_fence)
   doc_copy(d same_section_fence)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n"
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n"
     "")
   gbl_text_mutate("${d}" "## Initialization policy"
-    "```text\n| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n```\n\n## Initialization policy")
+    "```text\n| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n```\n\n## Initialization policy")
   expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
   profile_copy(p same_section_indented)
   doc_copy(d same_section_indented)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n"
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n"
     "")
   gbl_text_mutate("${d}" "## Initialization policy"
-    "    | bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n\t| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |\n\n## Initialization policy")
+    "    | bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n\t| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n\n## Initialization policy")
   expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
   profile_copy(p duplicate_key)
   doc_copy(d duplicate_key)
   gbl_text_mutate("${d}"
-    "| bus_policy.request_cycles.oam | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |"
-    "| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |")
+    "| bus_policy.request_cycles.oam | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
+    "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
   expect_detail(bus-policy-doc "bus_policy: expected key bus_policy\\.request_cycles\\.rom exactly once in policy table, found 2" "${p}" "${d}")
 
 elseif(CASE STREQUAL "init_policy")
