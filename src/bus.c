@@ -452,6 +452,18 @@ static bool gbl_bus_is_dispcnt_byte(uint32_t address)
     return address == 0x04000000u || address == 0x04000001u;
 }
 
+static bool gbl_bus_is_dispstat_byte(uint32_t address)
+{
+    return address == UINT32_C(0x04000004) ||
+           address == UINT32_C(0x04000005);
+}
+
+static bool gbl_bus_is_vcount_byte(uint32_t address)
+{
+    return address == UINT32_C(0x04000006) ||
+           address == UINT32_C(0x04000007);
+}
+
 static bool gbl_bus_is_timer_byte(uint32_t address)
 {
     return address >= UINT32_C(0x04000100) &&
@@ -557,10 +569,24 @@ static bool gbl_bus_read_lane(
         if (gbl_bus_is_dispcnt_byte(address)) {
             *outcome = GBL_BUS_OUTCOME_IO_MODE_SUBSET;
             *value = address == 0x04000000u
-                         ? (uint8_t)(time_preview->ppu.dispcnt &
-                                     UINT16_C(0x0087))
-                         : (uint8_t)((time_preview->ppu.dispcnt >> 8u) &
-                                     UINT16_C(0x0007));
+                         ? (uint8_t)time_preview->ppu.dispcnt
+                         : (uint8_t)(time_preview->ppu.dispcnt >> 8u);
+            return true;
+        }
+        if (gbl_bus_is_dispstat_byte(address)) {
+            const uint16_t value16 = (uint16_t)(
+                (time_preview->ppu.dispstat & UINT16_C(0x00FF)) |
+                (uint16_t)(time_preview->ppu.compare << 8u));
+
+            *outcome = GBL_BUS_OUTCOME_IO_PPU_SUBSET;
+            *value = (uint8_t)(value16 >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
+        if (gbl_bus_is_vcount_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_PPU_SUBSET;
+            *value = (uint8_t)(time_preview->ppu.line >>
+                               ((address & UINT32_C(1)) * 8u));
             return true;
         }
         if (gbl_bus_is_dma_byte(address)) {
@@ -728,14 +754,18 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
             if (address == 0x04000000u) {
                 machine->dispcnt = (uint16_t)(
                     (machine->dispcnt & UINT16_C(0xFF00)) |
-                    (uint16_t)(value & UINT8_C(0x87)));
+                    (uint16_t)value);
             } else if (address == 0x04000001u) {
                 machine->dispcnt = (uint16_t)(
                     (machine->dispcnt & UINT16_C(0x00FF)) |
-                    (uint16_t)((uint16_t)(value & UINT8_C(0x07)) << 8u));
+                    (uint16_t)((uint16_t)value << 8u));
             }
             machine->ppu.dispcnt = machine->dispcnt;
             return GBL_BUS_OUTCOME_IO_MODE_SUBSET;
+        }
+        if (gbl_bus_is_dispstat_byte(address) ||
+            gbl_bus_is_vcount_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_PPU_SUBSET;
         }
         if (gbl_bus_is_timer_byte(address)) {
             return GBL_BUS_OUTCOME_IO_TIMER_SUBSET;

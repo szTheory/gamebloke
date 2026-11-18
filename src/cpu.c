@@ -4287,6 +4287,10 @@ static bool gbl_cpu_scheduler_event_live(const gbl_machine *machine,
                machine->input_events[machine->input_event_cursor].cycle ==
                    event->cycle;
     }
+    if (event->kind == (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) {
+        return machine->ppu.generation != 0u &&
+               event->generation == machine->ppu.generation;
+    }
     return false;
 }
 

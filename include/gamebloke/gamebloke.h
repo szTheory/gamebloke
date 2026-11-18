@@ -287,7 +287,8 @@ typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET = 10,
     GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET = 11,
     GBL_BUS_OUTCOME_IO_DMA_SUBSET = 12,
-    GBL_BUS_OUTCOME_IO_WAITCNT_SUBSET = 13
+    GBL_BUS_OUTCOME_IO_WAITCNT_SUBSET = 13,
+    GBL_BUS_OUTCOME_IO_PPU_SUBSET = 14
 } gbl_bus_outcome;
 
 typedef enum gbl_bus_access_class {

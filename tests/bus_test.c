@@ -1368,6 +1368,7 @@ static int run_ppu_boundary(void)
 {
     gbl_machine *hblank = new_machine();
     gbl_machine *raster = new_machine();
+    gbl_machine *all_lines = new_machine();
     gbl_bus_result result;
     static const struct {
         uint64_t cycle;
@@ -1384,8 +1385,9 @@ static int run_ppu_boundary(void)
     };
     size_t index;
 
-    if (hblank == NULL || raster == NULL) {
+    if (hblank == NULL || raster == NULL || all_lines == NULL) {
         fprintf(stderr, "ppu.boundary: host allocation failed\n");
+        free_machine(all_lines);
         free_machine(raster);
         free_machine(hblank);
         return 1;
@@ -1420,11 +1422,30 @@ static int run_ppu_boundary(void)
                                   GBL_BUS_CLASS_NONSEQUENTIAL);
             CHECK(result.status == GBL_BUS_STATUS_OK);
             CHECK(raster->ppu.line == 227u);
-            CHECK((result.value & UINT32_C(0x0003)) == UINT32_C(0x0002));
+            CHECK((result.value & UINT32_C(0x0003)) == UINT32_C(0x0003));
+        }
+    }
+    {
+        uint16_t line;
+
+        for (line = 0u; line < 228u; ++line) {
+            const uint64_t hblank_cycle =
+                (uint64_t)line * UINT64_C(1232) + UINT64_C(1006);
+            const uint64_t next_line =
+                ((uint64_t)line + UINT64_C(1)) * UINT64_C(1232);
+
+            CHECK(gbl_machine_advance_to(all_lines, hblank_cycle) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(all_lines->ppu.line == line);
+            CHECK((all_lines->ppu.dispstat & UINT16_C(0x0002)) != 0u);
+            CHECK(gbl_machine_advance_to(all_lines, next_line) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK((all_lines->ppu.dispstat & UINT16_C(0x0002)) == 0u);
         }
     }
     printf("{\"type\":\"ppu.boundary\",\"line_cycles\":1232,\"hblank_offset\":1006,\"hblank_provenance\":\"project-selected/REF\",\"hblank_dispute\":\"disp-hblank-flag-edge\",\"hardware_qualification\":\"UNKNOWN\"}\n");
 
+    free_machine(all_lines);
     free_machine(raster);
     free_machine(hblank);
     if (CHECK_DONE() == 0) {
@@ -1459,6 +1480,7 @@ static int run_ppu_registers(void)
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK((machine->ppu.dispstat & UINT16_C(0x00C0)) == 0u);
     CHECK((machine->ppu.dispstat & UINT16_C(0x0038)) == UINT16_C(0x0038));
+    CHECK((machine->ppu.dispstat & UINT16_C(0x0004)) != 0u);
     result = gbl_bus_write(machine, UINT32_C(0x04000005), 1u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFF));
     CHECK(result.status == GBL_BUS_STATUS_OK);

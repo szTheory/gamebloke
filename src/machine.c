@@ -257,6 +257,46 @@ static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length)
     return digest;
 }
 
+static void gbl_ppu_apply_status(gbl_machine_time_preview *preview,
+                                 uint16_t next_status)
+{
+    const uint16_t old_status =
+        (uint16_t)(preview->ppu.dispstat & UINT16_C(0x0007));
+    const uint16_t enables =
+        (uint16_t)(preview->ppu.dispstat & UINT16_C(0x0038));
+
+    if ((old_status & UINT16_C(0x0001)) == 0u &&
+        (next_status & UINT16_C(0x0001)) != 0u &&
+        (enables & UINT16_C(0x0008)) != 0u) {
+        preview->interrupt_flags |= UINT16_C(0x0001);
+    }
+    if ((old_status & UINT16_C(0x0002)) == 0u &&
+        (next_status & UINT16_C(0x0002)) != 0u &&
+        (enables & UINT16_C(0x0010)) != 0u) {
+        preview->interrupt_flags |= UINT16_C(0x0002);
+    }
+    if ((old_status & UINT16_C(0x0004)) == 0u &&
+        (next_status & UINT16_C(0x0004)) != 0u &&
+        (enables & UINT16_C(0x0020)) != 0u) {
+        preview->interrupt_flags |= UINT16_C(0x0004);
+    }
+    preview->ppu.dispstat =
+        (uint16_t)(enables | (next_status & UINT16_C(0x0007)));
+}
+
+static void gbl_ppu_refresh_compare_status(
+    gbl_machine_time_preview *preview)
+{
+    uint16_t next_status =
+        (uint16_t)(preview->ppu.dispstat & UINT16_C(0x0007));
+
+    next_status &= (uint16_t)~UINT16_C(0x0004);
+    if (preview->ppu.line == preview->ppu.compare) {
+        next_status |= UINT16_C(0x0004);
+    }
+    gbl_ppu_apply_status(preview, next_status);
+}
+
 static void gbl_ppu_project_row(const gbl_machine *machine,
                                 const gbl_machine_time_preview *preview,
                                 uint16_t line, uint16_t prior_write_count,
@@ -376,16 +416,18 @@ static gbl_time_status gbl_preview_dispatch_ppu_event(
         preview->ppu.frame_started = true;
         preview->ppu.line = line;
         preview->ppu.line_origin = event->cycle;
-        preview->ppu.dispstat &= (uint16_t)~UINT16_C(0x0001);
-        if (line >= GBL_PPU_VISIBLE_LINES) {
-            preview->ppu.dispstat |= UINT16_C(0x0002);
-        } else {
-            preview->ppu.dispstat &= (uint16_t)~UINT16_C(0x0002);
-        }
-        if (line == preview->ppu.compare) {
-            preview->ppu.dispstat |= UINT16_C(0x0004);
-        } else {
-            preview->ppu.dispstat &= (uint16_t)~UINT16_C(0x0004);
+        {
+            uint16_t next_status = (uint16_t)(
+                preview->ppu.dispstat & UINT16_C(0x0007));
+
+            next_status &= (uint16_t)~UINT16_C(0x0007);
+            if (line >= GBL_PPU_VISIBLE_LINES) {
+                next_status |= UINT16_C(0x0001);
+            }
+            if (line == preview->ppu.compare) {
+                next_status |= UINT16_C(0x0004);
+            }
+            gbl_ppu_apply_status(preview, next_status);
         }
         status = gbl_ppu_capture_row(machine, preview);
         if (status != GBL_TIME_STATUS_OK) {
@@ -400,7 +442,9 @@ static gbl_time_status gbl_preview_dispatch_ppu_event(
         if (preview->ppu.line >= GBL_PPU_TOTAL_LINES) {
             return GBL_TIME_STATUS_INVALID_ARGUMENT;
         }
-        preview->ppu.dispstat |= UINT16_C(0x0001);
+        gbl_ppu_apply_status(
+            preview,
+            (uint16_t)(preview->ppu.dispstat | UINT16_C(0x0002)));
         preview->ppu.scheduled_line = (uint16_t)(
             (preview->ppu.line + 1u) % GBL_PPU_TOTAL_LINES);
         if (event->cycle > UINT64_MAX -
@@ -925,9 +969,13 @@ static gbl_time_status gbl_preview_bus_write(
     uint16_t interrupt_master_enable = preview->interrupt_master_enable;
     uint16_t waitcnt = preview->waitcnt;
     uint16_t dispcnt = preview->ppu.dispcnt;
+    uint16_t dispstat_control =
+        (uint16_t)(preview->ppu.dispstat & UINT16_C(0x0038));
+    uint16_t compare = preview->ppu.compare;
     uint16_t key_control = preview->key_control;
     bool key_control_written = false;
     bool waitcnt_written = false;
+    bool dispstat_written = false;
     uint32_t lane;
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
@@ -938,11 +986,19 @@ static gbl_time_status gbl_preview_bus_write(
         if (lane_address == UINT32_C(0x04000000)) {
             dispcnt = (uint16_t)(
                 (dispcnt & UINT16_C(0xFF00)) |
-                (uint16_t)(byte_value & UINT8_C(0x87)));
+                (uint16_t)byte_value);
         } else if (lane_address == UINT32_C(0x04000001)) {
             dispcnt = (uint16_t)(
                 (dispcnt & UINT16_C(0x00FF)) |
-                (uint16_t)((uint16_t)(byte_value & UINT8_C(0x07)) << 8u));
+                (uint16_t)((uint16_t)byte_value << 8u));
+        } else if (lane_address == UINT32_C(0x04000004)) {
+            dispstat_control = (uint16_t)(
+                (dispstat_control & (uint16_t)~UINT16_C(0x0038)) |
+                (uint16_t)(byte_value & UINT8_C(0x38)));
+            dispstat_written = true;
+        } else if (lane_address == UINT32_C(0x04000005)) {
+            compare = byte_value;
+            dispstat_written = true;
         } else if (lane_address >= UINT32_C(0x04000100) &&
             lane_address <= UINT32_C(0x0400010F)) {
             const uint32_t offset =
@@ -1033,6 +1089,13 @@ static gbl_time_status gbl_preview_bus_write(
         preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x5FFF));
     }
     preview->ppu.dispcnt = dispcnt;
+    if (dispstat_written) {
+        preview->ppu.dispstat = (uint16_t)(
+            (preview->ppu.dispstat & UINT16_C(0x0007)) |
+            dispstat_control);
+        preview->ppu.compare = compare;
+        gbl_ppu_refresh_compare_status(preview);
+    }
     if (key_control_written) {
         preview->key_control =
             (uint16_t)(key_control & GBL_KEYPAD_CONTROL_MASK);
