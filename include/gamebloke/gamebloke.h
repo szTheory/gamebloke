@@ -789,7 +789,7 @@ gbl_time_status gbl_machine_prepare_time(
  * refusal leaves both machine and preview unchanged. */
 gbl_time_status gbl_machine_prepare_operations(
     const gbl_machine *machine,
-    const gbl_time_operation operations[GBL_TIME_OPERATION_MAX],
+    const gbl_time_operation *operations,
     size_t operation_count, gbl_machine_time_preview *preview);
 void gbl_machine_commit_time(gbl_machine *machine,
                             const gbl_machine_time_preview *preview);

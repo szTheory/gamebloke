@@ -3929,6 +3929,9 @@ static bool gbl_cpu_build_time_operations(
     uint64_t pipeline_total = 0u;
     uint8_t index;
 
+    if (time_status != NULL) {
+        *time_status = GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
     if (machine == NULL || unit == NULL || operations == NULL || count == NULL ||
         prepared_time == NULL || time_status == NULL ||
         unit->fetch_count > GBL_CPU_FETCH_SLOT_MAX ||
@@ -3936,7 +3939,6 @@ static bool gbl_cpu_build_time_operations(
         return false;
     }
     *count = 0u;
-    *time_status = GBL_TIME_STATUS_INVALID_ARGUMENT;
     unit->timing_prepared = false;
     unit->fetch_target_projected = false;
     if (!gbl_cpu_prepare_time_prefix(machine, operations, 0u, &candidate,
@@ -4376,7 +4378,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         gbl_cpu_irq_observation boundary_irq = { 0 };
         bool asynchronous_irq = false;
         bool effects_committed_before_fetch = false;
-        gbl_time_status time_status;
+        gbl_time_status time_status = GBL_TIME_STATUS_INVALID_ARGUMENT;
 
         if (machine->cpu.stopped) {
             run_result.termination = GBL_RUN_STOPPED;
