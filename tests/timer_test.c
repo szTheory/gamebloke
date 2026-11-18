@@ -817,8 +817,15 @@ static int run_event_refusal(void)
     machine->next_event_sequence = GBL_EVENT_CAPACITY;
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
         machine->events[index] = (gbl_event){
-            UINT64_MAX, index, 0u, 1u,
-            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 1u, true, 0u
+            .cycle = UINT64_MAX,
+            .sequence = index,
+            .generation = 0u,
+            .priority = 1u,
+            .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+            .timer_index = 1u,
+            .dma_channel = 0u,
+            .live = true,
+            .input_index = 0u
         };
     }
     take_time_snapshot(machine, &snapshot);
@@ -2187,8 +2194,15 @@ static int run_halt_refusal(void)
         stale->event_count = 1u;
         stale->next_event_sequence = 2u;
         stale->events[0] = (gbl_event){
-            UINT64_C(10), UINT64_C(1), UINT64_C(1), 0u,
-            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true, 0u
+            .cycle = UINT64_C(10),
+            .sequence = UINT64_C(1),
+            .generation = UINT64_C(1),
+            .priority = 0u,
+            .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+            .timer_index = 0u,
+            .dma_channel = 0u,
+            .live = true,
+            .input_index = 0u
         };
         take_time_snapshot(stale, &stale_snapshot);
         CHECK(run_power(stale, UINT64_C(100), &stale_result));
@@ -2212,9 +2226,15 @@ static int run_halt_refusal(void)
         if (near_limit->event_count == 1u &&
             near_limit->next_event_sequence < UINT64_MAX) {
             near_limit->events[1] = (gbl_event){
-                UINT64_MAX, near_limit->next_event_sequence,
-                near_limit->timers[0].generation, 0u,
-                (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u, true, 0u
+                .cycle = UINT64_MAX,
+                .sequence = near_limit->next_event_sequence,
+                .generation = near_limit->timers[0].generation,
+                .priority = 0u,
+                .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+                .timer_index = 0u,
+                .dma_channel = 0u,
+                .live = true,
+                .input_index = 0u
             };
             ++near_limit->next_event_sequence;
             ++near_limit->event_count;
