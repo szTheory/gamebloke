@@ -1098,6 +1098,605 @@ static bool test_ppu_same_cycle_input_order(void)
     return valid;
 }
 
+static void ppu_refusal_arm_channel(gbl_machine *machine,
+                                    uint8_t channel_index,
+                                    uint8_t start_mode)
+{
+    gbl_dma_channel_state *channel =
+        &machine->dma_channels[channel_index];
+
+    channel->generation = 1u;
+    channel->source_address = UINT32_C(0x02000020) +
+                              (uint32_t)channel_index * 2u;
+    channel->destination_address = UINT32_C(0x03000100) +
+                                  (uint32_t)channel_index * 2u;
+    channel->current_source = channel->source_address;
+    channel->current_destination = channel->destination_address;
+    channel->count = 1u;
+    channel->control = (uint16_t)(UINT16_C(0x8000) |
+                                  ((uint16_t)start_mode << 12u));
+    channel->remaining = 1u;
+    channel->armed = true;
+}
+
+static void ppu_refusal_seed_boundary(gbl_machine *machine,
+                                     uint64_t master_cycle,
+                                     uint64_t event_cycle,
+                                     uint16_t line, bool hblank,
+                                     uint64_t generation,
+                                     uint64_t next_sequence)
+{
+    size_t index;
+
+    machine->master_cycles = master_cycle;
+    machine->ppu.line_origin = hblank
+                                   ? event_cycle - GBL_PPU_HBLANK_CYCLES
+                                   : event_cycle;
+    machine->ppu.generation = generation;
+    machine->ppu.frame_epoch = event_cycle / GBL_PPU_FRAME_CYCLES;
+    machine->ppu.line = line;
+    machine->ppu.scheduled_line = line;
+    machine->ppu.dispcnt = machine->dispcnt;
+    machine->ppu.compare = line;
+    machine->ppu.dispstat = (uint16_t)(machine->ppu.dispstat &
+                                       UINT16_C(0x0038));
+    if (line >= GBL_PPU_VISIBLE_LINES) {
+        machine->ppu.dispstat |= UINT16_C(0x0001);
+    }
+    if (line == machine->ppu.compare) {
+        machine->ppu.dispstat |= UINT16_C(0x0004);
+    }
+    machine->ppu.captured_rows = 0u;
+    machine->ppu.capture_state = GBL_VIDEO_CAPTURE_INCOMPLETE;
+    machine->ppu.capture_reason = GBL_VIDEO_INVALID_REASON_INCOMPLETE;
+    machine->ppu.next_boundary_hblank = hblank;
+    machine->ppu.frame_started = true;
+    memset(machine->ppu.row_coverage, 0, sizeof(machine->ppu.row_coverage));
+    for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
+        machine->events[index] = (gbl_event){ 0 };
+    }
+    machine->events[0] = (gbl_event){
+        .cycle = event_cycle,
+        .sequence = 0u,
+        .generation = generation,
+        .priority = 9u,
+        .kind = (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY,
+        .live = true
+    };
+    machine->event_count = 1u;
+    machine->next_event_sequence = next_sequence;
+}
+
+static void ppu_refusal_fill_future_events(gbl_machine *machine,
+                                           size_t count,
+                                           uint64_t cycle)
+{
+    size_t index;
+
+    for (index = 1u; index < count; ++index) {
+        machine->events[index] = (gbl_event){
+            .cycle = cycle + 1u,
+            .sequence = (uint64_t)index,
+            .generation = 0u,
+            .priority = 0u,
+            .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+            .timer_index = 0u,
+            .live = true
+        };
+    }
+    machine->event_count = count;
+}
+
+static bool ppu_refusal_preview_is_atomic(gbl_machine *machine,
+                                         uint64_t target,
+                                         gbl_time_status expected)
+{
+    gbl_machine_time_preview preview = { 0 };
+    gbl_machine_time_preview sentinel = { 0 };
+    gbl_machine *before;
+    gbl_time_status actual;
+    bool valid;
+
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        return false;
+    }
+    *before = *machine;
+    sentinel.master_cycles = UINT64_C(0xAABBCCDD);
+    sentinel.ppu.line = UINT16_C(37);
+    sentinel.dma_channels[0].trigger_cycle = UINT64_C(0x11223344);
+    preview = sentinel;
+    actual = gbl_machine_prepare_time(machine, target, &preview);
+    valid = actual == expected &&
+            gbl_test_time_preview_equal(&preview, &sentinel) &&
+            gbl_test_canonical_equal(before, machine);
+    free(before);
+    return valid;
+}
+
+static bool ppu_request_capacity_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    uint8_t channel;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        ppu_refusal_arm_channel(machine, channel, 2u);
+    }
+    ppu_refusal_seed_boundary(machine, GBL_PPU_HBLANK_CYCLES,
+                              GBL_PPU_HBLANK_CYCLES, 0u, true, 1u, 20u);
+    ppu_refusal_fill_future_events(machine, 15u,
+                                   GBL_PPU_HBLANK_CYCLES);
+    valid = ppu_refusal_preview_is_atomic(
+        machine, GBL_PPU_HBLANK_CYCLES, GBL_TIME_STATUS_EVENT_CAPACITY);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_recurrence_capacity_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    ppu_refusal_arm_channel(machine, 0u, 2u);
+    ppu_refusal_seed_boundary(machine, GBL_PPU_HBLANK_CYCLES,
+                              GBL_PPU_HBLANK_CYCLES, 0u, true, 1u, 20u);
+    ppu_refusal_fill_future_events(machine, GBL_EVENT_CAPACITY,
+                                   GBL_PPU_HBLANK_CYCLES);
+    valid = ppu_refusal_preview_is_atomic(
+        machine, GBL_PPU_HBLANK_CYCLES, GBL_TIME_STATUS_EVENT_CAPACITY);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_request_sequence_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    uint8_t channel;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    for (channel = 0u; channel < GBL_DMA_CHANNEL_COUNT; ++channel) {
+        ppu_refusal_arm_channel(machine, channel, 2u);
+    }
+    ppu_refusal_seed_boundary(machine, GBL_PPU_HBLANK_CYCLES,
+                              GBL_PPU_HBLANK_CYCLES, 0u, true, 1u,
+                              UINT64_MAX - UINT64_C(2));
+    valid = ppu_refusal_preview_is_atomic(
+        machine, GBL_PPU_HBLANK_CYCLES,
+        GBL_TIME_STATUS_SEQUENCE_EXHAUSTED);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_recurrence_sequence_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    ppu_refusal_arm_channel(machine, 0u, 2u);
+    ppu_refusal_seed_boundary(machine, GBL_PPU_HBLANK_CYCLES,
+                              GBL_PPU_HBLANK_CYCLES, 0u, true, 1u,
+                              UINT64_MAX - UINT64_C(1));
+    valid = ppu_refusal_preview_is_atomic(
+        machine, GBL_PPU_HBLANK_CYCLES,
+        GBL_TIME_STATUS_SEQUENCE_EXHAUSTED);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_generation_recurrence_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    ppu_refusal_arm_channel(machine, 0u, 2u);
+    ppu_refusal_seed_boundary(machine, GBL_PPU_HBLANK_CYCLES,
+                              GBL_PPU_HBLANK_CYCLES, 0u, true,
+                              UINT64_MAX - UINT64_C(1), 20u);
+    valid = ppu_refusal_preview_is_atomic(
+        machine, GBL_PPU_LINE_CYCLES, GBL_TIME_STATUS_GENERATION_EXHAUSTED);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_cycle_overflow_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    const uint64_t cycle = UINT64_MAX - UINT64_C(100);
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    ppu_refusal_arm_channel(machine, 0u, 2u);
+    ppu_refusal_seed_boundary(machine, cycle, cycle, 0u, true, 1u, 20u);
+    valid = ppu_refusal_preview_is_atomic(
+        machine, UINT64_MAX, GBL_TIME_STATUS_CYCLE_OVERFLOW);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_dispatch_budget_is_atomic(void)
+{
+    gbl_machine *machine = new_machine();
+    const uint64_t target =
+        (uint64_t)GBL_MACHINE_MAX_EVENT_DISPATCH * GBL_PPU_LINE_CYCLES;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    ppu_refusal_arm_channel(machine, 0u, 2u);
+    ppu_refusal_seed_boundary(machine, 0u, 0u, 0u, false, 1u, 1u);
+    valid = ppu_refusal_preview_is_atomic(
+        machine, target, GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_prepare_is_idempotent_and_instance_local(void)
+{
+    gbl_machine *first = new_machine();
+    gbl_machine *second = new_machine();
+    gbl_machine *before_first = NULL;
+    gbl_machine *before_second = NULL;
+    gbl_machine *after_commit = NULL;
+    gbl_machine_time_preview preview_a = { 0 };
+    gbl_machine_time_preview preview_b = { 0 };
+    bool valid = first != NULL && second != NULL;
+
+    if (!valid) {
+        free_machine(first);
+        free_machine(second);
+        return false;
+    }
+    before_first = malloc(sizeof(*before_first));
+    before_second = malloc(sizeof(*before_second));
+    after_commit = malloc(sizeof(*after_commit));
+    if (before_first == NULL || before_second == NULL ||
+        after_commit == NULL) {
+        free(before_first);
+        free(before_second);
+        free(after_commit);
+        free_machine(first);
+        free_machine(second);
+        return false;
+    }
+    ppu_refusal_arm_channel(first, 0u, 2u);
+    ppu_refusal_arm_channel(second, 0u, 2u);
+    first->video_frame[0] = UINT8_C(0x11);
+    second->video_frame[0] = UINT8_C(0x22);
+    ppu_refusal_seed_boundary(first, GBL_PPU_HBLANK_CYCLES - 1u,
+                              GBL_PPU_HBLANK_CYCLES, 0u, true, 1u, 10u);
+    ppu_refusal_seed_boundary(second, GBL_PPU_HBLANK_CYCLES - 1u,
+                              GBL_PPU_HBLANK_CYCLES, 0u, true, 1u, 10u);
+    *before_first = *first;
+    *before_second = *second;
+    valid = gbl_machine_prepare_time(first, GBL_PPU_HBLANK_CYCLES,
+                                     &preview_a) == GBL_TIME_STATUS_OK &&
+            gbl_machine_prepare_time(first, GBL_PPU_HBLANK_CYCLES,
+                                     &preview_b) == GBL_TIME_STATUS_OK &&
+            gbl_test_time_preview_equal(&preview_a, &preview_b) &&
+            preview_a.dma_channels[0].pending &&
+            preview_a.dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_HBLANK &&
+            preview_a.dma_channels[0].trigger_cycle ==
+                GBL_PPU_HBLANK_CYCLES &&
+            gbl_test_canonical_equal(before_first, first) &&
+            gbl_test_canonical_equal(before_second, second);
+    if (valid) {
+        gbl_machine_commit_time(first, &preview_a);
+        *after_commit = *first;
+        valid = first->dma_channels[0].pending &&
+                second->dma_channels[0].armed &&
+                !second->dma_channels[0].pending &&
+                second->video_frame[0] == UINT8_C(0x22) &&
+                gbl_machine_advance_to(first, GBL_PPU_HBLANK_CYCLES) ==
+                    GBL_TIME_STATUS_OK &&
+                gbl_test_canonical_equal(after_commit, first);
+    }
+    free(before_first);
+    free(before_second);
+    free(after_commit);
+    free_machine(first);
+    free_machine(second);
+    return valid;
+}
+
+static bool ppu_failed_unit_preserves_pixels_and_memory(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    gbl_machine *before = NULL;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    machine->ewram[0x20u] = UINT8_C(0x5A);
+    machine->ewram[0x21u] = UINT8_C(0xA5);
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000020),
+                          UINT32_C(0x04000000), 1u, UINT16_C(0xA000)) &&
+            gbl_machine_advance_to(machine, GBL_PPU_HBLANK_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            machine->dma_channels[0].pending &&
+            gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES, &step) ==
+                GBL_DMA_STATUS_OK;
+    if (valid) {
+        *before = *machine;
+        valid = gbl_machine_dma_step(machine, UINT64_C(64), &step) ==
+                    GBL_DMA_STATUS_UNIT_REFUSAL &&
+                gbl_test_canonical_equal(before, machine);
+    }
+    free(before);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_provenance_comparator_detects_each_field(void)
+{
+    gbl_machine *base = new_machine();
+    gbl_machine *changed = NULL;
+    bool valid = base != NULL;
+
+    if (base == NULL) {
+        return false;
+    }
+    changed = malloc(sizeof(*changed));
+    if (changed == NULL) {
+        free_machine(base);
+        return false;
+    }
+    base->dma_channels[0].trigger_origin = GBL_DMA_TRIGGER_ORIGIN_HBLANK;
+    base->dma_channels[0].trigger_cycle = UINT64_C(1006);
+    base->dma_channels[0].trigger_dispute =
+        GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE;
+    *changed = *base;
+    changed->dma_channels[0].trigger_origin =
+        GBL_DMA_TRIGGER_ORIGIN_VBLANK;
+    valid = !gbl_test_canonical_equal(base, changed);
+    *changed = *base;
+    ++changed->dma_channels[0].trigger_cycle;
+    valid = valid && !gbl_test_canonical_equal(base, changed);
+    *changed = *base;
+    changed->dma_channels[0].trigger_dispute = GBL_DMA_DISPUTE_NONE;
+    valid = valid && !gbl_test_canonical_equal(base, changed);
+    free(changed);
+    free_machine(base);
+    return valid;
+}
+
+static bool ppu_same_cycle_timer_input_match_and_ack(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_time_operation acknowledgement = {
+        GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x04000202), 1u, 1u
+    };
+    gbl_machine_time_preview preview = { 0 };
+    gbl_machine *before = NULL;
+    const uint64_t cycle =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    ppu_refusal_arm_channel(machine, 0u, 1u);
+    ppu_refusal_seed_boundary(machine, cycle - 1u, cycle,
+                              GBL_PPU_VISIBLE_LINES, false, 1u, 4u);
+    machine->ppu.line = (uint16_t)(GBL_PPU_VISIBLE_LINES - 1u);
+    machine->ppu.dispstat = UINT16_C(0x0038);
+    machine->ppu.compare = GBL_PPU_VISIBLE_LINES;
+    machine->timers[0] = (gbl_timer_state){
+        .reload = UINT16_MAX,
+        .counter = UINT16_MAX,
+        .divisor = 1u,
+        .anchor_cycle = cycle - 1u,
+        .generation = 1u,
+        .enabled = true,
+        .irq_enabled = true
+    };
+    machine->input_generation = 1u;
+    machine->input_event_count = 1u;
+    machine->input_events[0] = (gbl_input_event){ cycle, UINT16_C(0x0020) };
+    machine->event_count = 3u;
+    machine->events[0] = (gbl_event){
+        .cycle = cycle,
+        .sequence = 0u,
+        .generation = 1u,
+        .priority = 0u,
+        .kind = (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW,
+        .timer_index = 0u,
+        .live = true
+    };
+    machine->events[1] = (gbl_event){
+        .cycle = cycle,
+        .sequence = 1u,
+        .generation = 1u,
+        .priority = 4u,
+        .kind = (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT,
+        .input_index = 0u,
+        .live = true
+    };
+    machine->events[2] = (gbl_event){
+        .cycle = cycle,
+        .sequence = 2u,
+        .generation = 1u,
+        .priority = 9u,
+        .kind = (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY,
+        .live = true
+    };
+    *before = *machine;
+    valid = gbl_machine_prepare_operations(
+                machine, &acknowledgement, 1u, &preview) ==
+                GBL_TIME_STATUS_OK &&
+            preview.master_cycles == cycle &&
+            (preview.interrupt_flags & UINT16_C(0x000D)) ==
+                UINT16_C(0x000C) &&
+            preview.pressed_keys == UINT16_C(0x0020) &&
+            preview.input_event_cursor == 1u &&
+            preview.ppu.line == GBL_PPU_VISIBLE_LINES &&
+            (preview.ppu.dispstat & UINT16_C(0x0005)) ==
+                UINT16_C(0x0005) &&
+            preview.dma_channels[0].pending &&
+            preview.dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_VBLANK &&
+            preview.dma_channels[0].trigger_cycle == cycle &&
+            gbl_test_canonical_equal(before, machine);
+    if (valid) {
+        gbl_machine_commit_time(machine, &preview);
+        valid = machine->interrupt_flags == UINT16_C(0x000C) &&
+                machine->pressed_keys == UINT16_C(0x0020) &&
+                machine->dma_channels[0].pending;
+    }
+    free(before);
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_dma_control_writes_follow_boundary(void)
+{
+    gbl_machine *enable = new_machine();
+    gbl_machine *disable = new_machine();
+    gbl_time_operation enable_write = {
+        GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x040000BA),
+        UINT16_C(0xA000), 1u
+    };
+    gbl_time_operation disable_write = {
+        GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x040000BA), 0u, 1u
+    };
+    gbl_machine_time_preview enable_preview = { 0 };
+    gbl_machine_time_preview disable_preview = { 0 };
+    const uint64_t cycle = GBL_PPU_HBLANK_CYCLES;
+    bool valid = enable != NULL && disable != NULL;
+
+    if (!valid) {
+        free_machine(enable);
+        free_machine(disable);
+        return false;
+    }
+    ppu_refusal_seed_boundary(enable, cycle - 1u, cycle, 0u, true, 1u, 10u);
+    ppu_refusal_seed_boundary(disable, cycle - 1u, cycle, 0u, true, 1u, 10u);
+    ppu_refusal_arm_channel(disable, 0u, 2u);
+    valid = gbl_machine_prepare_operations(
+                enable, &enable_write, 1u, &enable_preview) ==
+                GBL_TIME_STATUS_OK &&
+            enable_preview.dma_channels[0].armed &&
+            !enable_preview.dma_channels[0].pending &&
+            enable_preview.dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_NONE &&
+            gbl_machine_prepare_operations(
+                disable, &disable_write, 1u, &disable_preview) ==
+                GBL_TIME_STATUS_OK &&
+            !disable_preview.dma_channels[0].armed &&
+            !disable_preview.dma_channels[0].pending &&
+            (disable_preview.dma_channels[0].control & UINT16_C(0x8000)) == 0u &&
+            disable_preview.dma_channels[0].generation == 2u &&
+            disable_preview.dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_NONE;
+    free_machine(enable);
+    free_machine(disable);
+    return valid;
+}
+
+static bool ppu_dma_transfer_completion_collision(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    uint64_t target;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->iwram[0x20u] = UINT8_C(0xA6);
+    machine->iwram[0x21u] = UINT8_C(0x5C);
+    valid = configure_dma(machine, 0u, UINT32_C(0x02000040),
+                          UINT32_C(0x03000100), 1u, UINT16_C(0xA000)) &&
+            configure_dma(machine, 3u, UINT32_C(0x03000020),
+                          UINT32_C(0x03000040), 1u, UINT16_C(0x8000)) &&
+            gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES, &step) ==
+                GBL_DMA_STATUS_OK && step.channel == 3u;
+    target = machine->master_cycles + 2u;
+    if (valid) {
+        const uint64_t generation = machine->ppu.generation + 1u;
+
+        ppu_refusal_seed_boundary(machine, machine->master_cycles, target,
+                                  0u, true, generation,
+                                  machine->next_event_sequence);
+        valid = gbl_machine_dma_step(machine, UINT64_C(2), &step) ==
+                    GBL_DMA_STATUS_OK && step.channel == 3u &&
+                step.unit_completed && step.completion_cycle == target &&
+                machine->iwram[0x40u] == UINT8_C(0xA6) &&
+                machine->iwram[0x41u] == UINT8_C(0x5C) &&
+                machine->dma_channels[3].completed_units == 1u &&
+                machine->dma_channels[0].pending &&
+                machine->dma_channels[0].trigger_origin ==
+                    GBL_DMA_TRIGGER_ORIGIN_HBLANK &&
+                machine->dma_channels[0].trigger_cycle == target &&
+                machine->bus_owner == GBL_MACHINE_BUS_OWNER_DMA;
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool run_ppu_refusal(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..11\n");
+    test_case(ppu_request_capacity_is_atomic(),
+              "blank request capacity refusal preserves PPU, DMA, memory, and pixels");
+    test_case(ppu_recurrence_capacity_is_atomic(),
+              "recurrence capacity refusal rolls back an inserted blank request");
+    test_case(ppu_request_sequence_is_atomic(),
+              "blank request sequence exhaustion leaves every channel unchanged");
+    test_case(ppu_recurrence_sequence_is_atomic(),
+              "recurrence sequence exhaustion rolls back readiness and provenance");
+    test_case(ppu_generation_recurrence_is_atomic(),
+              "PPU generation exhaustion after blank readiness preserves canonical state");
+    test_case(ppu_cycle_overflow_is_atomic(),
+              "cycle overflow after HBlank request insertion preserves raw state");
+    test_case(ppu_dispatch_budget_is_atomic(),
+              "bounded dispatch refusal rolls back earlier raster and DMA trigger work");
+    test_case(ppu_prepare_is_idempotent_and_instance_local(),
+              "repeated prepare is idempotent and PPU captures remain instance-local");
+    test_case(ppu_failed_unit_preserves_pixels_and_memory(),
+              "failed blank-triggered transfer unit preserves canonical memory and raw video");
+    test_case(ppu_provenance_comparator_detects_each_field(),
+              "canonical equality detects trigger origin, cycle, and dispute changes");
+    test_case(ppu_same_cycle_timer_input_match_and_ack() &&
+                  ppu_dma_control_writes_follow_boundary() &&
+                  ppu_dma_transfer_completion_collision(),
+              "timer, input, PPU match, IF acknowledgement, DMA writes, and transfer completion follow one causal clock");
+    return failure_count == 0u ? 0 : 1;
+}
+
 static bool run_ppu_triggers(void)
 {
     check_count = 0u;
@@ -1185,6 +1784,9 @@ static bool run_controls(void)
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "ppu.refusal") == 0) {
+        return run_ppu_refusal();
+    }
     if (argc == 2 && strcmp(argv[1], "ppu.triggers") == 0) {
         return run_ppu_triggers();
     }

@@ -14266,10 +14266,14 @@ static void test_ppu_dma(void)
               "PPU-triggered DMA advances input and VRAM while the CPU pauses, then the CPU resumes through the canonical coordinator");
 }
 
+static bool cpu_ppu_vblank_dma_defers_irq_acceptance(void);
+
 static void test_ppu_refusal(void)
 {
     test_case(cpu_ppu_budget_refusal_is_atomic(),
               "CPU budget refusal before a PPU row preserves machine and captured video; a clean twin commits it");
+    test_case(cpu_ppu_vblank_dma_defers_irq_acceptance(),
+              "VBlank DMA owns the bus before the CPU accepts the same-cycle IRQ request");
 }
 
 static void test_time_preflight_unit_boundaries(void)
@@ -14375,6 +14379,110 @@ static bool prepare_irq_boundary_machine(gbl_machine *machine, bool thumb)
     };
     machine->cpu.next_fetch_sequential = true;
     return true;
+}
+
+static bool cpu_ppu_vblank_dma_defers_irq_acceptance(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine *machine = calloc(1u, sizeof(*machine));
+    gbl_bus_result bus_result;
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    const uint64_t vblank_cycle =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    bool loaded = false;
+    bool valid = machine != NULL;
+
+    if (!valid) {
+        return false;
+    }
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE1A00000));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    loaded = machine_load(machine, image);
+    if (!loaded) {
+        free(machine);
+        return false;
+    }
+    machine->cpu.execution_address = UINT32_C(0x08000000);
+    machine->cpu.cpsr = TEST_CPSR_SYSTEM;
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0xEAFFFFFE), 4u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    machine->interrupt_enable = UINT16_C(0x0001);
+    machine->interrupt_master_enable = 1u;
+    machine->ewram[0x80u] = UINT8_C(0x5A);
+    machine->ewram[0x81u] = UINT8_C(0xA5);
+
+    bus_result = gbl_bus_write(machine, UINT32_C(0x040000B0), 4u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x02000080));
+    valid = bus_result.status == GBL_BUS_STATUS_OK;
+    bus_result = valid
+        ? gbl_bus_write(machine, UINT32_C(0x040000B4), 4u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL,
+                        UINT32_C(0x03000100))
+        : (gbl_bus_result){ 0 };
+    valid = valid && bus_result.status == GBL_BUS_STATUS_OK;
+    bus_result = valid
+        ? gbl_bus_write(machine, UINT32_C(0x040000B8), 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, 1u)
+        : (gbl_bus_result){ 0 };
+    valid = valid && bus_result.status == GBL_BUS_STATUS_OK;
+    bus_result = valid
+        ? gbl_bus_write(machine, UINT32_C(0x040000BA), 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, UINT16_C(0x9000))
+        : (gbl_bus_result){ 0 };
+    valid = valid && bus_result.status == GBL_BUS_STATUS_OK;
+    bus_result = valid
+        ? gbl_bus_write(machine, UINT32_C(0x04000004), 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, UINT16_C(0x0008))
+        : (gbl_bus_result){ 0 };
+    valid = valid && bus_result.status == GBL_BUS_STATUS_OK &&
+            gbl_machine_advance_to(machine, vblank_cycle) ==
+                GBL_TIME_STATUS_OK &&
+            machine->ppu.line == GBL_PPU_VISIBLE_LINES &&
+            (machine->interrupt_flags & UINT16_C(0x0001)) != 0u &&
+            machine->dma_channels[0].pending &&
+            machine->dma_channels[0].trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_VBLANK &&
+            machine->dma_channels[0].trigger_cycle == vblank_cycle &&
+            !machine->cpu.irq_observation.accepted &&
+            !machine->cpu.irq_observation.entered;
+
+    options.cycle_budget = 1u;
+    valid = valid &&
+            gbl_cpu_run(machine, &options, &result) == GBL_RUN_STATUS_OK &&
+            result.termination == GBL_RUN_TIMEOUT &&
+            result.reason == GBL_RUN_REASON_CYCLE_BUDGET &&
+            machine->master_cycles == vblank_cycle &&
+            machine->dma_channels[0].pending &&
+            !machine->cpu.irq_observation.accepted &&
+            !machine->cpu.irq_observation.entered;
+    options.cycle_budget = 64u;
+    options.unit_limit = 1u;
+    valid = valid &&
+            gbl_cpu_run(machine, &options, &result) == GBL_RUN_STATUS_OK &&
+            result.termination == GBL_RUN_STOPPED &&
+            result.reason == GBL_RUN_REASON_GUEST_STOP &&
+            result.instructions == 0u && result.dma_completed_units == 1u &&
+            machine->dma_channels[0].completed_units == 1u &&
+            machine->iwram[0x100u] == UINT8_C(0x5A) &&
+            machine->iwram[0x101u] == UINT8_C(0xA5) &&
+            machine->cpu.irq_observation.accepted &&
+            machine->cpu.irq_observation.entered &&
+            machine->cpu.irq_observation.interrupt_flags ==
+                UINT16_C(0x0001) &&
+            machine->cpu.irq_observation.sample_cycle >=
+                vblank_cycle + GBL_DMA_STARTUP_CYCLES;
+
+    gbl_machine_dispose(machine);
+    free(machine);
+    return valid;
 }
 
 static bool run_irq_mask_case(uint16_t flags, uint16_t enable, uint16_t ime,
@@ -16356,7 +16464,7 @@ static const cpu_test_function power_boundary_functions[] = {
 static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("unit_boundaries", 66u, unit_boundaries_functions),
     CPU_TEST_GROUP("ppu.dma", 1u, ppu_dma_functions),
-    CPU_TEST_GROUP("ppu.refusal", 1u, ppu_refusal_functions),
+    CPU_TEST_GROUP("ppu.refusal", 2u, ppu_refusal_functions),
     CPU_TEST_GROUP("ppu.irq", 5u, ppu_irq_functions),
     CPU_TEST_GROUP("ppu.latch", 2u, ppu_latch_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
