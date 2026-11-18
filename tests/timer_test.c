@@ -387,6 +387,14 @@ typedef struct time_snapshot {
     uint16_t interrupt_flags;
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
+    uint16_t waitcnt;
+    gbl_machine_bus_owner bus_owner;
+    uint8_t dma_last_channel;
+    uint8_t dma_last_width;
+    uint32_t dma_last_source;
+    uint32_t dma_last_destination;
+    bool dma_stream_valid;
+    gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
     uint16_t pressed_keys;
     uint16_t key_control;
     bool key_condition;
@@ -466,6 +474,7 @@ static bool event_equal(const gbl_event *left, const gbl_event *right)
            left->generation == right->generation &&
            left->priority == right->priority && left->kind == right->kind &&
            left->timer_index == right->timer_index &&
+           left->dma_channel == right->dma_channel &&
            left->live == right->live &&
            left->input_index == right->input_index;
 }
@@ -489,6 +498,23 @@ static bool timer_equal(const gbl_timer_state *left,
            left->cascade == right->cascade;
 }
 
+static bool dma_channel_equal(const gbl_dma_channel_state *left,
+                              const gbl_dma_channel_state *right)
+{
+    return left->source_address == right->source_address &&
+           left->destination_address == right->destination_address &&
+           left->current_source == right->current_source &&
+           left->current_destination == right->current_destination &&
+           left->read_latch == right->read_latch &&
+           left->completed_units == right->completed_units &&
+           left->generation == right->generation &&
+           left->count == right->count && left->control == right->control &&
+           left->remaining == right->remaining &&
+           left->pending == right->pending && left->armed == right->armed &&
+           left->active == right->active &&
+           left->startup_complete == right->startup_complete;
+}
+
 static void take_time_snapshot(const gbl_machine *machine,
                                time_snapshot *snapshot)
 {
@@ -499,6 +525,16 @@ static void take_time_snapshot(const gbl_machine *machine,
     snapshot->interrupt_flags = machine->interrupt_flags;
     snapshot->interrupt_enable = machine->interrupt_enable;
     snapshot->interrupt_master_enable = machine->interrupt_master_enable;
+    snapshot->waitcnt = machine->waitcnt;
+    snapshot->bus_owner = machine->bus_owner;
+    snapshot->dma_last_channel = machine->dma_last_channel;
+    snapshot->dma_last_width = machine->dma_last_width;
+    snapshot->dma_last_source = machine->dma_last_source;
+    snapshot->dma_last_destination = machine->dma_last_destination;
+    snapshot->dma_stream_valid = machine->dma_stream_valid;
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        snapshot->dma_channels[index] = machine->dma_channels[index];
+    }
     snapshot->pressed_keys = machine->pressed_keys;
     snapshot->key_control = machine->key_control;
     snapshot->key_condition = machine->key_condition;
@@ -530,6 +566,13 @@ static bool time_matches_snapshot(const gbl_machine *machine,
         machine->interrupt_enable != snapshot->interrupt_enable ||
         machine->interrupt_master_enable !=
             snapshot->interrupt_master_enable ||
+        machine->waitcnt != snapshot->waitcnt ||
+        machine->bus_owner != snapshot->bus_owner ||
+        machine->dma_last_channel != snapshot->dma_last_channel ||
+        machine->dma_last_width != snapshot->dma_last_width ||
+        machine->dma_last_source != snapshot->dma_last_source ||
+        machine->dma_last_destination != snapshot->dma_last_destination ||
+        machine->dma_stream_valid != snapshot->dma_stream_valid ||
         machine->pressed_keys != snapshot->pressed_keys ||
         machine->key_control != snapshot->key_control ||
         machine->key_condition != snapshot->key_condition ||
@@ -548,6 +591,12 @@ static bool time_matches_snapshot(const gbl_machine *machine,
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         if (!timer_equal(&machine->timers[index], &snapshot->timers[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        if (!dma_channel_equal(&machine->dma_channels[index],
+                               &snapshot->dma_channels[index])) {
             return false;
         }
     }
@@ -570,6 +619,13 @@ static bool preview_equal(const gbl_machine_time_preview *left,
         left->interrupt_flags != right->interrupt_flags ||
         left->interrupt_enable != right->interrupt_enable ||
         left->interrupt_master_enable != right->interrupt_master_enable ||
+        left->waitcnt != right->waitcnt ||
+        left->bus_owner != right->bus_owner ||
+        left->dma_last_channel != right->dma_last_channel ||
+        left->dma_last_width != right->dma_last_width ||
+        left->dma_last_source != right->dma_last_source ||
+        left->dma_last_destination != right->dma_last_destination ||
+        left->dma_stream_valid != right->dma_stream_valid ||
         left->pressed_keys != right->pressed_keys ||
         left->key_control != right->key_control ||
         left->key_condition != right->key_condition ||
@@ -584,6 +640,12 @@ static bool preview_equal(const gbl_machine_time_preview *left,
     }
     for (index = 0u; index < GBL_TIMER_COUNT; ++index) {
         if (!timer_equal(&left->timers[index], &right->timers[index])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+        if (!dma_channel_equal(&left->dma_channels[index],
+                               &right->dma_channels[index])) {
             return false;
         }
     }
