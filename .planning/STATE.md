@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 09
 current_phase_name: Bus Timing, DMA, and Arbitration
-current_plan: 7
+current_plan: 8
 status: executing
-stopped_at: Completed 09-06-PLAN.md
-last_updated: "2026-11-18T01:29:48.116Z"
+stopped_at: Completed 09-07-PLAN.md
+last_updated: "2026-11-18T02:17:40.416Z"
 last_activity: 2026-11-17
 last_activity_desc: Phase 09 execution started
-state_head: 6708a4d8f6b0e312f1e1e6e83eea354962e7a04c
+state_head: d4bd46484896328d694c532aeb73725ff398dabd
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 20
+  completed_plans: 21
   percent: 50
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-17)
 ## Current Position
 
 Phase: 09 (Bus Timing, DMA, and Arbitration) — EXECUTING
-Current Plan: 7
+Current Plan: 8
 Total Plans in Phase: 8
 Status: Ready to execute
 Last activity: 2026-11-17 — Phase 09 execution started
@@ -151,6 +151,7 @@ Progress: [█████░░░░░] 50%
 | Phase 09 P04 | 81 min | 2 tasks | 9 files |
 | Phase 09 P05 | 51min | 2 tasks | 1 files |
 | Phase 09 P06 | 55min | 3 tasks | 8 files |
+| Phase 09 P07 | 31m from first task commit | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -368,6 +369,8 @@ Recent decisions affecting current work:
 - [Phase 09]: Retained-latch state remains project-selected and disputed under disp-dma-latch; this plan does not qualify latch behavior on hardware.
 - [Phase 09]: ROM profile costs are contextual WAITCNT halfword-beat formulas; hardware qualification remains UNKNOWN.
 - [Phase 09]: DMA startup and whole-unit arbitration remain project-selected; per-channel latch results remain disputed under open disp-dma-latch.
+- [Phase 09]: Keep Phase 9 checks in the existing CI workflow and reuse its configured build.
+- [Phase 09]: Require the seven cheap Phase 9 checks as fixture predecessors for longer affected cases.
 
 ### Pending Todos
 
@@ -418,8 +421,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-18T01:29:48.019Z
-Stopped at: Completed 09-06-PLAN.md
+Last session: 2026-11-18T02:17:40.326Z
+Stopped at: Completed 09-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

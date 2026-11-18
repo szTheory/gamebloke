@@ -109,7 +109,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
   2. All four DMA channels produce the expected transfers under channel priority, start-delay, count/address-mask, and unit-timing cases. Results expose the bus owner and CPU pause rather than completing transfers through untimed callbacks.
   3. Scheduled timers and other enabled events continue during DMA ownership, including events at transfer boundaries; the CPU resumes through the canonical execution path after ownership returns.
   4. Per-channel latch cases state their expected-value provenance and retain the dispute-registry link for unresolved behavior. Deliberately wrong transfer/timing controls fail for named semantic reasons; repeatable hashes alone do not establish accuracy.
-**Plans**: 6/8 plans executed
+**Plans**: 7/8 plans executed
 
 Plans:
 **Wave 1**
@@ -129,7 +129,7 @@ Plans:
 - [x] 09-06-PLAN.md — Profile/runtime consistency and open-dispute gates
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 09-07-PLAN.md — Exact fast selection, cheap ordering and lane inventories
+- [x] 09-07-PLAN.md — Exact fast selection, cheap ordering and lane inventories
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 09-08-PLAN.md — Developer verification and final measured local evidence
@@ -160,7 +160,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
 | 8. IRQ, HALT, and Timestamped Input | 7/7 | Complete    | 2026-11-17 |
-| 9. Bus Timing, DMA, and Arbitration | 6/8 | In Progress | - |
+| 9. Bus Timing, DMA, and Arbitration | 7/8 | In Progress | - |
 | 10. PPU Timing and First Pixels | 0/TBD | Not started | - |
 
 **Coverage:** 13 of 13 current v2.0 requirements map to exactly one phase; no orphans or duplicates. Deferred requirements and v1.0 evidence carryovers are excluded from this total.
