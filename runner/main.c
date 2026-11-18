@@ -1,11 +1,19 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 #include "gamebloke/gamebloke.h"
 #include "run.h"
@@ -87,8 +95,195 @@ static void print_usage(FILE *out)
 {
     fputs("usage: gamebloke-run --rom PATH (--cycles DECIMAL | --frames DECIMAL) "
           "[--fixture ID] [--input-script PATH] [--trace-mask INTEGER] "
-          "[--trace-capacity INTEGER] [--trace-output PATH]\n",
+          "[--trace-capacity INTEGER] [--trace-output PATH] "
+          "[--video-output PATH]\n",
           out);
+}
+
+static bool gbl_runner_normalize_path(const char *path,
+                                      char normalized[PATH_MAX])
+{
+    char absolute[PATH_MAX];
+    char candidate[PATH_MAX];
+    char parent_path[PATH_MAX];
+    char resolved_parent[PATH_MAX];
+    char current_directory[PATH_MAX];
+    char *slash;
+    char *token;
+    char *save = NULL;
+    const char *base_name;
+    size_t path_length;
+    size_t output_length = 1u;
+
+    if (path == NULL || path[0] == '\0') {
+        return false;
+    }
+    path_length = strlen(path);
+    if (path_length >= sizeof absolute) {
+        return false;
+    }
+    if (realpath(path, normalized) != NULL) {
+        return true;
+    }
+    if (path[0] == '/') {
+        memcpy(absolute, path, path_length + 1u);
+    } else {
+        size_t cwd_length;
+
+        if (getcwd(current_directory, sizeof current_directory) == NULL) {
+            return false;
+        }
+        cwd_length = strlen(current_directory);
+        if (cwd_length + 1u + path_length >= sizeof absolute) {
+            return false;
+        }
+        memcpy(absolute, current_directory, cwd_length);
+        absolute[cwd_length] = '/';
+        memcpy(absolute + cwd_length + 1u, path, path_length + 1u);
+    }
+
+    slash = strrchr(absolute, '/');
+    if (slash == NULL) {
+        return false;
+    }
+    base_name = slash + 1;
+    if (slash == absolute) {
+        memcpy(parent_path, "/", 2u);
+    } else {
+        *slash = '\0';
+        if (strlen(absolute) >= sizeof parent_path) {
+            return false;
+        }
+        memcpy(parent_path, absolute, strlen(absolute) + 1u);
+    }
+    if (base_name[0] != '\0' &&
+        realpath(parent_path, resolved_parent) != NULL) {
+        int written;
+
+        if (strcmp(resolved_parent, "/") == 0) {
+            written = snprintf(candidate, sizeof candidate, "/%s", base_name);
+        } else {
+            written = snprintf(candidate, sizeof candidate, "%s/%s",
+                               resolved_parent, base_name);
+        }
+        if (written < 0 || (size_t)written >= sizeof candidate) {
+            return false;
+        }
+    } else if (base_name[0] == '\0') {
+        size_t absolute_length = strlen(absolute);
+
+        if (absolute_length >= sizeof candidate) {
+            return false;
+        }
+        memcpy(candidate, absolute, absolute_length + 1u);
+    } else {
+        /* The parent may not exist yet. Keep an absolute lexical path so
+         * dot-segment aliases still compare before either output writer runs. */
+        if (path[0] == '/') {
+            if (path_length >= sizeof candidate) {
+                return false;
+            }
+            memcpy(candidate, path, path_length + 1u);
+        } else {
+            size_t cwd_length = strlen(current_directory);
+
+            if (cwd_length + 1u + path_length >= sizeof candidate) {
+                return false;
+            }
+            memcpy(candidate, current_directory, cwd_length);
+            candidate[cwd_length] = '/';
+            memcpy(candidate + cwd_length + 1u, path, path_length + 1u);
+        }
+    }
+
+    normalized[0] = '/';
+    normalized[1] = '\0';
+    for (token = strtok_r(candidate, "/", &save); token != NULL;
+         token = strtok_r(NULL, "/", &save)) {
+        size_t token_length;
+
+        if (strcmp(token, ".") == 0 || token[0] == '\0') {
+            continue;
+        }
+        if (strcmp(token, "..") == 0) {
+            if (output_length > 1u) {
+                while (output_length > 1u &&
+                       normalized[output_length - 1u] != '/') {
+                    output_length--;
+                }
+                if (output_length > 1u) {
+                    output_length--;
+                }
+                normalized[output_length] = '\0';
+            }
+            continue;
+        }
+        token_length = strlen(token);
+        if (output_length + (output_length > 1u ? 1u : 0u) + token_length >=
+            PATH_MAX) {
+            return false;
+        }
+        if (output_length > 1u) {
+            normalized[output_length++] = '/';
+        }
+        memcpy(normalized + output_length, token, token_length);
+        output_length += token_length;
+        normalized[output_length] = '\0';
+    }
+    return true;
+}
+
+static bool gbl_runner_paths_alias(const char *left, const char *right)
+{
+    struct stat left_stat;
+    struct stat right_stat;
+    char left_normalized[PATH_MAX];
+    char right_normalized[PATH_MAX];
+
+    if (left == NULL || right == NULL) {
+        return false;
+    }
+    if (strcmp(left, right) == 0) {
+        return true;
+    }
+    if (stat(left, &left_stat) == 0 && stat(right, &right_stat) == 0 &&
+        left_stat.st_dev == right_stat.st_dev &&
+        left_stat.st_ino == right_stat.st_ino) {
+        return true;
+    }
+    return gbl_runner_normalize_path(left, left_normalized) &&
+           gbl_runner_normalize_path(right, right_normalized) &&
+           strcmp(left_normalized, right_normalized) == 0;
+}
+
+static bool gbl_runner_video_path_is_safe(
+    const gbl_runner_options *options, const char *input_script_path)
+{
+    struct stat video_stat;
+    struct stat result_stat;
+
+    if (options->video_output_path == NULL) {
+        return true;
+    }
+    if (gbl_runner_paths_alias(options->video_output_path, options->rom_path) ||
+        gbl_runner_paths_alias(options->video_output_path, input_script_path) ||
+        gbl_runner_paths_alias(options->video_output_path,
+                                options->trace_output_path) ||
+        gbl_runner_paths_alias(options->video_output_path, "/dev/stdout") ||
+        gbl_runner_paths_alias(options->video_output_path, "/dev/fd/1") ||
+        gbl_runner_paths_alias(options->video_output_path,
+                                "/proc/self/fd/1")) {
+        return false;
+    }
+    /* JSON result metadata is written to stdout; refuse an explicit pathname
+     * that resolves to the same host file/device before guest execution. */
+    if (stat(options->video_output_path, &video_stat) == 0 &&
+        fstat(STDOUT_FILENO, &result_stat) == 0 &&
+        video_stat.st_dev == result_stat.st_dev &&
+        video_stat.st_ino == result_stat.st_ino) {
+        return false;
+    }
+    return true;
 }
 
 static bool gbl_runner_ascii_whitespace(unsigned char character)
@@ -391,6 +586,7 @@ static bool parse_options(int argc, char **argv, gbl_runner_options *options,
     bool seen_trace_mask = false;
     bool seen_trace_capacity = false;
     bool seen_trace_output = false;
+    bool seen_video_output = false;
     bool seen_input_script = false;
     uint64_t bound = 0u;
     int index = 1;
@@ -457,6 +653,12 @@ static bool parse_options(int argc, char **argv, gbl_runner_options *options,
             if (value[0] == '\0') return false;
             options->trace_output_path = value;
             seen_trace_output = true;
+        } else if (strcmp(flag, "--video-output") == 0) {
+            if (seen_video_output || index + 1 >= argc) return false;
+            value = argv[++index];
+            if (value[0] == '\0') return false;
+            options->video_output_path = value;
+            seen_video_output = true;
         } else if (strcmp(flag, "--input-script") == 0) {
             if (seen_input_script || index + 1 >= argc) return false;
             value = argv[++index];
@@ -497,6 +699,7 @@ int main(int argc, char **argv)
               "  --trace-mask INTEGER   select instruction, bus, or exception trace\n"
               "  --trace-capacity N     bound selected trace records (maximum 65536)\n"
               "  --trace-output PATH    write selected trace as JSON Lines\n"
+              "  --video-output PATH    write one complete raw 240x160 BGR555 frame\n"
               "  --version              print the gamebloke-run version\n"
               "  --help                 print this help\n"
               "\n"
@@ -507,6 +710,11 @@ int main(int argc, char **argv)
     }
     if (!parse_options(argc, argv, &options, &input_script_path)) {
         print_usage(stderr);
+        return GBL_RUN_USAGE_ERROR;
+    }
+    if (!gbl_runner_video_path_is_safe(&options, input_script_path)) {
+        print_usage(stderr);
+        fputs("gamebloke-run: video-output-path-conflict\n", stderr);
         return GBL_RUN_USAGE_ERROR;
     }
     if (input_script_path != NULL) {
