@@ -178,6 +178,60 @@ function(result_add_phase10_hblank_dependency result)
   gbl_json_mutate_set("${result}" "[\"disputed\"]" labels)
 endfunction()
 
+function(result_add_phase10_capabilities result)
+  file(READ "${SRC}/profiles/agb.json" profile_doc)
+  string(JSON profile_version GET "${profile_doc}" profile_version)
+  string(JSON display_capabilities GET "${profile_doc}"
+    ppu_policy display_capabilities)
+  string(JSON video_memory_access GET "${profile_doc}"
+    ppu_policy video_memory_access)
+  gbl_json_mutate_set("${result}" "\"gamebloke-ppu-observation-2\""
+    phase10 model)
+  gbl_json_mutate_set("${result}" "${profile_version}"
+    phase10 profile_version)
+  gbl_json_mutate_set("${result}" "${display_capabilities}"
+    phase10 display_capabilities)
+  gbl_json_mutate_set("${result}" "${video_memory_access}"
+    phase10 video_memory_access)
+  gbl_json_mutate_set("${result}" "\"bgr555-le\"" raw_video format)
+endfunction()
+
+function(result_copy_production_phase10_observation result)
+  set(control "${BIN}/gamebloke-run-control")
+  set(rom "${BIN}/generated/fixtures/owned-arm-pass.gba")
+  if(NOT EXISTS "${control}" OR NOT EXISTS "${rom}")
+    phase10_report_failure("production observation prerequisites are missing")
+  endif()
+  execute_process(COMMAND "${control}" --rom "${rom}"
+      --fixture synthetic-control-pass --cycles 1000
+    RESULT_VARIABLE producer_result OUTPUT_VARIABLE producer_json
+    ERROR_VARIABLE producer_error)
+  if(NOT "${producer_result}" STREQUAL "0" OR
+      NOT "${producer_error}" STREQUAL "")
+    phase10_report_failure(
+      "production capture failed; exit=${producer_result}; stderr=${producer_error}")
+  endif()
+  string(JSON producer_model GET "${producer_json}" phase10 model)
+  if(NOT producer_model STREQUAL "gamebloke-ppu-observation-2")
+    phase10_report_failure("production capture did not emit observation model 2")
+  endif()
+
+  # The runner's synthetic fixture identity is not in the public result manifest.
+  # Keep the manifest-owned contract identity from result-pass.json and copy the
+  # complete machine observation group from the real serialized producer output.
+  file(READ "${result}" result_doc)
+  foreach(field IN ITEMS semantic time phase8 phase9 phase10 raw_video)
+    string(JSON value GET "${producer_json}" ${field})
+    string(JSON result_doc ERROR_VARIABLE set_error SET
+      "${result_doc}" ${field} "${value}")
+    if(NOT "${set_error}" STREQUAL "NOTFOUND" AND
+        NOT "${set_error}" STREQUAL "")
+      phase10_report_failure("could not copy production field ${field}")
+    endif()
+  endforeach()
+  file(WRITE "${result}" "${result_doc}\n")
+endfunction()
+
 function(result_add_time_extension result)
   gbl_json_mutate_remove("${result}" phase8)
   gbl_json_mutate_remove("${result}" phase9)
@@ -720,6 +774,20 @@ elseif(CASE STREQUAL "phase10")
   result_copy(r historical_without_phase10)
   phase10_expect_ok("${r}")
 
+  result_copy_phase10(r historical_model1_with_complete_capabilities)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"gamebloke-ppu-observation-1\""
+    phase10 model)
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r current_profile_model2)
+  result_add_phase10_capabilities("${r}")
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r current_production_observation)
+  result_copy_production_phase10_observation("${r}")
+  phase10_expect_ok("${r}")
+
   result_copy_phase10(r partial_without_raw_video)
   gbl_json_mutate_remove("${r}" raw_video)
   phase10_expect_code(partial-phase10-extension "${r}")
@@ -729,14 +797,17 @@ elseif(CASE STREQUAL "phase10")
   phase10_expect_code(partial-phase10-extension "${r}")
 
   result_copy_phase10(r complete_video_output)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_valid_video("${r}")
   phase10_expect_ok("${r}")
 
   result_copy_phase10(r classified_output_failure)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_output_failure("${r}")
   phase10_expect_ok("${r}" HARNESS_FAIL)
 
   result_copy_phase10(r disputed_hblank_dependency)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_hblank_dependency("${r}")
   phase10_expect_ok("${r}")
 
@@ -744,6 +815,102 @@ elseif(CASE STREQUAL "phase10")
 
 elseif(CASE STREQUAL "phase10_negative")
   phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r missing_current_display_capabilities)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_remove("${r}" phase10 display_capabilities)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r missing_current_profile_version)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_remove("${r}" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_profile_version_type)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"10\"" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_observation_model_type)
+  gbl_json_mutate_set("${r}" "2" phase10 model)
+  phase10_expect_code(bad-phase10-type "${r}")
+
+  result_copy_phase10(r wrong_current_capability_object_type)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "[]" phase10 video_memory_access)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode_id)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "2" phase10 display_capabilities modes 3 mode)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"affine\""
+    phase10 display_capabilities modes 3 backgrounds 0 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "241"
+    phase10 display_capabilities modes 3 backgrounds 0 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_implementation_status)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"not-implemented\""
+    phase10 display_capabilities modes 3 implementation_status)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_raw_format)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"RGB555\""
+    phase10 display_capabilities raw_output format)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_artifact_format)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"RGB555\"" raw_video format)
+  phase10_expect_code(bad-phase10-video-output "${r}")
+
+  result_copy_phase10(r wrong_current_artifact_format_type)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "555" raw_video format)
+  phase10_expect_code(bad-phase10-video-output "${r}")
+
+  result_copy_phase10(r wrong_current_raw_byte_length)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "76799"
+    phase10 display_capabilities raw_output byte_length)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r escalated_current_qualification)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\""
+    phase10 video_memory_access hardware_qualification)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r added_current_ppu_cycles)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "1"
+    phase10 video_memory_access ppu_extra_cycles)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r current_model_partial_capabilities)
+  gbl_json_mutate_set("${r}" "\"gamebloke-ppu-observation-2\""
+    phase10 model)
+  gbl_json_mutate_set("${r}" "10" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r historical_model1_partial_capabilities)
+  gbl_json_mutate_set("${r}" "10" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r unknown_observation_model)
+  gbl_json_mutate_set("${r}" "\"gamebloke-ppu-observation-99\""
+    phase10 model)
+  phase10_expect_code(bad-phase10-type "${r}")
 
   result_copy_phase10(r wrong_width)
   gbl_json_mutate_set("${r}" "239" phase10 frame width)
@@ -771,14 +938,17 @@ elseif(CASE STREQUAL "phase10_negative")
   phase10_expect_ok("${dir}/result.json")
 
   result_copy_phase10(r valid_frame_missing_completion)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_valid_video("${r}")
   gbl_json_mutate_set("${r}" "null" phase10 frame completion_cycle)
   phase10_expect_code(bad-phase10-frame-validity "${r}")
   result_copy_phase10(r valid_frame_clean_twin)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_valid_video("${r}")
   phase10_expect_ok("${r}")
 
   result_copy_phase10(r emitted_from_invalid_frame)
+  result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "true" raw_video requested)
   gbl_json_mutate_set("${r}" "\"emitted\"" raw_video status)
   gbl_json_mutate_set("${r}" "true" raw_video emitted)
@@ -788,32 +958,39 @@ elseif(CASE STREQUAL "phase10_negative")
   phase10_expect_ok("${dir}/result.json")
 
   result_copy_phase10(r malformed_video_digest)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_valid_video("${r}")
   gbl_json_mutate_set("${r}" "\"ABAB\"" raw_video sha256)
   phase10_expect_code(bad-phase10-video-digest "${r}")
   result_copy_phase10(r valid_digest_clean_twin)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_valid_video("${r}")
   phase10_expect_ok("${r}")
 
   result_copy_phase10(r wrong_video_length)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_valid_video("${r}")
   gbl_json_mutate_set("${r}" "76799" raw_video byte_length)
   phase10_expect_code(bad-phase10-video-output "${r}")
   result_copy_phase10(r valid_length_clean_twin)
+  result_add_phase10_capabilities("${r}")
   result_add_phase10_valid_video("${r}")
   phase10_expect_ok("${r}")
 
   result_copy_phase10(r false_hardware_qualification)
+  result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "\"QUALIFIED\"" phase10 timing hardware_qualification)
   phase10_expect_code(bad-phase10-policy "${r}")
   phase10_expect_ok("${dir}/result.json")
 
   result_copy_phase10(r wrong_hblank_offset)
+  result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "\"1008\"" phase10 timing hblank_offset_cycles)
   phase10_expect_code(bad-phase10-policy "${r}")
   phase10_expect_ok("${dir}/result.json")
 
   result_copy_phase10(r undisclosed_hblank_dependency)
+  result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "true" phase10 hblank_trigger_dependency observed)
   gbl_json_mutate_set("${r}" "\"disputed\"" phase10 hblank_trigger_dependency classification)
   gbl_json_mutate_set("${r}" "\"disp-hblank-flag-edge\"" phase10 hblank_trigger_dependency dispute_id)
@@ -821,6 +998,7 @@ elseif(CASE STREQUAL "phase10_negative")
   phase10_expect_ok("${dir}/result.json")
 
   result_copy_phase10(r unobserved_with_raster)
+  result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "false" phase10 observed)
   phase10_expect_code(bad-phase10-not-observed "${r}")
   phase10_expect_ok("${dir}/result.json")
