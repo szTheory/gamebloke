@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 9
+current_plan: 1
 status: executing
-stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-11-19T01:15:42.232Z"
+stopped_at: Awaiting owner G6 judgment for Phase 10
+last_updated: "2026-11-19T03:16:42.397Z"
 last_activity: 2026-11-18
-last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: 5983741db0c8a1ff79c065df23e220760c5d46ac
+last_activity_desc: Phase 10 execution started
+state_head: 1d839bccb5cb6f48146040c7ce1989b4af6d0063
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 31
-  completed_plans: 30
+  completed_plans: 31
   percent: 75
 ---
 
@@ -31,11 +31,11 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 
 ## Current Position
 
-Phase: 10 — PPU Timing and First Pixels
-Current Plan: 9
+Phase: 10 (PPU Timing and First Pixels) — EXECUTING
+Current Plan: 1
 Total Plans in Phase: 9
-Status: Ready to execute
-Last activity: 2026-11-18 — Phase 9 complete, transitioned to Phase 10
+Status: Executing Phase 10
+Last activity: 2026-11-18 — Phase 10 execution started
 
 Progress: [████████░░] 75%
 
@@ -162,6 +162,7 @@ Progress: [████████░░] 75%
 | Phase 10 P06 | 44m | 2 tasks | 9 files |
 | Phase 10 P07 | 67m21s measured from first TDD RED commit; initial setup unmeasured | 2 tasks | 9 files |
 | Phase 10 P08 | 59m31s | 3 tasks | 11 files |
+| Phase 10 P9 | not measured | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -459,11 +460,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-19T01:15:42.075Z
-Stopped at: Completed 10-08-PLAN.md
+Last session: 2026-11-19T03:16:42.164Z
+Stopped at: Awaiting owner G6 judgment for Phase 10
 Resume file: None
 
 ## Operator Next Steps
 
-- Discuss Phase 09 before planning it; its roadmap goal is WAITCNT-aware bus costs and deterministic DMA arbitration.
-- Preserve the hosted/publication stops and open DIAG-04/DET-02 carryovers. Phase 8 completion does not close or renew them.
+- Record the owner G6 accept/reject/needs-changes judgment for Playable 0 through `$gsd-verify-work 10`.
+- After G6 is resolved, continue `$gsd-autonomous --from 10` through v2.0 milestone audit, completion, and cleanup. Keep HBlank hardware qualification UNKNOWN and fixture redistribution local-only/unknown.
+- Preserve the existing hosted/publication stops and Phase 6 DIAG-04/DET-02 carryovers; Phase 10 completion does not close or renew them.
