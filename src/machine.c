@@ -1,4 +1,5 @@
 #include "gamebloke/gamebloke.h"
+#include "ppu_internal.h"
 
 #include <string.h>
 
@@ -337,40 +338,145 @@ static void gbl_ppu_refresh_compare_status(
     gbl_ppu_apply_status(preview, next_status);
 }
 
-static void gbl_ppu_project_row(const gbl_machine *machine,
-                                const gbl_machine_time_preview *preview,
-                                const gbl_ppu_row_capture *capture,
-                                uint8_t row[GBL_PPU_ROW_BYTES])
+static const uint8_t *gbl_ppu_video_memory(
+    const gbl_machine *machine, gbl_bus_region region, size_t *size_out)
 {
-    const uint16_t line = capture->line;
-    const uint16_t prior_write_count = capture->prior_write_count;
-    const uint32_t row_offset = (uint32_t)line * GBL_PPU_ROW_BYTES;
-    size_t write_index;
-    uint32_t pixel;
-
-    if ((capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
-        (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
-        memset(row, 0, GBL_PPU_ROW_BYTES);
-        return;
+    if (size_out == NULL) {
+        return NULL;
     }
-    for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
-        row[pixel] = machine->vram[row_offset + pixel];
+    switch (region) {
+    case GBL_BUS_REGION_PRAM:
+        *size_out = GBL_PRAM_SIZE;
+        return machine->pram;
+    case GBL_BUS_REGION_VRAM:
+        *size_out = GBL_VRAM_SIZE;
+        return machine->vram;
+    case GBL_BUS_REGION_OAM:
+        *size_out = GBL_OAM_SIZE;
+        return machine->oam;
+    case GBL_BUS_REGION_BIOS:
+    case GBL_BUS_REGION_EWRAM:
+    case GBL_BUS_REGION_IWRAM:
+    case GBL_BUS_REGION_IO:
+    case GBL_BUS_REGION_ROM:
+    case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
+        break;
+    }
+    return NULL;
+}
+
+gbl_ppu_sample_status gbl_ppu_sample_read(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_row_capture *capture, gbl_bus_region region,
+    uint32_t source_offset, uint8_t access_width, size_t length,
+    uint8_t *destination, size_t destination_capacity)
+{
+    const uint8_t *source;
+    size_t source_size = 0u;
+    size_t write_index;
+
+    if (machine == NULL || !machine->initialized || preview == NULL ||
+        capture == NULL || destination == NULL || length == 0u ||
+        (access_width != 1u && access_width != 2u && access_width != 4u) ||
+        length % (size_t)access_width != 0u) {
+        return GBL_PPU_SAMPLE_STATUS_INVALID_ARGUMENT;
+    }
+    if (region != GBL_BUS_REGION_PRAM && region != GBL_BUS_REGION_VRAM &&
+        region != GBL_BUS_REGION_OAM) {
+        return GBL_PPU_SAMPLE_STATUS_INVALID_REGION;
+    }
+    if (destination_capacity < length) {
+        return GBL_PPU_SAMPLE_STATUS_OUTPUT_TOO_SMALL;
+    }
+    if (capture->line >= GBL_PPU_VISIBLE_LINES ||
+        capture->frame_epoch != preview->ppu.frame_epoch ||
+        length - 1u > (size_t)(UINT32_MAX - source_offset)) {
+        return GBL_PPU_SAMPLE_STATUS_INVALID_SPAN;
+    }
+    if (preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
+        capture->prior_write_count > preview->ppu_memory_write_count) {
+        return GBL_PPU_SAMPLE_STATUS_INVALID_PREFIX;
+    }
+    source = gbl_ppu_video_memory(machine, region, &source_size);
+    if (source == NULL || (size_t)source_offset > source_size ||
+        length > source_size - (size_t)source_offset) {
+        return GBL_PPU_SAMPLE_STATUS_INVALID_SPAN;
     }
     for (write_index = 0u;
-         write_index < (size_t)prior_write_count &&
-         write_index < preview->ppu_memory_write_count;
+         write_index < (size_t)capture->prior_write_count;
+         ++write_index) {
+        const gbl_ppu_memory_write *write =
+            &preview->ppu_memory_writes[write_index];
+        const gbl_bus_region write_region =
+            (gbl_bus_region)write->region;
+        bool touches_video = false;
+        uint32_t lane;
+
+        if ((write->width != 1u && write->width != 2u &&
+             write->width != 4u) ||
+            write->address > UINT32_MAX - ((uint32_t)write->width - 1u) ||
+            write_region != gbl_bus_region_for_address(write->address)) {
+            return GBL_PPU_SAMPLE_STATUS_INVALID_WRITE;
+        }
+        for (lane = 0u; lane < (uint32_t)write->width; ++lane) {
+            const gbl_bus_region lane_region =
+                gbl_bus_region_for_address(write->address + lane);
+
+            if (lane_region == GBL_BUS_REGION_PRAM ||
+                lane_region == GBL_BUS_REGION_VRAM ||
+                lane_region == GBL_BUS_REGION_OAM) {
+                touches_video = true;
+            }
+        }
+        if (!touches_video) {
+            return GBL_PPU_SAMPLE_STATUS_INVALID_WRITE;
+        }
+    }
+
+    memcpy(destination, &source[source_offset], length);
+    for (write_index = 0u;
+         write_index < (size_t)capture->prior_write_count;
          ++write_index) {
         const gbl_ppu_memory_write *write =
             &preview->ppu_memory_writes[write_index];
         uint32_t lane;
 
         for (lane = 0u; lane < (uint32_t)write->width; ++lane) {
-            (void)gbl_bus_project_vram_lane(
-                row, GBL_PPU_ROW_BYTES, row_offset, write->dispcnt,
-                write->address + lane,
-                (uint8_t)((write->value >> (lane * 8u)) & UINT32_C(0xFF)),
-                write->width);
+            const uint32_t address = write->address + lane;
+
+            if (gbl_bus_region_for_address(address) == region) {
+                (void)gbl_bus_project_video_lane(
+                    destination, length, source_offset, region,
+                    write->dispcnt, address,
+                    (uint8_t)((write->value >> (lane * 8u)) &
+                              UINT32_C(0xFF)),
+                    write->width);
+            }
         }
+    }
+    return GBL_PPU_SAMPLE_STATUS_OK;
+}
+
+static bool gbl_ppu_project_row(const gbl_machine *machine,
+                               const gbl_machine_time_preview *preview,
+                               const gbl_ppu_row_capture *capture,
+                               uint8_t row[GBL_PPU_ROW_BYTES])
+{
+    const uint16_t line = capture->line;
+    const uint32_t row_offset = (uint32_t)line * GBL_PPU_ROW_BYTES;
+    uint32_t pixel;
+
+    if ((capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
+        (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
+        memset(row, 0, GBL_PPU_ROW_BYTES);
+        return true;
+    }
+    if (gbl_ppu_sample_read(
+            machine, preview, capture, GBL_BUS_REGION_VRAM, row_offset, 2u,
+            GBL_PPU_ROW_BYTES, row, GBL_PPU_ROW_BYTES) !=
+        GBL_PPU_SAMPLE_STATUS_OK) {
+        return false;
     }
     for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
         const uint32_t offset = pixel * 2u;
@@ -382,6 +488,7 @@ static void gbl_ppu_project_row(const gbl_machine *machine,
         row[offset] = (uint8_t)(visible_color & UINT16_C(0x00FF));
         row[offset + 1u] = (uint8_t)(visible_color >> 8u);
     }
+    return true;
 }
 
 static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
@@ -515,7 +622,9 @@ static gbl_time_status gbl_ppu_capture_row(
     memcpy(capture->render_register_bytes,
            preview->ppu.render_register_bytes,
            sizeof(capture->render_register_bytes));
-    gbl_ppu_project_row(machine, preview, capture, row);
+    if (!gbl_ppu_project_row(machine, preview, capture, row)) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
     capture->pixel_digest = gbl_ppu_row_digest(row, sizeof(row));
     ++preview->ppu_row_capture_count;
     preview->ppu.row_coverage[coverage_index] |= mask;
@@ -1146,6 +1255,23 @@ static bool gbl_preview_bus_span_valid(uint32_t address, uint8_t width)
            address <= UINT32_MAX - ((uint32_t)width - 1u);
 }
 
+static bool gbl_ppu_operation_touches_video(uint32_t address, uint8_t width)
+{
+    uint32_t lane;
+
+    for (lane = 0u; lane < (uint32_t)width; ++lane) {
+        const gbl_bus_region region =
+            gbl_bus_region_for_address(address + lane);
+
+        if (region == GBL_BUS_REGION_PRAM ||
+            region == GBL_BUS_REGION_VRAM ||
+            region == GBL_BUS_REGION_OAM) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static gbl_time_status gbl_preview_bus_write(
     gbl_machine_time_preview *preview, uint32_t address, uint8_t width,
     uint32_t value)
@@ -1405,17 +1531,21 @@ gbl_time_status gbl_machine_prepare_operations(
             return status;
         }
         if (operation->kind == GBL_TIME_OPERATION_BUS_WRITE) {
-            if (candidate.ppu_memory_write_count >=
-                GBL_TIME_OPERATION_MAX) {
-                return GBL_TIME_STATUS_EVENT_CAPACITY;
+            if (gbl_ppu_operation_touches_video(operation->address,
+                                                operation->width)) {
+                if (candidate.ppu_memory_write_count >=
+                    GBL_TIME_OPERATION_MAX) {
+                    return GBL_TIME_STATUS_EVENT_CAPACITY;
+                }
+                candidate.ppu_memory_writes[
+                    candidate.ppu_memory_write_count++] =
+                    (gbl_ppu_memory_write){
+                        operation->address, operation->value,
+                        candidate.ppu.dispcnt, operation->width,
+                        (uint8_t)gbl_bus_region_for_address(
+                            operation->address)
+                    };
             }
-            candidate.ppu_memory_writes[
-                candidate.ppu_memory_write_count++] =
-                (gbl_ppu_memory_write){
-                    operation->address, operation->value,
-                    candidate.ppu.dispcnt, operation->width,
-                    (uint8_t)gbl_bus_region_for_address(operation->address)
-                };
             status = gbl_preview_bus_write(&candidate, operation->address,
                                            operation->width,
                                            operation->value);
@@ -1447,7 +1577,9 @@ static void gbl_ppu_materialize_capture_plan(
         }
         row = &machine->video_frame[
             (size_t)capture->line * GBL_PPU_ROW_BYTES];
-        gbl_ppu_project_row(machine, preview, capture, row);
+        if (!gbl_ppu_project_row(machine, preview, capture, row)) {
+            continue;
+        }
     }
 }
 

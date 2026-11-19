@@ -1,5 +1,6 @@
 #include "check.h"
 #include "gamebloke/gamebloke.h"
+#include "../src/ppu_internal.h"
 #include "state_check.h"
 
 #include <stdlib.h>
@@ -1883,6 +1884,387 @@ static int run_ppu_latch(void)
     return 1;
 }
 
+static const uint8_t *ppu_test_video_memory(const gbl_machine *machine,
+                                           gbl_bus_region region)
+{
+    if (region == GBL_BUS_REGION_PRAM) {
+        return machine->pram;
+    }
+    if (region == GBL_BUS_REGION_VRAM) {
+        return machine->vram;
+    }
+    if (region == GBL_BUS_REGION_OAM) {
+        return machine->oam;
+    }
+    return NULL;
+}
+
+static bool ppu_sample_matches_bytes(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_row_capture *capture, gbl_bus_region region,
+    uint32_t source_offset, uint8_t access_width, size_t length,
+    const uint8_t *expected)
+{
+    uint8_t actual[8];
+
+    if (length > sizeof(actual) || expected == NULL) {
+        return false;
+    }
+    memset(actual, UINT8_C(0xA5), sizeof(actual));
+    if (gbl_ppu_sample_read(machine, preview, capture, region, source_offset,
+                            access_width, length, actual,
+                            sizeof(actual)) != GBL_PPU_SAMPLE_STATUS_OK) {
+        return false;
+    }
+    return memcmp(actual, expected, length) == 0;
+}
+
+static void ppu_check_sample_prefix_case(
+    gbl_bus_region region, uint32_t source_offset,
+    const gbl_time_operation *before, const gbl_time_operation *on_boundary,
+    const gbl_time_operation *after)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *canonical = new_machine();
+    const gbl_time_operation operations[3] = {
+        *before, *on_boundary, *after
+    };
+    gbl_machine_time_preview preview;
+    gbl_bus_result result;
+    const uint8_t *memory;
+    uint8_t expected[2];
+    uint8_t actual[4];
+
+    CHECK(machine != NULL && canonical != NULL);
+    if (machine == NULL || canonical == NULL) {
+        free_machine(canonical);
+        free_machine(machine);
+        return;
+    }
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = UINT16_C(0x0403);
+    canonical->dispcnt = UINT16_C(0x0403);
+    canonical->ppu.dispcnt = UINT16_C(0x0403);
+    memset(machine->pram, UINT8_C(0xA5), sizeof(machine->pram));
+    memset(machine->vram, UINT8_C(0x5A), sizeof(machine->vram));
+    memset(machine->oam, UINT8_C(0xA5), sizeof(machine->oam));
+    memcpy(canonical->pram, machine->pram, sizeof(machine->pram));
+    memcpy(canonical->vram, machine->vram, sizeof(machine->vram));
+    memcpy(canonical->oam, machine->oam, sizeof(machine->oam));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1230)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(canonical, UINT64_C(1230)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_prepare_operations(machine, operations, 3u, &preview) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(preview.ppu_row_capture_count == 1u);
+    CHECK(preview.ppu_row_captures[0].line == 1u);
+    CHECK(preview.ppu_row_captures[0].prior_write_count == 1u);
+    CHECK(preview.ppu_memory_write_count == 3u);
+
+    result = gbl_bus_write(canonical, before->address, before->width,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, before->value);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.cycles == 1u);
+    memory = ppu_test_video_memory(canonical, region);
+    CHECK(memory != NULL);
+    if (memory != NULL) {
+        memcpy(expected, &memory[source_offset], sizeof(expected));
+        memset(actual, UINT8_C(0xA5), sizeof(actual));
+        CHECK(gbl_ppu_sample_read(
+                  machine, &preview, &preview.ppu_row_captures[0], region,
+                  source_offset, 2u, sizeof(expected), actual,
+                  sizeof(actual)) == GBL_PPU_SAMPLE_STATUS_OK);
+        CHECK(memcmp(actual, expected, sizeof(expected)) == 0);
+        CHECK(actual[2] == UINT8_C(0xA5));
+        CHECK(actual[3] == UINT8_C(0xA5));
+    }
+
+    result = gbl_bus_write(canonical, on_boundary->address,
+                           on_boundary->width, GBL_BUS_CLASS_NONSEQUENTIAL,
+                           on_boundary->value);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.cycles == 1u);
+    result = gbl_bus_write(canonical, after->address, after->width,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, after->value);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+    CHECK(result.cycles == 1u);
+    if (region == GBL_BUS_REGION_VRAM) {
+        const uint16_t expected_pixel = (uint16_t)(
+            ((uint16_t)expected[0] |
+             (uint16_t)((uint16_t)expected[1] << 8u)) &
+            UINT16_C(0x7FFF));
+
+        CHECK(ppu_pixel_matches(canonical->video_frame, 1u, 0u,
+                                expected_pixel));
+    }
+    free_machine(canonical);
+    free_machine(machine);
+}
+
+static int run_ppu_sample(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *canonical = new_machine();
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview invalid_preview;
+    const gbl_time_operation operations[11] = {
+        { GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x05000021),
+          UINT32_C(0x5A), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x05000022),
+          UINT32_C(0xBEEF), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x050003FE),
+          UINT32_C(0x44332211), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x06000021),
+          UINT32_C(0x6B), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x06000022),
+          UINT32_C(0xCAFE), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x06017FFE),
+          UINT32_C(0x88776655), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x07000021),
+          UINT32_C(0x7C), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x07000022),
+          UINT32_C(0x1234), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x070003FE),
+          UINT32_C(0x88776655), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x060001E0),
+          UINT32_C(0x1234), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x07000024),
+          UINT32_C(0x5678), UINT64_C(1) }
+    };
+    const uint8_t expected_pram[4] = {
+        UINT8_C(0x5A), UINT8_C(0x5A), UINT8_C(0xEF), UINT8_C(0xEF)
+    };
+    const uint8_t expected_vram[4] = {
+        UINT8_C(0x6B), UINT8_C(0x6B), UINT8_C(0xFE), UINT8_C(0xCA)
+    };
+    const uint8_t expected_oam[4] = {
+        UINT8_C(0xA0), UINT8_C(0xA1), UINT8_C(0x34), UINT8_C(0x12)
+    };
+    const uint8_t expected_edge_low[2] = {
+        UINT8_C(0x11), UINT8_C(0x22)
+    };
+    const uint8_t expected_edge_high[2] = {
+        UINT8_C(0x33), UINT8_C(0x44)
+    };
+    const uint8_t expected_vram_folded[2] = {
+        UINT8_C(0x55), UINT8_C(0x66)
+    };
+    const uint8_t expected_vram_mirror[2] = {
+        UINT8_C(0x77), UINT8_C(0x88)
+    };
+    const uint8_t expected_row_sample[2] = {
+        UINT8_C(0x5A), UINT8_C(0x5A)
+    };
+    uint8_t output[4];
+    uint8_t sentinel[4];
+    gbl_bus_result result;
+    size_t index;
+
+    CHECK(machine != NULL && canonical != NULL);
+    if (machine == NULL || canonical == NULL) {
+        free_machine(canonical);
+        free_machine(machine);
+        return 1;
+    }
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = UINT16_C(0x0403);
+    canonical->dispcnt = UINT16_C(0x0403);
+    canonical->ppu.dispcnt = UINT16_C(0x0403);
+    memset(machine->pram, UINT8_C(0xA5), sizeof(machine->pram));
+    memset(machine->vram, UINT8_C(0x5A), sizeof(machine->vram));
+    memset(machine->oam, UINT8_C(0xA5), sizeof(machine->oam));
+    machine->oam[0x20u] = UINT8_C(0xA0);
+    machine->oam[0x21u] = UINT8_C(0xA1);
+    memcpy(canonical->pram, machine->pram, sizeof(machine->pram));
+    memcpy(canonical->vram, machine->vram, sizeof(machine->vram));
+    memcpy(canonical->oam, machine->oam, sizeof(machine->oam));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1222)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(canonical, UINT64_C(1222)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_prepare_operations(machine, operations, 11u, &preview) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(preview.master_cycles == UINT64_C(1233));
+    CHECK(preview.ppu_row_capture_count == 1u);
+    CHECK(preview.ppu_row_captures[0].line == 1u);
+    CHECK(preview.ppu_row_captures[0].prior_write_count == 9u);
+    CHECK(preview.ppu_memory_write_count == 11u);
+
+    for (index = 0u; index < 9u; ++index) {
+        result = gbl_bus_write(canonical, operations[index].address,
+                               operations[index].width,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               operations[index].value);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+        CHECK(result.cycles == 1u);
+    }
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_PRAM, UINT32_C(0x20), 2u, sizeof(expected_pram),
+        canonical->pram + 0x20u));
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_VRAM, UINT32_C(0x20), 2u, sizeof(expected_vram),
+        canonical->vram + 0x20u));
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_OAM, UINT32_C(0x20), 2u, sizeof(expected_oam),
+        canonical->oam + 0x20u));
+    CHECK(memcmp(canonical->pram + 0x20u, expected_pram,
+                 sizeof(expected_pram)) == 0);
+    CHECK(memcmp(canonical->vram + 0x20u, expected_vram,
+                 sizeof(expected_vram)) == 0);
+    CHECK(memcmp(canonical->oam + 0x20u, expected_oam,
+                 sizeof(expected_oam)) == 0);
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_PRAM, UINT32_C(0x3FE), 2u,
+        sizeof(expected_edge_low), canonical->pram + 0x3FEu));
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_PRAM, 0u, 2u, sizeof(expected_edge_high),
+        canonical->pram));
+    CHECK(memcmp(canonical->pram + 0x3FEu, expected_edge_low,
+                 sizeof(expected_edge_low)) == 0);
+    CHECK(memcmp(canonical->pram, expected_edge_high,
+                 sizeof(expected_edge_high)) == 0);
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_VRAM, UINT32_C(0x17FFE), 2u,
+        sizeof(expected_vram_folded), canonical->vram + 0x17FFEu));
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_VRAM, UINT32_C(0x10000), 2u,
+        sizeof(expected_vram_mirror), canonical->vram + 0x10000u));
+    CHECK(memcmp(canonical->vram + 0x17FFEu, expected_vram_folded,
+                 sizeof(expected_vram_folded)) == 0);
+    CHECK(memcmp(canonical->vram + 0x10000u, expected_vram_mirror,
+                 sizeof(expected_vram_mirror)) == 0);
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_OAM, UINT32_C(0x3FE), 2u,
+        sizeof(expected_vram_folded), canonical->oam + 0x3FEu));
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_OAM, 0u, 2u, sizeof(expected_vram_mirror),
+        canonical->oam));
+    CHECK(memcmp(canonical->oam + 0x3FEu, expected_vram_folded,
+                 sizeof(expected_vram_folded)) == 0);
+    CHECK(memcmp(canonical->oam, expected_vram_mirror,
+                 sizeof(expected_vram_mirror)) == 0);
+    CHECK(ppu_sample_matches_bytes(
+        machine, &preview, &preview.ppu_row_captures[0],
+        GBL_BUS_REGION_VRAM, UINT32_C(0x1E0), 2u,
+        sizeof(expected_row_sample), canonical->vram + 0x1E0u));
+    CHECK(memcmp(canonical->vram + 0x1E0u, expected_row_sample,
+                 sizeof(expected_row_sample)) == 0);
+
+    for (index = 9u; index < 11u; ++index) {
+        result = gbl_bus_write(canonical, operations[index].address,
+                               operations[index].width,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               operations[index].value);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+        CHECK(result.cycles == 1u);
+    }
+    CHECK(canonical->vram[0x1E0u] == UINT8_C(0x34));
+    CHECK(canonical->vram[0x1E1u] == UINT8_C(0x12));
+    CHECK(canonical->ppu.line == 1u);
+    CHECK(ppu_pixel_matches(canonical->video_frame, 1u, 0u,
+                            UINT16_C(0x5A5A)));
+    CHECK(canonical->oam[0x24u] == UINT8_C(0x78));
+    CHECK(canonical->oam[0x25u] == UINT8_C(0x56));
+
+    memset(output, UINT8_C(0xA5), sizeof(output));
+    memcpy(sentinel, output, sizeof(output));
+    CHECK(gbl_ppu_sample_read(
+              machine, &preview, &preview.ppu_row_captures[0],
+              GBL_BUS_REGION_EWRAM, 0u, 2u, 2u, output,
+              sizeof(output)) == GBL_PPU_SAMPLE_STATUS_INVALID_REGION);
+    CHECK(memcmp(output, sentinel, sizeof(output)) == 0);
+    CHECK(gbl_ppu_sample_read(
+              machine, &preview, &preview.ppu_row_captures[0],
+              GBL_BUS_REGION_VRAM, 0u, 2u, 2u, output, 1u) ==
+          GBL_PPU_SAMPLE_STATUS_OUTPUT_TOO_SMALL);
+    CHECK(memcmp(output, sentinel, sizeof(output)) == 0);
+    CHECK(gbl_ppu_sample_read(
+              machine, &preview, &preview.ppu_row_captures[0],
+              GBL_BUS_REGION_VRAM, UINT32_C(0x17FFF), 2u, 2u, output,
+              sizeof(output)) == GBL_PPU_SAMPLE_STATUS_INVALID_SPAN);
+    CHECK(memcmp(output, sentinel, sizeof(output)) == 0);
+    CHECK(gbl_ppu_sample_read(
+              machine, &preview, &preview.ppu_row_captures[0],
+              GBL_BUS_REGION_VRAM, 0u, 3u, 3u, output,
+              sizeof(output)) == GBL_PPU_SAMPLE_STATUS_INVALID_ARGUMENT);
+    CHECK(memcmp(output, sentinel, sizeof(output)) == 0);
+    invalid_preview = preview;
+    invalid_preview.ppu_row_captures[0].prior_write_count =
+        (uint16_t)(preview.ppu_memory_write_count + 1u);
+    CHECK(gbl_ppu_sample_read(
+              machine, &invalid_preview,
+              &invalid_preview.ppu_row_captures[0], GBL_BUS_REGION_PRAM,
+              0u, 2u, 2u, output, sizeof(output)) ==
+          GBL_PPU_SAMPLE_STATUS_INVALID_PREFIX);
+    CHECK(memcmp(output, sentinel, sizeof(output)) == 0);
+    invalid_preview = preview;
+    invalid_preview.ppu_memory_writes[0].width = 3u;
+    CHECK(gbl_ppu_sample_read(
+              machine, &invalid_preview,
+              &invalid_preview.ppu_row_captures[0], GBL_BUS_REGION_PRAM,
+              0u, 2u, 2u, output, sizeof(output)) ==
+          GBL_PPU_SAMPLE_STATUS_INVALID_WRITE);
+    CHECK(memcmp(output, sentinel, sizeof(output)) == 0);
+
+    {
+        const gbl_time_operation pram[3] = {
+            { GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x05000021),
+              UINT32_C(0x5A), UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x05000022),
+              UINT32_C(0xBEEF), UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x050003FE),
+              UINT32_C(0x44332211), UINT64_C(1) }
+        };
+        const gbl_time_operation vram[3] = {
+            { GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x060001E1),
+              UINT32_C(0x6B), UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x060001E0),
+              UINT32_C(0x1234), UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x06017FFE),
+              UINT32_C(0x88776655), UINT64_C(1) }
+        };
+        const gbl_time_operation oam[3] = {
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x07000020),
+              UINT32_C(0xCAFE), UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x07000021),
+              UINT32_C(0x77), UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x070003FE),
+              UINT32_C(0x88776655), UINT64_C(1) }
+        };
+
+        ppu_check_sample_prefix_case(GBL_BUS_REGION_PRAM, UINT32_C(0x20),
+                                     &pram[0], &pram[1], &pram[2]);
+        ppu_check_sample_prefix_case(GBL_BUS_REGION_VRAM,
+                                     UINT32_C(0x1E0), &vram[0], &vram[1],
+                                     &vram[2]);
+        ppu_check_sample_prefix_case(GBL_BUS_REGION_OAM, UINT32_C(0x20),
+                                     &oam[0], &oam[1], &oam[2]);
+    }
+
+    free_machine(canonical);
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.sample: PRAM, VRAM and OAM share ordered lane projection");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_ppu_frame(void)
 {
     gbl_machine *first = new_machine();
@@ -2932,7 +3314,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -2961,6 +3343,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.latch") == 0) {
         return run_ppu_latch();
+    }
+    if (strcmp(argv[1], "ppu.sample") == 0) {
+        return run_ppu_sample();
     }
     if (strcmp(argv[1], "ppu.frame") == 0) {
         return run_ppu_frame();
