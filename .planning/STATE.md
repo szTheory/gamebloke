@@ -5,16 +5,16 @@ milestone_name: PPU Modes and Composition
 current_phase: 11
 current_phase_name: Sampled Rows and Transactional Visibility
 status: executing
-stopped_at: Completed Phase 11 Plan 01; continuing autonomous Phase 11 execution
-last_updated: "2026-11-19T21:13:50.107Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-11-19T22:12:48.754Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 11 execution started
-state_head: 6410609829e734a91c244bdcdf1a9630a2658d40
+state_head: 955874f81ff89fcf6c9654a9b0a15a39013532b6
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-19)
 ## Current Position
 
 Phase: 11 (Sampled Rows and Transactional Visibility) — EXECUTING
-Plan: 2 of 5
-Status: Executing Phase 11
+Plan: 3 of 5
+Status: Ready to execute
 Last activity: 2026-11-19 — Phase 11 execution started
 
 Progress: [░░░░░░░░░░] 0% (current milestone)
@@ -165,6 +165,7 @@ Progress: [░░░░░░░░░░] 0% (current milestone)
 | Phase 10 P10 | >=45 min; exact start unavailable | 3 tasks | 14 files |
 | Phase 10 P11 | 84 min | 3 tasks | 9 files |
 | Phase 11 P01 | 54min | 3 tasks | 9 files |
+| Phase 11 P02 | 55 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -427,6 +428,9 @@ Recent decisions affecting current work:
 - [Phase 11]: Keep the project-selected 1006-cycle HBlank and event-before-same-cycle-write ordering; hardware qualification remains unknown. — The phase preserves a deterministic row boundary while leaving the HBlank dispute and hardware qualification open.
 - [Phase 11]: Keep current VRAM, PRAM and OAM CPU/DMA bus behavior and costs, without PPU stalls or new access denial. — This preserves the tested bus contract while making no unverified hardware access-policy claim.
 - [Phase 11]: Keep the new sampled-memory seam private; do not establish a public C API in this phase. — Capability discovery remains through profile and runner metadata; stable public API design is reserved for the later API milestone.
+- [Phase 11]: Version 10 exposes all six display modes with implementation status and exact BG source dimensions.
+- [Phase 11]: The canonical output is BGR555_LE at 240x160 with 480-byte stride and 76800-byte length.
+- [Phase 11]: CPU/DMA PRAM, VRAM and OAM retain existing bus outcomes/costs; PPU adds zero cycles and hardware qualification remains UNKNOWN.
 
 ### Pending Todos
 
@@ -478,9 +482,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-19T21:12:24.929Z
-Stopped at: Completed Phase 11 Plan 01; continuing autonomous Phase 11 execution
-Resume file: .planning/ROADMAP.md
+Last session: 2026-11-19T22:12:48.727Z
+Stopped at: Completed 11-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 6
+open_count: 7
 waived_count: 0
 fixed_count: 25
-total_count: 31
-last_updated: 2026-11-19T06:52:12.913Z
+total_count: 32
+last_updated: 2026-11-19T22:11:28.750Z
 ---
 
 # Broken Windows Ledger
@@ -46,6 +46,7 @@ last_updated: 2026-11-19T06:52:12.913Z
 | 29 | 10 | deviation | tests/bus_test.c |  | Corrected stale PPU/video fixtures for full DISPCNT preservation, cycle-zero supported sampling, VBlank/HBlank masks, and the new capture-reason baseline; focused selectors pass. | fixed |  | 2026-11-18T19:16:03.766Z | 2026-11-18T19:16:06.421Z |
 | 30 | 10 | unrun-verify | scripts/play-playable0-local.sh |  | Installed RetroArch smoke could not start because managed macOS LaunchServices returned kLSNoLaunchPermissionErr; owner trial remains pending until an interactive local host is available. | open |  | 2026-11-19T04:52:36.486Z |  |
 | 31 | 10 | unrun-verify | .planning/phases/10-ppu-timing-and-first-pixels/10-UAT.md |  | Owner live terminal trial and G6 judgment remain pending; automated PTY checks do not replace owner play. | open |  | 2026-11-19T06:52:12.913Z |  |
+| 32 | 11 | unrun-verify | tests/gates/profile_case.cmake |  | The broad legacy profile mutation selection was stopped after 8/32 tests at 211.98s; focused profile lint, clean-copy, PPU controls, and Phase 10 checks passed, with remaining legacy mutations deferred to Phase 11-05. | open |  | 2026-11-19T22:11:28.750Z |  |
 
 ````json
 [
@@ -451,6 +452,19 @@ last_updated: 2026-11-19T06:52:12.913Z
     "recorded_at": "2026-11-19T06:52:12.913Z",
     "resolved_at": null,
     "milestone": "v2.0"
+  },
+  {
+    "id": 32,
+    "kind": "unrun-verify",
+    "phase": "11",
+    "file": "tests/gates/profile_case.cmake",
+    "line": null,
+    "description": "The broad legacy profile mutation selection was stopped after 8/32 tests at 211.98s; focused profile lint, clean-copy, PPU controls, and Phase 10 checks passed, with remaining legacy mutations deferred to Phase 11-05.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-19T22:11:28.750Z",
+    "resolved_at": null,
+    "milestone": "v3.0"
   }
 ]
 ````
