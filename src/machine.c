@@ -8,6 +8,8 @@
 #define GBL_KEYPAD_EVENT_PRIORITY 4u
 #define GBL_DMA_EVENT_PRIORITY_BASE 5u
 #define GBL_PPU_EVENT_PRIORITY 9u
+#define GBL_PPU_TRANSFORM_REGISTER_BYTES_MASK UINT32_C(0x0000FFFF)
+#define GBL_PPU_EFFECT_REGISTER_BYTES_MASK UINT32_C(0x00FF0000)
 
 static bool gbl_event_precedes(const gbl_event *left,
                                const gbl_event *right)
@@ -396,6 +398,38 @@ static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
     return GBL_VIDEO_INVALID_REASON_NONE;
 }
 
+static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
+    const gbl_ppu_timing_state *ppu)
+{
+    const gbl_video_invalid_reason dispcnt_reason =
+        gbl_ppu_dispcnt_invalid_reason(ppu->dispcnt);
+
+    if (dispcnt_reason != GBL_VIDEO_INVALID_REASON_NONE) {
+        return dispcnt_reason;
+    }
+    if ((ppu->unsupported_register_bytes &
+         GBL_PPU_TRANSFORM_REGISTER_BYTES_MASK) != 0u) {
+        return GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED;
+    }
+    if ((ppu->unsupported_register_bytes &
+         GBL_PPU_EFFECT_REGISTER_BYTES_MASK) != 0u) {
+        return GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED;
+    }
+    return GBL_VIDEO_INVALID_REASON_NONE;
+}
+
+static void gbl_ppu_update_unsupported_register_byte(
+    uint32_t *mask, uint32_t bit_index, uint8_t value)
+{
+    const uint32_t bit = UINT32_C(1) << bit_index;
+
+    if (value == 0u) {
+        *mask &= ~bit;
+    } else {
+        *mask |= bit;
+    }
+}
+
 static void gbl_ppu_invalidate_capture(
     gbl_machine_time_preview *preview,
     gbl_video_invalid_reason reason)
@@ -434,7 +468,7 @@ static gbl_time_status gbl_ppu_capture_row(
     const uint8_t mask = (uint8_t)(UINT8_C(1) << (line & 7u));
     const size_t coverage_index = (size_t)(line >> 3u);
     const gbl_video_invalid_reason reason =
-        gbl_ppu_dispcnt_invalid_reason(preview->ppu.dispcnt);
+        gbl_ppu_active_invalid_reason(&preview->ppu);
 
     if (line >= GBL_PPU_VISIBLE_LINES) {
         return GBL_TIME_STATUS_OK;
@@ -1113,6 +1147,8 @@ static gbl_time_status gbl_preview_bus_write(
     bool unsupported_effect_write = false;
     bool unsupported_transform_write = false;
     bool window_register_write = false;
+    uint32_t unsupported_register_bytes =
+        preview->ppu.unsupported_register_bytes;
     uint32_t lane;
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
@@ -1132,17 +1168,28 @@ static gbl_time_status gbl_preview_bus_write(
             dispcnt_written = true;
         } else if (lane_address >= UINT32_C(0x04000020) &&
                    lane_address <= UINT32_C(0x0400002F)) {
+            gbl_ppu_update_unsupported_register_byte(
+                &unsupported_register_bytes,
+                lane_address - UINT32_C(0x04000020), byte_value);
             unsupported_transform_write = true;
         } else if (lane_address >= UINT32_C(0x04000040) &&
                    lane_address <= UINT32_C(0x0400004B)) {
             window_register_write = true;
         } else if (lane_address >= UINT32_C(0x0400004C) &&
                    lane_address <= UINT32_C(0x0400004D)) {
+            gbl_ppu_update_unsupported_register_byte(
+                &unsupported_register_bytes,
+                UINT32_C(16) + lane_address - UINT32_C(0x0400004C),
+                byte_value);
             if (byte_value != 0u) {
                 unsupported_effect_write = true;
             }
         } else if (lane_address >= UINT32_C(0x04000050) &&
                    lane_address <= UINT32_C(0x04000055)) {
+            gbl_ppu_update_unsupported_register_byte(
+                &unsupported_register_bytes,
+                UINT32_C(18) + lane_address - UINT32_C(0x04000050),
+                byte_value);
             if (byte_value != 0u) {
                 unsupported_effect_write = true;
             }
@@ -1243,6 +1290,7 @@ static gbl_time_status gbl_preview_bus_write(
     if (waitcnt_written) {
         preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x5FFF));
     }
+    preview->ppu.unsupported_register_bytes = unsupported_register_bytes;
     preview->ppu.dispcnt = dispcnt;
     if (dispcnt_written) {
         gbl_ppu_invalidate_capture(

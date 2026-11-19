@@ -76,6 +76,8 @@ static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
            left->dispstat == right->dispstat &&
            left->compare == right->compare &&
            left->captured_rows == right->captured_rows &&
+           left->unsupported_register_bytes ==
+               right->unsupported_register_bytes &&
            left->capture_state == right->capture_state &&
            left->capture_reason == right->capture_reason &&
            left->next_boundary_hblank == right->next_boundary_hblank &&
@@ -702,6 +704,8 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_u64(digest, machine->ppu.dispstat);
     digest = gbl_test_digest_u64(digest, machine->ppu.compare);
     digest = gbl_test_digest_u64(digest, machine->ppu.captured_rows);
+    digest = gbl_test_digest_u64(
+        digest, machine->ppu.unsupported_register_bytes);
     digest = gbl_test_digest_u64(digest,
                                  (uint64_t)machine->ppu.capture_state);
     digest = gbl_test_digest_u64(digest,

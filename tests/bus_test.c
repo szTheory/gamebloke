@@ -1028,6 +1028,8 @@ static int run_ppu_refusal(void)
     CHECK_PPU_MUTATION(changed->ppu.dispstat ^= UINT16_C(1));
     CHECK_PPU_MUTATION(changed->ppu.compare++);
     CHECK_PPU_MUTATION(changed->ppu.captured_rows++);
+    CHECK_PPU_MUTATION(changed->ppu.unsupported_register_bytes ^=
+                       UINT32_C(1));
     CHECK_PPU_MUTATION(changed->ppu.capture_state =
                            GBL_VIDEO_CAPTURE_VALID);
     CHECK_PPU_MUTATION(changed->ppu.capture_reason =
@@ -1931,6 +1933,25 @@ static int run_ppu_controls(void)
               GBL_TIME_STATUS_OK);
         CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
         CHECK(machine->ppu.capture_reason == unsupported[index].reason);
+
+        machine->dispcnt = unsupported[index].dispcnt;
+        machine->ppu.dispcnt = unsupported[index].dispcnt;
+        CHECK(gbl_machine_advance_to(
+                  machine,
+                  GBL_PPU_FRAME_CYCLES + UINT64_C(197120)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.frame_epoch == 1u);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_reason == unsupported[index].reason);
+
+        machine->dispcnt = UINT16_C(0x0403);
+        machine->ppu.dispcnt = UINT16_C(0x0403);
+        CHECK(gbl_machine_advance_to(
+                  machine,
+                  (GBL_PPU_FRAME_CYCLES * UINT64_C(2)) +
+                      UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.frame_epoch == 2u);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
         free_machine(machine);
     }
 
@@ -1985,6 +2006,79 @@ static int run_ppu_controls(void)
                   GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
             puts("ppu.controls control: BG2 affine state is unsupported");
             free_machine(affine);
+        }
+
+        {
+            gbl_machine *persistent = new_machine();
+
+            CHECK(persistent != NULL);
+            if (persistent != NULL) {
+                persistent->dispcnt = UINT16_C(0x0403);
+                persistent->ppu.dispcnt = UINT16_C(0x0403);
+                CHECK(gbl_machine_advance_to(persistent, 0u) ==
+                      GBL_TIME_STATUS_OK);
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000020), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INVALID);
+                CHECK(gbl_machine_advance_to(
+                          persistent,
+                          GBL_PPU_FRAME_CYCLES + UINT64_C(197120)) ==
+                      GBL_TIME_STATUS_OK);
+                CHECK(persistent->ppu.frame_epoch == 1u);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INVALID);
+                CHECK(persistent->ppu.capture_reason ==
+                      GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
+
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000020), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INVALID);
+                CHECK(gbl_machine_advance_to(
+                          persistent,
+                          (GBL_PPU_FRAME_CYCLES * UINT64_C(2)) +
+                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+                CHECK(persistent->ppu.frame_epoch == 2u);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_VALID);
+
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x0400004C), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(gbl_machine_advance_to(
+                          persistent,
+                          (GBL_PPU_FRAME_CYCLES * UINT64_C(3)) +
+                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+                CHECK(persistent->ppu.frame_epoch == 3u);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INVALID);
+                CHECK(persistent->ppu.capture_reason ==
+                      GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
+
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x0400004C), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INVALID);
+                CHECK(gbl_machine_advance_to(
+                          persistent,
+                          (GBL_PPU_FRAME_CYCLES * UINT64_C(4)) +
+                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+                CHECK(persistent->ppu.frame_epoch == 4u);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_VALID);
+                CHECK(persistent->ppu.capture_reason ==
+                      GBL_VIDEO_INVALID_REASON_NONE);
+                puts("ppu.controls control: unsupported affine and mosaic state persists across epochs and recovers after reset");
+                free_machine(persistent);
+            }
         }
     }
 
