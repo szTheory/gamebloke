@@ -1,5 +1,21 @@
 # Milestones
 
+## v2.0 Time, Interrupts, DMA, First Pixels (Completed: 2026-11-19)
+
+**Phases completed:** 4 phases, 33 plans, 63 tasks
+**Outcome:** Local milestone complete; no software release or hardware qualification is claimed.
+
+**Key accomplishments:**
+- The shared machine scheduler now drives timers, IRQ requests, HALT, logical input, timed bus costs, DMA, and recurring PPU events with explicit project-model timing boundaries.
+- CPU, DMA, device events, raw mode-3 video, result contracts, profile policy, and deterministic replay are integrated through the canonical core; disputed hardware timing and DMA latch behavior remain labeled unresolved.
+- Phases 7–10 passed their current goal verification, validation, security, and fast-path checks, with cross-phase integration and all 13 mapped v2.0 requirements verified.
+- An original BIOS-free Playable 0 diagnostic guest runs through the real Libretro module and a dependency-free terminal host with live controls. The owner ran it and accepted this scoped demo on 2026-11-19 after managed macOS policy denied RetroArch launch.
+- The demo acceptance covers only the visible local diagnostic guest. It does not establish retail compatibility, hardware timing accuracy, audio/save support, physical controller behavior, redistribution rights, or publication readiness.
+
+**Known verification overrides:** 0 newly acknowledged; 1 carried forward from v1.0 ([Phase 6 verification](milestones/v1.0-phases/06-determinism-gates-and-third-party-cpu-fixtures/06-VERIFICATION.md), details in [STATE.md](STATE.md#deferred-items)).
+
+---
+
 ## v1.0 Evidence Spine (Completed with evidence gaps: 2026-11-15)
 
 **Phase status:** 5 of 6 phases complete. Phase 6 remains incomplete; 68 of 71 plans are complete.

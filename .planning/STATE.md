@@ -2,41 +2,37 @@
 gsd_state_version: "1.0"
 milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
-current_phase: 10
-current_plan: Not started
-status: completed
-stopped_at: All phases verified — milestone audit and closeout in progress
-last_updated: "2026-11-19T16:54:55Z"
+status: Awaiting next milestone
+stopped_at: v2.0 archived; ready to define the next milestone
+last_updated: "2026-11-19T17:14:52.150Z"
 last_activity: 2026-11-19
-last_activity_desc: All phases verified; G6 accepted for scoped demo; milestone audit in progress
-state_head: 1359394ea7f2ac98d60d411e9ab70c3d71f2a4dd
+last_activity_desc: Milestone v2.0 completed and archived
+state_head: 21d23e917991a28f0d1ea29e8e349a3467c4b3ec
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 33
   completed_plans: 33
   percent: 100
+current_phase: 10
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-18)
+See: .planning/PROJECT.md (updated 2026-11-19)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v2.0 Time, Interrupts, DMA, First Pixels (a GSD milestone label, not a software version)
-**Current focus:** v2.0 milestone audit and closeout
+**Current focus:** Awaiting the next milestone definition
 
 ## Current Position
 
-Phase: 10
-Current Plan: Verification refresh complete
-Total Plans in Phase: 11
-Status: All phases verified; milestone audit in progress
-Last activity: 2026-11-19 — G6 accepted for the scoped local demo; phase verifications refreshed
-
-Progress: [██████████] 100%
+Phase: Milestone v2.0 complete
+Plan: —
+Status: v2.0 archived; no active milestone
+Last activity: 2026-11-19 — Milestone v2.0 completed and archived
 
 
 ## Performance Metrics
@@ -473,10 +469,10 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-19T06:51:45.781Z
-Stopped at: Phase 10 complete — all phases complete
-Resume file: .planning/phases/10-ppu-timing-and-first-pixels/10-UAT.md
+Stopped at: v2.0 closeout complete; no next milestone started
+Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Continue the v2.0 integration audit, verify requirements and Nyquist records, then complete the GSD milestone closeout and archive. No owner action is pending for this local demo acceptance.
-- Keep the HBlank hardware edge and DMA latch dispute UNKNOWN, fixture redistribution local-only/unknown, and hosted/publication stops unchanged. Preserve the Phase 6 DIAG-04/DET-02 carryovers.
+
+- When ready, start the next milestone with $gsd-new-milestone. No further action is needed to close v2.0.
