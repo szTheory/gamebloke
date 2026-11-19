@@ -172,6 +172,28 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   gbl__add_core_target(gamebloke_core "${GBL_LOGO_EXPECTED_SHA256}")
   gbl__add_core_target(gamebloke_core_logo_synthetic
     "${GBL_LOGO_SYNTHETIC_SHA256}")
+
+  # The Libretro target is a thin dynamic adapter over the one canonical
+  # machine. Local guest execution remains opt-in and is never registered in
+  # the public CI/ASAN inventories.
+  set_target_properties(gamebloke_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  add_library(gamebloke_libretro MODULE adapters/libretro/gamebloke_libretro.c)
+  target_include_directories(gamebloke_libretro PRIVATE
+    include third_party/libretro)
+  target_compile_options(gamebloke_libretro PRIVATE
+    "$<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-fvisibility=hidden>")
+  target_link_libraries(gamebloke_libretro PRIVATE gamebloke_core gbl_warnings)
+  set_target_properties(gamebloke_libretro PROPERTIES PREFIX "")
+  if(APPLE)
+    set_target_properties(gamebloke_libretro PROPERTIES SUFFIX ".dylib")
+  else()
+    set_target_properties(gamebloke_libretro PROPERTIES SUFFIX ".so")
+  endif()
+
+  add_executable(libretro_frontend_test tests/libretro_frontend_test.c)
+  target_include_directories(libretro_frontend_test PRIVATE third_party/libretro)
+  target_link_libraries(libretro_frontend_test PRIVATE gbl_warnings ${CMAKE_DL_LIBS})
+
   if(GBL_LOGO_EXPECTED_SHA256 STREQUAL "")
     set(GBL_PRODUCTION_LOGO_TEST_MODE 0)
   else()
