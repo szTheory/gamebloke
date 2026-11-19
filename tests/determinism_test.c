@@ -4302,7 +4302,16 @@ static int gbl_test_phase9_main(void)
     {
         const uint8_t *rom_identity = reset.machine.rom;
         gbl_machine_reset(&reset.machine);
-        if (reset.machine.rom != rom_identity || reset.machine.event_count != 0u ||
+        if (reset.machine.rom != rom_identity ||
+            reset.machine.event_count != 1u ||
+            reset.machine.next_event_sequence != 1u ||
+            reset.machine.events[0].cycle != 0u ||
+            reset.machine.events[0].sequence != 0u ||
+            reset.machine.events[0].generation !=
+                reset.machine.ppu.generation ||
+            reset.machine.events[0].kind !=
+                (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY ||
+            !reset.machine.events[0].live ||
             reset.machine.waitcnt != 0u ||
             reset.machine.bus_owner != GBL_MACHINE_BUS_OWNER_CPU ||
             reset.machine.interrupt_flags != 0u ||

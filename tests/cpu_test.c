@@ -6142,7 +6142,7 @@ static void test_arm_transfer_unmodeled_bus_results(void)
                   UINT32_C(0x00000000), GBL_BUS_OUTCOME_BIOS_ABSENT),
               "ARM byte load consumes the actual BIOS-absent bus result once");
     test_case(arm_transfer_observes_bus_outcome(
-                  UINT32_C(0x04000004), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
+                  UINT32_C(0x04000180), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
               "ARM byte load consumes the actual unimplemented-I/O bus result once");
     test_case(arm_transfer_observes_bus_outcome(
                   UINT32_C(0xFFFFFFFF), GBL_BUS_OUTCOME_UNMAPPED),
@@ -6308,7 +6308,7 @@ static void test_loaded_pc_actual_bus_outcomes(void)
                   UINT32_C(0x00000000), GBL_BUS_OUTCOME_BIOS_ABSENT),
               "LDR PC refills from the actual BIOS-absent word result");
     test_case(arm_loaded_pc_uses_actual_bus_result(
-                  UINT32_C(0x04000004), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
+                  UINT32_C(0x04000180), GBL_BUS_OUTCOME_IO_UNIMPLEMENTED),
               "LDR PC refills from the actual unimplemented-I/O word result");
     test_case(arm_loaded_pc_uses_actual_bus_result(
                   UINT32_MAX - UINT32_C(3), GBL_BUS_OUTCOME_UNMAPPED),
@@ -6421,6 +6421,15 @@ static bool arm_loaded_pc_preflight_boundary(
     trace = trace_before;
     if (loaded) {
         machine.master_cycles = master_cycles;
+        if (master_cycles != 0u && machine.event_count == 1u &&
+            machine.events[0].kind ==
+                (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY &&
+            machine.events[0].cycle < master_cycles) {
+            /* Keep this CPU-only counter-boundary fixture independent of the
+             * reset PPU event; at the synthetic clock it is stale. */
+            machine.events[0].generation =
+                machine.ppu.generation - UINT64_C(1);
+        }
         machine.cpu.retired_instructions = retired_instructions;
         machine.cpu.r0_7[0] = UINT32_C(0x03000100);
         write_word(machine.iwram, 0x100u, UINT32_C(0x08000040));
