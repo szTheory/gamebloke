@@ -1,4 +1,5 @@
 #include "gamebloke/gamebloke.h"
+#include "../src/ppu_internal.h"
 #include "state_check.h"
 
 #include <stdbool.h>
@@ -1668,11 +1669,334 @@ static bool ppu_dma_transfer_completion_collision(void)
     return valid;
 }
 
+static uint32_t dma_ppu_destination(uint8_t region, uint8_t width)
+{
+    if (region == (uint8_t)GBL_BUS_REGION_PRAM) {
+        return UINT32_C(0x05000020);
+    }
+    if (region == (uint8_t)GBL_BUS_REGION_OAM) {
+        return UINT32_C(0x07000020);
+    }
+    return UINT32_C(0x060001E0) + (width == 4u ? UINT32_C(4) : 0u);
+}
+
+static bool dma_ppu_prepare_video_machine(gbl_machine *machine,
+                                          uint8_t region, uint8_t width)
+{
+    const uint32_t value = width == 4u ? UINT32_C(0xA1B2C3D4)
+                                        : UINT32_C(0x00002345);
+    const uint32_t destination = dma_ppu_destination(region, width);
+    const uint16_t control = width == 4u ? UINT16_C(0x8400)
+                                          : UINT16_C(0x8000);
+
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = machine->dispcnt;
+    machine->iwram[0x20u] = (uint8_t)(value & UINT32_C(0xFF));
+    machine->iwram[0x21u] = (uint8_t)((value >> 8u) & UINT32_C(0xFF));
+    machine->iwram[0x22u] = (uint8_t)((value >> 16u) & UINT32_C(0xFF));
+    machine->iwram[0x23u] = (uint8_t)((value >> 24u) & UINT32_C(0xFF));
+    machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
+    machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
+    machine->vram[GBL_PPU_ROW_BYTES + 4u] = UINT8_C(0x78);
+    machine->vram[GBL_PPU_ROW_BYTES + 5u] = UINT8_C(0x56);
+    machine->vram[GBL_PPU_ROW_BYTES + 6u] = UINT8_C(0xBC);
+    machine->vram[GBL_PPU_ROW_BYTES + 7u] = UINT8_C(0x9A);
+    machine->pram[0x20u] = UINT8_C(0x11);
+    machine->pram[0x21u] = UINT8_C(0x22);
+    machine->pram[0x22u] = UINT8_C(0x33);
+    machine->pram[0x23u] = UINT8_C(0x44);
+    machine->oam[0x20u] = UINT8_C(0x55);
+    machine->oam[0x21u] = UINT8_C(0x66);
+    machine->oam[0x22u] = UINT8_C(0x77);
+    machine->oam[0x23u] = UINT8_C(0x88);
+    return configure_dma(machine, 0u, UINT32_C(0x03000020), destination,
+                         1u, control);
+}
+
+static bool dma_ppu_unit_quotes(const gbl_machine *machine, uint8_t width,
+                                uint32_t destination,
+                                gbl_cycle_cost *source_cost,
+                                gbl_cycle_cost *destination_cost)
+{
+    return gbl_bus_quote(machine, UINT32_C(0x03000020),
+                         GBL_BUS_DIRECTION_READ, width,
+                         GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
+                         source_cost) &&
+           gbl_bus_quote(machine, destination, GBL_BUS_DIRECTION_WRITE,
+                         width, GBL_BUS_CLASS_NONSEQUENTIAL,
+                         GBL_BUS_ROLE_DATA, destination_cost) &&
+           source_cost->cycles != 0u && destination_cost->cycles != 0u;
+}
+
+static bool dma_ppu_boundary_case(int8_t offset)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    gbl_cycle_cost source_cost = { 0 };
+    gbl_cycle_cost destination_cost = { 0 };
+    const uint32_t destination = UINT32_C(0x060001E0);
+    const uint64_t row_start = GBL_PPU_LINE_CYCLES;
+    const uint64_t completion = (uint64_t)((int64_t)row_start + offset);
+    uint64_t unit_cycles = 0u;
+    bool valid = machine != NULL;
+
+    if (!valid) {
+        return false;
+    }
+    valid = dma_ppu_prepare_video_machine(
+                machine, (uint8_t)GBL_BUS_REGION_VRAM, 2u) &&
+            dma_ppu_unit_quotes(machine, 2u, destination, &source_cost,
+                                &destination_cost) &&
+            gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES, &step) ==
+                GBL_DMA_STATUS_OK && !step.unit_completed;
+    unit_cycles = source_cost.cycles + destination_cost.cycles;
+    if (valid) {
+        ppu_refusal_seed_boundary(
+            machine, completion - unit_cycles, row_start, 1u, false,
+            machine->ppu.generation + 1u, machine->next_event_sequence);
+        valid = gbl_machine_dma_step(machine, unit_cycles, &step) ==
+                    GBL_DMA_STATUS_OK && step.unit_completed &&
+                step.completion_cycle == completion &&
+                step.source_address == UINT32_C(0x03000020) &&
+                step.destination_address == destination &&
+                step.value == UINT32_C(0x2345) && step.width == 2u &&
+                step.source_cycles == source_cost.cycles &&
+                step.destination_cycles == destination_cost.cycles &&
+                machine->vram[GBL_PPU_ROW_BYTES] == UINT8_C(0x45) &&
+                machine->vram[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x23);
+    }
+    if (valid && completion < row_start) {
+        valid = gbl_machine_advance_to(machine, row_start) ==
+                GBL_TIME_STATUS_OK;
+    }
+    if (valid) {
+        const uint16_t pixel = (uint16_t)(
+            (uint16_t)machine->video_frame[GBL_PPU_ROW_BYTES] |
+            (uint16_t)((uint16_t)machine->video_frame[
+                           GBL_PPU_ROW_BYTES + 1u] << 8u));
+        const uint16_t expected = offset < 0 ? UINT16_C(0x2345)
+                                              : UINT16_C(0x1234);
+        valid = pixel == expected;
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool dma_ppu_sample_memory(gbl_machine *machine,
+                                  gbl_bus_region region,
+                                  uint32_t source_offset, uint8_t width,
+                                  const uint8_t *expected)
+{
+    gbl_machine_time_preview preview = { 0 };
+    gbl_ppu_row_capture capture = { 0 };
+    uint8_t sample[4] = { 0u, 0u, 0u, 0u };
+    size_t index;
+
+    if (gbl_machine_prepare_time(machine, machine->master_cycles,
+                                 &preview) != GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    capture.cycle = GBL_PPU_LINE_CYCLES;
+    capture.frame_epoch = preview.ppu.frame_epoch;
+    capture.line = 1u;
+    if (gbl_ppu_sample_read(machine, &preview, &capture, region,
+                            source_offset, 2u, width, sample,
+                            sizeof(sample)) != GBL_PPU_SAMPLE_STATUS_OK) {
+        return false;
+    }
+    for (index = 0u; index < width; ++index) {
+        if (sample[index] != expected[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool dma_ppu_video_lane_case(uint8_t region, uint8_t width)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    gbl_cycle_cost source_cost = { 0 };
+    gbl_cycle_cost destination_cost = { 0 };
+    const uint32_t destination = dma_ppu_destination(region, width);
+    const uint32_t value = width == 4u ? UINT32_C(0xA1B2C3D4)
+                                        : UINT32_C(0x00002345);
+    const uint8_t expected[4] = {
+        (uint8_t)(value & UINT32_C(0xFF)),
+        (uint8_t)((value >> 8u) & UINT32_C(0xFF)),
+        (uint8_t)((value >> 16u) & UINT32_C(0xFF)),
+        (uint8_t)((value >> 24u) & UINT32_C(0xFF))
+    };
+    const uint8_t sample_region = region == (uint8_t)GBL_BUS_REGION_PRAM
+                                      ? (uint8_t)GBL_BUS_REGION_PRAM
+                                      : (uint8_t)GBL_BUS_REGION_OAM;
+    bool valid = machine != NULL;
+
+    if (!valid) {
+        return false;
+    }
+    valid = dma_ppu_prepare_video_machine(machine, region, width) &&
+            dma_ppu_unit_quotes(machine, width, destination, &source_cost,
+                                &destination_cost) &&
+            gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES) ==
+                GBL_TIME_STATUS_OK &&
+            run_dma_unit(machine, 0u, &step) && step.width == width &&
+            step.value == value && step.source_cycles == source_cost.cycles &&
+            step.destination_cycles == destination_cost.cycles;
+    if (valid) {
+        const uint8_t *memory = NULL;
+        size_t offset = 0u;
+        size_t index;
+
+        if (region == (uint8_t)GBL_BUS_REGION_PRAM) {
+            memory = machine->pram;
+            offset = destination & (GBL_PRAM_SIZE - 1u);
+        } else if (region == (uint8_t)GBL_BUS_REGION_VRAM) {
+            memory = machine->vram;
+            offset = destination - UINT32_C(0x06000000);
+        } else {
+            memory = machine->oam;
+            offset = destination & (GBL_OAM_SIZE - 1u);
+        }
+        for (index = 0u; index < width; ++index) {
+            valid = valid && memory[offset + index] == expected[index];
+        }
+        if (region == (uint8_t)GBL_BUS_REGION_PRAM ||
+            region == (uint8_t)GBL_BUS_REGION_OAM) {
+            valid = valid && dma_ppu_sample_memory(
+                machine, (gbl_bus_region)sample_region,
+                destination & UINT32_C(0x0000FFFF), width, expected);
+        }
+        if (region == (uint8_t)GBL_BUS_REGION_VRAM) {
+            const uint32_t pixel_offset = width == 4u ? 4u : 0u;
+            valid = valid &&
+                machine->video_frame[GBL_PPU_ROW_BYTES + pixel_offset] ==
+                    (width == 4u ? UINT8_C(0x78) : UINT8_C(0x34)) &&
+                machine->video_frame[GBL_PPU_ROW_BYTES + pixel_offset + 1u] ==
+                    (width == 4u ? UINT8_C(0x56) : UINT8_C(0x12));
+        } else {
+            valid = valid &&
+                machine->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34) &&
+                machine->video_frame[GBL_PPU_ROW_BYTES + 1u] ==
+                    UINT8_C(0x12);
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool dma_ppu_video_lane_matrix(void)
+{
+    static const uint8_t regions[] = {
+        (uint8_t)GBL_BUS_REGION_PRAM,
+        (uint8_t)GBL_BUS_REGION_VRAM,
+        (uint8_t)GBL_BUS_REGION_OAM
+    };
+    size_t region_index;
+
+    for (region_index = 0u;
+         region_index < sizeof(regions) / sizeof(regions[0]);
+         ++region_index) {
+        if (!dma_ppu_video_lane_case(regions[region_index], 2u) ||
+            !dma_ppu_video_lane_case(regions[region_index], 4u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool dma_ppu_overflow_refusal_is_atomic(void)
+{
+    gbl_machine *refused = new_machine();
+    gbl_machine *clean_twin = new_machine();
+    gbl_machine *before = NULL;
+    gbl_dma_step_result refused_step = { 0 };
+    gbl_dma_step_result clean_step = { 0 };
+    gbl_cycle_cost source_cost = { 0 };
+    gbl_cycle_cost destination_cost = { 0 };
+    gbl_machine_time_preview preview = { 0 };
+    gbl_ppu_row_capture capture = { 0 };
+    uint8_t sample_sentinel[2] = { UINT8_C(0xA5), UINT8_C(0x5A) };
+    const uint64_t row_start = GBL_PPU_LINE_CYCLES;
+    uint64_t unit_cycles = 0u;
+    bool valid = refused != NULL && clean_twin != NULL;
+
+    if (!valid) {
+        free_machine(refused);
+        free_machine(clean_twin);
+        return false;
+    }
+    valid = dma_ppu_prepare_video_machine(
+                refused, (uint8_t)GBL_BUS_REGION_VRAM, 2u) &&
+            dma_ppu_prepare_video_machine(
+                clean_twin, (uint8_t)GBL_BUS_REGION_VRAM, 2u) &&
+            gbl_machine_dma_step(refused, GBL_DMA_STARTUP_CYCLES,
+                                 &refused_step) == GBL_DMA_STATUS_OK &&
+            gbl_machine_dma_step(clean_twin, GBL_DMA_STARTUP_CYCLES,
+                                 &clean_step) == GBL_DMA_STATUS_OK &&
+            dma_ppu_unit_quotes(refused, 2u, UINT32_C(0x060001E0),
+                                &source_cost, &destination_cost);
+    unit_cycles = source_cost.cycles + destination_cost.cycles;
+    if (valid) {
+        memset(refused->events, 0, sizeof(refused->events));
+        refused->event_count = 0u;
+        refused->master_cycles = UINT64_MAX - UINT64_C(1);
+        before = malloc(sizeof(*before));
+        valid = before != NULL;
+    }
+    if (valid) {
+        *before = *refused;
+        valid = gbl_machine_dma_step(refused, UINT64_C(64), &refused_step) ==
+                    GBL_DMA_STATUS_TIME_OVERFLOW &&
+                !refused_step.unit_completed &&
+                gbl_test_canonical_equal(before, refused) &&
+                refused->open_bus == before->open_bus &&
+                refused->dma_channels[0].read_latch ==
+                    before->dma_channels[0].read_latch &&
+                refused->vram[GBL_PPU_ROW_BYTES] ==
+                    before->vram[GBL_PPU_ROW_BYTES] &&
+                gbl_test_bytes_equal(refused->video_frame,
+                                     before->video_frame,
+                                     GBL_PPU_VIDEO_BYTES) &&
+                gbl_machine_prepare_time(refused, refused->master_cycles,
+                                         &preview) == GBL_TIME_STATUS_OK;
+    }
+    if (valid) {
+        capture.frame_epoch = preview.ppu.frame_epoch;
+        capture.line = 0u;
+        valid = gbl_ppu_sample_read(
+                    refused, &preview, &capture, GBL_BUS_REGION_PRAM, 0u,
+                    2u, 2u, sample_sentinel, 1u) ==
+                    GBL_PPU_SAMPLE_STATUS_OUTPUT_TOO_SMALL &&
+                sample_sentinel[0] == UINT8_C(0xA5) &&
+                sample_sentinel[1] == UINT8_C(0x5A);
+    }
+    if (valid) {
+        ppu_refusal_seed_boundary(
+            clean_twin, row_start - unit_cycles, row_start, 1u, false,
+            clean_twin->ppu.generation + 1u,
+            clean_twin->next_event_sequence);
+        valid = gbl_machine_dma_step(clean_twin, unit_cycles, &clean_step) ==
+                    GBL_DMA_STATUS_OK && clean_step.unit_completed &&
+                clean_step.completion_cycle == row_start &&
+                clean_step.value == UINT32_C(0x2345) &&
+                clean_twin->vram[GBL_PPU_ROW_BYTES] == UINT8_C(0x45) &&
+                clean_twin->vram[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x23) &&
+                clean_twin->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34) &&
+                clean_twin->video_frame[GBL_PPU_ROW_BYTES + 1u] ==
+                    UINT8_C(0x12);
+    }
+    free(before);
+    free_machine(refused);
+    free_machine(clean_twin);
+    return valid;
+}
+
 static bool run_ppu_refusal(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..11\n");
+    printf("TAP version 13\n1..12\n");
     test_case(ppu_request_capacity_is_atomic(),
               "blank request capacity refusal preserves PPU, DMA, memory, and pixels");
     test_case(ppu_recurrence_capacity_is_atomic(),
@@ -1697,6 +2021,8 @@ static bool run_ppu_refusal(void)
                   ppu_dma_control_writes_follow_boundary() &&
                   ppu_dma_transfer_completion_collision(),
               "timer, input, PPU match, IF acknowledgement, DMA writes, and transfer completion follow one causal clock");
+    test_case(dma_ppu_overflow_refusal_is_atomic(),
+              "DMA source candidate followed by destination-time overflow leaves latches, memory, frame, and preview output untouched; exact twin commits");
     return failure_count == 0u ? 0 : 1;
 }
 
@@ -1704,17 +2030,31 @@ static bool run_ppu_triggers(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..1\n");
+    printf("TAP version 13\n1..2\n");
     (void)test_ppu_blank_triggers_and_video_row();
+    test_case(dma_ppu_video_lane_matrix(),
+              "halfword and word DMA units preserve PRAM, VRAM, OAM lanes, private samples, and sampled pixels");
     return failure_count == 0u ? 0 : 1;
 }
 
 static bool run_ppu_order(void)
 {
+    static const int8_t offsets[] = { -1, 0, 1 };
+    size_t index;
+
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..1\n");
+    printf("TAP version 13\n1..4\n");
     (void)test_ppu_same_cycle_input_order();
+    for (index = 0u; index < sizeof(offsets) / sizeof(offsets[0]); ++index) {
+        const char *description = offsets[index] < 0
+            ? "DMA halfword completing before line start updates the sampled row"
+            : offsets[index] == 0
+                ? "DMA halfword completing on line start follows sample-before-write order"
+                : "DMA halfword completing after line start leaves the sampled row unchanged";
+
+        test_case(dma_ppu_boundary_case(offsets[index]), description);
+    }
     return failure_count == 0u ? 0 : 1;
 }
 
