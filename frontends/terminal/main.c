@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <math.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -78,13 +79,17 @@ typedef struct terminal_host {
     bool terminal_flags_saved;
     bool terminal_attributes_changed;
     bool terminal_flags_changed;
+    bool terminal_output_flags_saved;
+    bool terminal_output_flags_changed;
     bool terminal_screen_active;
     bool signal_actions_saved;
     unsigned terminal_rows;
     unsigned terminal_columns;
     unsigned frames;
+    double frames_per_second;
     uint16_t buttons;
     int original_file_flags;
+    int original_output_file_flags;
     struct termios original_termios;
     uint32_t pixels[GBL_GUEST_WIDTH * GBL_GUEST_HEIGHT];
     uint8_t cells[GBL_TERMINAL_HEIGHT][GBL_TERMINAL_WIDTH][3];
@@ -322,9 +327,11 @@ static bool open_core(const char *path, void **library,
         av_info.geometry.base_height != GBL_GUEST_HEIGHT ||
         av_info.geometry.max_width != GBL_GUEST_WIDTH ||
         av_info.geometry.max_height != GBL_GUEST_HEIGHT ||
+        !isfinite(av_info.timing.fps) ||
         av_info.timing.fps < 50.0 || av_info.timing.fps > 70.0) {
         return false;
     }
+    host->frames_per_second = av_info.timing.fps;
 
     api->init();
     host->initialized = true;
@@ -468,6 +475,9 @@ static bool terminal_enter(terminal_host *host)
     host->original_file_flags = fcntl(STDIN_FILENO, F_GETFL);
     if (host->original_file_flags < 0) return false;
     host->terminal_flags_saved = true;
+    host->original_output_file_flags = fcntl(STDOUT_FILENO, F_GETFL);
+    if (host->original_output_file_flags < 0) return false;
+    host->terminal_output_flags_saved = true;
     raw = host->original_termios;
     raw.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN);
     raw.c_iflag &= (tcflag_t)~(IXON | ICRNL | INLCR | IGNCR);
@@ -478,6 +488,9 @@ static bool terminal_enter(terminal_host *host)
     if (fcntl(STDIN_FILENO, F_SETFL,
               host->original_file_flags | O_NONBLOCK) != 0) return false;
     host->terminal_flags_changed = true;
+    if (fcntl(STDOUT_FILENO, F_SETFL,
+              host->original_output_file_flags | O_NONBLOCK) != 0) return false;
+    host->terminal_output_flags_changed = true;
     host->terminal_screen_active = true;
     if (!write_all(STDOUT_FILENO, "\033[?1049h\033[?25l\033[2J\033[H",
                    sizeof("\033[?1049h\033[?25l\033[2J\033[H") - 1u)) {
@@ -500,6 +513,12 @@ static void terminal_restore(terminal_host *host)
     if (host->terminal_flags_saved && host->terminal_flags_changed) {
         (void)fcntl(STDIN_FILENO, F_SETFL, host->original_file_flags);
         host->terminal_flags_changed = false;
+    }
+    if (host->terminal_output_flags_saved &&
+        host->terminal_output_flags_changed) {
+        (void)fcntl(STDOUT_FILENO, F_SETFL,
+                    host->original_output_file_flags);
+        host->terminal_output_flags_changed = false;
     }
     restore_signal_actions(host);
 }
@@ -541,7 +560,7 @@ static bool build_frame_output(terminal_host *host, char *output,
     {
         char controls[96];
         int controls_length = snprintf(controls, sizeof(controls),
-            "\033[2;1HD=RIGHT F=release J=A K=release Space=all R=reset Q=quit held:%s\033[K",
+            "\033[2;1HD/F=RIGHT J/K=A Space=all R=reset Q=quit held:%s\033[K",
             held);
         if (controls_length < 0 || (size_t)controls_length >= sizeof(controls) ||
             (size_t)controls_length > capacity - used) return false;
@@ -647,25 +666,18 @@ static bool read_keys(terminal_host *host, terminal_core_api *api,
                       bool *running)
 {
     unsigned char keys[64];
-    ssize_t count;
-    do {
-        count = read(STDIN_FILENO, keys, sizeof(keys));
-        if (count > 0) {
-            ssize_t index;
-            for (index = 0; index < count; ++index) {
-                process_key(host, api, keys[index], running);
-                if (!*running) return true;
-            }
-            continue;
+    const ssize_t count = read(STDIN_FILENO, keys, sizeof(keys));
+    if (count > 0) {
+        ssize_t index;
+        for (index = 0; index < count; ++index) {
+            process_key(host, api, keys[index], running);
+            if (!*running) return true;
         }
-        if (count == 0) return true;
-        if (errno == EINTR) {
-            if (requested_signal != 0) return true;
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) return true;
-        return false;
-    } while (true);
+        return true;
+    }
+    if (count == 0 || errno == EINTR || errno == EAGAIN ||
+        errno == EWOULDBLOCK) return true;
+    return false;
 }
 
 static int milliseconds_until(uint64_t due, uint64_t now)
@@ -699,8 +711,8 @@ static bool run_interactive(terminal_core_api *api, terminal_host *host,
                             unsigned frame_limit)
 {
     char output[GBL_OUTPUT_CAPACITY];
-    const double fps = 16777216.0 / 280896.0;
-    const uint64_t interval = (uint64_t)(1000000000.0 / fps);
+    const uint64_t interval =
+        (uint64_t)(1000000000.0 / host->frames_per_second);
     uint64_t started_at = monotonic_nanoseconds();
     uint64_t due = started_at;
     bool running = true;

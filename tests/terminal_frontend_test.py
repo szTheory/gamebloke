@@ -7,6 +7,7 @@ import fcntl
 import os
 import pty
 import select
+import re
 import signal
 import struct
 import subprocess
@@ -101,20 +102,25 @@ class Screen:
 
 class Session:
     def __init__(self, executable: str, module: str, content: str, frames: int = 240,
-                 size: tuple[int, int] = (24, 80)) -> None:
+                 size: tuple[int, int] = (24, 80),
+                 term: str = "xterm-256color") -> None:
         self.master, self.slave = pty.openpty()
+        self.output = os.open(
+            os.ttyname(self.slave), os.O_RDWR | getattr(os, "O_NOCTTY", 0)
+        )
         self.saved_attributes = termios.tcgetattr(self.slave)
         self.saved_flags = fcntl.fcntl(self.slave, fcntl.F_GETFL)
+        self.saved_output_flags = fcntl.fcntl(self.output, fcntl.F_GETFL)
         rows, columns = size
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ,
                     struct.pack("HHHH", rows, columns, 0, 0))
         self.process = subprocess.Popen(
             [executable, "--frames", str(frames), module, content],
             stdin=self.slave,
-            stdout=self.slave,
-            stderr=self.slave,
+            stdout=self.output,
+            stderr=self.output,
             close_fds=True,
-            env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},
+            env={**os.environ, "TERM": term, "COLORTERM": "truecolor"},
         )
         self.screen = Screen()
         self.closed = False
@@ -165,6 +171,7 @@ class Session:
     def assert_restored(self) -> None:
         attributes = termios.tcgetattr(self.slave)
         flags = fcntl.fcntl(self.slave, fcntl.F_GETFL)
+        output_flags = fcntl.fcntl(self.output, fcntl.F_GETFL)
         expected_attributes = list(self.saved_attributes)
         restored_attributes = list(attributes)
         # Darwin may add PENDIN when switching back to canonical input so the
@@ -177,6 +184,10 @@ class Session:
             raise AssertionError("terminal attributes were not restored")
         if (flags & os.O_NONBLOCK) != (self.saved_flags & os.O_NONBLOCK):
             raise AssertionError("terminal nonblocking flag was not restored")
+        if (output_flags & os.O_NONBLOCK) != (
+            self.saved_output_flags & os.O_NONBLOCK
+        ):
+            raise AssertionError("terminal output nonblocking flag was not restored")
 
     def close(self, force: bool = False) -> None:
         if self.closed:
@@ -187,7 +198,7 @@ class Session:
             except ProcessLookupError:
                 pass
             self.process.wait(timeout=2)
-        for fd in (self.master, self.slave):
+        for fd in (self.master, self.slave, self.output):
             if fd < 0:
                 continue
             try:
@@ -265,6 +276,37 @@ def run_live_tracer(executable: str, module: str, content: str) -> None:
         if result != 0:
             raise AssertionError(f"Q exit returned {result}")
         session.assert_restored()
+        samples = re.findall(
+            rb"frame=([0-9]+)\s+output=([0-9]+\.[0-9]+) FPS",
+            bytes(session.screen.text),
+        )
+        if not samples:
+            raise AssertionError("terminal output did not include its bounded cadence display")
+    finally:
+        session.close(force=True)
+
+
+def run_display_cadence(executable: str, module: str, content: str) -> None:
+    session = Session(executable, module, content, frames=30)
+    try:
+        result = session.wait_exit()
+        if result != 0:
+            raise AssertionError(f"bounded display sample returned {result}")
+        session.assert_restored()
+        samples = re.findall(
+            rb"frame=([0-9]+)\s+output=([0-9]+\.[0-9]+) FPS",
+            bytes(session.screen.text),
+        )
+        if not samples:
+            raise AssertionError("terminal display cadence sample was missing")
+        frames, fps = samples[-1]
+        measured_fps = float(fps)
+        elapsed_ms = int(frames) * 1000.0 / measured_fps
+        print(
+            "METRIC terminal.display "
+            f"frames={frames.decode()} elapsed_ms={elapsed_ms:.3f} "
+            f"fps={measured_fps:.2f} sampling=240x160-to-60x20"
+        )
     finally:
         session.close(force=True)
 
@@ -373,6 +415,19 @@ def run_refusals(executable: str, module: str, content: str) -> None:
     finally:
         too_small.close(force=True)
 
+    dumb = Session(executable, module, content, size=(24, 80), term="dumb")
+    try:
+        result = dumb.wait_exit()
+        if result == 0:
+            raise AssertionError("TERM=dumb was accepted for interactive rendering")
+        dumb.assert_restored()
+    finally:
+        dumb.close(force=True)
+
+    for frame_count in ("0", "1001", "-1", "not-a-number"):
+        run_cli(executable, "--frames", frame_count, module, content,
+                expected_success=False)
+
 
 def run_tracer(executable: str, module: str, content: str) -> None:
     require_exists(executable, "terminal frontend executable")
@@ -380,6 +435,7 @@ def run_tracer(executable: str, module: str, content: str) -> None:
     require_exists(content, "continuous Playable 0 guest")
     run_refusals(executable, module, content)
     run_live_tracer(executable, module, content)
+    run_display_cadence(executable, module, content)
     run_negative_guests(executable, module, Path(content))
     run_lifecycle(executable, module, content)
     print("terminal-frontend-test: tracer, live controls, negative guests, and lifecycle passed")
