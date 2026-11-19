@@ -74,6 +74,16 @@ function(check_command out profile doc)
     PARENT_SCOPE)
 endfunction()
 
+# PPU mutation controls exercise the same production policy and document
+# validators without repeating unrelated timing/CPU profile checks.
+function(check_ppu_command out profile doc)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_PPU_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
 # expect_code(<code> <profile> [<doc>]): the validator fails with <code>. The
 # document defaults to an unmodified copy.
 function(expect_code code profile)
@@ -99,6 +109,16 @@ function(expect_detail code detail profile)
   gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
 endfunction()
 
+function(expect_ppu_detail code detail profile)
+  if(ARGC GREATER 3)
+    set(doc "${ARGV3}")
+  else()
+    doc_copy(doc unchanged_ppu_detail)
+  endif()
+  check_ppu_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
 if(CASE STREQUAL "copy")
   profile_copy(p copy)
   doc_copy(d copy)
@@ -115,13 +135,13 @@ elseif(CASE STREQUAL "ppu_policy")
 
   profile_copy(p missing_display_capabilities)
   gbl_json_mutate_remove("${p}" ppu_policy display_capabilities)
-  expect_detail(ppu-capability-value
+  expect_ppu_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities" "${p}")
 
   profile_copy(p missing_ppu_policy)
   gbl_json_mutate_set("${p}" [=[{"placeholder": "temporary control value"}]=] ppu_policy)
   gbl_json_mutate_remove("${p}" ppu_policy)
-  expect_detail(ppu-policy-missing "ppu_policy" "${p}")
+  expect_ppu_detail(ppu-policy-missing "ppu_policy" "${p}")
 
   set(ppu_policy_fields
     policy_classification hardware_qualification hardware_source_reference
@@ -139,35 +159,35 @@ elseif(CASE STREQUAL "ppu_policy")
     profile_copy(p mutated_${field})
     gbl_json_mutate_set("${p}" [=["control-drift"]=] ppu_policy ${field})
     string(REPLACE "." "\\." expected_path "ppu_policy.${field}")
-    expect_detail(ppu-policy-value "${expected_path}" "${p}")
+    expect_ppu_detail(ppu-policy-value "${expected_path}" "${p}")
   endforeach()
 
   profile_copy(p false_hblank_qualification)
   gbl_json_mutate_set("${p}" [=["QUALIFIED"]=]
     ppu_policy hblank_hardware_qualification)
-  expect_detail(ppu-policy-value
+  expect_ppu_detail(ppu-policy-value
     "ppu_policy\\.hblank_hardware_qualification" "${p}")
 
   profile_copy(p missing_hblank_dispute)
   gbl_json_mutate_remove("${p}" ppu_policy hblank_dispute)
-  expect_detail(ppu-policy-value "ppu_policy\\.hblank_dispute" "${p}")
+  expect_ppu_detail(ppu-policy-value "ppu_policy\\.hblank_dispute" "${p}")
 
   profile_copy(p wrong_hblank_offset)
   gbl_json_mutate_set("${p}" "1007" ppu_policy hblank_event_offset_cycles)
-  expect_detail(ppu-policy-value
+  expect_ppu_detail(ppu-policy-value
     "ppu_policy\\.hblank_event_offset_cycles" "${p}")
 
   profile_copy(p wrong_row_sample)
   gbl_json_mutate_set("${p}" [=["after-line-end"]=]
     ppu_policy row_sample_point)
-  expect_detail(ppu-policy-value "ppu_policy\\.row_sample_point" "${p}")
+  expect_ppu_detail(ppu-policy-value "ppu_policy\\.row_sample_point" "${p}")
 
   profile_copy(p stale_ppu_doc)
   doc_copy(d stale_ppu_doc)
   gbl_text_mutate("${d}"
     "| `ppu_policy.row_sample_point` | visible-line-start |"
     "| `ppu_policy.row_sample_point` | after-line-end |")
-  expect_detail(ppu-policy-doc "ppu_policy: missing or stale row" "${p}" "${d}")
+  expect_ppu_detail(ppu-policy-doc "ppu_policy: missing or stale row" "${p}" "${d}")
 
 elseif(CASE STREQUAL "cpu_policy_value")
   if(NOT PROFILE_VERSION GREATER_EQUAL 6)

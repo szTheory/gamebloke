@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 9
+profile_version: 10
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -121,6 +121,53 @@ not qualify the PPU against hardware.
 | `ppu_policy.unmodeled_controls` | other modes, disabled BG2, forced blank, OBJ, windows, effects, and BG2 transforms |
 | `ppu_policy.interrupt_if_bits` | VBlank 0, HBlank 1, VCOUNT-match 2 |
 | `ppu_policy.blank_dma_eligibility` | HBlank on visible lines 0-159, VBlank at the line 160 transition |
+
+## PPU display capabilities
+
+The mode table describes available background source layouts and their source
+extents. Implementation status records the current Gamebloke renderer; `partial`
+is a static capability label and is separate from per-frame validity. The mode
+and background layouts are summarized from the cited AGB manual sections, not
+reproduced from its tables. [Nintendo AGB Programming Manual v1.1 §§5.1 and
+6.1–6.2](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+| Mode | Implementation status | Background sources and dimensions |
+| --- | --- | --- |
+| `ppu_policy.display_capabilities.modes[0]` | not-implemented | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 text: 256x256, 512x256, 256x512, 512x512; BG3 text: 256x256, 512x256, 256x512, 512x512 |
+| `ppu_policy.display_capabilities.modes[1]` | not-implemented | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 affine: 128x128, 256x256, 512x512, 1024x1024 |
+| `ppu_policy.display_capabilities.modes[2]` | not-implemented | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |
+| `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |
+| `ppu_policy.display_capabilities.modes[4]` | not-implemented | BG2 indexed-bitmap: 240x160 |
+| `ppu_policy.display_capabilities.modes[5]` | not-implemented | BG2 direct-color-bitmap: 160x128 |
+
+## PPU raw output
+
+The raw output keeps the existing 240x160 display geometry. Public Nintendo
+technical information also identifies a 240x160 display; this citation and the
+profile do not imply hardware qualification. [Nintendo Game Boy Advance
+technical history](https://www.nintendo.com/en-gb/Hardware/Nintendo-History/Game-Boy-Advance/Game-Boy-Advance-627139.html)
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.display_capabilities.raw_output.format` | BGR555_LE |
+| `ppu_policy.display_capabilities.raw_output.width` | 240 |
+| `ppu_policy.display_capabilities.raw_output.height` | 160 |
+| `ppu_policy.display_capabilities.raw_output.stride_bytes` | 480 |
+| `ppu_policy.display_capabilities.raw_output.byte_length` | 76800 |
+
+## Video memory access policy
+
+For CPU and DMA reads and writes to palette RAM, VRAM, and OAM, Gamebloke keeps
+the existing bus behavior in drawing, HBlank, VBlank, and forced blank. The
+policy adds no PPU denial or cycles; bus request costs remain owned by
+`bus_policy.request_cycles`. This is selected project behavior, with hardware
+qualification `UNKNOWN`. The selected 1006-cycle HBlank point and visible-line-
+start row sampling remain in force. The HBlank-edge, DMA-latch, and within-line
+visibility disputes remain open.
+
+| Setting | Classification | Hardware qualification | Masters | Regions | States | Availability | PPU extra cycles | Cost reference |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ppu_policy.video_memory_access.matrix` | project-selected | UNKNOWN | cpu, dma | pram, vram, oam | drawing, hblank, vblank, forced-blank | existing-bus-behavior | 0 | `bus_policy.request_cycles` |
 
 ## Timing model scope
 

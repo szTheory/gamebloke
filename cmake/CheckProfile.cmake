@@ -33,6 +33,11 @@
 #   ppu-policy-value      a selected PPU policy value, provenance, dispute, or
 #                          hardware qualification differs from its contract
 #   ppu-policy-doc        the PPU policy table is absent, stale, duplicated, or malformed
+#   ppu-capability-value  display capability shape, source layout, dimensions,
+#                         implementation status, or raw-output geometry is wrong
+#   ppu-capability-doc    the display capability or raw-output narrative is stale
+#   ppu-access-policy-value video-memory master/region/state policy or cost binding is wrong
+#   ppu-access-policy-doc the video-memory access narrative is stale
 #   unmodeled-missing      one finding per required unmodeled id that is absent
 #   unmodeled-bad-entry    an entry that is not an object; an id that is not
 #                          ^[a-z0-9][a-z0-9-]*$ or is duplicated; a status other than
@@ -108,6 +113,36 @@ set(GBL_PROFILE_PPU_POLICY_ROWS
   "unmodeled_controls|other modes, disabled BG2, forced blank, OBJ, windows, effects, and BG2 transforms|STRING"
   "interrupt_if_bits|VBlank 0, HBlank 1, VCOUNT-match 2|STRING"
   "blank_dma_eligibility|HBlank on visible lines 0-159, VBlank at the line 160 transition|STRING")
+set(GBL_PROFILE_PPU_RAW_OUTPUT_JSON [=[{"format":"BGR555_LE","width":240,"height":160,"stride_bytes":480,"byte_length":76800}]=])
+set(GBL_PROFILE_PPU_EXPECTED_MODES_JSON [=[
+[
+  {"mode":0,"implementation_status":"not-implemented","backgrounds":[
+    {"bg":0,"source":"text","dimensions":[{"width":256,"height":256},{"width":512,"height":256},{"width":256,"height":512},{"width":512,"height":512}]},
+    {"bg":1,"source":"text","dimensions":[{"width":256,"height":256},{"width":512,"height":256},{"width":256,"height":512},{"width":512,"height":512}]},
+    {"bg":2,"source":"text","dimensions":[{"width":256,"height":256},{"width":512,"height":256},{"width":256,"height":512},{"width":512,"height":512}]},
+    {"bg":3,"source":"text","dimensions":[{"width":256,"height":256},{"width":512,"height":256},{"width":256,"height":512},{"width":512,"height":512}]}
+  ]},
+  {"mode":1,"implementation_status":"not-implemented","backgrounds":[
+    {"bg":0,"source":"text","dimensions":[{"width":256,"height":256},{"width":512,"height":256},{"width":256,"height":512},{"width":512,"height":512}]},
+    {"bg":1,"source":"text","dimensions":[{"width":256,"height":256},{"width":512,"height":256},{"width":256,"height":512},{"width":512,"height":512}]},
+    {"bg":2,"source":"affine","dimensions":[{"width":128,"height":128},{"width":256,"height":256},{"width":512,"height":512},{"width":1024,"height":1024}]}
+  ]},
+  {"mode":2,"implementation_status":"not-implemented","backgrounds":[
+    {"bg":2,"source":"affine","dimensions":[{"width":128,"height":128},{"width":256,"height":256},{"width":512,"height":512},{"width":1024,"height":1024}]},
+    {"bg":3,"source":"affine","dimensions":[{"width":128,"height":128},{"width":256,"height":256},{"width":512,"height":512},{"width":1024,"height":1024}]}
+  ]},
+  {"mode":3,"implementation_status":"partial","backgrounds":[
+    {"bg":2,"source":"direct-color-bitmap","dimensions":[{"width":240,"height":160}]}
+  ]},
+  {"mode":4,"implementation_status":"not-implemented","backgrounds":[
+    {"bg":2,"source":"indexed-bitmap","dimensions":[{"width":240,"height":160}]}
+  ]},
+  {"mode":5,"implementation_status":"not-implemented","backgrounds":[
+    {"bg":2,"source":"direct-color-bitmap","dimensions":[{"width":160,"height":128}]}
+  ]}
+]
+]=])
+set(GBL_PROFILE_PPU_VIDEO_MEMORY_ACCESS_JSON [=[{"classification":"project-selected","hardware_qualification":"UNKNOWN","masters":["cpu","dma"],"regions":["pram","vram","oam"],"states":["drawing","hblank","vblank","forced-blank"],"availability":"existing-bus-behavior","ppu_extra_cycles":0,"cost_reference":"bus_policy.request_cycles"}]=])
 set(GBL_PROFILE_INT64_MAX 9223372036854775807)
 set(GBL_PROFILE_BUS_REQUEST_KEYS bios ewram iwram io pram vram oam rom unmapped)
 set(GBL_PROFILE_BUS_REGIONS bios ewram iwram io pram vram oam rom unmapped)
@@ -1271,12 +1306,13 @@ function(gbl__profile_ppu_policy doc)
   string(JSON policy_version ERROR_VARIABLE version_error GET
     "${doc}" profile_version)
   if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
-      policy_version LESS 9)
+      policy_version LESS 10)
     gbl_finding(profile ppu-policy-value
-      "profile_version: expected 9 or later for PPU policy")
+      "profile_version: expected 10 or later for PPU capability metadata")
   endif()
 
-  list(LENGTH GBL_PROFILE_PPU_POLICY_ROWS expected_field_count)
+  list(LENGTH GBL_PROFILE_PPU_POLICY_ROWS scalar_field_count)
+  math(EXPR expected_field_count "${scalar_field_count}+2")
   string(JSON actual_field_count LENGTH "${doc}" ppu_policy)
   if(NOT actual_field_count EQUAL expected_field_count)
     gbl_finding(profile ppu-policy-value
@@ -1308,6 +1344,85 @@ function(gbl__profile_ppu_policy doc)
 
   gbl__profile_dispute("${doc}" "ppu_policy.hblank_dispute"
     ppu_policy hblank_dispute)
+  gbl__profile_ppu_display_capabilities("${doc}")
+  gbl__profile_ppu_video_memory_access("${doc}")
+endfunction()
+
+# The CPU/DMA × PRAM/VRAM/OAM × state product shares one selected availability
+# policy. Bus request costs remain owned by bus_policy.request_cycles.
+function(gbl__profile_ppu_video_memory_access doc)
+  gbl_json_type(policy_type "${doc}" ppu_policy video_memory_access)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ppu-access-policy-value
+      "ppu_policy.video_memory_access: expected OBJECT, found ${policy_type}")
+    return()
+  endif()
+  string(JSON access_fields LENGTH "${doc}" ppu_policy video_memory_access)
+  if(NOT access_fields EQUAL 8)
+    gbl_finding(profile ppu-access-policy-value
+      "ppu_policy.video_memory_access: expected 8 fields, found ${access_fields}")
+  endif()
+  string(JSON actual_access GET "${doc}" ppu_policy video_memory_access)
+  string(JSON access_match EQUAL "${actual_access}" "${GBL_PROFILE_PPU_VIDEO_MEMORY_ACCESS_JSON}")
+  if(NOT access_match)
+    gbl_finding(profile ppu-access-policy-value
+      "ppu_policy.video_memory_access: differs from selected CPU/DMA, PRAM/VRAM/OAM policy")
+  endif()
+endfunction()
+
+function(gbl__profile_ppu_display_capabilities doc)
+  gbl_json_type(capability_type "${doc}" ppu_policy display_capabilities)
+  if(NOT "${capability_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ppu-capability-value
+      "ppu_policy.display_capabilities: expected OBJECT, found ${capability_type}")
+    return()
+  endif()
+  string(JSON capability_fields LENGTH "${doc}" ppu_policy display_capabilities)
+  if(NOT capability_fields EQUAL 3)
+    gbl_finding(profile ppu-capability-value
+      "ppu_policy.display_capabilities: expected 3 fields, found ${capability_fields}")
+  endif()
+  gbl_json_string(model "${doc}" ppu_policy display_capabilities model)
+  if(NOT "${model}" STREQUAL "gamebloke-display-capabilities-1")
+    gbl_finding(profile ppu-capability-value
+      "ppu_policy.display_capabilities.model: expected gamebloke-display-capabilities-1")
+  endif()
+
+  gbl_json_type(raw_type "${doc}" ppu_policy display_capabilities raw_output)
+  if(NOT "${raw_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ppu-capability-value
+      "ppu_policy.display_capabilities.raw_output: expected OBJECT, found ${raw_type}")
+  else()
+    string(JSON raw_fields LENGTH "${doc}" ppu_policy display_capabilities raw_output)
+    if(NOT raw_fields EQUAL 5)
+      gbl_finding(profile ppu-capability-value
+        "ppu_policy.display_capabilities.raw_output: expected 5 fields, found ${raw_fields}")
+    endif()
+    string(JSON raw_output_json GET "${doc}" ppu_policy display_capabilities raw_output)
+    string(JSON raw_output_match EQUAL "${raw_output_json}" "${GBL_PROFILE_PPU_RAW_OUTPUT_JSON}")
+    if(NOT raw_output_match)
+      gbl_finding(profile ppu-capability-value
+        "ppu_policy.display_capabilities.raw_output: format or geometry differs from BGR555_LE 240x160 contract")
+    endif()
+  endif()
+
+  gbl_json_type(modes_type "${doc}" ppu_policy display_capabilities modes)
+  if(NOT "${modes_type}" STREQUAL "ARRAY")
+    gbl_finding(profile ppu-capability-value
+      "ppu_policy.display_capabilities.modes: expected ARRAY, found ${modes_type}")
+  else()
+    string(JSON mode_count LENGTH "${doc}" ppu_policy display_capabilities modes)
+    if(NOT mode_count EQUAL 6)
+      gbl_finding(profile ppu-capability-value
+        "ppu_policy.display_capabilities.modes: expected 6 ordered records, found ${mode_count}")
+    endif()
+    string(JSON modes_json GET "${doc}" ppu_policy display_capabilities modes)
+    string(JSON modes_match EQUAL "${modes_json}" "${GBL_PROFILE_PPU_EXPECTED_MODES_JSON}")
+    if(NOT modes_match)
+      gbl_finding(profile ppu-capability-value
+        "ppu_policy.display_capabilities.modes: differs from the ordered mode/source/dimension/status contract")
+    endif()
+  endif()
 endfunction()
 
 # gbl__profile_unmodeled(<out-ids> <doc>): validate the unmodeled list and set
@@ -2190,6 +2305,41 @@ function(gbl__profile_doc_ppu_sync normalized_text profile)
   gbl__profile_doc_policy_table("${normalized_text}"
     "## PPU behavior policy" ppu_policy ${ppu_count} ppu_rows
     "Setting;Value" ppu-policy-doc 2)
+
+  set(capability_rows)
+  set(row "| `ppu_policy.display_capabilities.modes[0]` | not-implemented | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 text: 256x256, 512x256, 256x512, 512x512; BG3 text: 256x256, 512x256, 256x512, 512x512 |")
+  string(REPLACE ";" "\\;" row "${row}")
+  list(APPEND capability_rows "${row}")
+  set(row "| `ppu_policy.display_capabilities.modes[1]` | not-implemented | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 affine: 128x128, 256x256, 512x512, 1024x1024 |")
+  string(REPLACE ";" "\\;" row "${row}")
+  list(APPEND capability_rows "${row}")
+  set(row "| `ppu_policy.display_capabilities.modes[2]` | not-implemented | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |")
+  string(REPLACE ";" "\\;" row "${row}")
+  list(APPEND capability_rows "${row}")
+  list(APPEND capability_rows
+    "| `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |"
+    "| `ppu_policy.display_capabilities.modes[4]` | not-implemented | BG2 indexed-bitmap: 240x160 |"
+    "| `ppu_policy.display_capabilities.modes[5]` | not-implemented | BG2 direct-color-bitmap: 160x128 |")
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## PPU display capabilities" ppu_policy.display_capabilities 6 capability_rows
+    "Mode;Implementation status;Background sources and dimensions" ppu-capability-doc 3)
+
+  set(raw_output_rows
+    "| `ppu_policy.display_capabilities.raw_output.format` | BGR555_LE |"
+    "| `ppu_policy.display_capabilities.raw_output.width` | 240 |"
+    "| `ppu_policy.display_capabilities.raw_output.height` | 160 |"
+    "| `ppu_policy.display_capabilities.raw_output.stride_bytes` | 480 |"
+    "| `ppu_policy.display_capabilities.raw_output.byte_length` | 76800 |")
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## PPU raw output" ppu_policy.display_capabilities.raw_output 5 raw_output_rows
+    "Setting;Value" ppu-capability-doc 2)
+
+  set(access_rows
+    "| `ppu_policy.video_memory_access.matrix` | project-selected | UNKNOWN | cpu, dma | pram, vram, oam | drawing, hblank, vblank, forced-blank | existing-bus-behavior | 0 | `bus_policy.request_cycles` |")
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## Video memory access policy" ppu_policy.video_memory_access 1 access_rows
+    "Setting;Classification;Hardware qualification;Masters;Regions;States;Availability;PPU extra cycles;Cost reference"
+    ppu-access-policy-doc 9)
 endfunction()
 
 # gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the canonical
@@ -2470,6 +2620,22 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   gbl_contract_read(V "${VOCAB}")
   gbl_registry_read(R "${REGISTRY}" V)
   gbl_json_load(doc "${PROFILE}")
+
+  # Mutation controls target the production PPU policy validator directly.
+  # The ordinary lint and clean-copy controls still exercise the full profile.
+  if(DEFINED GBL_PROFILE_PPU_ONLY AND GBL_PROFILE_PPU_ONLY)
+    gbl__profile_ppu_policy("${doc}")
+    if(NOT EXISTS "${DOC}" OR IS_DIRECTORY "${DOC}")
+      gbl_finding(profile ppu-capability-doc "${DOC}: unreadable")
+    else()
+      file(READ "${DOC}" ppu_raw_text)
+      set(ppu_raw_text "\n${ppu_raw_text}")
+      gbl__profile_doc_normalize(ppu_normalized_text "${ppu_raw_text}")
+      gbl__profile_doc_ppu_sync("${ppu_normalized_text}" "${doc}")
+    endif()
+    gbl_findings_finish(profile "ok (agb PPU policy)")
+    return()
+  endif()
 
   # Top-level scalar fields.
   gbl_json_string(schema "${doc}" schema)
