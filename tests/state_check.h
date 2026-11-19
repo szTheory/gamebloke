@@ -84,6 +84,15 @@ static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
                                 sizeof(left->row_coverage));
 }
 
+static bool gbl_test_ppu_video_equal(const gbl_machine *left,
+                                     const gbl_machine *right)
+{
+    return left != NULL && right != NULL &&
+           gbl_test_ppu_equal(&left->ppu, &right->ppu) &&
+           gbl_test_bytes_equal(left->video_frame, right->video_frame,
+                                GBL_PPU_VIDEO_BYTES);
+}
+
 static bool gbl_test_ppu_row_capture_equal(
     const gbl_ppu_row_capture *left, const gbl_ppu_row_capture *right)
 {
@@ -466,7 +475,7 @@ static bool gbl_test_canonical_equal(const gbl_machine *left,
         left->open_bus != right->open_bus ||
         left->dispcnt != right->dispcnt ||
         !gbl_test_time_state_equal(left, right) ||
-        !gbl_test_ppu_equal(&left->ppu, &right->ppu) ||
+        !gbl_test_ppu_video_equal(left, right) ||
         !gbl_test_cpu_equal(&left->cpu, &right->cpu) ||
         !gbl_test_diagnostics_equal(&left->header_diagnostics,
                                     &right->header_diagnostics) ||
@@ -478,8 +487,6 @@ static bool gbl_test_canonical_equal(const gbl_machine *left,
         !gbl_test_bytes_equal(left->iwram, right->iwram, GBL_IWRAM_SIZE) ||
         !gbl_test_bytes_equal(left->pram, right->pram, GBL_PRAM_SIZE) ||
         !gbl_test_bytes_equal(left->vram, right->vram, GBL_VRAM_SIZE) ||
-        !gbl_test_bytes_equal(left->video_frame, right->video_frame,
-                              GBL_PPU_VIDEO_BYTES) ||
         !gbl_test_bytes_equal(left->oam, right->oam, GBL_OAM_SIZE)) {
         return false;
     }

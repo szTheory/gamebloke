@@ -4478,8 +4478,654 @@ done:
     return 0;
 }
 
+static uint16_t gbl_phase10_pattern_pixel(size_t pixel, bool variant)
+{
+    const size_t base = variant ? (size_t)UINT16_C(0x1778)
+                                : (size_t)UINT16_C(0x1357);
+
+    return (uint16_t)((pixel * 37u + base) & (size_t)UINT16_C(0x7FFF));
+}
+
+static bool gbl_phase10_seed(gbl_machine *machine, bool variant,
+                             const char **failure)
+{
+    const gbl_input_event input[2] = {
+        { UINT64_C(4), UINT16_C(1) },
+        { UINT64_C(12), UINT16_C(0) }
+    };
+    gbl_dma_channel_state *channel;
+    size_t pixel;
+
+    if (machine == NULL || !machine->initialized || failure == NULL) {
+        if (failure != NULL) *failure = "phase10-machine-not-initialized";
+        return false;
+    }
+    machine->dispcnt = UINT16_C(0x0403);
+    machine->ppu.dispcnt = UINT16_C(0x0403);
+    for (pixel = 0u; pixel < GBL_PPU_VIDEO_BYTES / 2u; ++pixel) {
+        const uint16_t color = gbl_phase10_pattern_pixel(pixel, variant);
+
+        machine->vram[pixel * 2u] = (uint8_t)(color & UINT16_C(0x00FF));
+        machine->vram[pixel * 2u + 1u] = (uint8_t)(color >> 8u);
+    }
+    machine->ewram[0x20u] = UINT8_C(0x6D);
+    machine->ewram[0x21u] = UINT8_C(0xA2);
+    channel = &machine->dma_channels[0];
+    channel->generation = UINT64_C(1);
+    channel->source_address = UINT32_C(0x02000020);
+    channel->destination_address = UINT32_C(0x03000100);
+    channel->current_source = channel->source_address;
+    channel->current_destination = channel->destination_address;
+    channel->count = 1u;
+    channel->control = UINT16_C(0x9000);
+    channel->remaining = 1u;
+    channel->armed = true;
+    if (gbl_machine_set_input_timeline(machine, input,
+                                       sizeof input / sizeof input[0]) !=
+        GBL_TIME_STATUS_OK) {
+        *failure = "phase10-logical-input-setup-failed";
+        return false;
+    }
+    return true;
+}
+
+static gbl_machine *gbl_phase10_new_machine(bool variant,
+                                             const char **failure)
+{
+    gbl_machine *machine = calloc(1u, sizeof *machine);
+
+    if (machine == NULL) {
+        *failure = "phase10-machine-allocation-failed";
+        return NULL;
+    }
+    if (gbl_machine_init(machine, NULL) != GBL_BUS_STATUS_OK) {
+        free(machine);
+        *failure = "phase10-machine-init-failed";
+        return NULL;
+    }
+    if (!gbl_phase10_seed(machine, variant, failure)) {
+        gbl_machine_dispose(machine);
+        free(machine);
+        return NULL;
+    }
+    return machine;
+}
+
+static void gbl_phase10_free_machine(gbl_machine **machine)
+{
+    if (machine == NULL || *machine == NULL) return;
+    gbl_machine_dispose(*machine);
+    free(*machine);
+    *machine = NULL;
+}
+
+static bool gbl_phase10_advance(gbl_machine *machine, uint64_t target,
+                                const char **failure)
+{
+    if (machine == NULL || target < machine->master_cycles ||
+        gbl_machine_advance_to(machine, target) != GBL_TIME_STATUS_OK) {
+        *failure = "phase10-scheduled-advance-failed";
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_phase10_frame_semantics(const gbl_machine *machine,
+                                        bool variant)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    size_t pixel;
+
+    if (machine == NULL || machine->master_cycles != frame_end ||
+        machine->ppu.frame_epoch != 0u ||
+        machine->ppu.line != GBL_PPU_VISIBLE_LINES ||
+        machine->ppu.captured_rows != GBL_PPU_VISIBLE_LINES ||
+        machine->ppu.capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        machine->ppu.capture_reason != GBL_VIDEO_INVALID_REASON_NONE ||
+        machine->ppu.dispcnt != UINT16_C(0x0403) ||
+        machine->input_event_cursor != 2u || machine->pressed_keys != 0u ||
+        !machine->dma_channels[0].pending ||
+        machine->dma_channels[0].armed ||
+        machine->dma_channels[0].trigger_origin !=
+            GBL_DMA_TRIGGER_ORIGIN_VBLANK ||
+        machine->dma_channels[0].trigger_cycle != frame_end ||
+        machine->dma_channels[0].trigger_dispute != GBL_DMA_DISPUTE_NONE) {
+        return false;
+    }
+    for (pixel = 0u; pixel < GBL_PPU_ROW_COVERAGE_BYTES; ++pixel) {
+        if (machine->ppu.row_coverage[pixel] != UINT8_MAX) return false;
+    }
+    for (pixel = 0u; pixel < GBL_PPU_VIDEO_BYTES / 2u; ++pixel) {
+        const uint16_t expected = gbl_phase10_pattern_pixel(pixel, variant);
+        if (machine->video_frame[pixel * 2u] !=
+                (uint8_t)(expected & UINT16_C(0x00FF)) ||
+            machine->video_frame[pixel * 2u + 1u] !=
+                (uint8_t)(expected >> 8u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_phase10_same_machine(const gbl_machine *left,
+                                     const gbl_machine *right)
+{
+    return gbl_test_canonical_equal(left, right) &&
+           gbl_test_canonical_digest(left) ==
+               gbl_test_canonical_digest(right);
+}
+
+static bool gbl_phase10_prepare_idempotency(gbl_machine *whole,
+                                            gbl_machine *split,
+                                            const char **failure)
+{
+    gbl_machine_time_preview *first =
+        malloc(sizeof *first);
+    gbl_machine_time_preview *second =
+        malloc(sizeof *second);
+    gbl_machine *snapshot = malloc(sizeof *snapshot);
+    const uint64_t target = GBL_PPU_HBLANK_CYCLES;
+    bool okay = false;
+
+    if (first == NULL || second == NULL || snapshot == NULL) {
+        *failure = "phase10-preview-allocation-failed";
+        goto done;
+    }
+    memcpy(snapshot, whole, sizeof *snapshot);
+    if (gbl_machine_prepare_time(whole, target, first) != GBL_TIME_STATUS_OK ||
+        gbl_machine_prepare_time(whole, target, second) != GBL_TIME_STATUS_OK ||
+        !gbl_test_time_preview_equal(first, second) ||
+        memcmp(whole, snapshot, sizeof *whole) != 0) {
+        *failure = "phase10-repeated-prepare-mutated-or-differed";
+        goto done;
+    }
+    gbl_machine_commit_time(whole, first);
+    if (!gbl_phase10_advance(split, target, failure) ||
+        !gbl_phase10_same_machine(whole, split)) {
+        *failure = "phase10-prepared-commit-differs-from-direct-advance";
+        goto done;
+    }
+    memcpy(snapshot, whole, sizeof *snapshot);
+    if (gbl_machine_prepare_time(whole, target + 1u, first) !=
+            GBL_TIME_STATUS_OK ||
+        gbl_machine_prepare_time(whole, target + 1u, second) !=
+            GBL_TIME_STATUS_OK ||
+        !gbl_test_time_preview_equal(first, second) ||
+        memcmp(whole, snapshot, sizeof *whole) != 0) {
+        *failure = "phase10-post-read-prepare-not-idempotent";
+        goto done;
+    }
+    okay = true;
+
+done:
+    free(first);
+    free(second);
+    free(snapshot);
+    return okay;
+}
+
+static bool gbl_phase10_run_split(gbl_machine *machine,
+                                  const char **failure)
+{
+    const uint64_t targets[] = {
+        UINT64_C(1005), UINT64_C(1006), UINT64_C(1231), UINT64_C(1232),
+        UINT64_C(1233), UINT64_C(8192), UINT64_C(65536),
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof targets / sizeof targets[0]; ++index) {
+        if (targets[index] > machine->master_cycles &&
+            !gbl_phase10_advance(machine, targets[index], failure)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_phase10_run_interleaved(gbl_machine *first,
+                                        gbl_machine *second,
+                                        const char **failure)
+{
+    const uint64_t targets[] = {
+        UINT64_C(1005), UINT64_C(1006), UINT64_C(1231), UINT64_C(1232),
+        UINT64_C(1233), UINT64_C(8192), UINT64_C(65536),
+        UINT64_C(120000),
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof targets / sizeof targets[0]; ++index) {
+        if (!gbl_phase10_advance(first, targets[index], failure) ||
+            !gbl_phase10_advance(second, targets[index], failure)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_phase10_preview_controls(const char **failure)
+{
+    gbl_machine *first_machine = NULL;
+    gbl_machine *second_machine = NULL;
+    gbl_machine_time_preview *first = NULL;
+    gbl_machine_time_preview *mutant = NULL;
+    bool okay = false;
+
+    first_machine = gbl_phase10_new_machine(false, failure);
+    second_machine = gbl_phase10_new_machine(false, failure);
+    first = malloc(sizeof *first);
+    mutant = malloc(sizeof *mutant);
+    if (first_machine == NULL || second_machine == NULL || first == NULL ||
+        mutant == NULL) {
+        *failure = "phase10-preview-control-allocation-failed";
+        goto done;
+    }
+    if (gbl_machine_prepare_time(first_machine,
+                                GBL_PPU_HBLANK_CYCLES,
+                                 first) != GBL_TIME_STATUS_OK) {
+        *failure = "phase10-preview-control-prepare-failed";
+        goto done;
+    }
+    {
+        gbl_machine_time_preview *second = malloc(sizeof *second);
+        if (second == NULL) {
+            *failure = "phase10-preview-control-allocation-failed";
+            goto done;
+        }
+        if (gbl_machine_prepare_time(second_machine,
+                                     GBL_PPU_HBLANK_CYCLES, second) !=
+                GBL_TIME_STATUS_OK ||
+            !gbl_test_time_preview_equal(first, second)) {
+            free(second);
+            *failure = "phase10-preview-clean-twins-differ";
+            goto done;
+        }
+        free(second);
+    }
+#define GBL_PHASE10_PREVIEW_MUTATION(label, statement)                       \
+    do {                                                                      \
+        *mutant = *first;                                                     \
+        statement;                                                            \
+        if (gbl_test_time_preview_equal(first, mutant)) {                      \
+            *failure = (label);                                               \
+            goto done;                                                        \
+        }                                                                     \
+    } while (0)
+    GBL_PHASE10_PREVIEW_MUTATION("phase10-preview-frame-epoch-accepted",
+                                 mutant->ppu.frame_epoch++);
+    GBL_PHASE10_PREVIEW_MUTATION("phase10-preview-coverage-accepted",
+                                 mutant->ppu.row_coverage[0] ^= UINT8_C(1));
+    GBL_PHASE10_PREVIEW_MUTATION("phase10-preview-status-accepted",
+                                 mutant->ppu.capture_state =
+                                     GBL_VIDEO_CAPTURE_INVALID);
+    GBL_PHASE10_PREVIEW_MUTATION("phase10-preview-reason-accepted",
+                                 mutant->ppu.capture_reason =
+                                     GBL_VIDEO_INVALID_REASON_FORCED_BLANK);
+    if (first->ppu_row_capture_count == 0u) {
+        *failure = "phase10-preview-row-capture-missing";
+        goto done;
+    }
+    GBL_PHASE10_PREVIEW_MUTATION(
+        "phase10-preview-capture-epoch-accepted",
+        mutant->ppu_row_captures[0].frame_epoch++);
+    GBL_PHASE10_PREVIEW_MUTATION(
+        "phase10-preview-pixel-digest-accepted",
+        mutant->ppu_row_captures[0].pixel_digest ^= UINT64_C(1));
+#undef GBL_PHASE10_PREVIEW_MUTATION
+    {
+        const gbl_bus_result first_read = gbl_bus_read(
+            first_machine, UINT32_C(0x04000004), 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL);
+        const gbl_bus_result second_read = gbl_bus_read(
+            second_machine, UINT32_C(0x04000004), 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL);
+        if (first_read.status != GBL_BUS_STATUS_OK ||
+            second_read.status != GBL_BUS_STATUS_OK ||
+            first_read.value != second_read.value ||
+            !gbl_phase10_same_machine(first_machine, second_machine)) {
+            *failure = "phase10-read-only-clean-twins-differ";
+            goto done;
+        }
+    }
+    okay = true;
+
+done:
+    gbl_phase10_free_machine(&first_machine);
+    gbl_phase10_free_machine(&second_machine);
+    free(first);
+    free(mutant);
+    return okay;
+}
+
+static bool gbl_phase10_refusal_controls(const char **failure)
+{
+    static const gbl_time_operation capture_operations[2] = {
+        { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x060001E0),
+          UINT32_C(0x4321), UINT64_C(1) }
+    };
+    static const gbl_time_operation dma_operations[2] = {
+        { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x04000004),
+          UINT32_C(0x0008), UINT64_C(1) }
+    };
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    const uint64_t targets[] = { UINT64_C(1231), frame_end - UINT64_C(1) };
+    const gbl_time_operation *operations[] = {
+        capture_operations, dma_operations
+    };
+    const char *failure_labels[] = {
+        "phase10-multi-operation-capture-refusal-leaked-state",
+        "phase10-dma-trigger-refusal-leaked-state"
+    };
+    size_t test_index;
+    bool okay = true;
+
+    for (test_index = 0u; test_index < 2u; ++test_index) {
+        gbl_machine *machine = gbl_phase10_new_machine(false, failure);
+        gbl_machine *snapshot = malloc(sizeof *snapshot);
+        gbl_machine_time_preview *preview = malloc(sizeof *preview);
+        gbl_machine_time_preview *preview_before =
+            malloc(sizeof *preview_before);
+        gbl_time_status status = GBL_TIME_STATUS_OK;
+
+        if (machine == NULL || snapshot == NULL || preview == NULL ||
+            preview_before == NULL) {
+            *failure = "phase10-refusal-control-allocation-failed";
+            okay = false;
+        } else if (!gbl_phase10_advance(machine, targets[test_index],
+                                       failure)) {
+            okay = false;
+        } else {
+            if (test_index == 1u &&
+                (!machine->dma_channels[0].armed ||
+                 machine->dma_channels[0].control != UINT16_C(0x9000))) {
+                *failure = "phase10-vblank-dma-not-armed-before-refusal";
+                okay = false;
+            }
+            machine->next_event_sequence = UINT64_MAX;
+            memcpy(snapshot, machine, sizeof *snapshot);
+            memset(preview, 0xA5, sizeof *preview);
+            memcpy(preview_before, preview, sizeof *preview_before);
+            status = gbl_machine_prepare_operations(
+                machine, operations[test_index], 2u, preview);
+            if (okay &&
+                (status != GBL_TIME_STATUS_SEQUENCE_EXHAUSTED ||
+                 memcmp(machine, snapshot, sizeof *machine) != 0 ||
+                 memcmp(preview, preview_before, sizeof *preview) != 0 ||
+                 !gbl_test_canonical_equal(machine, snapshot) ||
+                 !gbl_test_same_instance_identity_equal(machine, snapshot))) {
+                *failure = failure_labels[test_index];
+                okay = false;
+            }
+        }
+        gbl_phase10_free_machine(&machine);
+        free(snapshot);
+        free(preview);
+        free(preview_before);
+        if (!okay) return false;
+    }
+    return true;
+}
+
+static gbl_event *gbl_phase10_ppu_event(gbl_machine *machine)
+{
+    size_t index;
+
+    for (index = 0u; index < machine->event_count; ++index) {
+        if (machine->events[index].kind ==
+            (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) {
+            return &machine->events[index];
+        }
+    }
+    return NULL;
+}
+
+static bool gbl_phase10_mutate_ppu_event(gbl_machine *machine,
+                                         unsigned int field)
+{
+    gbl_event *event = gbl_phase10_ppu_event(machine);
+
+    if (event == NULL) return false;
+    switch (field) {
+    case 0u: event->cycle++; break;
+    case 1u: event->sequence++; break;
+    case 2u: event->generation++; break;
+    case 3u: event->priority++; break;
+    case 4u: event->kind ^= UINT8_C(1); break;
+    case 5u: event->timer_index ^= UINT8_C(1); break;
+    case 6u: event->dma_channel ^= UINT8_C(1); break;
+    case 7u: event->live = !event->live; break;
+    case 8u: event->input_index ^= UINT16_C(1); break;
+    default: return false;
+    }
+    return true;
+}
+
+static int gbl_test_phase10_main(void)
+{
+    gbl_machine *whole = NULL;
+    gbl_machine *split = NULL;
+    gbl_machine *reset = NULL;
+    gbl_machine *isolated_variant = NULL;
+    gbl_machine *alternating_a = NULL;
+    gbl_machine *alternating_b = NULL;
+    const char *failure = "phase10-replay-setup-failed";
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    bool okay = false;
+
+    whole = gbl_phase10_new_machine(false, &failure);
+    split = gbl_phase10_new_machine(false, &failure);
+    reset = gbl_phase10_new_machine(false, &failure);
+    isolated_variant = gbl_phase10_new_machine(true, &failure);
+    alternating_a = gbl_phase10_new_machine(false, &failure);
+    alternating_b = gbl_phase10_new_machine(true, &failure);
+    if (whole == NULL || split == NULL || reset == NULL ||
+        isolated_variant == NULL || alternating_a == NULL ||
+        alternating_b == NULL) {
+        goto done;
+    }
+    if (!gbl_phase10_prepare_idempotency(whole, split, &failure) ||
+        !gbl_phase10_advance(whole, frame_end, &failure) ||
+        !gbl_phase10_run_split(split, &failure) ||
+        !gbl_phase10_run_split(reset, &failure) ||
+        !gbl_phase10_frame_semantics(whole, false) ||
+        !gbl_phase10_frame_semantics(split, false) ||
+        !gbl_phase10_same_machine(whole, split)) {
+        failure = "phase10-fresh-or-split-replay-differs";
+        goto done;
+    }
+
+    gbl_machine_reset(reset);
+    if (!gbl_phase10_seed(reset, false, &failure) ||
+        !gbl_phase10_advance(reset, frame_end, &failure) ||
+        !gbl_phase10_frame_semantics(reset, false) ||
+        !gbl_phase10_same_machine(whole, reset)) {
+        failure = "phase10-reset-replay-differs-from-fresh";
+        goto done;
+    }
+    if (!gbl_phase10_advance(isolated_variant, frame_end, &failure) ||
+        !gbl_phase10_run_interleaved(alternating_a, alternating_b,
+                                     &failure) ||
+        !gbl_phase10_frame_semantics(isolated_variant, true) ||
+        !gbl_phase10_frame_semantics(alternating_a, false) ||
+        !gbl_phase10_frame_semantics(alternating_b, true) ||
+        !gbl_phase10_same_machine(whole, alternating_a) ||
+        !gbl_phase10_same_machine(isolated_variant, alternating_b) ||
+        memcmp(whole->video_frame, isolated_variant->video_frame,
+               GBL_PPU_VIDEO_BYTES) == 0) {
+        failure = "phase10-interleaved-instance-or-pattern-isolation-failed";
+        goto done;
+    }
+    if (!gbl_phase10_preview_controls(&failure)) goto done;
+    if (!gbl_phase10_refusal_controls(&failure)) goto done;
+    okay = true;
+
+done:
+    gbl_phase10_free_machine(&whole);
+    gbl_phase10_free_machine(&split);
+    gbl_phase10_free_machine(&reset);
+    gbl_phase10_free_machine(&isolated_variant);
+    gbl_phase10_free_machine(&alternating_a);
+    gbl_phase10_free_machine(&alternating_b);
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase10: %s\n", failure);
+        return 1;
+    }
+    puts("PASS determinism.phase10: fresh, reset and interleaved synthetic mode-3 replays match complete PPU state, trigger timing and all raw pixels");
+    return 0;
+}
+
+static int gbl_test_phase10_controls_main(void)
+{
+    gbl_machine *clean = NULL;
+    gbl_machine *twin = NULL;
+    gbl_machine *mutant = NULL;
+    const char *failure = "phase10-control-setup-failed";
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    gbl_trace_record clean_trace = { 0 };
+    gbl_trace_record mutant_trace;
+    bool okay = false;
+
+    clean = gbl_phase10_new_machine(false, &failure);
+    twin = gbl_phase10_new_machine(false, &failure);
+    mutant = malloc(sizeof *mutant);
+    if (clean == NULL || twin == NULL || mutant == NULL) {
+        failure = "phase10-control-allocation-failed";
+        goto done;
+    }
+    if (!gbl_phase10_advance(clean, frame_end, &failure) ||
+        !gbl_phase10_advance(twin, frame_end, &failure) ||
+        !gbl_phase10_frame_semantics(clean, false) ||
+        !gbl_phase10_frame_semantics(twin, false) ||
+        !gbl_phase10_same_machine(clean, twin)) {
+        failure = "phase10-control-clean-twin-mismatch";
+        goto done;
+    }
+#define GBL_PHASE10_MACHINE_MUTATION(label, statement)                       \
+    do {                                                                      \
+        memcpy(mutant, clean, sizeof *mutant);                                \
+        statement;                                                            \
+        if (gbl_test_canonical_equal(clean, mutant) ||                        \
+            gbl_test_canonical_digest(clean) ==                              \
+                gbl_test_canonical_digest(mutant)) {                          \
+            failure = (label);                                               \
+            goto done;                                                        \
+        }                                                                     \
+    } while (0)
+#define GBL_PHASE10_PPU_MUTATION(label, statement)                            \
+    do {                                                                      \
+        memcpy(mutant, clean, sizeof *mutant);                                \
+        statement;                                                            \
+        if (gbl_test_ppu_video_equal(clean, mutant) ||                        \
+            gbl_test_canonical_equal(clean, mutant) ||                        \
+            gbl_test_canonical_digest(clean) ==                              \
+                gbl_test_canonical_digest(mutant)) {                          \
+            failure = (label);                                               \
+            goto done;                                                        \
+        }                                                                     \
+    } while (0)
+    GBL_PHASE10_PPU_MUTATION("phase10-line-origin-control-accepted",
+                             mutant->ppu.line_origin++);
+    GBL_PHASE10_PPU_MUTATION("phase10-generation-control-accepted",
+                             mutant->ppu.generation++);
+    GBL_PHASE10_PPU_MUTATION("phase10-frame-epoch-control-accepted",
+                             mutant->ppu.frame_epoch++);
+    GBL_PHASE10_PPU_MUTATION("phase10-line-control-accepted",
+                             mutant->ppu.line++);
+    GBL_PHASE10_PPU_MUTATION("phase10-scheduled-line-control-accepted",
+                             mutant->ppu.scheduled_line++);
+    GBL_PHASE10_PPU_MUTATION("phase10-dispcnt-control-accepted",
+                             mutant->ppu.dispcnt ^= UINT16_C(1));
+    GBL_PHASE10_PPU_MUTATION("phase10-dispstat-control-accepted",
+                             mutant->ppu.dispstat ^= UINT16_C(1));
+    GBL_PHASE10_PPU_MUTATION("phase10-compare-control-accepted",
+                             mutant->ppu.compare++);
+    GBL_PHASE10_PPU_MUTATION("phase10-captured-rows-control-accepted",
+                             mutant->ppu.captured_rows--);
+    GBL_PHASE10_PPU_MUTATION("phase10-coverage-control-accepted",
+                             mutant->ppu.row_coverage[0] ^= UINT8_C(1));
+    GBL_PHASE10_PPU_MUTATION("phase10-capture-state-control-accepted",
+                             mutant->ppu.capture_state =
+                                 GBL_VIDEO_CAPTURE_INVALID);
+    GBL_PHASE10_PPU_MUTATION("phase10-capture-reason-control-accepted",
+                             mutant->ppu.capture_reason =
+                                 GBL_VIDEO_INVALID_REASON_FORCED_BLANK);
+    GBL_PHASE10_PPU_MUTATION("phase10-next-boundary-control-accepted",
+                             mutant->ppu.next_boundary_hblank =
+                                 !mutant->ppu.next_boundary_hblank);
+    GBL_PHASE10_PPU_MUTATION("phase10-frame-started-control-accepted",
+                             mutant->ppu.frame_started =
+                                 !mutant->ppu.frame_started);
+    GBL_PHASE10_PPU_MUTATION("phase10-first-raw-byte-control-accepted",
+                             mutant->video_frame[0] ^= UINT8_C(1));
+    GBL_PHASE10_PPU_MUTATION(
+        "phase10-last-raw-byte-control-accepted",
+        mutant->video_frame[GBL_PPU_VIDEO_BYTES - 1u] ^= UINT8_C(1));
+#define GBL_PHASE10_EVENT_MUTATION(label, field)                              \
+    GBL_PHASE10_MACHINE_MUTATION(                                            \
+        (label),                                                             \
+        (void)gbl_phase10_mutate_ppu_event(mutant, (field)))
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-cycle-control-accepted", 0u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-sequence-control-accepted", 1u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-generation-control-accepted", 2u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-priority-control-accepted", 3u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-kind-control-accepted", 4u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-timer-index-control-accepted", 5u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-dma-channel-control-accepted", 6u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-live-control-accepted", 7u);
+    GBL_PHASE10_EVENT_MUTATION("phase10-event-input-index-control-accepted", 8u);
+#undef GBL_PHASE10_EVENT_MUTATION
+    GBL_PHASE10_MACHINE_MUTATION("phase10-trigger-origin-control-accepted",
+                                 mutant->dma_channels[0].trigger_origin =
+                                     GBL_DMA_TRIGGER_ORIGIN_HBLANK);
+    GBL_PHASE10_MACHINE_MUTATION("phase10-trigger-cycle-control-accepted",
+                                 mutant->dma_channels[0].trigger_cycle++);
+    GBL_PHASE10_MACHINE_MUTATION("phase10-trigger-dispute-control-accepted",
+                                 mutant->dma_channels[0].trigger_dispute =
+                                     GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE);
+    GBL_PHASE10_MACHINE_MUTATION("phase10-trigger-generation-control-accepted",
+                                 mutant->dma_channels[0].generation++);
+    GBL_PHASE10_MACHINE_MUTATION("phase10-latch-state-control-accepted",
+                                 mutant->dma_channels[0].read_latch ^=
+                                     UINT32_C(1));
+#undef GBL_PHASE10_PPU_MUTATION
+#undef GBL_PHASE10_MACHINE_MUTATION
+    mutant_trace = clean_trace;
+    mutant_trace.dma_used_channel_latch = true;
+    if (gbl_test_trace_equal(&clean_trace, &mutant_trace, 1u)) {
+        failure = "phase10-latch-marker-control-accepted";
+        goto done;
+    }
+    if (!gbl_phase10_preview_controls(&failure)) goto done;
+    if (!gbl_phase10_refusal_controls(&failure)) goto done;
+    okay = true;
+
+done:
+    gbl_phase10_free_machine(&clean);
+    gbl_phase10_free_machine(&twin);
+    free(mutant);
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase10.controls: %s\n", failure);
+        return 1;
+    }
+    puts("PASS determinism.phase10.controls: named PPU state, event, validity, trigger, latch and raw-byte mutations are detected independently");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "phase10") == 0) {
+        return gbl_test_phase10_main();
+    }
+    if (argc == 2 && strcmp(argv[1], "phase10-controls") == 0) {
+        return gbl_test_phase10_controls_main();
+    }
     if (argc == 2 && strcmp(argv[1], "phase9") == 0) {
         return gbl_test_phase9_main();
     }
