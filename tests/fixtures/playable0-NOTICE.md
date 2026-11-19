@@ -60,3 +60,33 @@ redistributability `unknown`, and limits use to `local-only`. Original
 authorship and matching digests do not grant redistribution rights. Do not
 commit or upload the generated guest bytes, add this guest to public CI, or use
 it as evidence of hardware qualification. Owner judgment G6 remains pending.
+
+## Separate continuous interactive image
+
+Plan 10-10 adds `owned-playable0-interactive.gba`, a distinct original 2,048-byte
+image generated from the Gamebloke-authored ARM instructions with
+`--include-local-playable0-interactive`. Unlike the four bounded images above,
+this guest does not stop after five iterations: its 32-bit guest frame counter
+wraps naturally and it keeps polling the logical keypad until the host exits.
+It uses no BIOS and contains no copied ROM, BIOS, firmware, Nintendo logo, or
+third-party fixture data.
+
+The interactive generator source is bound to Gamebloke commit
+`f992d179ca926decbcefbebc343b10c9560078be`; the exact
+`tests/fixtures/instruction_image.c` SHA-256 is
+`6bda0789801e2dfc81271973ce29483b42c55cfba7511984f295781186b06689`. The C17
+host generator used Apple Clang 21.0.0 (`clang-2100.1.1.101`) and CMake 4.4.3.
+The three locally generated outputs and their SHA-256 values are:
+
+| Local build artifact | SHA-256 |
+| --- | --- |
+| `owned-playable0-interactive.gba` | `70e0eff1840f2cd2025bc10a21b6818f44194291d0f226bee9a6c269ea8c3eac` |
+| `owned-playable0-interactive-input-disabled.gba` | `d02c83a4eb18992fe69cfff721f31d1c2ea78a6aa7d19d4ca192dae874d08b4e` |
+| `owned-playable0-interactive-wrong-color.gba` | `80e2b17a6ded447e196a9c3b6900149e3f1108e4a9fd211474e38410fc6b8224` |
+
+The manifest binds this generator revision, source digest, recipe, toolchain,
+artifact digests, BIOS requirement, original project authorship, and
+local-only permission. The four earlier bounded image digests were checked
+after this extension and remain unchanged. The new image and controls stay only
+under ignored `build/libretro-local/`; redistribution remains `unknown` and
+unapproved.
