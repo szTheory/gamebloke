@@ -113,7 +113,7 @@ typedef struct gbl_ppu_timing_state {
     uint16_t dispstat;
     uint16_t compare;
     uint16_t captured_rows;
-    /* Bitset of nonzero byte lanes in unsupported PPU register shadows. */
+    /* Bitset of PPU register byte lanes differing from modeled values. */
     uint32_t unsupported_register_bytes;
     gbl_video_capture_state capture_state;
     gbl_video_invalid_reason capture_reason;

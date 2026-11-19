@@ -418,12 +418,20 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
     return GBL_VIDEO_INVALID_REASON_NONE;
 }
 
-static void gbl_ppu_update_unsupported_register_byte(
-    uint32_t *mask, uint32_t bit_index, uint8_t value)
+static uint8_t gbl_ppu_transform_neutral_byte(uint32_t bit_index)
+{
+    if (bit_index == UINT32_C(1) || bit_index == UINT32_C(7)) {
+        return UINT8_C(1);
+    }
+    return 0u;
+}
+
+static void gbl_ppu_update_register_byte_deviation(
+    uint32_t *mask, uint32_t bit_index, uint8_t value, uint8_t neutral_value)
 {
     const uint32_t bit = UINT32_C(1) << bit_index;
 
-    if (value == 0u) {
+    if (value == neutral_value) {
         *mask &= ~bit;
     } else {
         *mask |= bit;
@@ -1168,28 +1176,32 @@ static gbl_time_status gbl_preview_bus_write(
             dispcnt_written = true;
         } else if (lane_address >= UINT32_C(0x04000020) &&
                    lane_address <= UINT32_C(0x0400002F)) {
-            gbl_ppu_update_unsupported_register_byte(
+            const uint32_t register_byte =
+                lane_address - UINT32_C(0x04000020);
+
+            gbl_ppu_update_register_byte_deviation(
                 &unsupported_register_bytes,
-                lane_address - UINT32_C(0x04000020), byte_value);
+                register_byte, byte_value,
+                gbl_ppu_transform_neutral_byte(register_byte));
             unsupported_transform_write = true;
         } else if (lane_address >= UINT32_C(0x04000040) &&
                    lane_address <= UINT32_C(0x0400004B)) {
             window_register_write = true;
         } else if (lane_address >= UINT32_C(0x0400004C) &&
                    lane_address <= UINT32_C(0x0400004D)) {
-            gbl_ppu_update_unsupported_register_byte(
+            gbl_ppu_update_register_byte_deviation(
                 &unsupported_register_bytes,
                 UINT32_C(16) + lane_address - UINT32_C(0x0400004C),
-                byte_value);
+                byte_value, 0u);
             if (byte_value != 0u) {
                 unsupported_effect_write = true;
             }
         } else if (lane_address >= UINT32_C(0x04000050) &&
                    lane_address <= UINT32_C(0x04000055)) {
-            gbl_ppu_update_unsupported_register_byte(
+            gbl_ppu_update_register_byte_deviation(
                 &unsupported_register_bytes,
                 UINT32_C(18) + lane_address - UINT32_C(0x04000050),
-                byte_value);
+                byte_value, 0u);
             if (byte_value != 0u) {
                 unsupported_effect_write = true;
             }

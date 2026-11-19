@@ -2019,7 +2019,7 @@ static int run_ppu_controls(void)
                       GBL_TIME_STATUS_OK);
                 result = gbl_bus_write(
                     persistent, UINT32_C(0x04000020), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
+                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
                 CHECK(result.status == GBL_BUS_STATUS_OK);
                 CHECK(persistent->ppu.capture_state ==
                       GBL_VIDEO_CAPTURE_INVALID);
@@ -2035,7 +2035,7 @@ static int run_ppu_controls(void)
 
                 result = gbl_bus_write(
                     persistent, UINT32_C(0x04000020), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0100));
                 CHECK(result.status == GBL_BUS_STATUS_OK);
                 CHECK(persistent->ppu.capture_state ==
                       GBL_VIDEO_CAPTURE_INVALID);
@@ -2048,7 +2048,15 @@ static int run_ppu_controls(void)
                       GBL_VIDEO_CAPTURE_VALID);
 
                 result = gbl_bus_write(
-                    persistent, UINT32_C(0x0400004C), 2u,
+                    persistent, UINT32_C(0x04000022), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000026), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000028), 4u,
                     GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
                 CHECK(result.status == GBL_BUS_STATUS_OK);
                 CHECK(gbl_machine_advance_to(
@@ -2056,6 +2064,52 @@ static int run_ppu_controls(void)
                           (GBL_PPU_FRAME_CYCLES * UINT64_C(3)) +
                               UINT64_C(197120)) == GBL_TIME_STATUS_OK);
                 CHECK(persistent->ppu.frame_epoch == 3u);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INVALID);
+                CHECK(persistent->ppu.capture_reason ==
+                      GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
+
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000020), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0100));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000026), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0100));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000022), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(gbl_machine_advance_to(
+                          persistent,
+                          (GBL_PPU_FRAME_CYCLES * UINT64_C(4)) +
+                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+                CHECK(persistent->ppu.frame_epoch == 4u);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INVALID);
+
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000028), 4u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(gbl_machine_advance_to(
+                          persistent,
+                          (GBL_PPU_FRAME_CYCLES * UINT64_C(5)) +
+                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+                CHECK(persistent->ppu.frame_epoch == 5u);
+                CHECK(persistent->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_VALID);
+
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x0400004C), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(gbl_machine_advance_to(
+                          persistent,
+                          (GBL_PPU_FRAME_CYCLES * UINT64_C(6)) +
+                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+                CHECK(persistent->ppu.frame_epoch == 6u);
                 CHECK(persistent->ppu.capture_state ==
                       GBL_VIDEO_CAPTURE_INVALID);
                 CHECK(persistent->ppu.capture_reason ==
@@ -2069,9 +2123,9 @@ static int run_ppu_controls(void)
                       GBL_VIDEO_CAPTURE_INVALID);
                 CHECK(gbl_machine_advance_to(
                           persistent,
-                          (GBL_PPU_FRAME_CYCLES * UINT64_C(4)) +
+                          (GBL_PPU_FRAME_CYCLES * UINT64_C(7)) +
                               UINT64_C(197120)) == GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 4u);
+                CHECK(persistent->ppu.frame_epoch == 7u);
                 CHECK(persistent->ppu.capture_state ==
                       GBL_VIDEO_CAPTURE_VALID);
                 CHECK(persistent->ppu.capture_reason ==
