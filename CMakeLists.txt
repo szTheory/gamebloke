@@ -194,6 +194,10 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   target_include_directories(libretro_frontend_test PRIVATE third_party/libretro)
   target_link_libraries(libretro_frontend_test PRIVATE gbl_warnings ${CMAKE_DL_LIBS})
 
+  add_executable(gamebloke-terminal frontends/terminal/main.c)
+  target_include_directories(gamebloke-terminal PRIVATE third_party/libretro)
+  target_link_libraries(gamebloke-terminal PRIVATE gbl_warnings ${CMAKE_DL_LIBS})
+
   if(GBL_LOGO_EXPECTED_SHA256 STREQUAL "")
     set(GBL_PRODUCTION_LOGO_TEST_MODE 0)
   else()
