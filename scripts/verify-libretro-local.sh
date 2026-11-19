@@ -24,10 +24,19 @@ case "$(uname -s)" in
 esac
 
 printf '%s\n' 'verify-libretro-local: local-only original fixture path; no CI execution'
+sh -n "$source_dir/scripts/play-playable0-terminal.sh"
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' 'verify-libretro-local: python3 is required for bounded PTY verification' >&2
+  exit 1
+fi
+if [[ ! -f "$source_dir/tests/terminal_frontend_test.py" ]]; then
+  printf '%s\n' 'verify-libretro-local: terminal PTY tracer is missing' >&2
+  exit 1
+fi
 "$cmake_bin" -S "$source_dir" -B "$build_dir" \
   -DGBL_LANE=local-playable0 -DCMAKE_BUILD_TYPE=Release
 "$cmake_bin" --build "$build_dir" --target \
-  gamebloke_libretro libretro_frontend_test gbl_instruction_image \
+  gamebloke_libretro libretro_frontend_test gamebloke-terminal gbl_instruction_image \
   gbl_owned_instruction_images
 
 "$build_dir/gbl_instruction_image" "$fixture_dir" \
@@ -57,6 +66,12 @@ if ! git -C "$source_dir" check-ignore -q \
   printf '%s\n' 'verify-libretro-local: generated guest is not ignored' >&2
   exit 1
 fi
+
+"$build_dir/gamebloke-terminal" --check "$core" \
+  "$fixture_dir/owned-playable0-interactive.gba"
+python3 "$source_dir/tests/terminal_frontend_test.py" tracer \
+  "$build_dir/gamebloke-terminal" "$core" \
+  "$fixture_dir/owned-playable0-interactive.gba"
 
 "$build_dir/libretro_frontend_test" tracer "$core" \
   "$fixture_dir/owned-playable0.gba"
