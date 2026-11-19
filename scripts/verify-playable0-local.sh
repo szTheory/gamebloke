@@ -10,8 +10,7 @@ source_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${source_dir}/build/local-playable0"
 cmake_bin="${CMAKE:-cmake}"
 
-"${cmake_bin}" "-DSRC=${source_dir}" "-DBIN=${source_dir}/build/ci" \
-  -DCASE=verify -P "${source_dir}/tests/gates/phase10_policy.cmake"
+sh "${source_dir}/scripts/verify-phase10-fast.sh" --bin "${source_dir}/build/ci"
 "${cmake_bin}" --preset local-playable0
 "${cmake_bin}" --build --preset local-playable0 --target \
   gamebloke-run gamebloke-run-control runner_test

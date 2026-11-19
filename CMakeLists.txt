@@ -616,3 +616,31 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     endif()
   endforeach()
 endif()
+
+# The exact Phase 10 PPU baseline gates longer PPU, CPU/DMA trigger, runner,
+# result, and synthetic replay checks. Keep setup tests independent of their
+# own fixture and preserve the earlier Phase 7/8/9 prerequisite chain.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase10_fast_setup_tests
+    phase10.policy
+    phase10.policy.control
+    ppu.boundary
+    ppu.registers
+    ppu.refusal
+    phase10.selection.control)
+  foreach(test_name IN LISTS gbl_phase10_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase10_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase10_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(ppu[.](tracer|latch|frame|controls)|cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|phase10[.](cli([.]control)?|selection[.](verify|order))|determinism[.]phase10([.]controls)?|result[.](nc|pos)[.]phase10)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase10_fast)
+    endif()
+  endforeach()
+endif()

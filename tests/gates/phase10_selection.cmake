@@ -121,7 +121,7 @@ function(gbl_phase10_json_property json test_index wanted property_out found_out
             list(APPEND value "${item}")
           endforeach()
         endif()
-      elseif(value_type STREQUAL "STRING" OR value_type STREQUAL "BOOL")
+      elseif(value_type STREQUAL "STRING" OR value_type STREQUAL "BOOLEAN")
         string(JSON value GET "${json}" tests ${test_index}
           properties ${property_index} value)
       endif()
@@ -463,9 +463,24 @@ function(gbl_phase10_check_selection_controls scratch_root)
           properties ${property_count} "${skip_property}")
       elseif(fault STREQUAL "disabled")
         string(JSON property_count LENGTH "${fault_json}" tests ${target_index} properties)
-        set(disabled_property "{\"name\":\"DISABLED\",\"value\":true}")
-        string(JSON fault_json SET "${fault_json}" tests ${target_index}
-          properties ${property_count} "${disabled_property}")
+        math(EXPR property_last "${property_count} - 1")
+        set(disabled_index -1)
+        foreach(property_index RANGE 0 ${property_last})
+          string(JSON property_name GET "${fault_json}" tests ${target_index}
+            properties ${property_index} name)
+          if(property_name STREQUAL "DISABLED")
+            set(disabled_index ${property_index})
+            break()
+          endif()
+        endforeach()
+        if(disabled_index EQUAL -1)
+          set(disabled_property "{\"name\":\"DISABLED\",\"value\":true}")
+          string(JSON fault_json SET "${fault_json}" tests ${target_index}
+            properties ${property_count} "${disabled_property}")
+        else()
+          string(JSON fault_json SET "${fault_json}" tests ${target_index}
+            properties ${disabled_index} value true)
+        endif()
       elseif(fault STREQUAL "wrong-fixture")
         string(JSON property_count LENGTH "${fault_json}" tests ${target_index} properties)
         math(EXPR property_last "${property_count} - 1")
@@ -616,7 +631,63 @@ function(gbl_phase10_check_fixture_controls scratch_root)
     message(FATAL_ERROR
       "phase10-order: clean-fixture-did-not-permit-sentinel\n${pass_output}${pass_error}")
   endif()
-  message(STATUS "phase10-order: failed setup blocks long sentinel; clean setup permits it")
+
+  set(repeat_source "${scratch_root}/order/repeat/source")
+  set(repeat_build "${scratch_root}/order/repeat/build")
+  set(repeat_count "${scratch_root}/order/repeat/setup-count.txt")
+  set(repeat_one "${scratch_root}/order/repeat/long-one.ran")
+  set(repeat_two "${scratch_root}/order/repeat/long-two.ran")
+  set(unrelated_sentinel "${scratch_root}/order/repeat/unrelated.ran")
+  file(MAKE_DIRECTORY "${repeat_source}")
+  file(WRITE "${repeat_count}" "0\n")
+  file(WRITE "${repeat_source}/fixture_setup.cmake"
+    "file(READ \"${repeat_count}\" count)\nstring(STRIP \"\${count}\" count)\nmath(EXPR count \"\${count} + 1\")\nfile(WRITE \"${repeat_count}\" \"\${count}\")\n")
+  file(WRITE "${repeat_source}/write_one.cmake"
+    "file(WRITE \"${repeat_one}\" \"ran\")\n")
+  file(WRITE "${repeat_source}/write_two.cmake"
+    "file(WRITE \"${repeat_two}\" \"ran\")\n")
+  file(WRITE "${repeat_source}/write_unrelated.cmake"
+    "file(WRITE \"${unrelated_sentinel}\" \"ran\")\n")
+  set(repeat_project
+    "cmake_minimum_required(VERSION 3.25)\nproject(phase10_fixture_repeat NONE)\nenable_testing()\n")
+  string(APPEND repeat_project
+    "add_test(NAME phase10_setup COMMAND \"${CMAKE_PROGRAM}\" -P \"${repeat_source}/fixture_setup.cmake\")\n")
+  string(APPEND repeat_project
+    "set_tests_properties(phase10_setup PROPERTIES FIXTURES_SETUP phase10_fast)\n")
+  string(APPEND repeat_project
+    "add_test(NAME long_one COMMAND \"${CMAKE_PROGRAM}\" -P \"${repeat_source}/write_one.cmake\")\n")
+  string(APPEND repeat_project
+    "add_test(NAME long_two COMMAND \"${CMAKE_PROGRAM}\" -P \"${repeat_source}/write_two.cmake\")\n")
+  string(APPEND repeat_project
+    "set_tests_properties(long_one long_two PROPERTIES FIXTURES_REQUIRED phase10_fast)\n")
+  string(APPEND repeat_project
+    "add_test(NAME unrelated_setup COMMAND \"${CMAKE_PROGRAM}\" -P \"${repeat_source}/write_unrelated.cmake\")\n")
+  string(APPEND repeat_project
+    "set_tests_properties(unrelated_setup PROPERTIES FIXTURES_SETUP unrelated_fixture)\n")
+  file(WRITE "${repeat_source}/CMakeLists.txt" "${repeat_project}")
+  execute_process(
+    COMMAND "${CMAKE_PROGRAM}" -S "${repeat_source}" -B "${repeat_build}"
+    RESULT_VARIABLE repeat_configure
+    OUTPUT_VARIABLE repeat_configure_output ERROR_VARIABLE repeat_configure_error)
+  if(NOT "${repeat_configure}" STREQUAL "0")
+    message(FATAL_ERROR
+      "phase10-order: scratch-configure-repeat\n${repeat_configure_output}${repeat_configure_error}")
+  endif()
+  execute_process(
+    COMMAND "${CTEST_PROGRAM}" --test-dir "${repeat_build}" --output-on-failure
+      -R "^long_(one|two)$"
+    RESULT_VARIABLE repeat_result
+    OUTPUT_VARIABLE repeat_output ERROR_VARIABLE repeat_error)
+  file(READ "${repeat_count}" repeat_setup_count)
+  string(STRIP "${repeat_setup_count}" repeat_setup_count)
+  if(NOT "${repeat_result}" STREQUAL "0" OR
+      NOT repeat_setup_count STREQUAL "1" OR
+      NOT EXISTS "${repeat_one}" OR NOT EXISTS "${repeat_two}" OR
+      EXISTS "${unrelated_sentinel}")
+    message(FATAL_ERROR
+      "phase10-order: fixture-closure-count-or-unrelated-setup\n${repeat_output}${repeat_error}")
+  endif()
+  message(STATUS "phase10-order: failing setup blocks long work; shared setup runs once; unrelated setup stays idle")
 endfunction()
 
 function(gbl_phase10_check_inventories)
@@ -624,6 +695,10 @@ function(gbl_phase10_check_inventories)
     set(path "${GBL_PHASE10_SRC}/tests/inventory/${lane}.txt")
     if(NOT EXISTS "${path}")
       message(FATAL_ERROR "phase10-selection: inventory-missing-${lane}")
+    endif()
+    file(STRINGS "${path}" local_guest_rows REGEX "^playable0")
+    if(local_guest_rows)
+      message(FATAL_ERROR "phase10-selection: local-playable0-in-${lane}-inventory")
     endif()
     set(expected_rows ${GBL_PHASE10_COMMON_INVENTORY_ROWS})
     if(lane STREQUAL "ci")
@@ -653,6 +728,9 @@ function(gbl_phase10_check_order_graph)
   set(phase8_setup_names
     cpu.irq.boundary keypad.timeline keypad.refusal time.halt.boundary
     phase8.selection.control)
+  set(phase9_setup_names
+    phase9.policy phase9.dispute bus.waitcnt.matrix bus.waitcnt.boundary
+    dma.registers dma.events phase9.selection.control)
   set(phase10_setup_names ${GBL_PHASE10_EXPECTED})
   set(phase7_required_names
     phase7.order timer.costs timer.costs.contract timer.devices
@@ -662,29 +740,40 @@ function(gbl_phase10_check_order_graph)
     keypad.condition time.halt.refusal runner.input.cli runner.unit
     runner.result_contract determinism.phase8 determinism.phase8.controls
     phase8.policy phase8.order)
-  set(phase10_required_names
+  set(phase9_required_names
     bus.waitcnt.registers cpu.waitcnt cpu.dma.waitcnt cpu.dma.cpu
     cpu.dma.tracer cpu.dma.refusal dma.arbitration dma.latch dma.refusal
-    dma.controls phase10.policy.control phase10.dispute.control phase10.order
-    determinism.phase10 determinism.phase10.controls)
+    dma.controls phase9.policy.control phase9.dispute.control phase9.order
+    determinism.phase9 determinism.phase9.controls)
+  set(phase10_required_names
+    ppu.tracer ppu.latch ppu.frame ppu.controls
+    cpu.ppu.irq cpu.ppu.latch cpu.ppu.refusal cpu.ppu.dma
+    dma.ppu.triggers dma.ppu.order dma.ppu.refusal
+    runner.ppu.observation runner.ppu.output runner.ppu.output-controls
+    phase10.cli phase10.cli.control phase10.selection.verify
+    phase10.selection.order determinism.phase10 determinism.phase10.controls)
   file(STRINGS "${GBL_PHASE10_CACHE}" lane_line
     REGEX "^GBL_LANE:STRING=")
   string(REPLACE "GBL_LANE:STRING=" "" lane "${lane_line}")
   if(lane STREQUAL "ci")
+    list(APPEND phase9_required_names result.nc.phase9 result.pos.phase9)
     list(APPEND phase10_required_names result.nc.phase10 result.pos.phase10)
   endif()
 
   set(order_names ${phase7_setup_names} ${phase8_setup_names}
-    ${phase10_setup_names} ${phase7_required_names} ${phase8_required_names}
-    ${phase10_required_names})
+    ${phase9_setup_names} ${phase10_setup_names} ${phase7_required_names}
+    ${phase8_required_names} ${phase9_required_names} ${phase10_required_names})
   set(order_regex_parts)
   foreach(name IN LISTS order_names)
     string(REPLACE "." "[.]" name_regex "${name}")
     list(APPEND order_regex_parts "${name_regex}")
   endforeach()
   list(APPEND order_regex_parts
-    "phase10[.].*" "bus[.]waitcnt[.].*" "cpu[.]dma[.].*" "dma[.].*"
-    "determinism[.]phase10([.]controls)?" "result[.](nc|pos)[.]phase10")
+    "phase9[.].*" "phase10[.].*" "bus[.]waitcnt[.].*"
+    "cpu[.]dma[.].*" "dma[.].*" "ppu[.].*" "cpu[.]ppu[.].*"
+    "dma[.]ppu[.].*" "runner[.]ppu[.].*"
+    "determinism[.]phase(9|10)([.]controls)?"
+    "result[.](nc|pos)[.]phase(9|10)")
   list(REMOVE_DUPLICATES order_regex_parts)
   list(JOIN order_regex_parts "|" order_regex)
   gbl_phase10_discover("${GBL_PHASE10_BIN}" "^(${order_regex})$" json)
@@ -693,7 +782,7 @@ function(gbl_phase10_check_order_graph)
     message(FATAL_ERROR "phase10-order: malformed-discovery")
   endif()
 
-  foreach(fixture IN ITEMS phase7_fast phase8_fast phase10_fast)
+  foreach(fixture IN ITEMS phase7_fast phase8_fast phase9_fast phase10_fast)
     set(actual_setups)
     if(count GREATER 0)
       math(EXPR last "${count} - 1")
@@ -710,6 +799,8 @@ function(gbl_phase10_check_order_graph)
       set(expected_setups ${phase7_setup_names})
     elseif(fixture STREQUAL "phase8_fast")
       set(expected_setups ${phase8_setup_names})
+    elseif(fixture STREQUAL "phase9_fast")
+      set(expected_setups ${phase9_setup_names})
     else()
       set(expected_setups ${phase10_setup_names})
     endif()
@@ -721,17 +812,17 @@ function(gbl_phase10_check_order_graph)
   endforeach()
 
   foreach(required_name IN LISTS phase7_required_names phase8_required_names
-      phase10_required_names)
+      phase9_required_names phase10_required_names)
     gbl_phase10_find_test("${json}" "${required_name}" ignored_index found)
     if(NOT found)
       message(FATAL_ERROR "phase10-order: missing-registration-${required_name}")
     endif()
   endforeach()
-  gbl_phase10_find_test("${json}" phase10.order phase10_order_index found)
+  gbl_phase10_find_test("${json}" phase10.selection.order phase10_order_index found)
   if(NOT found)
-    message(FATAL_ERROR "phase10-order: missing-registration-phase10.order")
+    message(FATAL_ERROR "phase10-order: missing-registration-phase10.selection.order")
   endif()
-  gbl_phase10_expected_command(phase10.order "${json}" ${phase10_order_index}
+  gbl_phase10_expected_command(phase10.selection.order "${json}" ${phase10_order_index}
     order_command_reason)
   if(NOT "${order_command_reason}" STREQUAL "")
     message(FATAL_ERROR "phase10-order: order-command-${order_command_reason}")
@@ -761,24 +852,30 @@ function(gbl_phase10_check_order_graph)
         if("phase10_fast" IN_LIST required_fixtures)
           message(FATAL_ERROR "phase10-order: phase10-setup-self-cycle-${name}")
         endif()
-      elseif(name MATCHES "^(bus[.]waitcnt[.].*|cpu[.]dma[.].*|cpu[.]waitcnt|dma[.].*|phase10[.].*|determinism[.]phase10([.]controls)?|result[.](nc|pos)[.]phase10)$")
+      elseif(name IN_LIST phase10_required_names)
         if(NOT "phase10_fast" IN_LIST required_fixtures)
           message(FATAL_ERROR "phase10-order: missing-phase10-predecessor-${name}")
         endif()
       endif()
       if(name IN_LIST phase7_setup_names AND
           ("phase8_fast" IN_LIST required_fixtures OR
+           "phase9_fast" IN_LIST required_fixtures OR
            "phase10_fast" IN_LIST required_fixtures))
         message(FATAL_ERROR "phase10-order: earlier-setup-depends-on-later-${name}")
       endif()
       if(name IN_LIST phase8_setup_names AND
+          ("phase9_fast" IN_LIST required_fixtures OR
+           "phase10_fast" IN_LIST required_fixtures))
+        message(FATAL_ERROR "phase10-order: phase8-setup-depends-on-later-${name}")
+      endif()
+      if(name IN_LIST phase9_setup_names AND
           "phase10_fast" IN_LIST required_fixtures)
-        message(FATAL_ERROR "phase10-order: phase8-setup-depends-on-phase10-${name}")
+        message(FATAL_ERROR "phase10-order: phase9-setup-depends-on-phase10-${name}")
       endif()
     endforeach()
   endif()
   gbl_phase10_check_fixture_controls("${GBL_PHASE10_BIN}/phase10-order-controls")
-  message(STATUS "phase10-order: Phase 7/8 closure and exact Phase 10 fixture graph passed")
+  message(STATUS "phase10-order: Phase 7/8/9 closure and exact Phase 10 fixture graph passed")
 endfunction()
 
 if(CASE STREQUAL "control")
