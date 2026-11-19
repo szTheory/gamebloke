@@ -59,6 +59,8 @@ function(gbl__copy_inputs sandbox)
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
+  file(COPY_FILE "${SRC}/src/ppu_internal.h"
+    "${sandbox}/src/ppu_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/bus_test.c" "${sandbox}/tests/bus_test.c")
@@ -176,6 +178,8 @@ function(gbl__copy_loader_inputs sandbox)
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
+  file(COPY_FILE "${SRC}/src/ppu_internal.h"
+    "${sandbox}/src/ppu_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/loader_test.c" "${sandbox}/tests/loader_test.c")
@@ -298,6 +302,8 @@ function(gbl__copy_cpu_inputs sandbox)
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
+  file(COPY_FILE "${SRC}/src/ppu_internal.h"
+    "${sandbox}/src/ppu_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   foreach(test_header IN ITEMS check.h state_check.h)

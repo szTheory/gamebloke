@@ -7,6 +7,7 @@ function(gbl__mutation_identity output)
   foreach(input IN ITEMS tests/gates/core_mutation.cmake
       tests/gates/mutation_objects.cmake src/version.c src/machine.c src/bus.c
       src/loader.c src/cpu.c src/inspect.c src/logo_sha256.h src/cpu_helpers.h
+      src/ppu_internal.h
       include/gamebloke/gamebloke.h tests/check.h tests/state_check.h
       tests/bus_test.c tests/loader_test.c tests/cpu_test.c)
     file(SHA256 "${SRC}/${input}" sha)

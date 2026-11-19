@@ -117,7 +117,8 @@ static bool gbl_test_ppu_row_capture_equal(
 static bool gbl_test_ppu_memory_write_equal(
     const gbl_ppu_memory_write *left, const gbl_ppu_memory_write *right)
 {
-    return left->address == right->address &&
+    return left->cycle == right->cycle &&
+           left->address == right->address &&
            left->value == right->value &&
            left->dispcnt == right->dispcnt &&
            left->width == right->width &&

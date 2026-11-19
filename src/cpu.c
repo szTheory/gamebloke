@@ -4195,6 +4195,8 @@ static bool gbl_cpu_time_preview_matches_machine(
         uint64_t frame_offset;
         uint64_t expected_cycle;
         uint64_t digest = UINT64_C(14695981039346656037);
+        size_t expected_prefix = 0u;
+        size_t write_index;
         size_t pixel;
 
         if (capture->line >= GBL_PPU_VISIBLE_LINES ||
@@ -4220,6 +4222,17 @@ static bool gbl_cpu_time_preview_matches_machine(
                   capture->prior_write_count))) {
             return false;
         }
+        for (write_index = 0u;
+             write_index < preview->ppu_memory_write_count;
+             ++write_index) {
+            if (preview->ppu_memory_writes[write_index].cycle <
+                capture->cycle) {
+                ++expected_prefix;
+            }
+        }
+        if (expected_prefix != (size_t)capture->prior_write_count) {
+            return false;
+        }
         for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
             digest ^= machine->video_frame[offset + pixel];
             digest *= UINT64_C(1099511628211);
@@ -4229,11 +4242,32 @@ static bool gbl_cpu_time_preview_matches_machine(
         }
     }
     for (index = 0u; index < preview->ppu_memory_write_count; ++index) {
-        const uint8_t width = preview->ppu_memory_writes[index].width;
-        const uint8_t region = preview->ppu_memory_writes[index].region;
+        const gbl_ppu_memory_write *write =
+            &preview->ppu_memory_writes[index];
+        uint32_t lane;
+        bool touches_video = false;
 
-        if ((width != 1u && width != 2u && width != 4u) ||
-            region >= (uint8_t)GBL_BUS_REGION_COUNT) {
+        if ((write->width != 1u && write->width != 2u &&
+             write->width != 4u) ||
+            write->address > UINT32_MAX - ((uint32_t)write->width - 1u) ||
+            write->cycle > preview->master_cycles ||
+            (index > 0u &&
+             preview->ppu_memory_writes[index - 1u].cycle >= write->cycle) ||
+            write->region !=
+                (uint8_t)gbl_bus_region_for_address(write->address)) {
+            return false;
+        }
+        for (lane = 0u; lane < (uint32_t)write->width; ++lane) {
+            const gbl_bus_region region =
+                gbl_bus_region_for_address(write->address + lane);
+
+            if (region == GBL_BUS_REGION_PRAM ||
+                region == GBL_BUS_REGION_VRAM ||
+                region == GBL_BUS_REGION_OAM) {
+                touches_video = true;
+            }
+        }
+        if (!touches_video) {
             return false;
         }
     }

@@ -366,6 +366,58 @@ static const uint8_t *gbl_ppu_video_memory(
     return NULL;
 }
 
+static bool gbl_ppu_operation_touches_video(uint32_t address, uint8_t width);
+
+static bool gbl_ppu_write_log_valid(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview)
+{
+    size_t index;
+
+    if (machine == NULL || preview == NULL ||
+        machine->master_cycles > preview->master_cycles ||
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX) {
+        return false;
+    }
+    for (index = 0u; index < preview->ppu_memory_write_count; ++index) {
+        const gbl_ppu_memory_write *write =
+            &preview->ppu_memory_writes[index];
+
+        if ((write->width != 1u && write->width != 2u &&
+             write->width != 4u) ||
+            write->address > UINT32_MAX - ((uint32_t)write->width - 1u) ||
+            write->cycle < machine->master_cycles ||
+            write->cycle > preview->master_cycles ||
+            (index > 0u && preview->ppu_memory_writes[index - 1u].cycle >=
+                               write->cycle) ||
+            write->region !=
+                (uint8_t)gbl_bus_region_for_address(write->address) ||
+            !gbl_ppu_operation_touches_video(write->address, write->width)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_ppu_capture_prefix_valid(
+    const gbl_machine_time_preview *preview,
+    const gbl_ppu_row_capture *capture)
+{
+    size_t expected_prefix = 0u;
+    size_t index;
+
+    if (preview == NULL || capture == NULL ||
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
+        capture->prior_write_count > preview->ppu_memory_write_count) {
+        return false;
+    }
+    for (index = 0u; index < preview->ppu_memory_write_count; ++index) {
+        if (preview->ppu_memory_writes[index].cycle < capture->cycle) {
+            ++expected_prefix;
+        }
+    }
+    return expected_prefix == (size_t)capture->prior_write_count;
+}
+
 gbl_ppu_sample_status gbl_ppu_sample_read(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture, gbl_bus_region region,
@@ -398,42 +450,17 @@ gbl_ppu_sample_status gbl_ppu_sample_read(
         capture->prior_write_count > preview->ppu_memory_write_count) {
         return GBL_PPU_SAMPLE_STATUS_INVALID_PREFIX;
     }
+    if (!gbl_ppu_write_log_valid(machine, preview)) {
+        return GBL_PPU_SAMPLE_STATUS_INVALID_WRITE;
+    }
+    if (!gbl_ppu_capture_prefix_valid(preview, capture)) {
+        return GBL_PPU_SAMPLE_STATUS_INVALID_PREFIX;
+    }
     source = gbl_ppu_video_memory(machine, region, &source_size);
     if (source == NULL || (size_t)source_offset > source_size ||
         length > source_size - (size_t)source_offset) {
         return GBL_PPU_SAMPLE_STATUS_INVALID_SPAN;
     }
-    for (write_index = 0u;
-         write_index < (size_t)capture->prior_write_count;
-         ++write_index) {
-        const gbl_ppu_memory_write *write =
-            &preview->ppu_memory_writes[write_index];
-        const gbl_bus_region write_region =
-            (gbl_bus_region)write->region;
-        bool touches_video = false;
-        uint32_t lane;
-
-        if ((write->width != 1u && write->width != 2u &&
-             write->width != 4u) ||
-            write->address > UINT32_MAX - ((uint32_t)write->width - 1u) ||
-            write_region != gbl_bus_region_for_address(write->address)) {
-            return GBL_PPU_SAMPLE_STATUS_INVALID_WRITE;
-        }
-        for (lane = 0u; lane < (uint32_t)write->width; ++lane) {
-            const gbl_bus_region lane_region =
-                gbl_bus_region_for_address(write->address + lane);
-
-            if (lane_region == GBL_BUS_REGION_PRAM ||
-                lane_region == GBL_BUS_REGION_VRAM ||
-                lane_region == GBL_BUS_REGION_OAM) {
-                touches_video = true;
-            }
-        }
-        if (!touches_video) {
-            return GBL_PPU_SAMPLE_STATUS_INVALID_WRITE;
-        }
-    }
-
     memcpy(destination, &source[source_offset], length);
     for (write_index = 0u;
          write_index < (size_t)capture->prior_write_count;
@@ -1540,7 +1567,8 @@ gbl_time_status gbl_machine_prepare_operations(
                 candidate.ppu_memory_writes[
                     candidate.ppu_memory_write_count++] =
                     (gbl_ppu_memory_write){
-                        operation->address, operation->value,
+                        candidate.master_cycles, operation->address,
+                        operation->value,
                         candidate.ppu.dispcnt, operation->width,
                         (uint8_t)gbl_bus_region_for_address(
                             operation->address)
@@ -1583,6 +1611,52 @@ static void gbl_ppu_materialize_capture_plan(
     }
 }
 
+static bool gbl_ppu_commit_preview_valid(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview)
+{
+    bool seen_rows[GBL_PPU_VISIBLE_LINES] = { false };
+    size_t index;
+
+    if (machine == NULL || preview == NULL ||
+        preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
+        !gbl_ppu_write_log_valid(machine, preview)) {
+        return false;
+    }
+    for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
+        const gbl_ppu_row_capture *capture =
+            &preview->ppu_row_captures[index];
+        const uint8_t row_mask =
+            (uint8_t)(UINT8_C(1) << (capture->line & 7u));
+        const size_t coverage_index = (size_t)(capture->line >> 3u);
+        gbl_ppu_timing_state sampled_ppu = preview->ppu;
+
+        if (capture->line >= GBL_PPU_VISIBLE_LINES ||
+            capture->cycle > preview->master_cycles ||
+            capture->frame_epoch != preview->ppu.frame_epoch ||
+            capture->prior_write_count > preview->ppu_memory_write_count ||
+            !gbl_ppu_capture_prefix_valid(preview, capture) ||
+            seen_rows[capture->line] ||
+            (preview->ppu.row_coverage[coverage_index] & row_mask) == 0u ||
+            (capture->unsupported_register_bytes &
+             ~((UINT32_C(1) << GBL_PPU_RENDER_REGISTER_BYTES) - 1u)) != 0u) {
+            return false;
+        }
+        sampled_ppu.dispcnt = capture->dispcnt;
+        sampled_ppu.unsupported_register_bytes =
+            capture->unsupported_register_bytes;
+        memcpy(sampled_ppu.render_register_bytes,
+               capture->render_register_bytes,
+               sizeof(sampled_ppu.render_register_bytes));
+        if (gbl_ppu_active_invalid_reason(&sampled_ppu) !=
+            GBL_VIDEO_INVALID_REASON_NONE) {
+            return false;
+        }
+        seen_rows[capture->line] = true;
+    }
+    return true;
+}
+
 void gbl_machine_commit_time(gbl_machine *machine,
                             const gbl_machine_time_preview *preview)
 {
@@ -1593,7 +1667,8 @@ void gbl_machine_commit_time(gbl_machine *machine,
         preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
         preview->input_event_cursor > preview->input_event_count ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
-        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX) {
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
+        !gbl_ppu_commit_preview_valid(machine, preview)) {
         return;
     }
     gbl_ppu_materialize_capture_plan(machine, preview);

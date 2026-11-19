@@ -139,6 +139,7 @@ typedef struct gbl_ppu_row_capture {
 } gbl_ppu_row_capture;
 
 typedef struct gbl_ppu_memory_write {
+    uint64_t cycle;
     uint32_t address;
     uint32_t value;
     uint16_t dispcnt;

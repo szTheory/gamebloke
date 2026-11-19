@@ -1076,6 +1076,10 @@ static int run_ppu_refusal(void)
             preview_equality_detects_plan = preview_equality_detects_plan &&
                 !gbl_test_time_preview_equal(&preview, &changed_preview);
             changed_preview = preview;
+            changed_preview.ppu_memory_writes[0].cycle++;
+            preview_equality_detects_plan = preview_equality_detects_plan &&
+                !gbl_test_time_preview_equal(&preview, &changed_preview);
+            changed_preview = preview;
             changed_preview.ppu_memory_writes[0].region ^=
                 (uint8_t)GBL_BUS_REGION_VRAM;
             preview_equality_detects_plan = preview_equality_detects_plan &&
@@ -1961,6 +1965,9 @@ static void ppu_check_sample_prefix_case(
     CHECK(preview.ppu_row_captures[0].line == 1u);
     CHECK(preview.ppu_row_captures[0].prior_write_count == 1u);
     CHECK(preview.ppu_memory_write_count == 3u);
+    CHECK(preview.ppu_memory_writes[0].cycle == UINT64_C(1231));
+    CHECK(preview.ppu_memory_writes[1].cycle == UINT64_C(1232));
+    CHECK(preview.ppu_memory_writes[2].cycle == UINT64_C(1233));
 
     result = gbl_bus_write(canonical, before->address, before->width,
                            GBL_BUS_CLASS_NONSEQUENTIAL, before->value);
@@ -2093,6 +2100,8 @@ static int run_ppu_sample(void)
     CHECK(preview.ppu_row_captures[0].line == 1u);
     CHECK(preview.ppu_row_captures[0].prior_write_count == 9u);
     CHECK(preview.ppu_memory_write_count == 11u);
+        CHECK(preview.ppu_memory_writes[8].cycle == UINT64_C(1231));
+        CHECK(preview.ppu_memory_writes[9].cycle == UINT64_C(1232));
 
     for (index = 0u; index < 9u; ++index) {
         result = gbl_bus_write(canonical, operations[index].address,
@@ -2260,6 +2269,272 @@ static int run_ppu_sample(void)
     free_machine(machine);
     if (CHECK_DONE() == 0) {
         puts("ppu.sample: PRAM, VRAM and OAM share ordered lane projection");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_bounds(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *snapshot = malloc(sizeof(*snapshot));
+    gbl_time_operation operations[GBL_TIME_OPERATION_MAX + 1u];
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview preview_sentinel;
+    gbl_machine_time_preview invalid_preview;
+    gbl_time_status time_status;
+    size_t index;
+
+    CHECK(machine != NULL && snapshot != NULL);
+    if (machine == NULL || snapshot == NULL) {
+        free(snapshot);
+        free_machine(machine);
+        return 1;
+    }
+    memcpy(snapshot, machine, sizeof(*snapshot));
+    for (index = 0u; index < GBL_TIME_OPERATION_MAX; ++index) {
+        operations[index] = (gbl_time_operation){
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+        };
+    }
+    CHECK(gbl_machine_prepare_operations(machine, operations,
+                                         GBL_TIME_OPERATION_MAX,
+                                         &preview) == GBL_TIME_STATUS_OK);
+    CHECK(preview.master_cycles == GBL_TIME_OPERATION_MAX);
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+
+    memset(&preview, UINT8_C(0xA5), sizeof(preview));
+    memcpy(&preview_sentinel, &preview, sizeof(preview));
+    operations[GBL_TIME_OPERATION_MAX] = (gbl_time_operation){
+        GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+    };
+    time_status = gbl_machine_prepare_operations(
+        machine, operations, GBL_TIME_OPERATION_MAX + 1u, &preview);
+    CHECK(time_status == GBL_TIME_STATUS_INVALID_ARGUMENT);
+    CHECK(memcmp(&preview, &preview_sentinel, sizeof(preview)) == 0);
+    CHECK(gbl_test_canonical_equal(machine, snapshot));
+
+    {
+        const gbl_time_operation invalid_tail[2] = {
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u,
+              UINT32_C(0x060001E0), UINT32_C(0x1234), UINT64_C(1) },
+            { GBL_TIME_OPERATION_BUS_WRITE, 3u,
+              UINT32_C(0x060001E0), UINT32_C(0x5678), UINT64_C(1) }
+        };
+
+        time_status = gbl_machine_prepare_operations(
+            machine, invalid_tail, 2u, &preview);
+        CHECK(time_status == GBL_TIME_STATUS_INVALID_ARGUMENT);
+        CHECK(memcmp(&preview, &preview_sentinel, sizeof(preview)) == 0);
+        CHECK(gbl_test_canonical_equal(machine, snapshot));
+    }
+    free(snapshot);
+    free_machine(machine);
+
+    {
+        gbl_machine *sampled = new_machine();
+        gbl_machine *canonical = new_machine();
+        gbl_machine *before = malloc(sizeof(*before));
+        gbl_bus_result result;
+        uint16_t expected_at_sample = 0u;
+        uint8_t sample_sentinel[2] = { UINT8_C(0xA5), UINT8_C(0x5A) };
+        uint8_t sample_output[2];
+
+        CHECK(sampled != NULL && canonical != NULL && before != NULL);
+        if (sampled == NULL || canonical == NULL || before == NULL) {
+            free(before);
+            free_machine(canonical);
+            free_machine(sampled);
+            return 1;
+        }
+        sampled->dispcnt = UINT16_C(0x0403);
+        sampled->ppu.dispcnt = UINT16_C(0x0403);
+        canonical->dispcnt = UINT16_C(0x0403);
+        canonical->ppu.dispcnt = UINT16_C(0x0403);
+        CHECK(gbl_machine_advance_to(sampled, UINT64_C(1220)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_advance_to(canonical, UINT64_C(1220)) ==
+              GBL_TIME_STATUS_OK);
+        memcpy(before, sampled, sizeof(*before));
+        /* The write-log cap equals the admitted-operation cap: a 21st valid
+         * video write cannot exist, so the operation over-bound above also
+         * proves the derived write bound cannot be exceeded independently. */
+        for (index = 0u; index < GBL_TIME_OPERATION_MAX; ++index) {
+            const uint16_t color = (uint16_t)(index + 1u);
+
+            operations[index] = (gbl_time_operation){
+                GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x060001E0),
+                color, UINT64_C(1)
+            };
+        }
+        CHECK(gbl_machine_prepare_operations(
+                  sampled, operations, GBL_TIME_OPERATION_MAX, &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_memory_write_count == GBL_TIME_OPERATION_MAX);
+        CHECK(preview.ppu_row_capture_count == 1u);
+        CHECK(preview.ppu_row_captures[0].line == 1u);
+        CHECK(preview.ppu_row_captures[0].prior_write_count == 11u);
+        CHECK(preview.ppu_memory_writes[10].cycle == UINT64_C(1231));
+        CHECK(preview.ppu_memory_writes[11].cycle == UINT64_C(1232));
+        CHECK(gbl_test_canonical_equal(sampled, before));
+
+        invalid_preview = preview;
+        invalid_preview.ppu_memory_write_count =
+            GBL_TIME_OPERATION_MAX + 1u;
+        memcpy(sample_output, sample_sentinel, sizeof(sample_output));
+        CHECK(gbl_ppu_sample_read(
+                  sampled, &invalid_preview,
+                  &invalid_preview.ppu_row_captures[0],
+                  GBL_BUS_REGION_VRAM, GBL_PPU_ROW_BYTES, 2u,
+                  sizeof(sample_output), sample_output,
+                  sizeof(sample_output)) ==
+              GBL_PPU_SAMPLE_STATUS_INVALID_PREFIX);
+        CHECK(memcmp(sample_output, sample_sentinel,
+                     sizeof(sample_output)) == 0);
+
+        invalid_preview = preview;
+        --invalid_preview.ppu_row_captures[0].prior_write_count;
+        memcpy(sample_output, sample_sentinel, sizeof(sample_output));
+        CHECK(gbl_ppu_sample_read(
+                  sampled, &invalid_preview,
+                  &invalid_preview.ppu_row_captures[0],
+                  GBL_BUS_REGION_VRAM, GBL_PPU_ROW_BYTES, 2u,
+                  sizeof(sample_output), sample_output,
+                  sizeof(sample_output)) ==
+              GBL_PPU_SAMPLE_STATUS_INVALID_PREFIX);
+        CHECK(memcmp(sample_output, sample_sentinel,
+                     sizeof(sample_output)) == 0);
+
+        invalid_preview = preview;
+        --invalid_preview.ppu_row_captures[0].prior_write_count;
+        gbl_machine_commit_time(sampled, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(sampled, before));
+        invalid_preview = preview;
+        invalid_preview.ppu_row_captures[0].prior_write_count =
+            (uint16_t)(preview.ppu_memory_write_count + 1u);
+        gbl_machine_commit_time(sampled, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(sampled, before));
+        invalid_preview = preview;
+        invalid_preview.ppu_memory_writes[0].width = 3u;
+        gbl_machine_commit_time(sampled, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(sampled, before));
+
+        gbl_machine_commit_time(sampled, &preview);
+        expected_at_sample = UINT16_C(11);
+        CHECK(ppu_pixel_matches(sampled->video_frame, 1u, 0u,
+                                expected_at_sample));
+        CHECK(sampled->vram[GBL_PPU_ROW_BYTES] == 0u);
+        for (index = 0u; index < GBL_TIME_OPERATION_MAX; ++index) {
+            result = gbl_bus_write(
+                canonical, operations[index].address, operations[index].width,
+                GBL_BUS_CLASS_NONSEQUENTIAL, operations[index].value);
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(result.outcome == GBL_BUS_OUTCOME_RAM);
+            CHECK(result.cycles == 1u);
+        }
+        CHECK(canonical->master_cycles == UINT64_C(1240));
+        CHECK(ppu_pixel_matches(canonical->video_frame, 1u, 0u,
+                                expected_at_sample));
+        free(before);
+        free_machine(canonical);
+        free_machine(sampled);
+    }
+
+    {
+        gbl_machine *epoch = new_machine();
+        gbl_machine *before = malloc(sizeof(*before));
+        gbl_time_operation advance_all_rows = {
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(197119)
+        };
+        gbl_time_operation finish_epoch = {
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+        };
+        gbl_bus_result result;
+
+        CHECK(epoch != NULL && before != NULL);
+        if (epoch == NULL || before == NULL) {
+            free(before);
+            free_machine(epoch);
+            return 1;
+        }
+        ppu_seed_supported_frame(epoch);
+        memcpy(before, epoch, sizeof(*before));
+        CHECK(gbl_machine_prepare_operations(epoch, &advance_all_rows, 1u,
+                                             &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_capture_count == GBL_PPU_ROW_CAPTURE_MAX);
+        CHECK(preview.ppu.captured_rows == GBL_PPU_VISIBLE_LINES);
+        CHECK(preview.ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+        CHECK(gbl_test_canonical_equal(epoch, before));
+
+        invalid_preview = preview;
+        invalid_preview.ppu_row_capture_count =
+            GBL_PPU_ROW_CAPTURE_MAX + 1u;
+        gbl_machine_commit_time(epoch, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(epoch, before));
+        invalid_preview = preview;
+        invalid_preview.ppu_memory_write_count =
+            GBL_TIME_OPERATION_MAX + 1u;
+        gbl_machine_commit_time(epoch, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(epoch, before));
+        invalid_preview = preview;
+        invalid_preview.ppu_row_captures[0].prior_write_count = 1u;
+        gbl_machine_commit_time(epoch, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(epoch, before));
+        invalid_preview = preview;
+        invalid_preview.ppu_row_captures[0].dispcnt = UINT16_C(0x0402);
+        gbl_machine_commit_time(epoch, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(epoch, before));
+        invalid_preview = preview;
+        invalid_preview.ppu_row_captures[0].unsupported_register_bytes =
+            UINT32_C(1) << 18u;
+        gbl_machine_commit_time(epoch, &invalid_preview);
+        CHECK(gbl_test_canonical_equal(epoch, before));
+
+        gbl_machine_commit_time(epoch, &preview);
+        CHECK(epoch->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+        CHECK(epoch->ppu.captured_rows == GBL_PPU_VISIBLE_LINES);
+        CHECK(gbl_machine_prepare_operations(epoch, &finish_epoch, 1u,
+                                             &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_capture_count == 0u);
+        CHECK(preview.ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        gbl_machine_commit_time(epoch, &preview);
+        CHECK(epoch->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+
+        CHECK(gbl_machine_advance_to(epoch, GBL_PPU_FRAME_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(epoch->ppu.frame_epoch == 1u);
+        CHECK(epoch->ppu.captured_rows == 1u);
+        CHECK(epoch->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+        result = gbl_bus_write(epoch, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0402));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(gbl_machine_advance_to(
+                  epoch, GBL_PPU_FRAME_CYCLES +
+                             (GBL_PPU_LINE_CYCLES * UINT64_C(2))) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(epoch->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(epoch->ppu.capture_reason ==
+              GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+        result = gbl_bus_write(epoch, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0403));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(gbl_machine_advance_to(
+                  epoch, (GBL_PPU_FRAME_CYCLES * UINT64_C(2)) +
+                             UINT64_C(197120)) == GBL_TIME_STATUS_OK);
+        CHECK(epoch->ppu.frame_epoch == 2u);
+        CHECK(epoch->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(epoch->ppu.captured_rows == GBL_PPU_VISIBLE_LINES);
+        CHECK(ppu_frame_matches_pattern(epoch->video_frame));
+        free(before);
+        free_machine(epoch);
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.bounds: exact-fit prefixes, refusals and fresh epochs are atomic");
         return 0;
     }
     return 1;
@@ -3314,7 +3589,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -3346,6 +3621,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.sample") == 0) {
         return run_ppu_sample();
+    }
+    if (strcmp(argv[1], "ppu.bounds") == 0) {
+        return run_ppu_bounds();
     }
     if (strcmp(argv[1], "ppu.frame") == 0) {
         return run_ppu_frame();
