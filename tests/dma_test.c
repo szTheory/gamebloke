@@ -356,7 +356,10 @@ static bool test_dma_latches_are_isolated_and_disclosed(void)
                 machine->dma_channels[1].read_latch == 0u &&
                 machine->dma_channels[2].read_latch == 0u &&
                 machine->dma_channels[3].read_latch == 0u &&
-                machine->event_count == 0u && !machine->dma_stream_valid;
+                machine->event_count == 1u &&
+                machine->events[0].kind ==
+                    (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY &&
+                !machine->dma_stream_valid;
     }
     test_case(valid,
               "retained channel latches isolate halfword replication, word replacement, absent-source fallback, open bus, and reset");

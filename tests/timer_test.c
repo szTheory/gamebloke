@@ -479,6 +479,43 @@ static bool event_equal(const gbl_event *left, const gbl_event *right)
            left->input_index == right->input_index;
 }
 
+static gbl_event *find_machine_event(gbl_machine *machine, uint8_t kind,
+                                     uint8_t timer_index)
+{
+    size_t index;
+
+    if (machine == NULL) {
+        return NULL;
+    }
+    for (index = 0u; index < machine->event_count; ++index) {
+        gbl_event *event = &machine->events[index];
+
+        if (event->live && event->kind == kind &&
+            (kind != (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW ||
+             event->timer_index == timer_index)) {
+            return event;
+        }
+    }
+    return NULL;
+}
+
+static size_t count_machine_events(const gbl_machine *machine, uint8_t kind)
+{
+    size_t index;
+    size_t count = 0u;
+
+    if (machine == NULL) {
+        return 0u;
+    }
+    for (index = 0u; index < machine->event_count; ++index) {
+        if (machine->events[index].live &&
+            machine->events[index].kind == kind) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 static bool input_event_equal(const gbl_input_event *left,
                               const gbl_input_event *right)
 {
@@ -708,8 +745,19 @@ static int run_event_order(void)
 {
     gbl_machine *first = new_empty_machine();
     gbl_machine *second = new_empty_machine();
+    const gbl_event *initial_ppu;
+    const gbl_event *first_ppu;
+    const gbl_event *first_timer0;
+    const gbl_event *first_timer1;
+    size_t index;
     gbl_bus_result write_result;
     bool valid = first != NULL && second != NULL;
+
+    initial_ppu = find_machine_event(
+        first, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+    CHECK(first != NULL && first->event_count == 1u);
+    CHECK(initial_ppu != NULL && initial_ppu->cycle == 0u &&
+          initial_ppu->sequence == 0u);
 
     if (valid) {
         write_result = write_timer_word(first, 0u, UINT16_C(0xFFFE),
@@ -726,21 +774,36 @@ static int run_event_order(void)
         valid = valid && write_result.status == GBL_BUS_STATUS_OK;
     }
     CHECK(valid);
-    CHECK(first->event_count == 2u);
-    CHECK(first->events[0].cycle == UINT64_C(3));
-    CHECK(first->events[1].cycle == UINT64_C(3));
-    CHECK(first->events[0].priority == 0u);
-    CHECK(first->events[1].priority == 1u);
-    CHECK(first->events[0].sequence < first->events[1].sequence);
+    first_ppu = find_machine_event(
+        first, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+    first_timer0 = find_machine_event(
+        first, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+    first_timer1 = find_machine_event(
+        first, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 1u);
+    CHECK(first->event_count == 3u);
+    CHECK(count_machine_events(first,
+                               (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u);
+    CHECK(count_machine_events(first,
+                               (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) == 2u);
+    CHECK(first_ppu != NULL);
+    CHECK(first_timer0 != NULL && first_timer0->cycle == UINT64_C(3) &&
+          first_timer0->priority == 0u);
+    CHECK(first_timer1 != NULL && first_timer1->cycle == UINT64_C(3) &&
+          first_timer1->priority == 1u);
+    if (first_timer0 != NULL && first_timer1 != NULL) {
+        CHECK(first_timer0->sequence < first_timer1->sequence);
+    }
     CHECK(gbl_machine_advance_to(first, UINT64_C(3)) == GBL_TIME_STATUS_OK);
     CHECK(gbl_machine_advance_to(second, UINT64_C(3)) == GBL_TIME_STATUS_OK);
     CHECK(first->interrupt_flags == UINT16_C(0x0018));
     CHECK(first->interrupt_flags == second->interrupt_flags);
     CHECK(first->master_cycles == second->master_cycles);
+    CHECK(first->event_count == 3u);
     CHECK(first->event_count == second->event_count);
     CHECK(first->next_event_sequence == second->next_event_sequence);
-    CHECK(event_equal(&first->events[0], &second->events[0]));
-    CHECK(event_equal(&first->events[1], &second->events[1]));
+    for (index = 0u; index < first->event_count; ++index) {
+        CHECK(event_equal(&first->events[index], &second->events[index]));
+    }
     free_machine(first);
     free_machine(second);
     if (CHECK_DONE() == 0) {
@@ -765,6 +828,13 @@ static int run_event_boundary(void)
     }
     CHECK(valid);
     CHECK(machine->master_cycles == UINT64_C(1));
+    CHECK(machine->event_count == 2u);
+    CHECK(find_machine_event(machine,
+                             (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u) !=
+          NULL);
+    CHECK(find_machine_event(machine,
+                             (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u) !=
+          NULL);
     CHECK(gbl_machine_advance_to(machine, UINT64_C(2)) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->interrupt_flags == 0u);
@@ -788,17 +858,38 @@ static int run_event_boundary(void)
     write_result = write_timer_word(machine, 0u, UINT16_C(0xFFFF),
                                     UINT8_C(0xC0));
     CHECK(write_result.status == GBL_BUS_STATUS_OK);
-    CHECK(machine->event_count == 1u);
-    machine->events[0].generation = 0u;
+    CHECK(machine->event_count == 2u);
+    {
+        gbl_event *stale_timer = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+
+        CHECK(stale_timer != NULL);
+        if (stale_timer != NULL) {
+            stale_timer->generation = 0u;
+        }
+    }
     CHECK(gbl_machine_advance_to(machine, UINT64_C(2)) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->interrupt_flags == 0u);
-    CHECK(machine->event_count == 0u);
+    CHECK(machine->event_count == 1u);
+    CHECK(find_machine_event(machine,
+                             (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u) !=
+          NULL);
+    CHECK(find_machine_event(machine,
+                             (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u) ==
+          NULL);
     gbl_machine_reset(machine);
     CHECK(machine->master_cycles == 0u);
     CHECK(machine->interrupt_flags == 0u);
-    CHECK(machine->event_count == 0u);
-    CHECK(machine->next_event_sequence == 0u);
+    CHECK(machine->event_count == 1u);
+    CHECK(machine->next_event_sequence == 1u);
+    {
+        const gbl_event *reset_ppu = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+
+        CHECK(reset_ppu != NULL && reset_ppu->cycle == 0u &&
+              reset_ppu->sequence == 0u);
+    }
     CHECK(!machine->timers[0].enabled);
     CHECK(machine->timers[0].generation == 0u);
     free_machine(machine);
@@ -1431,10 +1522,18 @@ static int run_keypad_timeline(void)
     CHECK(gbl_machine_set_input_timeline(machine, events, 3u) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->input_event_count == 3u &&
-          machine->input_event_cursor == 0u && machine->event_count == 1u &&
-          machine->events[0].priority == 4u &&
-          machine->events[0].kind ==
-              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT);
+          machine->input_event_cursor == 0u && machine->event_count == 2u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) == 1u);
+    {
+        const gbl_event *keypad_event = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT, 0u);
+
+        CHECK(keypad_event != NULL && keypad_event->cycle == 0u &&
+              keypad_event->priority == 4u);
+    }
     events[0].pressed_mask = UINT16_C(0x0001);
 
     result = gbl_bus_read(machine, UINT32_C(0x04000130), 2u,
@@ -1462,7 +1561,11 @@ static int run_keypad_timeline(void)
     CHECK(result.status == GBL_BUS_STATUS_OK &&
           result.value == UINT32_C(0x03FF) &&
           machine->master_cycles == UINT64_C(3) &&
-          machine->pressed_keys == 0u && machine->event_count == 0u &&
+          machine->pressed_keys == 0u && machine->event_count == 1u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) == 0u &&
           machine->input_event_cursor == 3u);
 
     gbl_machine_reset(machine);
@@ -1471,24 +1574,38 @@ static int run_keypad_timeline(void)
                            UINT32_C(0x00C0FFFF));
     CHECK(result.status == GBL_BUS_STATUS_OK &&
           machine->master_cycles == UINT64_C(1) &&
-          machine->event_count == 1u &&
-          machine->events[0].cycle == UINT64_C(2));
-    tie_cycle = machine->events[0].cycle;
+          machine->event_count == 2u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u);
+    {
+        const gbl_event *timer_event = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+
+        CHECK(timer_event != NULL && timer_event->cycle == UINT64_C(2));
+        if (timer_event != NULL) {
+            tie_cycle = timer_event->cycle;
+        }
+    }
     CHECK(gbl_machine_set_input_timeline(machine, &tie_press, 1u) ==
           GBL_TIME_STATUS_OK);
-    CHECK(machine->event_count == 2u &&
-          machine->events[0].kind ==
-              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
-          machine->events[0].priority == 0u &&
-          machine->events[1].kind ==
-              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
-          machine->events[1].priority == 4u);
-    if (machine->event_count == 2u &&
-        machine->events[0].kind ==
-            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
-        machine->events[1].kind ==
-            (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) {
-        tie_order = "timer0>keypad";
+    {
+        const gbl_event *timer_event = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+        const gbl_event *keypad_event = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT, 0u);
+
+        CHECK(machine->event_count == 3u &&
+              count_machine_events(
+                  machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u);
+        CHECK(timer_event != NULL && timer_event->cycle == tie_cycle &&
+              timer_event->priority == 0u);
+        CHECK(keypad_event != NULL && keypad_event->cycle == tie_cycle &&
+              keypad_event->priority == 4u);
+        if (timer_event != NULL && keypad_event != NULL &&
+            timer_event->cycle == keypad_event->cycle) {
+            CHECK(timer_event->sequence < keypad_event->sequence);
+            tie_order = "timer0>keypad";
+        }
     }
     tie_write_start_cycle = machine->master_cycles;
     result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
@@ -1828,11 +1945,14 @@ static int run_keypad_refusal(void)
     one.cycle = UINT64_MAX;
     CHECK(gbl_machine_set_input_timeline(machine, &one, 1u) ==
           GBL_TIME_STATUS_OK);
+    take_time_snapshot(machine, &snapshot);
+    /* The recurring PPU event bounds a direct jump to UINT64_MAX. Refusal
+     * must preserve the pending input and the complete machine state. */
     CHECK(gbl_machine_advance_to(machine, UINT64_MAX) ==
-          GBL_TIME_STATUS_OK);
-    CHECK(machine->master_cycles == UINT64_MAX &&
-          machine->pressed_keys == UINT16_C(0x0001) &&
-          machine->input_event_cursor == 1u && machine->event_count == 0u);
+          GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT);
+    CHECK(time_matches_snapshot(machine, &snapshot));
+    CHECK(machine->pressed_keys == 0u && machine->input_event_cursor == 0u &&
+          machine->input_event_count == 1u && machine->event_count == 2u);
 
     gbl_machine_reset(machine);
     for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
@@ -1843,17 +1963,23 @@ static int run_keypad_refusal(void)
     CHECK(gbl_machine_set_input_timeline(
               machine, maximum, GBL_INPUT_EVENT_CAPACITY) ==
           GBL_TIME_STATUS_OK);
-    CHECK(machine->event_count == 1u &&
+    CHECK(machine->event_count == 2u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
           machine->input_event_count == GBL_INPUT_EVENT_CAPACITY);
     CHECK(gbl_machine_advance_to(machine, UINT64_C(5)) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->input_event_cursor == GBL_INPUT_EVENT_CAPACITY &&
-          machine->event_count == 0u &&
+          machine->event_count == 1u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
           machine->pressed_keys == UINT16_C(0x0001));
     CHECK(gbl_machine_set_input_timeline(machine, NULL, 0u) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
-          machine->input_event_count == 0u && machine->event_count == 0u);
+          machine->input_event_count == 0u && machine->event_count == 1u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u);
 
     gbl_machine_reset(machine);
     one.cycle = UINT64_C(1);
@@ -1864,12 +1990,22 @@ static int run_keypad_refusal(void)
     replacement[0].cycle = UINT64_C(4);
     CHECK(gbl_machine_set_input_timeline(machine, replacement, 1u) ==
           GBL_TIME_STATUS_OK);
-    CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
-          machine->event_count == 1u && machine->events[0].cycle == 4u);
+    {
+        const gbl_event *replacement_event = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT, 0u);
+
+        CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
+              machine->event_count == 2u && replacement_event != NULL &&
+              replacement_event->cycle == 4u &&
+              count_machine_events(
+                  machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u);
+    }
     CHECK(gbl_machine_set_input_timeline(machine, NULL, 0u) ==
           GBL_TIME_STATUS_OK);
     CHECK(machine->pressed_keys == UINT16_C(0x0001) &&
-          machine->event_count == 0u);
+          machine->event_count == 1u &&
+          count_machine_events(
+              machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u);
 
     gbl_machine_reset(machine);
     other = new_empty_machine();
@@ -1903,7 +2039,9 @@ static int run_keypad_refusal(void)
         gbl_machine_reset(machine);
         CHECK(machine->pressed_keys == 0u &&
               machine->input_event_count == 0u &&
-              machine->input_event_cursor == 0u && machine->event_count == 0u);
+              machine->input_event_cursor == 0u && machine->event_count == 1u &&
+              count_machine_events(
+                  machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u);
         CHECK(other->pressed_keys == UINT16_C(0x0002));
     }
 
@@ -2121,6 +2259,9 @@ static int run_halt_boundary(void)
               stopped->pressed_keys == 0u &&
               stopped->cpu.stop_reason == GBL_CPU_STOP_STOP_REQUESTED);
 
+        /* Isolate the no-live-event HALT branch; normal machines always carry
+         * the recurring PPU boundary event. */
+        deadlocked->ppu.generation = 0u;
         deadlock_cycle = deadlocked->master_cycles;
         CHECK(run_power(deadlocked, UINT64_C(10), &deadlock_result));
         CHECK(deadlock_result.reason == GBL_RUN_REASON_GUEST_STOP &&
@@ -2138,9 +2279,18 @@ static int run_halt_boundary(void)
               zero_result.cycles == 0u && zero_result.wait_cycles == 0u &&
               zero->master_cycles == UINT64_C(1) &&
               zero->power_state == GBL_MACHINE_POWER_HALTED &&
-              zero->event_count == 1u &&
-              zero->events[0].cycle == UINT64_C(3) &&
+              zero->event_count == 2u &&
+              count_machine_events(
+                  zero, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
+              find_machine_event(
+                  zero, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u) != NULL &&
               run_power_cycles_add_up(&zero_result));
+        {
+            const gbl_event *timer_event = find_machine_event(
+                zero, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+
+            CHECK(timer_event != NULL && timer_event->cycle == UINT64_C(3));
+        }
 
         CHECK(write_timer_word(split, 0u, UINT16_C(0xFFFE),
                                UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
