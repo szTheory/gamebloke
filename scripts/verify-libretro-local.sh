@@ -61,6 +61,53 @@ check_digest() {
   fi
 }
 
+manifest_expected_digest() {
+  python3 - "$source_dir/tests/fixtures/manifest.json" \
+    "$source_dir/tests/fixtures/playable0-NOTICE.md" "$1" <<'PY'
+import json
+import re
+import sys
+
+manifest_path, notice_path, fixture_id = sys.argv[1:]
+with open(manifest_path, encoding="utf-8") as source:
+    fixtures = json.load(source)["fixtures"]
+with open(notice_path, encoding="utf-8") as source:
+    notice = source.read()
+
+if fixture_id == "generator":
+    fixture_ids = {
+        "owned-playable0-interactive",
+        "owned-playable0-interactive-input-disabled",
+        "owned-playable0-interactive-wrong-color",
+    }
+    generator_digests = set()
+    for fixture in fixtures:
+        if fixture["id"] not in fixture_ids:
+            continue
+        match = re.search(
+            r"tests/fixtures/instruction_image\.c SHA-256=([0-9a-f]{64})",
+            fixture["build"]["recipe"],
+        )
+        if match is None:
+            raise SystemExit("manifest is missing the interactive generator digest")
+        generator_digests.add(match.group(1))
+    if len(generator_digests) != 1:
+        raise SystemExit("interactive generator digests disagree in the manifest")
+    expected = generator_digests.pop()
+else:
+    matches = [fixture for fixture in fixtures if fixture["id"] == fixture_id]
+    if len(matches) != 1:
+        raise SystemExit("manifest must contain exactly one {} fixture".format(fixture_id))
+    expected = matches[0]["build"]["artifact"]["sha256"]
+
+if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+    raise SystemExit("manifest has an invalid SHA-256 for {}".format(fixture_id))
+if chr(96) + expected + chr(96) not in notice:
+    raise SystemExit("fixture notice does not record the manifest SHA-256 for {}".format(fixture_id))
+print(expected)
+PY
+}
+
 # The legacy bounded guest and its negative controls are immutable inputs here.
 check_digest "$fixture_dir/owned-playable0.gba" \
   9114432ee8b722080709c7171fde5fe56f2300a7deaf0c77588f85defc5ee899
@@ -70,6 +117,16 @@ check_digest "$fixture_dir/owned-playable0-wrong-color.gba" \
   d6693d2f5ce431791f8264108aec9daea35fe2ae8f95fd0f9077224ec576c4e8
 check_digest "$fixture_dir/owned-playable0-wrong-address.gba" \
   e8b63e17f22a9b27cc7d9efbf42d8708c58826db9bb1acc5aaa450564dc18086
+
+interactive_generator_expected="$(manifest_expected_digest generator)"
+check_digest "$source_dir/tests/fixtures/instruction_image.c" \
+  "$interactive_generator_expected"
+for name in owned-playable0-interactive.gba \
+    owned-playable0-interactive-input-disabled.gba \
+    owned-playable0-interactive-wrong-color.gba; do
+  check_digest "$fixture_dir/$name" \
+    "$(manifest_expected_digest "${name%.gba}")"
+done
 
 if ! git -C "$source_dir" check-ignore -q \
     "$fixture_dir/owned-playable0-interactive.gba"; then
