@@ -76,8 +76,9 @@
 #   bad-phase9-*           phase9 model, types, channel progress, timing, provenance,
 #                          ownership, latch disclosure, or Prefetch statement is invalid
 #   partial-phase10-extension `phase10` and `raw_video` are not both absent or both present
-#   bad-phase10-*           PPU/video types, frame validity, policy provenance, output state,
-#                          digest, or HBlank-dependent dispute disclosure is inconsistent
+#   bad-phase10-*           PPU/video model, profile-bound capability tuple, frame validity,
+#                          policy provenance, output state, digest, or HBlank-dependent
+#                          dispute disclosure is inconsistent
 #   bad-timer0-request    Timer 0 IF observation has an invalid type or run-state
 #   cycles-exceed-budget  reported cycles are greater than budget_cycles
 #   bad-termination       termination is missing, unnamed, or inconsistent with status
@@ -912,6 +913,77 @@ function(gbl__result_phase10_expect_string doc label expected code)
   endif()
 endfunction()
 
+function(gbl__result_phase10_capabilities_check doc profile_doc required)
+  foreach(field IN ITEMS profile_version display_capabilities video_memory_access)
+    gbl_json_type(capability_${field}_type "${doc}" phase10 ${field})
+  endforeach()
+
+  set(any_capability_field FALSE)
+  set(complete_capability_tuple TRUE)
+  foreach(field IN ITEMS profile_version display_capabilities video_memory_access)
+    if(NOT "${capability_${field}_type}" STREQUAL "MISSING")
+      set(any_capability_field TRUE)
+    else()
+      set(complete_capability_tuple FALSE)
+    endif()
+  endforeach()
+  if(NOT required AND NOT any_capability_field)
+    return()
+  endif()
+  if(NOT complete_capability_tuple)
+    gbl_finding(result bad-phase10-capability
+      "phase10 capability metadata must be a complete profile tuple")
+    return()
+  endif()
+
+  string(JSON profile_version GET "${profile_doc}" profile_version)
+  if(NOT "${capability_profile_version_type}" STREQUAL "NUMBER")
+    gbl_finding(result bad-phase10-capability
+      "phase10.profile_version must be an integer matching the profile")
+  else()
+    string(JSON capability_profile_version GET "${doc}" phase10 profile_version)
+    if(NOT "${capability_profile_version}" MATCHES "^(0|[1-9][0-9]*)$" OR
+        NOT "${capability_profile_version}" STREQUAL "${profile_version}")
+      gbl_finding(result bad-phase10-capability
+        "phase10.profile_version differs from the selected profile")
+    endif()
+  endif()
+
+  string(JSON expected_display_capabilities GET "${profile_doc}"
+    ppu_policy display_capabilities)
+  if(NOT "${capability_display_capabilities_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase10-capability
+      "phase10.display_capabilities must be an object")
+  else()
+    string(JSON actual_display_capabilities GET "${doc}"
+      phase10 display_capabilities)
+    string(JSON display_matches ERROR_VARIABLE display_error EQUAL
+      "${actual_display_capabilities}" "${expected_display_capabilities}")
+    if((NOT "${display_error}" STREQUAL "NOTFOUND" AND
+        NOT "${display_error}" STREQUAL "") OR NOT display_matches)
+      gbl_finding(result bad-phase10-capability
+        "phase10.display_capabilities must exactly match the selected profile")
+    endif()
+  endif()
+
+  string(JSON expected_video_memory_access GET "${profile_doc}"
+    ppu_policy video_memory_access)
+  if(NOT "${capability_video_memory_access_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-phase10-capability
+      "phase10.video_memory_access must be an object")
+  else()
+    string(JSON actual_video_memory_access GET "${doc}"
+      phase10 video_memory_access)
+    string(JSON access_matches ERROR_VARIABLE access_error EQUAL
+      "${actual_video_memory_access}" "${expected_video_memory_access}")
+    if((NOT "${access_error}" STREQUAL "NOTFOUND" AND
+        NOT "${access_error}" STREQUAL "") OR NOT access_matches)
+      gbl_finding(result bad-phase10-capability
+        "phase10.video_memory_access must exactly match the selected profile")
+    endif()
+  endif()
+endfunction()
+
 # Phase 10's additive result extension is all-or-nothing for result/1 records.
 # The accepted timing and row-sampling claims are read from the checked-in AGB
 # profile, while frame and byte-layout constraints describe the public producer.
@@ -955,8 +1027,21 @@ function(gbl__result_phase10_check doc time_cycles result_status result_ran
     ppu_policy hblank_hardware_qualification)
   math(EXPR profile_last_line_cycle "${profile_line_cycles}-1")
 
-  gbl__result_phase10_expect_string("${doc}" "phase10.model"
-    "gamebloke-ppu-observation-1" bad-phase10-type phase10 model)
+  gbl_json_type(p10_model_type "${doc}" phase10 model)
+  set(p10_model "")
+  if(NOT "${p10_model_type}" STREQUAL "STRING")
+    gbl_finding(result bad-phase10-type "phase10.model must be a string")
+  else()
+    string(JSON p10_model GET "${doc}" phase10 model)
+  endif()
+  if("${p10_model}" STREQUAL "gamebloke-ppu-observation-2")
+    gbl__result_phase10_capabilities_check("${doc}" "${profile_doc}" TRUE)
+  elseif("${p10_model}" STREQUAL "gamebloke-ppu-observation-1")
+    gbl__result_phase10_capabilities_check("${doc}" "${profile_doc}" FALSE)
+  elseif("${p10_model_type}" STREQUAL "STRING")
+    gbl_finding(result bad-phase10-type
+      "phase10.model is an unknown PPU observation model")
+  endif()
   gbl__result_phase10_require_type("${doc}" "phase10.observed" BOOLEAN
     bad-phase10-type phase10 observed)
   gbl__result_phase10_require_type("${doc}" "phase10.timing" OBJECT
@@ -1285,6 +1370,20 @@ function(gbl__result_phase10_check doc time_cycles result_status result_ran
     bad-phase10-type raw_video requested)
   gbl__result_phase10_require_type("${doc}" "raw_video.emitted" BOOLEAN
     bad-phase10-type raw_video emitted)
+  gbl_json_type(raw_format_type "${doc}" raw_video format)
+  if("${p10_model}" STREQUAL "gamebloke-ppu-observation-2" OR
+      NOT "${raw_format_type}" STREQUAL "MISSING")
+    if(NOT "${raw_format_type}" STREQUAL "STRING")
+      gbl_finding(result bad-phase10-video-output
+        "raw_video.format must be bgr555-le")
+    else()
+      string(JSON raw_format GET "${doc}" raw_video format)
+      if(NOT "${raw_format}" STREQUAL "bgr555-le")
+        gbl_finding(result bad-phase10-video-output
+          "raw_video.format must be bgr555-le")
+      endif()
+    endif()
+  endif()
   gbl_json_type(raw_requested_type "${doc}" raw_video requested)
   gbl_json_type(raw_emitted_type "${doc}" raw_video emitted)
   set(raw_requested FALSE)

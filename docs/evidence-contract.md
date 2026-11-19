@@ -158,15 +158,19 @@ these fields:
 - `phase10` and `raw_video` are a paired additive result extension. Historical result/1
   records may omit both; a record with only one is rejected. Current producers include both,
   including runs where PPU state was not observed or raw output was not requested. The
-  historical `gamebloke-ppu-observation-1` model keeps its prior fields and validation.
+  historical `gamebloke-ppu-observation-1` model keeps its prior fields and validation
+  when the capability tuple is absent. If any `profile_version`, `display_capabilities`, or
+  `video_memory_access` member appears on that model, the complete tuple is required and checked.
   Current producers use `gamebloke-ppu-observation-2`, bind `profile_version` to the AGB
   profile, and require complete `display_capabilities` and `video_memory_access` objects.
-  These static policy facts include all six mode source/dimension/status records, canonical
-  `BGR555_LE` raw layout, and the selected CPU/DMA access matrix; implementation status stays
-  independent from the concrete capture state and reason. PPU observations bind their raster
-  machine cycle to `time.cycles`, constrain line and pixel layout to the AGB profile, and keep
-  unavailable frame epoch/sample/completion values null. A valid frame requires supported
-  Mode 3/BG2 controls, reason `none`, one started epoch, all 160 visible row samples, and a
+  The validator compares every nested field and record against the selected profile, including
+  all six mode source/dimension/status records, canonical `BGR555_LE` raw layout, and the
+  selected CPU/DMA access matrix. Current `raw_video` records also require the matching
+  `bgr555-le` artifact format. Implementation status stays independent from the concrete
+  capture state and reason. Unknown PPU observation models are rejected. PPU observations bind
+  their raster machine cycle to `time.cycles`, constrain line and pixel layout to the AGB
+  profile, and keep unavailable frame epoch/sample/completion values null. A valid frame
+  requires supported Mode 3/BG2 controls, reason `none`, one started epoch, all 160 visible row samples, and a
   completion cycle 160 profile line lengths after the sample cycle. Unsupported controls
   cannot yield a valid frame. Row sampling follows the profile's visible-line-start point;
   serialized pixels use a 480-byte row stride.
@@ -283,7 +287,7 @@ The semantic/time/termination findings are:
   inconsistent ownership/channel state, mismatched timing contributions, unsupported
   provenance/qualification, missing dispute disclosure, or a modeled Prefetch claim.
 - `partial-phase10-extension`: `phase10` and `raw_video` do not appear together.
-- `bad-phase10-type`, `bad-phase10-raster`, `bad-phase10-machine-time`,
+- `bad-phase10-type`, `bad-phase10-capability`, `bad-phase10-raster`, `bad-phase10-machine-time`,
   `bad-phase10-frame`, `bad-phase10-frame-validity`, `bad-phase10-policy`,
   `bad-phase10-dependency`, `bad-phase10-video-output`, and `bad-phase10-video-digest`:
   Phase 10 has an incomplete or ill-typed PPU/video observation, inconsistent raster/frame
