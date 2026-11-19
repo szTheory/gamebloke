@@ -74,15 +74,16 @@ with open(manifest_path, encoding="utf-8") as source:
 with open(notice_path, encoding="utf-8") as source:
     notice = source.read()
 
+interactive_fixture_ids = {
+    "owned-playable0-interactive",
+    "owned-playable0-interactive-input-disabled",
+    "owned-playable0-interactive-wrong-color",
+}
+
 if fixture_id == "generator":
-    fixture_ids = {
-        "owned-playable0-interactive",
-        "owned-playable0-interactive-input-disabled",
-        "owned-playable0-interactive-wrong-color",
-    }
     generator_digests = set()
     for fixture in fixtures:
-        if fixture["id"] not in fixture_ids:
+        if fixture["id"] not in interactive_fixture_ids:
             continue
         match = re.search(
             r"tests/fixtures/instruction_image\.c SHA-256=([0-9a-f]{64})",
@@ -98,11 +99,48 @@ else:
     matches = [fixture for fixture in fixtures if fixture["id"] == fixture_id]
     if len(matches) != 1:
         raise SystemExit("manifest must contain exactly one {} fixture".format(fixture_id))
-    expected = matches[0]["build"]["artifact"]["sha256"]
+    artifact = matches[0]["build"]["artifact"]
+    expected = artifact["sha256"]
+    if fixture_id in interactive_fixture_ids:
+        artifact_name = fixture_id + ".gba"
+        expected_path = "generated/fixtures/" + artifact_name
+        artifact_path = artifact.get("path")
+        if artifact_path != expected_path:
+            raise SystemExit(
+                "manifest artifact path for {} must be {}, got {!r}".format(
+                    fixture_id, expected_path, artifact_path
+                )
+            )
+
+        notice_rows = {}
+        for line_number, line in enumerate(notice.splitlines(), 1):
+            row = re.fullmatch(
+                r"\s*\|\s*`([^`]+)`\s*\|\s*`([0-9a-f]{64})`\s*\|\s*",
+                line,
+            )
+            if row is not None:
+                notice_rows.setdefault(row.group(1), []).append(
+                    (row.group(2), line_number)
+                )
+
+        rows = notice_rows.get(artifact_name, [])
+        if len(rows) != 1:
+            raise SystemExit(
+                "fixture notice must contain exactly one digest row for {} "
+                "(found {})".format(artifact_name, len(rows))
+            )
+        notice_digest, line_number = rows[0]
+        if notice_digest != expected:
+            raise SystemExit(
+                "fixture notice digest mismatch for {} at line {}: "
+                "notice={}, manifest={}".format(
+                    artifact_name, line_number, notice_digest, expected
+                )
+            )
 
 if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
     raise SystemExit("manifest has an invalid SHA-256 for {}".format(fixture_id))
-if chr(96) + expected + chr(96) not in notice:
+if fixture_id not in interactive_fixture_ids and chr(96) + expected + chr(96) not in notice:
     raise SystemExit("fixture notice does not record the manifest SHA-256 for {}".format(fixture_id))
 print(expected)
 PY
