@@ -70,15 +70,24 @@ file "$core" | grep -qE 'Mach-O|ELF' || {
 
 host_arch=$(uname -m)
 case $host_arch in
-  aarch64) host_arch=arm64 ;;
-  amd64) host_arch=x86_64 ;;
+  aarch64|arm64)
+    host_arch=arm64
+    file_arch_pattern='aarch64|arm64'
+    ;;
+  amd64|x86_64)
+    host_arch=x86_64
+    file_arch_pattern='x86[-_]64'
+    ;;
+  *)
+    file_arch_pattern=$host_arch
+    ;;
 esac
-file "$retroarch_bin" | grep -q "$host_arch" || {
+file "$retroarch_bin" | grep -qE "$file_arch_pattern" || {
   printf 'play-playable0-local: RetroArch architecture does not include host %s\n' \
     "$host_arch" >&2
   exit 1
 }
-file "$core" | grep -q "$host_arch" || {
+file "$core" | grep -qE "$file_arch_pattern" || {
   printf 'play-playable0-local: Gamebloke module architecture does not include host %s\n' \
     "$host_arch" >&2
   exit 1
