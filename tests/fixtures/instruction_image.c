@@ -236,7 +236,7 @@ static bool write_image_sized(const char *directory, const char *name,
 
 static bool make_playable0_image(uint8_t image[PLAYABLE0_IMAGE_SIZE],
                                 bool input_disabled, bool wrong_color,
-                                bool wrong_address)
+                                bool wrong_address, bool continuous)
 {
     arm_image_builder builder = { 0 };
     const uint32_t neutral_color = wrong_color ? UINT32_C(0x001F) :
@@ -367,8 +367,10 @@ static bool make_playable0_image(uint8_t image[PLAYABLE0_IMAGE_SIZE],
     arm_emit(&builder, UINT32_C(0xE58CA01C));
     arm_emit(&builder, UINT32_C(0xE58C8020));
     arm_load_literal(&builder, 5u, UINT32_C(0x04000006), ARM_CONDITION_AL);
-    arm_emit(&builder, UINT32_C(0xE35B0005));
-    arm_branch(&builder, ARM_CONDITION_EQ, ARM_LABEL_FINISH, false);
+    if (!continuous) {
+        arm_emit(&builder, UINT32_C(0xE35B0005));
+        arm_branch(&builder, ARM_CONDITION_EQ, ARM_LABEL_FINISH, false);
+    }
 
     arm_set_label(&builder, ARM_LABEL_NEXT_LEAVE_VBLANK);
     arm_emit(&builder, UINT32_C(0xE1D500B0));
@@ -612,7 +614,8 @@ static void make_thumb_bx_image(uint8_t image[IMAGE_SIZE])
 }
 
 static bool generate_all(const char *directory, bool include_local_timer0,
-                         bool include_local_playable0)
+                         bool include_local_playable0,
+                         bool include_local_playable0_interactive)
 {
     uint8_t image[IMAGE_SIZE];
     uint8_t playable0_image[PLAYABLE0_IMAGE_SIZE];
@@ -674,7 +677,8 @@ static bool generate_all(const char *directory, bool include_local_timer0,
     }
 
     if (include_local_playable0) {
-        if (!make_playable0_image(playable0_image, false, false, false)) {
+        if (!make_playable0_image(playable0_image, false, false, false,
+                                  false)) {
             fputs("instruction-image: could not assemble Playable 0 guest\n",
                   stderr);
             return false;
@@ -682,7 +686,8 @@ static bool generate_all(const char *directory, bool include_local_timer0,
         okay = write_image_sized(directory, "owned-playable0.gba",
                                  playable0_image, PLAYABLE0_IMAGE_SIZE) &&
                okay;
-        if (!make_playable0_image(playable0_image, true, false, false)) {
+        if (!make_playable0_image(playable0_image, true, false, false,
+                                  false)) {
             fputs("instruction-image: could not assemble input-disabled control\n",
                   stderr);
             return false;
@@ -690,7 +695,8 @@ static bool generate_all(const char *directory, bool include_local_timer0,
         okay = write_image_sized(directory, "owned-playable0-input-disabled.gba",
                                  playable0_image, PLAYABLE0_IMAGE_SIZE) &&
                okay;
-        if (!make_playable0_image(playable0_image, false, true, false)) {
+        if (!make_playable0_image(playable0_image, false, true, false,
+                                  false)) {
             fputs("instruction-image: could not assemble wrong-color control\n",
                   stderr);
             return false;
@@ -698,7 +704,8 @@ static bool generate_all(const char *directory, bool include_local_timer0,
         okay = write_image_sized(directory, "owned-playable0-wrong-color.gba",
                                  playable0_image, PLAYABLE0_IMAGE_SIZE) &&
                okay;
-        if (!make_playable0_image(playable0_image, false, false, true)) {
+        if (!make_playable0_image(playable0_image, false, false, true,
+                                  false)) {
             fputs("instruction-image: could not assemble wrong-address control\n",
                   stderr);
             return false;
@@ -706,6 +713,34 @@ static bool generate_all(const char *directory, bool include_local_timer0,
         okay = write_image_sized(directory, "owned-playable0-wrong-address.gba",
                                  playable0_image, PLAYABLE0_IMAGE_SIZE) &&
                okay;
+    }
+
+    if (include_local_playable0_interactive) {
+        if (!make_playable0_image(playable0_image, false, false, false, true)) {
+            fputs("instruction-image: could not assemble continuous Playable 0 guest\n",
+                  stderr);
+            return false;
+        }
+        okay = write_image_sized(directory,
+                                 "owned-playable0-interactive.gba",
+                                 playable0_image, PLAYABLE0_IMAGE_SIZE) &&
+               okay;
+        if (!make_playable0_image(playable0_image, true, false, false, true)) {
+            fputs("instruction-image: could not assemble input-disabled interactive control\n",
+                  stderr);
+            return false;
+        }
+        okay = write_image_sized(directory,
+            "owned-playable0-interactive-input-disabled.gba",
+            playable0_image, PLAYABLE0_IMAGE_SIZE) && okay;
+        if (!make_playable0_image(playable0_image, false, true, false, true)) {
+            fputs("instruction-image: could not assemble wrong-color interactive control\n",
+                  stderr);
+            return false;
+        }
+        okay = write_image_sized(directory,
+            "owned-playable0-interactive-wrong-color.gba",
+            playable0_image, PLAYABLE0_IMAGE_SIZE) && okay;
     }
 
     /* A generated one-byte mutation is a no-write identity negative control. */
@@ -720,23 +755,35 @@ int main(int argc, char **argv)
 {
     bool include_local_timer0 = false;
     bool include_local_playable0 = false;
+    bool include_local_playable0_interactive = false;
 
-    if (argc < 2 || argc > 3 || argv[1][0] == '\0' ||
-        (argc == 3 &&
-         strcmp(argv[2], "--include-local-timer0") != 0 &&
-         strcmp(argv[2], "--include-local-playable0") != 0)) {
+    if (argc < 2 || argc > 4 || argv[1][0] == '\0') {
         fputs("usage: instruction_image <build-output-directory> "
-              "[--include-local-timer0|--include-local-playable0]\n",
+              "[--include-local-timer0] [--include-local-playable0] "
+              "[--include-local-playable0-interactive]\n",
               stderr);
         return 2;
     }
-    if (argc == 3 && strcmp(argv[2], "--include-local-timer0") == 0) {
-        include_local_timer0 = true;
-    } else if (argc == 3) {
-        include_local_playable0 = true;
+    {
+        int argument;
+        for (argument = 2; argument < argc; ++argument) {
+            if (strcmp(argv[argument], "--include-local-timer0") == 0) {
+                include_local_timer0 = true;
+            } else if (strcmp(argv[argument], "--include-local-playable0") == 0) {
+                include_local_playable0 = true;
+            } else if (strcmp(argv[argument],
+                              "--include-local-playable0-interactive") == 0) {
+                include_local_playable0_interactive = true;
+            } else {
+                fputs("instruction-image: unknown local fixture option\n",
+                      stderr);
+                return 2;
+            }
+        }
     }
     if (!generate_all(argv[1], include_local_timer0,
-                      include_local_playable0)) {
+                      include_local_playable0,
+                      include_local_playable0_interactive)) {
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

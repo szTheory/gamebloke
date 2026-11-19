@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "libretro.h"
 
 #include <dlfcn.h>
@@ -8,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 typedef void (*retro_set_environment_fn)(retro_environment_t);
 typedef void (*retro_set_video_refresh_fn)(retro_video_refresh_t);
@@ -76,7 +78,9 @@ typedef struct frontend_state {
     uint32_t sampled_pixel;
     uint32_t neutral_marker_pixel;
     uint32_t background_pixel;
+    uint32_t right_marker_pixel;
     uint64_t frame_digest;
+    unsigned duplicate_callbacks;
     bool callback_shape_ok;
     bool poll_preceded_queries;
     bool input_descriptors_ok;
@@ -143,10 +147,13 @@ static void test_video_refresh(const void *data, unsigned width,
     size_t count;
     size_t index;
     frontend.callback_shape_ok = width == 240u && height == 160u &&
-                                 pitch == 240u * sizeof(uint32_t) &&
-                                 data != NULL;
+                                 pitch == 240u * sizeof(uint32_t);
     ++frontend.frames;
     if (!frontend.callback_shape_ok) return;
+    if (data == NULL) {
+        ++frontend.duplicate_callbacks;
+        return;
+    }
     count = (size_t)width * (size_t)height;
     frontend.nonzero_pixels = 0u;
     frontend.frame_digest = UINT64_C(1469598103934665603);
@@ -158,6 +165,43 @@ static void test_video_refresh(const void *data, unsigned width,
     frontend.sampled_pixel = pixels[(size_t)80u * width + 64u];
     frontend.background_pixel = pixels[0];
     frontend.neutral_marker_pixel = frontend.sampled_pixel;
+    frontend.right_marker_pixel = pixels[(size_t)80u * width + 128u];
+}
+
+static uint64_t monotonic_nanoseconds(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0u;
+    return (uint64_t)now.tv_sec * UINT64_C(1000000000) +
+           (uint64_t)now.tv_nsec;
+}
+
+static void run_frames(core_api *api, unsigned count)
+{
+    unsigned index;
+    for (index = 0u; index < count; ++index) api->run();
+}
+
+static bool wait_for_marker(core_api *api, bool right, uint32_t color,
+                            unsigned *frames_waited)
+{
+    unsigned index;
+    for (index = 1u; index <= 30u; ++index) {
+        api->run();
+        if (right) {
+            if (frontend.right_marker_pixel == color &&
+                frontend.neutral_marker_pixel != color) {
+                *frames_waited = index;
+                return true;
+            }
+        } else if (frontend.neutral_marker_pixel == color &&
+                   frontend.right_marker_pixel != color) {
+            *frames_waited = index;
+            return true;
+        }
+    }
+    *frames_waited = 30u;
+    return false;
 }
 
 static void test_input_poll(void)
@@ -259,7 +303,141 @@ static uint8_t *read_content(const char *path, size_t *size_out)
     return bytes;
 }
 
-static int run_tracer(const char *module_path, const char *content_path)
+static bool copy_file(const char *source_path, const char *destination_path)
+{
+    FILE *source = fopen(source_path, "rb");
+    FILE *destination;
+    unsigned char buffer[16384];
+    size_t count;
+    bool okay = source != NULL;
+    if (!okay) return false;
+    destination = fopen(destination_path, "wb");
+    if (destination == NULL) {
+        (void)fclose(source);
+        return false;
+    }
+    while ((count = fread(buffer, 1u, sizeof(buffer), source)) != 0u) {
+        if (fwrite(buffer, 1u, count, destination) != count) {
+            okay = false;
+            break;
+        }
+    }
+    if (ferror(source) != 0) okay = false;
+    if (fclose(source) != 0) okay = false;
+    if (fclose(destination) != 0) okay = false;
+    if (!okay) (void)remove(destination_path);
+    return okay;
+}
+
+static bool run_interleaved(core_api *first, const char *module_path,
+                            const struct retro_game_info *game,
+                            uint64_t expected_digest)
+{
+    char peer_path[2048];
+    void *peer_library = NULL;
+    core_api peer;
+    bool okay = false;
+    unsigned frame;
+    uint64_t first_digest = 0u;
+    uint64_t peer_digest = 0u;
+    bool independent_input = false;
+
+    if (snprintf(peer_path, sizeof(peer_path), "%s.peer", module_path) < 0 ||
+        strlen(module_path) + sizeof(".peer") > sizeof(peer_path) ||
+        !copy_file(module_path, peer_path)) {
+        fputs("libretro-test: could not prepare isolated peer module\n", stderr);
+        return false;
+    }
+    peer_library = dlopen(peer_path, RTLD_NOW | RTLD_LOCAL);
+    if (peer_library == NULL || !load_api(peer_library, &peer)) {
+        fprintf(stderr, "libretro-test: peer module load failed: %s\n", dlerror());
+        if (peer_library != NULL) (void)dlclose(peer_library);
+        (void)remove(peer_path);
+        return false;
+    }
+    peer.set_environment(test_environment);
+    peer.set_video_refresh(test_video_refresh);
+    peer.set_audio_sample(NULL);
+    peer.set_audio_sample_batch(NULL);
+    peer.set_input_poll(test_input_poll);
+    peer.set_input_state(test_input_state);
+    peer.init();
+    first->reset();
+    if (!peer.load_game(game)) {
+        fputs("libretro-test: isolated peer refused the continuous guest\n", stderr);
+        peer.deinit();
+        (void)dlclose(peer_library);
+        (void)remove(peer_path);
+        return false;
+    }
+
+    for (frame = 0u; frame < 20u; ++frame) {
+        frontend.buttons = 0u;
+        first->run();
+        first_digest = frontend.frame_digest;
+        frontend.buttons = 0u;
+        peer.run();
+        peer_digest = frontend.frame_digest;
+    }
+    if (first_digest != expected_digest || peer_digest != expected_digest) {
+        fputs("libretro-test: fresh/interleaved neutral instances differ\n", stderr);
+        goto cleanup;
+    }
+
+    for (frame = 0u; frame < 30u; ++frame) {
+        uint32_t first_x64;
+        uint32_t first_x128;
+        uint32_t peer_x64;
+        uint32_t peer_x128;
+        frontend.buttons = (uint16_t)(1u << 4u);
+        first->run();
+        first_x64 = frontend.neutral_marker_pixel;
+        first_x128 = frontend.right_marker_pixel;
+        frontend.buttons = 0u;
+        peer.run();
+        peer_x64 = frontend.neutral_marker_pixel;
+        peer_x128 = frontend.right_marker_pixel;
+        if (first_x128 == UINT32_C(0x0000FF00) &&
+            first_x64 != UINT32_C(0x0000FF00) &&
+            peer_x64 == UINT32_C(0x0000FF00) &&
+            peer_x128 != UINT32_C(0x0000FF00)) {
+            independent_input = true;
+            break;
+        }
+    }
+    if (!independent_input) {
+        fputs("libretro-test: interleaved input contaminated the independent peer\n",
+              stderr);
+        goto cleanup;
+    }
+
+    first->reset();
+    for (frame = 0u; frame < 20u; ++frame) {
+        frontend.buttons = 0u;
+        first->run();
+        first_digest = frontend.frame_digest;
+        frontend.buttons = 0u;
+        peer.run();
+        peer_digest = frontend.frame_digest;
+    }
+    okay = first_digest == expected_digest && peer_digest == expected_digest;
+    if (okay) {
+        puts("PASS libretro.interleaved fresh_reset_input_isolation=yes");
+    } else {
+        fputs("libretro-test: reset after an interleaved input did not replay\n",
+              stderr);
+    }
+
+cleanup:
+    peer.unload_game();
+    peer.deinit();
+    (void)dlclose(peer_library);
+    (void)remove(peer_path);
+    return okay;
+}
+
+static int run_tracer(const char *module_path, const char *content_path,
+                      const char *mode)
 {
     void *library = dlopen(module_path, RTLD_NOW | RTLD_LOCAL);
     core_api api;
@@ -375,11 +553,14 @@ static int run_tracer(const char *module_path, const char *content_path)
     if (frontend.frames != 20u || frontend.polls != 20u ||
         frontend.state_queries == 0u || !frontend.callback_shape_ok ||
         frontend.nonzero_pixels == 0u ||
-        frontend.neutral_marker_pixel != UINT32_C(0x0000FF00) ||
+        frontend.neutral_marker_pixel !=
+            (strcmp(mode, "negative-color") == 0
+                ? UINT32_C(0x00FF0000) : UINT32_C(0x0000FF00)) ||
         frontend.background_pixel != UINT32_C(0x00101010)) {
-        fprintf(stderr, "libretro-test: tracer failed frames=%u polls=%u queries=%u nonzero=%u\n",
+        fprintf(stderr, "libretro-test: tracer failed frames=%u polls=%u queries=%u nonzero=%u x64=%08" PRIx32 " background=%08" PRIx32 "\n",
                 frontend.frames, frontend.polls, frontend.state_queries,
-                frontend.nonzero_pixels);
+                frontend.nonzero_pixels, frontend.neutral_marker_pixel,
+                frontend.background_pixel);
         api.unload_game();
         api.deinit();
         free(content);
@@ -411,12 +592,145 @@ static int run_tracer(const char *module_path, const char *content_path)
         (void)dlclose(library);
         return 1;
     }
+
+    if (strcmp(mode, "negative-input") == 0) {
+        unsigned frames_waited;
+        frontend.buttons = (uint16_t)(1u << 4u);
+        run_frames(&api, 8u);
+        if (frontend.neutral_marker_pixel != UINT32_C(0x0000FF00) ||
+            frontend.right_marker_pixel == UINT32_C(0x0000FF00)) {
+            fputs("libretro-test: input-disabled negative control did not catch the fault\n",
+                  stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        frames_waited = 8u;
+        printf("PASS libretro.negative.input-disabled caught_after_frames=%u\n",
+               frames_waited);
+        api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+        return 0;
+    }
+    if (strcmp(mode, "negative-color") == 0) {
+        unsigned frames_waited;
+        frontend.buttons = 1u;
+        run_frames(&api, 8u);
+        if (frontend.neutral_marker_pixel == UINT32_C(0x000000FF)) {
+            fputs("libretro-test: wrong-color negative control did not catch the fault\n",
+                  stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        frames_waited = 8u;
+        printf("PASS libretro.negative.wrong-color caught_after_frames=%u\n",
+               frames_waited);
+        api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+        return 0;
+    }
     expected_digest = frontend.frame_digest;
     api.reset();
     for (frame = 0u; frame < 20u; ++frame) api.run();
     if (frontend.frame_digest != expected_digest) {
         fputs("libretro-test: reset/replay changed completed frame pixels\n", stderr);
         api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+        return 1;
+    }
+
+    if (strcmp(mode, "live") == 0) {
+        uint64_t started;
+        uint64_t finished;
+        uint64_t input_started;
+        uint64_t input_finished;
+        uint64_t baseline_digest;
+        unsigned input_frames;
+        double elapsed_seconds;
+        double cadence;
+        run_frames(&api, 60u);
+        finished = monotonic_nanoseconds();
+        baseline_digest = frontend.frame_digest;
+        started = finished;
+        /* A second bounded run gives a separate steady-state cadence sample. */
+        run_frames(&api, 60u);
+        finished = monotonic_nanoseconds();
+        if (finished <= started) {
+            fputs("libretro-test: monotonic cadence clock failed\n", stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        elapsed_seconds = (double)(finished - started) / 1000000000.0;
+        cadence = 60.0 / elapsed_seconds;
+        if (frontend.frame_digest != baseline_digest) {
+            fputs("libretro-test: neutral steady-state pixels changed unexpectedly\n",
+                  stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        frontend.buttons = (uint16_t)(1u << 4u);
+        input_started = monotonic_nanoseconds();
+        if (!wait_for_marker(&api, true, UINT32_C(0x0000FF00), &input_frames)) {
+            fputs("libretro-test: RIGHT input did not move the live marker\n", stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        input_finished = monotonic_nanoseconds();
+        if (frontend.frame_digest == baseline_digest) {
+            fputs("libretro-test: stale-frame control detected unchanged frame bytes\n",
+                  stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        printf("PASS libretro.negative.stale-frame changed_after_right=yes\n");
+        printf("PASS libretro.live.right position=128 held=visible\n");
+        printf("METRIC libretro.release_cadence frames=60 elapsed_ms=%.3f fps=%.2f\n",
+               elapsed_seconds * 1000.0, cadence);
+        printf("METRIC libretro.input_to_visible right_frames=%u elapsed_ms=%.3f\n",
+               input_frames, (double)(input_finished - input_started) / 1000000.0);
+
+        frontend.buttons = (uint16_t)((1u << 4u) | 1u);
+        if (!wait_for_marker(&api, true, UINT32_C(0x000000FF), &input_frames)) {
+            fputs("libretro-test: A did not change marker color while RIGHT was held\n",
+                  stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        frontend.buttons = 1u;
+        if (!wait_for_marker(&api, false, UINT32_C(0x000000FF), &input_frames)) {
+            fputs("libretro-test: releasing RIGHT while holding A did not move marker\n",
+                  stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        frontend.buttons = 0u;
+        if (!wait_for_marker(&api, false, UINT32_C(0x0000FF00), &input_frames)) {
+            fputs("libretro-test: releasing A did not restore the neutral marker\n",
+                  stderr);
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+        printf("PASS libretro.live.right_a_release_reset input_bits=0x0011 marker_restored=yes\n");
+        if (!run_interleaved(&api, module_path, &game, expected_digest)) {
+            api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+            return 1;
+        }
+    }
+    rejected = game;
+    rejected.size = 0u;
+    if (api.load_game(&rejected)) {
+        fputs("libretro-test: failed replacement load left prior game accepted\n",
+              stderr);
+        api.unload_game(); api.deinit(); free(content); (void)dlclose(library);
+        return 1;
+    }
+    api.run();
+    if (frontend.nonzero_pixels != 0u) {
+        fputs("libretro-test: failed replacement load exposed stale prior pixels\n",
+              stderr);
+        api.deinit(); free(content); (void)dlclose(library);
+        return 1;
+    }
+    if (!api.load_game(&game)) {
+        fputs("libretro-test: recovery load failed after replacement refusal\n",
+              stderr);
+        api.deinit(); free(content); (void)dlclose(library);
         return 1;
     }
     api.unload_game();
@@ -444,9 +758,13 @@ static int run_tracer(const char *module_path, const char *content_path)
 
 int main(int argc, char **argv)
 {
-    if (argc == 4 && strcmp(argv[1], "tracer") == 0) {
-        return run_tracer(argv[2], argv[3]);
+    if (argc == 4 &&
+        (strcmp(argv[1], "tracer") == 0 || strcmp(argv[1], "live") == 0 ||
+         strcmp(argv[1], "negative-input") == 0 ||
+         strcmp(argv[1], "negative-color") == 0)) {
+        return run_tracer(argv[2], argv[3], argv[1]);
     }
-    fprintf(stderr, "usage: %s tracer MODULE CONTENT.gba\n", argv[0]);
+    fprintf(stderr, "usage: %s {tracer|live|negative-input|negative-color} MODULE CONTENT.gba\n",
+            argv[0]);
     return 2;
 }

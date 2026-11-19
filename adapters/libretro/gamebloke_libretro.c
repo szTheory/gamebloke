@@ -389,13 +389,17 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game)
 
     if (game == NULL || game->data == NULL || game->size < 0xC0u ||
         game->size > GBL_RETRO_ROM_MAX || (game->size & 1u) != 0u ||
-        !gbl_retro_pixel_format_ready || !gbl_retro_machine_create()) {
+        !gbl_retro_pixel_format_ready) {
+        gbl_retro_machine_destroy();
+        return false;
+    }
+    if (!gbl_retro_machine_create()) {
         return false;
     }
     gbl_machine_reset(gbl_retro_machine);
     load = gbl_load_rom(gbl_retro_machine, game->data, game->size);
     if (load.status != GBL_LOAD_STATUS_OK) {
-        gbl_machine_reset(gbl_retro_machine);
+        gbl_retro_machine_destroy();
         return false;
     }
     gbl_retro_loaded = true;
@@ -404,6 +408,9 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game)
     gbl_retro_have_frame = false;
     gbl_retro_terminal_reported = false;
     memset(gbl_retro_pixels, 0, sizeof(gbl_retro_pixels));
+    gbl_retro_message(RETRO_LOG_INFO,
+        "Gamebloke local BIOS-free .gba content loaded (%zu bytes); audio, saves, and serialization are unsupported.",
+        game->size);
     return true;
 }
 
