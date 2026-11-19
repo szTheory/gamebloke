@@ -51,6 +51,7 @@ typedef enum gbl_bus_status {
 #define GBL_PPU_FRAME_CYCLES \
     (GBL_PPU_LINE_CYCLES * (uint64_t)GBL_PPU_TOTAL_LINES)
 #define GBL_PPU_ROW_BYTES (GBL_PPU_WIDTH * 2u)
+#define GBL_PPU_RENDER_REGISTER_BYTES 24u
 #define GBL_PPU_VIDEO_BYTES \
     (GBL_PPU_ROW_BYTES * GBL_PPU_VISIBLE_LINES)
 #define GBL_PPU_ROW_COVERAGE_BYTES ((GBL_PPU_VISIBLE_LINES + 7u) / 8u)
@@ -115,6 +116,10 @@ typedef struct gbl_ppu_timing_state {
     uint16_t captured_rows;
     /* Bitset of PPU register byte lanes differing from modeled values. */
     uint32_t unsupported_register_bytes;
+    /* Candidate values retained for deterministic scanline sampling:
+     * 0..15 map 0x04000020..0x0400002F, 16..17 map 0x0400004C..0x0400004D,
+     * and 18..23 map 0x04000050..0x04000055. */
+    uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     gbl_video_capture_state capture_state;
     gbl_video_invalid_reason capture_reason;
     bool next_boundary_hblank;
@@ -127,15 +132,19 @@ typedef struct gbl_ppu_row_capture {
     uint64_t frame_epoch;
     uint64_t pixel_digest;
     uint16_t line;
+    uint16_t dispcnt;
     uint16_t prior_write_count;
+    uint32_t unsupported_register_bytes;
+    uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
 } gbl_ppu_row_capture;
 
-typedef struct gbl_ppu_vram_write {
+typedef struct gbl_ppu_memory_write {
     uint32_t address;
     uint32_t value;
     uint16_t dispcnt;
     uint8_t width;
-} gbl_ppu_vram_write;
+    uint8_t region;
+} gbl_ppu_memory_write;
 
 typedef struct gbl_input_event {
     uint64_t cycle;
@@ -245,9 +254,9 @@ typedef enum gbl_machine_power_state {
 
 /* A bounded transactional copy used to preflight time and device I/O before a
  * bus transaction mutates open bus, memory, or device state. PPU row captures
- * and ordered VRAM overlays remain candidates until commit. Callers must not
- * mutate the canonical machine between prepare and commit; the caller owns
- * synchronization across that interval. */
+ * and ordered video-memory overlays remain candidates until commit. Callers
+ * must not mutate the canonical machine between prepare and commit; the caller
+ * owns synchronization across that interval. */
 typedef struct gbl_machine_time_preview {
     uint64_t master_cycles;
     uint64_t next_event_sequence;
@@ -277,8 +286,8 @@ typedef struct gbl_machine_time_preview {
     bool ppu_clear_video;
     size_t ppu_row_capture_count;
     gbl_ppu_row_capture ppu_row_captures[GBL_PPU_ROW_CAPTURE_MAX];
-    size_t ppu_vram_write_count;
-    gbl_ppu_vram_write ppu_vram_writes[GBL_TIME_OPERATION_MAX];
+    size_t ppu_memory_write_count;
+    gbl_ppu_memory_write ppu_memory_writes[GBL_TIME_OPERATION_MAX];
 } gbl_machine_time_preview;
 
 typedef enum gbl_time_operation_kind {

@@ -4118,7 +4118,7 @@ static bool gbl_cpu_time_preview_matches_machine(
         memcmp(machine->ppu.row_coverage, preview->ppu.row_coverage,
                sizeof(machine->ppu.row_coverage)) != 0 ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
-        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX ||
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
         (preview->ppu_clear_video &&
          preview->ppu_row_capture_count != preview->ppu.captured_rows)) {
         return false;
@@ -4200,9 +4200,11 @@ static bool gbl_cpu_time_preview_matches_machine(
         if (capture->line >= GBL_PPU_VISIBLE_LINES ||
             capture->frame_epoch != preview->ppu.frame_epoch ||
             capture->frame_epoch > UINT64_MAX / GBL_PPU_FRAME_CYCLES ||
+            (capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
+            (capture->dispcnt & UINT16_C(0x0400)) == 0u ||
             (machine->ppu.row_coverage[capture->line >> 3u] &
              (uint8_t)(UINT8_C(1) << (capture->line & 7u))) == 0u ||
-            capture->prior_write_count > preview->ppu_vram_write_count) {
+            capture->prior_write_count > preview->ppu_memory_write_count) {
             return false;
         }
         frame_offset = capture->frame_epoch * GBL_PPU_FRAME_CYCLES;
@@ -4226,10 +4228,12 @@ static bool gbl_cpu_time_preview_matches_machine(
             return false;
         }
     }
-    for (index = 0u; index < preview->ppu_vram_write_count; ++index) {
-        const uint8_t width = preview->ppu_vram_writes[index].width;
+    for (index = 0u; index < preview->ppu_memory_write_count; ++index) {
+        const uint8_t width = preview->ppu_memory_writes[index].width;
+        const uint8_t region = preview->ppu_memory_writes[index].region;
 
-        if (width != 1u && width != 2u && width != 4u) {
+        if ((width != 1u && width != 2u && width != 4u) ||
+            region >= (uint8_t)GBL_BUS_REGION_COUNT) {
             return false;
         }
     }

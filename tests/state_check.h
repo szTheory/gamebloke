@@ -78,6 +78,9 @@ static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
            left->captured_rows == right->captured_rows &&
            left->unsupported_register_bytes ==
                right->unsupported_register_bytes &&
+           gbl_test_bytes_equal(left->render_register_bytes,
+                                right->render_register_bytes,
+                                sizeof(left->render_register_bytes)) &&
            left->capture_state == right->capture_state &&
            left->capture_reason == right->capture_reason &&
            left->next_boundary_hblank == right->next_boundary_hblank &&
@@ -102,16 +105,23 @@ static bool gbl_test_ppu_row_capture_equal(
            left->frame_epoch == right->frame_epoch &&
            left->pixel_digest == right->pixel_digest &&
            left->line == right->line &&
-           left->prior_write_count == right->prior_write_count;
+           left->dispcnt == right->dispcnt &&
+           left->prior_write_count == right->prior_write_count &&
+           left->unsupported_register_bytes ==
+               right->unsupported_register_bytes &&
+           gbl_test_bytes_equal(left->render_register_bytes,
+                                right->render_register_bytes,
+                                sizeof(left->render_register_bytes));
 }
 
-static bool gbl_test_ppu_vram_write_equal(
-    const gbl_ppu_vram_write *left, const gbl_ppu_vram_write *right)
+static bool gbl_test_ppu_memory_write_equal(
+    const gbl_ppu_memory_write *left, const gbl_ppu_memory_write *right)
 {
     return left->address == right->address &&
            left->value == right->value &&
            left->dispcnt == right->dispcnt &&
-           left->width == right->width;
+           left->width == right->width &&
+           left->region == right->region;
 }
 
 static bool gbl_test_timer_equal(const gbl_timer_state *left,
@@ -241,11 +251,11 @@ static bool gbl_test_time_preview_equal(
         left->input_event_cursor > left->input_event_count ||
         left->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
         right->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
-        left->ppu_vram_write_count > GBL_TIME_OPERATION_MAX ||
-        right->ppu_vram_write_count > GBL_TIME_OPERATION_MAX ||
+        left->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
+        right->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
         left->ppu_clear_video != right->ppu_clear_video ||
         left->ppu_row_capture_count != right->ppu_row_capture_count ||
-        left->ppu_vram_write_count != right->ppu_vram_write_count) {
+        left->ppu_memory_write_count != right->ppu_memory_write_count) {
         return false;
     }
     for (index = 0u; index < GBL_EVENT_CAPACITY; ++index) {
@@ -278,9 +288,10 @@ static bool gbl_test_time_preview_equal(
             return false;
         }
     }
-    for (index = 0u; index < left->ppu_vram_write_count; ++index) {
-        if (!gbl_test_ppu_vram_write_equal(&left->ppu_vram_writes[index],
-                                           &right->ppu_vram_writes[index])) {
+    for (index = 0u; index < left->ppu_memory_write_count; ++index) {
+        if (!gbl_test_ppu_memory_write_equal(
+                &left->ppu_memory_writes[index],
+                &right->ppu_memory_writes[index])) {
             return false;
         }
     }
@@ -706,6 +717,9 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_u64(digest, machine->ppu.captured_rows);
     digest = gbl_test_digest_u64(
         digest, machine->ppu.unsupported_register_bytes);
+    digest = gbl_test_digest_bytes(
+        digest, machine->ppu.render_register_bytes,
+        sizeof(machine->ppu.render_register_bytes));
     digest = gbl_test_digest_u64(digest,
                                  (uint64_t)machine->ppu.capture_state);
     digest = gbl_test_digest_u64(digest,

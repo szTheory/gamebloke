@@ -339,22 +339,29 @@ static void gbl_ppu_refresh_compare_status(
 
 static void gbl_ppu_project_row(const gbl_machine *machine,
                                 const gbl_machine_time_preview *preview,
-                                uint16_t line, uint16_t prior_write_count,
+                                const gbl_ppu_row_capture *capture,
                                 uint8_t row[GBL_PPU_ROW_BYTES])
 {
+    const uint16_t line = capture->line;
+    const uint16_t prior_write_count = capture->prior_write_count;
     const uint32_t row_offset = (uint32_t)line * GBL_PPU_ROW_BYTES;
     size_t write_index;
     uint32_t pixel;
 
+    if ((capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
+        (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
+        memset(row, 0, GBL_PPU_ROW_BYTES);
+        return;
+    }
     for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
         row[pixel] = machine->vram[row_offset + pixel];
     }
     for (write_index = 0u;
          write_index < (size_t)prior_write_count &&
-         write_index < preview->ppu_vram_write_count;
+         write_index < preview->ppu_memory_write_count;
          ++write_index) {
-        const gbl_ppu_vram_write *write =
-            &preview->ppu_vram_writes[write_index];
+        const gbl_ppu_memory_write *write =
+            &preview->ppu_memory_writes[write_index];
         uint32_t lane;
 
         for (lane = 0u; lane < (uint32_t)write->width; ++lane) {
@@ -493,16 +500,22 @@ static gbl_time_status gbl_ppu_capture_row(
         return GBL_TIME_STATUS_OK;
     }
     if (preview->ppu_row_capture_count >= GBL_PPU_ROW_CAPTURE_MAX ||
-        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX) {
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX) {
         return GBL_TIME_STATUS_EVENT_CAPACITY;
     }
     capture = &preview->ppu_row_captures[preview->ppu_row_capture_count];
     capture->cycle = preview->ppu.line_origin;
     capture->frame_epoch = preview->ppu.frame_epoch;
     capture->line = line;
-    capture->prior_write_count = (uint16_t)preview->ppu_vram_write_count;
-    gbl_ppu_project_row(machine, preview, line, capture->prior_write_count,
-                        row);
+    capture->dispcnt = preview->ppu.dispcnt;
+    capture->prior_write_count =
+        (uint16_t)preview->ppu_memory_write_count;
+    capture->unsupported_register_bytes =
+        preview->ppu.unsupported_register_bytes;
+    memcpy(capture->render_register_bytes,
+           preview->ppu.render_register_bytes,
+           sizeof(capture->render_register_bytes));
+    gbl_ppu_project_row(machine, preview, capture, row);
     capture->pixel_digest = gbl_ppu_row_digest(row, sizeof(row));
     ++preview->ppu_row_capture_count;
     preview->ppu.row_coverage[coverage_index] |= mask;
@@ -1157,7 +1170,11 @@ static gbl_time_status gbl_preview_bus_write(
     bool window_register_write = false;
     uint32_t unsupported_register_bytes =
         preview->ppu.unsupported_register_bytes;
+    uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     uint32_t lane;
+
+    memcpy(render_register_bytes, preview->ppu.render_register_bytes,
+           sizeof(render_register_bytes));
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         const uint32_t lane_address = address + lane;
@@ -1183,6 +1200,7 @@ static gbl_time_status gbl_preview_bus_write(
                 &unsupported_register_bytes,
                 register_byte, byte_value,
                 gbl_ppu_transform_neutral_byte(register_byte));
+            render_register_bytes[register_byte] = byte_value;
             unsupported_transform_write = true;
         } else if (lane_address >= UINT32_C(0x04000040) &&
                    lane_address <= UINT32_C(0x0400004B)) {
@@ -1193,6 +1211,8 @@ static gbl_time_status gbl_preview_bus_write(
                 &unsupported_register_bytes,
                 UINT32_C(16) + lane_address - UINT32_C(0x0400004C),
                 byte_value, 0u);
+            render_register_bytes[
+                16u + (lane_address - UINT32_C(0x0400004C))] = byte_value;
             if (byte_value != 0u) {
                 unsupported_effect_write = true;
             }
@@ -1202,6 +1222,8 @@ static gbl_time_status gbl_preview_bus_write(
                 &unsupported_register_bytes,
                 UINT32_C(18) + lane_address - UINT32_C(0x04000050),
                 byte_value, 0u);
+            render_register_bytes[
+                18u + (lane_address - UINT32_C(0x04000050))] = byte_value;
             if (byte_value != 0u) {
                 unsupported_effect_write = true;
             }
@@ -1303,6 +1325,8 @@ static gbl_time_status gbl_preview_bus_write(
         preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x5FFF));
     }
     preview->ppu.unsupported_register_bytes = unsupported_register_bytes;
+    memcpy(preview->ppu.render_register_bytes, render_register_bytes,
+           sizeof(render_register_bytes));
     preview->ppu.dispcnt = dispcnt;
     if (dispcnt_written) {
         gbl_ppu_invalidate_capture(
@@ -1381,14 +1405,16 @@ gbl_time_status gbl_machine_prepare_operations(
             return status;
         }
         if (operation->kind == GBL_TIME_OPERATION_BUS_WRITE) {
-            if (candidate.ppu_vram_write_count >=
+            if (candidate.ppu_memory_write_count >=
                 GBL_TIME_OPERATION_MAX) {
                 return GBL_TIME_STATUS_EVENT_CAPACITY;
             }
-            candidate.ppu_vram_writes[candidate.ppu_vram_write_count++] =
-                (gbl_ppu_vram_write){
+            candidate.ppu_memory_writes[
+                candidate.ppu_memory_write_count++] =
+                (gbl_ppu_memory_write){
                     operation->address, operation->value,
-                    candidate.ppu.dispcnt, operation->width
+                    candidate.ppu.dispcnt, operation->width,
+                    (uint8_t)gbl_bus_region_for_address(operation->address)
                 };
             status = gbl_preview_bus_write(&candidate, operation->address,
                                            operation->width,
@@ -1416,13 +1442,12 @@ static void gbl_ppu_materialize_capture_plan(
         uint8_t *row;
 
         if (capture->line >= GBL_PPU_VISIBLE_LINES ||
-            capture->prior_write_count > preview->ppu_vram_write_count) {
+            capture->prior_write_count > preview->ppu_memory_write_count) {
             continue;
         }
         row = &machine->video_frame[
             (size_t)capture->line * GBL_PPU_ROW_BYTES];
-        gbl_ppu_project_row(machine, preview, capture->line,
-                            capture->prior_write_count, row);
+        gbl_ppu_project_row(machine, preview, capture, row);
     }
 }
 
@@ -1436,7 +1461,7 @@ void gbl_machine_commit_time(gbl_machine *machine,
         preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
         preview->input_event_cursor > preview->input_event_count ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
-        preview->ppu_vram_write_count > GBL_TIME_OPERATION_MAX) {
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX) {
         return;
     }
     gbl_ppu_materialize_capture_plan(machine, preview);
@@ -1991,6 +2016,10 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->ppu.generation = UINT64_C(1);
     machine->ppu.capture_state = GBL_VIDEO_CAPTURE_INCOMPLETE;
     machine->ppu.capture_reason = GBL_VIDEO_INVALID_REASON_INCOMPLETE;
+    machine->ppu.render_register_bytes[1] =
+        gbl_ppu_transform_neutral_byte(UINT32_C(1));
+    machine->ppu.render_register_bytes[7] =
+        gbl_ppu_transform_neutral_byte(UINT32_C(7));
     machine->events[0] = (gbl_event){
         .cycle = 0u,
         .sequence = 0u,
