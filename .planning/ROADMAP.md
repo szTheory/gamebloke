@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Evidence Spine** — Archived with open evidence gaps on 2026-11-15. Phases 1–5 are complete; Phase 6 remains incomplete.
-- 🚧 **v2.0 Time, Interrupts, DMA, First Pixels** — Phases 7–10; Phase 9 is complete and Phase 10 is ready for discussion and planning.
+- 🚧 **v2.0 Time, Interrupts, DMA, First Pixels** — Phases 7–10 are complete and verified; milestone audit and closeout are in progress.
 - 📋 **v3.0 PPU Completion** — Planned.
 - 📋 **v4.0 Audio** — Planned.
 - 📋 **v5.0 Cartridge and Saves** — Planned.
@@ -26,7 +26,7 @@ The current scope contains 13 requirements. BIOS-stub authoring (`BIOS-01`), SRA
 - [x] **Phase 7: Time Authority and Timer 0 Polling Proof** - One machine-time path, explicit cycle-accounting scope, four timers, and a BIOS-free polling guest with cheap boundary controls. (completed 2026-11-16)
 - [x] **Phase 8: IRQ, HALT, and Timestamped Input** - Device requests, CPU interrupt acceptance, HALT wake, and logical keypad events remain separately observable. (completed 2026-11-17)
 - [x] **Phase 9: Bus Timing, DMA, and Arbitration** - WAITCNT and declared prefetch scope feed timed DMA arbitration while the CPU pauses and devices continue. (completed 2026-11-18)
-- [ ] **Phase 10: PPU Timing and First Pixels** - PPU status/trigger boundaries and raw mode-3 output support the original polling Playable 0 scenario.
+- [x] **Phase 10: PPU Timing and First Pixels** - PPU status/trigger boundaries and raw mode-3 output support the original polling Playable 0 scenario. (completed 2026-11-19)
 
 ## Phase Details
 
@@ -147,8 +147,8 @@ Plans:
   2. PPU interrupt requests use the existing request path, and PPU DMA triggers use the existing arbiter. Their observable ordering agrees with the declared same-cycle policy while the CPU and devices share one time authority.
   3. Mode-3 output contains raw BGR555 pixels derived from canonical memory and the documented latch-point policy. Semantic line/pixel checks detect a deliberately wrong color/address/latch result, and repeated fresh runs produce identical frame bytes.
   4. An original in-tree BIOS-free polling scenario responds to a deterministic logical input timeline and produces observable guest progress, machine time, and raw video as separate outputs, without audio or save requirements.
-  5. The owner can launch the Gamebloke Libretro module through a verified local host, use live controls, and observe the original guest respond across multiple frames. The terminal frontend is the selected fallback after managed policy denied RetroArch launch. G6 remains pending until the owner has tried this actual Gamebloke session; a report or mGBA session does not satisfy it.
-**Plans**: 11/11 plans executed
+  5. The owner ran the actual Gamebloke terminal session and accepted the visible original BIOS-free diagnostic demo for this scoped Playable 0 judgment (G6). The terminal frontend is the selected fallback after managed policy denied RetroArch launch. This acceptance does not qualify hardware timing, full-resolution presentation, retail compatibility, audio, saves, or redistribution rights.
+**Plans**: 11/11 plans complete
 - [x] 10-11-PLAN.md — Terminal Libretro trial, live controls and safe shell restoration
 - [x] 10-10-PLAN.md
 - [x] 10-01-PLAN.md
@@ -172,7 +172,7 @@ Plans:
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
 | 8. IRQ, HALT, and Timestamped Input | 7/7 | Complete    | 2026-11-17 |
 | 9. Bus Timing, DMA, and Arbitration | 8/8 | Complete    | 2026-11-18 |
-| 10. PPU Timing and First Pixels | 11/11 | In Progress | - |
+| 10. PPU Timing and First Pixels | 11/11 | Complete    | 2026-11-19 |
 
 **Coverage:** 13 of 13 current v2.0 requirements map to exactly one phase; no orphans or duplicates. Deferred requirements and v1.0 evidence carryovers are excluded from this total.
 
@@ -181,7 +181,7 @@ Plans:
 | Gate | Owner | Consequence and next action |
 |------|-------|-----------------------------|
 | G4 BIOS-stub authoring | Owner | `BIOS-01` and the IRQ-driven playable variant remain deferred. Obtain approval before any stub code is authored. |
-| G6 Playable 0 judgment | Owner | Review the concrete original polling scenario at Phase 10 acceptance; automated evidence does not supply subjective acceptance. |
+| G6 Playable 0 judgment | Owner | Accepted on 2026-11-19 after the owner ran the local terminal session and saw the original diagnostic demo behave as expected. Scope is limited to that demo; broader compatibility and hardware judgments remain open. |
 | G8 devkitPro terms / mGBA deep lane | Owner | `EVID-07` remains deferred. Resolve terms and per-fixture rights/provenance before promotion, fetch, or execution. |
 | External publication / physical qualification | Owner | Neither follows from this roadmap or local automated evidence; preserve the existing stops and authority limits. |
 
@@ -204,4 +204,4 @@ See [the archived roadmap](milestones/v1.0-ROADMAP.md), [requirements](milestone
 Deferred `BIOS-01` and `EVID-07` require explicit promotion after their gates are resolved; no later milestone placement is implied here.
 
 ---
-*Roadmap updated: 2026-11-15 for milestone v2.0 Time, Interrupts, DMA, First Pixels*
+*Roadmap updated: 2026-11-19 after Phase 10 owner acceptance and verification refresh*

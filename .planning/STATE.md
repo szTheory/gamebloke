@@ -3,20 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
-current_phase_name: PPU Timing and First Pixels
-current_plan: 11
-status: verifying
-stopped_at: Completed 10-11 plan; awaiting owner live terminal trial for G6
-last_updated: "2026-11-19T06:51:47.237Z"
+current_plan: Not started
+status: completed
+stopped_at: All phases verified — milestone audit and closeout in progress
+last_updated: "2026-11-19T16:54:55Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 10-11 terminal host and owner trial packet complete
-state_head: fac84e5bec335b2d22a0a8df03c71e41747477f6
+last_activity_desc: All phases verified; G6 accepted for scoped demo; milestone audit in progress
+state_head: 1359394ea7f2ac98d60d411e9ab70c3d71f2a4dd
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 33
   completed_plans: 33
-  percent: 75
+  percent: 100
 ---
 
 # Project State
@@ -27,23 +26,23 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v2.0 Time, Interrupts, DMA, First Pixels (a GSD milestone label, not a software version)
-**Current focus:** Phase 10 — PPU Timing and First Pixels
+**Current focus:** v2.0 milestone audit and closeout
 
 ## Current Position
 
-Phase: 10 (PPU Timing and First Pixels) — VERIFYING
-Current Plan: 11
+Phase: 10
+Current Plan: Verification refresh complete
 Total Plans in Phase: 11
-Status: Automated host checks passed — waiting for owner live play/G6
-Last activity: 2026-11-19 — terminal interactive trial is ready
+Status: All phases verified; milestone audit in progress
+Last activity: 2026-11-19 — G6 accepted for the scoped local demo; phase verifications refreshed
 
-Progress: [████████░░] 75%
+Progress: [██████████] 100%
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 85
+- Total plans completed: 96
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -56,9 +55,10 @@ Progress: [████████░░] 75%
 | 3 | 7 | - | - |
 | 4 | 13 | - | - |
 | 05 | 25 | - | - |
-| 07 | 7 | - | - |
+| 7 | 7 | - | - |
 | 8 | 7 | - | - |
 | 9 | 8 | - | - |
+| 10 | 11 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -420,6 +420,7 @@ Recent decisions affecting current work:
 - [Phase 10]: Render a 60x20 ANSI RGB preview with explicit press/release controls and pace from validated Libretro AV timing.
 - [Phase 10]: Keep generated guest bytes under ignored local build output and retain local-only, redistribution-unknown limits.
 - [Phase 10]: Keep PLAY-01 and G6 pending until owner live play; the managed RetroArch denial remains historical with no retry or policy bypass.
+- [Phase 10 closeout]: The owner ran `scripts/play-playable0-terminal.sh` and accepted the visible original BIOS-free Playable 0 diagnostic demo on 2026-11-19. Acceptance is limited to that local terminal session; it does not establish hardware timing, retail compatibility, audio, saves, redistribution rights, or physical-controller behavior. RetroArch's managed launch denial remains historical and was not retried.
 
 ### Pending Todos
 
@@ -443,13 +444,13 @@ None yet.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
 - Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
 - Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
-- G4 still requires owner approval before BIOS-stub authoring. BIOS-01 and the IRQ-driven playable variant are deferred; the current BIOS-free Phase 7 scope can proceed. G6 playability judgment remains pending for Phase 10; G8 and per-fixture review gate the deferred mGBA deep lane.
+- G4 still requires owner approval before BIOS-stub authoring. BIOS-01 and the IRQ-driven playable variant are deferred. G6 was accepted for the scoped original local demo on 2026-11-19; this does not broaden accuracy or compatibility claims. G8 and per-fixture review still gate the deferred mGBA deep lane.
 
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
 
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
 - Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
-- macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The dependency-free terminal Libretro host and its live controls/video are now verified. The owner must run the documented terminal trial and record G6 before PLAY-01 is closed.
+- macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The owner ran the dependency-free terminal Libretro host and accepted the visible original demo; G6 is recorded as accepted for this scope. The terminal preview is downsampled and sub-real-time, and does not establish hardware qualification or broad compatibility.
 
 ## Deferred Items
 
@@ -472,11 +473,10 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-11-19T06:51:45.781Z
-Stopped at: Completed 10-11 plan; awaiting owner live terminal trial for G6
+Stopped at: Phase 10 complete — all phases complete
 Resume file: .planning/phases/10-ppu-timing-and-first-pixels/10-UAT.md
 
 ## Operator Next Steps
 
-- Ask the owner to run `sh /private/tmp/gamebloke-phase09-wt/scripts/play-playable0-terminal.sh`, exercise RIGHT/A and reset/exit, then record accept/reject/needs changes through `$gsd-verify-work 10`. Keep PLAY-01 and G6 pending until that live trial occurs.
-- After G6 is resolved, continue `$gsd-autonomous --from 10` through v2.0 milestone audit, completion, and cleanup. Keep HBlank hardware qualification UNKNOWN and fixture redistribution local-only/unknown.
-- Preserve the existing hosted/publication stops and Phase 6 DIAG-04/DET-02 carryovers; Phase 10 completion does not close or renew them.
+- Continue the v2.0 integration audit, verify requirements and Nyquist records, then complete the GSD milestone closeout and archive. No owner action is pending for this local demo acceptance.
+- Keep the HBlank hardware edge and DMA latch dispute UNKNOWN, fixture redistribution local-only/unknown, and hosted/publication stops unchanged. Preserve the Phase 6 DIAG-04/DET-02 carryovers.

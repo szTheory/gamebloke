@@ -33,7 +33,7 @@
 
 - [x] **PPU-01**: PPU line/dot events update VCOUNT and DISPSTAT and request VBlank, HBlank, and VCOUNT interrupts or DMA triggers at explicit boundaries. The HBlank edge remains labeled with its evidence and dispute status; tests assert the chosen project behavior without overstating hardware qualification.
 - [x] **PPU-02**: A deterministic mode-3 renderer produces raw BGR555 pixels from the canonical machine state. Register and memory effects use an explicit latch-point policy, and tests check semantic line/pixel behavior as well as repeatable frame bytes.
-- [ ] **PLAY-01**: An original in-tree BIOS-free mode-3 guest is runnable interactively through a local host, with guest progress, machine time, and video kept distinct from presentation. The owner must launch and control the guest before recording the subjective Playable 0 judgment (G6); a Markdown packet or scripted final frame alone is insufficient. Retail-game compatibility, audio, saves, BIOS handling, and an IRQ-driven variant remain deferred.
+- [x] **PLAY-01**: An original in-tree BIOS-free mode-3 guest is runnable interactively through a local host, with guest progress, machine time, and video kept distinct from presentation. The owner must launch and control the guest before recording the subjective Playable 0 judgment (G6); a Markdown packet or scripted final frame alone is insufficient. Retail-game compatibility, audio, saves, BIOS handling, and an IRQ-driven variant remain deferred.
 
 ### Verification
 
@@ -84,7 +84,7 @@ Every current v2.0 requirement maps to exactly one phase. Status changes only wh
 | DMA-01 | Phase 9 | Complete |
 | PPU-01 | Phase 10 | Complete |
 | PPU-02 | Phase 10 | Complete |
-| PLAY-01 | Phase 10 | Pending |
+| PLAY-01 | Phase 10 | Complete |
 | VERIF-08 | Phase 7 | Complete |
 
 **Coverage:** 13 current requirements; 13 mapped to exactly one phase; 0 unmapped; 0 duplicate phase assignments. Deferred requirements and v1.0 evidence carryovers are excluded.

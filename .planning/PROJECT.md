@@ -18,26 +18,30 @@ behavior. That behavior covers guest progress, machine time, CPU/device
 effects, raw video, and raw audio, all observed separately, and every result
 says exactly what it proves and what it does not.
 
-## Current Milestone: v2.0 Time, Interrupts, DMA, First Pixels
+## Most Recent Completed Milestone: v2.0 Time, Interrupts, DMA, First Pixels
 
-**Goal:** Establish a reliable deterministic time and event path, then build the
-first interrupt-driven machine behavior and visible raw pixels on that base.
+v2.0 completed a shared deterministic event path for timers, IRQ/HALT/input,
+WAITCNT-aware bus access, DMA arbitration, PPU boundaries, and raw mode-3 video.
+An original BIOS-free diagnostic guest runs through the headless runner and a
+local Libretro terminal host. The owner accepted the visible demo for the
+scoped Playable 0 judgment (G6) after running it locally.
 
-**Target features:**
-- Master-clock event ordering and a small Timer 0 polling guest, with cycle
-  accounting examined before timing claims depend on it.
-- IRQ requests, timers, HALT, and timestamped logical input, keeping device
-  requests distinct from CPU exception entry.
-- DMA, PPU timing, and a mode-3 raw frame path that supports Playable 0.
-
-BIOS-stub authoring remains behind G4 owner approval. The v1.0 `DIAG-04` and
-`DET-02` evidence gaps remain open carryovers and do not block this first
-no-BIOS scheduler work.
+This is a GSD milestone label, not a Gamebloke software release. Selected
+timing policies, prefetch, the DMA latch dispute, and the HBlank edge remain
+unqualified or unresolved; the terminal preview is downsampled and below real
+time. The generated guest remains local-only with redistribution rights
+unknown. BIOS-stub authoring remains behind G4, the mGBA deep lane remains
+behind G8 and fixture review, and v1.0 `DIAG-04`/`DET-02` remain open
+carryovers. None of these limits turns the scoped v2.0 result into a hardware,
+retail-compatibility, or publication claim.
 
 ## Requirements
 
 ### Validated
 
+- ✓ Named `agb` machine profile with direct-start/no-BIOS boot policy, ROM-only cartridge scope, and explicit evidence labels — Phase 3, extended through Phase 10. The profile does not claim backup devices or hardware-qualified timing.
+- ✓ Portable canonical machine core with caller-owned deterministic state and host services kept behind adapters — Phase 3 and Phases 7–10.
+- ✓ A deterministic headless runner reports guest semantics, machine time, device/CPU observations, and raw supported mode-3 video separately — Phases 4, 7, and 10. Raw audio is not implemented.
 - ✓ One canonical local verification command (`cmake --workflow --preset ci`), identical to the required `CI required` check, with a negative control for every gate — Phase 1 (verified 2026-11-10: 120 tests ran/2 visible skips locally and on Linux GCC + macOS arm64; ASan/UBSan lane; hygiene and rights-signature scans; ruleset requires the check). The manifest-lint clause joins in Phase 2.
 
 - ✓ Caller-owned deterministic machine state, timing-bearing checked bus, declared GBA map/mirror/width policies, and transactional copied-ROM loading with bounded advisory diagnostics — Phase 3. Timing/fill/latch policies are not hardware qualification.
@@ -48,23 +52,23 @@ no-BIOS scheduler work.
 - ✓ One shared machine-time path, four timers, explicit bus/internal cycle accounting, and an original BIOS-free Timer 0 polling guest — Phase 7. Selected timing costs remain project-model evidence, not hardware qualification.
 - ✓ Device IRQ requests, CPU eligibility/acceptance/entry, HALT wake, and timestamped logical keypad input remain separately observable — Phase 8. These deterministic policies do not establish GBA IRQ latency or physical-controller behavior.
 - ✓ WAITCNT-aware bus costs, four-channel DMA arbitration, CPU pause/resume, and device events on the shared clock — Phase 9. Startup and latch policies remain project-selected or disputed, not hardware qualification.
+- ✓ Deterministic PPU line events and raw mode-3 BGR555 frames with semantic pixel checks, complete-frame validity, and explicit latch/dispute evidence — Phase 10. Other display modes and effects remain out of scope.
+- ✓ Original BIOS-free Playable 0 diagnostic guest runs through the Gamebloke Libretro module and a dependency-free terminal host; the owner accepted the visible local demo — Phase 10. This is not retail compatibility, hardware qualification, or redistribution approval.
+- ✓ The Libretro adapter uses the official ABI header and canonical machine implementation; the terminal fallback adds no runtime dependency or second emulator core — Phase 10.
 
 ### Active
 
 These are hypotheses until shipped and verified. Formal REQ-IDs live in
 REQUIREMENTS.md.
 
-- [ ] A named, explicit first GBA machine profile (model, BIOS mode, cartridge/backup scope) with support claims tied to evidence
-- [ ] A portable canonical machine core that owns deterministic CPU/device state and has no host files, wall clock, UI, A/V devices, or save-file policy
-- [ ] ARM7TDMI ARM/Thumb execution plus the memory bus, wait states, and prefetch, at a timing precision defined by the selected profile
-- [ ] PPU and audio event scheduling in guest-time units
-- [ ] PPU output in raw machine form (all six display modes as the profile requires), kept separate from host conversion and scaling
+- [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
+- [ ] Audio event scheduling and PSG/Direct Sound FIFO behavior in guest-time units
+- [ ] Raw output for the remaining GBA display modes and features (modes 0–2 and 4–5, OBJ, windows, blending, mosaic, and contention) as selected profiles require
 - [ ] Audio (PSG + Direct Sound FIFO) produced as raw machine samples, kept separate from host resampling and playback
-- [ ] Cartridge ROM validation (sizes, header, truncation) plus explicitly modeled backup devices. Save type is never inferred from a filename or title.
-- [ ] A documented BIOS/boot policy that works without a bundled Nintendo BIOS dump
-- [ ] A deterministic headless runner with machine-readable semantic results and raw A/V capture. Missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
+- [ ] Explicitly modeled cartridge backup devices. Save type is never inferred from a filename or title.
+- [ ] Raw audio capture in the deterministic runner; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
 - [ ] A fixture manifest for every test ROM (source, revision, build recipe, digest, license, permitted use, BIOS mode, expected result)
-- [ ] An original or rights-reviewed diagnostic plus a legally cleared playable homebrew scenario, visible early
+- [ ] Complete per-fixture rights review for any scenario intended for redistribution; the current generated guest remains local-only
 - [ ] A defined public API boundary (lifecycle, load/unload, input timing, bounded advancement, buffer ownership, reset, errors, refusal postconditions) before it is exposed
 - [ ] An installed, relocatable external consumer once packaging exists
 - [ ] Named benchmark workloads measured only after a correctness baseline exists
@@ -92,7 +96,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
-- **Current implementation:** C17/CMake core and headless runner through Phase 9. The v2.0 time path includes four timers, explicit bus/internal cycle reporting, a BIOS-free Timer 0 polling guest, separately observable IRQ request/eligibility/entry and HALT wake, timestamped logical keypad input, WAITCNT-aware bus quotes, and four-channel DMA arbitration. PPU timing and raw video are next. Selected startup, latch, and event policies remain project-model or disputed evidence, not GBA hardware qualification. The v1.0 Phase 6 gaps remain open: ARM and Thumb stopped before source-bound result evaluation (`DIAG-04`), and hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). No hosted rerun or publication is authorized by this phase transition.
+- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, and dependency-free terminal frontend through Phase 10. One machine-owned time path drives timers, CPU IRQ/HALT sampling, timestamped logical input, WAITCNT-aware CPU/DMA bus costs, DMA arbitration, PPU boundaries, and raw mode-3 output. The owner accepted the local diagnostic demo for G6 only. The terminal preview is downsampled and below real time. Game Pak prefetch remains unmodeled; DMA latch and selected HBlank behavior remain disputed, with hardware qualification UNKNOWN. The generated guest is local-only and redistribution rights are unknown. Phase 6 `DIAG-04` and `DET-02` remain open; no hosted rerun or publication is authorized by this milestone.
 
 ## Constraints
 
@@ -124,13 +128,13 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Autonomous OpenGSD with a rolling roadmap (owner) | Routine reversible work proceeds; material choices are surfaced | ✓ Settled |
 | Gamebloke does not assume it replaces Playstead's mGBA route (owner) | Value beside mGBA must be identified and measured | ✓ Settled |
 | Differentiator beside managed mGBA | Research → requirements | — Pending (research) |
-| First machine profile (model/region/BIOS mode) | Research → requirements | — Pending (research) |
-| BIOS and boot policy | Research → requirements | — Pending (research) |
-| CPU/system timing architecture | Research → phase discussion | — Pending (research) |
-| Cartridge format and backup-media scope | Research → requirements | — Pending (research) |
-| First diagnostic and playable fixture | Requires a rights review | — Pending (research + owner rights gate) |
-| Implementation language, build, API/ABI | Research → requirements | — Pending (research) |
-| Host platform and installed consumer | Research → roadmap | — Pending (research) |
+| First machine profile (model/region/BIOS mode) | Phase 3 established `agb`, direct-start/no-BIOS, and ROM-only scope; later profiles require separate evidence | ✓ Initial profile established; no broad compatibility claim |
+| BIOS and boot policy | Phase 3/4 selected direct-start with no bundled BIOS; G4 still gates any authored stub | ✓ No-BIOS policy is explicit; other boot modes remain future scope |
+| CPU/system timing architecture | Phases 7–10 use one machine-owned event/time path and shared bus accounting | ✓ Architecture established; exact hardware timing and prefetch remain incomplete or unqualified |
+| Cartridge format and backup-media scope | Current profile accepts ROM-only content; backup devices remain deferred | ✓ Current scope documented; CART-01 and other save media remain future work |
+| First diagnostic and playable fixture | Phase 10 original BIOS-free demo ran locally and was accepted under G6; manifest keeps it local-only | ✓ Scoped demo accepted; redistribution rights remain unknown |
+| Implementation language, build, API/ABI | C17/CMake core; official Libretro ABI adapter added; public Gamebloke API remains later scope | ✓ Implementation/build and Libretro boundary established; stable public API remains pending |
+| Host platform and installed consumer | Phase 10 local terminal host runs the Libretro module; installed external consumer remains future scope | ✓ Local host established; relocatable consumer/package remains pending |
 | LibFuturo fit | Prove with a real core/consumer before adoption | — Pending (later phase) |
 | Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
 | Required check `CI required` on `ubuntu-26.04` + `macos-26` (arm64), actions SHA-pinned, `main` protected by a PR-only ruleset with no bypass actors (owner-authorized, 2026-11-10) | One command, same verdict locally and in CI; nothing reaches main except through a green PR | ✓ Good (Phase 1) |
@@ -139,6 +143,11 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Canonical CPU/runner evidence boundary (Phase 4) | One bus-backed interpreter, whole-unit budget/trace preflight, distinct status/semantic/time/claim/limits, build-time fixture authority | Verified in local/hosted checks and independent reviews; later diagnostic evidence remains scoped, with DIAG-04/DET-02 open as recorded in Phase 6 |
 | IRQ, HALT, and timestamped input boundary (Phase 8) | Keep device requests separate from CPU sampling/entry and HALT wake; keep input deterministic and model-scoped | Verified locally; no BIOS handler, hardware latency, physical-controller qualification, or carryover closure is claimed |
 | WAITCNT and DMA evidence boundary (Phase 9) | Route bus costs and DMA through shared machine time; label selected startup/latch behavior and preserve disputes | Verified locally; no hardware timing, latch qualification, hosted evidence, or fixture-rights conclusion is claimed |
+| Time and timer evidence boundary (Phase 7) | Keep one-cycle non-ROM costs and timer edge choices project-selected; separate semantic guest completion, IF request, and model cycles | Verified locally as model evidence; no GBA timing qualification is claimed |
+| IRQ/HALT and logical input boundary (Phase 8) | Keep device IF, CPU eligibility/entry, HALT wake, and timestamped host-neutral input distinct | Verified locally; no BIOS handler, hardware IRQ latency, or physical-controller behavior is claimed |
+| PPU and Playable 0 boundary (Phase 10) | Use explicit PPU events, complete supported mode-3 frame capture, semantic pixel checks, and a local host; preserve HBlank evidence and dispute labels | Verified locally; the owner accepted the original diagnostic demo only; no hardware, retail-game, audio/save, or redistribution claim is implied |
+| Local interactive host boundary (Phase 10) | Reuse the canonical machine through the official Libretro ABI; use a dependency-free terminal fallback after managed RetroArch launch denial | Verified locally; no policy bypass, second core, or runtime dependency was added |
+| v2.0 owner judgment (2026-11-19) | The owner ran the terminal demo and accepted the visible original BIOS-free diagnostic behavior | ✓ Accepted for scoped Playable 0 demo; broader compatibility, hardware, physical-controller, and rights decisions remain open |
 | Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
 | Automation-first verification and CI efficiency (owner, 2026-11-16) | Shift repeatable verification left; minimize UAT through useful automated evidence; use CI for recurring value; preflight long work and inspect measured critical paths without weakening checks | ✓ Adopted as the default in Verification and Iteration Policy above |
 | Carry v1.0 Phase 6 evidence gaps into v2.0 (owner, 2026-11-15) | Archive v1.0 while preserving ARM/Thumb source-bound evaluation (`DIAG-04`) and hosted Linux x64 GCC/Clang (`DET-02`) as open; do not relabel local results as passes for those claims | Recorded in `.planning/STATE.md` and the archived v1.0 audit; no hosted run or publication authorized |
@@ -162,4 +171,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-18 after Phase 9 completion*
+*Last updated: 2026-11-19 after v2.0 milestone review*
