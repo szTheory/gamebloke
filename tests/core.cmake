@@ -345,6 +345,24 @@ foreach(case IN ITEMS control verify order)
       "-DCASE=${case}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/phase10_selection.cmake")
 endforeach()
+
+# Phase 11 selection checks are registered in both core lanes. Their exact
+# setup/required fixture graph is added at the top level after this include.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase11.selection.control)
+  else()
+    set(test_name phase11.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase11_selection.cmake")
+endforeach()
 set_tests_properties(cpu.power.boundary time.halt.boundary time.halt.refusal
   PROPERTIES TIMEOUT 10)
 
