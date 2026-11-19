@@ -225,8 +225,10 @@ context. All remain below the guest's roughly 59.7 Hz display cadence.
 
 The PTY checks validate actual marker colors and movement, independent button
 holds/releases, reset, malformed inputs, size/resize behavior, handled signals,
-and terminal restoration. They establish an interactive host path, not the
-owner's subjective G6 judgment. Ask for G6 only after the owner runs the
+and terminal restoration. The owner has recorded G6 acceptance for the original
+scoped terminal demo after completing the
 [concrete trial](../.planning/phases/10-ppu-timing-and-first-pixels/10-OWNER-REVIEW.md).
-The guest stays project-authored, BIOS-free, and local-only with redistribution
-unknown; no retail compatibility, hardware accuracy, or rights claim follows.
+That acceptance does not expand what the automated checks establish. The guest
+stays project-authored, BIOS-free, and local-only; redistribution remains
+unknown and unapproved. This does not establish retail compatibility, hardware
+accuracy, or redistribution rights.
