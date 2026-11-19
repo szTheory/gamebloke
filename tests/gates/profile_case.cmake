@@ -132,11 +132,160 @@ elseif(CASE STREQUAL "ppu_policy")
   check_command(cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${cmd}
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
+  check_ppu_command(ppu_cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${ppu_cmd} REGEX "profile: ok \\(agb PPU policy\\)")
 
   profile_copy(p missing_display_capabilities)
   gbl_json_mutate_remove("${p}" ppu_policy display_capabilities)
   expect_ppu_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities" "${p}")
+
+  profile_copy(p malformed_display_capabilities)
+  gbl_json_mutate_set("${p}" [=["capabilities"]=] ppu_policy display_capabilities)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities" "${p}")
+
+  profile_copy(p missing_capability_model)
+  gbl_json_mutate_remove("${p}" ppu_policy display_capabilities model)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities" "${p}")
+
+  profile_copy(p extra_capability_field)
+  gbl_json_mutate_set("${p}" "true" ppu_policy display_capabilities unexpected)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities" "${p}")
+
+  profile_copy(p wrong_raw_output_type)
+  gbl_json_mutate_set("${p}" [=["invalid"]=] ppu_policy display_capabilities raw_output)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.raw_output" "${p}")
+
+  profile_copy(p wrong_raw_format_type)
+  gbl_json_mutate_set("${p}" "555" ppu_policy display_capabilities raw_output format)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.raw_output" "${p}")
+
+  profile_copy(p wrong_raw_format)
+  gbl_json_mutate_set("${p}" [=["RGB565_LE"]=] ppu_policy display_capabilities raw_output format)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.raw_output" "${p}")
+
+  foreach(field IN ITEMS width height stride_bytes byte_length)
+    profile_copy(p wrong_raw_${field})
+    if(field STREQUAL "width")
+      set(bad_value 239)
+    elseif(field STREQUAL "height")
+      set(bad_value 159)
+    elseif(field STREQUAL "stride_bytes")
+      set(bad_value 482)
+    else()
+      set(bad_value 76801)
+    endif()
+    gbl_json_mutate_set("${p}" "${bad_value}" ppu_policy display_capabilities raw_output ${field})
+    expect_ppu_detail(ppu-capability-value
+      "ppu_policy\\.display_capabilities\\.raw_output" "${p}")
+  endforeach()
+
+  profile_copy(p wrong_modes_type)
+  gbl_json_mutate_set("${p}" [=[{}]=] ppu_policy display_capabilities modes)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p missing_mode_record)
+  gbl_json_mutate_remove("${p}" ppu_policy display_capabilities modes 5)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p duplicate_mode_record)
+  gbl_json_mutate_set("${p}" "0" ppu_policy display_capabilities modes 1 mode)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  foreach(invalid_mode IN ITEMS 6 7)
+    profile_copy(p invalid_mode_${invalid_mode})
+    gbl_json_mutate_set("${p}" "${invalid_mode}" ppu_policy display_capabilities modes 5 mode)
+    expect_ppu_detail(ppu-capability-value
+      "ppu_policy\\.display_capabilities\\.modes" "${p}")
+  endforeach()
+
+  profile_copy(p wrong_background_source)
+  gbl_json_mutate_set("${p}" [=["affine"]=] ppu_policy display_capabilities modes 0 backgrounds 0 source)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p wrong_background_id)
+  gbl_json_mutate_set("${p}" "1" ppu_policy display_capabilities modes 0 backgrounds 0 bg)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p wrong_source_dimension)
+  gbl_json_mutate_set("${p}" "255" ppu_policy display_capabilities modes 0 backgrounds 0 dimensions 0 width)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p wrong_dimensions_type)
+  gbl_json_mutate_set("${p}" [=["256x256"]=] ppu_policy display_capabilities modes 0 backgrounds 0 dimensions)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p arbitrary_implementation_status)
+  gbl_json_mutate_set("${p}" [=["future"]=] ppu_policy display_capabilities modes 0 implementation_status)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p partial_replaced_by_implemented)
+  gbl_json_mutate_set("${p}" [=["implemented"]=] ppu_policy display_capabilities modes 3 implementation_status)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p added_ppu_stall)
+  gbl_json_mutate_set("${p}" "1" ppu_policy video_memory_access ppu_extra_cycles)
+  expect_ppu_detail(ppu-access-policy-value
+    "ppu_policy\\.video_memory_access" "${p}")
+
+  profile_copy(p added_ppu_denial)
+  gbl_json_mutate_set("${p}" [=["denied-during-drawing"]=] ppu_policy video_memory_access availability)
+  expect_ppu_detail(ppu-access-policy-value
+    "ppu_policy\\.video_memory_access" "${p}")
+
+  profile_copy(p escalated_hardware_qualification)
+  gbl_json_mutate_set("${p}" [=["QUALIFIED"]=] ppu_policy video_memory_access hardware_qualification)
+  expect_ppu_detail(ppu-access-policy-value
+    "ppu_policy\\.video_memory_access" "${p}")
+
+  profile_copy(p wrong_access_array_type)
+  gbl_json_mutate_set("${p}" [=["cpu,dma"]=] ppu_policy video_memory_access masters)
+  expect_ppu_detail(ppu-access-policy-value
+    "ppu_policy\\.video_memory_access" "${p}")
+
+  profile_copy(p extra_access_policy_field)
+  gbl_json_mutate_set("${p}" "true" ppu_policy video_memory_access extra_policy)
+  expect_ppu_detail(ppu-access-policy-value
+    "ppu_policy\\.video_memory_access" "${p}")
+
+  profile_copy(p stale_display_capability_doc)
+  doc_copy(d stale_display_capability_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |"
+    "| `ppu_policy.display_capabilities.modes[3]` | not-implemented | BG2 direct-color-bitmap: 240x160 |")
+  expect_ppu_detail(ppu-capability-doc
+    "ppu_policy\\.display_capabilities: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p stale_raw_output_doc)
+  doc_copy(d stale_raw_output_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.display_capabilities.raw_output.width` | 240 |"
+    "| `ppu_policy.display_capabilities.raw_output.width` | 239 |")
+  expect_ppu_detail(ppu-capability-doc
+    "ppu_policy\\.display_capabilities\\.raw_output: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p stale_access_policy_doc)
+  doc_copy(d stale_access_policy_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.video_memory_access.matrix` | project-selected | UNKNOWN | cpu, dma | pram, vram, oam | drawing, hblank, vblank, forced-blank | existing-bus-behavior | 0 | `bus_policy.request_cycles` |"
+    "| `ppu_policy.video_memory_access.matrix` | project-selected | QUALIFIED | cpu, dma | pram, vram, oam | drawing, hblank, vblank, forced-blank | existing-bus-behavior | 0 | `bus_policy.request_cycles` |")
+  expect_ppu_detail(ppu-access-policy-doc
+    "ppu_policy\\.video_memory_access: missing or stale row" "${p}" "${d}")
 
   profile_copy(p missing_ppu_policy)
   gbl_json_mutate_set("${p}" [=[{"placeholder": "temporary control value"}]=] ppu_policy)
