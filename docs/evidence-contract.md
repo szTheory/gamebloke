@@ -171,8 +171,12 @@ these fields:
   result must disclose that dispute. This timing evidence is separate from Phase 9 DMA latch
   evidence. Automated PASS remains a fixture result; playable acceptance stays pending for
   owner evaluation and is not inferred from automation.
-- Mode 3 with BG2 enabled, forced blank disabled, no OBJ/windows/effects, and neutral
-  BG2 transform registers is the only supported capture state. Non-neutral BG2
+- Mode 3 with BG2 enabled, forced blank disabled, no OBJ/windows/effects, and the
+  neutral BG2 transform is the only supported capture state: BG2PA/BG2PD are
+  `0x0100`; BG2PB/BG2PC/BG2X/BG2Y are zero. The AGB Programming Manual's affine
+  register table lists the `0x0100` PA/PD initial values
+  ([manual PDF](https://mutantstargoat.com/~nuclear/tmp/gba_prog_manual.pdf));
+  the values here define the model's supported neutral baseline. Non-neutral BG2
   transforms report `bg2-transform-unmodeled`. Frame `state` is `valid`,
   `incomplete`, or `invalid`; `incomplete` has reason `incomplete`, while `invalid`
   must name an unsupported control reason such as `unsupported-mode`, `bg2-disabled`,
