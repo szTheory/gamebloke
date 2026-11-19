@@ -188,6 +188,169 @@ static bool gbl_runner_json_string(FILE *output, const char *value)
     return fputc('"', output) != EOF;
 }
 
+typedef struct gbl_runner_capability_dimension {
+    unsigned int width;
+    unsigned int height;
+} gbl_runner_capability_dimension;
+
+typedef struct gbl_runner_capability_background {
+    unsigned int bg;
+    const char *source;
+    const gbl_runner_capability_dimension *dimensions;
+    size_t dimension_count;
+} gbl_runner_capability_background;
+
+typedef struct gbl_runner_display_mode {
+    unsigned int mode;
+    const char *implementation_status;
+    const gbl_runner_capability_background *backgrounds;
+    size_t background_count;
+} gbl_runner_display_mode;
+
+static const gbl_runner_capability_dimension gbl_runner_text_dimensions[] = {
+    { 256u, 256u }, { 512u, 256u }, { 256u, 512u }, { 512u, 512u }
+};
+static const gbl_runner_capability_dimension gbl_runner_affine_dimensions[] = {
+    { 128u, 128u }, { 256u, 256u }, { 512u, 512u }, { 1024u, 1024u }
+};
+static const gbl_runner_capability_dimension gbl_runner_bitmap_dimensions[] = {
+    { 240u, 160u }
+};
+static const gbl_runner_capability_dimension gbl_runner_mode5_dimensions[] = {
+    { 160u, 128u }
+};
+
+#define GBL_RUNNER_CAPABILITY_COUNT(items) \
+    (sizeof(items) / sizeof((items)[0]))
+
+static const gbl_runner_capability_background gbl_runner_mode0_backgrounds[] = {
+    { 0u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 1u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 2u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 3u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode1_backgrounds[] = {
+    { 0u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 1u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 2u, "affine", gbl_runner_affine_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_affine_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode2_backgrounds[] = {
+    { 2u, "affine", gbl_runner_affine_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_affine_dimensions) },
+    { 3u, "affine", gbl_runner_affine_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_affine_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode3_backgrounds[] = {
+    { 2u, "direct-color-bitmap", gbl_runner_bitmap_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_bitmap_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode4_backgrounds[] = {
+    { 2u, "indexed-bitmap", gbl_runner_bitmap_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_bitmap_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode5_backgrounds[] = {
+    { 2u, "direct-color-bitmap", gbl_runner_mode5_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode5_dimensions) }
+};
+
+static const gbl_runner_display_mode gbl_runner_display_modes[] = {
+    { 0u, "not-implemented", gbl_runner_mode0_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode0_backgrounds) },
+    { 1u, "not-implemented", gbl_runner_mode1_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode1_backgrounds) },
+    { 2u, "not-implemented", gbl_runner_mode2_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode2_backgrounds) },
+    { 3u, "partial", gbl_runner_mode3_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode3_backgrounds) },
+    { 4u, "not-implemented", gbl_runner_mode4_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode4_backgrounds) },
+    { 5u, "not-implemented", gbl_runner_mode5_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode5_backgrounds) }
+};
+
+#undef GBL_RUNNER_CAPABILITY_COUNT
+
+static bool gbl_runner_write_phase10_capabilities(FILE *output)
+{
+    size_t mode_index;
+
+    if (fputs(",\"display_capabilities\":{"
+              "\"model\":\"gamebloke-display-capabilities-1\","
+              "\"raw_output\":{\"format\":\"BGR555_LE\","
+              "\"width\":240,\"height\":160,\"stride_bytes\":480,"
+              "\"byte_length\":76800},\"modes\":[",
+              output) == EOF) {
+        return false;
+    }
+    for (mode_index = 0u;
+         mode_index < sizeof gbl_runner_display_modes /
+                          sizeof gbl_runner_display_modes[0];
+         ++mode_index) {
+        const gbl_runner_display_mode *mode =
+            &gbl_runner_display_modes[mode_index];
+        size_t background_index;
+
+        if (fprintf(output, "%s{\"mode\":%u,\"implementation_status\":",
+                    mode_index == 0u ? "" : ",", mode->mode) < 0 ||
+            !gbl_runner_json_string(output, mode->implementation_status) ||
+            fputs(",\"backgrounds\":[", output) == EOF) {
+            return false;
+        }
+        for (background_index = 0u;
+             background_index < mode->background_count;
+             ++background_index) {
+            const gbl_runner_capability_background *background =
+                &mode->backgrounds[background_index];
+            size_t dimension_index;
+
+            if (fprintf(output, "%s{\"bg\":%u,\"source\":",
+                        background_index == 0u ? "" : ",",
+                        background->bg) < 0 ||
+                !gbl_runner_json_string(output, background->source) ||
+                fputs(",\"dimensions\":[", output) == EOF) {
+                return false;
+            }
+            for (dimension_index = 0u;
+                 dimension_index < background->dimension_count;
+                 ++dimension_index) {
+                const gbl_runner_capability_dimension *dimension =
+                    &background->dimensions[dimension_index];
+
+                if (fprintf(output,
+                            "%s{\"width\":%u,\"height\":%u}",
+                            dimension_index == 0u ? "" : ",",
+                            dimension->width, dimension->height) < 0) {
+                    return false;
+                }
+            }
+            if (fputs("]}", output) == EOF) {
+                return false;
+            }
+        }
+        if (fputs("]}", output) == EOF) {
+            return false;
+        }
+    }
+    return fputs("]},\"video_memory_access\":{"
+                 "\"classification\":\"project-selected\","
+                 "\"hardware_qualification\":\"UNKNOWN\","
+                 "\"masters\":[\"cpu\",\"dma\"],"
+                 "\"regions\":[\"pram\",\"vram\",\"oam\"],"
+                 "\"states\":[\"drawing\",\"hblank\",\"vblank\","
+                 "\"forced-blank\"],"
+                 "\"availability\":\"existing-bus-behavior\","
+                 "\"ppu_extra_cycles\":0,"
+                 "\"cost_reference\":\"bus_policy.request_cycles\"}}",
+                 output) != EOF;
+}
+
 static bool gbl_runner_trace_record_write(FILE *output,
                                           const gbl_trace_record *record)
 {
@@ -312,11 +475,15 @@ bool gbl_runner_write_video(const char *path, gbl_runner_result *result)
     bool write_okay;
     bool close_okay;
     const char *failure;
+    const uint64_t completion_offset =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    uint64_t expected_sample_cycle;
 
     if (result == NULL) {
         return false;
     }
     result->phase10.video_emitted = false;
+    result->phase10.has_video_sha256 = false;
     result->phase10.video_output_error[0] = '\0';
     if (path == NULL) {
         gbl_runner_set_video_error(result, "video-output-path-null");
@@ -327,9 +494,24 @@ bool gbl_runner_write_video(const char *path, gbl_runner_result *result)
         return false;
     }
     if (!result->phase10.video_requested || !result->phase10.observed ||
+        !result->phase10.frame_started ||
+        !result->phase10.has_frame_epoch ||
         result->phase10.capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        result->phase10.capture_reason != GBL_VIDEO_INVALID_REASON_NONE ||
+        !result->phase10.supported_controls ||
         !result->phase10.has_sample_cycle ||
-        !result->phase10.has_completion_cycle) {
+        !result->phase10.has_completion_cycle ||
+        result->phase10.frame_epoch > UINT64_MAX / GBL_PPU_FRAME_CYCLES) {
+        gbl_runner_set_video_error(result, "video-frame-unavailable");
+        return false;
+    }
+    expected_sample_cycle = result->phase10.frame_epoch *
+                            GBL_PPU_FRAME_CYCLES;
+    if (result->phase10.sample_cycle != expected_sample_cycle ||
+        result->phase10.completion_cycle < result->phase10.sample_cycle ||
+        result->phase10.completion_cycle - result->phase10.sample_cycle !=
+            completion_offset ||
+        result->phase10.machine_cycles < result->phase10.completion_cycle) {
         gbl_runner_set_video_error(result, "video-frame-unavailable");
         return false;
     }
@@ -720,22 +902,27 @@ static bool gbl_runner_write_phase10(FILE *output,
 {
     const gbl_runner_phase10_observation *obs = &result->phase10;
 
-    if (fputs("{\"model\":\"gamebloke-ppu-observation-1\",\"observed\":",
-              output) == EOF ||
+    if (fprintf(output,
+                "{\"model\":\"gamebloke-ppu-observation-2\","
+                "\"profile_version\":%u,\"observed\":",
+                (unsigned int)obs->profile_version) < 0 ||
         fputs(obs->observed ? "true" : "false", output) == EOF) {
         return false;
     }
     if (!obs->observed) {
-        return fputs(",\"raster\":null,\"frame\":null,\"controls\":null,"
-                     "\"timing\":{\"model\":\"gamebloke-ppu-model-1\","
-                     "\"hblank_offset_cycles\":\"1006\","
-                     "\"policy\":\"project-selected\","
-                     "\"evidence_class\":\"REF\","
-                     "\"classification\":\"disputed\","
-                     "\"dispute_id\":\"disp-hblank-flag-edge\","
-                     "\"hardware_qualification\":\"UNKNOWN\"},"
-                     "\"hblank_trigger_dependency\":null}",
-                     output) != EOF;
+        if (fputs(",\"raster\":null,\"frame\":null,\"controls\":null,"
+                  "\"timing\":{\"model\":\"gamebloke-ppu-model-1\","
+                  "\"hblank_offset_cycles\":\"1006\","
+                  "\"policy\":\"project-selected\","
+                  "\"evidence_class\":\"REF\","
+                  "\"classification\":\"disputed\","
+                  "\"dispute_id\":\"disp-hblank-flag-edge\","
+                  "\"hardware_qualification\":\"UNKNOWN\"},"
+                  "\"hblank_trigger_dependency\":null",
+                  output) == EOF) {
+            return false;
+        }
+        return gbl_runner_write_phase10_capabilities(output);
     }
     if (fprintf(output,
                 ",\"raster\":{\"line\":%u,\"line_cycle\":\"%" PRIu64
@@ -804,14 +991,18 @@ static bool gbl_runner_write_phase10(FILE *output,
         return false;
     }
     if (obs->hblank_trigger_dependency) {
-        return fputs(",\"classification\":\"disputed\","
-                     "\"dispute_id\":\"disp-hblank-flag-edge\","
-                     "\"hardware_qualification\":\"UNKNOWN\"}}",
-                     output) != EOF;
+        if (fputs(",\"classification\":\"disputed\","
+                  "\"dispute_id\":\"disp-hblank-flag-edge\","
+                  "\"hardware_qualification\":\"UNKNOWN\"}",
+                  output) == EOF) {
+            return false;
+        }
+    } else if (fputs(",\"classification\":null,\"dispute_id\":null,"
+                     "\"hardware_qualification\":\"UNKNOWN\"}",
+                     output) == EOF) {
+        return false;
     }
-    return fputs(",\"classification\":null,\"dispute_id\":null,"
-                 "\"hardware_qualification\":\"UNKNOWN\"}}",
-                 output) != EOF;
+    return gbl_runner_write_phase10_capabilities(output);
 }
 
 static bool gbl_runner_write_raw_video(FILE *output,
@@ -858,7 +1049,7 @@ static bool gbl_runner_write_raw_video(FILE *output,
     } else if (fputs("null", output) == EOF) {
         return false;
     }
-    return fputc('}', output) != EOF;
+    return fputs(",\"format\":\"bgr555-le\"}", output) != EOF;
 }
 
 bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)

@@ -604,7 +604,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
     gbl_runner_options options = { 0 };
     gbl_runner_result result = { 0 };
     char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
-    char json[8192];
+    char json[16384];
     size_t json_length = 0u;
     bool okay;
 
@@ -769,7 +769,7 @@ static bool gbl_test_runner_ppu_output(const char *scratch_directory)
     char first_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char repeated_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char changed_path[GBL_RUNNER_TEST_PATH_CAPACITY];
-    char json[8192];
+    char json[16384];
     char digest[GBL_SHA256_HEX_CAPACITY];
     bool okay;
 
@@ -808,6 +808,8 @@ static bool gbl_test_runner_ppu_output(const char *scratch_directory)
            gbl_test_serialize_result(&first, json, sizeof json) &&
            strstr(json, "\"raw_video\":{\"requested\":true,"
                         "\"status\":\"emitted\",\"emitted\":true,") != NULL &&
+           strstr(json,
+                  "\"failure\":null,\"format\":\"bgr555-le\"}") != NULL &&
            strstr(json, first.phase10.video_sha256) != NULL &&
            strstr(json, "\"pixels\":") == NULL;
 
@@ -886,6 +888,7 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     char writer_guard_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char write_limit_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char owned_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[16384];
     char existing_bytes[8] = { 0 };
     FILE *file;
     bool okay;
@@ -915,8 +918,20 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
         !gbl_test_path(owned_path, sizeof owned_path, scratch_directory,
                        "ppu-output-owned.raw") ||
         !gbl_test_write_ppu_guest(rom_path) ||
-        !gbl_test_write_ppu_transition_guest(unsupported_rom_path) ||
-        !gbl_test_write_file(existing_path, 0u, 0u)) {
+        !gbl_test_write_ppu_transition_guest(unsupported_rom_path)) {
+        return false;
+    }
+    (void)remove(existing_path);
+    (void)remove(bad_path);
+    (void)remove(allocation_path);
+    (void)remove(incomplete_path);
+    (void)remove(next_epoch_path);
+    (void)remove(unsupported_path);
+    (void)remove(fresh_path);
+    (void)remove(writer_guard_path);
+    (void)remove(write_limit_path);
+    (void)remove(owned_path);
+    if (!gbl_test_write_file(existing_path, 0u, 0u)) {
         return false;
     }
     file = fopen(existing_path, "wb");
@@ -993,7 +1008,21 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
            !next_epoch_incomplete.phase10.video_emitted &&
            strcmp(next_epoch_incomplete.phase10.video_output_error,
                   "video-frame-unavailable") == 0 &&
-           access(next_epoch_path, F_OK) != 0 && errno == ENOENT;
+           access(next_epoch_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_serialize_result(&next_epoch_incomplete, json,
+                                     sizeof json) &&
+           strstr(json,
+                  "\"frame\":{\"state\":\"incomplete\","
+                  "\"reason\":\"incomplete\"") != NULL &&
+           strstr(json,
+                  "\"video_memory_access\":{\"classification\":"
+                  "\"project-selected\"") != NULL &&
+           strstr(json,
+                  "\"raw_video\":{\"requested\":true,"
+                  "\"status\":\"failed\",\"emitted\":false,"
+                  "\"byte_length\":null,\"sha256\":null,"
+                  "\"failure\":\"video-frame-unavailable\","
+                  "\"format\":\"bgr555-le\"}") != NULL;
 
     okay = okay &&
            gbl_test_execute_ppu(unsupported_rom_path, unsupported_path,
@@ -1012,7 +1041,19 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
            !unsupported.phase10.video_emitted &&
            strcmp(unsupported.phase10.video_output_error,
                   "video-frame-unavailable") == 0 &&
-           access(unsupported_path, F_OK) != 0 && errno == ENOENT;
+           access(unsupported_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_serialize_result(&unsupported, json, sizeof json) &&
+           strstr(json,
+                  "\"frame\":{\"state\":\"invalid\","
+                  "\"reason\":\"bg2-disabled\"") != NULL &&
+           strstr(json,
+                  "\"mode\":3,\"implementation_status\":\"partial\"") != NULL &&
+           strstr(json,
+                  "\"raw_video\":{\"requested\":true,"
+                  "\"status\":\"failed\",\"emitted\":false,"
+                  "\"byte_length\":null,\"sha256\":null,"
+                  "\"failure\":\"video-frame-unavailable\","
+                  "\"format\":\"bgr555-le\"}") != NULL;
 
     okay = okay &&
            gbl_test_execute_ppu(rom_path, fresh_path, &pressed_a, 1u, true,
@@ -1028,6 +1069,14 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
 
     writer_guard.phase10.video_requested = true;
     writer_guard.phase10.capture_state = GBL_VIDEO_CAPTURE_VALID;
+    writer_guard.phase10.capture_reason = GBL_VIDEO_INVALID_REASON_NONE;
+    writer_guard.phase10.frame_started = true;
+    writer_guard.phase10.has_frame_epoch = true;
+    writer_guard.phase10.supported_controls = true;
+    writer_guard.phase10.machine_cycles = UINT64_C(197120);
+    writer_guard.phase10.completion_cycle = UINT64_C(197120);
+    writer_guard.phase10.sample_cycle = 0u;
+    writer_guard.phase10.frame_epoch = 0u;
     writer_guard.phase10.has_sample_cycle = true;
     writer_guard.phase10.has_completion_cycle = true;
     writer_guard.phase10.video_bytes = caller_storage;
@@ -1035,6 +1084,7 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     okay = okay && !gbl_runner_write_video(writer_guard_path, &writer_guard) &&
            strcmp(writer_guard.phase10.video_output_error,
                   "video-frame-unavailable") == 0 &&
+           !writer_guard.phase10.has_video_sha256 &&
            memcmp(caller_storage,
                   (const uint8_t[]){ UINT8_C(0x31), UINT8_C(0x72),
                                      UINT8_C(0xA4) },

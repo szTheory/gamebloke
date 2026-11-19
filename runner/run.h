@@ -14,6 +14,7 @@
 #define GBL_RUNNER_MAX_TRACE_RECORDS ((size_t)65536u)
 #define GBL_RUNNER_FIXTURE_ID_CAPACITY 128u
 #define GBL_RUNNER_SOURCE_COMMIT_CAPACITY 41u
+#define GBL_RUNNER_PROFILE_VERSION UINT32_C(10)
 #define GBL_RUNNER_FRAME_CYCLES UINT64_C(280896)
 #define GBL_RUNNER_VIDEO_BYTES ((size_t)GBL_PPU_VIDEO_BYTES)
 
@@ -93,6 +94,7 @@ typedef struct gbl_runner_phase9_observation {
 
 typedef struct gbl_runner_phase10_observation {
     bool observed;
+    uint32_t profile_version;
     bool frame_started;
     uint16_t line;
     uint64_t line_cycle;

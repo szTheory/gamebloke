@@ -655,6 +655,7 @@ static void gbl_runner_phase10_observe(gbl_runner_result *result,
     size_t index;
 
     observation->observed = true;
+    observation->profile_version = GBL_RUNNER_PROFILE_VERSION;
     observation->frame_started = machine->ppu.frame_started;
     observation->line = machine->ppu.line;
     observation->line_cycle = machine->master_cycles >= machine->ppu.line_origin
@@ -708,13 +709,35 @@ static bool gbl_runner_phase10_capture_video(
     const gbl_runner_options *options, gbl_runner_result *result,
     const gbl_machine *machine)
 {
+    gbl_runner_phase10_observation *observation;
+    uint64_t expected_sample_cycle;
+    const uint64_t completion_offset =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+
     gbl_runner_phase10_observe(result, machine);
+    observation = &result->phase10;
     if (!result->phase10.video_requested) {
         return true;
     }
-    if (result->phase10.capture_state != GBL_VIDEO_CAPTURE_VALID ||
-        !result->phase10.has_sample_cycle ||
-        !result->phase10.has_completion_cycle) {
+    if (!observation->observed || !observation->frame_started ||
+        !observation->has_frame_epoch ||
+        observation->capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        observation->capture_reason != GBL_VIDEO_INVALID_REASON_NONE ||
+        !observation->supported_controls ||
+        !observation->has_sample_cycle ||
+        !observation->has_completion_cycle ||
+        observation->frame_epoch > UINT64_MAX / GBL_PPU_FRAME_CYCLES) {
+        gbl_runner_set_video_error(result, "video-frame-unavailable");
+        return false;
+    }
+    expected_sample_cycle =
+        observation->frame_epoch * GBL_PPU_FRAME_CYCLES;
+    if (observation->sample_cycle != expected_sample_cycle ||
+        observation->completion_cycle < observation->sample_cycle ||
+        observation->completion_cycle - observation->sample_cycle !=
+            completion_offset ||
+        observation->machine_cycles != machine->master_cycles ||
+        observation->machine_cycles < observation->completion_cycle) {
         gbl_runner_set_video_error(result, "video-frame-unavailable");
         return false;
     }
@@ -901,6 +924,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     memset(result, 0, sizeof *result);
     result->status = GBL_RUNNER_HARNESS_FAIL;
     result->semantic.status = GBL_MAILBOX_ABSENT;
+    result->phase10.profile_version = GBL_RUNNER_PROFILE_VERSION;
     result->trace_complete = true;
     gbl_runner_set_reason(result, "runner-failed");
     gbl_runner_set_termination(result, "not-started");

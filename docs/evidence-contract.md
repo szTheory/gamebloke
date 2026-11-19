@@ -157,13 +157,19 @@ these fields:
   tests remove the whole extension and its DMA time fields to verify historical compatibility.
 - `phase10` and `raw_video` are a paired additive result extension. Historical result/1
   records may omit both; a record with only one is rejected. Current producers include both,
-  including runs where PPU state was not observed or raw output was not requested. PPU
-  observations bind their raster machine cycle to `time.cycles`, constrain line and pixel
-  layout to the AGB profile, and keep unavailable frame epoch/sample/completion values null.
-  A valid frame requires supported Mode 3/BG2 controls, reason `none`, one started epoch,
-  all 160 visible row samples, and a completion cycle 160 profile line lengths after the
-  sample cycle. Unsupported controls cannot yield a valid frame. Row sampling follows the
-  profile's visible-line-start point; serialized pixels use a 480-byte row stride.
+  including runs where PPU state was not observed or raw output was not requested. The
+  historical `gamebloke-ppu-observation-1` model keeps its prior fields and validation.
+  Current producers use `gamebloke-ppu-observation-2`, bind `profile_version` to the AGB
+  profile, and require complete `display_capabilities` and `video_memory_access` objects.
+  These static policy facts include all six mode source/dimension/status records, canonical
+  `BGR555_LE` raw layout, and the selected CPU/DMA access matrix; implementation status stays
+  independent from the concrete capture state and reason. PPU observations bind their raster
+  machine cycle to `time.cycles`, constrain line and pixel layout to the AGB profile, and keep
+  unavailable frame epoch/sample/completion values null. A valid frame requires supported
+  Mode 3/BG2 controls, reason `none`, one started epoch, all 160 visible row samples, and a
+  completion cycle 160 profile line lengths after the sample cycle. Unsupported controls
+  cannot yield a valid frame. Row sampling follows the profile's visible-line-start point;
+  serialized pixels use a 480-byte row stride.
 - Phase 10 HBlank evidence stays qualified as a reference candidate, with selected event
   offset 1006, source class `REF`, project-selected policy, dispute
   `disp-hblank-flag-edge`, and hardware qualification `UNKNOWN`. If an observation depends
@@ -194,7 +200,11 @@ these fields:
   a hardware latch point. The selected 1006-cycle HBlank edge remains disputed and
   hardware qualification remains `UNKNOWN`.
 - Raw video is headerless: the layout is 160 rows of 240 little-endian BGR555 pixels,
-  480 bytes per row and 76,800 bytes total. The output
+  480 bytes per row and 76,800 bytes total. The capability descriptor uses `BGR555_LE`;
+  the retained `raw_video.format` spelling `bgr555-le` names the same little-endian layout.
+  Only a complete supported frame with exact storage can be emitted. Incomplete, invalid,
+  or refused output carries no fresh digest or artifact bytes, even when an earlier frame
+  epoch in the same run was complete. The output
   digest is SHA-256 over those raw video bytes, independent from the ROM digest and input
   script digest. `requested: false` requires `not-requested`, `emitted: false`, and null
   artifact/failure metadata. `emitted` requires a valid frame, the exact byte count, and a
