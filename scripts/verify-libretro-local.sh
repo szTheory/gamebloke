@@ -39,6 +39,12 @@ if ! command -v python3 >/dev/null 2>&1; then
   printf '%s\n' 'verify-libretro-local: python3 is required for bounded PTY verification' >&2
   exit 1
 fi
+if [[ ! -f "$source_dir/tests/libretro_fixture_provenance_test.py" ]]; then
+  printf '%s\n' 'verify-libretro-local: fixture provenance regression test is missing' >&2
+  exit 1
+fi
+printf '%s\n' 'verify-libretro-local: checking local-only fixture provenance controls'
+CMAKE="$cmake_bin" python3 "$source_dir/tests/libretro_fixture_provenance_test.py"
 if [[ ! -f "$source_dir/tests/terminal_frontend_test.py" ]]; then
   printf '%s\n' 'verify-libretro-local: terminal PTY tracer is missing' >&2
   exit 1
@@ -80,11 +86,27 @@ interactive_fixture_ids = {
     "owned-playable0-interactive-wrong-color",
 }
 
+def require_local_only(fixture):
+    fixture_id = fixture.get("id", "<unknown>")
+    if fixture.get("permitted_use") != ["local-only"]:
+        raise SystemExit(
+            "interactive fixture {} must remain permitted_use=['local-only']".format(
+                fixture_id
+            )
+        )
+    if fixture.get("license", {}).get("redistributable") != "unknown":
+        raise SystemExit(
+            "interactive fixture {} must keep license.redistributable='unknown'".format(
+                fixture_id
+            )
+        )
+
 if fixture_id == "generator":
     generator_digests = set()
     for fixture in fixtures:
         if fixture["id"] not in interactive_fixture_ids:
             continue
+        require_local_only(fixture)
         match = re.search(
             r"tests/fixtures/instruction_image\.c SHA-256=([0-9a-f]{64})",
             fixture["build"]["recipe"],
@@ -102,6 +124,7 @@ else:
     artifact = matches[0]["build"]["artifact"]
     expected = artifact["sha256"]
     if fixture_id in interactive_fixture_ids:
+        require_local_only(matches[0])
         artifact_name = fixture_id + ".gba"
         expected_path = "generated/fixtures/" + artifact_name
         artifact_path = artifact.get("path")
