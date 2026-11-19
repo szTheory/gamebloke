@@ -33,7 +33,7 @@ esac
 
 host="$build_dir/gamebloke-terminal"
 content="$build_dir/generated/fixtures/owned-playable0-interactive.gba"
-sh "$verify_script"
+bash "$verify_script"
 
 if [ "$mode" = check ]; then
   "$host" --check "$core" "$content"

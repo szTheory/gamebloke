@@ -157,7 +157,7 @@ The separate continuous guest is built only under the ignored
 `build/libretro-local/` directory by the local verification command:
 
 ```sh
-sh scripts/verify-libretro-local.sh
+bash scripts/verify-libretro-local.sh
 sh scripts/play-playable0-local.sh --check
 ```
 
@@ -202,7 +202,7 @@ bounded PTY smoke directly:
 ```sh
 sh scripts/play-playable0-terminal.sh --check
 sh scripts/play-playable0-terminal.sh --smoke
-sh scripts/verify-libretro-local.sh
+bash scripts/verify-libretro-local.sh
 ```
 
 These scripts refuse when `CI` is set before generating the local guest. The

@@ -93,7 +93,7 @@ if ! command -v strings >/dev/null 2>&1 ||
   exit 1
 fi
 
-sh "$verify_script"
+bash "$verify_script"
 
 mkdir -p "$retroarch_dir" "$retroarch_dir/saves" \
   "$retroarch_dir/states" "$retroarch_dir/system" \
