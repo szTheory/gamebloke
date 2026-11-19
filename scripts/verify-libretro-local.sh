@@ -11,11 +11,21 @@ build_dir="$source_dir/build/libretro-local"
 fixture_dir="$build_dir/generated/fixtures"
 log_file="$build_dir/verify-libretro-local.log"
 cmake_bin="${CMAKE:-cmake}"
+default_dir=
 mkdir -p "$fixture_dir"
 : > "$log_file"
 exec 3>&1 4>&2
 exec > "$log_file" 2>&1
-trap 'rc=$?; if [ "$rc" -ne 0 ]; then cat "$log_file" >&4; fi; exit "$rc"' 0
+cleanup_local_verification() {
+  local rc=$?
+  if [[ -n "$default_dir" ]]; then
+    rm -f "$default_dir"/* 2>/dev/null || true
+    rmdir "$default_dir" 2>/dev/null || true
+  fi
+  if [[ "$rc" -ne 0 ]]; then cat "$log_file" >&4; fi
+  exit "$rc"
+}
+trap cleanup_local_verification EXIT
 
 case "$(uname -s)" in
   Darwin) core="$build_dir/gamebloke_libretro.dylib" ;;
@@ -82,8 +92,7 @@ python3 "$source_dir/tests/terminal_frontend_test.py" tracer \
 "$build_dir/libretro_frontend_test" negative-color "$core" \
   "$fixture_dir/owned-playable0-interactive-wrong-color.gba"
 
-default_dir="$build_dir/default-generator"
-mkdir -p "$default_dir"
+default_dir="$(mktemp -d "$build_dir/default-generator.XXXXXX")"
 "$build_dir/gbl_instruction_image" "$default_dir"
 if [[ -e "$default_dir/owned-playable0-interactive.gba" ]]; then
   printf '%s\n' 'verify-libretro-local: default generator emitted local interactive guest' >&2
