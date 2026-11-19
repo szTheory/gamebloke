@@ -35,6 +35,30 @@ behind G8 and fixture review, and v1.0 `DIAG-04`/`DET-02` remain open
 carryovers. None of these limits turns the scoped v2.0 result into a hardware,
 retail-compatibility, or publication claim.
 
+## Current Milestone: v3.0 PPU Modes and Composition
+
+**Goal:** Extend Gamebloke's deterministic mode-3 path into functional display
+modes 0–5 and common layer/composition behavior through the canonical raw-video
+path for the `agb` profile. This is a deterministic software model, not a claim
+of cycle-perfect PPU timing, hardware qualification, or broad retail
+compatibility.
+
+**Target features:**
+- Text, affine, and bitmap backgrounds with mode-appropriate addressing,
+  palettes, scrolling/reference parameters, and defined bounds behavior.
+- Regular and affine OBJ rendering, shared layer priorities, transparency,
+  windows, color effects, mosaic, and forced blank.
+- Explicit line/blank access policies for canonical VRAM, palette RAM, and OAM,
+  integrated with the shared scheduler and DMA arbiter.
+- Semantic pixel and machine-boundary evidence through the existing raw-video
+  and runner paths, with fixture rights reviewed individually.
+
+Keep the selected 1006-cycle HBlank policy and the HBlank-edge, DMA-latch, and
+pixel-visibility disputes open unless new independent evidence resolves them.
+See the [scope recommendation](research/v3-ppu-milestone-recommendation.md) for
+provenance and detailed boundaries; formal requirements and phases are defined
+in REQUIREMENTS.md and ROADMAP.md.
+
 ## Requirements
 
 ### Validated
@@ -64,7 +88,7 @@ REQUIREMENTS.md.
 
 - [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
 - [ ] Audio event scheduling and PSG/Direct Sound FIFO behavior in guest-time units
-- [ ] Raw output for the remaining GBA display modes and features (modes 0–2 and 4–5, OBJ, windows, blending, mosaic, and contention) as selected profiles require
+- [ ] v3.0: Deterministic software-model raw output for display modes 0–5, common BG/OBJ layers, composition, windows, effects, mosaic, forced blank, and declared video-memory access policies for `agb`; no cycle-accuracy or broad compatibility claim
 - [ ] Audio (PSG + Direct Sound FIFO) produced as raw machine samples, kept separate from host resampling and playback
 - [ ] Explicitly modeled cartridge backup devices. Save type is never inferred from a filename or title.
 - [ ] Raw audio capture in the deterministic runner; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
@@ -115,10 +139,19 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - Shift verification left. For each requirement, automate observable behavior at the smallest useful seam, then add integration, end-to-end, or smoke coverage only when it proves a distinct cross-component risk. Use deterministic inputs, semantic assertions, and meaningful negative controls for important gates.
 - Prefer useful automated evidence over manual UAT for repeatable behavior. Before handing work to the owner, inspect the actual local result and its limits. Convert repeatable manual checks into automated checks when they provide trustworthy feedback. Keep owner-only decisions—rights, physical hardware, subjective playability, product preference, and publication—explicit; automation must not impersonate owner acceptance.
 - Do not put every check in CI. Add or retain CI work when it catches a distinct recurring failure class at worthwhile runtime and maintenance cost. Keep one-off or exploratory checks local when they provide useful feedback without recurring CI value.
+- Recreate GitHub Actions locally with `act` when a workflow-specific behavior needs checking and the local run meaningfully shortens feedback. Prefer the existing canonical local verification for native checks; do not add an `act` dependency or maintain a duplicate lane without measurable value.
 - Put cheap, deterministic consistency and selection checks before long suites when they can reject known failures early. After each CI run, inspect measured critical-path time for duplicate setup/builds and other low-risk savings. Optimize measured bottlenecks without weakening evidence; keep emulator throughput separate from CI wait/build/test time.
 - Reuse valid results when their source, configuration, fixture, and toolchain inputs are unchanged. Refresh only affected evidence; do not rerun a whole matrix by habit. Record what each result proves, skips, and leaves unknown.
 - At verification checkpoints, first determine whether a human-needed item has a useful local, deterministic, or contract-level check. Run and inspect that check when authorized, persist the evidence, and ask the owner only for a remaining material judgment or authority gate. Do not reopen a resolved judgment without new evidence.
 - Apply the same cost and evidence discipline to release checks: run cheap integrity, rights, and package-consistency checks before expensive workflows; measure release/CI critical paths; keep publication and release authority with the owner.
+
+## Milestone and Phase Scoping Policy
+
+- At each new-milestone boundary, start from the current rolling roadmap and a concrete recommended next scope with alternatives. Do not restart with an open-ended “what next?” question when the roadmap and current evidence already support a recommendation. Surface a material choice only when it changes product direction, rights, authority, risk, cost, or an irreversible action.
+- Apply the same evidence-first discovery to phase discussions. Identify the actual decision, then use only the relevant technical, product, QA, security, performance, design, and operations lenses for it. Fan out read-only research with subagents when independent work saves time or context; include an adversarial review and stop when another pass is unlikely to change the recommendation, material risk, or evidence plan.
+- Prefer primary and authoritative sources, and inspect current repository evidence. Keep owner decisions, source facts, project observations, measured results, inferences, recommendations, and unknowns distinct. Capture provenance and the practical limit of each source; agreement with another emulator or repeatable output alone is not hardware truth.
+- Return one recommended path, the scope and exclusions, main tradeoffs, a verification direction, and a small set of roadmap alternatives. Update the rolling roadmap and retain high-signal lessons in `.planning/` so future discussions can start from them without repeating settled discovery.
+- This upstream scoping supports OpenGSD; it does not replace its formal requirements, roadmap validation, phase planning, execution, or verification workflows.
 
 ## Key Decisions
 
@@ -149,8 +182,10 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | PPU and Playable 0 boundary (Phase 10) | Use explicit PPU events, complete supported mode-3 frame capture, semantic pixel checks, and a local host; preserve HBlank evidence and dispute labels | Verified locally; the owner accepted the original diagnostic demo only; no hardware, retail-game, audio/save, or redistribution claim is implied |
 | Local interactive host boundary (Phase 10) | Reuse the canonical machine through the official Libretro ABI; use a dependency-free terminal fallback after managed RetroArch launch denial | Verified locally; no policy bypass, second core, or runtime dependency was added |
 | v2.0 owner judgment (2026-11-19) | The owner ran the terminal demo and accepted the visible original BIOS-free diagnostic behavior | ✓ Accepted for scoped Playable 0 demo; broader compatibility, hardware, physical-controller, and rights decisions remain open |
+| v3.0 PPU scope (owner-prepared recommendation; 2026-11-19) | Extend the mode-3 path to functional modes 0–5 and common composition through raw video, preserving explicit project-model and hardware-evidence limits | In progress; detailed requirements and phases are generated by OpenGSD |
 | Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
 | Automation-first verification and CI efficiency (owner, 2026-11-16) | Shift repeatable verification left; minimize UAT through useful automated evidence; use CI for recurring value; preflight long work and inspect measured critical paths without weakening checks | ✓ Adopted as the default in Verification and Iteration Policy above |
+| Evidence-first milestone and phase discussions (owner, 2026-11-19) | Start from roadmap recommendations and options; use relevant parallel research, primary sources, an adversarial pass, provenance, and a diminishing-returns stop; apply the same approach to milestone and phase scope | ✓ Adopted in Milestone and Phase Scoping Policy above |
 | Carry v1.0 Phase 6 evidence gaps into v2.0 (owner, 2026-11-15) | Archive v1.0 while preserving ARM/Thumb source-bound evaluation (`DIAG-04`) and hosted Linux x64 GCC/Clang (`DET-02`) as open; do not relabel local results as passes for those claims | Recorded in `.planning/STATE.md` and the archived v1.0 audit; no hosted run or publication authorized |
 | Project license | Owner authority. The repo is public with no LICENSE file yet, so default copyright applies until the owner chooses one. | — Pending (owner gate) |
 
@@ -172,4 +207,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-19 after v2.0 milestone review*
+*Last updated: 2026-11-19 after v3.0 milestone start*

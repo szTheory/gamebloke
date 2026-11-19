@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v2.0
-milestone_name: Time, Interrupts, DMA, First Pixels
-status: Awaiting next milestone
-stopped_at: v2.0 archived; ready to define the next milestone
-last_updated: "2026-11-19T17:14:52.150Z"
+milestone: v3.0
+milestone_name: PPU Modes and Composition
+status: planning
+last_updated: "2026-11-19T17:59:02.341Z"
 last_activity: 2026-11-19
-last_activity_desc: Milestone v2.0 completed and archived
-state_head: 21d23e917991a28f0d1ea29e8e349a3467c4b3ec
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 33
-  completed_plans: 33
-  percent: 100
-current_phase: 10
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-11-19)
 
 ## Current Position
 
-Phase: Milestone v2.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: v2.0 archived; no active milestone
-Last activity: 2026-11-19 — Milestone v2.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-11-19 — Milestone v3.0 started
 
 
 ## Performance Metrics
