@@ -150,3 +150,41 @@ and [owner review packet](../.planning/phases/10-ppu-timing-and-first-pixels/10-
 G4 BIOS-stub approval, G8 third-party fixture terms, hosted full-current-input
 evidence, physical qualification, and publication authority remain separate
 closed gates.
+
+## Interactive Libretro local path
+
+The separate continuous guest is built only under the ignored
+`build/libretro-local/` directory by the local verification command:
+
+```sh
+sh scripts/verify-libretro-local.sh
+sh scripts/play-playable0-local.sh --check
+```
+
+The Libretro module maps keyboard input to the original guest and emits frames
+from the canonical machine. The dynamic mock frontend verifies that wiring and
+the live input sequence. On the latest measured Release run, cadence was 14.25
+frames/second over 60 frames; previous unprofiled runs ranged from 13.96 to
+14.66 FPS. RIGHT appeared after one guest frame (72.1 ms latest; 67.5–72.1 ms
+across those runs). This is below the guest's roughly 59.7 Hz display cadence,
+so responsiveness remains a known limitation. Link-time optimization did not
+improve it; a focused preview/transaction-copy benchmark is the least disruptive
+next measurement.
+
+`sh scripts/play-playable0-local.sh` is the RetroArch launch command when the
+installed app is permitted to start. `--check` validates local paths,
+architecture, isolated config and CLI arguments without opening a window. The
+config, saves, state, history, logs and screenshots are isolated under
+`build/libretro-local/retroarch/`; global RetroArch settings are not changed.
+Right Arrow moves the marker, X presses GBA A, F1 opens the menu, and the menu's
+Restart and Quit RetroArch actions reset and exit. The app uses the Gamebloke
+module, never the mGBA core. Audio and save devices are not implemented.
+
+The bounded installed-app smoke was attempted but macOS blocked LaunchServices
+with `kLSNoLaunchPermissionErr` (“User doesn't have permission to launch the app
+(managed networks)”). Thus no installed-host or owner-play evidence exists yet;
+the mock test is not a substitute. A dependency-free terminal Libretro frontend
+is the planned local host fallback. The owner review packet is intentionally not
+asking for G6 until an actual interactive path is ready. The continuous guest
+remains project-authored local-only content with redistribution unknown; no
+retail compatibility or hardware claim follows from these checks.
