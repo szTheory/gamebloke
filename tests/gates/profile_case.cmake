@@ -113,6 +113,10 @@ elseif(CASE STREQUAL "ppu_policy")
   gbl_expect_pass(COMMAND ${cmd}
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
+  profile_copy(p missing_display_capabilities)
+  expect_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities" "${p}")
+
   profile_copy(p missing_ppu_policy)
   gbl_json_mutate_set("${p}" [=[{"placeholder": "temporary control value"}]=] ppu_policy)
   gbl_json_mutate_remove("${p}" ppu_policy)

@@ -251,7 +251,7 @@ foreach(case IN ITEMS
     cpu_policy_doc cpu_policy_value
     dispute_unknown doc_extra_id doc_missing_id doc_no_section doc_version_mismatch
     hblank_edge_hardcoded init_policy missing_field missing_source read_policy timing_arithmetic
-    unmodeled_bad_entry unmodeled_missing usage)
+    ppu_policy unmodeled_bad_entry unmodeled_missing usage)
   gbl_add_test(
     NAME profile.nc.${case}
     LABELS control profile

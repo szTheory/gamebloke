@@ -1079,6 +1079,7 @@ profile.nc.hblank_edge_hardcoded control,profile
 profile.nc.init_policy control,profile
 profile.nc.missing_field control,profile
 profile.nc.missing_source control,profile
+profile.nc.ppu_policy control,profile
 profile.nc.read_policy control,profile
 profile.nc.timing_arithmetic control,profile
 profile.nc.unmodeled_bad_entry control,profile
