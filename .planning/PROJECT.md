@@ -55,6 +55,7 @@ retail-compatibility, or publication claim.
 - ✓ Deterministic PPU line events and raw mode-3 BGR555 frames with semantic pixel checks, complete-frame validity, and explicit latch/dispute evidence — Phase 10. Other display modes and effects remain out of scope.
 - ✓ Original BIOS-free Playable 0 diagnostic guest runs through the Gamebloke Libretro module and a dependency-free terminal host; the owner accepted the visible local demo — Phase 10. This is not retail compatibility, hardware qualification, or redistribution approval.
 - ✓ The Libretro adapter uses the official ABI header and canonical machine implementation; the terminal fallback adds no runtime dependency or second emulator core — Phase 10.
+- ✓ Cheap event-boundary and exact test-selection checks run before dependent longer suites, with negative controls for missing or empty selection — Phase 7 and the current Phase 9/10 fast paths.
 
 ### Active
 
