@@ -295,6 +295,7 @@ RETRO_API void retro_run(void)
 
     if (gbl_retro_next_deadline <= machine_cycle) {
         if (gbl_retro_next_deadline > UINT64_MAX - GBL_PPU_FRAME_CYCLES) {
+            gbl_retro_terminal_reported = true;
             gbl_retro_message(RETRO_LOG_ERROR, "Gamebloke frame deadline overflow.");
             goto deliver;
         }
