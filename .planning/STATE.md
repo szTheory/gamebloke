@@ -6,10 +6,10 @@ current_phase: 11
 current_phase_name: Sampled Rows and Transactional Visibility
 status: executing
 stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-11-19T22:58:40.195Z"
+last_updated: "2026-11-19T23:04:45.047Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 11 execution started
-state_head: d67b8f10fa0178701a21231bf388dac893c3f007
+state_head: f274d1fab87a23638a6900961c487147705be1fd
 progress:
   total_phases: 5
   completed_phases: 0
@@ -434,6 +434,7 @@ Recent decisions affecting current work:
 - [Phase 11]: CPU/DMA PRAM, VRAM and OAM retain existing bus outcomes/costs; PPU adds zero cycles and hardware qualification remains UNKNOWN.
 - [Phase 11]: Current PPU model 2 binds profile version and capability objects to profiles/agb.json; model 1 remains accepted without a partial tuple.
 - [Phase 11]: Current raw_video format remains bgr555-le and must match the profile BGR555_LE layout.
+- [Phase 11]: Keep PPU-03, PPU-04, and PPU-06 pending until requirements.ready-ids reports them unblocked by sibling Phase 11 plans; local plan coverage is not phase-wide completion.
 
 ### Pending Todos
 
