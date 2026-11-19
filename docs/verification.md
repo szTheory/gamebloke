@@ -163,9 +163,9 @@ sh scripts/play-playable0-local.sh --check
 
 The Libretro module maps keyboard input to the original guest and emits frames
 from the canonical machine. The dynamic mock frontend verifies that wiring and
-the live input sequence. On the latest measured Release run, cadence was 14.25
+the live input sequence. On the latest measured Release run, cadence was 14.19
 frames/second over 60 frames; previous unprofiled runs ranged from 13.96 to
-14.66 FPS. RIGHT appeared after one guest frame (72.1 ms latest; 67.5–72.1 ms
+14.66 FPS. RIGHT appeared after one guest frame (68.4 ms latest; 67.5–72.1 ms
 across those runs). This is below the guest's roughly 59.7 Hz display cadence,
 so responsiveness remains a known limitation. Link-time optimization did not
 improve it; a focused preview/transaction-copy benchmark is the least disruptive

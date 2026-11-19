@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 4
+open_count: 5
 waived_count: 0
 fixed_count: 25
-total_count: 29
-last_updated: 2026-11-18T19:16:06.421Z
+total_count: 30
+last_updated: 2026-11-19T04:52:36.486Z
 ---
 
 # Broken Windows Ledger
@@ -44,6 +44,7 @@ last_updated: 2026-11-18T19:16:06.421Z
 | 27 | 8 | deviation | tests/determinism_test.c |  | Converted stale positional run-result initializers so the Phase 8 determinism target builds with warnings as errors. | fixed |  | 2026-11-17T00:28:03.040Z | 2026-11-17T00:28:45.212Z |
 | 28 | 10 | deviation | src/cpu.c |  | Added PPU boundaries to the CPU live-event scan so a masked PPU IF request wakes HALT without becoming IRQ acceptance. | fixed |  | 2026-11-18T19:15:57.608Z | 2026-11-18T19:16:06.312Z |
 | 29 | 10 | deviation | tests/bus_test.c |  | Corrected stale PPU/video fixtures for full DISPCNT preservation, cycle-zero supported sampling, VBlank/HBlank masks, and the new capture-reason baseline; focused selectors pass. | fixed |  | 2026-11-18T19:16:03.766Z | 2026-11-18T19:16:06.421Z |
+| 30 | 10 | unrun-verify | scripts/play-playable0-local.sh |  | Installed RetroArch smoke could not start because managed macOS LaunchServices returned kLSNoLaunchPermissionErr; owner trial remains pending until an interactive local host is available. | open |  | 2026-11-19T04:52:36.486Z |  |
 
 ````json
 [
@@ -422,6 +423,19 @@ last_updated: 2026-11-18T19:16:06.421Z
     "reason": "",
     "recorded_at": "2026-11-18T19:16:03.766Z",
     "resolved_at": "2026-11-18T19:16:06.421Z",
+    "milestone": "v2.0"
+  },
+  {
+    "id": 30,
+    "kind": "unrun-verify",
+    "phase": "10",
+    "file": "scripts/play-playable0-local.sh",
+    "line": null,
+    "description": "Installed RetroArch smoke could not start because managed macOS LaunchServices returned kLSNoLaunchPermissionErr; owner trial remains pending until an interactive local host is available.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-19T04:52:36.486Z",
+    "resolved_at": null,
     "milestone": "v2.0"
   }
 ]

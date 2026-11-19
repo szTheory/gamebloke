@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 1
-status: executing
-stopped_at: Awaiting owner G6 judgment for Phase 10
-last_updated: "2026-11-19T03:16:42.397Z"
+current_plan: 10
+status: verifying
+stopped_at: Completed Plan 10-10 implementation; owner trial blocked pending a runnable local host
+last_updated: "2026-11-19T04:55:52.337Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 10 execution started
-state_head: 1d839bccb5cb6f48146040c7ce1989b4af6d0063
+state_head: ed79259e16c0f82d0501f89bfbb93000e8a0b046
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 31
-  completed_plans: 31
+  total_plans: 32
+  completed_plans: 32
   percent: 75
 ---
 
@@ -32,9 +32,9 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 ## Current Position
 
 Phase: 10 (PPU Timing and First Pixels) — EXECUTING
-Current Plan: 1
-Total Plans in Phase: 9
-Status: Executing Phase 10
+Current Plan: 10
+Total Plans in Phase: 10
+Status: Phase complete — ready for verification
 Last activity: 2026-11-18 — Phase 10 execution started
 
 Progress: [████████░░] 75%
@@ -163,6 +163,7 @@ Progress: [████████░░] 75%
 | Phase 10 P07 | 67m21s measured from first TDD RED commit; initial setup unmeasured | 2 tasks | 9 files |
 | Phase 10 P08 | 59m31s | 3 tasks | 11 files |
 | Phase 10 P9 | not measured | 2 tasks | 4 files |
+| Phase 10 P10 | >=45 min; exact start unavailable | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -410,6 +411,10 @@ Recent decisions affecting current work:
 - [Phase 10]: Treat the pinned Clang 21 Docker lane as supplementary compile-only evidence (56/56 targets; 30-second setup and 12-second workflow); it does not replace local guest verification or close G6.
 - [Phase 10]: Keep local Playable 0 guest evidence outside ordinary CI/ASAN inventories; G6 judgment stays pending.
 - [Phase 10]: Use the canonical machine comparator for complete PPU state and raw video bytes; make no hardware-qualification claim.
+- [Phase 10]: Use the official pinned Libretro ABI header directly; add no runtime dependency.
+- [Phase 10]: Generate the continuous original guest only under ignored local build output; redistribution remains unknown.
+- [Phase 10]: Keep PLAY-01 and G6 pending until a real interactive local host is available and the owner has tried it.
+- [Phase 10]: Use a dependency-free terminal Libretro frontend after managed RetroArch launch denial; benchmark preview/transaction copies before considering core redesign.
 
 ### Pending Todos
 
@@ -439,6 +444,7 @@ None yet.
 
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
 - Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
+- macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; no owner interactive trial is ready and G6 remains pending. Next action: parent plans a dependency-free terminal Libretro frontend, then verify its live controls/video before requesting owner judgment.
 
 ## Deferred Items
 
@@ -460,8 +466,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-19T03:16:42.164Z
-Stopped at: Awaiting owner G6 judgment for Phase 10
+Last session: 2026-11-19T04:55:52.132Z
+Stopped at: Completed Plan 10-10 implementation; owner trial blocked pending a runnable local host
 Resume file: None
 
 ## Operator Next Steps

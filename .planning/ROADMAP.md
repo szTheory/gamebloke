@@ -148,8 +148,8 @@ Plans:
   3. Mode-3 output contains raw BGR555 pixels derived from canonical memory and the documented latch-point policy. Semantic line/pixel checks detect a deliberately wrong color/address/latch result, and repeated fresh runs produce identical frame bytes.
   4. An original in-tree BIOS-free polling scenario responds to a deterministic logical input timeline and produces observable guest progress, machine time, and raw video as separate outputs, without audio or save requirements.
   5. The owner can launch the Gamebloke Libretro module in the installed local RetroArch, use live controls, and observe the original guest respond across multiple frames. G6 remains pending until the owner has tried this actual Gamebloke session; a report or mGBA session does not satisfy it.
-**Plans**: 9/10 plans executed
-- [ ] 10-10-PLAN.md
+**Plans**: 10/10 plans executed
+- [x] 10-10-PLAN.md
 - [x] 10-01-PLAN.md
 - [x] 10-02-PLAN.md
 - [x] 10-03-PLAN.md
@@ -171,7 +171,7 @@ Plans:
 | 7. Time Authority and Timer 0 Polling Proof | 7/7 | Complete    | 2026-11-16 |
 | 8. IRQ, HALT, and Timestamped Input | 7/7 | Complete    | 2026-11-17 |
 | 9. Bus Timing, DMA, and Arbitration | 8/8 | Complete    | 2026-11-18 |
-| 10. PPU Timing and First Pixels | 9/10 | In Progress | - |
+| 10. PPU Timing and First Pixels | 10/10 | In Progress | - |
 
 **Coverage:** 13 of 13 current v2.0 requirements map to exactly one phase; no orphans or duplicates. Deferred requirements and v1.0 evidence carryovers are excluded from this total.
 
