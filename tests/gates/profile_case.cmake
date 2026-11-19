@@ -114,6 +114,7 @@ elseif(CASE STREQUAL "ppu_policy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
   profile_copy(p missing_display_capabilities)
+  gbl_json_mutate_remove("${p}" ppu_policy display_capabilities)
   expect_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities" "${p}")
 
