@@ -59,7 +59,11 @@ The fixture manifest identifies this project's unlicensed synthetic bytes with
 redistributability `unknown`, and limits use to `local-only`. Original
 authorship and matching digests do not grant redistribution rights. Do not
 commit or upload the generated guest bytes, add this guest to public CI, or use
-it as evidence of hardware qualification. Owner judgment G6 remains pending.
+it as evidence of hardware qualification. G6 was accepted on 2026-11-19 for the
+scoped original terminal demo, covering only the visible original diagnostic
+scenario. This acceptance does not change the local-only permission or unknown
+redistribution status, and does not establish rights, retail compatibility, or
+hardware qualification.
 
 ## Separate continuous interactive image
 

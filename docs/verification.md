@@ -143,10 +143,12 @@ for the 1006/1007/1008 evidence limits.
 Playable 0 is a direct-start polling guest. It does not use a BIOS, audio,
 saves, host rendering, a physical controller, a display, or host-clock timing.
 Its generated content is marked `local-only`, and the manifest leaves
-redistribution `unknown`; do not commit or upload its bytes. G6 is the owner's
-subjective Playable 0 judgment and remains pending until the owner reviews the
+redistribution `unknown`; do not commit or upload its bytes. G6 was accepted on
+2026-11-19 for the scoped original terminal demo; see the
 [evidence](../.planning/phases/10-ppu-timing-and-first-pixels/10-EVIDENCE.md)
 and [owner review packet](../.planning/phases/10-ppu-timing-and-first-pixels/10-OWNER-REVIEW.md).
+The acceptance covers the visible original diagnostic scenario only and makes
+no accuracy, rights, retail-compatibility, or hardware decision.
 G4 BIOS-stub approval, G8 third-party fixture terms, hosted full-current-input
 evidence, physical qualification, and publication authority remain separate
 closed gates.
