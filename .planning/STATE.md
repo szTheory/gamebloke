@@ -5,16 +5,16 @@ milestone_name: PPU Modes and Composition
 current_phase: 11
 current_phase_name: Sampled Rows and Transactional Visibility
 status: executing
-stopped_at: Phase 11 planning and verification complete; ready to execute
-last_updated: "2026-11-19T20:09:07.370Z"
+stopped_at: Completed Phase 11 Plan 01; continuing autonomous Phase 11 execution
+last_updated: "2026-11-19T21:13:50.107Z"
 last_activity: 2026-11-19
-last_activity_desc: Phase 11 planning complete
-state_head: 63b7fd0313bd692a05fb002405f45a295a41031c
+last_activity_desc: Phase 11 execution started
+state_head: 6410609829e734a91c244bdcdf1a9630a2658d40
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-11-19)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v3.0 PPU Modes and Composition (a GSD milestone label, not a software version)
-**Current focus:** Phase 11 — Sampled Rows and Transactional Visibility; five plans verified and ready to execute
+**Current focus:** Phase 11 — Sampled Rows and Transactional Visibility
 
 ## Current Position
 
-Phase: 11 (Sampled Rows and Transactional Visibility) — READY TO EXECUTE
-Plan: 0 of 5 in current phase
-Status: Ready to execute
-Last activity: 2026-11-19 — Phase 11 planning complete
+Phase: 11 (Sampled Rows and Transactional Visibility) — EXECUTING
+Plan: 2 of 5
+Status: Executing Phase 11
+Last activity: 2026-11-19 — Phase 11 execution started
 
 Progress: [░░░░░░░░░░] 0% (current milestone)
 
@@ -164,6 +164,7 @@ Progress: [░░░░░░░░░░] 0% (current milestone)
 | Phase 10 P9 | not measured | 2 tasks | 4 files |
 | Phase 10 P10 | >=45 min; exact start unavailable | 3 tasks | 14 files |
 | Phase 10 P11 | 84 min | 3 tasks | 9 files |
+| Phase 11 P01 | 54min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -423,6 +424,9 @@ Recent decisions affecting current work:
 - [Phase 10]: Keep generated guest bytes under ignored local build output and retain local-only, redistribution-unknown limits.
 - [Phase 10]: Keep PLAY-01 and G6 pending until owner live play; the managed RetroArch denial remains historical with no retry or policy bypass.
 - [Phase 10 closeout]: The owner ran `scripts/play-playable0-terminal.sh` and accepted the visible original BIOS-free Playable 0 diagnostic demo on 2026-11-19. Acceptance is limited to that local terminal session; it does not establish hardware timing, retail compatibility, audio, saves, redistribution rights, or physical-controller behavior. RetroArch's managed launch denial remains historical and was not retried.
+- [Phase 11]: Keep the project-selected 1006-cycle HBlank and event-before-same-cycle-write ordering; hardware qualification remains unknown. — The phase preserves a deterministic row boundary while leaving the HBlank dispute and hardware qualification open.
+- [Phase 11]: Keep current VRAM, PRAM and OAM CPU/DMA bus behavior and costs, without PPU stalls or new access denial. — This preserves the tested bus contract while making no unverified hardware access-policy claim.
+- [Phase 11]: Keep the new sampled-memory seam private; do not establish a public C API in this phase. — Capability discovery remains through profile and runner metadata; stable public API design is reserved for the later API milestone.
 
 ### Pending Todos
 
@@ -474,8 +478,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-19
-Stopped at: Phase 11 planning and verification complete; ready to execute
+Last session: 2026-11-19T21:12:24.929Z
+Stopped at: Completed Phase 11 Plan 01; continuing autonomous Phase 11 execution
 Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps

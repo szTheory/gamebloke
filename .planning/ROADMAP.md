@@ -53,7 +53,12 @@ work; decimal IDs are reserved for later insertions.
   2. Writes to registers, VRAM, palette RAM, and OAM before, at, and after the declared row boundary produce the expected sampled row from the ordered visible prefix, including same-cycle ordering.
   3. A caller can distinguish a complete frame from an invalid or incomplete epoch through the existing raw-video contract.
   4. Refused or capacity-limited work preserves machine state, video memory, frame contents, and caller output buffers, while an admitted exact-fit operation commits its complete result.
-**Plans**: TBD
+**Plans**: 1/5 plans executed
+- [x] 11-01-PLAN.md
+- [ ] 11-02-PLAN.md
+- [ ] 11-03-PLAN.md
+- [ ] 11-04-PLAN.md
+- [ ] 11-05-PLAN.md
 
 ### Phase 12: Background Modes 0–5
 **Goal**: Users of the canonical raw-video path can obtain expected text, affine, and bitmap background pixels across display modes 0–5.
@@ -117,7 +122,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Sampled Rows and Transactional Visibility | 0/TBD | Not started | - |
+| 11. Sampled Rows and Transactional Visibility | 1/5 | In Progress | - |
 | 12. Background Modes 0–5 | 0/TBD | Not started | - |
 | 13. Objects and Layer Priorities | 0/TBD | Not started | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
