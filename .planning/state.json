@@ -1,33 +1,12 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v2.0 — Time, Interrupts, DMA, First Pixels",
-  "phases": [
-    {
-      "number": "7",
-      "name": "Time Authority and Timer 0 Polling Proof",
-      "status": "complete"
-    },
-    {
-      "number": "8",
-      "name": "IRQ, HALT, and Timestamped Input",
-      "status": "complete"
-    },
-    {
-      "number": "9",
-      "name": "Bus Timing, DMA, and Arbitration",
-      "status": "complete"
-    },
-    {
-      "number": "10",
-      "name": "PPU Timing and First Pixels",
-      "status": "complete"
-    }
-  ],
+  "milestone": "v3.0",
+  "phases": [],
   "next": {
-    "command": "$gsd-progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "$gsd-discuss-phase",
+    "label": "Discuss the first phase",
+    "reason": "Project initialized — plan your first phase"
   },
-  "updated_at": "2026-11-19T17:14:52.168Z"
+  "updated_at": "2026-11-19T17:59:02.344Z"
 }

@@ -2,11 +2,15 @@
 gsd_state_version: "1.0"
 milestone: v3.0
 milestone_name: PPU Modes and Composition
-status: planning
-last_updated: "2026-11-19T17:59:02.341Z"
+current_phase: 11
+current_phase_name: Sampled Rows and Transactional Visibility; first of five v3.0 phases
+status: Ready to plan (roadmap review belongs to the orchestrator; no phase started)
+stopped_at: v3.0 roadmap created with Phases 11–15 and exact 18/18 requirement coverage; orchestrator owns milestone review and the phase-planning handoff
+last_updated: "2026-11-19T18:37:17.354Z"
 last_activity: 2026-11-19
+state_head: 83d9ebc0e66b5b3ea8a65679f8653fcb278d929f
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,15 +24,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-19)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
-**Current milestone:** v2.0 Time, Interrupts, DMA, First Pixels (a GSD milestone label, not a software version)
-**Current focus:** Awaiting the next milestone definition
+**Current milestone:** v3.0 PPU Modes and Composition (a GSD milestone label, not a software version)
+**Current focus:** Phase 11 — Sampled Rows and Transactional Visibility; roadmap created for milestone review, before phase planning or execution
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-11-19 — Milestone v3.0 started
+Phase: 11 of 15 (Sampled Rows and Transactional Visibility; first of five v3.0 phases)
+Plan: 0 of TBD in current phase
+Status: Ready to plan (roadmap review belongs to the orchestrator; no phase started)
+Last activity: 2026-11-19
+
+Progress: [░░░░░░░░░░] 0% (current milestone)
 
 
 ## Performance Metrics
@@ -164,6 +170,9 @@ Last activity: 2026-11-19 — Milestone v3.0 started
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v3.0 Roadmap]: Phase 11 owns the mode/output contract, sampled rows, and transactional visibility; Phase 12 delivers all text/affine/bitmap BG families; Phase 13 owns OBJ and shared priority; Phase 14 owns windows/effects/mosaic/blank; Phase 15 owns CPU/DMA video-memory policy enforcement and complete semantic/runner/replay evidence. All 18 current requirements have one owner phase; tests accompany each feature, with full coverage accepted in Phase 15.
+- [v3.0 Limits]: Preserve the selected 1006-cycle HBlank and line-sampling policy, open HBlank/DMA-latch/within-line disputes, UNKNOWN hardware qualification, fixture-rights limits, and every existing hosted/budget/no-retry stop. No new BIOS, third-party fixture, hosted rerun, publication, or implementation authority follows from roadmap creation. See ROADMAP.md and PROJECT.md for scope and horizon alternatives.
 
 - [v2.0 Roadmap]: Phase 7 owns TIME-01, TIME-03, TIME-05, BUS-06, and VERIF-08: one machine time/event path, all four timers, explicit cycle-accounting scope, an original BIOS-free Timer 0 polling proof, and cheap event-boundary/test-selection checks. Model evidence must remain labeled until required timing costs are sourced and modeled.
 - [v2.0 Roadmap]: Phase 8 owns IRQ/HALT/timestamped input; Phase 9 owns WAITCNT/prefetch scope and DMA arbitration; Phase 10 owns PPU timing, raw mode-3 output, and polling Playable 0. Device requests remain distinct from CPU acceptance/entry and HALT wake.
@@ -464,11 +473,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-19T06:51:45.781Z
-Stopped at: v2.0 closeout complete; no next milestone started
+Last session: 2026-11-19
+Stopped at: v3.0 roadmap created with Phases 11–15 and exact 18/18 requirement coverage; orchestrator owns milestone review and the phase-planning handoff
 Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
 
-- When ready, start the next milestone with $gsd-new-milestone. No further action is needed to close v2.0.
+- Orchestrator: validate and present the v3.0 roadmap, complete milestone review, then route Phase 11 to discussion/planning. No implementation, hosted run, or publication occurred during roadmap creation; no owner action is needed for routine roadmap validation.

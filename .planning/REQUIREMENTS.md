@@ -20,7 +20,7 @@ claim cycle accuracy, hardware qualification, or broad compatibility.
 
 - [ ] **BG-01**: Text backgrounds in modes 0 and 1 render supported tile/map sizes, scrolling, flips, tile/palette selection, transparency, and bounded address behavior from canonical video memory.
 - [ ] **BG-02**: Affine backgrounds in modes 1 and 2 render using declared signed fixed-point transform and reference-update policies, with deterministic wrap/out-of-area behavior and bounded address calculations.
-- [ ] **BG-03**: Bitmap backgrounds in modes 3, 4, and 5 render their declared direct or indexed color formats, mode extents, palette use, page selection, and deterministic out-of-area behavior.
+- [ ] **BG-03**: Bitmap backgrounds in modes 3, 4, and 5 render their declared direct or indexed color formats, mode extents, palette use, page selection, format-appropriate transparency, and deterministic out-of-area behavior.
 
 ### Objects
 
@@ -45,7 +45,7 @@ claim cycle accuracy, hardware qualification, or broad compatibility.
 ## Future Requirements
 
 - **AUD-01**: Deterministic PSG and Direct Sound/FIFO output in machine-time units, separate from host resampling and playback — later audio milestone.
-- **CART-01**: Explicitly selected cartridge backup-device behavior and safe persistent save import/export — later cartridge and saves milestone.
+- **CART-01**: Declared 32 KiB SRAM backup-device behavior and safe persistent save import/export — later cartridge and saves milestone.
 - **API-01**: A stable public lifecycle, content, input, advancement, output ownership, reset, error, and refusal contract — later API/consumer milestone.
 - **PKG-01**: A relocatable package and installed consumer that exercises the public contract — later API/consumer milestone.
 
@@ -65,8 +65,26 @@ The roadmap assigns every current v3.0 requirement to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| PPU-03 | Phase 11 | Pending |
+| PPU-04 | Phase 11 | Pending |
+| PPU-05 | Phase 15 | Pending |
+| PPU-06 | Phase 11 | Pending |
+| BG-01 | Phase 12 | Pending |
+| BG-02 | Phase 12 | Pending |
+| BG-03 | Phase 12 | Pending |
+| OBJ-01 | Phase 13 | Pending |
+| OBJ-02 | Phase 13 | Pending |
+| OBJ-03 | Phase 13 | Pending |
+| COMP-01 | Phase 13 | Pending |
+| COMP-02 | Phase 14 | Pending |
+| COMP-03 | Phase 14 | Pending |
+| COMP-04 | Phase 14 | Pending |
+| COMP-05 | Phase 14 | Pending |
+| VERIF-09 | Phase 15 | Pending |
+| VERIF-10 | Phase 15 | Pending |
+| VERIF-11 | Phase 15 | Pending |
 
-**Coverage:** 18 current requirements; phase mapping pending roadmap creation.
+**Coverage:** 18/18 current requirements mapped exactly once; 0 orphaned and 0 duplicate assignments. Future requirements and historical carryovers are outside this milestone's mapping.
 
 ---
 *Requirements defined: 2026-11-19*
