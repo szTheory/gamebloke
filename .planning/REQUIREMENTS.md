@@ -33,7 +33,7 @@
 
 - [x] **PPU-01**: PPU line/dot events update VCOUNT and DISPSTAT and request VBlank, HBlank, and VCOUNT interrupts or DMA triggers at explicit boundaries. The HBlank edge remains labeled with its evidence and dispute status; tests assert the chosen project behavior without overstating hardware qualification.
 - [x] **PPU-02**: A deterministic mode-3 renderer produces raw BGR555 pixels from the canonical machine state. Register and memory effects use an explicit latch-point policy, and tests check semantic line/pixel behavior as well as repeatable frame bytes.
-- [ ] **PLAY-01**: An original in-tree BIOS-free polling scenario exercises mode-3 output as Playable 0, with guest progress, machine time, and raw video observed separately. Playability is accepted only by the owner's judgment (G6). An IRQ-driven variant is deferred until its BIOS requirements are authorized.
+- [ ] **PLAY-01**: An original in-tree BIOS-free mode-3 guest is runnable interactively through a local host, with guest progress, machine time, and video kept distinct from presentation. The owner must launch and control the guest before recording the subjective Playable 0 judgment (G6); a Markdown packet or scripted final frame alone is insufficient. Retail-game compatibility, audio, saves, BIOS handling, and an IRQ-driven variant remain deferred.
 
 ### Verification
 

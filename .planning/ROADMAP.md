@@ -139,7 +139,7 @@ Plans:
 
 ### Phase 10: PPU Timing and First Pixels
 
-**Goal**: A developer can inspect deterministic PPU boundaries and raw mode-3 BGR555 output from an original BIOS-free polling scenario, and the owner can judge Playable 0 using that scenario.
+**Goal**: A developer can inspect deterministic PPU boundaries and raw mode-3 BGR555 output from an original BIOS-free polling scenario, and the owner can launch and control that guest locally before judging Playable 0.
 **Depends on**: Phase 9
 **Requirements**: PPU-01, PPU-02, PLAY-01
 **Success Criteria** (what must be TRUE):
@@ -147,7 +147,7 @@ Plans:
   2. PPU interrupt requests use the existing request path, and PPU DMA triggers use the existing arbiter. Their observable ordering agrees with the declared same-cycle policy while the CPU and devices share one time authority.
   3. Mode-3 output contains raw BGR555 pixels derived from canonical memory and the documented latch-point policy. Semantic line/pixel checks detect a deliberately wrong color/address/latch result, and repeated fresh runs produce identical frame bytes.
   4. An original in-tree BIOS-free polling scenario responds to a deterministic logical input timeline and produces observable guest progress, machine time, and raw video as separate outputs, without audio or save requirements.
-  5. The owner records the G6 playability judgment for Playable 0. Until that judgment is recorded, automated guest/pixel evidence can pass while subjective playable acceptance remains visibly pending.
+  5. The owner can launch the Gamebloke Libretro module in the installed local RetroArch, use live controls, and observe the original guest respond across multiple frames. G6 remains pending until the owner has tried this actual Gamebloke session; a report or mGBA session does not satisfy it.
 **Plans**: 9/10 plans executed
 - [ ] 10-10-PLAN.md
 - [x] 10-01-PLAN.md

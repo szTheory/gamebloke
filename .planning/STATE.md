@@ -466,6 +466,6 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Record the owner G6 accept/reject/needs-changes judgment for Playable 0 through `$gsd-verify-work 10`.
+- Finish Plan 10-10, then ask the owner to launch and control the local Gamebloke RetroArch demo before recording G6 through `$gsd-verify-work 10`.
 - After G6 is resolved, continue `$gsd-autonomous --from 10` through v2.0 milestone audit, completion, and cleanup. Keep HBlank hardware qualification UNKNOWN and fixture redistribution local-only/unknown.
 - Preserve the existing hosted/publication stops and Phase 6 DIAG-04/DET-02 carryovers; Phase 10 completion does not close or renew them.
