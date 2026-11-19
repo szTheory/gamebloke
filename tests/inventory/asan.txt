@@ -69,6 +69,10 @@ cpu.no_bios core,cpu,unit
 cpu.peek core,cpu,unit
 cpu.pos.clean core,cpu,positive
 cpu.power.boundary core,cpu,unit
+cpu.ppu.dma core,cpu,ppu,unit
+cpu.ppu.irq core,cpu,ppu,unit
+cpu.ppu.latch core,cpu,ppu,unit
+cpu.ppu.refusal core,cpu,ppu,unit
 cpu.psr core,cpu,unit
 cpu.slots core,cpu,unit
 cpu.slots_bounds core,cpu,unit
@@ -87,6 +91,8 @@ cpu.tracer core,cpu,unit
 cpu.unit_boundaries core,cpu,unit
 cpu.waitcnt core,cpu,unit
 determinism.interleave.controls determinism,gate,integration
+determinism.phase10 determinism,gate,integration
+determinism.phase10.controls determinism,gate,integration
 determinism.phase8 determinism,gate,integration
 determinism.phase8.controls determinism,gate,integration
 determinism.phase9 determinism,gate,integration
@@ -841,6 +847,9 @@ dma.arbitration core,dma,unit
 dma.controls core,dma,unit
 dma.events core,dma,unit
 dma.latch core,dma,unit
+dma.ppu.order core,dma,ppu,unit
+dma.ppu.refusal core,dma,ppu,unit
+dma.ppu.triggers core,dma,ppu,unit
 dma.refusal core,dma,unit
 dma.registers core,dma,unit
 inventory.junit post
@@ -864,6 +873,11 @@ loader.pos.clean core,loader,positive
 loader.transaction core,loader,unit
 logo_digest.authority_cases control,loader
 machine.state core,machine,unit
+phase10.policy gate,ppu,profile,time
+phase10.policy.control control,ppu,profile,time
+phase10.selection.control gate,ppu,time
+phase10.selection.order gate,ppu,time
+phase10.selection.verify gate,ppu,time
 phase7.order gate,time,timer
 phase7.selection.control gate,time,timer
 phase8.order gate,time,timer
@@ -875,11 +889,21 @@ phase9.order gate,time,timer
 phase9.policy gate,profile,time
 phase9.policy.control gate,profile,time
 phase9.selection.control gate,time,timer
+ppu.boundary bus,core,ppu,unit
+ppu.controls bus,core,ppu,unit
+ppu.frame bus,core,integration,ppu
+ppu.latch bus,core,ppu,unit
+ppu.refusal bus,core,ppu,unit
+ppu.registers bus,core,ppu,unit
+ppu.tracer bus,core,integration,ppu
 runner.hash runner,unit
 runner.help runner,unit
 runner.input.cli gate,integration,runner
 runner.metadata gate,runner
 runner.no_args runner,unit
+runner.ppu.observation integration,ppu,runner
+runner.ppu.output integration,ppu,runner
+runner.ppu.output-controls integration,ppu,runner
 runner.relocation gate,integration,runner
 runner.relocation_admitted diagnostics,gate,integration,runner skip-ok
 runner.relocation_control control,runner

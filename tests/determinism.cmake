@@ -39,6 +39,14 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     NAME determinism.phase9
     LABELS determinism gate integration
     COMMAND $<TARGET_FILE:determinism_test> phase9)
+  gbl_add_test(
+    NAME determinism.phase10.controls
+    LABELS determinism gate integration
+    COMMAND $<TARGET_FILE:determinism_test> phase10-controls)
+  gbl_add_test(
+    NAME determinism.phase10
+    LABELS determinism gate integration
+    COMMAND $<TARGET_FILE:determinism_test> phase10)
 
   foreach(case IN ITEMS repeat-process controls)
     if(case STREQUAL "controls")

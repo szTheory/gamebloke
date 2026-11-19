@@ -82,6 +82,22 @@ gbl_add_test(
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> video)
 gbl_add_test(
+  NAME ppu.tracer
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.tracer)
+foreach(selector IN ITEMS ppu.boundary ppu.registers ppu.latch ppu.frame
+    ppu.refusal ppu.controls)
+  if(selector STREQUAL "ppu.frame")
+    set(labels bus core integration ppu)
+  else()
+    set(labels bus core ppu unit)
+  endif()
+  gbl_add_test(
+    NAME ${selector}
+    LABELS ${labels}
+    COMMAND $<TARGET_FILE:bus_test> ${selector})
+endforeach()
+gbl_add_test(
   NAME bus.irq.registers
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> irq.registers)
@@ -234,6 +250,12 @@ gbl_add_test(
   NAME cpu.dma.waitcnt
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> dma.waitcnt)
+foreach(selector IN ITEMS irq latch refusal dma)
+  gbl_add_test(
+    NAME cpu.ppu.${selector}
+    LABELS core cpu ppu unit
+    COMMAND $<TARGET_FILE:cpu_test> ppu.${selector})
+endforeach()
 
 # The Phase 09 DMA selectors are declared now and enter CTest when their lane
 # inventory rows are added by plan 09-07. Until then they remain directly
@@ -273,6 +295,56 @@ if(GBL_INVENTORY_LANE STREQUAL "ci" OR GBL_INVENTORY_LANE STREQUAL "asan")
       COMMAND $<TARGET_FILE:cpu_test> dma.cpu)
   endif()
 endif()
+foreach(selector IN ITEMS triggers order refusal)
+  gbl_add_test(
+    NAME dma.ppu.${selector}
+    LABELS core dma ppu unit
+    COMMAND $<TARGET_FILE:dma_test> ppu.${selector})
+endforeach()
+
+# These runner checks use only synthetic-control fixtures. Give each case its
+# own scratch path because CTest may run them concurrently.
+foreach(selector IN ITEMS observation output output-controls)
+  gbl_add_test(
+    NAME runner.ppu.${selector}
+    LABELS integration ppu runner
+    COMMAND $<TARGET_FILE:runner_test> ppu.${selector}
+      "${CMAKE_BINARY_DIR}/runner-ppu-${selector}")
+endforeach()
+
+# The Phase 10 profile gate checks runtime observations without running a guest.
+set(GBL_PHASE10_POLICY_GATE
+  "${CMAKE_SOURCE_DIR}/tests/gates/phase10_policy.cmake")
+gbl_add_test(
+  NAME phase10.policy
+  LABELS gate profile ppu time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=verify -P "${GBL_PHASE10_POLICY_GATE}")
+gbl_add_test(
+  NAME phase10.policy.control
+  LABELS control profile ppu time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${GBL_PHASE10_POLICY_GATE}")
+
+# Selection registrations land with Task 1 so inventory checks cover the exact
+# Phase 10 gate contract while Task 2 supplies the verifier implementation.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase10.selection.control)
+  else()
+    set(test_name phase10.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase10_selection.cmake")
+endforeach()
 set_tests_properties(cpu.power.boundary time.halt.boundary time.halt.refusal
   PROPERTIES TIMEOUT 10)
 
