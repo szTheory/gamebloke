@@ -162,14 +162,15 @@ sh scripts/play-playable0-local.sh --check
 ```
 
 The Libretro module maps keyboard input to the original guest and emits frames
-from the canonical machine. The dynamic mock frontend verifies that wiring and
-the live input sequence. On the latest measured Release run, cadence was 14.19
-frames/second over 60 frames; previous unprofiled runs ranged from 13.96 to
-14.66 FPS. RIGHT appeared after one guest frame (68.4 ms latest; 67.5–72.1 ms
-across those runs). This is below the guest's roughly 59.7 Hz display cadence,
-so responsiveness remains a known limitation. Link-time optimization did not
-improve it; a focused preview/transaction-copy benchmark is the least disruptive
-next measurement.
+from the canonical machine. The dynamic frontend verifies that wiring and the
+live input sequence. The Phase 10-10 historical Release baseline was 14.19
+frames/second over 60 frames; its prior unprofiled runs ranged from 13.96 to
+14.66 FPS, with RIGHT appearing after one guest frame (68.4 ms in that baseline).
+The latest local verifier run measured 14.82 FPS over 60 frames and 67.147 ms
+to show RIGHT. These core rates are below the guest's roughly 59.7 Hz display
+cadence; the separate terminal preview is slower still. Link-time optimization
+did not materially improve the core result; focused preview/transaction-copy
+measurement remains the least disruptive optimization step.
 
 `sh scripts/play-playable0-local.sh` is the RetroArch launch command when the
 installed app is permitted to start. `--check` validates local paths,
@@ -182,9 +183,48 @@ module, never the mGBA core. Audio and save devices are not implemented.
 
 The bounded installed-app smoke was attempted but macOS blocked LaunchServices
 with `kLSNoLaunchPermissionErr` (“User doesn't have permission to launch the app
-(managed networks)”). Thus no installed-host or owner-play evidence exists yet;
-the mock test is not a substitute. A dependency-free terminal Libretro frontend
-is the planned local host fallback. The owner review packet is intentionally not
-asking for G6 until an actual interactive path is ready. The continuous guest
-remains project-authored local-only content with redistribution unknown; no
-retail compatibility or hardware claim follows from these checks.
+(managed networks)”). The app was denied before it ran. This remains historical
+RetroArch evidence; no retry or policy bypass was attempted.
+
+## Interactive terminal trial
+
+The dependency-free terminal host uses the same Gamebloke dynamic module and
+continuous guest. Its local command builds and verifies the module and guest,
+runs bounded actual-module PTY checks, then launches the interactive view:
+
+```sh
+sh scripts/play-playable0-terminal.sh
+```
+
+Run the individual checks without leaving an interactive session, or run the
+bounded PTY smoke directly:
+
+```sh
+sh scripts/play-playable0-terminal.sh --check
+sh scripts/play-playable0-terminal.sh --smoke
+sh scripts/verify-libretro-local.sh
+```
+
+These scripts refuse when `CI` is set before generating the local guest. The
+generated guest, module, executable, and logs remain under ignored
+`build/libretro-local/`. The verifier uses Python's standard library for its
+PTY harness; no Python package or runtime library is added. The user-facing C
+host itself uses the pinned Libretro header and POSIX APIs, with no runtime
+dependency.
+
+Use one ANSI color terminal at least 60 columns by 24 rows. `D`/`F` press and
+release RIGHT, `J`/`K` press and release A, Space releases all, `R` resets, and
+`Q` exits. Explicit release keys are needed because terminal input does not
+provide key-up events. The host samples 240×160 callback frames into a 60×20
+view. A bounded 30-frame PTY display sample measured 11.80 frames/second; a
+separate 30-frame core callback smoke measured 15.10 frames/second. The earlier
+14.19 FPS measurement came from a distinct 60-frame core test and is historical
+context. All remain below the guest's roughly 59.7 Hz display cadence.
+
+The PTY checks validate actual marker colors and movement, independent button
+holds/releases, reset, malformed inputs, size/resize behavior, handled signals,
+and terminal restoration. They establish an interactive host path, not the
+owner's subjective G6 judgment. Ask for G6 only after the owner runs the
+[concrete trial](../.planning/phases/10-ppu-timing-and-first-pixels/10-OWNER-REVIEW.md).
+The guest stays project-authored, BIOS-free, and local-only with redistribution
+unknown; no retail compatibility, hardware accuracy, or rights claim follows.
