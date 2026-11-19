@@ -1,3 +1,5 @@
+#define _DEFAULT_SOURCE
+#define _DARWIN_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include "libretro.h"
 
@@ -10,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 typedef void (*retro_set_environment_fn)(retro_environment_t);
 typedef void (*retro_set_video_refresh_fn)(retro_video_refresh_t);
@@ -329,30 +332,53 @@ static bool copy_file(const char *source_path, const char *destination_path)
     return okay;
 }
 
+static void remove_peer_copy(const char *peer_path,
+                             const char *peer_directory)
+{
+    if (peer_path[0] != '\0') (void)remove(peer_path);
+    (void)rmdir(peer_directory);
+}
+
 static bool run_interleaved(core_api *first, const char *module_path,
                             const struct retro_game_info *game,
                             uint64_t expected_digest)
 {
+    char peer_directory[2048];
     char peer_path[2048];
     void *peer_library = NULL;
     core_api peer;
     bool okay = false;
+    int path_length;
     unsigned frame;
     uint64_t first_digest = 0u;
     uint64_t peer_digest = 0u;
     bool independent_input = false;
 
-    if (snprintf(peer_path, sizeof(peer_path), "%s.peer", module_path) < 0 ||
-        strlen(module_path) + sizeof(".peer") > sizeof(peer_path) ||
-        !copy_file(module_path, peer_path)) {
+    path_length = snprintf(peer_directory, sizeof(peer_directory),
+                           "%s.peer.XXXXXX", module_path);
+    if (path_length < 0 || (size_t)path_length >= sizeof(peer_directory) ||
+        mkdtemp(peer_directory) == NULL) {
+        fputs("libretro-test: could not prepare isolated peer directory\n", stderr);
+        return false;
+    }
+    peer_path[0] = '\0';
+    path_length = snprintf(peer_path, sizeof(peer_path), "%s/module.peer",
+                           peer_directory);
+    if (path_length < 0 || (size_t)path_length >= sizeof(peer_path)) {
+        fputs("libretro-test: isolated peer path is too long\n", stderr);
+        remove_peer_copy(peer_path, peer_directory);
+        return false;
+    }
+    if (!copy_file(module_path, peer_path)) {
         fputs("libretro-test: could not prepare isolated peer module\n", stderr);
+        remove_peer_copy(peer_path, peer_directory);
         return false;
     }
     peer_library = dlopen(peer_path, RTLD_NOW | RTLD_LOCAL);
     if (peer_library == NULL || !load_api(peer_library, &peer)) {
         fprintf(stderr, "libretro-test: peer module load failed: %s\n", dlerror());
         if (peer_library != NULL) (void)dlclose(peer_library);
-        (void)remove(peer_path);
+        remove_peer_copy(peer_path, peer_directory);
         return false;
     }
     peer.set_environment(test_environment);
@@ -367,7 +393,7 @@ static bool run_interleaved(core_api *first, const char *module_path,
         fputs("libretro-test: isolated peer refused the continuous guest\n", stderr);
         peer.deinit();
         (void)dlclose(peer_library);
-        (void)remove(peer_path);
+        remove_peer_copy(peer_path, peer_directory);
         return false;
     }
 
@@ -432,7 +458,7 @@ cleanup:
     peer.unload_game();
     peer.deinit();
     (void)dlclose(peer_library);
-    (void)remove(peer_path);
+    remove_peer_copy(peer_path, peer_directory);
     return okay;
 }
 
