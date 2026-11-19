@@ -4,18 +4,18 @@ milestone: v2.0
 milestone_name: Time, Interrupts, DMA, First Pixels
 current_phase: 10
 current_phase_name: PPU Timing and First Pixels
-current_plan: 10
+current_plan: 11
 status: verifying
-stopped_at: Completed Plan 10-10 implementation; owner trial blocked pending a runnable local host
-last_updated: "2026-11-19T04:55:52.337Z"
-last_activity: 2026-11-18
-last_activity_desc: Phase 10 execution started
-state_head: ed79259e16c0f82d0501f89bfbb93000e8a0b046
+stopped_at: Completed 10-11 plan; awaiting owner live terminal trial for G6
+last_updated: "2026-11-19T06:51:47.237Z"
+last_activity: 2026-11-19
+last_activity_desc: Plan 10-11 terminal host and owner trial packet complete
+state_head: fac84e5bec335b2d22a0a8df03c71e41747477f6
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 32
-  completed_plans: 32
+  total_plans: 33
+  completed_plans: 33
   percent: 75
 ---
 
@@ -31,11 +31,11 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 
 ## Current Position
 
-Phase: 10 (PPU Timing and First Pixels) — EXECUTING
-Current Plan: 10
-Total Plans in Phase: 10
-Status: Phase complete — ready for verification
-Last activity: 2026-11-18 — Phase 10 execution started
+Phase: 10 (PPU Timing and First Pixels) — VERIFYING
+Current Plan: 11
+Total Plans in Phase: 11
+Status: Automated host checks passed — waiting for owner live play/G6
+Last activity: 2026-11-19 — terminal interactive trial is ready
 
 Progress: [████████░░] 75%
 
@@ -164,6 +164,7 @@ Progress: [████████░░] 75%
 | Phase 10 P08 | 59m31s | 3 tasks | 11 files |
 | Phase 10 P9 | not measured | 2 tasks | 4 files |
 | Phase 10 P10 | >=45 min; exact start unavailable | 3 tasks | 14 files |
+| Phase 10 P11 | 84 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -415,6 +416,10 @@ Recent decisions affecting current work:
 - [Phase 10]: Generate the continuous original guest only under ignored local build output; redistribution remains unknown.
 - [Phase 10]: Keep PLAY-01 and G6 pending until a real interactive local host is available and the owner has tried it.
 - [Phase 10]: Use a dependency-free terminal Libretro frontend after managed RetroArch launch denial; benchmark preview/transaction copies before considering core redesign.
+- [Phase 10]: Use the existing dynamic Gamebloke Libretro module and canonical machine; add no second emulator implementation or runtime dependency.
+- [Phase 10]: Render a 60x20 ANSI RGB preview with explicit press/release controls and pace from validated Libretro AV timing.
+- [Phase 10]: Keep generated guest bytes under ignored local build output and retain local-only, redistribution-unknown limits.
+- [Phase 10]: Keep PLAY-01 and G6 pending until owner live play; the managed RetroArch denial remains historical with no retry or policy bypass.
 
 ### Pending Todos
 
@@ -444,7 +449,7 @@ None yet.
 
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
 - Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
-- macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; no owner interactive trial is ready and G6 remains pending. Next action: parent plans a dependency-free terminal Libretro frontend, then verify its live controls/video before requesting owner judgment.
+- macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The dependency-free terminal Libretro host and its live controls/video are now verified. The owner must run the documented terminal trial and record G6 before PLAY-01 is closed.
 
 ## Deferred Items
 
@@ -466,12 +471,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-19T04:55:52.132Z
-Stopped at: Completed Plan 10-10 implementation; owner trial blocked pending a runnable local host
-Resume file: None
+Last session: 2026-11-19T06:51:45.781Z
+Stopped at: Completed 10-11 plan; awaiting owner live terminal trial for G6
+Resume file: .planning/phases/10-ppu-timing-and-first-pixels/10-UAT.md
 
 ## Operator Next Steps
 
-- Finish Plan 10-10, then ask the owner to launch and control the local Gamebloke RetroArch demo before recording G6 through `$gsd-verify-work 10`.
+- Ask the owner to run `sh /private/tmp/gamebloke-phase09-wt/scripts/play-playable0-terminal.sh`, exercise RIGHT/A and reset/exit, then record accept/reject/needs changes through `$gsd-verify-work 10`. Keep PLAY-01 and G6 pending until that live trial occurs.
 - After G6 is resolved, continue `$gsd-autonomous --from 10` through v2.0 milestone audit, completion, and cleanup. Keep HBlank hardware qualification UNKNOWN and fixture redistribution local-only/unknown.
 - Preserve the existing hosted/publication stops and Phase 6 DIAG-04/DET-02 carryovers; Phase 10 completion does not close or renew them.

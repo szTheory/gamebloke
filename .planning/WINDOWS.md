@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 6
 waived_count: 0
 fixed_count: 25
-total_count: 30
-last_updated: 2026-11-19T04:52:36.486Z
+total_count: 31
+last_updated: 2026-11-19T06:52:12.913Z
 ---
 
 # Broken Windows Ledger
@@ -45,6 +45,7 @@ last_updated: 2026-11-19T04:52:36.486Z
 | 28 | 10 | deviation | src/cpu.c |  | Added PPU boundaries to the CPU live-event scan so a masked PPU IF request wakes HALT without becoming IRQ acceptance. | fixed |  | 2026-11-18T19:15:57.608Z | 2026-11-18T19:16:06.312Z |
 | 29 | 10 | deviation | tests/bus_test.c |  | Corrected stale PPU/video fixtures for full DISPCNT preservation, cycle-zero supported sampling, VBlank/HBlank masks, and the new capture-reason baseline; focused selectors pass. | fixed |  | 2026-11-18T19:16:03.766Z | 2026-11-18T19:16:06.421Z |
 | 30 | 10 | unrun-verify | scripts/play-playable0-local.sh |  | Installed RetroArch smoke could not start because managed macOS LaunchServices returned kLSNoLaunchPermissionErr; owner trial remains pending until an interactive local host is available. | open |  | 2026-11-19T04:52:36.486Z |  |
+| 31 | 10 | unrun-verify | .planning/phases/10-ppu-timing-and-first-pixels/10-UAT.md |  | Owner live terminal trial and G6 judgment remain pending; automated PTY checks do not replace owner play. | open |  | 2026-11-19T06:52:12.913Z |  |
 
 ````json
 [
@@ -435,6 +436,19 @@ last_updated: 2026-11-19T04:52:36.486Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-19T04:52:36.486Z",
+    "resolved_at": null,
+    "milestone": "v2.0"
+  },
+  {
+    "id": 31,
+    "kind": "unrun-verify",
+    "phase": "10",
+    "file": ".planning/phases/10-ppu-timing-and-first-pixels/10-UAT.md",
+    "line": null,
+    "description": "Owner live terminal trial and G6 judgment remain pending; automated PTY checks do not replace owner play.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-19T06:52:12.913Z",
     "resolved_at": null,
     "milestone": "v2.0"
   }
