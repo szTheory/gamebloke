@@ -171,6 +171,24 @@ these fields:
   result must disclose that dispute. This timing evidence is separate from Phase 9 DMA latch
   evidence. Automated PASS remains a fixture result; playable acceptance stays pending for
   owner evaluation and is not inferred from automation.
+- Mode 3 with BG2 enabled, forced blank disabled, no OBJ/windows/effects, and neutral
+  BG2 transform registers is the only supported capture state. Non-neutral BG2
+  transforms report `bg2-transform-unmodeled`. Frame `state` is `valid`,
+  `incomplete`, or `invalid`; `incomplete` has reason `incomplete`, while `invalid`
+  must name an unsupported control reason such as `unsupported-mode`, `bg2-disabled`,
+  `forced-blank`, `obj-enabled`, `window-enabled`, `effect-enabled`, or
+  `bg2-transform-unmodeled`. A non-valid frame keeps epoch/sample/completion fields
+  null and cannot emit stale or partial bytes. For requested output, incomplete and
+  invalid frame statuses match the frame state and carry no artifact; a valid frame
+  without an output artifact is `not-emitted`. Writer failure is `HARNESS_FAIL`
+  with reason `video-output-failed` and a named failure, and does not claim a
+  complete artifact. When output is not requested, the status is `not-requested`
+  with no artifact.
+- Visible rows are sampled from canonical VRAM at line start. At a shared cycle,
+  scheduled machine/PPU events run before the timed write's memory/register effect,
+  so the sample observes the prior value. This is project policy; it does not claim
+  a hardware latch point. The selected 1006-cycle HBlank edge remains disputed and
+  hardware qualification remains `UNKNOWN`.
 - Raw video is headerless: the layout is 160 rows of 240 little-endian BGR555 pixels,
   480 bytes per row and 76,800 bytes total. The output
   digest is SHA-256 over those raw video bytes, independent from the ROM digest and input
@@ -495,4 +513,6 @@ Fetched bytes land in `.fixtures/`, which git ignores. The gate `fetch.untracked
 ## Reading further
 
 - [verify.md](verify.md): the verify command, lanes, and every reason code.
+- [verification.md](verification.md): Phase 10's exact fast gates, local Playable 0
+  input, raw frame layout, and model/evidence limits.
 - [profile-agb.md](profile-agb.md): the profile narrative and its sync check.
