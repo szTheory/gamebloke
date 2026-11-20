@@ -18,8 +18,24 @@ typedef struct gbl_ppu_bg_sample {
     uint16_t color;
     uint8_t color_index;
     uint8_t background;
+    uint8_t priority;
     bool transparent;
 } gbl_ppu_bg_sample;
+
+typedef enum gbl_ppu_layer_class {
+    GBL_PPU_LAYER_CLASS_OBJ = 0,
+    GBL_PPU_LAYER_CLASS_BG = 1,
+    GBL_PPU_LAYER_CLASS_BACKDROP = 2
+} gbl_ppu_layer_class;
+
+typedef struct gbl_ppu_pixel_candidate {
+    uint16_t color;
+    uint8_t source_index;
+    uint8_t layer_class;
+    uint8_t priority;
+    uint8_t source_id;
+    bool transparent;
+} gbl_ppu_pixel_candidate;
 
 static void gbl_machine_copy_bytes(void *destination, const void *source,
                                    size_t length)
@@ -974,7 +990,8 @@ static bool gbl_ppu_project_bitmap_row(
 static bool gbl_ppu_project_text_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture, uint8_t background,
-    uint8_t row[GBL_PPU_ROW_BYTES])
+    uint8_t row[GBL_PPU_ROW_BYTES],
+    gbl_ppu_bg_sample samples[GBL_PPU_WIDTH], uint16_t *backdrop_color)
 {
     const uint32_t control_offset = (uint32_t)background * 2u;
     const uint32_t scroll_offset = GBL_PPU_BG_REGISTER_SCROLL_OFFSET +
@@ -1009,6 +1026,12 @@ static bool gbl_ppu_project_text_row(
             sizeof(palette_bytes), palette_bytes, sizeof(palette_bytes)) !=
         GBL_PPU_SAMPLE_STATUS_OK) {
         return false;
+    }
+    if (backdrop_color != NULL) {
+        *backdrop_color = (uint16_t)(
+            (uint16_t)palette_bytes[0] |
+            (uint16_t)((uint16_t)palette_bytes[1] << 8u));
+        *backdrop_color &= UINT16_C(0x7FFF);
     }
 
     for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
@@ -1095,6 +1118,7 @@ static bool gbl_ppu_project_text_row(
         }
 
         sample.background = background;
+        sample.priority = (uint8_t)(control & UINT16_C(0x0003));
         sample.transparent = sample.color_index == 0u;
         palette_index = sample.transparent
             ? 0u
@@ -1106,8 +1130,223 @@ static bool gbl_ppu_project_text_row(
             (uint16_t)((uint16_t)palette_bytes[palette_index * 2u + 1u]
                        << 8u));
         sample.color &= UINT16_C(0x7FFF);
+        if (samples != NULL) {
+            samples[pixel] = sample;
+        }
         row[pixel * 2u] = (uint8_t)(sample.color & UINT16_C(0x00FF));
         row[pixel * 2u + 1u] = (uint8_t)(sample.color >> 8u);
+    }
+    return true;
+}
+
+static uint16_t gbl_ppu_memory_u16(const uint8_t *bytes, size_t offset)
+{
+    return (uint16_t)(
+        (uint16_t)bytes[offset] |
+        (uint16_t)((uint16_t)bytes[offset + 1u] << 8u));
+}
+
+static bool gbl_ppu_candidate_precedes(
+    const gbl_ppu_pixel_candidate *candidate,
+    const gbl_ppu_pixel_candidate *current)
+{
+    if (candidate->transparent) {
+        return false;
+    }
+    if (current->transparent || candidate->priority < current->priority) {
+        return true;
+    }
+    if (candidate->priority > current->priority) {
+        return false;
+    }
+    if (candidate->layer_class != current->layer_class) {
+        return candidate->layer_class < current->layer_class;
+    }
+    return candidate->source_id < current->source_id;
+}
+
+static void gbl_ppu_offer_candidate(
+    gbl_ppu_pixel_candidate *current,
+    const gbl_ppu_pixel_candidate *candidate)
+{
+    if (gbl_ppu_candidate_precedes(candidate, current)) {
+        *current = *candidate;
+    }
+}
+
+static bool gbl_ppu_project_mode0_obj_row(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_row_capture *capture,
+    uint8_t row[GBL_PPU_ROW_BYTES])
+{
+    uint8_t oam_bytes[GBL_OAM_SIZE];
+    uint8_t obj_palette[512];
+    uint8_t background_row[GBL_PPU_ROW_BYTES];
+    gbl_ppu_bg_sample background_samples[GBL_PPU_WIDTH];
+    gbl_ppu_pixel_candidate candidates[GBL_PPU_WIDTH];
+    uint16_t backdrop_color = 0u;
+    uint8_t background;
+    const bool has_background = gbl_ppu_selected_text_bg(
+        capture->dispcnt, &background);
+    uint32_t pixel;
+    size_t object;
+
+    if (gbl_ppu_sample_read(
+            machine, preview, capture, GBL_BUS_REGION_OAM, 0u, 2u,
+            sizeof(oam_bytes), oam_bytes, sizeof(oam_bytes)) !=
+            GBL_PPU_SAMPLE_STATUS_OK ||
+        gbl_ppu_sample_read(
+            machine, preview, capture, GBL_BUS_REGION_PRAM, UINT32_C(0x200),
+            2u, sizeof(obj_palette), obj_palette, sizeof(obj_palette)) !=
+            GBL_PPU_SAMPLE_STATUS_OK) {
+        return false;
+    }
+    if (has_background) {
+        if (!gbl_ppu_project_text_row(
+                machine, preview, capture, background, background_row,
+                background_samples, &backdrop_color)) {
+            return false;
+        }
+    } else {
+        uint8_t backdrop_bytes[2];
+
+        if (gbl_ppu_sample_read(
+                machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
+                sizeof(backdrop_bytes), backdrop_bytes,
+                sizeof(backdrop_bytes)) != GBL_PPU_SAMPLE_STATUS_OK) {
+            return false;
+        }
+        backdrop_color = (uint16_t)(
+            (uint16_t)backdrop_bytes[0] |
+            (uint16_t)((uint16_t)backdrop_bytes[1] << 8u));
+        backdrop_color &= UINT16_C(0x7FFF);
+        for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+            background_samples[pixel] = (gbl_ppu_bg_sample){
+                .color = 0u,
+                .color_index = 0u,
+                .background = UINT8_MAX,
+                .priority = UINT8_MAX,
+                .transparent = true
+            };
+        }
+    }
+
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const gbl_ppu_bg_sample *sample = &background_samples[pixel];
+
+        candidates[pixel] = (gbl_ppu_pixel_candidate){
+            .color = backdrop_color,
+            .source_index = 0u,
+            .layer_class = GBL_PPU_LAYER_CLASS_BACKDROP,
+            .priority = 4u,
+            .source_id = UINT8_MAX,
+            .transparent = false
+        };
+        if (!sample->transparent) {
+            const gbl_ppu_pixel_candidate background_candidate = {
+                .color = sample->color,
+                .source_index = sample->color_index,
+                .layer_class = GBL_PPU_LAYER_CLASS_BG,
+                .priority = sample->priority,
+                .source_id = sample->background,
+                .transparent = false
+            };
+
+            gbl_ppu_offer_candidate(&candidates[pixel],
+                                    &background_candidate);
+        }
+    }
+
+    for (object = 0u; object < 128u; ++object) {
+        const size_t oam_offset = object * 8u;
+        const uint16_t attribute0 =
+            gbl_ppu_memory_u16(oam_bytes, oam_offset);
+        const uint16_t attribute1 =
+            gbl_ppu_memory_u16(oam_bytes, oam_offset + 2u);
+        const uint16_t attribute2 =
+            gbl_ppu_memory_u16(oam_bytes, oam_offset + 4u);
+        const bool affine = (attribute0 & UINT16_C(0x0100)) != 0u;
+        const bool disabled = !affine &&
+            (attribute0 & UINT16_C(0x0200)) != 0u;
+        const uint16_t object_mode =
+            (uint16_t)(attribute0 & UINT16_C(0x0C00));
+        const uint16_t shape = (uint16_t)(attribute0 >> 14u);
+        const uint16_t size = (uint16_t)(attribute1 >> 14u);
+        const uint32_t object_y = (uint32_t)(attribute0 & UINT16_C(0x00FF));
+        const uint32_t relative_y =
+            ((uint32_t)capture->line - object_y) & UINT32_C(0x00FF);
+        uint64_t tile_offset_wide;
+        uint32_t tile_offset;
+        uint8_t tile_row[4];
+        uint32_t source_x;
+
+        if (disabled) {
+            continue;
+        }
+        if (affine || object_mode != 0u ||
+            (attribute0 & UINT16_C(0x3000)) != 0u || shape != 0u ||
+            size != 0u || (attribute0 & UINT16_C(0x2000)) != 0u) {
+            return false;
+        }
+        if (relative_y >= 8u) {
+            continue;
+        }
+
+        tile_offset_wide = UINT64_C(0x10000) +
+            (uint64_t)(attribute2 & UINT16_C(0x03FF)) * UINT64_C(32);
+        if (tile_offset_wide < UINT64_C(0x10000) ||
+            tile_offset_wide > UINT64_C(0x18000) ||
+            UINT64_C(32) > UINT64_C(0x18000) - tile_offset_wide ||
+            tile_offset_wide > (uint64_t)UINT32_MAX) {
+            return false;
+        }
+        tile_offset = (uint32_t)tile_offset_wide + relative_y * 4u;
+        if (gbl_ppu_sample_read(
+                machine, preview, capture, GBL_BUS_REGION_VRAM,
+                tile_offset, 1u, sizeof(tile_row), tile_row,
+                sizeof(tile_row)) != GBL_PPU_SAMPLE_STATUS_OK) {
+            return false;
+        }
+
+        for (source_x = 0u; source_x < 8u; ++source_x) {
+            const uint32_t screen_x =
+                ((uint32_t)(attribute1 & UINT16_C(0x01FF)) + source_x) &
+                UINT32_C(0x01FF);
+            const uint8_t packed = tile_row[source_x >> 1u];
+            const uint8_t color_index = (source_x & 1u) != 0u
+                ? (uint8_t)(packed >> 4u)
+                : (uint8_t)(packed & UINT8_C(0x0F));
+            const uint32_t palette_index =
+                (uint32_t)((attribute2 >> 12u) & UINT16_C(0x000F)) * 16u +
+                (uint32_t)color_index;
+            uint16_t color;
+            gbl_ppu_pixel_candidate candidate;
+
+            if (screen_x >= GBL_PPU_WIDTH || color_index == 0u) {
+                continue;
+            }
+            color = (uint16_t)(
+                (uint16_t)obj_palette[palette_index * 2u] |
+                (uint16_t)((uint16_t)obj_palette[palette_index * 2u + 1u]
+                           << 8u));
+            candidate = (gbl_ppu_pixel_candidate){
+                .color = (uint16_t)(color & UINT16_C(0x7FFF)),
+                .source_index = color_index,
+                .layer_class = GBL_PPU_LAYER_CLASS_OBJ,
+                .priority = (uint8_t)((attribute2 >> 10u) &
+                                      UINT16_C(0x0003)),
+                .source_id = (uint8_t)object,
+                .transparent = false
+            };
+            gbl_ppu_offer_candidate(&candidates[screen_x], &candidate);
+        }
+    }
+
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        row[pixel * 2u] = (uint8_t)(candidates[pixel].color &
+                                    UINT16_C(0x00FF));
+        row[pixel * 2u + 1u] =
+            (uint8_t)(candidates[pixel].color >> 8u);
     }
     return true;
 }
@@ -1122,12 +1361,16 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
     uint8_t affine_background;
 
     if (mode == 0u) {
+        if ((capture->dispcnt & UINT16_C(0x1000)) != 0u) {
+            return gbl_ppu_project_mode0_obj_row(machine, preview, capture,
+                                                 row);
+        }
         if (!gbl_ppu_selected_text_bg(capture->dispcnt,
                                       &text_background)) {
             return false;
         }
         return gbl_ppu_project_text_row(machine, preview, capture,
-                                        text_background, row);
+                                        text_background, row, NULL, NULL);
     }
     if (mode == 1u) {
         if ((capture->dispcnt & UINT16_C(0x0400)) != 0u) {
@@ -1143,7 +1386,7 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
             return false;
         }
         return gbl_ppu_project_text_row(machine, preview, capture,
-                                        text_background, row);
+                                        text_background, row, NULL, NULL);
     }
     if (mode == 2u) {
         if (!gbl_ppu_selected_affine_bg(capture->dispcnt,
@@ -1184,24 +1427,67 @@ static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
     if ((dispcnt & UINT16_C(0x0080)) != 0u) {
         return GBL_VIDEO_INVALID_REASON_FORCED_BLANK;
     }
-    if ((dispcnt & UINT16_C(0x1000)) != 0u) {
-        return GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
-    }
     if ((dispcnt & UINT16_C(0xE000)) != 0u) {
         return GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED;
     }
     return GBL_VIDEO_INVALID_REASON_NONE;
 }
 
+static gbl_video_invalid_reason gbl_ppu_obj_control_invalid_reason(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_timing_state *ppu,
+    const gbl_ppu_row_capture *capture)
+{
+    uint8_t oam_bytes[GBL_OAM_SIZE];
+    size_t object;
+
+    if ((ppu->dispcnt & UINT16_C(0x1000)) == 0u) {
+        return GBL_VIDEO_INVALID_REASON_NONE;
+    }
+    if ((ppu->dispcnt & UINT16_C(0x0007)) != 0u ||
+        gbl_ppu_sample_read(
+            machine, preview, capture, GBL_BUS_REGION_OAM, 0u, 2u,
+            sizeof(oam_bytes), oam_bytes, sizeof(oam_bytes)) !=
+            GBL_PPU_SAMPLE_STATUS_OK) {
+        return GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
+    }
+    for (object = 0u; object < 128u; ++object) {
+        const size_t offset = object * 8u;
+        const uint16_t attribute0 = gbl_ppu_memory_u16(oam_bytes, offset);
+        const uint16_t attribute1 =
+            gbl_ppu_memory_u16(oam_bytes, offset + 2u);
+        const bool affine = (attribute0 & UINT16_C(0x0100)) != 0u;
+        const bool disabled = !affine &&
+            (attribute0 & UINT16_C(0x0200)) != 0u;
+
+        if (disabled) {
+            continue;
+        }
+        if (affine || (attribute0 & UINT16_C(0x3C00)) != 0u ||
+            (attribute0 & UINT16_C(0xC000)) != 0u ||
+            (attribute1 & UINT16_C(0xF000)) != 0u) {
+            return GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
+        }
+    }
+    return GBL_VIDEO_INVALID_REASON_NONE;
+}
+
 static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
-    const gbl_ppu_timing_state *ppu)
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_timing_state *ppu,
+    const gbl_ppu_row_capture *capture)
 {
     const uint16_t mode = (uint16_t)(ppu->dispcnt & UINT16_C(0x0007));
     const gbl_video_invalid_reason dispcnt_reason =
         gbl_ppu_dispcnt_invalid_reason(ppu->dispcnt);
+    const gbl_video_invalid_reason obj_reason =
+        gbl_ppu_obj_control_invalid_reason(machine, preview, ppu, capture);
 
     if (dispcnt_reason != GBL_VIDEO_INVALID_REASON_NONE) {
         return dispcnt_reason;
+    }
+    if (obj_reason != GBL_VIDEO_INVALID_REASON_NONE) {
+        return obj_reason;
     }
     if ((ppu->unsupported_register_bytes &
          GBL_PPU_EFFECT_REGISTER_BYTES_MASK) != 0u) {
@@ -1212,6 +1498,10 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
         uint16_t control;
 
         if (!gbl_ppu_selected_text_bg(ppu->dispcnt, &background)) {
+            if ((ppu->dispcnt & UINT16_C(0x1000)) != 0u &&
+                (ppu->dispcnt & UINT16_C(0x0F00)) == 0u) {
+                return GBL_VIDEO_INVALID_REASON_NONE;
+            }
             return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
         }
         control = gbl_ppu_register_u16(
@@ -1320,14 +1610,9 @@ static gbl_time_status gbl_ppu_capture_row(
     const uint16_t line = preview->ppu.line;
     const uint8_t mask = (uint8_t)(UINT8_C(1) << (line & 7u));
     const size_t coverage_index = (size_t)(line >> 3u);
-    const gbl_video_invalid_reason reason =
-        gbl_ppu_active_invalid_reason(&preview->ppu);
+    gbl_video_invalid_reason reason;
 
     if (line >= GBL_PPU_VISIBLE_LINES) {
-        return GBL_TIME_STATUS_OK;
-    }
-    if (reason != GBL_VIDEO_INVALID_REASON_NONE) {
-        gbl_ppu_invalidate_capture(preview, reason);
         return GBL_TIME_STATUS_OK;
     }
     if (preview->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID &&
@@ -1365,6 +1650,12 @@ static gbl_time_status gbl_ppu_capture_row(
             capture->affine[affine_index] =
                 preview->ppu.affine[affine_index];
         }
+    }
+    reason = gbl_ppu_active_invalid_reason(machine, preview, &preview->ppu,
+                                          capture);
+    if (reason != GBL_VIDEO_INVALID_REASON_NONE) {
+        gbl_ppu_invalidate_capture(preview, reason);
+        return GBL_TIME_STATUS_OK;
     }
     if (!gbl_ppu_project_row(machine, preview, capture, row)) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
@@ -2487,7 +2778,8 @@ static bool gbl_ppu_commit_preview_valid(
                     capture->affine[affine_index];
             }
         }
-        if (gbl_ppu_active_invalid_reason(&sampled_ppu) !=
+        if (gbl_ppu_active_invalid_reason(machine, preview, &sampled_ppu,
+                                          capture) !=
                 GBL_VIDEO_INVALID_REASON_NONE ||
             !gbl_ppu_project_row(machine, preview, capture, projected_row) ||
             gbl_ppu_row_digest(projected_row, sizeof(projected_row)) !=

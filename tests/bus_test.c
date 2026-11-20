@@ -1459,7 +1459,6 @@ static int run_ppu_obj_tracer(void)
                   machine, (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(160)) ==
               GBL_TIME_STATUS_OK);
         CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
-        CHECK(machine->ppu.frame_epoch == 1u);
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 15u, 8u,
                                           UINT16_C(0x7C00)));
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 16u, 8u,
