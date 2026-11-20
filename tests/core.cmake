@@ -375,6 +375,24 @@ foreach(case IN ITEMS control verify order)
       "-DCASE=${case}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/phase11_selection.cmake")
 endforeach()
+
+# Phase 12 exact selection checks are registered in both core lanes. Their
+# background fixture edges are added at the top level after this include.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase12.selection.control)
+  else()
+    set(test_name phase12.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase12_selection.cmake")
+endforeach()
 set_tests_properties(cpu.power.boundary time.halt.boundary time.halt.refusal
   PROPERTIES TIMEOUT 10)
 
