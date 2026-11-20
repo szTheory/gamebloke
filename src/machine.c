@@ -2023,6 +2023,9 @@ gbl_time_status gbl_machine_prepare_time(
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
+    gbl_machine_copy_bytes(candidate.ppu_affine_prepared,
+                           candidate.ppu.affine,
+                           sizeof(candidate.ppu_affine_prepared));
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -2375,6 +2378,9 @@ gbl_time_status gbl_machine_prepare_operations(
             }
         }
     }
+    gbl_machine_copy_bytes(candidate.ppu_affine_prepared,
+                           candidate.ppu.affine,
+                           sizeof(candidate.ppu_affine_prepared));
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -2416,6 +2422,28 @@ static bool gbl_ppu_commit_preview_valid(
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
         !gbl_ppu_write_log_valid(machine, preview)) {
         return false;
+    }
+    for (index = 0u; index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++index) {
+        const gbl_ppu_affine_state *candidate =
+            &preview->ppu.affine[index];
+        const gbl_ppu_affine_state *prepared =
+            &preview->ppu_affine_prepared[index];
+
+        if (candidate->pa != prepared->pa ||
+            candidate->pb != prepared->pb ||
+            candidate->pc != prepared->pc ||
+            candidate->pd != prepared->pd ||
+            candidate->programmed_reference_x !=
+                prepared->programmed_reference_x ||
+            candidate->programmed_reference_y !=
+                prepared->programmed_reference_y ||
+            candidate->origin_x != prepared->origin_x ||
+            candidate->origin_y != prepared->origin_y ||
+            candidate->origin_valid != prepared->origin_valid ||
+            candidate->hblank_y_suppressed !=
+                prepared->hblank_y_suppressed) {
+            return false;
+        }
     }
     for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
         const gbl_ppu_row_capture *capture =

@@ -268,6 +268,8 @@ static bool gbl_test_time_preview_equal(
         left->interrupt_master_enable != right->interrupt_master_enable ||
         left->waitcnt != right->waitcnt ||
         !gbl_test_ppu_equal(&left->ppu, &right->ppu) ||
+        !gbl_test_ppu_affine_array_equal(left->ppu_affine_prepared,
+                                         right->ppu_affine_prepared) ||
         left->bus_owner != right->bus_owner ||
         left->dma_last_channel != right->dma_last_channel ||
         left->dma_last_width != right->dma_last_width ||
@@ -353,6 +355,9 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.interrupt_master_enable = machine->interrupt_master_enable;
     machine_time.waitcnt = machine->waitcnt;
     machine_time.ppu = machine->ppu;
+    for (index = 0u; index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++index) {
+        machine_time.ppu_affine_prepared[index] = machine->ppu.affine[index];
+    }
     machine_time.bus_owner = machine->bus_owner;
     machine_time.dma_last_channel = machine->dma_last_channel;
     machine_time.dma_last_width = machine->dma_last_width;

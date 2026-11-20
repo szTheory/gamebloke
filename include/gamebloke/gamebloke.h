@@ -291,6 +291,10 @@ typedef struct gbl_machine_time_preview {
     uint16_t interrupt_master_enable;
     uint16_t waitcnt;
     gbl_ppu_timing_state ppu;
+    /* Bind the final affine transition result produced by preparation. Commit
+     * refuses a preview whose candidate affine state was altered. */
+    gbl_ppu_affine_state ppu_affine_prepared[
+        GBL_PPU_AFFINE_BACKGROUND_COUNT];
     gbl_machine_bus_owner bus_owner;
     uint8_t dma_last_channel;
     uint8_t dma_last_width;

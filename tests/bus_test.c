@@ -1708,6 +1708,41 @@ static int run_ppu_bg_affine(void)
         free_machine(machine);
     }
 
+    /* A caller-mutated final affine origin is refused before either machine
+     * timing state or committed pixels can change. The original prepared
+     * preview remains valid and can still be committed afterward. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        gbl_machine *snapshot = malloc(sizeof(*snapshot));
+        gbl_machine_time_preview preview;
+        gbl_machine_time_preview changed_preview;
+
+        CHECK(snapshot != NULL);
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 1u, 2u, 0u, false,
+                                            1u, 1u, expected));
+        CHECK(gbl_machine_advance_to(machine, 0u) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_prepare_time(machine, GBL_PPU_LINE_CYCLES,
+                                       &preview) == GBL_TIME_STATUS_OK);
+        changed_preview = preview;
+        ++changed_preview.ppu.affine[0].origin_x;
+        if (snapshot != NULL) {
+            *snapshot = *machine;
+            gbl_machine_commit_time(machine, &changed_preview);
+            CHECK(gbl_test_canonical_equal(machine, snapshot));
+            CHECK(memcmp(machine->video_frame, snapshot->video_frame,
+                         GBL_PPU_VIDEO_BYTES) == 0);
+            gbl_machine_commit_time(machine, &preview);
+            CHECK(machine->master_cycles == GBL_PPU_LINE_CYCLES);
+            CHECK(machine->ppu.line == 1u);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                              expected));
+            free(snapshot);
+        }
+        free_machine(machine);
+    }
+
     /* A vertical affine step can change the scanline within one tile while
      * source X remains in that tile. Each output pixel must use its own
      * source row rather than reusing the prior cached tile row. */
