@@ -97,7 +97,7 @@ work; decimal IDs are reserved for later insertions.
 - [x] 12-04-PLAN.md — Implement affine backgrounds and deterministic reference policy.
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 12-05-PLAN.md — Publish affine support in profile and runner metadata.
+- [x] 12-05-PLAN.md — Publish affine support in profile and runner metadata.
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 12-06-PLAN.md — Implement bitmap backgrounds for modes 3–5.
@@ -165,7 +165,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 11. Sampled Rows and Transactional Visibility | 7/8 | In Progress — bounded repair sequence is underway; canonical CI acceptance remains blocked pending execution | - |
-| 12. Background Modes 0–5 | 4/8 | In Progress | - |
+| 12. Background Modes 0–5 | 5/8 | In Progress | - |
 | 13. Objects and Layer Priorities | 0/TBD | Not started | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
 | 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
