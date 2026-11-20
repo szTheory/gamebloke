@@ -127,18 +127,21 @@ if(CASE STREQUAL "copy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
 elseif(CASE STREQUAL "ppu_policy")
-  if(NOT "${PROFILE_VERSION}" STREQUAL "11")
+  if(NOT "${PROFILE_VERSION}" STREQUAL "12")
     message(FATAL_ERROR
-      "profile text capability assertion: expected version 11, found ${PROFILE_VERSION}")
+      "profile affine capability assertion: expected version 12, found ${PROFILE_VERSION}")
   endif()
   string(JSON mode0_status GET "${base_profile}"
     ppu_policy display_capabilities modes 0 implementation_status)
   string(JSON mode1_status GET "${base_profile}"
     ppu_policy display_capabilities modes 1 implementation_status)
+  string(JSON mode2_status GET "${base_profile}"
+    ppu_policy display_capabilities modes 2 implementation_status)
   if(NOT "${mode0_status}" STREQUAL "partial" OR
-      NOT "${mode1_status}" STREQUAL "partial")
+      NOT "${mode1_status}" STREQUAL "partial" OR
+      NOT "${mode2_status}" STREQUAL "partial")
     message(FATAL_ERROR
-      "profile text capability assertion: modes 0 and 1 must be partial, found ${mode0_status}/${mode1_status}")
+      "profile affine capability assertion: modes 0, 1, and 2 must be partial, found ${mode0_status}/${mode1_status}/${mode2_status}")
   endif()
 
   profile_copy(p clean_ppu_policy)
@@ -232,8 +235,18 @@ elseif(CASE STREQUAL "ppu_policy")
   expect_ppu_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities\\.modes" "${p}")
 
-  foreach(mode IN ITEMS 0 1)
-    profile_copy(p stale_text_mode_${mode}_status)
+  profile_copy(p wrong_mode1_affine_source)
+  gbl_json_mutate_set("${p}" [=["text"]=] ppu_policy display_capabilities modes 1 backgrounds 2 source)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p wrong_mode2_affine_source)
+  gbl_json_mutate_set("${p}" [=["text"]=] ppu_policy display_capabilities modes 2 backgrounds 0 source)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  foreach(mode IN ITEMS 0 1 2)
+    profile_copy(p stale_supported_mode_${mode}_status)
     gbl_json_mutate_set("${p}" [=["not-implemented"]=]
       ppu_policy display_capabilities modes ${mode} implementation_status)
     expect_ppu_detail(ppu-capability-value
@@ -252,6 +265,16 @@ elseif(CASE STREQUAL "ppu_policy")
 
   profile_copy(p wrong_mode1_source_dimension)
   gbl_json_mutate_set("${p}" "255" ppu_policy display_capabilities modes 1 backgrounds 0 dimensions 0 width)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p wrong_mode1_affine_dimension)
+  gbl_json_mutate_set("${p}" "255" ppu_policy display_capabilities modes 1 backgrounds 2 dimensions 0 width)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p wrong_mode2_affine_dimension)
+  gbl_json_mutate_set("${p}" "255" ppu_policy display_capabilities modes 2 backgrounds 0 dimensions 0 width)
   expect_ppu_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities\\.modes" "${p}")
 
@@ -303,11 +326,27 @@ elseif(CASE STREQUAL "ppu_policy")
   expect_ppu_detail(ppu-capability-doc
     "ppu_policy\\.display_capabilities: missing or stale row" "${p}" "${d}")
 
+  profile_copy(p stale_affine_display_capability_doc)
+  doc_copy(d stale_affine_display_capability_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.display_capabilities.modes[2]` | partial | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |"
+    "| `ppu_policy.display_capabilities.modes[2]` | not-implemented | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |")
+  expect_ppu_detail(ppu-capability-doc
+    "ppu_policy\\.display_capabilities: missing or stale row" "${p}" "${d}")
+
   profile_copy(p stale_text_control_doc)
   doc_copy(d stale_text_control_doc)
   gbl_text_mutate("${d}"
-    "| `ppu_policy.supported_controls` | mode 3 BG2 bitmap with other BG enable bits ignored, one enabled text BG in mode 0 (BG0-BG3) or mode 1 (BG0/BG1), text scroll, four map dimensions, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled |"
+    "| `ppu_policy.supported_controls` | mode 3 BG2 bitmap with other BG enable bits ignored; exactly one enabled background source per sampled row in modes 0-2: mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, and mode 2 affine BG2/BG3; text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop; forced blank, OBJ, windows, and effects disabled |"
     "| `ppu_policy.supported_controls` | mode 3 only |")
+  expect_ppu_detail(ppu-policy-doc
+    "ppu_policy: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p stale_unmodeled_controls_doc)
+  doc_copy(d stale_unmodeled_controls_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.unmodeled_controls` | modes 4/5, zero or multiple enabled background sources in modes 0-2, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported background-control encodings |"
+    "| `ppu_policy.unmodeled_controls` | mode-1 affine BG2 and modes 2/4/5 |")
   expect_ppu_detail(ppu-policy-doc
     "ppu_policy: missing or stale row" "${p}" "${d}")
 
