@@ -36,7 +36,7 @@ evidence and the production bus/runner result.
 **Phase numbering:** Continue from completed Phase 10. Integer phases are planned
 work; decimal IDs are reserved for later insertions.
 
-- [ ] **Phase 11: Sampled Rows and Transactional Visibility** - Callers can identify supported controls and observe ordered, failure-atomic raw-video rows.
+- [x] **Phase 11: Sampled Rows and Transactional Visibility** - Callers can identify supported controls and observe ordered, failure-atomic raw-video rows.
 - [ ] **Phase 12: Background Modes 0–5** - Text, affine, and bitmap backgrounds produce their declared semantic pixels from canonical video memory.
 - [ ] **Phase 13: Objects and Layer Priorities** - Regular and affine objects combine with backgrounds and backdrop through one bounded composition policy.
 - [ ] **Phase 14: Windows and Display Effects** - Region masks, blending, brightness, mosaic, and forced blank interact predictably.
@@ -53,7 +53,7 @@ work; decimal IDs are reserved for later insertions.
   2. Writes to registers, VRAM, palette RAM, and OAM before, at, and after the declared row boundary produce the expected sampled row from the ordered visible prefix, including same-cycle ordering.
   3. A caller can distinguish a complete frame from an invalid or incomplete epoch through the existing raw-video contract.
   4. Refused or capacity-limited work preserves machine state, video memory, frame contents, and caller output buffers, while an admitted exact-fit operation commits its complete result.
-**Plans**: 7/8 execution plans complete; Plan 11-05's canonical acceptance remains open after its halted run. Plan 11-08 is the final bounded recovery step.
+**Plans**: 8/8 execution plans complete; final local canonical acceptance and independent phase verification passed. See [verification](phases/11-sampled-rows-and-transactional-visibility/11-VERIFICATION.md) and [evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md).
 **Wave 1**
 - [x] 11-01-PLAN.md
 - [x] 11-02-PLAN.md
@@ -63,7 +63,7 @@ work; decimal IDs are reserved for later insertions.
 - [x] 11-04-PLAN.md
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [x] 11-05-PLAN.md — executed; canonical CI acceptance remains open after the halted run; see [evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md)
+- [x] 11-05-PLAN.md — focused checks complete; final canonical acceptance recorded under Plan 11-08
 
 **Wave 4** *(recovery wave; consumes Plan 11-05 evidence and starts from last completed prerequisite 11-04)*
 - [x] 11-06-PLAN.md — exact baseline triage and focused CPU/core/scheduler repairs
@@ -72,7 +72,7 @@ work; decimal IDs are reserved for later insertions.
 - [x] 11-07-PLAN.md — portable Phase 10 plan references with byte-preservation checks
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 11-08-PLAN.md — Phase 11 plan references and final canonical CI/JUnit/inventory
+- [x] 11-08-PLAN.md — exact plan-path proof, green canonical CI/JUnit/inventory, and measured iteration review
 
 ### Phase 12: Background Modes 0–5
 **Goal**: Users of the canonical raw-video path can obtain expected text, affine, and bitmap background pixels across display modes 0–5.

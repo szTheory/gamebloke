@@ -11,10 +11,10 @@ claim cycle accuracy, hardware qualification, or broad compatibility.
 
 ### PPU Contract and Integration
 
-- [ ] **PPU-03**: The `agb` profile declares the supported display-mode capability matrix, per-mode background sources and dimensions, raw `BGR555_LE` output, and deterministic handling of invalid or unsupported display controls.
-- [ ] **PPU-04**: Each captured row is rendered from an explicitly sampled register and memory view at a declared machine boundary; frame completeness and invalidation remain observable through the existing raw-video contract.
+- [x] **PPU-03**: The `agb` profile declares the supported display-mode capability matrix, per-mode background sources and dimensions, raw `BGR555_LE` output, and deterministic handling of invalid or unsupported display controls.
+- [x] **PPU-04**: Each captured row is rendered from an explicitly sampled register and memory view at a declared machine boundary; frame completeness and invalidation remain observable through the existing raw-video contract.
 - [ ] **PPU-05**: The machine uses one documented, deterministic policy for CPU and DMA access to VRAM, palette RAM, and OAM across supported drawing, HBlank, VBlank, and forced-blank states; results identify this as project policy where hardware behavior is not independently established.
-- [ ] **PPU-06**: Ordered register, VRAM, palette-RAM, and OAM writes visible at a row boundary are reflected consistently by the canonical renderer, and refused or capacity-limited operations leave machine state and output unchanged.
+- [x] **PPU-06**: Ordered register, VRAM, palette-RAM, and OAM writes visible at a row boundary are reflected consistently by the canonical renderer, and refused or capacity-limited operations leave machine state and output unchanged.
 
 ### Backgrounds
 
@@ -65,10 +65,10 @@ The roadmap assigns every current v3.0 requirement to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PPU-03 | Phase 11 | Pending |
-| PPU-04 | Phase 11 | Pending |
+| PPU-03 | Phase 11 | Complete |
+| PPU-04 | Phase 11 | Complete |
 | PPU-05 | Phase 15 | Pending |
-| PPU-06 | Phase 11 | Pending |
+| PPU-06 | Phase 11 | Complete |
 | BG-01 | Phase 12 | Pending |
 | BG-02 | Phase 12 | Pending |
 | BG-03 | Phase 12 | Pending |
@@ -88,4 +88,4 @@ The roadmap assigns every current v3.0 requirement to exactly one phase.
 
 ---
 *Requirements defined: 2026-11-19*
-*Last updated: 2026-11-19 for v3.0 milestone requirements*
+*Last updated: 2026-11-20 after Phase 11 verification*
