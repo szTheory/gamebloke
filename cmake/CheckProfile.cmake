@@ -109,8 +109,8 @@ set(GBL_PROFILE_PPU_POLICY_ROWS
   "row_same_cycle_write_policy|PPU sample precedes a bus write completing on the sample cycle|STRING"
   "pixel_format|BGR555 little-endian|STRING"
   "frame_validity|complete coverage of 160 supported rows in one frame epoch, published at line 160|STRING"
-  "supported_controls|mode 3 BG2 bitmap with other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled|STRING"
-  "unmodeled_controls|modes 4/5, zero or multiple enabled background sources in modes 0-2, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported background-control encodings|STRING"
+  "supported_controls|mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, effects, and mosaic disabled|STRING"
+  "unmodeled_controls|zero or multiple enabled background sources in modes 0-2, BG2 disabled in modes 3-5, BG priority/composition, forced blank, OBJ, windows, effects, mosaic, and unsupported background-control encodings|STRING"
   "interrupt_if_bits|VBlank 0, HBlank 1, VCOUNT-match 2|STRING"
   "blank_dma_eligibility|HBlank on visible lines 0-159, VBlank at the line 160 transition|STRING")
 set(GBL_PROFILE_PPU_RAW_OUTPUT_JSON [=[{"format":"BGR555_LE","width":240,"height":160,"stride_bytes":480,"byte_length":76800}]=])
@@ -134,10 +134,10 @@ set(GBL_PROFILE_PPU_EXPECTED_MODES_JSON [=[
   {"mode":3,"implementation_status":"partial","backgrounds":[
     {"bg":2,"source":"direct-color-bitmap","dimensions":[{"width":240,"height":160}]}
   ]},
-  {"mode":4,"implementation_status":"not-implemented","backgrounds":[
+  {"mode":4,"implementation_status":"partial","backgrounds":[
     {"bg":2,"source":"indexed-bitmap","dimensions":[{"width":240,"height":160}]}
   ]},
-  {"mode":5,"implementation_status":"not-implemented","backgrounds":[
+  {"mode":5,"implementation_status":"partial","backgrounds":[
     {"bg":2,"source":"direct-color-bitmap","dimensions":[{"width":160,"height":128}]}
   ]}
 ]
@@ -1308,7 +1308,7 @@ function(gbl__profile_ppu_policy doc)
   if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
       policy_version LESS 12)
     gbl_finding(profile ppu-policy-value
-      "profile_version: expected 12 or later for affine PPU capability metadata")
+      "profile_version: expected 12 or later for affine and bitmap PPU capability metadata")
   endif()
 
   list(LENGTH GBL_PROFILE_PPU_POLICY_ROWS scalar_field_count)
@@ -2318,8 +2318,8 @@ function(gbl__profile_doc_ppu_sync normalized_text profile)
   list(APPEND capability_rows "${row}")
   list(APPEND capability_rows
     "| `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |"
-    "| `ppu_policy.display_capabilities.modes[4]` | not-implemented | BG2 indexed-bitmap: 240x160 |"
-    "| `ppu_policy.display_capabilities.modes[5]` | not-implemented | BG2 direct-color-bitmap: 160x128 |")
+    "| `ppu_policy.display_capabilities.modes[4]` | partial | BG2 indexed-bitmap: 240x160 |"
+    "| `ppu_policy.display_capabilities.modes[5]` | partial | BG2 direct-color-bitmap: 160x128 |")
   gbl__profile_doc_policy_table("${normalized_text}"
     "## PPU display capabilities" ppu_policy.display_capabilities 6 capability_rows
     "Mode;Implementation status;Background sources and dimensions" ppu-capability-doc 3)

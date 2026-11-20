@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 12
+profile_version: 13
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -117,8 +117,8 @@ not qualify the PPU against hardware.
 | `ppu_policy.row_same_cycle_write_policy` | PPU sample precedes a bus write completing on the sample cycle |
 | `ppu_policy.pixel_format` | BGR555 little-endian |
 | `ppu_policy.frame_validity` | complete coverage of 160 supported rows in one frame epoch, published at line 160 |
-| `ppu_policy.supported_controls` | mode 3 BG2 bitmap with other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled |
-| `ppu_policy.unmodeled_controls` | modes 4/5, zero or multiple enabled background sources in modes 0-2, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported background-control encodings |
+| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, effects, and mosaic disabled |
+| `ppu_policy.unmodeled_controls` | zero or multiple enabled background sources in modes 0-2, BG2 disabled in modes 3-5, BG priority/composition, forced blank, OBJ, windows, effects, mosaic, and unsupported background-control encodings |
 | `ppu_policy.interrupt_if_bits` | VBlank 0, HBlank 1, VCOUNT-match 2 |
 | `ppu_policy.blank_dma_eligibility` | HBlank on visible lines 0-159, VBlank at the line 160 transition |
 
@@ -129,8 +129,9 @@ extents. Implementation status records the current Gamebloke renderer; `partial`
 is a static capability label and is separate from per-frame validity. The mode
 and background layouts are summarized from the cited AGB manual sections, not
 reproduced from its tables. The mode families and text tile/map formats are
-described in §§5.1.1 and 6.1.3–6.1.5. [Nintendo AGB Programming Manual v1.1
-§§5.1.1 and 6.1.3–6.1.5](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+described in §§5.1.1 and 6.1.3–6.1.5. Bitmap formats and page layouts are
+described in §§6.2.1–6.2.4, and palette behavior in §7.1. [Nintendo AGB
+Programming Manual v1.1 §§5.1.1, 6.1.3–6.1.5, 6.2.1–6.2.4, and 7.1](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
 
 Modes 0, 1, and 2 currently render exactly one enabled background source per
 sampled row. Mode 0 admits text BG0–BG3; mode 1 admits text BG0/BG1 or affine
@@ -145,12 +146,22 @@ intermediates; internal reference updates wrap to signed 28-bit two's-complement
 values. These arithmetic, rounding, overflow, and reference-update rules are
 selected deterministic software policy, not measured hardware behavior. The
 manual documents affine formats and registers (§6.1.7); GBATEK is secondary
-evidence for internal-reference reload and accumulation details. Mode-4
-index-zero transparency details are also secondary-source project policy.
-Source lookups are bounded to canonical sampled video memory. Priority
-composition remains unmodeled. Zero or multiple enabled background sources in
-modes 0–2 and unsupported non-background controls retain deterministic frame
-invalidation behavior. Hardware qualification remains UNKNOWN.
+evidence for internal-reference reload and accumulation details. Modes 3, 4,
+and 5 admit BG2 direct-color 240x160, indexed 240x160, and direct-color 160x128
+sources, respectively. Modes 4 and 5 have two pages selected by DISPCNT; mode 3
+uses one page. The mode and page selection are captured with the sampled row
+state. Bitmap reads are bounded to each declared source extent, and samples
+outside it resolve to the backdrop. Mode-4 index zero resolves to the backdrop
+under the secondary-source policy; mode-3 and mode-5 direct-color zero is opaque
+black. The manual documents bitmap formats, extents, and pages in §§6.2.1–6.2.4.
+Mode-4 index-zero transparency follows secondary-source evidence as selected
+project policy. The explicit rounding/overflow behavior above is software policy,
+not a hardware measurement.
+Source lookups use canonical sampled video memory. Priority composition remains
+unmodeled. Zero or multiple enabled background sources in modes 0–2, disabled
+BG2 in modes 3–5, and enabled unsupported non-background controls retain
+deterministic frame invalidation behavior. Hardware qualification remains
+UNKNOWN.
 
 | Mode | Implementation status | Background sources and dimensions |
 | --- | --- | --- |
@@ -158,8 +169,8 @@ invalidation behavior. Hardware qualification remains UNKNOWN.
 | `ppu_policy.display_capabilities.modes[1]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 affine: 128x128, 256x256, 512x512, 1024x1024 |
 | `ppu_policy.display_capabilities.modes[2]` | partial | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |
 | `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |
-| `ppu_policy.display_capabilities.modes[4]` | not-implemented | BG2 indexed-bitmap: 240x160 |
-| `ppu_policy.display_capabilities.modes[5]` | not-implemented | BG2 direct-color-bitmap: 160x128 |
+| `ppu_policy.display_capabilities.modes[4]` | partial | BG2 indexed-bitmap: 240x160 |
+| `ppu_policy.display_capabilities.modes[5]` | partial | BG2 direct-color-bitmap: 160x128 |
 
 ## PPU raw output
 
