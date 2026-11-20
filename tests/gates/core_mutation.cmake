@@ -28,18 +28,15 @@ function(gbl__mutate_bus bus_source machine_source mutation)
     gbl_text_mutate("${bus_source}" "#define GBL_VRAM_MASK 0x1FFFFu"
       "#define GBL_VRAM_MASK 0x1FFFDu")
   elseif(mutation STREQUAL "video_bg_obj")
-    gbl_text_mutate("${bus_source}" "if (index < obj_base) {"
-      "if (index >= obj_base) {")
+    gbl_text_mutate("${bus_source}"
+      [=[(mode <= 2u ? UINT32_C(0x10000)
+                                 : UINT32_C(0x14000))]=]
+      [=[(mode <= 2u ? UINT32_C(0x14000)
+                                 : UINT32_C(0x10000))]=])
   elseif(mutation STREQUAL "video_oam_byte")
-    set(find [=[        if (request_width == 1u) {
-            return GBL_BUS_OUTCOME_RAM;
-        }
+    set(find [=[        ignored_lane = request_width == 1u;
 ]=])
-    set(replace [=[        if (request_width == 1u) {
-            memory_byte = gbl_bus_memory_byte(machine, region, address);
-            *memory_byte = value;
-            return GBL_BUS_OUTCOME_RAM;
-        }
+    set(replace [=[        ignored_lane = false;
 ]=])
     gbl_text_mutate("${bus_source}" "${find}" "${replace}")
   elseif(mutation STREQUAL "clock_overflow")

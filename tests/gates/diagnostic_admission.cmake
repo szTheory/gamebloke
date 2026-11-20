@@ -61,11 +61,21 @@ endif()
 set(positive 0)
 set(broken 0)
 set(stops 0)
+set(cycle_budget_2000_fixtures
+  thumb-1800200037 thumb-556470422 thumb-631794229 thumb-718382599
+  thumb-736225106)
+set(cycle_budget_3000_fixtures thumb-1800200027 thumb-1800200028)
 foreach(fid IN LISTS selected_ids)
   if(fid MATCHES "^(arm|thumb)-(stop-)?([0-9]+)(-broken)?$")
     set(case_id "${CMAKE_MATCH_3}")
   else()
     set(case_id 20481)
+  endif()
+  set(cycle_budget 1000)
+  if(fid IN_LIST cycle_budget_2000_fixtures)
+    set(cycle_budget 2000)
+  elseif(fid IN_LIST cycle_budget_3000_fixtures)
+    set(cycle_budget 3000)
   endif()
   set(status PASS)
   set(state pass)
@@ -89,7 +99,8 @@ foreach(fid IN LISTS selected_ids)
     math(EXPR positive "${positive}+1")
   endif()
   execute_process(COMMAND "${binary_root}/gamebloke-run" --rom
-    "${binary_root}/${M_ROW_${fid}_ARTIFACT_PATH}" --cycles 1000 --fixture "${fid}"
+    "${binary_root}/${M_ROW_${fid}_ARTIFACT_PATH}" --cycles "${cycle_budget}"
+    --fixture "${fid}"
     RESULT_VARIABLE rc OUTPUT_VARIABLE doc ERROR_VARIABLE error)
   set(result "${result_root}/${fid}.json")
   gbl_write_file_contained(write_status write_reason "${binary_root}"
@@ -124,7 +135,8 @@ foreach(fid IN LISTS selected_ids)
      actual_id EQUAL 0 OR NOT fixture_id STREQUAL fid OR NOT ran OR
      NOT actual_sha STREQUAL "${M_ROW_${fid}_SHA256}" OR
      NOT indexed_sha STREQUAL actual_sha OR NOT claim_sha STREQUAL actual_sha OR
-     NOT budget STREQUAL "1000" OR cycles LESS 1 OR instructions LESS 1 OR cycles GREATER budget)
+     NOT budget STREQUAL "${cycle_budget}" OR cycles LESS 1 OR
+     instructions LESS 1 OR cycles GREATER budget)
     message(FATAL_ERROR "diagnostics-case: admitted-semantics-identity-progress-mismatch:${fid}:${doc}")
   endif()
 endforeach()

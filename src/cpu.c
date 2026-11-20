@@ -1,7 +1,5 @@
 #include "gamebloke/gamebloke.h"
 
-#include <string.h>
-
 #include "cpu_helpers.h"
 
 #include <limits.h>
@@ -30,6 +28,19 @@
 #define GBL_CPU_STATUS_EFFECT_MAX 1u
 #define GBL_CPU_TRACE_UNIT_RECORD_MAX \
     (1u + GBL_CPU_DATA_SLOT_MAX + GBL_CPU_FETCH_SLOT_MAX)
+
+static bool gbl_cpu_bytes_equal(const uint8_t *left, const uint8_t *right,
+                                size_t length)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        if (left[index] != right[index]) {
+            return false;
+        }
+    }
+    return true;
+}
 
 /* DDI0029G §6.5–6.6: register-specified Operand2 shifts add one internal
  * cycle; immediate Operand2 forms add none. The decode selects this table
@@ -4115,8 +4126,9 @@ static bool gbl_cpu_time_preview_matches_machine(
         machine->ppu.next_boundary_hblank !=
             preview->ppu.next_boundary_hblank ||
         machine->ppu.frame_started != preview->ppu.frame_started ||
-        memcmp(machine->ppu.row_coverage, preview->ppu.row_coverage,
-               sizeof(machine->ppu.row_coverage)) != 0 ||
+        !gbl_cpu_bytes_equal(machine->ppu.row_coverage,
+                             preview->ppu.row_coverage,
+                             sizeof(machine->ppu.row_coverage)) ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
         (preview->ppu_clear_video &&

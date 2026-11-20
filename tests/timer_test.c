@@ -516,6 +516,76 @@ static size_t count_machine_events(const gbl_machine *machine, uint8_t kind)
     return count;
 }
 
+static bool has_current_ppu_boundary(gbl_machine *machine)
+{
+    const gbl_event *event = find_machine_event(
+        machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+
+    return event != NULL && event->generation == machine->ppu.generation &&
+           event->priority == 9u;
+}
+
+static bool timer_event_matches(gbl_machine *machine,
+                                uint8_t timer_index, uint64_t cycle)
+{
+    const gbl_event *event = find_machine_event(
+        machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, timer_index);
+
+    return event != NULL && event->cycle == cycle &&
+           event->generation == machine->timers[timer_index].generation &&
+           event->priority == timer_index;
+}
+
+static bool timer_queue_matches(gbl_machine *machine,
+                                size_t timer_event_count)
+{
+    return machine != NULL &&
+           machine->event_count == timer_event_count + 1u &&
+           count_machine_events(machine,
+               (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
+           count_machine_events(machine,
+               (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) == timer_event_count &&
+           has_current_ppu_boundary(machine);
+}
+
+static bool advance_through_bounded_event_chunks(gbl_machine *machine,
+                                                 uint64_t target_cycle)
+{
+    const uint64_t chunk_cycles = GBL_PPU_HBLANK_CYCLES * UINT64_C(512);
+
+    if (machine == NULL || target_cycle < machine->master_cycles) {
+        return false;
+    }
+    while (machine->master_cycles < target_cycle) {
+        const uint64_t remaining = target_cycle - machine->master_cycles;
+        const uint64_t next_cycle = remaining > chunk_cycles
+            ? machine->master_cycles + chunk_cycles
+            : target_cycle;
+
+        if (gbl_machine_advance_to(machine, next_cycle) != GBL_TIME_STATUS_OK) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool set_synthetic_clock_after_invalidating_ppu(
+    gbl_machine *machine, uint64_t target_cycle)
+{
+    gbl_event *event = find_machine_event(
+        machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+
+    if (event == NULL || event->generation != machine->ppu.generation ||
+        event->cycle >= target_cycle || machine->ppu.generation == UINT64_MAX) {
+        return false;
+    }
+    /* The near-overflow fixture cannot advance through an unbounded frame
+     * history. Invalidate its earlier PPU boundary before the direct jump. */
+    ++machine->ppu.generation;
+    machine->master_cycles = target_cycle;
+    return event->generation != machine->ppu.generation;
+}
+
 static bool input_event_equal(const gbl_input_event *left,
                               const gbl_input_event *right)
 {
@@ -1182,24 +1252,26 @@ static int run_timer_devices(void)
                 TIMER_CHECK("all-reload-divisor-write",
                             result.status == GBL_BUS_STATUS_OK);
                 TIMER_CHECK("one-next-overflow-event",
-                            machine->event_count == 1u &&
-                                machine->events[0].cycle == deadline);
+                            timer_queue_matches(machine, 1u) &&
+                                timer_event_matches(machine,
+                                    (uint8_t)timer_index, deadline));
                 TIMER_CHECK("pre-overflow-boundary",
-                            gbl_machine_advance_to(machine, deadline - 1u) ==
-                                GBL_TIME_STATUS_OK &&
+                            advance_through_bounded_event_chunks(
+                                machine, deadline - 1u) &&
                                 current_timer_counter(machine,
                                     (uint8_t)timer_index, &counter) &&
                                 counter == UINT16_MAX);
                 TIMER_CHECK("overflow-reloads-counter",
-                            gbl_machine_advance_to(machine, deadline) ==
-                                GBL_TIME_STATUS_OK &&
+                            advance_through_bounded_event_chunks(
+                                machine, deadline) &&
                                 current_timer_counter(machine,
                                     (uint8_t)timer_index, &counter) &&
                                 counter == reloads[reload_index]);
                 TIMER_CHECK("next-overflow-is-strictly-later",
-                            machine->event_count == 1u &&
-                                machine->events[0].cycle ==
-                                    deadline + interval);
+                            timer_queue_matches(machine, 1u) &&
+                                timer_event_matches(machine,
+                                    (uint8_t)timer_index,
+                                    deadline + interval));
                 free_machine(machine);
             }
         }
@@ -1221,13 +1293,15 @@ static int run_timer_devices(void)
                                       UINT32_C(0x81)).status ==
                             GBL_BUS_STATUS_OK &&
                         machine->timers[0].generation == generation &&
-                        machine->events[0].cycle == UINT64_C(65));
+                        timer_queue_matches(machine, 1u) &&
+                        timer_event_matches(machine, 0u, UINT64_C(65)));
         TIMER_CHECK("live-reload-only-next-overflow",
                     gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
                                   GBL_BUS_CLASS_NONSEQUENTIAL,
                                   UINT32_C(0xFF00)).status ==
                             GBL_BUS_STATUS_OK &&
-                        machine->events[0].cycle == UINT64_C(65) &&
+                        timer_queue_matches(machine, 1u) &&
+                        timer_event_matches(machine, 0u, UINT64_C(65)) &&
                         gbl_machine_advance_to(machine, UINT64_C(65)) ==
                             GBL_TIME_STATUS_OK &&
                         current_timer_counter(machine, 0u, &counter) &&
@@ -1251,7 +1325,11 @@ static int run_timer_devices(void)
                                       GBL_BUS_CLASS_NONSEQUENTIAL, 0u).status ==
                             GBL_BUS_STATUS_OK &&
                         current_timer_counter(machine, 0u, &counter) &&
-                        counter == UINT16_MAX && machine->event_count == 0u);
+                        counter == UINT16_MAX &&
+                        machine->event_count == 1u &&
+                        count_machine_events(machine,
+                            (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) == 0u &&
+                        has_current_ppu_boundary(machine));
         TIMER_CHECK("disabled-reload-does-not-replace-count",
                     gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
                                   GBL_BUS_CLASS_NONSEQUENTIAL,
@@ -1275,11 +1353,15 @@ static int run_timer_devices(void)
         uint64_t deadline;
 
         result = write_timer_word(machine, 0u, UINT16_MAX, UINT8_C(0xFF));
-        deadline = machine->event_count == 1u ? machine->events[0].cycle : 0u;
+        {
+            const gbl_event *timer_event = find_machine_event(
+                machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+            deadline = timer_event != NULL ? timer_event->cycle : 0u;
+        }
         TIMER_CHECK("timer0-cascade-and-reserved-bits-ignored",
                     result.status == GBL_BUS_STATUS_OK &&
                         !machine->timers[0].cascade &&
-                        machine->event_count == 1u &&
+                        timer_queue_matches(machine, 1u) &&
                         deadline == UINT64_C(1025));
         result = gbl_bus_read(machine, UINT32_C(0x04000102), 1u,
                               GBL_BUS_CLASS_NONSEQUENTIAL);
@@ -1299,9 +1381,9 @@ static int run_timer_devices(void)
                 }
             }
             TIMER_CHECK("same-control-writes-stay-bounded",
-                        repeat == 20u && machine->event_count == 1u &&
+                        repeat == 20u && timer_queue_matches(machine, 1u) &&
                             machine->timers[0].generation == generation &&
-                            machine->events[0].cycle == deadline);
+                            timer_event_matches(machine, 0u, deadline));
         }
         free_machine(machine);
     }
@@ -1320,7 +1402,8 @@ static int run_timer_devices(void)
                                       GBL_BUS_CLASS_NONSEQUENTIAL,
                                       UINT32_C(0x80)).status ==
                             GBL_BUS_STATUS_OK &&
-                        machine->events[0].cycle == UINT64_C(13) &&
+                        timer_queue_matches(machine, 1u) &&
+                        timer_event_matches(machine, 2u, UINT64_C(13)) &&
                         machine->timers[2].phase == 0u);
         free_machine(machine);
     }
@@ -1329,6 +1412,8 @@ static int run_timer_devices(void)
     TIMER_CHECK("cascade-policy-setup", machine != NULL);
     if (machine != NULL) {
         const gbl_cpu_state cpu_before = machine->cpu;
+        const gbl_event *timer_event;
+        bool cascade_advance_ok;
 
         TIMER_CHECK("cascade-timer3", write_timer_word(
                         machine, 3u, UINT16_MAX, UINT8_C(0xC4)).status ==
@@ -1342,21 +1427,35 @@ static int run_timer_devices(void)
         TIMER_CHECK("cascade-source", write_timer_word(
                         machine, 0u, UINT16_C(0xFFFE), UINT8_C(0xC0)).status ==
                         GBL_BUS_STATUS_OK);
-        TIMER_CHECK("cascade-has-only-independent-event",
-                    machine->event_count == 1u &&
-                        machine->events[0].timer_index == 0u &&
-                        machine->next_event_sequence == 1u);
-        TIMER_CHECK("four-timer-synchronous-cascade",
-                    gbl_machine_advance_to(machine, UINT64_C(6)) ==
-                            GBL_TIME_STATUS_OK &&
-                        machine->interrupt_flags == UINT16_C(0x0068) &&
+        timer_event = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+        TIMER_CHECK("cascade-keeps-live-ppu-and-independent-timer",
+                    timer_queue_matches(machine, 1u));
+        TIMER_CHECK("cascade-timer-start-deadline",
+                    timer_event_matches(machine, 0u,
+                        machine->master_cycles + UINT64_C(2)));
+        TIMER_CHECK("cascade-start-sequence-follows-queue",
+                    timer_event != NULL &&
+                        machine->next_event_sequence ==
+                            timer_event->sequence + UINT64_C(1));
+        cascade_advance_ok =
+            gbl_machine_advance_to(machine, UINT64_C(6)) ==
+            GBL_TIME_STATUS_OK;
+        timer_event = find_machine_event(
+            machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+        TIMER_CHECK("four-timer-cascade-advance", cascade_advance_ok);
+        TIMER_CHECK("four-timer-cascade-flags-and-counts",
+                    machine->interrupt_flags == UINT16_C(0x0068) &&
                         machine->timers[1].counter == UINT16_MAX &&
                         machine->timers[2].counter == UINT16_MAX &&
-                        machine->timers[3].counter == UINT16_MAX &&
-                        machine->event_count == 1u &&
-                        machine->events[0].timer_index == 0u &&
-                        machine->events[0].cycle == UINT64_C(8) &&
-                        machine->next_event_sequence == 2u);
+                        machine->timers[3].counter == UINT16_MAX);
+        TIMER_CHECK("four-timer-cascade-keeps-ppu-and-next-overflow",
+                    timer_queue_matches(machine, 1u) &&
+                        timer_event_matches(machine, 0u, UINT64_C(8)));
+        TIMER_CHECK("four-timer-cascade-sequence-follows-queue",
+                    timer_event != NULL &&
+                        machine->next_event_sequence ==
+                            timer_event->sequence + UINT64_C(1));
         TIMER_CHECK("device-request-does-not-enter-cpu",
                     machine->cpu.cpsr == cpu_before.cpsr &&
                         machine->cpu.execution_address ==
@@ -1385,7 +1484,7 @@ static int run_timer_devices(void)
                         machine, 2u, UINT16_MAX, UINT8_C(0xC0)).status ==
                         GBL_BUS_STATUS_OK);
         TIMER_CHECK("simultaneous-events-sorted-before-dispatch",
-                    machine->event_count == 2u &&
+                    timer_queue_matches(machine, 2u) &&
                         machine->events[0].timer_index == 0u &&
                         machine->events[1].timer_index == 2u &&
                         machine->events[0].cycle == UINT64_C(5) &&
@@ -1394,8 +1493,8 @@ static int run_timer_devices(void)
                     gbl_machine_advance_to(machine, UINT64_C(5)) ==
                             GBL_TIME_STATUS_OK &&
                         machine->interrupt_flags == UINT16_C(0x0078) &&
-                        machine->event_count == 2u &&
-                        machine->next_event_sequence == 4u &&
+                        timer_queue_matches(machine, 2u) &&
+                        machine->next_event_sequence == 6u &&
                         machine->events[0].timer_index == 2u &&
                         machine->events[1].timer_index == 0u);
         free_machine(machine);
@@ -1435,9 +1534,8 @@ static int run_timer_devices(void)
                         machine->timers[1].reload == UINT16_C(0xFFFE) &&
                         machine->timers[1].enabled &&
                         machine->timers[1].irq_enabled &&
-                        machine->event_count == 1u &&
-                        machine->events[0].timer_index == 1u &&
-                        machine->events[0].cycle == UINT64_C(3));
+                        timer_queue_matches(machine, 1u) &&
+                        timer_event_matches(machine, 1u, UINT64_C(3)));
         free_machine(machine);
     }
 
@@ -2401,7 +2499,15 @@ static int run_halt_refusal(void)
                                UINT8_C(0xC0)).status == GBL_BUS_STATUS_OK);
         bounded->interrupt_enable = 0u;
         CHECK(run_power(bounded, UINT64_MAX, &bounded_result));
-        CHECK(bounded_result.termination == GBL_RUN_STOPPED &&
+        {
+            const gbl_event *timer_event = find_machine_event(
+                bounded, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+            const gbl_event *ppu_event = find_machine_event(
+                bounded, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+
+        /* Six live PPU boundaries occur before the 4096-dispatch cap:
+         * 1006, 1232, 2238, 2464, 3470 and 3696. */
+        if (!(bounded_result.termination == GBL_RUN_STOPPED &&
               bounded_result.reason == GBL_RUN_REASON_TIME_REFUSAL &&
               bounded_result.cycles == GBL_MACHINE_MAX_EVENT_DISPATCH &&
               bounded_result.wait_cycles == GBL_MACHINE_MAX_EVENT_DISPATCH &&
@@ -2410,11 +2516,57 @@ static int run_halt_refusal(void)
               bounded->interrupt_flags == TIMER0_IF_BIT &&
               bounded->interrupt_enable == 0u &&
               bounded->power_state == GBL_MACHINE_POWER_HALTED &&
-              !bounded->cpu.stopped && bounded->event_count == 1u &&
-              bounded->events[0].live &&
-              bounded->events[0].cycle ==
+              !bounded->cpu.stopped && timer_queue_matches(bounded, 1u) &&
+              timer_event != NULL && timer_event->live &&
+              timer_event->cycle ==
                   UINT64_C(2) + GBL_MACHINE_MAX_EVENT_DISPATCH &&
+              ppu_event != NULL && ppu_event->cycle > bounded->master_cycles &&
+              run_power_cycles_add_up(&bounded_result))) {
+            fprintf(stderr,
+                    "time.halt.refusal[bounded]: termination=%u reason=%u cycles=%llu wait=%llu master=%llu IF=%04x IE=%04x power=%u stopped=%u events=%zu timer_count=%zu timer_cycle=%llu ppu_cycle=%llu ppu_generation=%llu current_ppu_generation=%llu\n",
+                    (unsigned)bounded_result.termination,
+                    (unsigned)bounded_result.reason,
+                    (unsigned long long)bounded_result.cycles,
+                    (unsigned long long)bounded_result.wait_cycles,
+                    (unsigned long long)bounded->master_cycles,
+                    (unsigned)bounded->interrupt_flags,
+                    (unsigned)bounded->interrupt_enable,
+                    (unsigned)bounded->power_state,
+                    (unsigned)bounded->cpu.stopped,
+                    bounded->event_count,
+                    count_machine_events(bounded,
+                        (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW),
+                    (unsigned long long)(timer_event != NULL
+                        ? timer_event->cycle : 0u),
+                    (unsigned long long)(ppu_event != NULL
+                        ? ppu_event->cycle : 0u),
+                    (unsigned long long)(ppu_event != NULL
+                        ? ppu_event->generation : 0u),
+                    (unsigned long long)bounded->ppu.generation);
+        }
+        CHECK(bounded_result.termination == GBL_RUN_STOPPED &&
+              bounded_result.reason == GBL_RUN_REASON_TIME_REFUSAL &&
+              bounded_result.cycles ==
+                  GBL_MACHINE_MAX_EVENT_DISPATCH - UINT64_C(6) &&
+              bounded_result.wait_cycles ==
+                  GBL_MACHINE_MAX_EVENT_DISPATCH - UINT64_C(6) &&
+              bounded->master_cycles ==
+                  UINT64_C(1) + GBL_MACHINE_MAX_EVENT_DISPATCH -
+                      UINT64_C(6) &&
+              bounded->interrupt_flags == TIMER0_IF_BIT &&
+              bounded->interrupt_enable == 0u &&
+              bounded->power_state == GBL_MACHINE_POWER_HALTED &&
+              !bounded->cpu.stopped && timer_queue_matches(bounded, 1u) &&
+              timer_event != NULL && timer_event->live &&
+              timer_event->cycle ==
+                  UINT64_C(2) + GBL_MACHINE_MAX_EVENT_DISPATCH -
+                      UINT64_C(6) &&
+              ppu_event != NULL && ppu_event->cycle ==
+                  UINT64_C(3) * GBL_PPU_LINE_CYCLES +
+                      GBL_PPU_HBLANK_CYCLES &&
+              ppu_event->cycle > bounded->master_cycles &&
               run_power_cycles_add_up(&bounded_result));
+        }
 
         stale->timers[0].generation = UINT64_C(2);
         stale->timers[0].enabled = true;
@@ -2445,18 +2597,28 @@ static int run_halt_refusal(void)
               time_matches_snapshot(stale, &stale_snapshot) &&
               stale->cpu.stop_reason == GBL_CPU_STOP_HALT_DEADLOCK);
 
+        CHECK(gbl_machine_advance_to(near_limit, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(has_current_ppu_boundary(near_limit));
         CHECK(gbl_machine_set_input_timeline(near_limit, &last_input, 1u) ==
               GBL_TIME_STATUS_OK);
-        near_limit->master_cycles = UINT64_MAX - UINT64_C(2);
+        CHECK(set_synthetic_clock_after_invalidating_ppu(
+            near_limit, UINT64_MAX - UINT64_C(2)));
         near_limit->timers[0] = (gbl_timer_state){
             UINT16_MAX, UINT16_C(0xFFFE), 1u, 0u,
             UINT64_MAX - UINT64_C(2), UINT64_C(7), true, true, false
         };
-        CHECK(near_limit->event_count == 1u &&
+        CHECK(near_limit->event_count == 2u &&
+              count_machine_events(near_limit,
+                  (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) == 1u &&
+              find_machine_event(near_limit,
+                  (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u) != NULL &&
+              find_machine_event(near_limit,
+                  (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u)->generation !=
+                  near_limit->ppu.generation &&
               near_limit->next_event_sequence < UINT64_MAX);
-        if (near_limit->event_count == 1u &&
+        if (near_limit->event_count == 2u &&
             near_limit->next_event_sequence < UINT64_MAX) {
-            near_limit->events[1] = (gbl_event){
+            near_limit->events[near_limit->event_count] = (gbl_event){
                 .cycle = UINT64_MAX,
                 .sequence = near_limit->next_event_sequence,
                 .generation = near_limit->timers[0].generation,
@@ -2471,6 +2633,10 @@ static int run_halt_refusal(void)
             ++near_limit->event_count;
         }
         CHECK(run_power(near_limit, UINT64_MAX, &near_limit_result));
+        {
+            const gbl_event *timer_event = find_machine_event(
+                near_limit, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+
         CHECK(near_limit_result.termination == GBL_RUN_STOPPED &&
               near_limit_result.reason == GBL_RUN_REASON_COUNTER_OVERFLOW &&
               near_limit_result.cycles == 1u &&
@@ -2480,13 +2646,17 @@ static int run_halt_refusal(void)
               near_limit->input_event_cursor == 1u &&
               near_limit->interrupt_flags == 0u &&
               near_limit->event_count == 1u &&
-              near_limit->events[0].cycle == UINT64_MAX &&
+              count_machine_events(near_limit,
+                  (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 0u &&
+              timer_event != NULL && timer_event->cycle == UINT64_MAX &&
+              timer_event->generation == near_limit->timers[0].generation &&
               near_limit->timers[0].counter == UINT16_C(0xFFFE) &&
               near_limit->timers[0].anchor_cycle ==
                   UINT64_MAX - UINT64_C(2) &&
               near_limit->power_state == GBL_MACHINE_POWER_HALTED &&
               !near_limit->cpu.stopped &&
               run_power_cycles_add_up(&near_limit_result));
+        }
     }
 
     {

@@ -20,6 +20,60 @@ static gbl_machine *new_machine(void)
     return machine;
 }
 
+static const gbl_event *find_bus_event(const gbl_machine *machine,
+                                       uint8_t kind, uint8_t timer_index)
+{
+    size_t index;
+
+    if (machine == NULL) {
+        return NULL;
+    }
+    for (index = 0u; index < machine->event_count; ++index) {
+        const gbl_event *event = &machine->events[index];
+
+        if (event->live && event->kind == kind &&
+            (kind != (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW ||
+             event->timer_index == timer_index)) {
+            return event;
+        }
+    }
+    return NULL;
+}
+
+static bool invalidate_ppu_event_for_synthetic_clock(gbl_machine *machine,
+                                                      uint64_t target_cycle)
+{
+    const gbl_event *event = find_bus_event(
+        machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+
+    if (event == NULL || event->generation != machine->ppu.generation ||
+        event->cycle >= target_cycle || machine->ppu.generation == UINT64_MAX) {
+        return false;
+    }
+    /* This test jumps to a synthetic clock boundary. Make the earlier row
+     * sample stale explicitly, rather than asking production scheduling to
+     * process an unbounded interval. */
+    ++machine->ppu.generation;
+    machine->master_cycles = target_cycle;
+    return event->generation != machine->ppu.generation;
+}
+
+static size_t count_bus_events(const gbl_machine *machine, uint8_t kind)
+{
+    size_t index;
+    size_t count = 0u;
+
+    if (machine == NULL) {
+        return 0u;
+    }
+    for (index = 0u; index < machine->event_count; ++index) {
+        if (machine->events[index].live && machine->events[index].kind == kind) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 static void free_machine(gbl_machine *machine)
 {
     if (machine != NULL) {
@@ -352,7 +406,13 @@ static int run_timing(void)
     CHECK(gbl_test_canonical_equal(uninitialized, snapshot));
     CHECK(gbl_test_same_instance_identity_equal(uninitialized, snapshot));
 
-    machine->master_cycles = UINT64_MAX - 1u;
+    gbl_machine_reset(machine);
+    CHECK(machine->event_count == 1u && machine->events[0].live &&
+          machine->events[0].kind ==
+              (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY &&
+          machine->events[0].cycle == 0u);
+    CHECK(invalidate_ppu_event_for_synthetic_clock(
+        machine, UINT64_MAX - UINT64_C(1)));
     result = gbl_bus_write(machine, base + 0x200u, 1u,
                            GBL_BUS_CLASS_SEQUENTIAL, 0x77u);
     CHECK(result.status == GBL_BUS_STATUS_OK);
@@ -2969,9 +3029,25 @@ static int run_irq_registers(void)
         result = gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
                                GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFFFF));
         CHECK(result.status == GBL_BUS_STATUS_OK);
+        const gbl_event *timer_event;
+        const gbl_event *ppu_event;
+
         result = gbl_bus_write(machine, UINT32_C(0x04000102), 1u,
                                GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xC0));
-        CHECK(result.status == GBL_BUS_STATUS_OK && machine->event_count == 1u);
+        timer_event = find_bus_event(
+            machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+        ppu_event = find_bus_event(
+            machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+        CHECK(result.status == GBL_BUS_STATUS_OK && machine->event_count == 2u &&
+              count_bus_events(machine,
+                  (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
+              count_bus_events(machine,
+                  (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) == 1u &&
+              timer_event != NULL && timer_event->cycle == UINT64_C(3) &&
+              timer_event->priority == 0u && ppu_event != NULL &&
+              ppu_event->generation == machine->ppu.generation &&
+              ppu_event->cycle == UINT64_C(1006) &&
+              ppu_event->priority == 9u);
         result = gbl_bus_write(machine, UINT32_C(0x04000202), 1u,
                                GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x08));
         CHECK(result.status == GBL_BUS_STATUS_OK &&
@@ -2996,6 +3072,9 @@ static int run_keypad_registers(void)
 {
     gbl_machine *machine = new_machine();
     gbl_bus_result result;
+    const gbl_event *timer_event;
+    const gbl_event *keypad_event;
+    const gbl_event *ppu_event;
     gbl_input_event pressed = { UINT64_C(2), UINT16_C(0x0001) };
     gbl_cpu_state cpu_before;
 
@@ -3058,18 +3137,30 @@ static int run_keypad_registers(void)
                            GBL_BUS_CLASS_NONSEQUENTIAL,
                            UINT32_C(0x00C0FFFF));
     CHECK(result.status == GBL_BUS_STATUS_OK && machine->master_cycles == 1u &&
-          machine->event_count == 1u &&
-          machine->events[0].cycle == UINT64_C(2));
+          machine->event_count == 2u);
     pressed.cycle = UINT64_C(2);
     CHECK(gbl_machine_set_input_timeline(machine, &pressed, 1u) ==
           GBL_TIME_STATUS_OK);
-    CHECK(machine->event_count == 2u &&
-          machine->events[0].kind ==
-              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
-          machine->events[0].priority == 0u &&
-          machine->events[1].kind ==
-              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
-          machine->events[1].priority == 4u);
+    timer_event = find_bus_event(
+        machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+    keypad_event = find_bus_event(
+        machine, (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT, 0u);
+    ppu_event = find_bus_event(
+        machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+    CHECK(machine->event_count == 3u &&
+          count_bus_events(machine,
+              (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
+          count_bus_events(machine,
+              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) == 1u &&
+          count_bus_events(machine,
+              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) == 1u &&
+          timer_event != NULL &&
+          timer_event->cycle == UINT64_C(2) && timer_event->priority == 0u &&
+          keypad_event != NULL && keypad_event->cycle == UINT64_C(2) &&
+          keypad_event->priority == 4u && ppu_event != NULL &&
+          ppu_event->cycle == UINT64_C(1006) && ppu_event->priority == 9u &&
+          ppu_event->generation == machine->ppu.generation &&
+          timer_event < keypad_event && keypad_event < ppu_event);
     cpu_before = machine->cpu;
     result = gbl_bus_write(machine, UINT32_C(0x04000132), 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x4001));
@@ -3102,13 +3193,26 @@ static int run_keypad_registers(void)
     pressed.cycle = UINT64_C(3);
     CHECK(gbl_machine_set_input_timeline(machine, &pressed, 1u) ==
           GBL_TIME_STATUS_OK);
-    CHECK(machine->event_count == 2u &&
-          machine->events[0].kind ==
-              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
-          machine->events[0].priority == 0u &&
-          machine->events[1].kind ==
-              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
-          machine->events[1].priority == 4u);
+    timer_event = find_bus_event(
+        machine, (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW, 0u);
+    keypad_event = find_bus_event(
+        machine, (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT, 0u);
+    ppu_event = find_bus_event(
+        machine, (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY, 0u);
+    CHECK(machine->event_count == 3u &&
+          count_bus_events(machine,
+              (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) == 1u &&
+          count_bus_events(machine,
+              (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) == 1u &&
+          count_bus_events(machine,
+              (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT) == 1u &&
+          timer_event != NULL &&
+          timer_event->cycle == UINT64_C(3) && timer_event->priority == 0u &&
+          keypad_event != NULL && keypad_event->cycle == UINT64_C(3) &&
+          keypad_event->priority == 4u && ppu_event != NULL &&
+          ppu_event->cycle == UINT64_C(1006) && ppu_event->priority == 9u &&
+          ppu_event->generation == machine->ppu.generation &&
+          timer_event < keypad_event && keypad_event < ppu_event);
     result = gbl_bus_write(machine, UINT32_C(0x04000202), 2u,
                            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x1000));
     CHECK(result.status == GBL_BUS_STATUS_OK &&

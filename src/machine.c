@@ -1,8 +1,6 @@
 #include "gamebloke/gamebloke.h"
 #include "ppu_internal.h"
 
-#include <string.h>
-
 #define GBL_KEYPAD_INPUT_MASK UINT16_C(0x03FF)
 #define GBL_KEYPAD_CONTROL_MASK UINT16_C(0xC3FF)
 #define GBL_KEYPAD_IRQ_BIT UINT16_C(0x1000)
@@ -11,6 +9,28 @@
 #define GBL_PPU_EVENT_PRIORITY 9u
 #define GBL_PPU_TRANSFORM_REGISTER_BYTES_MASK UINT32_C(0x0000FFFF)
 #define GBL_PPU_EFFECT_REGISTER_BYTES_MASK UINT32_C(0x00FF0000)
+
+static void gbl_machine_copy_bytes(void *destination, const void *source,
+                                   size_t length)
+{
+    uint8_t *destination_bytes = destination;
+    const uint8_t *source_bytes = source;
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        destination_bytes[index] = source_bytes[index];
+    }
+}
+
+static void gbl_machine_clear_bytes(void *destination, size_t length)
+{
+    uint8_t *destination_bytes = destination;
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        destination_bytes[index] = 0u;
+    }
+}
 
 static bool gbl_event_precedes(const gbl_event *left,
                                const gbl_event *right)
@@ -461,7 +481,7 @@ gbl_ppu_sample_status gbl_ppu_sample_read(
         length > source_size - (size_t)source_offset) {
         return GBL_PPU_SAMPLE_STATUS_INVALID_SPAN;
     }
-    memcpy(destination, &source[source_offset], length);
+    gbl_machine_copy_bytes(destination, &source[source_offset], length);
     for (write_index = 0u;
          write_index < (size_t)capture->prior_write_count;
          ++write_index) {
@@ -496,7 +516,7 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
 
     if ((capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
         (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
-        memset(row, 0, GBL_PPU_ROW_BYTES);
+        gbl_machine_clear_bytes(row, GBL_PPU_ROW_BYTES);
         return true;
     }
     if (gbl_ppu_sample_read(
@@ -646,9 +666,9 @@ static gbl_time_status gbl_ppu_capture_row(
         (uint16_t)preview->ppu_memory_write_count;
     capture->unsupported_register_bytes =
         preview->ppu.unsupported_register_bytes;
-    memcpy(capture->render_register_bytes,
-           preview->ppu.render_register_bytes,
-           sizeof(capture->render_register_bytes));
+    gbl_machine_copy_bytes(capture->render_register_bytes,
+                           preview->ppu.render_register_bytes,
+                           sizeof(capture->render_register_bytes));
     if (!gbl_ppu_project_row(machine, preview, capture, row)) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
@@ -713,8 +733,8 @@ static gbl_time_status gbl_preview_dispatch_ppu_event(
             preview->ppu.capture_state = GBL_VIDEO_CAPTURE_INCOMPLETE;
             preview->ppu.capture_reason =
                 GBL_VIDEO_INVALID_REASON_INCOMPLETE;
-            memset(preview->ppu.row_coverage, 0,
-                   sizeof(preview->ppu.row_coverage));
+            gbl_machine_clear_bytes(preview->ppu.row_coverage,
+                                    sizeof(preview->ppu.row_coverage));
         }
         preview->ppu.frame_started = true;
         preview->ppu.line = line;
@@ -1326,8 +1346,9 @@ static gbl_time_status gbl_preview_bus_write(
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     uint32_t lane;
 
-    memcpy(render_register_bytes, preview->ppu.render_register_bytes,
-           sizeof(render_register_bytes));
+    gbl_machine_copy_bytes(render_register_bytes,
+                           preview->ppu.render_register_bytes,
+                           sizeof(render_register_bytes));
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         const uint32_t lane_address = address + lane;
@@ -1478,8 +1499,9 @@ static gbl_time_status gbl_preview_bus_write(
         preview->waitcnt = (uint16_t)(waitcnt & UINT16_C(0x5FFF));
     }
     preview->ppu.unsupported_register_bytes = unsupported_register_bytes;
-    memcpy(preview->ppu.render_register_bytes, render_register_bytes,
-           sizeof(render_register_bytes));
+    gbl_machine_copy_bytes(preview->ppu.render_register_bytes,
+                           render_register_bytes,
+                           sizeof(render_register_bytes));
     preview->ppu.dispcnt = dispcnt;
     if (dispcnt_written) {
         gbl_ppu_invalidate_capture(
@@ -1592,7 +1614,8 @@ static void gbl_ppu_materialize_capture_plan(
     size_t index;
 
     if (preview->ppu_clear_video) {
-        memset(machine->video_frame, 0, sizeof(machine->video_frame));
+        gbl_machine_clear_bytes(machine->video_frame,
+                                sizeof(machine->video_frame));
     }
     for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
         const gbl_ppu_row_capture *capture =
@@ -1645,9 +1668,9 @@ static bool gbl_ppu_commit_preview_valid(
         sampled_ppu.dispcnt = capture->dispcnt;
         sampled_ppu.unsupported_register_bytes =
             capture->unsupported_register_bytes;
-        memcpy(sampled_ppu.render_register_bytes,
-               capture->render_register_bytes,
-               sizeof(sampled_ppu.render_register_bytes));
+        gbl_machine_copy_bytes(sampled_ppu.render_register_bytes,
+                               capture->render_register_bytes,
+                               sizeof(sampled_ppu.render_register_bytes));
         if (gbl_ppu_active_invalid_reason(&sampled_ppu) !=
             GBL_VIDEO_INVALID_REASON_NONE) {
             return false;
