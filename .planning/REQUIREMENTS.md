@@ -19,7 +19,7 @@ claim cycle accuracy, hardware qualification, or broad compatibility.
 ### Backgrounds
 
 - [x] **BG-01**: Text backgrounds in modes 0 and 1 render supported tile/map sizes, scrolling, flips, tile/palette selection, transparency, and bounded address behavior from canonical video memory.
-- [ ] **BG-02**: Affine backgrounds in modes 1 and 2 render using declared signed fixed-point transform and reference-update policies, with deterministic wrap/out-of-area behavior and bounded address calculations.
+- [x] **BG-02**: Affine backgrounds in modes 1 and 2 render using declared signed fixed-point transform and reference-update policies, with deterministic wrap/out-of-area behavior and bounded address calculations.
 - [ ] **BG-03**: Bitmap backgrounds in modes 3, 4, and 5 render their declared direct or indexed color formats, mode extents, palette use, page selection, format-appropriate transparency, and deterministic out-of-area behavior.
 
 ### Objects
@@ -70,7 +70,7 @@ The roadmap assigns every current v3.0 requirement to exactly one phase.
 | PPU-05 | Phase 15 | Pending |
 | PPU-06 | Phase 11 | Complete |
 | BG-01 | Phase 12 | Complete |
-| BG-02 | Phase 12 | Pending |
+| BG-02 | Phase 12 | Complete |
 | BG-03 | Phase 12 | Pending |
 | OBJ-01 | Phase 13 | Pending |
 | OBJ-02 | Phase 13 | Pending |

@@ -4,18 +4,18 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 12
 current_phase_name: Background Modes 0–5
-current_plan: 4 of 8
+current_plan: 5 of 8
 status: executing
-stopped_at: Completed 12-03-PLAN.md
-last_updated: "2026-11-20T15:39:37.050Z"
+stopped_at: Completed 12-04-PLAN.md
+last_updated: "2026-11-20T16:41:35.355Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 11 passed canonical CI and goal-backward verification; Phase 12 is next
-state_head: cdb7d34546da760d7310cb9e77eda81758d76577
+state_head: 893b122729695657104564e6ed29d680b104a2df
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 16
-  completed_plans: 11
+  completed_plans: 12
   percent: 20
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 ## Current Position
 
 Phase: 12 (Background Modes 0–5) — READY TO EXECUTE
-Current Plan: 4 of 8
+Current Plan: 5 of 8
 Status: Plans passed independent review; ready to execute
 Last activity: 2026-11-20 — Phase 12 plan set passed review and coverage checks
 
@@ -174,6 +174,7 @@ Progress: [██░░░░░░░░] 20% (current milestone)
 | Phase 12 P01 | 50min | 2 tasks | 14 files |
 | Phase 12 P02 | 26min | 2 tasks | 12 files |
 | Phase 12 P3 | 27min | 2 tasks | 8 files |
+| Phase 12 P04 | about 45 min from first RED commit | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -453,6 +454,8 @@ Recent decisions affecting current work:
 - [Phase 12]: CI profile controls remain in the Phase 12 fixture setup but run once through the inherited Phase 11 helper.
 - [Phase 12]: Use the existing ppu.tracer Phase 11 dependency as the Phase 12 fixture bridge to preserve the Phase 11 exact graph.
 - [Phase 12]: Reuse the bus_test build from the Phase 11-to-10 helper chain; do not rebuild it for Phase 12.
+- [Phase 12]: Affine matrices use signed 8.8 values, mathematical floor by 256, and int64 horizontal intermediates; hardware qualification remains UNKNOWN.
+- [Phase 12]: Affine origins use unsigned signed-28 modular updates, modeled VBlank reload, and one PB/PD advance at the selected +1006 HBlank event; HBlank, DMA-latch, and within-line disputes remain open.
 
 ### Pending Todos
 
@@ -504,8 +507,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-20T15:39:36.987Z
-Stopped at: Completed 12-03-PLAN.md
+Last session: 2026-11-20T16:41:35.267Z
+Stopped at: Completed 12-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
