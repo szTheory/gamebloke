@@ -670,3 +670,34 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     endif()
   endforeach()
 endif()
+
+# Phase 11 cheap sampled-row and profile checks gate the affected CPU/DMA,
+# runner, result, and deterministic replay integration tests. Reused Phase 10
+# setup tests keep their existing ownership while also setting phase11_fast.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase11_fast_setup_tests
+    ppu.latch
+    ppu.registers
+    ppu.refusal
+    phase11.selection.control)
+  if(GBL_LANE STREQUAL "ci")
+    list(APPEND gbl_phase11_fast_setup_tests
+      profile.lint
+      profile.nc.ppu_policy)
+  endif()
+  foreach(test_name IN LISTS gbl_phase11_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase11_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase11_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|ppu[.](tracer|frame|controls)|result[.](nc|pos)[.]phase10|determinism[.]phase10([.]controls)?|phase11[.]selection[.](verify|order))$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase11_fast)
+    endif()
+  endforeach()
+endif()
