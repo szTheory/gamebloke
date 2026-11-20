@@ -65,7 +65,7 @@ work; decimal IDs are reserved for later insertions.
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 11-05-PLAN.md — halted at canonical CI acceptance; see [evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md)
 
-**Wave 4** *(blocked on Wave 3 completion)*
+**Wave 4** *(recovery wave; consumes Plan 11-05 evidence and starts from last completed prerequisite 11-04)*
 - [ ] 11-06-PLAN.md — exact baseline triage and focused CPU/core/scheduler repairs
 
 **Wave 5** *(blocked on Wave 4 completion)*
