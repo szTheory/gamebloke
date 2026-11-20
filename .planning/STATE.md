@@ -5,16 +5,16 @@ milestone_name: PPU Modes and Composition
 current_phase: 11
 current_phase_name: Sampled Rows and Transactional Visibility
 status: executing
-stopped_at: Completed Phase 11 Plan 11-06; ready to execute Plan 11-07
-last_updated: "2026-11-20T05:18:05.369Z"
+stopped_at: Completed Phase 11 Plan 11-07; ready to execute Plan 11-08
+last_updated: "2026-11-20T05:27:56.486Z"
 last_activity: 2026-11-20
-last_activity_desc: Phase 11 Plan 11-06 completed; Plan 11-07 ready
-state_head: cef353df117e8aed0336eebd4355fed19b2e240c
+last_activity_desc: Phase 11 Plan 11-07 completed; Plan 11-08 ready
+state_head: 5f357ddaa55320b51203c1f756b972dcdfd14e0c
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -31,9 +31,9 @@ See: .planning/PROJECT.md (updated 2026-11-19)
 ## Current Position
 
 Phase: 11 (Sampled Rows and Transactional Visibility) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
-Last activity: 2026-11-20 — Phase 11 Plan 11-06 completed; Plan 11-07 ready
+Last activity: 2026-11-20 — Phase 11 Plan 11-07 completed; Plan 11-08 ready
 
 Progress: [░░░░░░░░░░] 0% (current milestone)
 
@@ -169,6 +169,7 @@ Progress: [░░░░░░░░░░] 0% (current milestone)
 | Phase 11 P03 | 40min | 2 tasks | 7 files |
 | Phase 11 P04 | 27m45s | 2 tasks | 2 files |
 | Phase 11 P6 | not measured | 3 tasks | 10 files |
+| Phase 11 P7 | not measured | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -444,7 +445,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 11's required canonical CI acceptance remains open after failures reproduced at the Phase 11 starting revision; that run stopped before `ci-post`, so it produced no complete inventory/JUnit. The owner authorized bounded recovery through `$gsd-autonomous`. Plan 11-06's focused repairs are complete; Plans 11-07 and 11-08 remain before acceptance. Keep PPU-03/04/06 pending and do not start Phase 12 until the canonical workflow and complete post-inventory pass. See [Phase 11 evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md).
+- Phase 11's required canonical CI acceptance remains open after failures reproduced at the Phase 11 starting revision; that run stopped before `ci-post`, so it produced no complete inventory/JUnit. The owner authorized bounded recovery through `$gsd-autonomous`. Plan 11-06's focused repairs and Plan 11-07's exact Phase 10 path corrections are complete; Plan 11-08 remains before acceptance. Keep PPU-03/04/06 pending and do not start Phase 12 until the canonical workflow and complete post-inventory pass. See [Phase 11 evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md).
 
 - Before the Phase5 merge, owner must decide the [producer-ancestry merge exception](phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-MERGE-PROVENANCE.md). Cheap graph simulation proves squash would break the source guard; a merge commit preserves it and current rules permit that method. No merge is authorized yet; current PR verification can continue.
 
@@ -490,9 +491,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-20T05:18:05.348Z
-Stopped at: Completed Phase 11 Plan 11-06; ready to execute Plan 11-07
-Resume file: .planning/phases/11-sampled-rows-and-transactional-visibility/11-07-PLAN.md
+Last session: 2026-11-20T05:27:56.456Z
+Stopped at: Completed Phase 11 Plan 11-07; ready to execute Plan 11-08
+Resume file: .planning/phases/11-sampled-rows-and-transactional-visibility/11-08-PLAN.md
 
 ## Operator Next Steps
 
