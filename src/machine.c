@@ -816,6 +816,159 @@ static bool gbl_ppu_project_affine_row(
     return true;
 }
 
+static bool gbl_ppu_project_bitmap_row(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_row_capture *capture, uint8_t mode,
+    uint8_t row[GBL_PPU_ROW_BYTES])
+{
+    const gbl_ppu_affine_state *affine = &capture->affine[0];
+    uint32_t source_width;
+    uint32_t source_height;
+    uint32_t bytes_per_pixel;
+    uint32_t page_extent;
+    uint32_t page_base = 0u;
+    uint32_t source_row_bytes;
+    uint8_t palette_bytes[512];
+    uint8_t source_row[GBL_PPU_ROW_BYTES];
+    bool constant_source_row;
+    bool source_row_valid = false;
+    int64_t cached_source_y = -1;
+    uint32_t pixel;
+
+    if (mode == 3u) {
+        source_width = UINT32_C(240);
+        source_height = UINT32_C(160);
+        bytes_per_pixel = UINT32_C(2);
+        page_extent = UINT32_C(0x12C00);
+    } else if (mode == 4u) {
+        source_width = UINT32_C(240);
+        source_height = UINT32_C(160);
+        bytes_per_pixel = UINT32_C(1);
+        page_extent = UINT32_C(0x09600);
+        if ((capture->dispcnt & UINT16_C(0x0010)) != 0u) {
+            page_base = UINT32_C(0x0000A000);
+        }
+    } else if (mode == 5u) {
+        source_width = UINT32_C(160);
+        source_height = UINT32_C(128);
+        bytes_per_pixel = UINT32_C(2);
+        page_extent = UINT32_C(0x0A000);
+        if ((capture->dispcnt & UINT16_C(0x0010)) != 0u) {
+            page_base = UINT32_C(0x0000A000);
+        }
+    } else {
+        return false;
+    }
+    source_row_bytes = source_width * bytes_per_pixel;
+    if (!affine->origin_valid || source_row_bytes > sizeof(source_row) ||
+        (uint64_t)page_base + (uint64_t)page_extent >
+            (uint64_t)GBL_VRAM_SIZE ||
+        (uint64_t)source_row_bytes * (uint64_t)source_height !=
+            (uint64_t)page_extent ||
+        gbl_ppu_sample_read(
+            machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
+            sizeof(palette_bytes), palette_bytes, sizeof(palette_bytes)) !=
+            GBL_PPU_SAMPLE_STATUS_OK) {
+        return false;
+    }
+    constant_source_row = affine->pc == 0;
+    if (constant_source_row) {
+        const int64_t source_y = gbl_ppu_floor_fixed_8_8(
+            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_y));
+
+        if (source_y >= 0 && source_y < (int64_t)source_height) {
+            const uint64_t source_offset_wide = (uint64_t)page_base +
+                (uint64_t)source_y * (uint64_t)source_row_bytes;
+
+            if (source_offset_wide > (uint64_t)UINT32_MAX ||
+                (uint64_t)source_row_bytes >
+                    (uint64_t)page_base + (uint64_t)page_extent -
+                        source_offset_wide ||
+                gbl_ppu_sample_read(
+                    machine, preview, capture, GBL_BUS_REGION_VRAM,
+                    (uint32_t)source_offset_wide,
+                    (uint8_t)bytes_per_pixel, source_row_bytes, source_row,
+                    sizeof(source_row)) != GBL_PPU_SAMPLE_STATUS_OK) {
+                return false;
+            }
+            source_row_valid = true;
+            cached_source_y = source_y;
+        }
+    }
+
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const int64_t source_x_fixed =
+            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_x) +
+            (int64_t)affine->pa * (int64_t)pixel;
+        const int64_t source_y_fixed =
+            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_y) +
+            (int64_t)affine->pc * (int64_t)pixel;
+        const int64_t source_x = gbl_ppu_floor_fixed_8_8(source_x_fixed);
+        const int64_t source_y = gbl_ppu_floor_fixed_8_8(source_y_fixed);
+        uint16_t color;
+
+        if (source_x >= 0 && source_y >= 0 &&
+            source_x < (int64_t)source_width &&
+            source_y < (int64_t)source_height) {
+            const uint32_t source_x_unsigned = (uint32_t)source_x;
+            const uint32_t source_y_unsigned = (uint32_t)source_y;
+            uint8_t pixel_bytes[2] = { 0u, 0u };
+            const uint8_t *sample = pixel_bytes;
+
+            if (constant_source_row) {
+                if (!source_row_valid || cached_source_y != source_y) {
+                    return false;
+                }
+                sample = &source_row[source_x_unsigned * bytes_per_pixel];
+            } else {
+                const uint64_t local_offset_wide =
+                    (uint64_t)source_y_unsigned *
+                        (uint64_t)source_row_bytes +
+                    (uint64_t)source_x_unsigned *
+                        (uint64_t)bytes_per_pixel;
+                const uint64_t source_offset_wide =
+                    (uint64_t)page_base + local_offset_wide;
+
+                if (local_offset_wide > (uint64_t)page_extent ||
+                    (uint64_t)bytes_per_pixel >
+                        (uint64_t)page_extent - local_offset_wide ||
+                    source_offset_wide > (uint64_t)UINT32_MAX ||
+                    gbl_ppu_sample_read(
+                        machine, preview, capture, GBL_BUS_REGION_VRAM,
+                        (uint32_t)source_offset_wide,
+                        (uint8_t)bytes_per_pixel,
+                        (size_t)bytes_per_pixel, pixel_bytes,
+                        sizeof(pixel_bytes)) != GBL_PPU_SAMPLE_STATUS_OK) {
+                    return false;
+                }
+            }
+            if (mode == 4u) {
+                const uint8_t color_index = sample[0];
+                const uint32_t palette_offset =
+                    (uint32_t)color_index * UINT32_C(2);
+
+                color = (uint16_t)(
+                    (uint16_t)palette_bytes[palette_offset] |
+                    (uint16_t)((uint16_t)palette_bytes[palette_offset + 1u]
+                               << 8u));
+            } else {
+                color = (uint16_t)(
+                    (uint16_t)sample[0] |
+                    (uint16_t)((uint16_t)sample[1] << 8u));
+                color &= UINT16_C(0x7FFF);
+            }
+        } else {
+            color = (uint16_t)(
+                (uint16_t)palette_bytes[0] |
+                (uint16_t)((uint16_t)palette_bytes[1] << 8u));
+        }
+        color &= UINT16_C(0x7FFF);
+        row[pixel * 2u] = (uint8_t)(color & UINT16_C(0x00FF));
+        row[pixel * 2u + 1u] = (uint8_t)(color >> 8u);
+    }
+    return true;
+}
+
 static bool gbl_ppu_project_text_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture, uint8_t background,
@@ -962,12 +1115,9 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
                                const gbl_ppu_row_capture *capture,
                                uint8_t row[GBL_PPU_ROW_BYTES])
 {
-    const uint16_t line = capture->line;
-    const uint32_t row_offset = (uint32_t)line * GBL_PPU_ROW_BYTES;
     const uint16_t mode = (uint16_t)(capture->dispcnt & UINT16_C(0x0007));
     uint8_t text_background;
     uint8_t affine_background;
-    uint32_t pixel;
 
     if (mode == 0u) {
         if (!gbl_ppu_selected_text_bg(capture->dispcnt,
@@ -1001,27 +1151,17 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
         return gbl_ppu_project_affine_row(
             machine, preview, capture, affine_background, row);
     }
-    if ((capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
+    if (mode >= UINT16_C(3) && mode <= UINT16_C(5) &&
+        (capture->dispcnt & UINT16_C(0x0400)) != 0u) {
+        return gbl_ppu_project_bitmap_row(
+            machine, preview, capture, (uint8_t)mode, row);
+    }
+    if (mode < UINT16_C(3) || mode > UINT16_C(5) ||
         (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
         gbl_machine_clear_bytes(row, GBL_PPU_ROW_BYTES);
         return true;
     }
-    if (gbl_ppu_sample_read(
-            machine, preview, capture, GBL_BUS_REGION_VRAM, row_offset, 2u,
-            GBL_PPU_ROW_BYTES, row, GBL_PPU_ROW_BYTES) !=
-        GBL_PPU_SAMPLE_STATUS_OK) {
-        return false;
-    }
-    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
-        const uint32_t offset = pixel * 2u;
-        const uint16_t color = (uint16_t)(
-            ((uint16_t)row[offset]) |
-            (uint16_t)((uint16_t)row[offset + 1u] << 8u));
-        const uint16_t visible_color = (uint16_t)(color & UINT16_C(0x7FFF));
-
-        row[offset] = (uint8_t)(visible_color & UINT16_C(0x00FF));
-        row[offset + 1u] = (uint8_t)(visible_color >> 8u);
-    }
+    gbl_machine_clear_bytes(row, GBL_PPU_ROW_BYTES);
     return true;
 }
 
@@ -1031,10 +1171,11 @@ static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
     const uint16_t mode = (uint16_t)(dispcnt & UINT16_C(0x0007));
 
     if (mode != 0u && mode != UINT16_C(1) && mode != UINT16_C(2) &&
-        mode != UINT16_C(3)) {
+        mode != UINT16_C(3) && mode != UINT16_C(4) &&
+        mode != UINT16_C(5)) {
         return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
     }
-    if (mode == UINT16_C(3) &&
+    if (mode >= UINT16_C(3) && mode <= UINT16_C(5) &&
         (dispcnt & UINT16_C(0x0400)) == 0u) {
         return GBL_VIDEO_INVALID_REASON_BG2_DISABLED;
     }
@@ -1106,12 +1247,21 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
         }
         return GBL_VIDEO_INVALID_REASON_NONE;
     }
+    if (mode >= UINT16_C(3) && mode <= UINT16_C(5)) {
+        const uint16_t control = gbl_ppu_register_u16(
+            ppu->bg_register_bytes, UINT32_C(4));
+
+        if ((control & UINT16_C(0x0040)) != 0u) {
+            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
+        }
+        /* The bitmap source consumes BG2's captured matrix and reference.
+         * Other BG enable bits remain inert under this single-source model. */
+        return GBL_VIDEO_INVALID_REASON_NONE;
+    }
     if ((ppu->unsupported_register_bytes &
          GBL_PPU_TRANSFORM_REGISTER_BYTES_MASK) != 0u) {
         return GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED;
     }
-    /* Mode 3 has only the BG2 bitmap source; the other BG enable bits are
-     * inert for this source model and retain the existing accepted behavior. */
     return GBL_VIDEO_INVALID_REASON_NONE;
 }
 
