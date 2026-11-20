@@ -1758,6 +1758,9 @@ static void gbl_machine_time_copy_preview(
     preview->waitcnt = machine->waitcnt;
     preview->ppu = machine->ppu;
     preview->ppu.dispcnt = machine->dispcnt;
+    gbl_machine_copy_bytes(preview->ppu_affine_prepared,
+                           preview->ppu.affine,
+                           sizeof(preview->ppu_affine_prepared));
     preview->bus_owner = machine->bus_owner;
     preview->dma_last_channel = machine->dma_last_channel;
     preview->dma_last_width = machine->dma_last_width;
