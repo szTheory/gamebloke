@@ -127,6 +127,20 @@ if(CASE STREQUAL "copy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
 elseif(CASE STREQUAL "ppu_policy")
+  if(NOT "${PROFILE_VERSION}" STREQUAL "11")
+    message(FATAL_ERROR
+      "profile text capability assertion: expected version 11, found ${PROFILE_VERSION}")
+  endif()
+  string(JSON mode0_status GET "${base_profile}"
+    ppu_policy display_capabilities modes 0 implementation_status)
+  string(JSON mode1_status GET "${base_profile}"
+    ppu_policy display_capabilities modes 1 implementation_status)
+  if(NOT "${mode0_status}" STREQUAL "partial" OR
+      NOT "${mode1_status}" STREQUAL "partial")
+    message(FATAL_ERROR
+      "profile text capability assertion: modes 0 and 1 must be partial, found ${mode0_status}/${mode1_status}")
+  endif()
+
   profile_copy(p clean_ppu_policy)
   doc_copy(d clean_ppu_policy)
   check_command(cmd "${p}" "${d}")
