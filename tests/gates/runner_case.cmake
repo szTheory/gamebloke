@@ -179,7 +179,7 @@ function(expect_active_result_extension json)
   endif()
 
   expect_json_type("${json}" OBJECT phase10)
-  expect_json_field("${json}" gamebloke-ppu-observation-1 phase10 model)
+  expect_json_field("${json}" gamebloke-ppu-observation-2 phase10 model)
   expect_json_type("${json}" BOOLEAN phase10 observed)
   expect_json_type("${json}" OBJECT phase10 timing)
   expect_json_field("${json}" gamebloke-ppu-model-1 phase10 timing model)

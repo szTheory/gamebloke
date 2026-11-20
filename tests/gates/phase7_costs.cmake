@@ -22,12 +22,16 @@ execute_process(
   WORKING_DIRECTORY "${SRC}"
   RESULT_VARIABLE profile_rc OUTPUT_VARIABLE profile_out ERROR_VARIABLE profile_err)
 set(profile_output "${profile_out}${profile_err}")
-if(NOT profile_rc EQUAL 0 OR NOT "${profile_output}" MATCHES
-    "profile: ok \\(agb v8, 11 timing constants, 13 unmodeled\\)")
+if(NOT profile_rc EQUAL 0)
   message(FATAL_ERROR "phase7-costs: clean profile validation failed: ${profile_output}")
 endif()
 
 file(READ "${profile}" profile_json)
+string(JSON profile_version GET "${profile_json}" profile_version)
+if(NOT "${profile_output}" MATCHES
+    "profile: ok \\(agb v${profile_version}, 11 timing constants, 13 unmodeled\\)")
+  message(FATAL_ERROR "phase7-costs: clean profile validation failed: ${profile_output}")
+endif()
 string(JSON model_id GET "${profile_json}" timing_model id)
 string(JSON qualification GET "${profile_json}" timing_model qualification)
 if(NOT model_id STREQUAL "gamebloke-timer-model-1" OR

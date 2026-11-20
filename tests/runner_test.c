@@ -2833,7 +2833,7 @@ static bool gbl_test_cli_trace_write_limit(const char *runner_path,
                                            const char *directory)
 {
     char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
-    char output[8192];
+    char output[16384];
     struct rlimit limit;
     struct timespec poll_wait = { 0, 10000000L };
     pid_t child;
