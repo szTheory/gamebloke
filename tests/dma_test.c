@@ -1976,6 +1976,9 @@ static bool dma_ppu_overflow_refusal_is_atomic(void)
             clean_twin, row_start - unit_cycles, row_start, 1u, false,
             clean_twin->ppu.generation + 1u,
             clean_twin->next_event_sequence);
+        /* This synthetic jump starts at line 1 without replaying line-0
+         * HBlank, so seed the identity transform's row-1 origin explicitly. */
+        clean_twin->ppu.affine[0].origin_y = UINT32_C(0x00000100);
         valid = gbl_machine_dma_step(clean_twin, unit_cycles, &clean_step) ==
                     GBL_DMA_STATUS_OK && clean_step.unit_completed &&
                 clean_step.completion_cycle == row_start &&
