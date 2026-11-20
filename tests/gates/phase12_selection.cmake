@@ -49,8 +49,9 @@ file(STRINGS "${GBL_PHASE12_CACHE}" GBL_PHASE12_LANE_LINE
 string(REPLACE "GBL_LANE:STRING=" "" GBL_PHASE12_LANE
   "${GBL_PHASE12_LANE_LINE}")
 
-# This is the bounded Phase 12 cheap set. The profile contract controls only
-# exist in CI; ASan keeps its own lane-specific inventory.
+# This is the bounded Phase 12 selector set. Profile checks remain in the
+# Phase 11 predecessor and Phase 12 CI fixture setup, so the fast helper does
+# not execute those unchanged controls twice.
 set(GBL_PHASE12_EXPECTED
   ppu.tracer
   ppu.bg.tracer
@@ -58,13 +59,12 @@ set(GBL_PHASE12_EXPECTED
   ppu.bg.controls
   ppu.refusal
   phase12.selection.control)
-if(GBL_PHASE12_LANE STREQUAL "ci")
-  list(APPEND GBL_PHASE12_EXPECTED profile.lint profile.nc.ppu_policy)
-elseif(NOT GBL_PHASE12_LANE STREQUAL "asan")
+if(NOT GBL_PHASE12_LANE STREQUAL "ci" AND
+    NOT GBL_PHASE12_LANE STREQUAL "asan")
   message(FATAL_ERROR "phase12-selection: unsupported-lane-${GBL_PHASE12_LANE}")
 endif()
 set(GBL_PHASE12_REGEX
-  "^(ppu[.](tracer|refusal)|ppu[.]bg[.](tracer|text|controls)|phase12[.]selection[.]control|profile[.](lint|nc[.]ppu_policy))$")
+  "^(ppu[.](tracer|refusal)|ppu[.]bg[.](tracer|text|controls)|phase12[.]selection[.]control)$")
 set(GBL_PHASE12_INVENTORY_ROWS
   "phase12.selection.control gate,ppu,time"
   "phase12.selection.order gate,ppu,time"
@@ -446,7 +446,6 @@ function(gbl_phase12_check_selection_controls scratch_root)
   if(NOT tracer_count EQUAL 1)
     message(FATAL_ERROR "phase12-selection-control: clean-twin-missing-ppu.bg.tracer")
   endif()
-  string(JSON duplicate_test GET "${clean_json}" tests ${tracer_index})
   gbl_phase12_find_test("${clean_json}" ppu.refusal refusal_index refusal_count)
   if(NOT refusal_count EQUAL 1)
     message(FATAL_ERROR "phase12-selection-control: clean-twin-missing-ppu.refusal")
@@ -502,7 +501,7 @@ function(gbl_phase12_check_selection_controls scratch_root)
   string(JSON skipped_json SET "${skipped_json}" properties ${property_count}
     "${skip_property}")
   set(skipped_graph "${clean_json}")
-  string(JSON skipped_graph SET "${skipped_graph}" tests ${latch_index}
+  string(JSON skipped_graph SET "${skipped_graph}" tests ${tracer_index}
     "${skipped_json}")
   gbl_phase12_validate_selection("${skipped_graph}" skipped_reason)
   if(NOT skipped_reason STREQUAL "skippable")
@@ -632,6 +631,47 @@ function(gbl_phase12_validate_order json reason_out)
     endif()
     gbl_phase12_json_property("${json}" ${index} LABELS labels has_labels)
     set(expected_labels gate ppu time)
+    set(actual_labels ${labels})
+    list(SORT actual_labels)
+    list(SORT expected_labels)
+    if(NOT has_labels OR NOT "${actual_labels}" STREQUAL "${expected_labels}")
+      set(${reason_out} "${name}-wrong-label" PARENT_SCOPE)
+      return()
+    endif()
+    gbl_phase12_json_property("${json}" ${index} WORKING_DIRECTORY workdir has_workdir)
+    if(NOT has_workdir)
+      set(${reason_out} "${name}-missing-root" PARENT_SCOPE)
+      return()
+    endif()
+    file(REAL_PATH "${workdir}" workdir_real)
+    if(NOT workdir_real STREQUAL GBL_PHASE12_BIN)
+      set(${reason_out} "${name}-wrong-root" PARENT_SCOPE)
+      return()
+    endif()
+    gbl_phase12_json_property("${json}" ${index} SKIP_REGULAR_EXPRESSION
+      skip_expression has_skip)
+    gbl_phase12_json_property("${json}" ${index} DISABLED disabled has_disabled)
+    if(has_skip OR (has_disabled AND disabled))
+      set(${reason_out} "${name}-skippable" PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+  foreach(name IN ITEMS profile.lint profile.nc.ppu_policy)
+    if(NOT name IN_LIST expected_setup)
+      continue()
+    endif()
+    gbl_phase12_find_test("${json}" "${name}" index found_count)
+    gbl_phase12_expected_command("${name}" "${json}" ${index} command_reason)
+    if(NOT "${command_reason}" STREQUAL "")
+      set(${reason_out} "${name}-${command_reason}" PARENT_SCOPE)
+      return()
+    endif()
+    gbl_phase12_json_property("${json}" ${index} LABELS labels has_labels)
+    if(name STREQUAL "profile.lint")
+      set(expected_labels gate profile)
+    else()
+      set(expected_labels control profile)
+    endif()
     set(actual_labels ${labels})
     list(SORT actual_labels)
     list(SORT expected_labels)
@@ -792,6 +832,9 @@ function(gbl_phase12_check_order_graph scratch_root)
 endfunction()
 
 if(CASE STREQUAL "manifest")
+  list(LENGTH GBL_PHASE12_EXPECTED manifest_count)
+  message("phase12-manifest-count=${manifest_count}")
+  message("phase12-manifest-regex=${GBL_PHASE12_REGEX}")
   foreach(name IN LISTS GBL_PHASE12_EXPECTED)
     message("phase12-manifest-name=${name}")
   endforeach()

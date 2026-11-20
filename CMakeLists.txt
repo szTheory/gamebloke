@@ -535,6 +535,7 @@ elseif(GBL_LANE STREQUAL "local-playable0")
         -P "${CMAKE_SOURCE_DIR}/tests/gates/playable0_guest.cmake")
   endforeach()
 endif()
+
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)
 endif()
@@ -698,6 +699,39 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     if(test_name MATCHES "^(cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|ppu[.](tracer|frame|controls)|result[.](nc|pos)[.]phase10|determinism[.]phase10([.]controls)?|phase11[.]selection[.](verify|order))$")
       set_property(TEST "${test_name}" APPEND PROPERTY
         FIXTURES_REQUIRED phase11_fast)
+    endif()
+  endforeach()
+endif()
+
+# Phase 12 background sampling checks gate the next integration slice while
+# keeping the established Phase 7–11 fixture chain intact. Reuse the bounded
+# tracer/refusal prefix and select profile checks only in CI.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase12_fast_setup_tests
+    ppu.tracer
+    ppu.bg.tracer
+    ppu.bg.text
+    ppu.bg.controls
+    ppu.refusal
+    phase12.selection.control)
+  if(GBL_LANE STREQUAL "ci")
+    list(APPEND gbl_phase12_fast_setup_tests
+      profile.lint
+      profile.nc.ppu_policy)
+  endif()
+  foreach(test_name IN LISTS gbl_phase12_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase12_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase12_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(ppu[.]bg[.].*|ppu[.](frame|controls)|cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|phase12[.]selection[.](verify|order)|determinism[.]phase10([.]controls)?|result[.](nc|pos)[.]phase10)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase12_fast)
     endif()
   endforeach()
 endif()
