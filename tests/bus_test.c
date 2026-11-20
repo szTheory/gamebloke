@@ -1280,6 +1280,129 @@ static bool ppu_bg_text_pixel_matches(const uint8_t *frame, uint16_t x,
     return actual == expected;
 }
 
+static bool ppu_bg_affine_configure(gbl_machine *machine, uint8_t mode,
+                                    uint8_t background, uint8_t size_code,
+                                    bool wrap, uint8_t map_base,
+                                    uint8_t character_base)
+{
+    uint16_t dispcnt;
+    uint16_t control;
+
+    if (machine == NULL || background < 2u || background > 3u ||
+        mode < 1u || mode > 2u || size_code > 3u || map_base > 31u ||
+        character_base > 3u || (mode == 1u && background != 2u)) {
+        return false;
+    }
+    dispcnt = (uint16_t)(mode |
+                         (uint16_t)(UINT16_C(1) << (8u + background)));
+    control = (uint16_t)((uint16_t)((uint16_t)character_base << 2u) |
+                         (uint16_t)((uint16_t)map_base << 8u) |
+                         (wrap ? UINT16_C(0x2000) : 0u) |
+                         (uint16_t)((uint16_t)size_code << 14u));
+    machine->dispcnt = dispcnt;
+    machine->ppu.dispcnt = dispcnt;
+    ppu_bg_store_u16(machine->ppu.bg_register_bytes,
+                     (uint32_t)background * 2u, control);
+    return true;
+}
+
+static bool ppu_bg_affine_set_map_entry(gbl_machine *machine,
+                                        uint8_t background,
+                                        uint32_t source_x,
+                                        uint32_t source_y,
+                                        uint8_t tile_index)
+{
+    const uint16_t control = ppu_bg_text_control(machine, background);
+    const uint32_t size_code = (uint32_t)(control >> 14u);
+    const uint32_t map_width = UINT32_C(128) << size_code;
+    const uint32_t map_width_tiles = map_width / UINT32_C(8);
+    const uint32_t map_base =
+        (uint32_t)((control >> 8u) & UINT16_C(0x001F)) * UINT32_C(0x0800);
+    const uint64_t map_offset = (uint64_t)map_base +
+        (uint64_t)(source_y >> 3u) * (uint64_t)map_width_tiles +
+        (uint64_t)(source_x >> 3u);
+
+    if (machine == NULL || background < 2u || background > 3u ||
+        source_x >= map_width || source_y >= map_width ||
+        map_offset >= (uint64_t)GBL_VRAM_SIZE || map_offset >= UINT32_MAX) {
+        return false;
+    }
+    machine->vram[(uint32_t)map_offset] = tile_index;
+    return true;
+}
+
+static bool ppu_bg_affine_fill_tile(gbl_machine *machine,
+                                    uint8_t background,
+                                    uint8_t tile_index,
+                                    const uint8_t pixels[64])
+{
+    const uint16_t control = ppu_bg_text_control(machine, background);
+    const uint32_t character_base =
+        (uint32_t)((control >> 2u) & UINT16_C(0x0003)) * UINT32_C(0x4000);
+    const uint64_t offset = (uint64_t)character_base +
+                            (uint64_t)tile_index * UINT64_C(64);
+
+    if (machine == NULL || background < 2u || background > 3u ||
+        pixels == NULL || offset > (uint64_t)GBL_VRAM_SIZE ||
+        sizeof(uint8_t) * 64u > (size_t)((uint64_t)GBL_VRAM_SIZE - offset)) {
+        return false;
+    }
+    memcpy(&machine->vram[(uint32_t)offset], pixels, 64u);
+    return true;
+}
+
+static void ppu_bg_affine_set_transform(gbl_machine *machine,
+                                        uint8_t background, int16_t pa,
+                                        int16_t pb, int16_t pc, int16_t pd,
+                                        int32_t reference_x,
+                                        int32_t reference_y)
+{
+    gbl_ppu_affine_state *affine = &machine->ppu.affine[background - 2u];
+
+    affine->pa = pa;
+    affine->pb = pb;
+    affine->pc = pc;
+    affine->pd = pd;
+    affine->programmed_reference_x =
+        (uint32_t)reference_x & UINT32_C(0x0FFFFFFF);
+    affine->programmed_reference_y =
+        (uint32_t)reference_y & UINT32_C(0x0FFFFFFF);
+    affine->origin_x = affine->programmed_reference_x;
+    affine->origin_y = affine->programmed_reference_y;
+    affine->origin_valid = true;
+    affine->hblank_y_suppressed = false;
+}
+
+static bool ppu_bg_affine_pixel_matches(const uint8_t *frame, uint16_t x,
+                                        uint16_t y, uint16_t expected)
+{
+    const size_t offset = (size_t)y * GBL_PPU_ROW_BYTES + (size_t)x * 2u;
+    const uint16_t actual = (uint16_t)(
+        (uint16_t)frame[offset] |
+        (uint16_t)((uint16_t)frame[offset + 1u] << 8u));
+
+    return actual == expected;
+}
+
+static bool ppu_bg_affine_prepare_pattern(gbl_machine *machine,
+                                          uint8_t mode,
+                                          uint8_t background,
+                                          uint8_t size_code, bool wrap,
+                                          uint8_t map_base,
+                                          uint8_t character_base,
+                                          uint16_t color)
+{
+    uint8_t pixels[64];
+
+    memset(pixels, 1, sizeof(pixels));
+    return ppu_bg_affine_configure(machine, mode, background, size_code,
+                                   wrap, map_base, character_base) &&
+           ppu_bg_affine_set_map_entry(machine, background, 0u, 0u, 1u) &&
+           ppu_bg_affine_fill_tile(machine, background, 1u, pixels) &&
+           ppu_bg_text_set_color(machine, 0u, UINT16_C(0x001F)) &&
+           ppu_bg_text_set_color(machine, 1u, color);
+}
+
 static int run_ppu_bg_text(void)
 {
     static const uint8_t source_cases[][2] = {
@@ -1495,38 +1618,349 @@ static int run_ppu_bg_text(void)
 
 static int run_ppu_bg_affine(void)
 {
-    gbl_machine *machine = new_machine();
     const uint16_t expected = UINT16_C(0x2A35);
-    uint32_t pixel;
+    const uint16_t backdrop = UINT16_C(0x001F);
+    gbl_machine *machine = new_machine();
+    uint8_t pixels[64];
 
     CHECK(machine != NULL);
-    if (machine == NULL) {
-        return 1;
+    if (machine != NULL) {
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 1u, 2u, 0u, false,
+                                            1u, 1u, expected));
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          expected));
+        CHECK(!ppu_bg_affine_pixel_matches(
+            machine->video_frame, 0u, 0u,
+            (uint16_t)(expected ^ UINT16_C(1))));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          expected));
+        free_machine(machine);
     }
 
-    /* Mode 1 BG2 affine identity transform: a byte map selects an 8bpp
-     * character, and the captured 8.8 matrix maps screen pixel (x, y) to
-     * the same source coordinate. */
-    machine->dispcnt = UINT16_C(0x0401);
-    machine->ppu.dispcnt = machine->dispcnt;
-    ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u, UINT16_C(0x0104));
-    machine->ppu.render_register_bytes[1] = UINT8_C(1);
-    machine->ppu.render_register_bytes[7] = UINT8_C(1);
-    machine->vram[UINT32_C(0x0800)] = UINT8_C(1);
-    for (pixel = 0u; pixel < 64u; ++pixel) {
-        machine->vram[UINT32_C(0x4040) + pixel] = UINT8_C(1);
-    }
-    CHECK(ppu_bg_text_set_color(machine, 0u, UINT16_C(0x001F)));
-    CHECK(ppu_bg_text_set_color(machine, 1u, expected));
-    CHECK(gbl_machine_advance_to(machine, UINT64_C(1232)) ==
-          GBL_TIME_STATUS_OK);
-    for (pixel = 0u; pixel < 4u; ++pixel) {
-        CHECK(ppu_bg_text_pixel_matches(machine->video_frame,
-                                        (uint16_t)pixel, expected));
+    /* Mathematical floor keeps negative fractional coordinates outside an
+     * unclipped map. Overflow wrap then maps the same coordinate to the last
+     * source pixel. */
+    {
+        gbl_machine *clipped = new_machine();
+        gbl_machine *wrapped = new_machine();
+
+        CHECK(clipped != NULL && wrapped != NULL);
+        if (clipped != NULL && wrapped != NULL) {
+            CHECK(ppu_bg_affine_prepare_pattern(
+                clipped, 1u, 2u, 0u, false, 1u, 1u, expected));
+            CHECK(ppu_bg_affine_prepare_pattern(
+                wrapped, 1u, 2u, 0u, true, 1u, 1u, expected));
+            CHECK(ppu_bg_affine_set_map_entry(wrapped, 2u, 127u, 0u, 1u));
+            ppu_bg_affine_set_transform(clipped, 2u, INT16_C(0x0100), 0,
+                                        0, INT16_C(0x0100), -128, 0);
+            ppu_bg_affine_set_transform(wrapped, 2u, INT16_C(0x0100), 0,
+                                        0, INT16_C(0x0100), -128, 0);
+            CHECK(gbl_machine_advance_to(clipped, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(gbl_machine_advance_to(wrapped, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_bg_affine_pixel_matches(clipped->video_frame, 0u, 0u,
+                                              backdrop));
+            CHECK(ppu_bg_affine_pixel_matches(clipped->video_frame, 1u, 0u,
+                                              expected));
+            CHECK(ppu_bg_affine_pixel_matches(wrapped->video_frame, 0u, 0u,
+                                              expected));
+            CHECK(ppu_bg_affine_pixel_matches(wrapped->video_frame, 1u, 0u,
+                                              expected));
+        }
+        free_machine(clipped);
+        free_machine(wrapped);
     }
 
-    puts("ppu.bg.affine: mode-1 BG2 identity map, matrix and sampled pixels");
-    free_machine(machine);
+    /* Mode 2 exposes BG3's independent affine matrix and byte map. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 2u, 3u, 0u, false,
+                                            2u, 2u, UINT16_C(0x1555)));
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x1555)));
+        free_machine(machine);
+    }
+
+    /* The largest affine map and its last 8bpp tile remain inside BG VRAM.
+     * Signed matrix extrema exercise the int64 horizontal products. */
+    machine = new_machine();
+    memset(pixels, 1, sizeof(pixels));
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_affine_configure(machine, 2u, 2u, 3u, false, 8u, 0u));
+        CHECK(ppu_bg_affine_set_map_entry(machine, 2u, 1023u, 1023u,
+                                          UINT8_MAX));
+        CHECK(ppu_bg_affine_fill_tile(machine, 2u, UINT8_MAX, pixels));
+        CHECK(ppu_bg_text_set_color(machine, 0u, backdrop));
+        CHECK(ppu_bg_text_set_color(machine, 1u, expected));
+        ppu_bg_affine_set_transform(
+            machine, 2u, INT16_MIN, 0, INT16_MAX, 0,
+            (int32_t)(1023u * 256u), (int32_t)(1023u * 256u));
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          expected));
+        free_machine(machine);
+    }
+
+    /* A map address beyond the physical BG VRAM window refuses the preview
+     * without changing any canonical machine state. */
+    machine = new_machine();
+    if (machine != NULL) {
+        gbl_machine *snapshot = malloc(sizeof(*snapshot));
+
+        CHECK(snapshot != NULL);
+        CHECK(ppu_bg_affine_configure(machine, 2u, 2u, 3u, false, 31u, 0u));
+        ppu_bg_affine_set_transform(
+            machine, 2u, INT16_C(0x0100), 0, 0, INT16_C(0x0100),
+            (int32_t)(1023u * 256u), (int32_t)(1023u * 256u));
+        if (snapshot != NULL) {
+            memcpy(snapshot, machine, sizeof(*snapshot));
+            CHECK(gbl_machine_advance_to(machine, 0u) ==
+                  GBL_TIME_STATUS_INVALID_ARGUMENT);
+            CHECK(gbl_test_canonical_equal(machine, snapshot));
+            free(snapshot);
+        }
+        free_machine(machine);
+    }
+
+    /* Affine origins are 28-bit modular values and partial, halfword, and
+     * word writes update them transactionally. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        gbl_machine_time_preview preview;
+        gbl_machine_time_preview sentinel;
+        gbl_machine *snapshot = malloc(sizeof(*snapshot));
+        const gbl_time_operation write_then_overflow[2] = {
+            { GBL_TIME_OPERATION_BUS_WRITE, 4u,
+              UINT32_C(0x04000028), UINT32_C(0x00010000), UINT64_C(1) },
+            { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_MAX }
+        };
+        const gbl_time_operation write_word = {
+            GBL_TIME_OPERATION_BUS_WRITE, 4u, UINT32_C(0x04000028),
+            UINT32_C(0xF1234567), UINT64_C(1)
+        };
+        gbl_bus_result result;
+
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 1u, 2u, 0u, false,
+                                            1u, 1u, expected));
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(gbl_machine_prepare_operations(machine, &write_word, 1u,
+                                             &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.affine[0].programmed_reference_x == 0u);
+        CHECK(preview.ppu.affine[0].programmed_reference_x ==
+              UINT32_C(0x01234567));
+        CHECK(preview.ppu.affine[0].origin_x == UINT32_C(0x01234567));
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(machine->ppu.affine[0].programmed_reference_x ==
+              UINT32_C(0x01234567));
+        result = gbl_bus_write(machine, UINT32_C(0x04000028), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x80));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(machine->ppu.affine[0].programmed_reference_x ==
+              UINT32_C(0x01234580));
+        result = gbl_bus_write(machine, UINT32_C(0x0400002A), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0xF080));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(machine->ppu.affine[0].programmed_reference_x ==
+              UINT32_C(0x00804580));
+        result = gbl_bus_write(machine, UINT32_C(0x0400002C), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0xABCD));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(machine->ppu.affine[0].programmed_reference_y ==
+              UINT32_C(0x0000ABCD));
+        CHECK(snapshot != NULL);
+        if (snapshot != NULL) {
+            memcpy(snapshot, machine, sizeof(*snapshot));
+            memset(&preview, 0xA5, sizeof(preview));
+            memcpy(&sentinel, &preview, sizeof(sentinel));
+            CHECK(gbl_machine_prepare_operations(
+                      machine, write_then_overflow, 2u, &preview) ==
+                  GBL_TIME_STATUS_CYCLE_OVERFLOW);
+            CHECK(memcmp(&preview, &sentinel, sizeof(preview)) == 0);
+            CHECK(gbl_test_canonical_equal(machine, snapshot));
+            free(snapshot);
+        }
+        free_machine(machine);
+    }
+
+    /* The +1006 HBlank event advances PB/PD once. A BGxY write after that
+     * event replaces the vertical origin for the next row and records the
+     * modeled HBlank exception; the following HBlank advances normally. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        gbl_machine_time_preview preview;
+        gbl_bus_result result;
+
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 1u, 2u, 0u, false,
+                                            1u, 1u, expected));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100),
+                                    INT16_C(0x0100), 0,
+                                    -INT16_C(0x0100), INT32_C(0x10000),
+                                    INT32_C(0x20000));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_HBLANK_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.affine[0].origin_x == UINT32_C(0x10100));
+        CHECK(machine->ppu.affine[0].origin_y == UINT32_C(0x1FF00));
+        result = gbl_bus_write(machine, UINT32_C(0x0400002C), 4u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x00030000));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(machine->ppu.affine[0].origin_y == UINT32_C(0x30000));
+        CHECK(machine->ppu.affine[0].hblank_y_suppressed);
+        CHECK(gbl_machine_prepare_time(machine, GBL_PPU_LINE_CYCLES,
+                                       &preview) == GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_capture_count == 1u);
+        CHECK(preview.ppu_row_captures[0].line == 1u);
+        CHECK(preview.ppu_row_captures[0].affine[0].origin_x ==
+              UINT32_C(0x10100));
+        CHECK(preview.ppu_row_captures[0].affine[0].origin_y ==
+              UINT32_C(0x30000));
+        CHECK(preview.ppu_row_captures[0].affine[0].hblank_y_suppressed);
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(!machine->ppu.affine[0].hblank_y_suppressed);
+        CHECK(gbl_machine_prepare_time(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(2), &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_capture_count == 1u);
+        CHECK(preview.ppu_row_captures[0].line == 2u);
+        CHECK(preview.ppu_row_captures[0].affine[0].origin_x ==
+              UINT32_C(0x10200));
+        CHECK(preview.ppu_row_captures[0].affine[0].origin_y ==
+              UINT32_C(0x2FF00));
+        gbl_machine_commit_time(machine, &preview);
+        free_machine(machine);
+    }
+
+    /* Frame transition reloads the programmed affine origin after VBlank. */
+    {
+        static const uint64_t phase_cycles[] = {
+            GBL_PPU_LINE_CYCLES - UINT64_C(2),
+            GBL_PPU_LINE_CYCLES - UINT64_C(1),
+            GBL_PPU_LINE_CYCLES
+        };
+        size_t phase;
+
+        for (phase = 0u; phase <
+             sizeof(phase_cycles) / sizeof(phase_cycles[0]); ++phase) {
+            gbl_machine_time_preview preview;
+            gbl_machine *timed = new_machine();
+            const gbl_time_operation write_ref = {
+                GBL_TIME_OPERATION_BUS_WRITE, 4u,
+                UINT32_C(0x04000028), UINT32_C(0x00010000), UINT64_C(1)
+            };
+            const bool at_line_start = phase == 1u;
+
+            CHECK(timed != NULL);
+            if (timed == NULL) {
+                continue;
+            }
+            CHECK(ppu_bg_affine_prepare_pattern(
+                timed, 1u, 2u, 0u, false, 1u, 1u, expected));
+            ppu_bg_affine_set_transform(timed, 2u, INT16_C(0x0100),
+                                        INT16_C(0x0100), 0,
+                                        INT16_C(0x0100), 0, 0);
+            CHECK(gbl_machine_advance_to(timed, phase_cycles[phase]) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(gbl_machine_prepare_operations(timed, &write_ref, 1u,
+                                                 &preview) ==
+                  GBL_TIME_STATUS_OK);
+            if (at_line_start) {
+                CHECK(preview.ppu_row_capture_count == 1u);
+                CHECK(preview.ppu_row_captures[0].line == 1u);
+                CHECK(preview.ppu_row_captures[0].affine[0].origin_x ==
+                      UINT32_C(0x00000100));
+            } else {
+                CHECK(preview.ppu_row_capture_count == 0u);
+            }
+            CHECK(preview.ppu.affine[0].programmed_reference_x ==
+                  UINT32_C(0x00010000));
+            CHECK(preview.ppu.affine[0].origin_x == UINT32_C(0x00010000));
+            gbl_machine_commit_time(timed, &preview);
+            if (phase == 0u) {
+                CHECK(gbl_machine_prepare_time(
+                          timed, GBL_PPU_LINE_CYCLES, &preview) ==
+                      GBL_TIME_STATUS_OK);
+                CHECK(preview.ppu_row_capture_count == 1u);
+                CHECK(preview.ppu_row_captures[0].line == 1u);
+                CHECK(preview.ppu_row_captures[0].affine[0].origin_x ==
+                      UINT32_C(0x00010000));
+                gbl_machine_commit_time(timed, &preview);
+            }
+            CHECK(gbl_machine_prepare_time(
+                      timed, GBL_PPU_LINE_CYCLES * UINT64_C(2), &preview) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(preview.ppu_row_capture_count == 1u);
+            CHECK(preview.ppu_row_captures[0].line == 2u);
+            CHECK(preview.ppu_row_captures[0].affine[0].origin_x ==
+                  UINT32_C(0x00010100));
+            gbl_machine_commit_time(timed, &preview);
+            free_machine(timed);
+        }
+    }
+
+    /* Frame transition reloads the programmed affine origin after VBlank. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 1u, 2u, 0u, false,
+                                            1u, 1u, expected));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100),
+                                    INT16_C(0x0100), 0,
+                                    -INT16_C(0x0100), INT32_C(0x10000),
+                                    INT32_C(0x20000));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_FRAME_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.frame_epoch == 1u);
+        CHECK(machine->ppu.affine[0].origin_x ==
+              machine->ppu.affine[0].programmed_reference_x);
+        CHECK(machine->ppu.affine[0].origin_y ==
+              machine->ppu.affine[0].programmed_reference_y);
+        CHECK(!machine->ppu.affine[0].hblank_y_suppressed);
+        free_machine(machine);
+    }
+
+    /* In affine modes exactly one BG2/BG3 source may be enabled. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 1u, 2u, 0u, false,
+                                            1u, 1u, expected));
+        machine->dispcnt |= UINT16_C(0x0100);
+        machine->ppu.dispcnt = machine->dispcnt;
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_reason ==
+              GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+        free_machine(machine);
+    }
+
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_affine_prepare_pattern(machine, 2u, 2u, 0u, false,
+                                            1u, 1u, expected));
+        machine->dispcnt |= UINT16_C(0x0800);
+        machine->ppu.dispcnt = machine->dispcnt;
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_reason ==
+              GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+        free_machine(machine);
+    }
+
+    puts("ppu.bg.affine: mode-1/2 sources, signed fixed point, 28-bit wrap, map bounds, ordered references and VBlank reload");
     return CHECK_DONE() == 0 ? 0 : 1;
 }
 
@@ -1543,7 +1977,7 @@ static int run_ppu_bg_controls(void)
         uint16_t bg_control_bits;
     } refused[] = {
         { 0u, 0u, UINT16_C(0x0200), 0u },
-        { 1u, 2u, 0u, 0u },
+        { 1u, 2u, 0u, UINT16_C(0x0010) },
         { 1u, 0u, UINT16_C(0x0400), 0u },
         { 0u, 0u, 0u, UINT16_C(0x0010) }
     };
@@ -3392,8 +3826,8 @@ static int run_ppu_controls(void)
         gbl_video_invalid_reason reason;
         const char *name;
     } unsupported[] = {
-        { UINT16_C(0x0402), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
-          "mode 2 is unsupported" },
+        { UINT16_C(0x0404), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
+          "mode 4 is unsupported" },
         { UINT16_C(0x0003), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
           "missing BG2 is unsupported" },
         { UINT16_C(0x0483), GBL_VIDEO_INVALID_REASON_FORCED_BLANK,

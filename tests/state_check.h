@@ -64,6 +64,33 @@ static bool gbl_test_input_event_equal(const gbl_input_event *left,
            left->pressed_mask == right->pressed_mask;
 }
 
+static bool gbl_test_ppu_affine_equal(const gbl_ppu_affine_state *left,
+                                     const gbl_ppu_affine_state *right)
+{
+    return left->pa == right->pa && left->pb == right->pb &&
+           left->pc == right->pc && left->pd == right->pd &&
+           left->programmed_reference_x == right->programmed_reference_x &&
+           left->programmed_reference_y == right->programmed_reference_y &&
+           left->origin_x == right->origin_x &&
+           left->origin_y == right->origin_y &&
+           left->origin_valid == right->origin_valid &&
+           left->hblank_y_suppressed == right->hblank_y_suppressed;
+}
+
+static bool gbl_test_ppu_affine_array_equal(
+    const gbl_ppu_affine_state left[GBL_PPU_AFFINE_BACKGROUND_COUNT],
+    const gbl_ppu_affine_state right[GBL_PPU_AFFINE_BACKGROUND_COUNT])
+{
+    size_t index;
+
+    for (index = 0u; index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++index) {
+        if (!gbl_test_ppu_affine_equal(&left[index], &right[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
                                const gbl_ppu_timing_state *right)
 {
@@ -84,6 +111,7 @@ static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
            gbl_test_bytes_equal(left->bg_register_bytes,
                                 right->bg_register_bytes,
                                 sizeof(left->bg_register_bytes)) &&
+           gbl_test_ppu_affine_array_equal(left->affine, right->affine) &&
            left->capture_state == right->capture_state &&
            left->capture_reason == right->capture_reason &&
            left->next_boundary_hblank == right->next_boundary_hblank &&
@@ -117,7 +145,8 @@ static bool gbl_test_ppu_row_capture_equal(
                                 sizeof(left->render_register_bytes)) &&
            gbl_test_bytes_equal(left->bg_register_bytes,
                                 right->bg_register_bytes,
-                                sizeof(left->bg_register_bytes));
+                                sizeof(left->bg_register_bytes)) &&
+           gbl_test_ppu_affine_array_equal(left->affine, right->affine);
 }
 
 static bool gbl_test_ppu_memory_write_equal(
@@ -730,6 +759,24 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_bytes(
         digest, machine->ppu.bg_register_bytes,
         sizeof(machine->ppu.bg_register_bytes));
+    for (index = 0u; index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++index) {
+        const gbl_ppu_affine_state *affine = &machine->ppu.affine[index];
+
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pa);
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pb);
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pc);
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pd);
+        digest = gbl_test_digest_u64(digest,
+                                     affine->programmed_reference_x);
+        digest = gbl_test_digest_u64(digest,
+                                     affine->programmed_reference_y);
+        digest = gbl_test_digest_u64(digest, affine->origin_x);
+        digest = gbl_test_digest_u64(digest, affine->origin_y);
+        digest = gbl_test_digest_byte(
+            digest, affine->origin_valid ? 1u : 0u);
+        digest = gbl_test_digest_byte(
+            digest, affine->hblank_y_suppressed ? 1u : 0u);
+    }
     digest = gbl_test_digest_u64(digest,
                                  (uint64_t)machine->ppu.capture_state);
     digest = gbl_test_digest_u64(digest,

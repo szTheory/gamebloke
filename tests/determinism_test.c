@@ -4783,8 +4783,14 @@ static bool gbl_phase10_preview_controls(const char **failure)
         "phase10-preview-bg-register-accepted",
         mutant->ppu.bg_register_bytes[0] ^= UINT8_C(1));
     GBL_PHASE10_PREVIEW_MUTATION(
+        "phase10-preview-affine-origin-accepted",
+        mutant->ppu.affine[0].origin_y++);
+    GBL_PHASE10_PREVIEW_MUTATION(
         "phase10-preview-captured-bg-register-accepted",
         mutant->ppu_row_captures[0].bg_register_bytes[0] ^= UINT8_C(1));
+    GBL_PHASE10_PREVIEW_MUTATION(
+        "phase10-preview-captured-affine-accepted",
+        mutant->ppu_row_captures[0].affine[1].pa++);
     GBL_PHASE10_PREVIEW_MUTATION(
         "phase10-preview-pixel-digest-accepted",
         mutant->ppu_row_captures[0].pixel_digest ^= UINT64_C(1));

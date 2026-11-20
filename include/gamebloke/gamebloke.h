@@ -53,6 +53,7 @@ typedef enum gbl_bus_status {
 #define GBL_PPU_ROW_BYTES (GBL_PPU_WIDTH * 2u)
 #define GBL_PPU_RENDER_REGISTER_BYTES 24u
 #define GBL_PPU_BG_REGISTER_BYTES 24u
+#define GBL_PPU_AFFINE_BACKGROUND_COUNT 2u
 #define GBL_PPU_VIDEO_BYTES \
     (GBL_PPU_ROW_BYTES * GBL_PPU_VISIBLE_LINES)
 #define GBL_PPU_ROW_COVERAGE_BYTES ((GBL_PPU_VISIBLE_LINES + 7u) / 8u)
@@ -102,6 +103,24 @@ typedef enum gbl_video_invalid_reason {
     GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED = 8
 } gbl_video_invalid_reason;
 
+/* Gamebloke's selected affine scanline state. Reference values are stored as
+ * unsigned 28-bit two's-complement lanes so modular updates avoid signed
+ * overflow; renderers sign-extend them before fixed-point projection. */
+typedef struct gbl_ppu_affine_state {
+    int16_t pa;
+    int16_t pb;
+    int16_t pc;
+    int16_t pd;
+    uint32_t programmed_reference_x;
+    uint32_t programmed_reference_y;
+    uint32_t origin_x;
+    uint32_t origin_y;
+    bool origin_valid;
+    /* An HBlank BGxY write replaces the vertical origin already advanced by
+     * that line's modeled PB/PD event; line start must not add it again. */
+    bool hblank_y_suppressed;
+} gbl_ppu_affine_state;
+
 /* Compact deterministic PPU transaction state. The machine owns the one
  * frame-sized video buffer separately; previews carry only timing/coverage
  * state and bounded row/write plans. */
@@ -123,6 +142,7 @@ typedef struct gbl_ppu_timing_state {
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     /* BG0CNT..BG3CNT, then BG0HOFS/BG0VOFS..BG3HOFS/BG3VOFS bytes. */
     uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
+    gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
     gbl_video_capture_state capture_state;
     gbl_video_invalid_reason capture_reason;
     bool next_boundary_hblank;
@@ -140,6 +160,7 @@ typedef struct gbl_ppu_row_capture {
     uint32_t unsupported_register_bytes;
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
+    gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
 } gbl_ppu_row_capture;
 
 typedef struct gbl_ppu_memory_write {
