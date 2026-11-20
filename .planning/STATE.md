@@ -4,18 +4,18 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 13
 current_phase_name: Objects and Layer Priorities
-current_plan: Not started
+current_plan: 2
 status: executing
-stopped_at: Phase 13 context gathered, ready to plan
-last_updated: "2026-11-20T22:09:31.133Z"
+stopped_at: Completed 13-01-PLAN.md
+last_updated: "2026-11-20T23:14:55.176Z"
 last_activity: 2026-11-20
-last_activity_desc: Phase 12 complete, transitioned to Phase 13
-state_head: 780f228b60eca93647efa07da55038e94eb2f4ec
+last_activity_desc: Phase 13 execution started
+state_head: 42ccecc97040c5b4f805a8c19ef7e24b4197d909
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 24
-  completed_plans: 16
+  completed_plans: 17
   percent: 40
 ---
 
@@ -31,10 +31,11 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 
 ## Current Position
 
-Phase: 13 (Objects and Layer Priorities) — READY TO EXECUTE
-Current Plan: Not started
+Phase: 13 (Objects and Layer Priorities) — EXECUTING
+Current Plan: 2
+Total Plans in Phase: 8
 Status: Ready to execute
-Last activity: 2026-11-20 — Phase 12 complete, transitioned to Phase 13
+Last activity: 2026-11-20 — Phase 13 execution started
 
 Progress: [████░░░░░░] 40% (current milestone)
 
@@ -180,6 +181,7 @@ Progress: [████░░░░░░] 40% (current milestone)
 | Phase 12 P06 | 37 min | 3 tasks | 11 files |
 | Phase 12 P07 | 21m | 2 tasks | 8 files |
 | Phase 12 P08 | 71m minimum | 2 tasks | 9 files |
+| Phase 13 P01 | 37min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -473,6 +475,10 @@ Recent decisions affecting current work:
 - [Phase 12]: All six display modes remain partial until shared composition and later display controls are implemented.
 - [Phase 12]: Static capability, runtime frame validity, sampled-memory observation, and hardware qualification stay separate; hardware qualification remains UNKNOWN.
 - [Phase 12]: Keep two-worker CTest; measured critical path is mutation-heavy tests and this run found no safe setting change.
+- [Phase 13]: D-01: Support all normal OBJ shape/size pairs, flips, 4bpp/8bpp, and 1D/2D mappings.
+- [Phase 13]: D-02: Validate complete OBJ tile spans inside the mode-dependent physical character window before reading.
+- [Phase 13]: D-03: Source index zero defines indexed transparency; palette-resolved black remains opaque.
+- [Phase 13]: D-04: Apply modulo OAM coordinates, clip to 240x160, and causally refuse unsupported OBJ encodings.
 
 ### Pending Todos
 
@@ -524,9 +530,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-20T21:43:49.769Z
-Stopped at: Phase 13 context gathered, ready to plan
-Resume file: .planning/phases/13-objects-and-layer-priorities/13-CONTEXT.md
+Last session: 2026-11-20T23:14:12.312Z
+Stopped at: Completed 13-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

@@ -24,13 +24,13 @@ claim cycle accuracy, hardware qualification, or broad compatibility.
 
 ### Objects
 
-- [ ] **OBJ-01**: Regular objects render supported shape/size, 1D/2D mapping, flips, palette modes, clipping, transparency, and mode-dependent object tile availability from canonical OAM and video memory.
+- [x] **OBJ-01**: Regular objects render supported shape/size, 1D/2D mapping, flips, palette modes, clipping, transparency, and mode-dependent object tile availability from canonical OAM and video memory.
 - [ ] **OBJ-02**: Affine objects render from their selected transform matrices with declared signed fixed-point, bounding-field, clipping, transparency, and address-bound behavior.
 - [ ] **OBJ-03**: Object selection and composition use a documented stable ordering and explicit bounded per-line work policy; exceeding that policy produces deterministic, inspectable output.
 
 ### Composition
 
-- [ ] **COMP-01**: A shared compositor combines enabled backgrounds, objects, and backdrop using declared transparency, priority, and tie-breaking rules.
+- [x] **COMP-01**: A shared compositor combines enabled backgrounds, objects, and backdrop using declared transparency, priority, and tie-breaking rules.
 - [ ] **COMP-02**: Rectangular and object windows apply declared precedence and per-region background, object, and effect masks to the shared composition path.
 - [ ] **COMP-03**: Alpha blending and brightness effects apply only to declared eligible layer targets and use bounded, validated coefficients.
 - [ ] **COMP-04**: Background and object mosaic use declared sampling anchors and dimensions and produce deterministic boundary behavior.
@@ -72,10 +72,10 @@ The roadmap assigns every current v3.0 requirement to exactly one phase.
 | BG-01 | Phase 12 | Complete |
 | BG-02 | Phase 12 | Complete |
 | BG-03 | Phase 12 | Complete |
-| OBJ-01 | Phase 13 | Pending |
+| OBJ-01 | Phase 13 | Complete |
 | OBJ-02 | Phase 13 | Pending |
 | OBJ-03 | Phase 13 | Pending |
-| COMP-01 | Phase 13 | Pending |
+| COMP-01 | Phase 13 | Complete |
 | COMP-02 | Phase 14 | Pending |
 | COMP-03 | Phase 14 | Pending |
 | COMP-04 | Phase 14 | Pending |
