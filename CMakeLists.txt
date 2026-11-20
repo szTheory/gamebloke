@@ -712,6 +712,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     ppu.bg.tracer
     ppu.bg.text
     ppu.bg.affine
+    ppu.bg.bitmap
     ppu.bg.controls
     ppu.refusal
     phase12.selection.control)

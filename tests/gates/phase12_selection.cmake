@@ -57,6 +57,7 @@ set(GBL_PHASE12_EXPECTED
   ppu.bg.tracer
   ppu.bg.text
   ppu.bg.affine
+  ppu.bg.bitmap
   ppu.bg.controls
   ppu.refusal
   phase12.selection.control)
@@ -65,9 +66,10 @@ if(NOT GBL_PHASE12_LANE STREQUAL "ci" AND
   message(FATAL_ERROR "phase12-selection: unsupported-lane-${GBL_PHASE12_LANE}")
 endif()
 set(GBL_PHASE12_REGEX
-  "^(ppu[.](tracer|refusal)|ppu[.]bg[.](tracer|text|affine|controls)|phase12[.]selection[.]control)$")
+  "^(ppu[.](tracer|refusal)|ppu[.]bg[.](tracer|text|affine|bitmap|controls)|phase12[.]selection[.]control)$")
 set(GBL_PHASE12_INVENTORY_ROWS
   "ppu.bg.affine bus,core,integration,ppu"
+  "ppu.bg.bitmap bus,core,integration,ppu"
   "phase12.selection.control gate,ppu,time"
   "phase12.selection.order gate,ppu,time"
   "phase12.selection.verify gate,ppu,time")
@@ -267,7 +269,7 @@ function(gbl_phase12_validate_selection json reason_out)
       set(${reason_out} wrong-label PARENT_SCOPE)
       return()
     endif()
-    if(name MATCHES "^(ppu[.]tracer|ppu[.]bg[.](tracer|text|affine))$")
+    if(name MATCHES "^(ppu[.]tracer|ppu[.]bg[.](tracer|text|affine|bitmap))$")
       set(expected_labels bus core integration ppu)
     elseif(name MATCHES "^ppu[.]")
       set(expected_labels bus core ppu unit)
@@ -370,7 +372,7 @@ function(gbl_phase12_write_scratch_selection source_dir build_dir)
   set(project_text
     "cmake_minimum_required(VERSION 3.25)\nproject(phase12_selection_scratch NONE)\nenable_testing()\n")
   foreach(name IN LISTS GBL_PHASE12_EXPECTED)
-    if(name MATCHES "^(ppu[.]tracer|ppu[.]bg[.](tracer|text|affine))$")
+    if(name MATCHES "^(ppu[.]tracer|ppu[.]bg[.](tracer|text|affine|bitmap))$")
       string(APPEND project_text
         "add_test(NAME ${name} COMMAND \"${GBL_PHASE12_BIN}/bus_test\" ${name})\n")
       set(labels "bus;core;integration;ppu")
@@ -488,6 +490,21 @@ function(gbl_phase12_check_selection_controls scratch_root)
   message(STATUS
     "phase12-selection-control: affine-omission: causal rejection ok")
 
+  gbl_phase12_find_test("${clean_json}" ppu.bg.bitmap bitmap_index bitmap_count)
+  if(NOT bitmap_count EQUAL 1)
+    message(FATAL_ERROR
+      "phase12-selection-control: clean-twin-missing-ppu.bg.bitmap")
+  endif()
+  string(JSON bitmap_missing_json REMOVE "${clean_json}" tests ${bitmap_index})
+  gbl_phase12_validate_selection("${bitmap_missing_json}"
+    bitmap_missing_reason)
+  if(NOT bitmap_missing_reason STREQUAL "selection-count")
+    message(FATAL_ERROR
+      "phase12-selection-control: bitmap-omission-not-causal-${bitmap_missing_reason}")
+  endif()
+  message(STATUS
+    "phase12-selection-control: bitmap-omission: causal rejection ok")
+
   gbl_phase12_find_test("${clean_json}" ppu.bg.tracer tracer_index tracer_count)
   file(MAKE_DIRECTORY "${scratch_root}/missing")
   file(WRITE "${scratch_root}/missing/bus_test" "not a test executable\n")
@@ -578,7 +595,8 @@ endfunction()
 
 function(gbl_phase12_validate_order json reason_out)
   set(expected_setup
-    ppu.tracer ppu.bg.tracer ppu.bg.text ppu.bg.affine ppu.bg.controls ppu.refusal
+    ppu.tracer ppu.bg.tracer ppu.bg.text ppu.bg.affine ppu.bg.bitmap
+    ppu.bg.controls ppu.refusal
     phase12.selection.control)
   if(GBL_PHASE12_LANE STREQUAL "ci")
     list(APPEND expected_setup profile.lint profile.nc.ppu_policy)
