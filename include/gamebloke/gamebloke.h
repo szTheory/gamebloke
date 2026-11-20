@@ -52,6 +52,7 @@ typedef enum gbl_bus_status {
     (GBL_PPU_LINE_CYCLES * (uint64_t)GBL_PPU_TOTAL_LINES)
 #define GBL_PPU_ROW_BYTES (GBL_PPU_WIDTH * 2u)
 #define GBL_PPU_RENDER_REGISTER_BYTES 24u
+#define GBL_PPU_BG_REGISTER_BYTES 24u
 #define GBL_PPU_VIDEO_BYTES \
     (GBL_PPU_ROW_BYTES * GBL_PPU_VISIBLE_LINES)
 #define GBL_PPU_ROW_COVERAGE_BYTES ((GBL_PPU_VISIBLE_LINES + 7u) / 8u)
@@ -120,6 +121,8 @@ typedef struct gbl_ppu_timing_state {
      * 0..15 map 0x04000020..0x0400002F, 16..17 map 0x0400004C..0x0400004D,
      * and 18..23 map 0x04000050..0x04000055. */
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
+    /* BG0CNT..BG3CNT, then BG0HOFS/BG0VOFS..BG3HOFS/BG3VOFS bytes. */
+    uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
     gbl_video_capture_state capture_state;
     gbl_video_invalid_reason capture_reason;
     bool next_boundary_hblank;
@@ -136,6 +139,7 @@ typedef struct gbl_ppu_row_capture {
     uint16_t prior_write_count;
     uint32_t unsupported_register_bytes;
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
+    uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
 } gbl_ppu_row_capture;
 
 typedef struct gbl_ppu_memory_write {

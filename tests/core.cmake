@@ -89,6 +89,14 @@ gbl_add_test(
   NAME ppu.bg.tracer
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.bg.tracer)
+gbl_add_test(
+  NAME ppu.bg.text
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.text)
+gbl_add_test(
+  NAME ppu.bg.controls
+  LABELS bus core ppu unit
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.controls)
 foreach(selector IN ITEMS ppu.boundary ppu.registers ppu.latch ppu.frame
     ppu.refusal ppu.controls)
   if(selector STREQUAL "ppu.frame")

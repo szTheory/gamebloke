@@ -81,6 +81,9 @@ static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
            gbl_test_bytes_equal(left->render_register_bytes,
                                 right->render_register_bytes,
                                 sizeof(left->render_register_bytes)) &&
+           gbl_test_bytes_equal(left->bg_register_bytes,
+                                right->bg_register_bytes,
+                                sizeof(left->bg_register_bytes)) &&
            left->capture_state == right->capture_state &&
            left->capture_reason == right->capture_reason &&
            left->next_boundary_hblank == right->next_boundary_hblank &&
@@ -111,7 +114,10 @@ static bool gbl_test_ppu_row_capture_equal(
                right->unsupported_register_bytes &&
            gbl_test_bytes_equal(left->render_register_bytes,
                                 right->render_register_bytes,
-                                sizeof(left->render_register_bytes));
+                                sizeof(left->render_register_bytes)) &&
+           gbl_test_bytes_equal(left->bg_register_bytes,
+                                right->bg_register_bytes,
+                                sizeof(left->bg_register_bytes));
 }
 
 static bool gbl_test_ppu_memory_write_equal(
@@ -721,6 +727,9 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_bytes(
         digest, machine->ppu.render_register_bytes,
         sizeof(machine->ppu.render_register_bytes));
+    digest = gbl_test_digest_bytes(
+        digest, machine->ppu.bg_register_bytes,
+        sizeof(machine->ppu.bg_register_bytes));
     digest = gbl_test_digest_u64(digest,
                                  (uint64_t)machine->ppu.capture_state);
     digest = gbl_test_digest_u64(digest,
