@@ -1983,17 +1983,74 @@ static int run_ppu_bg_bitmap(void)
 {
     const uint16_t direct_color = UINT16_C(0x2A35);
     gbl_machine *machine;
+    uint8_t wrong_row[GBL_PPU_ROW_BYTES];
 
     /* The existing mode-3 identity source remains the semantic anchor. */
     machine = new_machine();
     CHECK(machine != NULL);
     if (machine != NULL) {
         CHECK(ppu_bg_bitmap_configure(machine, 3u, true));
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
         machine->vram[0] = (uint8_t)(direct_color & UINT16_C(0x00FF));
         machine->vram[1] = (uint8_t)(direct_color >> 8u);
+        ppu_bg_store_u16(machine->vram, UINT32_C(0xA000),
+                         UINT16_C(0x4567));
         CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
                                           direct_color));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x0000)));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0, 0,
+                                    INT16_C(0x0100), -INT32_C(0x80),
+                                    -INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 1u,
+                                          direct_color));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 1u,
+                                          UINT16_C(0x0000)));
+        ppu_bg_store_u16(machine->vram, UINT32_C(0x12BFE),
+                         UINT16_C(0x4567));
+        ppu_bg_store_u16(machine->vram, UINT32_C(0x12C00),
+                         UINT16_C(0x7C00));
+        ppu_bg_affine_set_transform(
+            machine, 2u, INT16_C(0x0100), 0, 0, INT16_C(0x0100),
+            INT32_C(239) * INT32_C(0x0100),
+            INT32_C(158) * INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES *
+                                             UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                          UINT16_C(0x4567)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 2u,
+                                          UINT16_C(0x001F)));
+        ppu_bg_affine_set_transform(
+            machine, 2u, INT16_C(0x0100), 0, 0, INT16_C(0x0100), 0,
+            INT32_C(159) * INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES *
+                                             UINT64_C(3)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 3u,
+                                          UINT16_C(0x001F)));
+        free_machine(machine);
+    }
+
+    /* Extreme signed references and coefficients remain clipped before any
+     * source offset can wrap into an in-range neighbor. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 3u, false));
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_MAX, 0, INT16_MIN,
+                                    INT16_MAX, INT32_MIN, INT32_MAX);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 239u, 0u,
+                                          UINT16_C(0x001F)));
         free_machine(machine);
     }
 
@@ -2003,12 +2060,61 @@ static int run_ppu_bg_bitmap(void)
     if (machine != NULL) {
         CHECK(ppu_bg_bitmap_configure(machine, 4u, false));
         machine->vram[0] = 1u;
+        machine->vram[1] = 0u;
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
         ppu_bg_store_u16(machine->pram, 2u, UINT16_C(0x1256));
         ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
                                     0, INT16_C(0x0100), 0, 0);
         CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
                                           UINT16_C(0x1256)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                          UINT16_C(0x001F)));
+        memcpy(wrong_row, machine->video_frame, sizeof(wrong_row));
+        wrong_row[0] ^= UINT8_C(1);
+        CHECK(!ppu_bg_affine_pixel_matches(wrong_row, 0u, 0u,
+                                           UINT16_C(0x1256)));
+        free_machine(machine);
+    }
+
+    /* The mode-4 last valid byte is sampled, while X/Y just beyond the
+     * declared page extent resolve to backdrop even when VRAM has sentinels. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 4u, true));
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
+        ppu_bg_store_u16(machine->pram, 2u, UINT16_C(0x1234));
+        ppu_bg_store_u16(machine->pram, 4u, UINT16_C(0x7C00));
+        machine->vram[UINT32_C(0xA000)] = 1u;
+        machine->vram[UINT32_C(0x135FF)] = 1u;
+        machine->vram[UINT32_C(0x13600)] = 2u;
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100),
+                                    INT32_C(239) * INT32_C(0x0100),
+                                    INT32_C(159) * INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x1234)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                          UINT16_C(0x001F)));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), 0,
+                                    INT32_C(160) * INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x001F)));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), -INT32_C(0x80),
+                                    -INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES *
+                                             UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 2u,
+                                          UINT16_C(0x1234)));
         free_machine(machine);
     }
 
@@ -2017,19 +2123,169 @@ static int run_ppu_bg_bitmap(void)
     CHECK(machine != NULL);
     if (machine != NULL) {
         CHECK(ppu_bg_bitmap_configure(machine, 5u, true));
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
         machine->vram[UINT32_C(0xA000)] =
             (uint8_t)(direct_color & UINT16_C(0x00FF));
         machine->vram[UINT32_C(0xA001)] =
             (uint8_t)(direct_color >> 8u);
+        ppu_bg_store_u16(machine->vram, 0u, UINT16_C(0x4567));
         ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
                                     0, INT16_C(0x0100), 0, 0);
         CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
                                           direct_color));
+        CHECK(ppu_bg_bitmap_configure(machine, 5u, false));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, 0, 0, 0);
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x4567)));
         free_machine(machine);
     }
 
-    puts("ppu.bg.bitmap: mode-3 identity, mode-4 indexed sample, mode-5 page sample");
+    /* Mode 5 clips at 160x128 without consuming its unused page tail. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 5u, true));
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
+        ppu_bg_store_u16(machine->vram, UINT32_C(0x13FFE),
+                         UINT16_C(0x1234));
+        ppu_bg_store_u16(machine->vram, UINT32_C(0x14000),
+                         UINT16_C(0x7C00));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100),
+                                    INT32_C(159) * INT32_C(0x0100),
+                                    INT32_C(127) * INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x1234)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                          UINT16_C(0x001F)));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), 0,
+                                    INT32_C(128) * INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x001F)));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), 0, 0);
+        machine->vram[UINT32_C(0xA000)] = 0u;
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES *
+                                             UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                          UINT16_C(0x0000)));
+        ppu_bg_store_u16(machine->vram, UINT32_C(0xA000),
+                         UINT16_C(0x2345));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), -INT32_C(0x80),
+                                    -INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES *
+                                             UINT64_C(3)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 3u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 3u,
+                                          UINT16_C(0x2345)));
+        free_machine(machine);
+    }
+
+    /* The bitmap source and palette are sampled from the row-start write
+     * prefix: the pre-boundary palette change is visible, while writes on and
+     * after the boundary cannot alter this row. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        gbl_bus_result result;
+
+        CHECK(ppu_bg_bitmap_configure(machine, 4u, false));
+        machine->vram[0] = 1u;
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
+        ppu_bg_store_u16(machine->pram, 2u, UINT16_C(0x001F));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), 0,
+                                    -INT32_C(0x0100));
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(1230)) ==
+              GBL_TIME_STATUS_OK);
+        result = gbl_bus_write(machine, UINT32_C(0x05000002), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x03E0));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        result = gbl_bus_write(machine, UINT32_C(0x06000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0002));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x03E0)));
+        result = gbl_bus_write(machine, UINT32_C(0x05000002), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x7C00));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x03E0)));
+        CHECK(machine->vram[0] == 2u);
+        CHECK(machine->pram[2] == UINT8_C(0x00));
+        CHECK(machine->pram[3] == UINT8_C(0x7C));
+        free_machine(machine);
+    }
+
+    /* DISPCNT page selection is captured at the same row boundary as
+     * canonical video memory. The before-boundary page is used by row 1; a
+     * same-cycle page write is deferred, and the after-boundary write affects
+     * row 2. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        gbl_bus_result result;
+
+        CHECK(ppu_bg_bitmap_configure(machine, 4u, false));
+        machine->vram[0] = 1u;
+        machine->vram[UINT32_C(0xA000)] = 2u;
+        ppu_bg_store_u16(machine->pram, 2u, UINT16_C(0x001F));
+        ppu_bg_store_u16(machine->pram, 4u, UINT16_C(0x03E0));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, 0, 0, 0);
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(1230)) ==
+              GBL_TIME_STATUS_OK);
+        result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0414));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0404));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x03E0)));
+        result = gbl_bus_write(machine, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0414));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(gbl_machine_advance_to(machine, GBL_PPU_LINE_CYCLES *
+                                             UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                          UINT16_C(0x03E0)));
+        free_machine(machine);
+    }
+
+    /* Mosaic remains an unsupported source control after bitmap admission. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 4u, false));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u,
+                         UINT16_C(0x0040));
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_reason ==
+              GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+        free_machine(machine);
+    }
+
+    puts("ppu.bg.bitmap: mode-3 identity/clip, mode-4 indexed pages/prefix, mode-5 direct extent, signed bounds and zero policies");
     return CHECK_DONE() == 0 ? 0 : 1;
 }
 
@@ -3895,10 +4151,14 @@ static int run_ppu_controls(void)
         gbl_video_invalid_reason reason;
         const char *name;
     } unsupported[] = {
-        { UINT16_C(0x0404), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
-          "mode 4 is unsupported" },
+        { UINT16_C(0x0406), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
+          "mode 6 is unsupported" },
         { UINT16_C(0x0003), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
           "missing BG2 is unsupported" },
+        { UINT16_C(0x0004), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
+          "mode-4 BG2 is disabled" },
+        { UINT16_C(0x0005), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
+          "mode-5 BG2 is disabled" },
         { UINT16_C(0x0483), GBL_VIDEO_INVALID_REASON_FORCED_BLANK,
           "forced blank is unsupported" },
         { UINT16_C(0x1403), GBL_VIDEO_INVALID_REASON_OBJ_ENABLED,
@@ -3993,18 +4253,20 @@ static int run_ppu_controls(void)
             free_machine(mosaic);
         }
         if (affine != NULL) {
-            affine->dispcnt = UINT16_C(0x0403);
-            affine->ppu.dispcnt = UINT16_C(0x0403);
+            affine->dispcnt = UINT16_C(0x0404);
+            affine->ppu.dispcnt = UINT16_C(0x0404);
             CHECK(gbl_machine_advance_to(affine, 0u) ==
                   GBL_TIME_STATUS_OK);
             result = gbl_bus_write(affine, UINT32_C(0x04000020), 2u,
                                    GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT32_C(0x0100));
+                                   UINT32_C(0x0180));
             CHECK(result.status == GBL_BUS_STATUS_OK);
-            CHECK(affine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
-            CHECK(affine->ppu.capture_reason ==
-                  GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
-            puts("ppu.controls control: BG2 affine state is unsupported");
+            CHECK(affine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(gbl_machine_advance_to(affine, GBL_PPU_LINE_CYCLES) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(affine->ppu.captured_rows == 2u);
+            CHECK(affine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+            puts("ppu.controls control: mode-4 BG2 affine matrix is sampled");
             free_machine(affine);
         }
 
@@ -4019,118 +4281,26 @@ static int run_ppu_controls(void)
                       GBL_TIME_STATUS_OK);
                 result = gbl_bus_write(
                     persistent, UINT32_C(0x04000020), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0180));
                 CHECK(result.status == GBL_BUS_STATUS_OK);
-                CHECK(persistent->ppu.capture_state ==
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x04000024), 2u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0080));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                result = gbl_bus_write(
+                    persistent, UINT32_C(0x0400002C), 4u,
+                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x00010000));
+                CHECK(result.status == GBL_BUS_STATUS_OK);
+                CHECK(persistent->ppu.capture_state !=
                       GBL_VIDEO_CAPTURE_INVALID);
                 CHECK(gbl_machine_advance_to(
-                          persistent,
-                          GBL_PPU_FRAME_CYCLES + UINT64_C(197120)) ==
+                          persistent, UINT64_C(197120)) ==
                       GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 1u);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_INVALID);
-                CHECK(persistent->ppu.capture_reason ==
-                      GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
-
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000020), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0100));
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_INVALID);
-                CHECK(gbl_machine_advance_to(
-                          persistent,
-                          (GBL_PPU_FRAME_CYCLES * UINT64_C(2)) +
-                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 2u);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_VALID);
-
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000022), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000026), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000028), 4u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                CHECK(gbl_machine_advance_to(
-                          persistent,
-                          (GBL_PPU_FRAME_CYCLES * UINT64_C(3)) +
-                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 3u);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_INVALID);
-                CHECK(persistent->ppu.capture_reason ==
-                      GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
-
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000020), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0100));
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000026), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0100));
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000022), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                CHECK(gbl_machine_advance_to(
-                          persistent,
-                          (GBL_PPU_FRAME_CYCLES * UINT64_C(4)) +
-                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 4u);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_INVALID);
-
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x04000028), 4u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                CHECK(gbl_machine_advance_to(
-                          persistent,
-                          (GBL_PPU_FRAME_CYCLES * UINT64_C(5)) +
-                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 5u);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_VALID);
-
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x0400004C), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0001));
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                CHECK(gbl_machine_advance_to(
-                          persistent,
-                          (GBL_PPU_FRAME_CYCLES * UINT64_C(6)) +
-                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 6u);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_INVALID);
-                CHECK(persistent->ppu.capture_reason ==
-                      GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
-
-                result = gbl_bus_write(
-                    persistent, UINT32_C(0x0400004C), 2u,
-                    GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
-                CHECK(result.status == GBL_BUS_STATUS_OK);
-                CHECK(persistent->ppu.capture_state ==
-                      GBL_VIDEO_CAPTURE_INVALID);
-                CHECK(gbl_machine_advance_to(
-                          persistent,
-                          (GBL_PPU_FRAME_CYCLES * UINT64_C(7)) +
-                              UINT64_C(197120)) == GBL_TIME_STATUS_OK);
-                CHECK(persistent->ppu.frame_epoch == 7u);
                 CHECK(persistent->ppu.capture_state ==
                       GBL_VIDEO_CAPTURE_VALID);
                 CHECK(persistent->ppu.capture_reason ==
                       GBL_VIDEO_INVALID_REASON_NONE);
-                puts("ppu.controls control: unsupported affine and mosaic state persists across epochs and recovers after reset");
+                puts("ppu.controls control: transformed mode-3 references complete a valid frame");
                 free_machine(persistent);
             }
         }

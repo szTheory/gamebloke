@@ -4625,6 +4625,62 @@ static bool gbl_phase10_same_machine(const gbl_machine *left,
                gbl_test_canonical_digest(right);
 }
 
+static bool gbl_phase12_bitmap_replay_control(const char **failure)
+{
+    gbl_machine *first = gbl_phase10_new_machine(false, failure);
+    gbl_machine *second = gbl_phase10_new_machine(false, failure);
+    const uint64_t target = GBL_PPU_LINE_CYCLES * UINT64_C(3);
+    bool okay = false;
+    size_t machine_index;
+    gbl_machine *machines[2] = { first, second };
+
+    if (first == NULL || second == NULL) {
+        *failure = "bitmap-replay-allocation-failed";
+        goto done;
+    }
+    for (machine_index = 0u; machine_index < 2u; ++machine_index) {
+        gbl_machine *machine = machines[machine_index];
+        gbl_ppu_affine_state *affine = &machine->ppu.affine[0];
+
+        machine->dispcnt = UINT16_C(0x0414);
+        machine->ppu.dispcnt = machine->dispcnt;
+        machine->pram[0] = UINT8_C(0x1F);
+        machine->pram[1] = 0u;
+        machine->pram[2] = UINT8_C(0x34);
+        machine->pram[3] = UINT8_C(0x12);
+        machine->pram[4] = UINT8_C(0x21);
+        machine->pram[5] = UINT8_C(0x43);
+        affine->pa = INT16_C(0x0180);
+        affine->pb = INT16_C(0x0080);
+        affine->pc = INT16_C(0x0080);
+        affine->pd = INT16_C(0x0100);
+        affine->programmed_reference_x = UINT32_C(0x00000080);
+        affine->programmed_reference_y = UINT32_C(0x00000080);
+        affine->origin_x = affine->programmed_reference_x;
+        affine->origin_y = affine->programmed_reference_y;
+        affine->origin_valid = true;
+    }
+    if (gbl_machine_advance_to(first, target) != GBL_TIME_STATUS_OK ||
+        gbl_machine_advance_to(second, target) != GBL_TIME_STATUS_OK ||
+        !gbl_phase10_same_machine(first, second)) {
+        *failure = "bitmap-replay-twins-differ";
+        goto done;
+    }
+    second->ppu.affine[0].origin_x ^= UINT32_C(0x00000100);
+    if (gbl_test_canonical_equal(first, second) ||
+        gbl_test_canonical_digest(first) ==
+            gbl_test_canonical_digest(second)) {
+        *failure = "bitmap-affine-state-mutation-was-not-detected";
+        goto done;
+    }
+    okay = true;
+
+done:
+    gbl_phase10_free_machine(&first);
+    gbl_phase10_free_machine(&second);
+    return okay;
+}
+
 static bool gbl_phase10_prepare_idempotency(gbl_machine *whole,
                                             gbl_machine *split,
                                             const char **failure)
@@ -4984,6 +5040,7 @@ static int gbl_test_phase10_main(void)
     }
     if (!gbl_phase10_preview_controls(&failure)) goto done;
     if (!gbl_phase10_refusal_controls(&failure)) goto done;
+    if (!gbl_phase12_bitmap_replay_control(&failure)) goto done;
     okay = true;
 
 done:
@@ -4997,7 +5054,7 @@ done:
         fprintf(stderr, "FAIL determinism.phase10: %s\n", failure);
         return 1;
     }
-    puts("PASS determinism.phase10: fresh, reset and interleaved synthetic mode-3 replays match complete PPU state, trigger timing and all raw pixels");
+    puts("PASS determinism.phase10: fresh, reset and interleaved mode-3 plus mode-4 bitmap replays match complete PPU state, trigger timing and raw pixels");
     return 0;
 }
 

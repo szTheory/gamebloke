@@ -170,7 +170,7 @@ these fields:
   capture state and reason. Unknown PPU observation models are rejected. PPU observations bind
   their raster machine cycle to `time.cycles`, constrain line and pixel layout to the AGB
   profile, and keep unavailable frame epoch/sample/completion values null. A valid frame
-  requires supported Mode 3/BG2 controls, reason `none`, one started epoch, all 160 visible row samples, and a
+  requires a supported single-background source, reason `none`, one started epoch, all 160 visible row samples, and a
   completion cycle 160 profile line lengths after the sample cycle. Unsupported controls
   cannot yield a valid frame. Row sampling follows the profile's visible-line-start point;
   serialized pixels use a 480-byte row stride.
@@ -181,17 +181,26 @@ these fields:
   result must disclose that dispute. This timing evidence is separate from Phase 9 DMA latch
   evidence. Automated PASS remains a fixture result; playable acceptance stays pending for
   owner evaluation and is not inferred from automation.
-- Mode 3 with BG2 enabled, forced blank disabled, no OBJ/windows/effects, and the
-  neutral BG2 transform is the only supported capture state: BG2PA/BG2PD are
-  `0x0100`; BG2PB/BG2PC/BG2X/BG2Y are zero. The AGB Programming Manual's affine
-  register table lists the `0x0100` PA/PD initial values
-  ([manual PDF](https://mutantstargoat.com/~nuclear/tmp/gba_prog_manual.pdf));
-  the values here define the model's supported neutral baseline. Non-neutral BG2
-  transforms report `bg2-transform-unmodeled`. Frame `state` is `valid`,
+- Modes 3, 4 and 5 sample the enabled BG2 bitmap source through the captured
+  BG2 matrix and 28-bit signed references. Source coordinates use mathematical
+  floor for signed 8.8 values. This is the deterministic `agb` software policy;
+  the transform's hardware qualification remains `UNKNOWN`. Mode 3 is 240x160
+  direct BGR555 in one 0x12C00-byte source and ignores page select. Mode 4 is
+  240x160 indexed color with 0x9600 bytes per page at bases 0 and 0xA000; palette
+  RAM supplies colors, and index zero resolves to backdrop palette entry zero.
+  Mode 5 is 160x128 direct BGR555 with 0xA000 bytes per page at the same bases.
+  Direct colors mask bit 15; a direct-color zero remains opaque black. A source
+  coordinate outside the mode's declared width/height resolves to backdrop
+  palette entry zero before page arithmetic, so it cannot read an adjacent page
+  or unused tail. The mode-3 identity output remains the regression anchor.
+  These modes still require BG2 enabled, forced blank disabled, no OBJ,
+  windows, color effects, or mosaic, and a single selected source. Frame `state`
+  is `valid`,
   `incomplete`, or `invalid`; `incomplete` has reason `incomplete`, while `invalid`
   must name an unsupported control reason such as `unsupported-mode`, `bg2-disabled`,
   `forced-blank`, `obj-enabled`, `window-enabled`, `effect-enabled`, or
-  `bg2-transform-unmodeled`. A non-valid frame keeps epoch/sample/completion fields
+  `bg2-transform-unmodeled` for transforms used by text-only modes. A non-valid
+  frame keeps epoch/sample/completion fields
   null and cannot emit stale or partial bytes. For requested output, incomplete and
   invalid frame statuses match the frame state and carry no artifact; a valid frame
   without an output artifact is `not-emitted`. Writer failure is `HARNESS_FAIL`
@@ -394,11 +403,13 @@ stops, recognized later extensions, reserved UND and absent-coprocessor UND have
 separate causes. Explicit executing project policies and static target refusals
 are listed in the profile. Public unsupported values remain compatible without
 inventing a legal unimplemented instruction. There is no BIOS execution/HLE, audio,
-physical-controller discovery or host presentation. DMA, WAITCNT timing, and the limited
-Mode 3/BG2 display path have project-model behavior; DMA Prefetch and other display modes,
-transforms, objects, windows, and effects remain unmodeled. Timer 0 and bus cycle observations
-use project-selected model behavior; region-specific hardware waits, display timing, and
-physical-device behavior remain unqualified.
+physical-controller discovery or host presentation. DMA, WAITCNT timing, and the
+partial Mode 0–5 background display paths have deterministic project-model behavior.
+DMA Prefetch, OBJ composition, windows, color effects, and mosaic remain unmodeled.
+The selected 1006-cycle HBlank point, DMA latch behavior, within-line visibility,
+affine transform behavior, and all display timing remain hardware-unqualified.
+Timer 0 and bus cycle observations use project-selected model behavior;
+region-specific hardware waits and physical-device behavior remain unqualified.
 
 The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
 undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the
