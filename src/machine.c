@@ -2286,9 +2286,13 @@ static gbl_time_status gbl_preview_bus_write(
             preview, gbl_ppu_dispcnt_invalid_reason(dispcnt));
     }
     if (unsupported_transform_write) {
+        const uint16_t mode =
+            (uint16_t)(dispcnt & UINT16_C(0x0007));
         uint8_t affine_background;
 
-        if (!gbl_ppu_selected_affine_bg(dispcnt, &affine_background)) {
+        if ((mode < UINT16_C(3) || mode > UINT16_C(5) ||
+             (dispcnt & UINT16_C(0x0400)) == 0u) &&
+            !gbl_ppu_selected_affine_bg(dispcnt, &affine_background)) {
             gbl_ppu_invalidate_capture(
                 preview, GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
         }
