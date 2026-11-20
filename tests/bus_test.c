@@ -1507,7 +1507,7 @@ static int run_ppu_bg_affine(void)
     /* Mode 1 BG2 affine identity transform: a byte map selects an 8bpp
      * character, and the captured 8.8 matrix maps screen pixel (x, y) to
      * the same source coordinate. */
-    machine->dispcnt = UINT16_C(0x0501);
+    machine->dispcnt = UINT16_C(0x0401);
     machine->ppu.dispcnt = machine->dispcnt;
     ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u, UINT16_C(0x0104));
     machine->ppu.render_register_bytes[1] = UINT8_C(1);
@@ -1785,6 +1785,8 @@ static int run_ppu_refusal(void)
     CHECK_PPU_MUTATION(changed->ppu.render_register_bytes[0] ^=
                        UINT8_C(1));
     CHECK_PPU_MUTATION(changed->ppu.bg_register_bytes[0] ^= UINT8_C(1));
+    CHECK_PPU_MUTATION(changed->ppu.affine[0].programmed_reference_x++);
+    CHECK_PPU_MUTATION(changed->ppu.affine[1].pd++);
     CHECK_PPU_MUTATION(changed->ppu.capture_state =
                            GBL_VIDEO_CAPTURE_VALID);
     CHECK_PPU_MUTATION(changed->ppu.capture_reason =
@@ -1824,6 +1826,10 @@ static int run_ppu_refusal(void)
             changed_preview = preview;
             changed_preview.ppu_row_captures[0].bg_register_bytes[0] ^=
                 UINT8_C(1);
+            preview_equality_detects_plan = preview_equality_detects_plan &&
+                !gbl_test_time_preview_equal(&preview, &changed_preview);
+            changed_preview = preview;
+            changed_preview.ppu_row_captures[0].affine[0].origin_x++;
             preview_equality_detects_plan = preview_equality_detects_plan &&
                 !gbl_test_time_preview_equal(&preview, &changed_preview);
         }
