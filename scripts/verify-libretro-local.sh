@@ -26,6 +26,9 @@ cleanup_local_verification() {
   exit "$rc"
 }
 trap cleanup_local_verification EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 case "$(uname -s)" in
   Darwin) core="$build_dir/gamebloke_libretro.dylib" ;;
