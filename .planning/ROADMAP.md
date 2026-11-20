@@ -83,7 +83,35 @@ work; decimal IDs are reserved for later insertions.
   2. Affine backgrounds in modes 1 and 2 produce expected signed and fractional transformed samples under the declared reference-update policy, with deterministic wrapping or out-of-area output.
   3. Bitmap modes 3, 4, and 5 produce expected direct/indexed colors, palette use, page selection, mode extents, and out-of-area pixels; the existing mode-3 result remains a regression anchor.
   4. Boundary and malformed-address vectors yield the declared output without reading neighboring memory outside the permitted source extent.
-**Plans**: TBD
+**Plans**: 8 execution plans across 8 waves.
+**Wave 1**
+- [ ] 12-01-PLAN.md — Implement and expand mode 0–1 text backgrounds.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 12-02-PLAN.md — Publish text support in profile and runner metadata.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 12-03-PLAN.md — Add exact background selection controls and fast helper.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 12-04-PLAN.md — Implement affine backgrounds and deterministic reference policy.
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 12-05-PLAN.md — Publish affine support in profile and runner metadata.
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 12-06-PLAN.md — Implement bitmap backgrounds for modes 3–5.
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 12-07-PLAN.md — Publish bitmap support in profile and runner metadata.
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 12-08-PLAN.md — Run final acceptance and measure iteration cost.
+
+**Cross-cutting constraints:** <!-- gsd:generated -->
+- A stale status, source, dimension or profile version is rejected with a causal diagnostic.
+- Hardware qualification remains UNKNOWN and mode capability remains distinct from complete-frame validity.
+
 Overlapping layers receive their complete shared priority contract in Phase 13.
 
 ### Phase 13: Objects and Layer Priorities
