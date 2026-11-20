@@ -1655,6 +1655,46 @@ static int run_ppu_bg_affine(void)
         free_machine(machine);
     }
 
+    /* A vertical affine step can change the scanline within one tile while
+     * source X remains in that tile. Each output pixel must use its own
+     * source row rather than reusing the prior cached tile row. */
+    {
+        static const uint16_t row_colors[8] = {
+            UINT16_C(0x001F), UINT16_C(0x03E0), UINT16_C(0x7C00),
+            UINT16_C(0x4210), UINT16_C(0x2108), UINT16_C(0x1234),
+            UINT16_C(0x4567), UINT16_C(0x2ABC)
+        };
+        uint8_t row_pixels[64];
+        uint32_t y;
+        uint32_t x;
+
+        machine = new_machine();
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            for (y = 0u; y < 8u; ++y) {
+                for (x = 0u; x < 8u; ++x) {
+                    row_pixels[y * 8u + x] = (uint8_t)(y + 1u);
+                }
+                CHECK(ppu_bg_text_set_color(machine, y + 1u,
+                                            row_colors[y]));
+            }
+            CHECK(ppu_bg_affine_configure(machine, 1u, 2u, 0u, false,
+                                          0u, 1u));
+            CHECK(ppu_bg_affine_set_map_entry(machine, 2u, 0u, 0u, 1u));
+            CHECK(ppu_bg_affine_fill_tile(machine, 2u, 1u, row_pixels));
+            ppu_bg_affine_set_transform(machine, 2u, 0, 0,
+                                        INT16_C(0x0100),
+                                        INT16_C(0x0100), 0, 0);
+            CHECK(gbl_machine_advance_to(machine, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            for (x = 0u; x < 8u; ++x) {
+                CHECK(ppu_bg_affine_pixel_matches(
+                    machine->video_frame, (uint16_t)x, 0u, row_colors[x]));
+            }
+            free_machine(machine);
+        }
+    }
+
     /* Mathematical floor keeps negative fractional coordinates outside an
      * unclipped map. Overflow wrap then maps the same coordinate to the last
      * source pixel. */

@@ -723,6 +723,7 @@ static bool gbl_ppu_project_affine_row(
     uint8_t tile_row[8];
     uint32_t previous_tile_x = UINT32_MAX;
     uint32_t previous_tile_y = UINT32_MAX;
+    uint32_t previous_source_row = UINT32_MAX;
     uint32_t pixel;
 
     if (!affine->origin_valid ||
@@ -761,7 +762,8 @@ static bool gbl_ppu_project_affine_row(
             const uint32_t tile_x = source_x_unsigned >> 3u;
             const uint32_t tile_y = source_y_unsigned >> 3u;
 
-            if (tile_x != previous_tile_x || tile_y != previous_tile_y) {
+            if (tile_x != previous_tile_x || tile_y != previous_tile_y ||
+                (source_y_unsigned & 7u) != previous_source_row) {
                 const uint64_t map_offset_wide = (uint64_t)map_base +
                     (uint64_t)tile_y * (uint64_t)map_width_tiles +
                     (uint64_t)tile_x;
@@ -801,6 +803,7 @@ static bool gbl_ppu_project_affine_row(
                 }
                 previous_tile_x = tile_x;
                 previous_tile_y = tile_y;
+                previous_source_row = source_y_unsigned & 7u;
             }
             color_index = tile_row[source_x_unsigned & 7u];
         }
