@@ -337,7 +337,7 @@ elseif(CASE STREQUAL "ppu_policy")
   profile_copy(p stale_text_control_doc)
   doc_copy(d stale_text_control_doc)
   gbl_text_mutate("${d}"
-    "| `ppu_policy.supported_controls` | mode 3 BG2 bitmap with other BG enable bits ignored; exactly one enabled background source per sampled row in modes 0-2: mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, and mode 2 affine BG2/BG3; text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop; forced blank, OBJ, windows, and effects disabled |"
+    "| `ppu_policy.supported_controls` | mode 3 BG2 bitmap with other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled |"
     "| `ppu_policy.supported_controls` | mode 3 only |")
   expect_ppu_detail(ppu-policy-doc
     "ppu_policy: missing or stale row" "${p}" "${d}")
