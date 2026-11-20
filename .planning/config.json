@@ -51,7 +51,8 @@
     "security_block_on": "high",
     "tdd_mode": false,
     "ui_review": true,
-    "use_worktrees": false
+    "use_worktrees": false,
+    "test_command": "sh scripts/verify-phase12-fast.sh"
   },
   "ship": {
     "pr_body_sections": []
