@@ -58,7 +58,7 @@ work; decimal IDs are reserved for later insertions.
 - [x] 11-02-PLAN.md
 - [x] 11-03-PLAN.md
 - [x] 11-04-PLAN.md
-- [ ] 11-05-PLAN.md
+- [ ] 11-05-PLAN.md — halted at canonical CI acceptance; see [evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md)
 
 ### Phase 12: Background Modes 0–5
 **Goal**: Users of the canonical raw-video path can obtain expected text, affine, and bitmap background pixels across display modes 0–5.
@@ -122,7 +122,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Sampled Rows and Transactional Visibility | 4/5 | In Progress | - |
+| 11. Sampled Rows and Transactional Visibility | 4/5 | Blocked — inherited CI failures | - |
 | 12. Background Modes 0–5 | 0/TBD | Not started | - |
 | 13. Objects and Layer Priorities | 0/TBD | Not started | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
@@ -140,8 +140,10 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 ## Next Action
 
-Review the generated milestone roadmap, then discuss and plan Phase 11 through
-OpenGSD. No implementation phase starts as part of roadmap creation.
+Review [Phase 11's integrated evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md)
+and decide whether to authorize a bounded repair pass for the inherited
+canonical-CI failures. Phase 12 depends on Phase 11 and remains unplanned until
+the canonical acceptance gate is green.
 
 ---
 *Roadmap created: 2026-11-19 for v3.0 PPU Modes and Composition.*

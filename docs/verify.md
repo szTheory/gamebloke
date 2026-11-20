@@ -77,6 +77,12 @@ The `ci` workflow preset has four steps:
 4. **ci-post**: the `post` test (`inventory.junit`) checks the junit against the
    inventory and prints `inventory: expected N, ran R, skipped S (allowed A)`.
 
+The full CI test presets stop scheduling after the first failure to keep a red
+workflow from spending time on unrelated downstream checks. Passing runs still
+execute the complete inventory and post check. On a red run, use focused
+selectors to diagnose the failure, then rerun the canonical workflow after the
+fix; the post inventory is only emitted when the main test step passes.
+
 Every `post` step is verbose on purpose: CTest hides the output of a passing test
 otherwise, and that summary line is the readable proof in a green log.
 

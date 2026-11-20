@@ -25,8 +25,11 @@ cmake --workflow --preset ci
 ```
 
 That workflow owns configure, build, the complete lane, and the post-run test
-inventory. The fast helper is early feedback on the current configured tree;
-it does not replace the workflow.
+inventory on a passing run. The CI test preset stops scheduling after the first
+failure; a red run can therefore omit later tests and the post-run inventory.
+Use focused selectors to diagnose and verify a fix, then rerun the canonical
+workflow. The fast helper is early feedback on the current configured tree; it
+does not replace the workflow.
 
 Phase 11 compares sampled rows against semantic BGR555 pixel expectations at
 line-start boundaries, including writes immediately before, on, and after the

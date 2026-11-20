@@ -106,7 +106,7 @@
         "outputJUnitFile": "${sourceDir}/build/ci/junit.xml"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "ci-post",
@@ -123,7 +123,7 @@
         "outputJUnitFile": "${sourceDir}/build/hygiene/junit.xml"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "hygiene-post",
@@ -141,7 +141,7 @@
         "outputJUnitFile": "${sourceDir}/build/asan/junit.xml"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "asan-post",
@@ -159,7 +159,7 @@
         "verbosity": "verbose"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "diagnostics-post",
@@ -182,7 +182,8 @@
         }
       },
       "execution": {
-        "noTestsAction": "error"
+        "noTestsAction": "error",
+        "stopOnFailure": true
       }
     },
     {
@@ -214,7 +215,8 @@
         }
       },
       "execution": {
-        "noTestsAction": "error"
+        "noTestsAction": "error",
+        "stopOnFailure": true
       }
     },
     {

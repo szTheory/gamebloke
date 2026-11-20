@@ -4,11 +4,11 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 11
 current_phase_name: Sampled Rows and Transactional Visibility
-status: executing
-stopped_at: Completed 11-04-PLAN.md
-last_updated: "2026-11-19T23:43:07.419Z"
-last_activity: 2026-11-19
-last_activity_desc: Phase 11 execution started
+status: blocked
+stopped_at: Phase 11 Plan 11-05 canonical integration acceptance
+last_updated: "2026-11-20T01:23:27Z"
+last_activity: 2026-11-20
+last_activity_desc: Phase 11 focused evidence passed; canonical CI gate remains red on baseline failures
 state_head: 6e359e9c3c708de3e05ea03330a116469a7ec46b
 progress:
   total_phases: 5
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-19)
 
 ## Current Position
 
-Phase: 11 (Sampled Rows and Transactional Visibility) — EXECUTING
+Phase: 11 (Sampled Rows and Transactional Visibility) — BLOCKED
 Plan: 5 of 5
-Status: Executing Phase 11
-Last activity: 2026-11-19 — Phase 11 execution started
+Status: Blocked at Plan 11-05 canonical integration acceptance
+Last activity: 2026-11-20 — focused Phase 11 checks passed; canonical CI stopped on existing failures before inventory
 
 Progress: [░░░░░░░░░░] 0% (current milestone)
 
@@ -442,6 +442,8 @@ Recent decisions affecting current work:
 None yet.
 
 ### Blockers/Concerns
+
+- Phase 11's required canonical CI acceptance is blocked by failures reproduced at the Phase 11 starting revision. The final run stopped before `ci-post`, so no complete inventory/JUnit exists. Phase 11 requirements remain pending and Phase 12 must not start until the owner chooses whether to run a bounded repair pass for inherited CI failures. See [Phase 11 evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md).
 
 - Before the Phase5 merge, owner must decide the [producer-ancestry merge exception](phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-MERGE-PROVENANCE.md). Cheap graph simulation proves squash would break the source guard; a merge commit preserves it and current rules permit that method. No merge is authorized yet; current PR verification can continue.
 
