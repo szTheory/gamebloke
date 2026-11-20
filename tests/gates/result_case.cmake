@@ -862,6 +862,18 @@ elseif(CASE STREQUAL "phase10_negative")
     phase10 display_capabilities modes 0 backgrounds 0 source)
   phase10_expect_code(bad-phase10-capability "${r}")
 
+  result_copy_phase10(r wrong_current_mode1_affine_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"text\""
+    phase10 display_capabilities modes 1 backgrounds 2 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode2_affine_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"text\""
+    phase10 display_capabilities modes 2 backgrounds 1 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
   result_copy_phase10(r wrong_current_dimension)
   result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "241"
@@ -874,8 +886,20 @@ elseif(CASE STREQUAL "phase10_negative")
     phase10 display_capabilities modes 1 backgrounds 0 dimensions 0 width)
   phase10_expect_code(bad-phase10-capability "${r}")
 
-  foreach(mode IN ITEMS 0 1)
-    result_copy_phase10(r stale_supported_text_mode_${mode}_status)
+  result_copy_phase10(r wrong_current_mode1_affine_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "255"
+    phase10 display_capabilities modes 1 backgrounds 2 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode2_affine_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "255"
+    phase10 display_capabilities modes 2 backgrounds 1 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  foreach(mode IN ITEMS 0 1 2)
+    result_copy_phase10(r stale_supported_mode_${mode}_status)
     result_add_phase10_capabilities("${r}")
     gbl_json_mutate_set("${r}" "\"not-implemented\""
       phase10 display_capabilities modes ${mode} implementation_status)

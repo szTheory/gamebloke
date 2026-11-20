@@ -629,7 +629,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
         json[json_length] = '\0';
         okay = strstr(json, "\"phase10\":{") != NULL &&
                strstr(json,
-                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":11") != NULL &&
+                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":12") != NULL &&
                strstr(json, "\"line_cycle\":") != NULL &&
                strstr(json, "\"frame_epoch\":") != NULL &&
                strstr(json, "\"state\":\"valid\"") != NULL &&
@@ -639,9 +639,9 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
                strstr(json,
                       "\"mode\":0,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\"") != NULL &&
                strstr(json,
-                      "\"mode\":1,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\"") != NULL &&
+                      "\"mode\":1,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},{\"bg\":1,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]}]") != NULL &&
                strstr(json,
-                      "\"mode\":2,\"implementation_status\":\"not-implemented\",\"backgrounds\":[{\"bg\":2,\"source\":\"affine\"") != NULL &&
+                      "\"mode\":2,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]},{\"bg\":3,\"source\":\"affine\"") != NULL &&
                strstr(json,
                       "\"mode\":3,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]") != NULL &&
                strstr(json,
