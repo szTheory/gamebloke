@@ -2057,7 +2057,7 @@ static int run_ppu_obj_regular(void)
     {
         static const uint16_t unsupported_attributes[] = {
             UINT16_C(0x0400), UINT16_C(0x0800), UINT16_C(0x0C00),
-            UINT16_C(0x1000), UINT16_C(0xC000), UINT16_C(0x0100)
+            UINT16_C(0x1000), UINT16_C(0xC000)
         };
         size_t control;
 

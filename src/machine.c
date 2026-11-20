@@ -1181,6 +1181,16 @@ static uint16_t gbl_ppu_memory_u16(const uint8_t *bytes, size_t offset)
         (uint16_t)((uint16_t)bytes[offset + 1u] << 8u));
 }
 
+static int64_t gbl_ppu_floor_div_256(int64_t value)
+{
+    int64_t quotient = value / INT64_C(256);
+
+    if (value < 0 && value % INT64_C(256) != 0) {
+        --quotient;
+    }
+    return quotient;
+}
+
 static bool gbl_ppu_candidate_precedes(
     const gbl_ppu_pixel_candidate *candidate,
     const gbl_ppu_pixel_candidate *current)
@@ -1348,6 +1358,8 @@ static bool gbl_ppu_project_obj_row(
         const uint16_t attribute2 =
             gbl_ppu_memory_u16(oam_bytes, oam_offset + 4u);
         const bool affine = (attribute0 & UINT16_C(0x0100)) != 0u;
+        const bool double_size = affine &&
+            (attribute0 & UINT16_C(0x0200)) != 0u;
         const bool disabled = !affine &&
             (attribute0 & UINT16_C(0x0200)) != 0u;
         const uint16_t object_mode =
@@ -1359,9 +1371,9 @@ static bool gbl_ppu_project_obj_row(
             ((uint32_t)capture->line - object_y) & UINT32_C(0x00FF);
         const bool color_8bpp =
             (attribute0 & UINT16_C(0x2000)) != 0u;
-        const bool horizontal_flip =
+        const bool horizontal_flip = !affine &&
             (attribute1 & UINT16_C(0x1000)) != 0u;
-        const bool vertical_flip =
+        const bool vertical_flip = !affine &&
             (attribute1 & UINT16_C(0x2000)) != 0u;
         const uint32_t width = shape < 3u
             ? object_dimensions[shape][size][0]
@@ -1369,6 +1381,8 @@ static bool gbl_ppu_project_obj_row(
         const uint32_t height = shape < 3u
             ? object_dimensions[shape][size][1]
             : 0u;
+        const uint32_t field_width = double_size ? width * 2u : width;
+        const uint32_t field_height = double_size ? height * 2u : height;
         const uint32_t tile_units = color_8bpp ? 2u : 1u;
         const uint32_t tile_width = width / 8u;
         const uint32_t tile_base =
@@ -1380,42 +1394,53 @@ static bool gbl_ppu_project_obj_row(
         const uint32_t tile_bytes = color_8bpp ? 64u : 32u;
         const uint32_t object_x =
             (uint32_t)(attribute1 & UINT16_C(0x01FF));
-        const uint32_t source_y = vertical_flip && height > relative_y
-            ? height - 1u - relative_y
-            : relative_y;
         const uint64_t obj_window_start = mode >= 3u
             ? UINT64_C(0x14000)
             : UINT64_C(0x10000);
         uint64_t cached_tile_number = UINT64_MAX;
+        uint32_t cached_tile_row = UINT32_MAX;
         bool cached_tile_valid = false;
         uint8_t tile_row[8];
         uint32_t local_x;
+        int16_t pa = 0;
+        int16_t pb = 0;
+        int16_t pc = 0;
+        int16_t pd = 0;
 
         if (disabled) {
             continue;
         }
-        if (affine || object_mode != 0u ||
+        if (object_mode != 0u ||
             (attribute0 & UINT16_C(0x1000)) != 0u || shape >= 3u) {
             return false;
         }
-        if (relative_y >= height) {
+        if (relative_y >= field_height) {
             continue;
         }
+        if (affine) {
+            const uint32_t matrix =
+                (uint32_t)((attribute1 >> 9u) & UINT16_C(0x001F));
+            const size_t matrix_offset = (size_t)matrix * 32u + 6u;
 
-        for (local_x = 0u; local_x < width; ++local_x) {
+            pa = gbl_ppu_signed_u16(
+                gbl_ppu_memory_u16(oam_bytes, matrix_offset));
+            pb = gbl_ppu_signed_u16(
+                gbl_ppu_memory_u16(oam_bytes, matrix_offset + 8u));
+            pc = gbl_ppu_signed_u16(
+                gbl_ppu_memory_u16(oam_bytes, matrix_offset + 16u));
+            pd = gbl_ppu_signed_u16(
+                gbl_ppu_memory_u16(oam_bytes, matrix_offset + 24u));
+        }
+
+        for (local_x = 0u; local_x < field_width; ++local_x) {
             const uint32_t screen_x =
                 (object_x + local_x) &
                 UINT32_C(0x01FF);
-            const uint32_t source_x = horizontal_flip
-                ? width - 1u - local_x
-                : local_x;
-            const uint32_t tile_x = source_x >> 3u;
-            const uint32_t tile_y = source_y >> 3u;
-            const uint64_t tile_number = (uint64_t)tile_base +
-                (uint64_t)tile_y * (one_dimensional
-                    ? (uint64_t)tile_width * (uint64_t)tile_units
-                    : UINT64_C(32)) +
-                (uint64_t)tile_x * (uint64_t)tile_units;
+            uint32_t source_x;
+            uint32_t source_y;
+            uint32_t source_tile_row;
+            uint32_t tile_y;
+            uint64_t tile_number;
             uint8_t color_index;
             uint32_t palette_index;
             uint16_t color;
@@ -1424,8 +1449,44 @@ static bool gbl_ppu_project_obj_row(
             if (screen_x >= GBL_PPU_WIDTH) {
                 continue;
             }
-            if (tile_number != cached_tile_number) {
+            if (affine) {
+                const int64_t dx =
+                    (int64_t)local_x - (int64_t)(field_width / 2u);
+                const int64_t dy =
+                    (int64_t)relative_y - (int64_t)(field_height / 2u);
+                const int64_t transformed_x =
+                    (int64_t)(width / 2u) + gbl_ppu_floor_div_256(
+                        (int64_t)pa * dx + (int64_t)pb * dy);
+                const int64_t transformed_y =
+                    (int64_t)(height / 2u) + gbl_ppu_floor_div_256(
+                        (int64_t)pc * dx + (int64_t)pd * dy);
+
+                if (transformed_x < 0 || transformed_y < 0 ||
+                    transformed_x >= (int64_t)width ||
+                    transformed_y >= (int64_t)height) {
+                    continue;
+                }
+                source_x = (uint32_t)transformed_x;
+                source_y = (uint32_t)transformed_y;
+            } else {
+                source_x = horizontal_flip
+                    ? width - 1u - local_x
+                    : local_x;
+                source_y = vertical_flip && height > relative_y
+                    ? height - 1u - relative_y
+                    : relative_y;
+            }
+            source_tile_row = source_y & 7u;
+            tile_y = source_y >> 3u;
+            tile_number = (uint64_t)tile_base +
+                (uint64_t)tile_y * (one_dimensional
+                    ? (uint64_t)tile_width * (uint64_t)tile_units
+                    : UINT64_C(32)) +
+                (uint64_t)(source_x >> 3u) * (uint64_t)tile_units;
+            if (tile_number != cached_tile_number ||
+                source_tile_row != cached_tile_row) {
                 cached_tile_number = tile_number;
+                cached_tile_row = source_tile_row;
                 cached_tile_valid = false;
                 if ((mode < 3u || tile_number >= UINT64_C(512)) &&
                     tile_number <= (uint64_t)UINT32_MAX) {
@@ -1438,7 +1499,7 @@ static bool gbl_ppu_project_obj_row(
                             UINT64_C(0x18000) - tile_offset_wide &&
                         tile_offset_wide <= (uint64_t)UINT32_MAX) {
                         const uint64_t row_offset_wide = tile_offset_wide +
-                            (uint64_t)(source_y & 7u) *
+                            (uint64_t)source_tile_row *
                                 (uint64_t)tile_row_bytes;
 
                         if (row_offset_wide > (uint64_t)UINT32_MAX ||
@@ -1609,7 +1670,7 @@ static gbl_video_invalid_reason gbl_ppu_obj_control_invalid_reason(
         if (disabled) {
             continue;
         }
-        if (affine || (attribute0 & UINT16_C(0x1C00)) != 0u ||
+        if ((attribute0 & UINT16_C(0x1C00)) != 0u ||
             (attribute0 >> 14u) == UINT16_C(3)) {
             return GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
         }
