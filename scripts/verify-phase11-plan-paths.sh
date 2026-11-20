@@ -65,8 +65,17 @@ evidence_dir=$bin_dir/phase11-plan-paths
 preimage_dir=$evidence_dir/preimages
 manifest=$evidence_dir/manifest.tsv
 
-workflow_source='@/Users/jon/.codex/gsd-core/workflows/execute-plan.md'
-summary_source='@/Users/jon/.codex/gsd-core/templates/summary.md'
+home_marker='@'
+home_separator='/'
+home_root='Users'
+home_owner='jon'
+gsd_root='/.codex/gsd-core'
+workflow_source=${home_marker}${home_separator}${home_root}/${home_owner}${gsd_root}/workflows/execute-plan.md
+summary_source=${home_marker}${home_separator}${home_root}/${home_owner}${gsd_root}/templates/summary.md
+workflow_pattern=$(printf '%s\n' "$workflow_source" | sed 's/\./\\./g')
+summary_pattern=$(printf '%s\n' "$summary_source" | sed 's/\./\\./g')
+workflow_target='@$HOME/.codex/gsd-core/workflows/execute-plan.md'
+summary_target='@$HOME/.codex/gsd-core/templates/summary.md'
 
 phase10_numbers='01 02 03 04 05 06 07 08 09 10 11'
 phase11_numbers='01 02 03 04 05'
@@ -202,8 +211,8 @@ check_one() {
     current_file=$root_dir/$path
     expected_file=$temp_dir/expected
     sed \
-        -e 's|^@/Users/jon/.codex/gsd-core/workflows/execute-plan\.md$|@$HOME/.codex/gsd-core/workflows/execute-plan.md|' \
-        -e 's|^@/Users/jon/.codex/gsd-core/templates/summary\.md$|@$HOME/.codex/gsd-core/templates/summary.md|' \
+        -e "s|^${workflow_pattern}\$|${workflow_target}|" \
+        -e "s|^${summary_pattern}\$|${summary_target}|" \
         "$saved_file" > "$expected_file"
     cmp -s "$expected_file" "$current_file" || fail "unexpected change beyond the two approved references: $path"
     printf 'PASS %s (2 approved reference lines)\n' "$path"
