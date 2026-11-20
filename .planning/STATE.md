@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 ## Current Position
 
 Phase: 12 (Background Modes 0–5) — READY TO EXECUTE
-Plan: 8 plans across 8 serialized waves
+Current Plan: 2 of 8
 Status: Plans passed independent review; ready to execute
 Last activity: 2026-11-20 — Phase 12 plan set passed review and coverage checks
 
