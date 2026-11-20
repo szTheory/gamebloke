@@ -265,7 +265,7 @@ static const gbl_runner_display_mode gbl_runner_display_modes[] = {
       GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode0_backgrounds) },
     { 1u, "partial", gbl_runner_mode1_backgrounds,
       GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode1_backgrounds) },
-    { 2u, "not-implemented", gbl_runner_mode2_backgrounds,
+    { 2u, "partial", gbl_runner_mode2_backgrounds,
       GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode2_backgrounds) },
     { 3u, "partial", gbl_runner_mode3_backgrounds,
       GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode3_backgrounds) },
