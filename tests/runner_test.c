@@ -629,7 +629,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
         json[json_length] = '\0';
         okay = strstr(json, "\"phase10\":{") != NULL &&
                strstr(json,
-                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":12") != NULL &&
+                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":13") != NULL &&
                strstr(json, "\"line_cycle\":") != NULL &&
                strstr(json, "\"frame_epoch\":") != NULL &&
                strstr(json, "\"state\":\"valid\"") != NULL &&
@@ -645,9 +645,9 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
                strstr(json,
                       "\"mode\":3,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]") != NULL &&
                strstr(json,
-                      "\"mode\":4,\"implementation_status\":\"not-implemented\",\"backgrounds\":[{\"bg\":2,\"source\":\"indexed-bitmap\"") != NULL &&
+                      "\"mode\":4,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"indexed-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]") != NULL &&
                strstr(json,
-                      "\"mode\":5,\"implementation_status\":\"not-implemented\",\"backgrounds\":[{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":160,\"height\":128}]") != NULL &&
+                      "\"mode\":5,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":160,\"height\":128}]") != NULL &&
                strstr(json,
                       "\"video_memory_access\":{\"classification\":\"project-selected\",\"hardware_qualification\":\"UNKNOWN\",\"masters\":[\"cpu\",\"dma\"],\"regions\":[\"pram\",\"vram\",\"oam\"],\"states\":[\"drawing\",\"hblank\",\"vblank\",\"forced-blank\"],\"availability\":\"existing-bus-behavior\",\"ppu_extra_cycles\":0,\"cost_reference\":\"bus_policy.request_cycles\"}") != NULL &&
                strstr(json, "\"classification\":\"disputed\"") != NULL &&

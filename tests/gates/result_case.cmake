@@ -836,6 +836,11 @@ elseif(CASE STREQUAL "phase10_negative")
   gbl_json_mutate_set("${r}" "\"10\"" phase10 profile_version)
   phase10_expect_code(bad-phase10-capability "${r}")
 
+  result_copy_phase10(r stale_current_profile_version)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "12" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
   result_copy_phase10(r wrong_current_observation_model_type)
   gbl_json_mutate_set("${r}" "2" phase10 model)
   phase10_expect_code(bad-phase10-type "${r}")
@@ -880,6 +885,30 @@ elseif(CASE STREQUAL "phase10_negative")
     phase10 display_capabilities modes 3 backgrounds 0 dimensions 0 width)
   phase10_expect_code(bad-phase10-capability "${r}")
 
+  result_copy_phase10(r wrong_current_mode4_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"direct-color-bitmap\""
+    phase10 display_capabilities modes 4 backgrounds 0 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode5_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"indexed-bitmap\""
+    phase10 display_capabilities modes 5 backgrounds 0 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode4_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "239"
+    phase10 display_capabilities modes 4 backgrounds 0 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode5_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "159"
+    phase10 display_capabilities modes 5 backgrounds 0 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
   result_copy_phase10(r wrong_current_text_dimension)
   result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "255"
@@ -898,7 +927,7 @@ elseif(CASE STREQUAL "phase10_negative")
     phase10 display_capabilities modes 2 backgrounds 1 dimensions 0 width)
   phase10_expect_code(bad-phase10-capability "${r}")
 
-  foreach(mode IN ITEMS 0 1 2)
+  foreach(mode IN ITEMS 0 1 2 3 4 5)
     result_copy_phase10(r stale_supported_mode_${mode}_status)
     result_add_phase10_capabilities("${r}")
     gbl_json_mutate_set("${r}" "\"not-implemented\""
