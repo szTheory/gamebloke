@@ -4,17 +4,18 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 12
 current_phase_name: Background Modes 0–5
+current_plan: 3 of 8
 status: executing
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-11-20T14:11:19.860Z"
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-11-20T14:52:33.612Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 11 passed canonical CI and goal-backward verification; Phase 12 is next
-state_head: 8612b853903d481ea778bea196eeded72d66f2be
+state_head: d75ba20428a6f7e14cd4f4853998e81936cc4d37
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 16
-  completed_plans: 9
+  completed_plans: 10
   percent: 20
 ---
 
@@ -31,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 ## Current Position
 
 Phase: 12 (Background Modes 0–5) — READY TO EXECUTE
-Current Plan: 2 of 8
+Current Plan: 3 of 8
 Status: Plans passed independent review; ready to execute
 Last activity: 2026-11-20 — Phase 12 plan set passed review and coverage checks
 
@@ -171,6 +172,7 @@ Progress: [██░░░░░░░░] 20% (current milestone)
 | Phase 11 P6 | not measured | 3 tasks | 10 files |
 | Phase 11 P7 | not measured | 3 tasks | 12 files |
 | Phase 12 P01 | 50min | 2 tasks | 14 files |
+| Phase 12 P02 | 26min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -443,6 +445,9 @@ Recent decisions affecting current work:
 - [Phase 12]: Transparent index zero resolves through palette entry zero while the internal sample retains BG identity and transparency.
 - [Phase 12]: Mode 3 retains BG2 behavior and treats other BG enable bits as inert.
 - [Phase 12]: Text output is a deterministic software model; hardware qualification remains UNKNOWN.
+- [Phase 12]: Mode 0 and mode 1 are published as partial for the implemented text backgrounds only; mode 1 affine BG2 remains unavailable.
+- [Phase 12]: Profile version 11 is bound to matching runner capability metadata, with UNKNOWN hardware qualification and existing CPU/DMA video-memory access behavior preserved.
+- [Phase 12]: Mode capability metadata remains distinct from runtime frame validity and does not imply priority composition.
 
 ### Pending Todos
 
@@ -494,8 +499,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-20T14:11:19.776Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-11-20T14:51:21.126Z
+Stopped at: Completed 12-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
