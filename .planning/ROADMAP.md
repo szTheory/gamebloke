@@ -53,7 +53,7 @@ work; decimal IDs are reserved for later insertions.
   2. Writes to registers, VRAM, palette RAM, and OAM before, at, and after the declared row boundary produce the expected sampled row from the ordered visible prefix, including same-cycle ordering.
   3. A caller can distinguish a complete frame from an invalid or incomplete epoch through the existing raw-video contract.
   4. Refused or capacity-limited work preserves machine state, video memory, frame contents, and caller output buffers, while an admitted exact-fit operation commits its complete result.
-**Plans**: 4/8 complete; Plan 11-05 is halted at canonical CI acceptance, and Plans 11-06 through 11-08 are the bounded repair sequence.
+**Plans**: 6/8 execution plans complete; Plan 11-05's canonical acceptance remains open after its halted run. Plans 11-06 through 11-08 are the bounded recovery sequence.
 **Wave 1**
 - [x] 11-01-PLAN.md
 - [x] 11-02-PLAN.md
@@ -63,10 +63,10 @@ work; decimal IDs are reserved for later insertions.
 - [x] 11-04-PLAN.md
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 11-05-PLAN.md — halted at canonical CI acceptance; see [evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md)
+- [x] 11-05-PLAN.md — executed; canonical CI acceptance remains open after the halted run; see [evidence](phases/11-sampled-rows-and-transactional-visibility/11-EVIDENCE.md)
 
 **Wave 4** *(recovery wave; consumes Plan 11-05 evidence and starts from last completed prerequisite 11-04)*
-- [ ] 11-06-PLAN.md — exact baseline triage and focused CPU/core/scheduler repairs
+- [x] 11-06-PLAN.md — exact baseline triage and focused CPU/core/scheduler repairs
 
 **Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 11-07-PLAN.md — portable Phase 10 plan references with byte-preservation checks
@@ -136,7 +136,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Sampled Rows and Transactional Visibility | 4/8 | In Progress — bounded repair sequence is underway; canonical CI acceptance remains blocked pending execution | - |
+| 11. Sampled Rows and Transactional Visibility | 6/8 | In Progress — bounded repair sequence is underway; canonical CI acceptance remains blocked pending execution | - |
 | 12. Background Modes 0–5 | 0/TBD | Not started | - |
 | 13. Objects and Layer Priorities | 0/TBD | Not started | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
@@ -154,8 +154,8 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 ## Next Action
 
-Execute Phase 11 Plans 11-06 through 11-08 in order. The owner authorized this
-bounded repair through `$gsd-autonomous`.
+Execute Phase 11 Plans 11-07 and 11-08 in order. Plan 11-06's focused recovery
+is complete; the owner authorized this bounded repair through `$gsd-autonomous`.
 Phase 12 remains unplanned until the canonical workflow and its complete
 post-inventory are green.
 
