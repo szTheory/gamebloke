@@ -1461,6 +1461,59 @@ static int run_ppu_bg_text(void)
         free_machine(machine);
     }
 
+    /* BG2 transform writes do not alter a selected mode-0 or mode-1 text
+     * source, so later text rows remain capturable and retain their pixels. */
+    {
+        static const uint8_t text_cases[][2] = { { 0u, 0u }, { 1u, 1u } };
+        size_t text_case;
+
+        for (text_case = 0u;
+             text_case < sizeof(text_cases) / sizeof(text_cases[0]);
+             ++text_case) {
+            const uint8_t mode = text_cases[text_case][0];
+            const uint8_t background = text_cases[text_case][1];
+            const uint16_t color =
+                (uint16_t)(UINT16_C(0x4A00) + (uint16_t)text_case);
+            uint8_t pixels[64];
+            gbl_machine *text_machine;
+            gbl_machine_time_preview preview;
+            const gbl_time_operation writes[2] = {
+                { GBL_TIME_OPERATION_BUS_WRITE, 2u,
+                  UINT32_C(0x04000020), UINT32_C(0x00000100), UINT64_C(1) },
+                { GBL_TIME_OPERATION_BUS_WRITE, 4u,
+                  UINT32_C(0x04000028), UINT32_C(0x00010000), UINT64_C(1) }
+            };
+
+            text_machine = new_machine();
+            CHECK(text_machine != NULL);
+            if (text_machine == NULL) {
+                continue;
+            }
+            memset(pixels, 1, sizeof(pixels));
+            CHECK(ppu_bg_text_configure(text_machine, mode, background, 0u,
+                                        false, 0u, 0u, 1u, 1u));
+            CHECK(ppu_bg_text_set_color(text_machine, 1u, color));
+            CHECK(ppu_bg_text_set_map_entry(text_machine, background, 0u, 0u,
+                                            1u));
+            CHECK(ppu_bg_text_fill_tile(text_machine, background, 1u, pixels));
+            CHECK(gbl_machine_advance_to(text_machine, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(gbl_machine_prepare_operations(text_machine, writes, 2u,
+                                                 &preview) ==
+                  GBL_TIME_STATUS_OK);
+            gbl_machine_commit_time(text_machine, &preview);
+            CHECK(text_machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(gbl_machine_advance_to(text_machine,
+                                         GBL_PPU_LINE_CYCLES) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(text_machine->ppu.capture_state !=
+                  GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(ppu_bg_text_pixel_matches(
+                text_machine->video_frame, 0u, color));
+            free_machine(text_machine);
+        }
+    }
+
     {
         uint8_t size_code;
 

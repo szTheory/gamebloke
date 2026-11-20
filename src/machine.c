@@ -2075,7 +2075,6 @@ static gbl_time_status gbl_preview_bus_write(
     bool dispstat_written = false;
     bool dispcnt_written = false;
     bool unsupported_effect_write = false;
-    bool unsupported_transform_write = false;
     bool window_register_write = false;
     uint32_t unsupported_register_bytes =
         preview->ppu.unsupported_register_bytes;
@@ -2137,7 +2136,6 @@ static gbl_time_status gbl_preview_bus_write(
             gbl_ppu_affine_write_register(
                 &affine[0], register_byte, byte_value,
                 !preview->ppu.next_boundary_hblank);
-            unsupported_transform_write = true;
         } else if (lane_address >= UINT32_C(0x04000030) &&
                    lane_address <= UINT32_C(0x0400003F)) {
             const uint32_t register_byte =
@@ -2288,18 +2286,7 @@ static gbl_time_status gbl_preview_bus_write(
         gbl_ppu_invalidate_capture(
             preview, gbl_ppu_dispcnt_invalid_reason(dispcnt));
     }
-    if (unsupported_transform_write) {
-        const uint16_t mode =
-            (uint16_t)(dispcnt & UINT16_C(0x0007));
-        uint8_t affine_background;
-
-        if ((mode < UINT16_C(3) || mode > UINT16_C(5) ||
-             (dispcnt & UINT16_C(0x0400)) == 0u) &&
-            !gbl_ppu_selected_affine_bg(dispcnt, &affine_background)) {
-            gbl_ppu_invalidate_capture(
-                preview, GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED);
-        }
-    } else if (unsupported_effect_write) {
+    if (unsupported_effect_write) {
         gbl_ppu_invalidate_capture(
             preview, GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
     } else if (window_register_write &&
