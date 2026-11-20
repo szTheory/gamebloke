@@ -1055,6 +1055,7 @@ pins.nc.duplicate_dest control,pins
 pins.nc.missing_file control,pins
 pins.nc.missing_header control,pins
 pins.pos.rows pins,positive
+ppu.bg.affine bus,core,integration,ppu
 ppu.bg.controls bus,core,ppu,unit
 ppu.bg.text bus,core,integration,ppu
 ppu.bg.tracer bus,core,integration,ppu

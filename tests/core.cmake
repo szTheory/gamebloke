@@ -94,6 +94,10 @@ gbl_add_test(
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.bg.text)
 gbl_add_test(
+  NAME ppu.bg.affine
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.affine)
+gbl_add_test(
   NAME ppu.bg.controls
   LABELS bus core ppu unit
   COMMAND $<TARGET_FILE:bus_test> ppu.bg.controls)

@@ -1493,6 +1493,43 @@ static int run_ppu_bg_text(void)
     return CHECK_DONE() == 0 ? 0 : 1;
 }
 
+static int run_ppu_bg_affine(void)
+{
+    gbl_machine *machine = new_machine();
+    const uint16_t expected = UINT16_C(0x2A35);
+    uint32_t pixel;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+
+    /* Mode 1 BG2 affine identity transform: a byte map selects an 8bpp
+     * character, and the captured 8.8 matrix maps screen pixel (x, y) to
+     * the same source coordinate. */
+    machine->dispcnt = UINT16_C(0x0501);
+    machine->ppu.dispcnt = machine->dispcnt;
+    ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u, UINT16_C(0x0104));
+    machine->ppu.render_register_bytes[1] = UINT8_C(1);
+    machine->ppu.render_register_bytes[7] = UINT8_C(1);
+    machine->vram[UINT32_C(0x0800)] = UINT8_C(1);
+    for (pixel = 0u; pixel < 64u; ++pixel) {
+        machine->vram[UINT32_C(0x4040) + pixel] = UINT8_C(1);
+    }
+    CHECK(ppu_bg_text_set_color(machine, 0u, UINT16_C(0x001F)));
+    CHECK(ppu_bg_text_set_color(machine, 1u, expected));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1232)) ==
+          GBL_TIME_STATUS_OK);
+    for (pixel = 0u; pixel < 4u; ++pixel) {
+        CHECK(ppu_bg_text_pixel_matches(machine->video_frame,
+                                        (uint16_t)pixel, expected));
+    }
+
+    puts("ppu.bg.affine: mode-1 BG2 identity map, matrix and sampled pixels");
+    free_machine(machine);
+    return CHECK_DONE() == 0 ? 0 : 1;
+}
+
 static int run_ppu_bg_controls(void)
 {
     gbl_machine *clean = new_machine();
@@ -4376,6 +4413,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.bg.text") == 0) {
         return run_ppu_bg_text();
+    }
+    if (strcmp(argv[1], "ppu.bg.affine") == 0) {
+        return run_ppu_bg_affine();
     }
     if (strcmp(argv[1], "ppu.bg.controls") == 0) {
         return run_ppu_bg_controls();

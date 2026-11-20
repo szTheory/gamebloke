@@ -895,6 +895,7 @@ phase9.order gate,time,timer
 phase9.policy gate,profile,time
 phase9.policy.control gate,profile,time
 phase9.selection.control gate,time,timer
+ppu.bg.affine bus,core,integration,ppu
 ppu.bg.controls bus,core,ppu,unit
 ppu.bg.text bus,core,integration,ppu
 ppu.bg.tracer bus,core,integration,ppu
