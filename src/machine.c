@@ -9,6 +9,16 @@
 #define GBL_PPU_EVENT_PRIORITY 9u
 #define GBL_PPU_TRANSFORM_REGISTER_BYTES_MASK UINT32_C(0x0000FFFF)
 #define GBL_PPU_EFFECT_REGISTER_BYTES_MASK UINT32_C(0x00FF0000)
+#define GBL_PPU_BG_MEMORY_BYTES UINT32_C(0x00010000)
+#define GBL_PPU_BG_REGISTER_SCROLL_OFFSET UINT32_C(8)
+#define GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK UINT16_C(0x2050)
+
+typedef struct gbl_ppu_bg_sample {
+    uint16_t color;
+    uint8_t color_index;
+    uint8_t background;
+    bool transparent;
+} gbl_ppu_bg_sample;
 
 static void gbl_machine_copy_bytes(void *destination, const void *source,
                                    size_t length)
@@ -505,6 +515,196 @@ gbl_ppu_sample_status gbl_ppu_sample_read(
     return GBL_PPU_SAMPLE_STATUS_OK;
 }
 
+static uint16_t gbl_ppu_register_u16(const uint8_t *register_bytes,
+                                     uint32_t offset)
+{
+    return (uint16_t)(
+        (uint16_t)register_bytes[offset] |
+        (uint16_t)((uint16_t)register_bytes[offset + 1u] << 8u));
+}
+
+static bool gbl_ppu_selected_text_bg(uint16_t dispcnt, uint8_t *bg_out)
+{
+    const uint16_t mode = (uint16_t)(dispcnt & UINT16_C(0x0007));
+    const uint8_t enabled = (uint8_t)((dispcnt >> 8u) & UINT16_C(0x000F));
+    const uint8_t allowed = mode == 0u ? UINT8_C(0x0F) : UINT8_C(0x03);
+    uint8_t bg;
+    uint8_t selected = UINT8_MAX;
+
+    if ((mode != 0u && mode != 1u) || bg_out == NULL || enabled == 0u ||
+        (enabled & (uint8_t)(enabled - 1u)) != 0u ||
+        (enabled & (uint8_t)~allowed) != 0u) {
+        return false;
+    }
+    for (bg = 0u; bg < 4u; ++bg) {
+        if ((enabled & (uint8_t)(UINT8_C(1) << bg)) != 0u) {
+            selected = bg;
+            break;
+        }
+    }
+    if (selected == UINT8_MAX) {
+        return false;
+    }
+    *bg_out = selected;
+    return true;
+}
+
+static bool gbl_ppu_sample_bg_vram(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_row_capture *capture, uint32_t source_offset,
+    size_t length, uint8_t *destination, size_t destination_capacity)
+{
+    if (source_offset > GBL_PPU_BG_MEMORY_BYTES ||
+        length > (size_t)(GBL_PPU_BG_MEMORY_BYTES - source_offset)) {
+        return false;
+    }
+    return gbl_ppu_sample_read(
+               machine, preview, capture, GBL_BUS_REGION_VRAM, source_offset,
+               2u, length, destination, destination_capacity) ==
+           GBL_PPU_SAMPLE_STATUS_OK;
+}
+
+static bool gbl_ppu_project_text_row(
+    const gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_ppu_row_capture *capture, uint8_t background,
+    uint8_t row[GBL_PPU_ROW_BYTES])
+{
+    const uint32_t control_offset = (uint32_t)background * 2u;
+    const uint32_t scroll_offset = GBL_PPU_BG_REGISTER_SCROLL_OFFSET +
+                                   (uint32_t)background * 4u;
+    const uint16_t control =
+        gbl_ppu_register_u16(capture->bg_register_bytes, control_offset);
+    const uint16_t horizontal_scroll = gbl_ppu_register_u16(
+        capture->bg_register_bytes, scroll_offset);
+    const uint16_t vertical_scroll = gbl_ppu_register_u16(
+        capture->bg_register_bytes, scroll_offset + 2u);
+    const uint32_t size_code = (uint32_t)(control >> 14u);
+    const uint32_t map_width = (size_code & 1u) != 0u ? 512u : 256u;
+    const uint32_t map_height = (size_code & 2u) != 0u ? 512u : 256u;
+    const uint32_t map_blocks_per_row = map_width / 256u;
+    const uint32_t map_base =
+        (uint32_t)((control >> 8u) & UINT16_C(0x001F)) * UINT32_C(0x0800);
+    const uint32_t character_base =
+        (uint32_t)((control >> 2u) & UINT16_C(0x0003)) * UINT32_C(0x4000);
+    const bool color_8bpp = (control & UINT16_C(0x0080)) != 0u;
+    const uint8_t tile_bytes_per_row = color_8bpp ? 8u : 4u;
+    const uint32_t tile_bytes_per_tile = color_8bpp ? 64u : 32u;
+    uint8_t palette_bytes[512];
+    uint8_t tile_row[8];
+    uint32_t previous_tile_x = UINT32_MAX;
+    uint32_t previous_tile_y = UINT32_MAX;
+    uint16_t map_entry = 0u;
+    uint8_t palette_bank = 0u;
+    uint32_t pixel;
+
+    if (gbl_ppu_sample_read(
+            machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
+            sizeof(palette_bytes), palette_bytes, sizeof(palette_bytes)) !=
+        GBL_PPU_SAMPLE_STATUS_OK) {
+        return false;
+    }
+
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const uint32_t source_x =
+            (pixel + horizontal_scroll) & (map_width - 1u);
+        const uint32_t source_y =
+            ((uint32_t)capture->line + vertical_scroll) & (map_height - 1u);
+        const uint32_t tile_x = source_x >> 3u;
+        const uint32_t tile_y = source_y >> 3u;
+        gbl_ppu_bg_sample sample = { 0 };
+        uint32_t palette_index;
+
+        if (tile_x != previous_tile_x || tile_y != previous_tile_y) {
+            const uint32_t screen_block =
+                (tile_y / 32u) * map_blocks_per_row + tile_x / 32u;
+            const uint64_t map_offset_wide = (uint64_t)map_base +
+                (uint64_t)screen_block * UINT64_C(0x0800) +
+                ((uint64_t)(tile_y & 31u) * UINT64_C(32) +
+                 (uint64_t)(tile_x & 31u)) * UINT64_C(2);
+            uint32_t map_offset;
+            uint8_t map_bytes[2];
+            uint32_t tile_index;
+            uint64_t tile_offset_wide;
+            uint32_t tile_offset;
+            uint8_t tile_y_offset;
+
+            if (map_offset_wide > (uint64_t)UINT32_MAX ||
+                map_offset_wide > (uint64_t)GBL_PPU_BG_MEMORY_BYTES ||
+                sizeof(map_bytes) >
+                    (size_t)((uint64_t)GBL_PPU_BG_MEMORY_BYTES -
+                             map_offset_wide)) {
+                return false;
+            }
+            map_offset = (uint32_t)map_offset_wide;
+            if (!gbl_ppu_sample_bg_vram(
+                    machine, preview, capture, map_offset, sizeof(map_bytes),
+                    map_bytes, sizeof(map_bytes))) {
+                return false;
+            }
+            map_entry = (uint16_t)(
+                (uint16_t)map_bytes[0] |
+                (uint16_t)((uint16_t)map_bytes[1] << 8u));
+            palette_bank = (uint8_t)((map_entry >> 12u) & UINT16_C(0x000F));
+            tile_index = (uint32_t)(map_entry & UINT16_C(0x03FF));
+            tile_y_offset = (uint8_t)(source_y & 7u);
+            if ((map_entry & UINT16_C(0x0800)) != 0u) {
+                tile_y_offset = (uint8_t)(7u - tile_y_offset);
+            }
+            tile_offset_wide = (uint64_t)character_base +
+                (uint64_t)tile_index * (uint64_t)tile_bytes_per_tile +
+                (uint64_t)tile_y_offset * (uint64_t)tile_bytes_per_row;
+            if (tile_offset_wide > (uint64_t)UINT32_MAX ||
+                tile_offset_wide > (uint64_t)GBL_PPU_BG_MEMORY_BYTES ||
+                tile_bytes_per_row >
+                    (size_t)((uint64_t)GBL_PPU_BG_MEMORY_BYTES -
+                             tile_offset_wide)) {
+                return false;
+            }
+            tile_offset = (uint32_t)tile_offset_wide;
+            if (!gbl_ppu_sample_bg_vram(
+                    machine, preview, capture, tile_offset,
+                    tile_bytes_per_row, tile_row, sizeof(tile_row))) {
+                return false;
+            }
+            previous_tile_x = tile_x;
+            previous_tile_y = tile_y;
+        }
+
+        {
+            uint8_t horizontal_in_tile = (uint8_t)(source_x & 7u);
+
+            if ((map_entry & UINT16_C(0x0400)) != 0u) {
+                horizontal_in_tile = (uint8_t)(7u - horizontal_in_tile);
+            }
+            if (color_8bpp) {
+                sample.color_index = tile_row[horizontal_in_tile];
+            } else {
+                const uint8_t packed = tile_row[horizontal_in_tile >> 1u];
+
+                sample.color_index = (horizontal_in_tile & 1u) != 0u
+                    ? (uint8_t)(packed >> 4u)
+                    : (uint8_t)(packed & UINT8_C(0x0F));
+            }
+        }
+
+        sample.background = background;
+        sample.transparent = sample.color_index == 0u;
+        palette_index = sample.transparent
+            ? 0u
+            : (color_8bpp
+                   ? (uint32_t)sample.color_index
+                   : (uint32_t)palette_bank * 16u + sample.color_index);
+        sample.color = (uint16_t)(
+            (uint16_t)palette_bytes[palette_index * 2u] |
+            (uint16_t)((uint16_t)palette_bytes[palette_index * 2u + 1u]
+                       << 8u));
+        sample.color &= UINT16_C(0x7FFF);
+        row[pixel * 2u] = (uint8_t)(sample.color & UINT16_C(0x00FF));
+        row[pixel * 2u + 1u] = (uint8_t)(sample.color >> 8u);
+    }
+    return true;
+}
+
 static bool gbl_ppu_project_row(const gbl_machine *machine,
                                const gbl_machine_time_preview *preview,
                                const gbl_ppu_row_capture *capture,
@@ -512,8 +712,18 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
 {
     const uint16_t line = capture->line;
     const uint32_t row_offset = (uint32_t)line * GBL_PPU_ROW_BYTES;
+    const uint16_t mode = (uint16_t)(capture->dispcnt & UINT16_C(0x0007));
+    uint8_t text_background;
     uint32_t pixel;
 
+    if (mode == 0u || mode == 1u) {
+        if (!gbl_ppu_selected_text_bg(capture->dispcnt,
+                                      &text_background)) {
+            return false;
+        }
+        return gbl_ppu_project_text_row(machine, preview, capture,
+                                        text_background, row);
+    }
     if ((capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
         (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
         gbl_machine_clear_bytes(row, GBL_PPU_ROW_BYTES);
@@ -541,10 +751,13 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
 static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
     uint16_t dispcnt)
 {
-    if ((dispcnt & UINT16_C(0x0007)) != UINT16_C(3)) {
+    const uint16_t mode = (uint16_t)(dispcnt & UINT16_C(0x0007));
+
+    if (mode != 0u && mode != UINT16_C(1) && mode != UINT16_C(3)) {
         return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
     }
-    if ((dispcnt & UINT16_C(0x0400)) == 0u) {
+    if (mode == UINT16_C(3) &&
+        (dispcnt & UINT16_C(0x0400)) == 0u) {
         return GBL_VIDEO_INVALID_REASON_BG2_DISABLED;
     }
     if ((dispcnt & UINT16_C(0x0080)) != 0u) {
@@ -562,6 +775,7 @@ static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
 static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
     const gbl_ppu_timing_state *ppu)
 {
+    const uint16_t mode = (uint16_t)(ppu->dispcnt & UINT16_C(0x0007));
     const gbl_video_invalid_reason dispcnt_reason =
         gbl_ppu_dispcnt_invalid_reason(ppu->dispcnt);
 
@@ -576,6 +790,22 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
          GBL_PPU_EFFECT_REGISTER_BYTES_MASK) != 0u) {
         return GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED;
     }
+    if (mode == 0u || mode == 1u) {
+        uint8_t background;
+        uint16_t control;
+
+        if (!gbl_ppu_selected_text_bg(ppu->dispcnt, &background)) {
+            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
+        }
+        control = gbl_ppu_register_u16(
+            ppu->bg_register_bytes, (uint32_t)background * 2u);
+        if ((control & GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK) != 0u) {
+            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
+        }
+        return GBL_VIDEO_INVALID_REASON_NONE;
+    }
+    /* Mode 3 has only the BG2 bitmap source; the other BG enable bits are
+     * inert for this source model and retain the existing accepted behavior. */
     return GBL_VIDEO_INVALID_REASON_NONE;
 }
 
@@ -669,6 +899,9 @@ static gbl_time_status gbl_ppu_capture_row(
     gbl_machine_copy_bytes(capture->render_register_bytes,
                            preview->ppu.render_register_bytes,
                            sizeof(capture->render_register_bytes));
+    gbl_machine_copy_bytes(capture->bg_register_bytes,
+                           preview->ppu.bg_register_bytes,
+                           sizeof(capture->bg_register_bytes));
     if (!gbl_ppu_project_row(machine, preview, capture, row)) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
@@ -1344,11 +1577,15 @@ static gbl_time_status gbl_preview_bus_write(
     uint32_t unsupported_register_bytes =
         preview->ppu.unsupported_register_bytes;
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
+    uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
     uint32_t lane;
 
     gbl_machine_copy_bytes(render_register_bytes,
                            preview->ppu.render_register_bytes,
                            sizeof(render_register_bytes));
+    gbl_machine_copy_bytes(bg_register_bytes,
+                           preview->ppu.bg_register_bytes,
+                           sizeof(bg_register_bytes));
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         const uint32_t lane_address = address + lane;
@@ -1365,6 +1602,15 @@ static gbl_time_status gbl_preview_bus_write(
                 (dispcnt & UINT16_C(0x00FF)) |
                 (uint16_t)((uint16_t)byte_value << 8u));
             dispcnt_written = true;
+        } else if (lane_address >= UINT32_C(0x04000008) &&
+                   lane_address <= UINT32_C(0x0400001F)) {
+            const uint32_t register_byte =
+                lane_address <= UINT32_C(0x0400000F)
+                    ? lane_address - UINT32_C(0x04000008)
+                    : GBL_PPU_BG_REGISTER_SCROLL_OFFSET +
+                          lane_address - UINT32_C(0x04000010);
+
+            bg_register_bytes[register_byte] = byte_value;
         } else if (lane_address >= UINT32_C(0x04000020) &&
                    lane_address <= UINT32_C(0x0400002F)) {
             const uint32_t register_byte =
@@ -1502,6 +1748,8 @@ static gbl_time_status gbl_preview_bus_write(
     gbl_machine_copy_bytes(preview->ppu.render_register_bytes,
                            render_register_bytes,
                            sizeof(render_register_bytes));
+    gbl_machine_copy_bytes(preview->ppu.bg_register_bytes,
+                           bg_register_bytes, sizeof(bg_register_bytes));
     preview->ppu.dispcnt = dispcnt;
     if (dispcnt_written) {
         gbl_ppu_invalidate_capture(
@@ -1649,6 +1897,7 @@ static bool gbl_ppu_commit_preview_valid(
     for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
         const gbl_ppu_row_capture *capture =
             &preview->ppu_row_captures[index];
+        uint8_t projected_row[GBL_PPU_ROW_BYTES];
         const uint8_t row_mask =
             (uint8_t)(UINT8_C(1) << (capture->line & 7u));
         const size_t coverage_index = (size_t)(capture->line >> 3u);
@@ -1671,8 +1920,14 @@ static bool gbl_ppu_commit_preview_valid(
         gbl_machine_copy_bytes(sampled_ppu.render_register_bytes,
                                capture->render_register_bytes,
                                sizeof(sampled_ppu.render_register_bytes));
+        gbl_machine_copy_bytes(sampled_ppu.bg_register_bytes,
+                               capture->bg_register_bytes,
+                               sizeof(sampled_ppu.bg_register_bytes));
         if (gbl_ppu_active_invalid_reason(&sampled_ppu) !=
-            GBL_VIDEO_INVALID_REASON_NONE) {
+                GBL_VIDEO_INVALID_REASON_NONE ||
+            !gbl_ppu_project_row(machine, preview, capture, projected_row) ||
+            gbl_ppu_row_digest(projected_row, sizeof(projected_row)) !=
+                capture->pixel_digest) {
             return false;
         }
         seen_rows[capture->line] = true;
