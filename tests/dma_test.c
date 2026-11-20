@@ -1754,6 +1754,9 @@ static bool dma_ppu_boundary_case(int8_t offset)
         ppu_refusal_seed_boundary(
             machine, completion - unit_cycles, row_start, 1u, false,
             machine->ppu.generation + 1u, machine->next_event_sequence);
+        /* The synthetic boundary skips line-0 HBlank, which normally advances
+         * the identity affine BG2 origin before sampling line 1. */
+        machine->ppu.affine[0].origin_y = UINT32_C(0x00000100);
         valid = gbl_machine_dma_step(machine, unit_cycles, &step) ==
                     GBL_DMA_STATUS_OK && step.unit_completed &&
                 step.completion_cycle == completion &&
