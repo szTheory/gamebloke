@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 8
 waived_count: 0
 fixed_count: 25
-total_count: 32
-last_updated: 2026-11-19T22:11:28.750Z
+total_count: 33
+last_updated: 2026-11-20T18:29:49.799Z
 ---
 
 # Broken Windows Ledger
@@ -47,6 +47,7 @@ last_updated: 2026-11-19T22:11:28.750Z
 | 30 | 10 | unrun-verify | scripts/play-playable0-local.sh |  | Installed RetroArch smoke could not start because managed macOS LaunchServices returned kLSNoLaunchPermissionErr; owner trial remains pending until an interactive local host is available. | open |  | 2026-11-19T04:52:36.486Z |  |
 | 31 | 10 | unrun-verify | .planning/phases/10-ppu-timing-and-first-pixels/10-UAT.md |  | Owner live terminal trial and G6 judgment remain pending; automated PTY checks do not replace owner play. | open |  | 2026-11-19T06:52:12.913Z |  |
 | 32 | 11 | unrun-verify | tests/gates/profile_case.cmake |  | The broad legacy profile mutation selection was stopped after 8/32 tests at 211.98s; focused profile lint, clean-copy, PPU controls, and Phase 10 checks passed, with remaining legacy mutations deferred to Phase 11-05. | open |  | 2026-11-19T22:11:28.750Z |  |
+| 33 | 12 | unrun-verify | scripts/verify-phase12-fast.sh |  | Full Phase 12 fast helper was not rerun; its unchanged closure was reused from Plan 12-06 while focused Plan 12-07 profile and runner/result checks passed. | open |  | 2026-11-20T18:29:49.799Z |  |
 
 ````json
 [
@@ -463,6 +464,19 @@ last_updated: 2026-11-19T22:11:28.750Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-19T22:11:28.750Z",
+    "resolved_at": null,
+    "milestone": "v3.0"
+  },
+  {
+    "id": 33,
+    "kind": "unrun-verify",
+    "phase": "12",
+    "file": "scripts/verify-phase12-fast.sh",
+    "line": null,
+    "description": "Full Phase 12 fast helper was not rerun; its unchanged closure was reused from Plan 12-06 while focused Plan 12-07 profile and runner/result checks passed.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-20T18:29:49.799Z",
     "resolved_at": null,
     "milestone": "v3.0"
   }
