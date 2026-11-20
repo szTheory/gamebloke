@@ -150,7 +150,8 @@ fi
 [ -d "$bin_dir" ] || fail "build directory does not exist: $bin_dir"
 [ -f "$manifest" ] || fail "preimage manifest is missing: $manifest"
 
-temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/phase11-plan-paths.XXXXXX") || fail 'could not create temporary directory'
+temp_dir=${TMPDIR:-/tmp}/phase11-plan-paths.$$
+mkdir "$temp_dir" 2>/dev/null || fail "could not create temporary directory: $temp_dir"
 trap 'rm -rf "$temp_dir"' 0 HUP INT TERM
 
 all_paths > "$temp_dir/expected-paths"
