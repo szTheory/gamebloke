@@ -1373,6 +1373,21 @@ static void ppu_bg_affine_set_transform(gbl_machine *machine,
     affine->hblank_y_suppressed = false;
 }
 
+static bool ppu_bg_bitmap_configure(gbl_machine *machine, uint8_t mode,
+                                    bool page)
+{
+    uint16_t dispcnt;
+
+    if (machine == NULL || mode < 3u || mode > 5u) {
+        return false;
+    }
+    dispcnt = (uint16_t)(mode | UINT16_C(0x0400) |
+                         (page ? UINT16_C(0x0010) : 0u));
+    machine->dispcnt = dispcnt;
+    machine->ppu.dispcnt = dispcnt;
+    return true;
+}
+
 static bool ppu_bg_affine_pixel_matches(const uint8_t *frame, uint16_t x,
                                         uint16_t y, uint16_t expected)
 {
@@ -1961,6 +1976,60 @@ static int run_ppu_bg_affine(void)
     }
 
     puts("ppu.bg.affine: mode-1/2 sources, signed fixed point, 28-bit wrap, map bounds, ordered references and VBlank reload");
+    return CHECK_DONE() == 0 ? 0 : 1;
+}
+
+static int run_ppu_bg_bitmap(void)
+{
+    const uint16_t direct_color = UINT16_C(0x2A35);
+    gbl_machine *machine;
+
+    /* The existing mode-3 identity source remains the semantic anchor. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 3u, true));
+        machine->vram[0] = (uint8_t)(direct_color & UINT16_C(0x00FF));
+        machine->vram[1] = (uint8_t)(direct_color >> 8u);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          direct_color));
+        free_machine(machine);
+    }
+
+    /* Mode 4 resolves an indexed BG2 sample through palette entry one. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 4u, false));
+        machine->vram[0] = 1u;
+        ppu_bg_store_u16(machine->pram, 2u, UINT16_C(0x1256));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), 0, 0);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x1256)));
+        free_machine(machine);
+    }
+
+    /* Mode 5 selects its second 160x128 direct-color page at 0xA000. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 5u, true));
+        machine->vram[UINT32_C(0xA000)] =
+            (uint8_t)(direct_color & UINT16_C(0x00FF));
+        machine->vram[UINT32_C(0xA001)] =
+            (uint8_t)(direct_color >> 8u);
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), 0, 0);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          direct_color));
+        free_machine(machine);
+    }
+
+    puts("ppu.bg.bitmap: mode-3 identity, mode-4 indexed sample, mode-5 page sample");
     return CHECK_DONE() == 0 ? 0 : 1;
 }
 
@@ -4830,7 +4899,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -4856,6 +4925,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.bg.affine") == 0) {
         return run_ppu_bg_affine();
+    }
+    if (strcmp(argv[1], "ppu.bg.bitmap") == 0) {
+        return run_ppu_bg_bitmap();
     }
     if (strcmp(argv[1], "ppu.bg.controls") == 0) {
         return run_ppu_bg_controls();
