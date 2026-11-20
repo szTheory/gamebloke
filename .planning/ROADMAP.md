@@ -124,13 +124,28 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
   3. Overlapping objects, backgrounds, and backdrop resolve to expected colors under the declared enable, transparency, priority, and tie-breaking rules.
   4. A line that exceeds the declared object-work bound yields repeatable, inspectable selection and output under the stable ordering policy; that bound is labeled project policy where silicon behavior is unknown.
 **Plans**: 0/8 plans executed
+**Wave 1**
 - [ ] 13-01-PLAN.md — Sampled regular OBJ tracer and complete regular decoding.
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 13-02-PLAN.md — Signed affine OBJ sampling, fields and edge evidence.
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 13-03-PLAN.md — Shared enabled-layer compositor and priority/tie controls.
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 13-04-PLAN.md — Capped OAM admission and inspectable overflow.
+
+**Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 13-05-PLAN.md — Synchronized profile, validator and affected runner claims.
+
+**Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 13-06-PLAN.md — Sampled-write boundaries, atomic refusal and replay.
+
+**Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 13-07-PLAN.md — Exact cheap-first selector gate and fast helper.
+
+**Wave 8** *(blocked on Wave 7 completion)*
 - [ ] 13-08-PLAN.md — Source-bound fast and canonical local acceptance.
 
 ### Phase 14: Windows and Display Effects

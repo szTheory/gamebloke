@@ -6,17 +6,17 @@
     {
       "number": "11",
       "name": "Sampled Rows and Transactional Visibility",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "12",
       "name": "Background Modes 0–5",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "13",
       "name": "Objects and Layer Priorities",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "14",
@@ -32,7 +32,7 @@
   "next": {
     "command": "$gsd-progress --next",
     "label": "Advance to the next step",
-    "reason": "Phase 2 of 5 · 20% · executing"
+    "reason": "Phase 3 of 5 · 40% · executing"
   },
-  "updated_at": "2026-11-20T18:30:05.347Z"
+  "updated_at": "2026-11-20T22:09:31.152Z"
 }
