@@ -1405,6 +1405,57 @@ static void ppu_obj_store_u16(uint8_t *bytes, size_t offset, uint16_t value)
     bytes[offset + 1u] = (uint8_t)(value >> 8u);
 }
 
+static void ppu_obj_affine_store_matrix(uint8_t *oam, uint8_t matrix,
+                                        int16_t pa, int16_t pb,
+                                        int16_t pc, int16_t pd)
+{
+    const size_t offset = (size_t)matrix * 32u;
+    const uint16_t coefficients[4] = {
+        (uint16_t)pa, (uint16_t)pb, (uint16_t)pc, (uint16_t)pd
+    };
+    size_t coefficient;
+
+    for (coefficient = 0u; coefficient < 4u; ++coefficient) {
+        ppu_obj_store_u16(oam, offset + 6u + coefficient * 8u,
+                          coefficients[coefficient]);
+    }
+}
+
+static bool ppu_obj_affine_prepare_basic(gbl_machine *machine,
+                                         bool double_size)
+{
+    size_t object;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->dispcnt = UINT16_C(0x1000);
+    machine->ppu.dispcnt = machine->dispcnt;
+    for (object = 0u; object < 128u; ++object) {
+        ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+    }
+    machine->pram[0] = 0u;
+    machine->pram[1] = UINT8_C(0x7C); /* Blue backdrop. */
+    machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F); /* Red OBJ index 1. */
+    machine->pram[UINT32_C(0x203)] = 0u;
+    memset(&machine->vram[UINT32_C(0x10000)], 0, 128u);
+    machine->vram[UINT32_C(0x10000)] = 1u;
+
+    /* Matrix 0 is a decoy. The object must select matrix 3 from this OAM
+     * view; the matrix words occupy the attribute-3 slots of OAM entries
+     * 12 through 15. */
+    ppu_obj_affine_store_matrix(machine->oam, 0u, 0, 0, 0, 0);
+    ppu_obj_affine_store_matrix(machine->oam, 3u, 256, 0, 0, 256);
+    ppu_obj_store_u16(machine->oam, 0u,
+                      (uint16_t)(UINT16_C(24) | UINT16_C(0x0100) |
+                          (double_size ? UINT16_C(0x0200) : 0u)));
+    ppu_obj_store_u16(machine->oam, 2u,
+                      (uint16_t)(UINT16_C(0x4000) | UINT16_C(0x0600) |
+                          UINT16_C(24)));
+    ppu_obj_store_u16(machine->oam, 4u, 0u);
+    return true;
+}
+
 static bool ppu_obj_prepare_tracer(gbl_machine *machine)
 {
     uint8_t row = 0u;
@@ -2042,6 +2093,57 @@ static int run_ppu_obj_regular(void)
 
     if (CHECK_DONE() == 0) {
         puts("ppu.obj.regular: shape/size, 1D/2D, palette, flip, wrap and physical OBJ bounds");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_obj_affine(void)
+{
+    static const struct {
+        bool double_size;
+        uint16_t sample_x;
+        uint16_t sample_y;
+        uint16_t expected_color;
+        uint16_t outside_x;
+        uint16_t outside_y;
+        uint16_t outside_color;
+    } cases[] = {
+        { false, 24u, 24u, UINT16_C(0x001F), 40u, 24u,
+          UINT16_C(0x7C00) },
+        { true, 32u, 32u, UINT16_C(0x001F), 24u, 24u,
+          UINT16_C(0x7C00) }
+    };
+    size_t case_index;
+
+    for (case_index = 0u;
+         case_index < sizeof(cases) / sizeof(cases[0]); ++case_index) {
+        gbl_machine *machine = new_machine();
+        gbl_machine_time_preview preview;
+        const uint64_t target =
+            (uint64_t)cases[case_index].sample_y *
+            (uint64_t)GBL_PPU_LINE_CYCLES;
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        CHECK(ppu_obj_affine_prepare_basic(
+            machine, cases[case_index].double_size));
+        CHECK(gbl_machine_prepare_time(machine, target, &preview) ==
+              GBL_TIME_STATUS_OK);
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(ppu_bg_affine_pixel_matches(
+            machine->video_frame, cases[case_index].sample_x,
+            cases[case_index].sample_y, cases[case_index].expected_color));
+        CHECK(ppu_bg_affine_pixel_matches(
+            machine->video_frame, cases[case_index].outside_x,
+            cases[case_index].outside_y, cases[case_index].outside_color));
+        free_machine(machine);
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.obj.affine: selected matrix identity and centered double-size bounds");
         return 0;
     }
     return 1;
@@ -5845,7 +5947,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.obj.tracer|ppu.obj.regular|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -5883,6 +5985,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.obj.regular") == 0) {
         return run_ppu_obj_regular();
+    }
+    if (strcmp(argv[1], "ppu.obj.affine") == 0) {
+        return run_ppu_obj_affine();
     }
     if (strcmp(argv[1], "ppu.refusal") == 0) {
         return run_ppu_refusal();
