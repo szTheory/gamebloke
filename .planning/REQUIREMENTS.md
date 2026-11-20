@@ -88,4 +88,4 @@ The roadmap assigns every current v3.0 requirement to exactly one phase.
 
 ---
 *Requirements defined: 2026-11-19*
-*Last updated: 2026-11-20 after Phase 11 verification*
+*Last updated: 2026-11-20 after Phase 12 verification*

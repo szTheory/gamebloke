@@ -37,7 +37,7 @@ evidence and the production bus/runner result.
 work; decimal IDs are reserved for later insertions.
 
 - [x] **Phase 11: Sampled Rows and Transactional Visibility** - Callers can identify supported controls and observe ordered, failure-atomic raw-video rows.
-- [ ] **Phase 12: Background Modes 0–5** - Text, affine, and bitmap backgrounds produce their declared semantic pixels from canonical video memory.
+- [x] **Phase 12: Background Modes 0–5** - Text, affine, and bitmap backgrounds produce their declared semantic pixels from canonical video memory. (completed 2026-11-20)
 - [ ] **Phase 13: Objects and Layer Priorities** - Regular and affine objects combine with backgrounds and backdrop through one bounded composition policy.
 - [ ] **Phase 14: Windows and Display Effects** - Region masks, blending, brightness, mosaic, and forced blank interact predictably.
 - [ ] **Phase 15: Production Access and Runner Evidence** - CPU/DMA video-memory behavior and complete PPU scenes agree through the shared clock and real runner.
@@ -164,8 +164,8 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Sampled Rows and Transactional Visibility | 7/8 | In Progress — bounded repair sequence is underway; canonical CI acceptance remains blocked pending execution | - |
-| 12. Background Modes 0–5 | 8/8 | In Progress | - |
+| 11. Sampled Rows and Transactional Visibility | 8/8 | Complete | 2026-11-20 |
+| 12. Background Modes 0–5 | 8/8 | Complete    | 2026-11-20 |
 | 13. Objects and Layer Priorities | 0/TBD | Not started | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
 | 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
@@ -182,10 +182,10 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 ## Next Action
 
-Execute Phase 11 Plan 11-08. Plans 11-06 and 11-07 completed their bounded
-recovery work; the owner authorized this sequence through `$gsd-autonomous`.
-Phase 12 remains unplanned until the canonical workflow and its complete
-post-inventory are green.
+Discuss Phase 13, Objects and Layer Priorities, then plan and execute it through
+`$gsd-autonomous`. Phase 12 passed goal-backward verification and the post-review
+canonical local workflow. Hardware qualification, hosted qualification, and
+publication remain separate owner gates.
 
 ---
 *Roadmap created: 2026-11-19 for v3.0 PPU Modes and Composition.*
