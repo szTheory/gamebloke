@@ -6,16 +6,16 @@ current_phase: 12
 current_phase_name: Background Modes 0–5
 current_plan: 8 of 8
 status: executing
-stopped_at: Completed 12-07-PLAN.md
-last_updated: "2026-11-20T18:30:06.270Z"
+stopped_at: Completed 12-08-PLAN.md
+last_updated: "2026-11-20T20:11:05.653Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 12 Plan 12-05 affine capability metadata complete
-state_head: baf1ba14d45a8a15784ca377d2510ca702135cff
+state_head: 3eb7ba4978fe574b06c9ece6e20721ef62c6836b
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 20
 ---
 
@@ -178,6 +178,7 @@ Progress: [██░░░░░░░░] 20% (current milestone)
 | Phase 12 P05 | 27min | 2 tasks | 12 files |
 | Phase 12 P06 | 37 min | 3 tasks | 11 files |
 | Phase 12 P07 | 21m | 2 tasks | 8 files |
+| Phase 12 P08 | 71m minimum | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -467,6 +468,7 @@ Recent decisions affecting current work:
 - [Phase 12]: Bitmap transforms follow captured signed affine state as deterministic software policy; hardware qualification remains UNKNOWN.
 - [Phase 12]: All six display modes remain partial until shared composition and later display controls are implemented.
 - [Phase 12]: Static capability, runtime frame validity, sampled-memory observation, and hardware qualification stay separate; hardware qualification remains UNKNOWN.
+- [Phase 12]: Keep two-worker CTest; measured critical path is mutation-heavy tests and this run found no safe setting change.
 
 ### Pending Todos
 
@@ -518,8 +520,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-20T18:30:06.204Z
-Stopped at: Completed 12-07-PLAN.md
+Last session: 2026-11-20T20:11:05.588Z
+Stopped at: Completed 12-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
