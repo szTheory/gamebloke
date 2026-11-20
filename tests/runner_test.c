@@ -629,7 +629,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
         json[json_length] = '\0';
         okay = strstr(json, "\"phase10\":{") != NULL &&
                strstr(json,
-                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":10") != NULL &&
+                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":11") != NULL &&
                strstr(json, "\"line_cycle\":") != NULL &&
                strstr(json, "\"frame_epoch\":") != NULL &&
                strstr(json, "\"state\":\"valid\"") != NULL &&
@@ -637,9 +637,9 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
                strstr(json,
                       "\"display_capabilities\":{\"model\":\"gamebloke-display-capabilities-1\",\"raw_output\":{\"format\":\"BGR555_LE\",\"width\":240,\"height\":160,\"stride_bytes\":480,\"byte_length\":76800}") != NULL &&
                strstr(json,
-                      "\"mode\":0,\"implementation_status\":\"not-implemented\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\"") != NULL &&
+                      "\"mode\":0,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\"") != NULL &&
                strstr(json,
-                      "\"mode\":1,\"implementation_status\":\"not-implemented\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\"") != NULL &&
+                      "\"mode\":1,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\"") != NULL &&
                strstr(json,
                       "\"mode\":2,\"implementation_status\":\"not-implemented\",\"backgrounds\":[{\"bg\":2,\"source\":\"affine\"") != NULL &&
                strstr(json,
