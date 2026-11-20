@@ -6,7 +6,9 @@ One command proves a change, locally and in CI:
 cmake --workflow --preset ci
 ```
 
-CI runs the same command. The workflow adds only routing around it.
+CI runs the same command. The workflow adds only routing around it. The `ci`
+test preset allows two independent tests at once; CTest still enforces declared
+fixtures/dependencies and tests marked `RUN_SERIAL`.
 
 For a cheap consistency check before a longer run:
 
