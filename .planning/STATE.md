@@ -5,16 +5,16 @@ milestone_name: PPU Modes and Composition
 current_phase: 12
 current_phase_name: Background Modes 0–5
 status: executing
-stopped_at: Phase 11 verified; Phase 12 discussion and planning next
-last_updated: "2026-11-20T13:07:41.340Z"
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-11-20T14:11:19.860Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 11 passed canonical CI and goal-backward verification; Phase 12 is next
-state_head: 14c82d1f4957fe22fc566d0284c6bf11392bc81a
+state_head: 8612b853903d481ea778bea196eeded72d66f2be
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 16
-  completed_plans: 8
+  completed_plans: 9
   percent: 20
 ---
 
@@ -170,6 +170,7 @@ Progress: [██░░░░░░░░] 20% (current milestone)
 | Phase 11 P04 | 27m45s | 2 tasks | 2 files |
 | Phase 11 P6 | not measured | 3 tasks | 10 files |
 | Phase 11 P7 | not measured | 3 tasks | 12 files |
+| Phase 12 P01 | 50min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -438,6 +439,10 @@ Recent decisions affecting current work:
 - [Phase 11]: Current PPU model 2 binds profile version and capability objects to profiles/agb.json; model 1 remains accepted without a partial tuple.
 - [Phase 11]: Current raw_video format remains bgr555-le and must match the profile BGR555_LE layout.
 - [Phase 11]: PPU-03, PPU-04, and PPU-06 are verified complete for the declared deterministic software model; hardware qualification remains UNKNOWN and disputes stay open.
+- [Phase 12]: One text source is selected per sampled row: BG0-BG3 in mode 0 and BG0/BG1 in mode 1; Phase 13 owns composition.
+- [Phase 12]: Transparent index zero resolves through palette entry zero while the internal sample retains BG identity and transparency.
+- [Phase 12]: Mode 3 retains BG2 behavior and treats other BG enable bits as inert.
+- [Phase 12]: Text output is a deterministic software model; hardware qualification remains UNKNOWN.
 
 ### Pending Todos
 
@@ -489,9 +494,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-20T12:23:08Z
-Stopped at: Phase 11 verified; Phase 12 discussion and planning next
-Resume file: .planning/ROADMAP.md
+Last session: 2026-11-20T14:11:19.776Z
+Stopped at: Completed 12-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

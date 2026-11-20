@@ -85,7 +85,7 @@ work; decimal IDs are reserved for later insertions.
   4. Boundary and malformed-address vectors yield the declared output without reading neighboring memory outside the permitted source extent.
 **Plans**: 8 execution plans across 8 waves.
 **Wave 1**
-- [ ] 12-01-PLAN.md — Implement and expand mode 0–1 text backgrounds.
+- [x] 12-01-PLAN.md — Implement and expand mode 0–1 text backgrounds.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 12-02-PLAN.md — Publish text support in profile and runner metadata.
@@ -165,7 +165,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 11. Sampled Rows and Transactional Visibility | 7/8 | In Progress — bounded repair sequence is underway; canonical CI acceptance remains blocked pending execution | - |
-| 12. Background Modes 0–5 | 0/TBD | Not started | - |
+| 12. Background Modes 0–5 | 1/8 | In Progress | - |
 | 13. Objects and Layer Priorities | 0/TBD | Not started | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
 | 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
