@@ -203,6 +203,31 @@ these fields:
   so the sample observes the prior value. This is project policy; it does not claim
   a hardware latch point. The selected 1006-cycle HBlank edge remains disputed and
   hardware qualification remains `UNKNOWN`.
+- The affine row renderer uses a declared Gamebloke arithmetic policy. It sign-extends
+  programmed 28-bit reference values, interprets PA/PB/PC/PD as signed 8.8 values,
+  evaluates horizontal source coordinates with `int64_t`, and quantizes by
+  mathematical floor division by 256, including negative fractions. Internal
+  reference updates wrap to signed 28-bit two's-complement values using unsigned
+  arithmetic. The model reloads internal origins from programmed references at the
+  modeled VBlank frame transition. These choices define deterministic software
+  output; they are not hardware qualification. Nintendo's AGB Programming Manual
+  describes the affine register formats, row progression, and HBlank reference-write
+  exception (§6.1.7, pp. 49–51; [available copy](https://mutantstargoat.com/~nuclear/tmp/gba_prog_manual.pdf)).
+  GBATEK is secondary support for copying programmed references into internal
+  origins at VBlank and reloading an axis after a non-VBlank write
+  ([LCD video controller](https://problemkaputt.de/gbatek.htm)). Under Gamebloke's
+  selected +1006-cycle HBlank event, PB/PD advances each visible-row origin once;
+  a BGxY write after that event replaces the already advanced vertical origin for
+  the next sampled row, and line start performs no second increment. A same-cycle
+  row event still precedes the completing register write. The exact HBlank edge,
+  DMA latch point, and within-line pixel visibility remain disputed or unresolved;
+  hardware qualification remains `UNKNOWN`.
+- Each affine source adds a 28-byte compact state value; the two-source PPU state
+  therefore adds 56 bytes to the machine and each row capture. A full 160-row
+  preview carries 9,016 additional fixed bytes (56 bytes of PPU state plus 160
+  row captures of 56 bytes each). The projector uses the existing 480-byte output
+  row and an 8-byte affine tile-row scratch buffer. It reads through the existing
+  sampled-memory path and does not snapshot VRAM or add a dependency.
 - Raw video is headerless: the layout is 160 rows of 240 little-endian BGR555 pixels,
   480 bytes per row and 76,800 bytes total. The capability descriptor uses `BGR555_LE`;
   the retained `raw_video.format` spelling `bgr555-le` names the same little-endian layout.
