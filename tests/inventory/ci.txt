@@ -1064,6 +1064,8 @@ ppu.boundary bus,core,ppu,unit
 ppu.controls bus,core,ppu,unit
 ppu.frame bus,core,integration,ppu
 ppu.latch bus,core,ppu,unit
+ppu.obj.regular bus,core,integration,ppu
+ppu.obj.tracer bus,core,integration,ppu
 ppu.refusal bus,core,ppu,unit
 ppu.registers bus,core,ppu,unit
 ppu.tracer bus,core,integration,ppu

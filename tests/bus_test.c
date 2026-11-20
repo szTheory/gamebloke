@@ -1399,6 +1399,91 @@ static bool ppu_bg_affine_pixel_matches(const uint8_t *frame, uint16_t x,
     return actual == expected;
 }
 
+static void ppu_obj_store_u16(uint8_t *bytes, size_t offset, uint16_t value)
+{
+    bytes[offset] = (uint8_t)(value & UINT16_C(0x00FF));
+    bytes[offset + 1u] = (uint8_t)(value >> 8u);
+}
+
+static bool ppu_obj_prepare_tracer(gbl_machine *machine)
+{
+    uint8_t row = 0u;
+    size_t object;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->dispcnt = UINT16_C(0x1100);
+    machine->ppu.dispcnt = machine->dispcnt;
+    for (object = 0u; object < 128u; ++object) {
+        ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+    }
+    ppu_obj_store_u16(machine->oam, 0u, UINT16_C(8));
+    ppu_obj_store_u16(machine->oam, 2u, UINT16_C(16));
+    ppu_obj_store_u16(machine->oam, 4u, 0u);
+
+    /* BG0 contains one green tile under the OBJ. The zero-filled map and
+     * tile remain transparent, revealing the blue backdrop elsewhere. */
+    ppu_obj_store_u16(machine->vram, (1u * 32u + 2u) * 2u, 1u);
+    memset(&machine->vram[32u], UINT8_C(0x11), 32u);
+    machine->pram[0u] = 0u;
+    machine->pram[1u] = UINT8_C(0x7C);
+    machine->pram[2u] = UINT8_C(0xE0);
+    machine->pram[3u] = UINT8_C(0x03);
+    machine->pram[UINT32_C(0x200)] = UINT8_C(0xFF);
+    machine->pram[UINT32_C(0x201)] = UINT8_C(0x7F);
+    machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+    machine->pram[UINT32_C(0x203)] = 0u;
+    machine->pram[UINT32_C(0x204)] = 0u;
+    machine->pram[UINT32_C(0x205)] = 0u;
+
+    for (row = 0u; row < 8u; ++row) {
+        const size_t offset = UINT32_C(0x10000) + (size_t)row * 4u;
+
+        machine->vram[offset] = UINT8_C(0x01);
+        machine->vram[offset + 1u] = UINT8_C(0x02);
+        machine->vram[offset + 2u] = 0u;
+        machine->vram[offset + 3u] = 0u;
+    }
+    return true;
+}
+
+static int run_ppu_obj_tracer(void)
+{
+    gbl_machine *machine = new_machine();
+
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_obj_prepare_tracer(machine));
+        CHECK(gbl_machine_advance_to(
+                  machine, (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(160)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(machine->ppu.frame_epoch == 1u);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 15u, 8u,
+                                          UINT16_C(0x7C00)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 16u, 8u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 17u, 8u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 18u, 8u,
+                                          UINT16_C(0x0000)));
+        CHECK(!ppu_bg_affine_pixel_matches(machine->video_frame, 16u, 8u,
+                                           UINT16_C(0x7C00)));
+        free_machine(machine);
+    }
+    if (CHECK_DONE() == 0) {
+        puts("ppu.obj.tracer: sampled OBJ reaches published frame over BG and backdrop");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_obj_regular(void)
+{
+    return run_ppu_obj_tracer();
+}
+
 static bool ppu_bg_affine_prepare_pattern(gbl_machine *machine,
                                           uint8_t mode,
                                           uint8_t background,
@@ -5197,7 +5282,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.obj.tracer|ppu.obj.regular|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -5229,6 +5314,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.bg.controls") == 0) {
         return run_ppu_bg_controls();
+    }
+    if (strcmp(argv[1], "ppu.obj.tracer") == 0) {
+        return run_ppu_obj_tracer();
+    }
+    if (strcmp(argv[1], "ppu.obj.regular") == 0) {
+        return run_ppu_obj_regular();
     }
     if (strcmp(argv[1], "ppu.refusal") == 0) {
         return run_ppu_refusal();
