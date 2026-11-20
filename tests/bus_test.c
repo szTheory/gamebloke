@@ -1005,6 +1005,98 @@ static int run_ppu_tracer(void)
     return 1;
 }
 
+static int run_ppu_bg_tracer(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+    static const uint8_t tile_row[4] = {
+        UINT8_C(0x21), UINT8_C(0x03), UINT8_C(0x54), UINT8_C(0x06)
+    };
+    uint32_t row;
+    uint32_t byte;
+    const uint32_t row_start = GBL_PPU_ROW_BYTES;
+    uint16_t actual[4];
+
+    if (machine == NULL) {
+        fprintf(stderr, "ppu.bg.tracer: host allocation failed\n");
+        return 1;
+    }
+
+    /* Begin with BG0 enabled before the cycle-zero sample. The empty map and
+     * tile are transparent, so row zero resolves to palette entry zero. */
+    machine->dispcnt = UINT16_C(0x0100);
+    machine->ppu.dispcnt = UINT16_C(0x0100);
+    machine->pram[0] = UINT8_C(0x1F);
+    machine->pram[1] = UINT8_C(0x00);
+    machine->pram[2] = UINT8_C(0xE0);
+    machine->pram[3] = UINT8_C(0x03);
+    machine->pram[4] = UINT8_C(0x00);
+    machine->pram[5] = UINT8_C(0x7C);
+    machine->pram[6] = UINT8_C(0x10);
+    machine->pram[7] = UINT8_C(0x42);
+    machine->vram[UINT32_C(0xF800)] = 0u;
+    machine->vram[UINT32_C(0xF801)] = 0u;
+    for (row = 0u; row < 8u; ++row) {
+        for (byte = 0u; byte < sizeof(tile_row); ++byte) {
+            machine->vram[UINT32_C(0x4000) + row * 4u + byte] =
+                tile_row[byte];
+        }
+    }
+
+    /* Program BG0's map and character bases through the timed register path.
+     * A preceding palette write must be visible at the next line boundary. */
+    result = gbl_bus_write(machine, UINT32_C(0x04000008), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x1F04));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1000)) ==
+          GBL_TIME_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x05000004), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x7FFF));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1231)) ==
+          GBL_TIME_STATUS_OK);
+
+    /* The PPU boundary has priority over a write completing on that cycle.
+     * The row must retain the original tile indices despite this write. */
+    result = gbl_bus_write(machine, UINT32_C(0x06004004), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x0043));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->master_cycles == UINT64_C(1232));
+    CHECK(machine->ppu.line == 1u);
+    CHECK(machine->ppu.line_origin == UINT64_C(1232));
+
+    /* BGR555_LE semantic expectations for indices 1, 2, 3 and transparent 0.
+     * Index 2 is the new, pre-boundary palette value; index 0 is the backdrop. */
+    for (byte = 0u; byte < 4u; ++byte) {
+        const uint32_t offset = row_start + byte * 2u;
+
+        actual[byte] = (uint16_t)(
+            (uint16_t)machine->video_frame[offset] |
+            (uint16_t)((uint16_t)machine->video_frame[offset + 1u] << 8u));
+    }
+    CHECK(machine->video_frame[row_start] == UINT8_C(0xE0));
+    CHECK(machine->video_frame[row_start + 1u] == UINT8_C(0x03));
+    CHECK(machine->video_frame[row_start + 2u] == UINT8_C(0xFF));
+    CHECK(machine->video_frame[row_start + 3u] == UINT8_C(0x7F));
+    CHECK(machine->video_frame[row_start + 4u] == UINT8_C(0x10));
+    CHECK(machine->video_frame[row_start + 5u] == UINT8_C(0x42));
+    CHECK(machine->video_frame[row_start + 6u] == UINT8_C(0x1F));
+    CHECK(machine->video_frame[row_start + 7u] == UINT8_C(0x00));
+
+    printf("{\"type\":\"ppu.bg.tracer\",\"mode\":0,\"bg\":0,\"row\":1,\"expected\":[992,32767,16912,31],\"actual\":[%u,%u,%u,%u],\"before_boundary_palette_write\":\"visible\",\"same_cycle_tile_write\":\"excluded\",\"format\":\"BGR555_LE\",\"hardware_qualification\":\"UNKNOWN\"}\n",
+           (unsigned)actual[0], (unsigned)actual[1], (unsigned)actual[2],
+           (unsigned)actual[3]);
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.bg.tracer: mode-0 BG0 row reaches committed raw video");
+        return 0;
+    }
+    return 1;
+}
+
 static bool prime_ppu_refusal_machine(gbl_machine *machine)
 {
     machine->dispcnt = UINT16_C(0x0403);
@@ -3693,7 +3785,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -3710,6 +3802,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.tracer") == 0) {
         return run_ppu_tracer();
+    }
+    if (strcmp(argv[1], "ppu.bg.tracer") == 0) {
+        return run_ppu_bg_tracer();
     }
     if (strcmp(argv[1], "ppu.refusal") == 0) {
         return run_ppu_refusal();
