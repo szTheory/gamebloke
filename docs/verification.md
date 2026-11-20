@@ -1,4 +1,55 @@
-# Phase 10 PPU and Playable 0 verification
+# PPU and video verification
+
+## Phase 11 sampled rows and transactional visibility
+
+Configure the synthetic-only CI tree when `build/ci` is absent or belongs to
+another source root, then run the bounded helper:
+
+```sh
+cmake --preset ci
+sh scripts/verify-phase11-fast.sh --bin build/ci
+```
+
+The helper checks the cache's source root before it can build or run tests. It
+uses the Phase 10 focused closure on that same tree, verifies the Phase 11
+selector and fixture graph, then runs exactly four common cases: `ppu.latch`,
+`ppu.registers`, `ppu.refusal`, and `phase11.selection.control`. The CI lane also
+runs `profile.lint` and `profile.nc.ppu_policy`; the ASan lane does not add those
+profile cases or the CI-only result cases. Missing, foreign, skipped, disabled,
+or unrun checks fail the helper.
+
+The canonical full local workflow remains:
+
+```sh
+cmake --workflow --preset ci
+```
+
+That workflow owns configure, build, the complete lane, and the post-run test
+inventory. The fast helper is early feedback on the current configured tree;
+it does not replace the workflow.
+
+Phase 11 compares sampled rows against semantic BGR555 pixel expectations at
+line-start boundaries, including writes immediately before, on, and after the
+sample cycle. At a same-cycle boundary, the PPU sample precedes bus-write lane
+effects, so that write changes a later row. The profile names the layout
+`BGR555_LE`; current runner metadata writes the equivalent spelling
+`bgr555-le`. Both describe 240×160 pixels, a 480-byte row stride, and a
+76,800-byte frame.
+
+Capacity tests distinguish an admitted exact fit from a one-over refusal.
+Refused captures or transactions check that machine state, canonical video
+memory, frame data, and caller buffers remain unchanged. These semantic values
+and postconditions are the evidence; output hashes only supplement repeatability
+and do not stand in for them.
+
+The 1006-cycle HBlank point and same-cycle sample order are selected Gamebloke
+policy. CPU/DMA video-memory outcomes and costs remain the existing bus policy,
+with no added PPU cycles. Hardware qualification remains `UNKNOWN`, and the
+HBlank edge, DMA latch, and within-line visibility disputes stay open. These
+local synthetic checks do not establish cycle accuracy or broad game
+compatibility.
+
+## Phase 10 PPU and Playable 0 verification
 
 This guide describes the selected local PPU model and its original, BIOS-free
 polling scenario. For the general CI workflow, lanes, and test-inventory rules,
