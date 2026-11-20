@@ -1456,6 +1456,89 @@ static bool ppu_obj_affine_prepare_basic(gbl_machine *machine,
     return true;
 }
 
+static void ppu_obj_affine_set_palette_color(gbl_machine *machine,
+                                             uint8_t index,
+                                             uint16_t color)
+{
+    const size_t offset = UINT32_C(0x200) + (size_t)index * 2u;
+
+    ppu_obj_store_u16(machine->pram, offset, color);
+}
+
+static void ppu_obj_affine_set_4bpp_pixel(gbl_machine *machine,
+                                          uint16_t tile_base,
+                                          uint8_t source_x,
+                                          uint8_t source_y,
+                                          uint8_t color_index)
+{
+    const uint32_t tile_number = (uint32_t)tile_base +
+        (uint32_t)(source_y / 8u) * UINT32_C(32) +
+        (uint32_t)(source_x / 8u);
+    const size_t tile_offset = UINT32_C(0x10000) +
+        (size_t)tile_number * 32u +
+        (size_t)(source_y & 7u) * 4u + (size_t)((source_x & 7u) / 2u);
+    const uint8_t shift = (source_x & 1u) != 0u ? 4u : 0u;
+    const uint8_t mask = (uint8_t)(UINT8_C(0x0F) << shift);
+
+    machine->vram[tile_offset] = (uint8_t)(
+        (machine->vram[tile_offset] & (uint8_t)~mask) |
+        (uint8_t)((color_index & UINT8_C(0x0F)) << shift));
+}
+
+static bool ppu_obj_affine_setup(gbl_machine *machine, uint16_t dispcnt,
+                                 uint16_t object_x, uint8_t object_y,
+                                 uint8_t shape, uint8_t size,
+                                 uint8_t matrix, uint16_t tile_base,
+                                 bool double_size, int16_t pa, int16_t pb,
+                                 int16_t pc, int16_t pd)
+{
+    size_t object;
+    const uint16_t attribute0 = (uint16_t)(
+        (uint32_t)object_y | UINT32_C(0x0100) |
+        (double_size ? UINT32_C(0x0200) : UINT32_C(0)) |
+        ((uint32_t)shape << 14u));
+    const uint16_t attribute1 = (uint16_t)(
+        ((uint32_t)object_x & UINT32_C(0x01FF)) |
+        ((uint32_t)matrix << 9u) | ((uint32_t)size << 14u));
+
+    if (machine == NULL || shape >= 3u || size >= 4u || matrix >= 32u) {
+        return false;
+    }
+    machine->dispcnt = (uint16_t)(dispcnt | UINT16_C(0x1000));
+    machine->ppu.dispcnt = machine->dispcnt;
+    for (object = 0u; object < 128u; ++object) {
+        ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+    }
+    machine->pram[0] = 0u;
+    machine->pram[1] = UINT8_C(0x7C); /* Blue backdrop. */
+    ppu_obj_affine_set_palette_color(machine, 1u, UINT16_C(0x001F));
+    ppu_obj_affine_set_palette_color(machine, 2u, UINT16_C(0x03E0));
+    ppu_obj_affine_set_palette_color(machine, 3u, UINT16_C(0x0000));
+    ppu_obj_affine_set_palette_color(machine, 4u, UINT16_C(0x7FE0));
+    ppu_obj_affine_set_palette_color(machine, 5u, UINT16_C(0x7FFF));
+    ppu_obj_affine_store_matrix(machine->oam, matrix, pa, pb, pc, pd);
+    ppu_obj_store_u16(machine->oam, 0u, attribute0);
+    ppu_obj_store_u16(machine->oam, 2u, attribute1);
+    ppu_obj_store_u16(machine->oam, 4u, tile_base);
+    return true;
+}
+
+static bool ppu_obj_affine_render_to_line(gbl_machine *machine,
+                                          uint16_t line)
+{
+    gbl_machine_time_preview preview;
+    const uint64_t target =
+        (uint64_t)line * (uint64_t)GBL_PPU_LINE_CYCLES;
+
+    if (machine == NULL ||
+        gbl_machine_prepare_time(machine, target, &preview) !=
+            GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    gbl_machine_commit_time(machine, &preview);
+    return true;
+}
+
 static bool ppu_obj_prepare_tracer(gbl_machine *machine)
 {
     uint8_t row = 0u;
@@ -2142,8 +2225,297 @@ static int run_ppu_obj_affine(void)
         free_machine(machine);
     }
 
+    {
+        gbl_machine *machine = new_machine();
+        bool clean_corner;
+        bool wrong_corner;
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 0u, 0u, false,
+                0, -256, 256, 0));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 1u, 1u, 1u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 14u, 2u, 2u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 2u, 14u, 4u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 14u, 14u, 5u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 39u));
+            clean_corner = ppu_bg_affine_pixel_matches(
+                machine->video_frame, 25u, 39u, UINT16_C(0x001F));
+            wrong_corner = ppu_bg_affine_pixel_matches(
+                machine->video_frame, 25u, 25u, UINT16_C(0x001F));
+            CHECK(clean_corner);
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 26u, 26u, UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 38u, 38u, UINT16_C(0x7FE0)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 38u, 26u, UINT16_C(0x7FFF)));
+            CHECK(!wrong_corner);
+            if (clean_corner && !wrong_corner) {
+                puts("ppu.obj.affine control: wrong quarter-turn corner expectation rejected; clean twin passed");
+            }
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 1u, 0u, false,
+                -256, 0, 0, 256));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 14u, 3u, 1u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 1u, 12u, 2u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 14u, 12u, 4u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 1u, 3u, 5u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 36u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 26u, 27u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 39u, 36u, UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 26u, 36u, UINT16_C(0x7FE0)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 39u, 27u, UINT16_C(0x7FFF)));
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 1u, 0u, false,
+                256, 128, 0, 256));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, 2u, 1u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 12u, 13u, 2u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, 13u, 4u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 12u, 2u, 5u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 37u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 31u, 26u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 34u, 37u, UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 26u, 37u, UINT16_C(0x7FE0)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 39u, 26u, UINT16_C(0x7FFF)));
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        bool clean_fraction;
+        bool truncation_control;
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 2u, 0u, false,
+                128, 0, 0, 256));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 7u, 8u, 1u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 8u, 8u, 2u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 32u));
+            clean_fraction = ppu_bg_affine_pixel_matches(
+                machine->video_frame, 31u, 32u, UINT16_C(0x001F));
+            truncation_control = ppu_bg_affine_pixel_matches(
+                machine->video_frame, 31u, 32u, UINT16_C(0x03E0));
+            CHECK(clean_fraction);
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 32u, 32u, UINT16_C(0x03E0)));
+            CHECK(!truncation_control);
+            if (clean_fraction && !truncation_control) {
+                puts("ppu.obj.affine control: negative half-pixel truncation expectation rejected; floor twin passed");
+            }
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 4u, 0u, false,
+                257, 0, 0, 257));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, 8u, 1u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 8u, 0u, 2u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 32u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 24u, 32u, UINT16_C(0x7C00)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 25u, 32u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 32u, 24u, UINT16_C(0x7C00)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 32u, 25u, UINT16_C(0x03E0)));
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 3u, 0u, true,
+                256, 0, 0, 256));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, 0u, 1u);
+            memset(&machine->vram[UINT32_C(0x10000) + 2u * 32u],
+                   UINT8_C(0x22), 32u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 32u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 32u, 32u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 24u, 24u, UINT16_C(0x7C00)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 48u, 32u, UINT16_C(0x7C00)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 56u, 32u, UINT16_C(0x7C00)));
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 31u, 0u, false,
+                INT16_MIN, INT16_MAX, INT16_MIN, INT16_MAX));
+            ppu_obj_affine_store_matrix(
+                machine->oam, 30u, 256, 0, 0, 256);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 8u, 8u, 3u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 9u, 8u, 1u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 33u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 32u, 32u, UINT16_C(0x0000)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 33u, 32u, UINT16_C(0x7C00)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 31u, 32u, UINT16_C(0x7C00)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 32u, 33u, UINT16_C(0x7C00)));
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 508u, 252u, 0u, 0u, 0u, 0u, false,
+                256, 0, 0, 256));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, 4u, 4u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 0u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 0u, 0u, UINT16_C(0x7FE0)));
+        }
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 238u, 8u, 0u, 0u, 0u, 0u, false,
+                256, 0, 0, 256));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, 0u, 1u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 1u, 0u, 2u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 8u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 238u, 8u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 239u, 8u, UINT16_C(0x03E0)));
+        }
+        free_machine(machine);
+    }
+
+    {
+        uint8_t mode;
+        uint8_t base_case;
+
+        for (mode = 0u; mode <= 5u; ++mode) {
+            for (base_case = 0u; base_case < 2u; ++base_case) {
+                const uint16_t tile_base = base_case == 0u ? 511u : 512u;
+                const uint16_t bg_enable = mode == 0u ? 0u :
+                    (mode == 1u ? UINT16_C(0x0100) : UINT16_C(0x0400));
+                const uint16_t dispcnt = (uint16_t)mode | bg_enable;
+                gbl_machine *machine = new_machine();
+                uint16_t expected_color = UINT16_C(0x001F);
+                size_t tile_offset = UINT32_C(0x10000) +
+                                     (size_t)tile_base * 32u;
+
+                CHECK(machine != NULL);
+                if (machine == NULL) {
+                    continue;
+                }
+                CHECK(ppu_obj_affine_setup(
+                    machine, dispcnt, 0u, 0u, 0u, 0u, 0u,
+                    tile_base, false, 256, 0, 0, 256));
+                memset(&machine->vram[tile_offset], UINT8_C(0x11), 32u);
+                if (mode == 3u || mode == 5u) {
+                    machine->vram[0] = UINT8_C(0xE0);
+                    machine->vram[1] = UINT8_C(0x03);
+                    expected_color = tile_base == 511u
+                        ? UINT16_C(0x03E0)
+                        : UINT16_C(0x001F);
+                } else if (mode == 4u) {
+                    machine->vram[0] = 1u;
+                    machine->pram[2] = UINT8_C(0xE0);
+                    machine->pram[3] = UINT8_C(0x03);
+                    expected_color = tile_base == 511u
+                        ? UINT16_C(0x03E0)
+                        : UINT16_C(0x001F);
+                } else if (mode == 2u && tile_base == 511u) {
+                    expected_color = UINT16_C(0x7C00);
+                }
+                CHECK(ppu_obj_affine_render_to_line(machine, 0u));
+                if (tile_base == 511u && mode >= 3u) {
+                    CHECK(ppu_bg_affine_pixel_matches(
+                        machine->video_frame, 0u, 0u, expected_color));
+                } else {
+                    CHECK(ppu_bg_affine_pixel_matches(
+                        machine->video_frame, 0u, 0u, UINT16_C(0x001F)));
+                }
+                free_machine(machine);
+            }
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_obj_affine_setup(
+                machine, 0u, 24u, 24u, 0u, 1u, 0u, 0u, false,
+                256, 0, 0, 256));
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 1u, 0u, 3u);
+            CHECK(ppu_obj_affine_render_to_line(machine, 24u));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 24u, 24u, UINT16_C(0x7C00)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                machine->video_frame, 25u, 24u, UINT16_C(0x0000)));
+        }
+        free_machine(machine);
+    }
+
     if (CHECK_DONE() == 0) {
-        puts("ppu.obj.affine: selected matrix identity and centered double-size bounds");
+        puts("ppu.obj.affine: selected signed matrices, floor policy, source bounds, double-size, clipping and OBJ windows");
         return 0;
     }
     return 1;
@@ -5039,8 +5411,6 @@ static int run_ppu_controls(void)
           "mode-5 BG2 is disabled" },
         { UINT16_C(0x0483), GBL_VIDEO_INVALID_REASON_FORCED_BLANK,
           "forced blank is unsupported" },
-        { UINT16_C(0x1403), GBL_VIDEO_INVALID_REASON_OBJ_ENABLED,
-          "OBJ is unsupported" },
         { UINT16_C(0x2403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
           "OBJ window is unsupported" },
         { UINT16_C(0x4403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
