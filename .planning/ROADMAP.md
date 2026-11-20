@@ -123,7 +123,15 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
   2. Affine objects produce expected transformed pixels from their selected matrices, with the declared signed fixed-point, bounding-field, clipping, transparency, and address limits.
   3. Overlapping objects, backgrounds, and backdrop resolve to expected colors under the declared enable, transparency, priority, and tie-breaking rules.
   4. A line that exceeds the declared object-work bound yields repeatable, inspectable selection and output under the stable ordering policy; that bound is labeled project policy where silicon behavior is unknown.
-**Plans**: TBD
+**Plans**: 0/8 plans executed
+- [ ] 13-01-PLAN.md — Sampled regular OBJ tracer and complete regular decoding.
+- [ ] 13-02-PLAN.md — Signed affine OBJ sampling, fields and edge evidence.
+- [ ] 13-03-PLAN.md — Shared enabled-layer compositor and priority/tie controls.
+- [ ] 13-04-PLAN.md — Capped OAM admission and inspectable overflow.
+- [ ] 13-05-PLAN.md — Synchronized profile, validator and affected runner claims.
+- [ ] 13-06-PLAN.md — Sampled-write boundaries, atomic refusal and replay.
+- [ ] 13-07-PLAN.md — Exact cheap-first selector gate and fast helper.
+- [ ] 13-08-PLAN.md — Source-bound fast and canonical local acceptance.
 
 ### Phase 14: Windows and Display Effects
 **Goal**: Users can observe predictable region-specific layers, color effects, mosaic, and blanking in canonical raw frames.
@@ -166,7 +174,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 |-------|----------------|--------|-----------|
 | 11. Sampled Rows and Transactional Visibility | 8/8 | Complete | 2026-11-20 |
 | 12. Background Modes 0–5 | 8/8 | Complete    | 2026-11-20 |
-| 13. Objects and Layer Priorities | 0/TBD | Not started | - |
+| 13. Objects and Layer Priorities | 0/8 | Planned     | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
 | 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
 
