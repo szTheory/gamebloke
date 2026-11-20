@@ -4,17 +4,17 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 11
 current_phase_name: Sampled Rows and Transactional Visibility
-status: blocked
-stopped_at: Phase 11 Plan 11-05 canonical integration acceptance
-last_updated: "2026-11-20T01:23:27Z"
+status: executing
+stopped_at: Phase 11 Plan 11-05 canonical acceptance; Plans 11-06 through 11-08 are ready to execute
+last_updated: "2026-11-20T03:08:39.054Z"
 last_activity: 2026-11-20
-last_activity_desc: Phase 11 focused evidence passed; canonical CI gate remains red on baseline failures
-state_head: 6e359e9c3c708de3e05ea03330a116469a7ec46b
+last_activity_desc: Phase 11 execution started
+state_head: 18dae2f32ac5bb3b4fb64f796994a654364922e8
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 5
-  completed_plans: 4
+  total_plans: 8
+  completed_plans: 5
   percent: 0
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-19)
 
 ## Current Position
 
-Phase: 11 (Sampled Rows and Transactional Visibility) — BLOCKED
-Plan: 5 of 5
-Status: Blocked at Plan 11-05 canonical integration acceptance
-Last activity: 2026-11-20 — focused Phase 11 checks passed; canonical CI stopped on existing failures before inventory
+Phase: 11 (Sampled Rows and Transactional Visibility) — EXECUTING
+Plan: 6 of 8
+Status: Executing Phase 11
+Last activity: 2026-11-19 — Phase 11 execution started
 
 Progress: [░░░░░░░░░░] 0% (current milestone)
 
