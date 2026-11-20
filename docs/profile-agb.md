@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 10
+profile_version: 11
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -94,7 +94,7 @@ not qualify the PPU against hardware.
 | --- | --- |
 | `ppu_policy.policy_classification` | project-selected |
 | `ppu_policy.hardware_qualification` | UNKNOWN |
-| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2 and 5.1 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1 and 6.1.3–6.1.5 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
 | `ppu_policy.geometry` | 240x160 visible pixels, 308 dots per line, 228 lines per frame |
 | `ppu_policy.line_cycles` | 1232 |
 | `ppu_policy.nominal_visible_dot_cycles` | 960 |
@@ -117,8 +117,8 @@ not qualify the PPU against hardware.
 | `ppu_policy.row_same_cycle_write_policy` | PPU sample precedes a bus write completing on the sample cycle |
 | `ppu_policy.pixel_format` | BGR555 little-endian |
 | `ppu_policy.frame_validity` | complete coverage of 160 supported rows in one frame epoch, published at line 160 |
-| `ppu_policy.supported_controls` | mode 3 and BG2 enabled, forced blank, OBJ, windows, and effects disabled |
-| `ppu_policy.unmodeled_controls` | other modes, disabled BG2, forced blank, OBJ, windows, effects, and BG2 transforms |
+| `ppu_policy.supported_controls` | mode 3 BG2 bitmap with other BG enable bits ignored, one enabled text BG in mode 0 (BG0-BG3) or mode 1 (BG0/BG1), text scroll, four map dimensions, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled |
+| `ppu_policy.unmodeled_controls` | mode-1 affine BG2 and modes 2/4/5, zero or multiple text BGs in modes 0/1, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported text-control encodings |
 | `ppu_policy.interrupt_if_bits` | VBlank 0, HBlank 1, VCOUNT-match 2 |
 | `ppu_policy.blank_dma_eligibility` | HBlank on visible lines 0-159, VBlank at the line 160 transition |
 
@@ -128,13 +128,27 @@ The mode table describes available background source layouts and their source
 extents. Implementation status records the current Gamebloke renderer; `partial`
 is a static capability label and is separate from per-frame validity. The mode
 and background layouts are summarized from the cited AGB manual sections, not
-reproduced from its tables. [Nintendo AGB Programming Manual v1.1 §§5.1 and
-6.1–6.2](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+reproduced from its tables. The mode families and text tile/map formats are
+described in §§5.1.1 and 6.1.3–6.1.5. [Nintendo AGB Programming Manual v1.1
+§§5.1.1 and 6.1.3–6.1.5](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+Modes 0 and 1 currently render one enabled text background per sampled row:
+mode 0 admits BG0–BG3, and mode 1 admits BG0/BG1. The implemented text subset
+uses the four listed map extents, scrolling, tile flips, 4bpp/8bpp selection,
+tile and palette selection, and transparent color-index samples resolved to the
+declared backdrop in raw output. Source lookups are bounded to canonical sampled
+video memory. These facts describe the deterministic software model. Priority
+composition remains unmodeled. Zero or multiple enabled text sources and
+unsupported non-background controls retain the existing deterministic frame
+invalidation behavior. Secondary-source details for affine internal-reference
+reload and mode-4 indexed transparency are project policies. Signed fixed-point
+rounding and overflow handling are deterministic software-model policies.
+Hardware qualification remains UNKNOWN.
 
 | Mode | Implementation status | Background sources and dimensions |
 | --- | --- | --- |
-| `ppu_policy.display_capabilities.modes[0]` | not-implemented | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 text: 256x256, 512x256, 256x512, 512x512; BG3 text: 256x256, 512x256, 256x512, 512x512 |
-| `ppu_policy.display_capabilities.modes[1]` | not-implemented | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 affine: 128x128, 256x256, 512x512, 1024x1024 |
+| `ppu_policy.display_capabilities.modes[0]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 text: 256x256, 512x256, 256x512, 512x512; BG3 text: 256x256, 512x256, 256x512, 512x512 |
+| `ppu_policy.display_capabilities.modes[1]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 affine: 128x128, 256x256, 512x512, 1024x1024 |
 | `ppu_policy.display_capabilities.modes[2]` | not-implemented | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |
 | `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |
 | `ppu_policy.display_capabilities.modes[4]` | not-implemented | BG2 indexed-bitmap: 240x160 |

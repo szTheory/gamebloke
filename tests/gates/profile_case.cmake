@@ -227,6 +227,19 @@ elseif(CASE STREQUAL "ppu_policy")
   expect_ppu_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities\\.modes" "${p}")
 
+  profile_copy(p wrong_mode1_background_source)
+  gbl_json_mutate_set("${p}" [=["affine"]=] ppu_policy display_capabilities modes 1 backgrounds 0 source)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  foreach(mode IN ITEMS 0 1)
+    profile_copy(p stale_text_mode_${mode}_status)
+    gbl_json_mutate_set("${p}" [=["not-implemented"]=]
+      ppu_policy display_capabilities modes ${mode} implementation_status)
+    expect_ppu_detail(ppu-capability-value
+      "ppu_policy\\.display_capabilities\\.modes" "${p}")
+  endforeach()
+
   profile_copy(p wrong_background_id)
   gbl_json_mutate_set("${p}" "1" ppu_policy display_capabilities modes 0 backgrounds 0 bg)
   expect_ppu_detail(ppu-capability-value
@@ -234,6 +247,11 @@ elseif(CASE STREQUAL "ppu_policy")
 
   profile_copy(p wrong_source_dimension)
   gbl_json_mutate_set("${p}" "255" ppu_policy display_capabilities modes 0 backgrounds 0 dimensions 0 width)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
+
+  profile_copy(p wrong_mode1_source_dimension)
+  gbl_json_mutate_set("${p}" "255" ppu_policy display_capabilities modes 1 backgrounds 0 dimensions 0 width)
   expect_ppu_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities\\.modes" "${p}")
 
@@ -284,6 +302,14 @@ elseif(CASE STREQUAL "ppu_policy")
     "| `ppu_policy.display_capabilities.modes[3]` | not-implemented | BG2 direct-color-bitmap: 240x160 |")
   expect_ppu_detail(ppu-capability-doc
     "ppu_policy\\.display_capabilities: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p stale_text_control_doc)
+  doc_copy(d stale_text_control_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.supported_controls` | mode 3 BG2 bitmap with other BG enable bits ignored, one enabled text BG in mode 0 (BG0-BG3) or mode 1 (BG0/BG1), text scroll, four map dimensions, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled |"
+    "| `ppu_policy.supported_controls` | mode 3 only |")
+  expect_ppu_detail(ppu-policy-doc
+    "ppu_policy: missing or stale row" "${p}" "${d}")
 
   profile_copy(p stale_raw_output_doc)
   doc_copy(d stale_raw_output_doc)
