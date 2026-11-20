@@ -14,7 +14,9 @@ For a cheap consistency check before a longer run:
 cmake -P cmake/CiPreflight.cmake
 ```
 
-Every canonical configure runs this check before compiler discovery. It reconciles
+Every canonical configure runs this check before compiler discovery. It first
+runs the repository-wide shell signal-handler scan, so missing HUP/INT/TERM exit
+paths stop before compiler discovery. It reconciles
 the seven workflow definitions (11 expanded required jobs), their stable names,
 platform/group routing and exact budgets with `cmake/CiJobBudgets.json`. Only
 `build (macos-26, cc, AppleClang)` and `diagnostics (darwin-arm64, arm)` have

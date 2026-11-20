@@ -114,6 +114,13 @@ endfunction()
 
 function(gbl_ci_preflight source require_authority)
   gbl_ci_policy("${source}")
+  execute_process(COMMAND sh "${source}/scripts/check-traps.sh"
+    WORKING_DIRECTORY "${source}"
+    RESULT_VARIABLE traps_rc OUTPUT_VARIABLE traps_out ERROR_VARIABLE traps_err)
+  if(NOT traps_rc STREQUAL "0")
+    message(FATAL_ERROR "ci-preflight: shell-trap-policy-invalid:${traps_out}${traps_err}")
+  endif()
+  message(STATUS "ci-preflight: shell signal handling verified")
   gbl_ci_admission_presets("${source}/CMakePresets.json")
   gbl_ci_workflow("${source}" "${source}/.github/workflows/ci.yml")
   if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof" AND
