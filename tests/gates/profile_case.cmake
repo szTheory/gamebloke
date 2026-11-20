@@ -1080,7 +1080,7 @@ elseif(CASE STREQUAL "doc_extra_id")
   gbl_text_mutate("${d}" "| `backup-media` |"
     "| `cgb-mode` | A row used only by this control. |\n| `backup-media` |")
   expect_code(doc-extra-id "${p}" "${d}")
-  set(io_devices_row [=[| `io-devices` | Complete I/O device register semantics remain incomplete and hardware-unqualified. The timer, IF/IE/IME, KEYINPUT, and KEYCNT subset is described by the timer and `irq_input_power_policy` entries; unsupported reads still use the project-policy placeholder. |]=])
+  set(io_devices_row [=[| `io-devices` | I/O register semantics remain incomplete and hardware-unqualified. Timer, IF/IE/IME, KEYINPUT/KEYCNT, and the VCOUNT/DISPSTAT/DISPCNT subset is described by the timer, `irq_input_power_policy`, and `ppu_policy` entries; unsupported reads still use the project-policy placeholder. |]=])
   profile_copy(p duplicate_row)
   doc_copy(d duplicate_row)
   gbl_text_mutate("${d}" "${io_devices_row}"
