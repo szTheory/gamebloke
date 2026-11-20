@@ -7,7 +7,6 @@
 #define GBL_KEYPAD_EVENT_PRIORITY 4u
 #define GBL_DMA_EVENT_PRIORITY_BASE 5u
 #define GBL_PPU_EVENT_PRIORITY 9u
-#define GBL_PPU_TRANSFORM_REGISTER_BYTES_MASK UINT32_C(0x0000FFFF)
 #define GBL_PPU_EFFECT_REGISTER_BYTES_MASK UINT32_C(0x00FF0000)
 #define GBL_PPU_BG_MEMORY_BYTES UINT32_C(0x00010000)
 #define GBL_PPU_BG_REGISTER_SCROLL_OFFSET UINT32_C(8)
@@ -1260,10 +1259,6 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
         /* The bitmap source consumes BG2's captured matrix and reference.
          * Other BG enable bits remain inert under this single-source model. */
         return GBL_VIDEO_INVALID_REASON_NONE;
-    }
-    if ((ppu->unsupported_register_bytes &
-         GBL_PPU_TRANSFORM_REGISTER_BYTES_MASK) != 0u) {
-        return GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED;
     }
     return GBL_VIDEO_INVALID_REASON_NONE;
 }
