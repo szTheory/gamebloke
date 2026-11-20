@@ -417,6 +417,13 @@ elseif(CASE STREQUAL "ppu_policy")
     "| `ppu_policy.row_sample_point` | after-line-end |")
   expect_ppu_detail(ppu-policy-doc "ppu_policy: missing or stale row" "${p}" "${d}")
 
+  profile_copy(p stale_affine_source_reference_doc)
+  doc_copy(d stale_affine_source_reference_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5 and 6.1.7 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |"
+    "| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1 and 6.1.3–6.1.5 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |")
+  expect_ppu_detail(ppu-policy-doc "ppu_policy: missing or stale row" "${p}" "${d}")
+
 elseif(CASE STREQUAL "cpu_policy_value")
   if(NOT PROFILE_VERSION GREATER_EQUAL 6)
     message(FATAL_ERROR "profile-case: expanded CPU contract requires profile version 6 or later")
