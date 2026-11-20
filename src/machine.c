@@ -719,7 +719,8 @@ static bool gbl_ppu_sample_bg_vram(
 static bool gbl_ppu_project_affine_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture, uint8_t background,
-    uint8_t row[GBL_PPU_ROW_BYTES])
+    uint8_t row[GBL_PPU_ROW_BYTES],
+    gbl_ppu_bg_sample samples[GBL_PPU_WIDTH])
 {
     const uint8_t affine_index = (uint8_t)(background - 2u);
     const uint32_t control_offset = (uint32_t)background * 2u;
@@ -828,6 +829,15 @@ static bool gbl_ppu_project_affine_row(
             (uint16_t)((uint16_t)palette_bytes[palette_index * 2u + 1u]
                        << 8u));
         color &= UINT16_C(0x7FFF);
+        if (samples != NULL) {
+            samples[pixel] = (gbl_ppu_bg_sample){
+                .color = color,
+                .color_index = color_index,
+                .background = background,
+                .priority = (uint8_t)(control & UINT16_C(0x0003)),
+                .transparent = color_index == 0u
+            };
+        }
         row[pixel * 2u] = (uint8_t)(color & UINT16_C(0x00FF));
         row[pixel * 2u + 1u] = (uint8_t)(color >> 8u);
     }
@@ -837,9 +847,13 @@ static bool gbl_ppu_project_affine_row(
 static bool gbl_ppu_project_bitmap_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture, uint8_t mode,
-    uint8_t row[GBL_PPU_ROW_BYTES])
+    uint8_t row[GBL_PPU_ROW_BYTES],
+    gbl_ppu_bg_sample samples[GBL_PPU_WIDTH], uint16_t *backdrop_color)
 {
     const gbl_ppu_affine_state *affine = &capture->affine[0];
+    const uint16_t control =
+        gbl_ppu_register_u16(capture->bg_register_bytes, UINT32_C(4));
+    const uint8_t priority = (uint8_t)(control & UINT16_C(0x0003));
     uint32_t source_width;
     uint32_t source_height;
     uint32_t bytes_per_pixel;
@@ -889,6 +903,12 @@ static bool gbl_ppu_project_bitmap_row(
             GBL_PPU_SAMPLE_STATUS_OK) {
         return false;
     }
+    if (backdrop_color != NULL) {
+        *backdrop_color = (uint16_t)(
+            (uint16_t)palette_bytes[0] |
+            (uint16_t)((uint16_t)palette_bytes[1] << 8u));
+        *backdrop_color &= UINT16_C(0x7FFF);
+    }
     constant_source_row = affine->pc == 0;
     if (constant_source_row) {
         const int64_t source_y = gbl_ppu_floor_fixed_8_8(
@@ -924,6 +944,13 @@ static bool gbl_ppu_project_bitmap_row(
         const int64_t source_x = gbl_ppu_floor_fixed_8_8(source_x_fixed);
         const int64_t source_y = gbl_ppu_floor_fixed_8_8(source_y_fixed);
         uint16_t color;
+        gbl_ppu_bg_sample background_sample = {
+            .color = 0u,
+            .color_index = 0u,
+            .background = 2u,
+            .priority = priority,
+            .transparent = true
+        };
 
         if (source_x >= 0 && source_y >= 0 &&
             source_x < (int64_t)source_width &&
@@ -969,11 +996,15 @@ static bool gbl_ppu_project_bitmap_row(
                     (uint16_t)palette_bytes[palette_offset] |
                     (uint16_t)((uint16_t)palette_bytes[palette_offset + 1u]
                                << 8u));
+                background_sample.color_index = color_index;
+                background_sample.transparent = color_index == 0u;
             } else {
                 color = (uint16_t)(
                     (uint16_t)sample[0] |
                     (uint16_t)((uint16_t)sample[1] << 8u));
                 color &= UINT16_C(0x7FFF);
+                background_sample.color_index = UINT8_MAX;
+                background_sample.transparent = false;
             }
         } else {
             color = (uint16_t)(
@@ -981,6 +1012,10 @@ static bool gbl_ppu_project_bitmap_row(
                 (uint16_t)((uint16_t)palette_bytes[1] << 8u));
         }
         color &= UINT16_C(0x7FFF);
+        background_sample.color = color;
+        if (samples != NULL) {
+            samples[pixel] = background_sample;
+        }
         row[pixel * 2u] = (uint8_t)(color & UINT16_C(0x00FF));
         row[pixel * 2u + 1u] = (uint8_t)(color >> 8u);
     }
@@ -1174,20 +1209,25 @@ static void gbl_ppu_offer_candidate(
     }
 }
 
-static bool gbl_ppu_project_mode0_obj_row(
+static bool gbl_ppu_project_obj_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture,
     uint8_t row[GBL_PPU_ROW_BYTES])
 {
+    static const uint8_t object_dimensions[3][4][2] = {
+        { { 8u, 8u }, { 16u, 16u }, { 32u, 32u }, { 64u, 64u } },
+        { { 16u, 8u }, { 32u, 8u }, { 32u, 16u }, { 64u, 32u } },
+        { { 8u, 16u }, { 8u, 32u }, { 16u, 32u }, { 32u, 64u } }
+    };
     uint8_t oam_bytes[GBL_OAM_SIZE];
     uint8_t obj_palette[512];
     uint8_t background_row[GBL_PPU_ROW_BYTES];
     gbl_ppu_bg_sample background_samples[GBL_PPU_WIDTH];
     gbl_ppu_pixel_candidate candidates[GBL_PPU_WIDTH];
+    const uint16_t mode = (uint16_t)(capture->dispcnt & UINT16_C(0x0007));
     uint16_t backdrop_color = 0u;
     uint8_t background;
-    const bool has_background = gbl_ppu_selected_text_bg(
-        capture->dispcnt, &background);
+    bool has_background = true;
     uint32_t pixel;
     size_t object;
 
@@ -1201,13 +1241,55 @@ static bool gbl_ppu_project_mode0_obj_row(
             GBL_PPU_SAMPLE_STATUS_OK) {
         return false;
     }
-    if (has_background) {
-        if (!gbl_ppu_project_text_row(
+    if (mode == 0u) {
+        if (gbl_ppu_selected_text_bg(capture->dispcnt, &background)) {
+            if (!gbl_ppu_project_text_row(
+                    machine, preview, capture, background, background_row,
+                    background_samples, &backdrop_color)) {
+                return false;
+            }
+        } else if ((capture->dispcnt & UINT16_C(0x0F00)) == 0u) {
+            has_background = false;
+        } else {
+            return false;
+        }
+    } else if (mode == 1u &&
+               (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
+        if (!gbl_ppu_selected_text_bg(capture->dispcnt, &background) ||
+            !gbl_ppu_project_text_row(
                 machine, preview, capture, background, background_row,
                 background_samples, &backdrop_color)) {
             return false;
         }
+    } else if ((mode == 1u || mode == 2u) &&
+               gbl_ppu_selected_affine_bg(capture->dispcnt, &background)) {
+        if (!gbl_ppu_project_affine_row(
+                machine, preview, capture, background, background_row,
+                background_samples)) {
+            return false;
+        }
+        {
+            uint8_t backdrop_bytes[2];
+
+            if (gbl_ppu_sample_read(
+                    machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
+                    sizeof(backdrop_bytes), backdrop_bytes,
+                    sizeof(backdrop_bytes)) != GBL_PPU_SAMPLE_STATUS_OK) {
+                return false;
+            }
+            backdrop_color = gbl_ppu_memory_u16(backdrop_bytes, 0u) &
+                             UINT16_C(0x7FFF);
+        }
+    } else if (mode >= 3u && mode <= 5u) {
+        if (!gbl_ppu_project_bitmap_row(
+                machine, preview, capture, (uint8_t)mode, background_row,
+                background_samples, &backdrop_color)) {
+            return false;
+        }
     } else {
+        return false;
+    }
+    if (!has_background) {
         uint8_t backdrop_bytes[2];
 
         if (gbl_ppu_sample_read(
@@ -1275,54 +1357,122 @@ static bool gbl_ppu_project_mode0_obj_row(
         const uint32_t object_y = (uint32_t)(attribute0 & UINT16_C(0x00FF));
         const uint32_t relative_y =
             ((uint32_t)capture->line - object_y) & UINT32_C(0x00FF);
-        uint64_t tile_offset_wide;
-        uint32_t tile_offset;
-        uint8_t tile_row[4];
-        uint32_t source_x;
+        const bool color_8bpp =
+            (attribute0 & UINT16_C(0x2000)) != 0u;
+        const bool horizontal_flip =
+            (attribute1 & UINT16_C(0x1000)) != 0u;
+        const bool vertical_flip =
+            (attribute1 & UINT16_C(0x2000)) != 0u;
+        const uint32_t width = shape < 3u
+            ? object_dimensions[shape][size][0]
+            : 0u;
+        const uint32_t height = shape < 3u
+            ? object_dimensions[shape][size][1]
+            : 0u;
+        const uint32_t tile_units = color_8bpp ? 2u : 1u;
+        const uint32_t tile_width = width / 8u;
+        const uint32_t tile_base =
+            ((uint32_t)(attribute2 & UINT16_C(0x03FF))) &
+            (color_8bpp ? ~UINT32_C(1) : UINT32_MAX);
+        const bool one_dimensional =
+            (capture->dispcnt & UINT16_C(0x0040)) != 0u;
+        const uint32_t tile_row_bytes = color_8bpp ? 8u : 4u;
+        const uint32_t tile_bytes = color_8bpp ? 64u : 32u;
+        const uint32_t object_x =
+            (uint32_t)(attribute1 & UINT16_C(0x01FF));
+        const uint32_t source_y = vertical_flip && height > relative_y
+            ? height - 1u - relative_y
+            : relative_y;
+        const uint64_t obj_window_start = mode >= 3u
+            ? UINT64_C(0x14000)
+            : UINT64_C(0x10000);
+        uint64_t cached_tile_number = UINT64_MAX;
+        bool cached_tile_valid = false;
+        uint8_t tile_row[8];
+        uint32_t local_x;
 
         if (disabled) {
             continue;
         }
         if (affine || object_mode != 0u ||
-            (attribute0 & UINT16_C(0x3000)) != 0u || shape != 0u ||
-            size != 0u || (attribute0 & UINT16_C(0x2000)) != 0u) {
+            (attribute0 & UINT16_C(0x1000)) != 0u || shape >= 3u) {
             return false;
         }
-        if (relative_y >= 8u) {
+        if (relative_y >= height) {
             continue;
         }
 
-        tile_offset_wide = UINT64_C(0x10000) +
-            (uint64_t)(attribute2 & UINT16_C(0x03FF)) * UINT64_C(32);
-        if (tile_offset_wide < UINT64_C(0x10000) ||
-            tile_offset_wide > UINT64_C(0x18000) ||
-            UINT64_C(32) > UINT64_C(0x18000) - tile_offset_wide ||
-            tile_offset_wide > (uint64_t)UINT32_MAX) {
-            return false;
-        }
-        tile_offset = (uint32_t)tile_offset_wide + relative_y * 4u;
-        if (gbl_ppu_sample_read(
-                machine, preview, capture, GBL_BUS_REGION_VRAM,
-                tile_offset, 1u, sizeof(tile_row), tile_row,
-                sizeof(tile_row)) != GBL_PPU_SAMPLE_STATUS_OK) {
-            return false;
-        }
-
-        for (source_x = 0u; source_x < 8u; ++source_x) {
+        for (local_x = 0u; local_x < width; ++local_x) {
             const uint32_t screen_x =
-                ((uint32_t)(attribute1 & UINT16_C(0x01FF)) + source_x) &
+                (object_x + local_x) &
                 UINT32_C(0x01FF);
-            const uint8_t packed = tile_row[source_x >> 1u];
-            const uint8_t color_index = (source_x & 1u) != 0u
-                ? (uint8_t)(packed >> 4u)
-                : (uint8_t)(packed & UINT8_C(0x0F));
-            const uint32_t palette_index =
-                (uint32_t)((attribute2 >> 12u) & UINT16_C(0x000F)) * 16u +
-                (uint32_t)color_index;
+            const uint32_t source_x = horizontal_flip
+                ? width - 1u - local_x
+                : local_x;
+            const uint32_t tile_x = source_x >> 3u;
+            const uint32_t tile_y = source_y >> 3u;
+            const uint64_t tile_number = (uint64_t)tile_base +
+                (uint64_t)tile_y * (one_dimensional
+                    ? (uint64_t)tile_width * (uint64_t)tile_units
+                    : UINT64_C(32)) +
+                (uint64_t)tile_x * (uint64_t)tile_units;
+            uint8_t color_index;
+            uint32_t palette_index;
             uint16_t color;
             gbl_ppu_pixel_candidate candidate;
 
-            if (screen_x >= GBL_PPU_WIDTH || color_index == 0u) {
+            if (screen_x >= GBL_PPU_WIDTH) {
+                continue;
+            }
+            if (tile_number != cached_tile_number) {
+                cached_tile_number = tile_number;
+                cached_tile_valid = false;
+                if ((mode < 3u || tile_number >= UINT64_C(512)) &&
+                    tile_number <= (uint64_t)UINT32_MAX) {
+                    const uint64_t tile_offset_wide = UINT64_C(0x10000) +
+                        tile_number * UINT64_C(32);
+
+                    if (tile_offset_wide >= obj_window_start &&
+                        tile_offset_wide <= UINT64_C(0x18000) &&
+                        (uint64_t)tile_bytes <=
+                            UINT64_C(0x18000) - tile_offset_wide &&
+                        tile_offset_wide <= (uint64_t)UINT32_MAX) {
+                        const uint64_t row_offset_wide = tile_offset_wide +
+                            (uint64_t)(source_y & 7u) *
+                                (uint64_t)tile_row_bytes;
+
+                        if (row_offset_wide > (uint64_t)UINT32_MAX ||
+                            gbl_ppu_sample_read(
+                                machine, preview, capture,
+                                GBL_BUS_REGION_VRAM,
+                                (uint32_t)row_offset_wide, 1u,
+                                (size_t)tile_row_bytes, tile_row,
+                                sizeof(tile_row)) !=
+                                GBL_PPU_SAMPLE_STATUS_OK) {
+                            return false;
+                        }
+                        cached_tile_valid = true;
+                    }
+                }
+            }
+            if (!cached_tile_valid) {
+                continue;
+            }
+            if (color_8bpp) {
+                color_index = tile_row[source_x & 7u];
+                palette_index = (uint32_t)color_index;
+            } else {
+                const uint8_t packed = tile_row[(source_x & 7u) >> 1u];
+
+                color_index = ((source_x & 1u) != 0u)
+                    ? (uint8_t)(packed >> 4u)
+                    : (uint8_t)(packed & UINT8_C(0x0F));
+                palette_index =
+                    (uint32_t)((attribute2 >> 12u) & UINT16_C(0x000F)) *
+                        16u +
+                    (uint32_t)color_index;
+            }
+            if (color_index == 0u) {
                 continue;
             }
             color = (uint16_t)(
@@ -1360,11 +1510,10 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
     uint8_t text_background;
     uint8_t affine_background;
 
+    if ((capture->dispcnt & UINT16_C(0x1000)) != 0u) {
+        return gbl_ppu_project_obj_row(machine, preview, capture, row);
+    }
     if (mode == 0u) {
-        if ((capture->dispcnt & UINT16_C(0x1000)) != 0u) {
-            return gbl_ppu_project_mode0_obj_row(machine, preview, capture,
-                                                 row);
-        }
         if (!gbl_ppu_selected_text_bg(capture->dispcnt,
                                       &text_background)) {
             return false;
@@ -1379,7 +1528,7 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
                 return false;
             }
             return gbl_ppu_project_affine_row(
-                machine, preview, capture, affine_background, row);
+                machine, preview, capture, affine_background, row, NULL);
         }
         if (!gbl_ppu_selected_text_bg(capture->dispcnt,
                                       &text_background)) {
@@ -1394,12 +1543,12 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
             return false;
         }
         return gbl_ppu_project_affine_row(
-            machine, preview, capture, affine_background, row);
+            machine, preview, capture, affine_background, row, NULL);
     }
     if (mode >= UINT16_C(3) && mode <= UINT16_C(5) &&
         (capture->dispcnt & UINT16_C(0x0400)) != 0u) {
         return gbl_ppu_project_bitmap_row(
-            machine, preview, capture, (uint8_t)mode, row);
+            machine, preview, capture, (uint8_t)mode, row, NULL, NULL);
     }
     if (mode < UINT16_C(3) || mode > UINT16_C(5) ||
         (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
@@ -1444,8 +1593,7 @@ static gbl_video_invalid_reason gbl_ppu_obj_control_invalid_reason(
     if ((ppu->dispcnt & UINT16_C(0x1000)) == 0u) {
         return GBL_VIDEO_INVALID_REASON_NONE;
     }
-    if ((ppu->dispcnt & UINT16_C(0x0007)) != 0u ||
-        gbl_ppu_sample_read(
+    if (gbl_ppu_sample_read(
             machine, preview, capture, GBL_BUS_REGION_OAM, 0u, 2u,
             sizeof(oam_bytes), oam_bytes, sizeof(oam_bytes)) !=
             GBL_PPU_SAMPLE_STATUS_OK) {
@@ -1454,8 +1602,6 @@ static gbl_video_invalid_reason gbl_ppu_obj_control_invalid_reason(
     for (object = 0u; object < 128u; ++object) {
         const size_t offset = object * 8u;
         const uint16_t attribute0 = gbl_ppu_memory_u16(oam_bytes, offset);
-        const uint16_t attribute1 =
-            gbl_ppu_memory_u16(oam_bytes, offset + 2u);
         const bool affine = (attribute0 & UINT16_C(0x0100)) != 0u;
         const bool disabled = !affine &&
             (attribute0 & UINT16_C(0x0200)) != 0u;
@@ -1463,9 +1609,8 @@ static gbl_video_invalid_reason gbl_ppu_obj_control_invalid_reason(
         if (disabled) {
             continue;
         }
-        if (affine || (attribute0 & UINT16_C(0x3C00)) != 0u ||
-            (attribute0 & UINT16_C(0xC000)) != 0u ||
-            (attribute1 & UINT16_C(0xF000)) != 0u) {
+        if (affine || (attribute0 & UINT16_C(0x1C00)) != 0u ||
+            (attribute0 >> 14u) == UINT16_C(3)) {
             return GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
         }
     }

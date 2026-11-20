@@ -1595,6 +1595,50 @@ static int run_ppu_obj_regular(void)
     }
 
     {
+        uint8_t mode;
+
+        for (mode = 0u; mode <= 2u; ++mode) {
+            gbl_machine *machine = new_machine();
+            size_t object;
+
+            CHECK(machine != NULL);
+            if (machine == NULL) {
+                continue;
+            }
+            if (mode == 0u) {
+                machine->dispcnt = UINT16_C(0x1040);
+            } else if (mode == 1u) {
+                machine->dispcnt = UINT16_C(0x1141);
+            } else {
+                machine->dispcnt = UINT16_C(0x1442);
+                machine->ppu.affine[0].pa = 256;
+                machine->ppu.affine[0].pb = 0;
+                machine->ppu.affine[0].pc = 0;
+                machine->ppu.affine[0].pd = 256;
+                machine->ppu.affine[0].origin_x = 0u;
+                machine->ppu.affine[0].origin_y = 0u;
+                machine->ppu.affine[0].origin_valid = true;
+            }
+            machine->ppu.dispcnt = machine->dispcnt;
+            memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+            machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+            machine->pram[UINT32_C(0x203)] = 0u;
+            for (object = 0u; object < 128u; ++object) {
+                ppu_obj_store_u16(machine->oam, object * 8u,
+                                  UINT16_C(0x0200));
+            }
+            ppu_obj_store_u16(machine->oam, 0u, 0u);
+            ppu_obj_store_u16(machine->oam, 2u, 0u);
+            ppu_obj_store_u16(machine->oam, 4u, 0u);
+            CHECK(gbl_machine_advance_to(machine, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x001F)));
+            free_machine(machine);
+        }
+    }
+
+    {
         static const struct {
             uint16_t flip;
             uint16_t left;
@@ -1658,9 +1702,7 @@ static int run_ppu_obj_regular(void)
                                   UINT16_C(0x0200));
             }
             for (object = 0u; object < 8u; ++object) {
-                memset(&machine->vram[UINT32_C(0x10000) + object * 4u],
-                       UINT8_C(0x11), 4u);
-                memset(&machine->vram[UINT32_C(0x10000) + 32u +
+                memset(&machine->vram[UINT32_C(0x10000) + 4u +
                                        object * 4u],
                        UINT8_C(0x22), 4u);
             }
@@ -1790,7 +1832,7 @@ static int run_ppu_obj_regular(void)
         if (machine != NULL) {
             machine->dispcnt = UINT16_C(0x1000);
             machine->ppu.dispcnt = machine->dispcnt;
-            memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x22), 32u);
+            memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x21), 32u);
             machine->pram[UINT32_C(0x200) + 241u * 2u] = UINT8_C(0xFF);
             machine->pram[UINT32_C(0x201) + 241u * 2u] = UINT8_C(0x7F);
             machine->pram[UINT32_C(0x200) + 242u * 2u] = 0u;
@@ -1831,6 +1873,40 @@ static int run_ppu_obj_regular(void)
                                               UINT16_C(0x001F)));
             CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
                                               UINT16_C(0x7C00)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            machine->dispcnt = UINT16_C(0x1403);
+            machine->ppu.dispcnt = machine->dispcnt;
+            machine->ppu.affine[0].pa = 256;
+            machine->ppu.affine[0].pb = 0;
+            machine->ppu.affine[0].pc = 0;
+            machine->ppu.affine[0].pd = 256;
+            machine->ppu.affine[0].origin_x = 0u;
+            machine->ppu.affine[0].origin_y = 0u;
+            machine->ppu.affine[0].origin_valid = true;
+            machine->vram[0] = UINT8_C(0xE0);
+            machine->vram[1] = UINT8_C(0x03);
+            machine->vram[UINT32_C(0x0F00)] = UINT8_C(0xE0);
+            machine->vram[UINT32_C(0x0F01)] = UINT8_C(0x03);
+            memset(&machine->vram[UINT32_C(0x10000) + 1023u * 32u],
+                   UINT8_C(0x11), 32u);
+            machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+            ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x8000));
+            ppu_obj_store_u16(machine->oam, 2u, 0u);
+            ppu_obj_store_u16(machine->oam, 4u, UINT16_C(1023));
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(8)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              UINT16_C(0x03E0)));
             free_machine(machine);
         }
     }
