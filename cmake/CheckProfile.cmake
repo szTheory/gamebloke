@@ -86,7 +86,7 @@ set(GBL_PROFILE_HBLANK_DISPUTE disp-hblank-flag-edge)
 set(GBL_PROFILE_PPU_POLICY_ROWS
   "policy_classification|project-selected|STRING"
   "hardware_qualification|UNKNOWN|STRING"
-  "hardware_source_reference|Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1 and 6.1.3–6.1.5 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)|STRING"
+  "hardware_source_reference|Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5 and 6.1.7 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)|STRING"
   "geometry|240x160 visible pixels, 308 dots per line, 228 lines per frame|STRING"
   "line_cycles|1232|NUMBER"
   "nominal_visible_dot_cycles|960|NUMBER"
@@ -109,8 +109,8 @@ set(GBL_PROFILE_PPU_POLICY_ROWS
   "row_same_cycle_write_policy|PPU sample precedes a bus write completing on the sample cycle|STRING"
   "pixel_format|BGR555 little-endian|STRING"
   "frame_validity|complete coverage of 160 supported rows in one frame epoch, published at line 160|STRING"
-  "supported_controls|mode 3 BG2 bitmap with other BG enable bits ignored, one enabled text BG in mode 0 (BG0-BG3) or mode 1 (BG0/BG1), text scroll, four map dimensions, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled|STRING"
-  "unmodeled_controls|mode-1 affine BG2 and modes 2/4/5, zero or multiple text BGs in modes 0/1, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported text-control encodings|STRING"
+  "supported_controls|mode 3 BG2 bitmap with other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled|STRING"
+  "unmodeled_controls|modes 4/5, zero or multiple enabled background sources in modes 0-2, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported background-control encodings|STRING"
   "interrupt_if_bits|VBlank 0, HBlank 1, VCOUNT-match 2|STRING"
   "blank_dma_eligibility|HBlank on visible lines 0-159, VBlank at the line 160 transition|STRING")
 set(GBL_PROFILE_PPU_RAW_OUTPUT_JSON [=[{"format":"BGR555_LE","width":240,"height":160,"stride_bytes":480,"byte_length":76800}]=])
@@ -127,7 +127,7 @@ set(GBL_PROFILE_PPU_EXPECTED_MODES_JSON [=[
     {"bg":1,"source":"text","dimensions":[{"width":256,"height":256},{"width":512,"height":256},{"width":256,"height":512},{"width":512,"height":512}]},
     {"bg":2,"source":"affine","dimensions":[{"width":128,"height":128},{"width":256,"height":256},{"width":512,"height":512},{"width":1024,"height":1024}]}
   ]},
-  {"mode":2,"implementation_status":"not-implemented","backgrounds":[
+  {"mode":2,"implementation_status":"partial","backgrounds":[
     {"bg":2,"source":"affine","dimensions":[{"width":128,"height":128},{"width":256,"height":256},{"width":512,"height":512},{"width":1024,"height":1024}]},
     {"bg":3,"source":"affine","dimensions":[{"width":128,"height":128},{"width":256,"height":256},{"width":512,"height":512},{"width":1024,"height":1024}]}
   ]},
@@ -1306,9 +1306,9 @@ function(gbl__profile_ppu_policy doc)
   string(JSON policy_version ERROR_VARIABLE version_error GET
     "${doc}" profile_version)
   if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
-      policy_version LESS 11)
+      policy_version LESS 12)
     gbl_finding(profile ppu-policy-value
-      "profile_version: expected 11 or later for PPU capability metadata")
+      "profile_version: expected 12 or later for affine PPU capability metadata")
   endif()
 
   list(LENGTH GBL_PROFILE_PPU_POLICY_ROWS scalar_field_count)
@@ -2313,7 +2313,7 @@ function(gbl__profile_doc_ppu_sync normalized_text profile)
   set(row "| `ppu_policy.display_capabilities.modes[1]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 affine: 128x128, 256x256, 512x512, 1024x1024 |")
   string(REPLACE ";" "\\;" row "${row}")
   list(APPEND capability_rows "${row}")
-  set(row "| `ppu_policy.display_capabilities.modes[2]` | not-implemented | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |")
+  set(row "| `ppu_policy.display_capabilities.modes[2]` | partial | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |")
   string(REPLACE ";" "\\;" row "${row}")
   list(APPEND capability_rows "${row}")
   list(APPEND capability_rows

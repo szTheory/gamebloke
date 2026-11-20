@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 11,
+  "profile_version": 12,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -68,7 +68,7 @@
   "ppu_policy": {
     "policy_classification": "project-selected",
     "hardware_qualification": "UNKNOWN",
-    "hardware_source_reference": "Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1 and 6.1.3–6.1.5 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+    "hardware_source_reference": "Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5 and 6.1.7 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
     "geometry": "240x160 visible pixels, 308 dots per line, 228 lines per frame",
     "line_cycles": 1232,
     "nominal_visible_dot_cycles": 960,
@@ -91,8 +91,8 @@
     "row_same_cycle_write_policy": "PPU sample precedes a bus write completing on the sample cycle",
     "pixel_format": "BGR555 little-endian",
     "frame_validity": "complete coverage of 160 supported rows in one frame epoch, published at line 160",
-    "supported_controls": "mode 3 BG2 bitmap with other BG enable bits ignored, one enabled text BG in mode 0 (BG0-BG3) or mode 1 (BG0/BG1), text scroll, four map dimensions, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled",
-    "unmodeled_controls": "mode-1 affine BG2 and modes 2/4/5, zero or multiple text BGs in modes 0/1, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported text-control encodings",
+    "supported_controls": "mode 3 BG2 bitmap with other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, and effects disabled",
+    "unmodeled_controls": "modes 4/5, zero or multiple enabled background sources in modes 0-2, BG priority/composition, forced blank, OBJ, windows, effects, and unsupported background-control encodings",
     "interrupt_if_bits": "VBlank 0, HBlank 1, VCOUNT-match 2",
     "blank_dma_eligibility": "HBlank on visible lines 0-159, VBlank at the line 160 transition",
     "display_capabilities": {
@@ -126,7 +126,7 @@
         },
         {
           "mode": 2,
-          "implementation_status": "not-implemented",
+          "implementation_status": "partial",
           "backgrounds": [
             {"bg": 2, "source": "affine", "dimensions": [{"width": 128, "height": 128}, {"width": 256, "height": 256}, {"width": 512, "height": 512}, {"width": 1024, "height": 1024}]},
             {"bg": 3, "source": "affine", "dimensions": [{"width": 128, "height": 128}, {"width": 256, "height": 256}, {"width": 512, "height": 512}, {"width": 1024, "height": 1024}]}
