@@ -652,53 +652,21 @@ static void gbl_ppu_affine_advance_hblank(gbl_ppu_affine_state *affine)
                                                     affine->pd);
 }
 
-static bool gbl_ppu_selected_text_bg(uint16_t dispcnt, uint8_t *bg_out)
+static uint8_t gbl_ppu_legal_background_mask(uint16_t mode)
 {
-    const uint16_t mode = (uint16_t)(dispcnt & UINT16_C(0x0007));
-    const uint8_t enabled = (uint8_t)((dispcnt >> 8u) & UINT16_C(0x000F));
-    const uint8_t allowed = mode == 0u ? UINT8_C(0x0F) : UINT8_C(0x03);
-    uint8_t bg;
-    uint8_t selected = UINT8_MAX;
-
-    if ((mode != 0u && mode != 1u) || bg_out == NULL || enabled == 0u ||
-        (enabled & (uint8_t)(enabled - 1u)) != 0u ||
-        (enabled & (uint8_t)~allowed) != 0u) {
-        return false;
+    if (mode == 0u) {
+        return UINT8_C(0x0F);
     }
-    for (bg = 0u; bg < 4u; ++bg) {
-        if ((enabled & (uint8_t)(UINT8_C(1) << bg)) != 0u) {
-            selected = bg;
-            break;
-        }
+    if (mode == 1u) {
+        return UINT8_C(0x07);
     }
-    if (selected == UINT8_MAX) {
-        return false;
+    if (mode == 2u) {
+        return UINT8_C(0x0C);
     }
-    *bg_out = selected;
-    return true;
-}
-
-static bool gbl_ppu_selected_affine_bg(uint16_t dispcnt,
-                                       uint8_t *bg_out)
-{
-    const uint16_t mode = (uint16_t)(dispcnt & UINT16_C(0x0007));
-    const uint8_t enabled = (uint8_t)((dispcnt >> 8u) & UINT16_C(0x000F));
-    const uint8_t allowed = mode == 1u ? UINT8_C(0x04)
-                                       : (mode == 2u ? UINT8_C(0x0C) : 0u);
-    uint8_t bg;
-
-    if (bg_out == NULL || allowed == 0u || enabled == 0u ||
-        (enabled & (uint8_t)(enabled - 1u)) != 0u ||
-        (enabled & (uint8_t)~allowed) != 0u) {
-        return false;
+    if (mode >= 3u && mode <= 5u) {
+        return UINT8_C(0x04);
     }
-    for (bg = 2u; bg < 4u; ++bg) {
-        if ((enabled & (uint8_t)(UINT8_C(1) << bg)) != 0u) {
-            *bg_out = bg;
-            return true;
-        }
-    }
-    return false;
+    return 0u;
 }
 
 static bool gbl_ppu_sample_bg_vram(
@@ -1219,7 +1187,7 @@ static void gbl_ppu_offer_candidate(
     }
 }
 
-static bool gbl_ppu_project_obj_row(
+static bool gbl_ppu_project_composed_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture,
     uint8_t row[GBL_PPU_ROW_BYTES])
@@ -1231,101 +1199,41 @@ static bool gbl_ppu_project_obj_row(
     };
     uint8_t oam_bytes[GBL_OAM_SIZE];
     uint8_t obj_palette[512];
+    uint8_t backdrop_bytes[2];
     uint8_t background_row[GBL_PPU_ROW_BYTES];
     gbl_ppu_bg_sample background_samples[GBL_PPU_WIDTH];
     gbl_ppu_pixel_candidate candidates[GBL_PPU_WIDTH];
     const uint16_t mode = (uint16_t)(capture->dispcnt & UINT16_C(0x0007));
-    uint16_t backdrop_color = 0u;
+    const uint8_t enabled_backgrounds =
+        (uint8_t)((capture->dispcnt >> 8u) & UINT16_C(0x000F));
+    const uint8_t legal_backgrounds = gbl_ppu_legal_background_mask(mode);
+    const bool obj_enabled =
+        (capture->dispcnt & UINT16_C(0x1000)) != 0u;
+    uint16_t backdrop_color;
     uint8_t background;
-    bool has_background = true;
     uint32_t pixel;
     size_t object;
 
     if (gbl_ppu_sample_read(
-            machine, preview, capture, GBL_BUS_REGION_OAM, 0u, 2u,
-            sizeof(oam_bytes), oam_bytes, sizeof(oam_bytes)) !=
-            GBL_PPU_SAMPLE_STATUS_OK ||
-        gbl_ppu_sample_read(
-            machine, preview, capture, GBL_BUS_REGION_PRAM, UINT32_C(0x200),
-            2u, sizeof(obj_palette), obj_palette, sizeof(obj_palette)) !=
-            GBL_PPU_SAMPLE_STATUS_OK) {
+            machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
+            sizeof(backdrop_bytes), backdrop_bytes,
+            sizeof(backdrop_bytes)) != GBL_PPU_SAMPLE_STATUS_OK) {
         return false;
     }
-    if (mode == 0u) {
-        if (gbl_ppu_selected_text_bg(capture->dispcnt, &background)) {
-            if (!gbl_ppu_project_text_row(
-                    machine, preview, capture, background, background_row,
-                    background_samples, &backdrop_color)) {
-                return false;
-            }
-        } else if ((capture->dispcnt & UINT16_C(0x0F00)) == 0u) {
-            has_background = false;
-        } else {
-            return false;
-        }
-    } else if (mode == 1u &&
-               (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
-        if (!gbl_ppu_selected_text_bg(capture->dispcnt, &background) ||
-            !gbl_ppu_project_text_row(
-                machine, preview, capture, background, background_row,
-                background_samples, &backdrop_color)) {
-            return false;
-        }
-    } else if ((mode == 1u || mode == 2u) &&
-               gbl_ppu_selected_affine_bg(capture->dispcnt, &background)) {
-        if (!gbl_ppu_project_affine_row(
-                machine, preview, capture, background, background_row,
-                background_samples)) {
-            return false;
-        }
-        {
-            uint8_t backdrop_bytes[2];
-
-            if (gbl_ppu_sample_read(
-                    machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
-                    sizeof(backdrop_bytes), backdrop_bytes,
-                    sizeof(backdrop_bytes)) != GBL_PPU_SAMPLE_STATUS_OK) {
-                return false;
-            }
-            backdrop_color = gbl_ppu_memory_u16(backdrop_bytes, 0u) &
-                             UINT16_C(0x7FFF);
-        }
-    } else if (mode >= 3u && mode <= 5u) {
-        if (!gbl_ppu_project_bitmap_row(
-                machine, preview, capture, (uint8_t)mode, background_row,
-                background_samples, &backdrop_color)) {
-            return false;
-        }
-    } else {
+    backdrop_color = (uint16_t)(gbl_ppu_memory_u16(backdrop_bytes, 0u) &
+                                UINT16_C(0x7FFF));
+    if (obj_enabled &&
+        (gbl_ppu_sample_read(
+             machine, preview, capture, GBL_BUS_REGION_OAM, 0u, 2u,
+             sizeof(oam_bytes), oam_bytes, sizeof(oam_bytes)) !=
+             GBL_PPU_SAMPLE_STATUS_OK ||
+         gbl_ppu_sample_read(
+             machine, preview, capture, GBL_BUS_REGION_PRAM,
+             UINT32_C(0x200), 2u, sizeof(obj_palette), obj_palette,
+             sizeof(obj_palette)) != GBL_PPU_SAMPLE_STATUS_OK)) {
         return false;
     }
-    if (!has_background) {
-        uint8_t backdrop_bytes[2];
-
-        if (gbl_ppu_sample_read(
-                machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
-                sizeof(backdrop_bytes), backdrop_bytes,
-                sizeof(backdrop_bytes)) != GBL_PPU_SAMPLE_STATUS_OK) {
-            return false;
-        }
-        backdrop_color = (uint16_t)(
-            (uint16_t)backdrop_bytes[0] |
-            (uint16_t)((uint16_t)backdrop_bytes[1] << 8u));
-        backdrop_color &= UINT16_C(0x7FFF);
-        for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
-            background_samples[pixel] = (gbl_ppu_bg_sample){
-                .color = 0u,
-                .color_index = 0u,
-                .background = UINT8_MAX,
-                .priority = UINT8_MAX,
-                .transparent = true
-            };
-        }
-    }
-
     for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
-        const gbl_ppu_bg_sample *sample = &background_samples[pixel];
-
         candidates[pixel] = (gbl_ppu_pixel_candidate){
             .color = backdrop_color,
             .source_index = 0u,
@@ -1334,14 +1242,42 @@ static bool gbl_ppu_project_obj_row(
             .source_id = UINT8_MAX,
             .transparent = false
         };
-        if (!sample->transparent) {
+    }
+
+    for (background = 0u; background < 4u; ++background) {
+        const uint8_t background_bit =
+            (uint8_t)(UINT8_C(1) << background);
+        bool projected = false;
+
+        if ((enabled_backgrounds & legal_backgrounds & background_bit) ==
+            0u) {
+            continue;
+        }
+        if (mode == 0u || (mode == 1u && background < 2u)) {
+            projected = gbl_ppu_project_text_row(
+                machine, preview, capture, background, background_row,
+                background_samples, NULL);
+        } else if ((mode == 1u && background == 2u) || mode == 2u) {
+            projected = gbl_ppu_project_affine_row(
+                machine, preview, capture, background, background_row,
+                background_samples);
+        } else if (mode >= 3u && mode <= 5u && background == 2u) {
+            projected = gbl_ppu_project_bitmap_row(
+                machine, preview, capture, (uint8_t)mode, background_row,
+                background_samples, NULL);
+        }
+        if (!projected) {
+            return false;
+        }
+        for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+            const gbl_ppu_bg_sample *sample = &background_samples[pixel];
             const gbl_ppu_pixel_candidate background_candidate = {
                 .color = sample->color,
                 .source_index = sample->color_index,
                 .layer_class = GBL_PPU_LAYER_CLASS_BG,
                 .priority = sample->priority,
                 .source_id = sample->background,
-                .transparent = false
+                .transparent = sample->transparent
             };
 
             gbl_ppu_offer_candidate(&candidates[pixel],
@@ -1349,7 +1285,7 @@ static bool gbl_ppu_project_obj_row(
         }
     }
 
-    for (object = 0u; object < 128u; ++object) {
+    for (object = 0u; object < (obj_enabled ? 128u : 0u); ++object) {
         const size_t oam_offset = object * 8u;
         const uint16_t attribute0 =
             gbl_ppu_memory_u16(oam_bytes, oam_offset);
@@ -1567,57 +1503,7 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
                                const gbl_ppu_row_capture *capture,
                                uint8_t row[GBL_PPU_ROW_BYTES])
 {
-    const uint16_t mode = (uint16_t)(capture->dispcnt & UINT16_C(0x0007));
-    uint8_t text_background;
-    uint8_t affine_background;
-
-    if ((capture->dispcnt & UINT16_C(0x1000)) != 0u) {
-        return gbl_ppu_project_obj_row(machine, preview, capture, row);
-    }
-    if (mode == 0u) {
-        if (!gbl_ppu_selected_text_bg(capture->dispcnt,
-                                      &text_background)) {
-            return false;
-        }
-        return gbl_ppu_project_text_row(machine, preview, capture,
-                                        text_background, row, NULL, NULL);
-    }
-    if (mode == 1u) {
-        if ((capture->dispcnt & UINT16_C(0x0400)) != 0u) {
-            if (!gbl_ppu_selected_affine_bg(capture->dispcnt,
-                                            &affine_background)) {
-                return false;
-            }
-            return gbl_ppu_project_affine_row(
-                machine, preview, capture, affine_background, row, NULL);
-        }
-        if (!gbl_ppu_selected_text_bg(capture->dispcnt,
-                                      &text_background)) {
-            return false;
-        }
-        return gbl_ppu_project_text_row(machine, preview, capture,
-                                        text_background, row, NULL, NULL);
-    }
-    if (mode == 2u) {
-        if (!gbl_ppu_selected_affine_bg(capture->dispcnt,
-                                        &affine_background)) {
-            return false;
-        }
-        return gbl_ppu_project_affine_row(
-            machine, preview, capture, affine_background, row, NULL);
-    }
-    if (mode >= UINT16_C(3) && mode <= UINT16_C(5) &&
-        (capture->dispcnt & UINT16_C(0x0400)) != 0u) {
-        return gbl_ppu_project_bitmap_row(
-            machine, preview, capture, (uint8_t)mode, row, NULL, NULL);
-    }
-    if (mode < UINT16_C(3) || mode > UINT16_C(5) ||
-        (capture->dispcnt & UINT16_C(0x0400)) == 0u) {
-        gbl_machine_clear_bytes(row, GBL_PPU_ROW_BYTES);
-        return true;
-    }
-    gbl_machine_clear_bytes(row, GBL_PPU_ROW_BYTES);
-    return true;
+    return gbl_ppu_project_composed_row(machine, preview, capture, row);
 }
 
 static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
@@ -1629,10 +1515,6 @@ static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
         mode != UINT16_C(3) && mode != UINT16_C(4) &&
         mode != UINT16_C(5)) {
         return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-    }
-    if (mode >= UINT16_C(3) && mode <= UINT16_C(5) &&
-        (dispcnt & UINT16_C(0x0400)) == 0u) {
-        return GBL_VIDEO_INVALID_REASON_BG2_DISABLED;
     }
     if ((dispcnt & UINT16_C(0x0080)) != 0u) {
         return GBL_VIDEO_INVALID_REASON_FORCED_BLANK;
@@ -1684,10 +1566,14 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
     const gbl_ppu_row_capture *capture)
 {
     const uint16_t mode = (uint16_t)(ppu->dispcnt & UINT16_C(0x0007));
+    const uint8_t enabled_backgrounds =
+        (uint8_t)((ppu->dispcnt >> 8u) & UINT16_C(0x000F));
+    const uint8_t legal_backgrounds = gbl_ppu_legal_background_mask(mode);
     const gbl_video_invalid_reason dispcnt_reason =
         gbl_ppu_dispcnt_invalid_reason(ppu->dispcnt);
     const gbl_video_invalid_reason obj_reason =
         gbl_ppu_obj_control_invalid_reason(machine, preview, ppu, capture);
+    uint8_t background;
 
     if (dispcnt_reason != GBL_VIDEO_INVALID_REASON_NONE) {
         return dispcnt_reason;
@@ -1699,62 +1585,28 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
          GBL_PPU_EFFECT_REGISTER_BYTES_MASK) != 0u) {
         return GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED;
     }
-    if (mode == 0u) {
-        uint8_t background;
+    for (background = 0u; background < 4u; ++background) {
+        const uint8_t background_bit =
+            (uint8_t)(UINT8_C(1) << background);
         uint16_t control;
+        uint16_t unsupported_mask;
 
-        if (!gbl_ppu_selected_text_bg(ppu->dispcnt, &background)) {
-            if ((ppu->dispcnt & UINT16_C(0x1000)) != 0u &&
-                (ppu->dispcnt & UINT16_C(0x0F00)) == 0u) {
-                return GBL_VIDEO_INVALID_REASON_NONE;
-            }
-            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
+        if ((enabled_backgrounds & legal_backgrounds & background_bit) ==
+            0u) {
+            continue;
         }
         control = gbl_ppu_register_u16(
             ppu->bg_register_bytes, (uint32_t)background * 2u);
-        if ((control & GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK) != 0u) {
+        if (mode == 0u || (mode == 1u && background < 2u)) {
+            unsupported_mask = GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK;
+        } else if (mode == 1u || mode == 2u) {
+            unsupported_mask = UINT16_C(0x0070);
+        } else {
+            unsupported_mask = UINT16_C(0x0040);
+        }
+        if ((control & unsupported_mask) != 0u) {
             return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
         }
-        return GBL_VIDEO_INVALID_REASON_NONE;
-    }
-    if (mode == 1u && (ppu->dispcnt & UINT16_C(0x0400)) == 0u) {
-        uint8_t background;
-        uint16_t control;
-
-        if (!gbl_ppu_selected_text_bg(ppu->dispcnt, &background)) {
-            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-        }
-        control = gbl_ppu_register_u16(
-            ppu->bg_register_bytes, (uint32_t)background * 2u);
-        if ((control & GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK) != 0u) {
-            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-        }
-        return GBL_VIDEO_INVALID_REASON_NONE;
-    }
-    if (mode == 1u || mode == 2u) {
-        uint8_t background;
-        uint16_t control;
-
-        if (!gbl_ppu_selected_affine_bg(ppu->dispcnt, &background)) {
-            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-        }
-        control = gbl_ppu_register_u16(
-            ppu->bg_register_bytes, (uint32_t)background * 2u);
-        if ((control & UINT16_C(0x0070)) != 0u) {
-            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-        }
-        return GBL_VIDEO_INVALID_REASON_NONE;
-    }
-    if (mode >= UINT16_C(3) && mode <= UINT16_C(5)) {
-        const uint16_t control = gbl_ppu_register_u16(
-            ppu->bg_register_bytes, UINT32_C(4));
-
-        if ((control & UINT16_C(0x0040)) != 0u) {
-            return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-        }
-        /* The bitmap source consumes BG2's captured matrix and reference.
-         * Other BG enable bits remain inert under this single-source model. */
-        return GBL_VIDEO_INVALID_REASON_NONE;
     }
     return GBL_VIDEO_INVALID_REASON_NONE;
 }

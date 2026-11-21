@@ -3297,7 +3297,8 @@ static int run_ppu_bg_affine(void)
         free_machine(machine);
     }
 
-    /* In affine modes exactly one BG2/BG3 source may be enabled. */
+    /* A legal mode-1 text BG can coexist with affine BG2. The text layer is
+     * transparent at this pixel, so the configured affine sample stays visible. */
     machine = new_machine();
     CHECK(machine != NULL);
     if (machine != NULL) {
@@ -3306,12 +3307,16 @@ static int run_ppu_bg_affine(void)
         machine->dispcnt |= UINT16_C(0x0100);
         machine->ppu.dispcnt = machine->dispcnt;
         CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
-        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
         CHECK(machine->ppu.capture_reason ==
-              GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+              GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          expected));
         free_machine(machine);
     }
 
+    /* Mode-2 affine BG3 is independently projected beside BG2; its default
+     * zero-index tile is transparent and cannot displace the configured BG2. */
     machine = new_machine();
     CHECK(machine != NULL);
     if (machine != NULL) {
@@ -3319,10 +3324,14 @@ static int run_ppu_bg_affine(void)
                                             1u, 1u, expected));
         machine->dispcnt |= UINT16_C(0x0800);
         machine->ppu.dispcnt = machine->dispcnt;
+        ppu_bg_affine_set_transform(machine, 3u, INT16_C(0x0100), 0,
+                                    0, INT16_C(0x0100), 0, 0);
         CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
-        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
         CHECK(machine->ppu.capture_reason ==
-              GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+              GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          expected));
         free_machine(machine);
     }
 
@@ -3652,9 +3661,7 @@ static int run_ppu_bg_controls(void)
         uint16_t extra_enabled;
         uint16_t bg_control_bits;
     } refused[] = {
-        { 0u, 0u, UINT16_C(0x0200), 0u },
         { 1u, 2u, 0u, UINT16_C(0x0010) },
-        { 1u, 0u, UINT16_C(0x0400), 0u },
         { 0u, 0u, 0u, UINT16_C(0x0010) }
     };
 
@@ -3677,6 +3684,63 @@ static int run_ppu_bg_controls(void)
     wrong_frame[GBL_PPU_ROW_BYTES] ^= UINT8_C(1);
     CHECK(!ppu_bg_text_pixel_matches(wrong_frame, 0u, UINT16_C(0x0432)));
     puts("ppu.bg.controls control: wrong expected pixel is rejected; clean semantic companion passes");
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, 2u, 1u, 3u, 0u, true, false));
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              UINT16_C(0x03E0)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        uint8_t text_pixels[64];
+        uint8_t affine_pixels[64];
+        uint16_t dispcnt;
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            memset(text_pixels, 1, sizeof(text_pixels));
+            memset(affine_pixels, 2, sizeof(affine_pixels));
+            CHECK(ppu_bg_text_configure(machine, 1u, 0u, 0u, false,
+                                        0u, 0u, 1u, 0u));
+            CHECK(ppu_bg_text_set_map_entry(machine, 0u, 0u, 0u, 1u));
+            CHECK(ppu_bg_text_fill_tile(machine, 0u, 1u, text_pixels));
+            CHECK(ppu_bg_text_set_color(machine, 1u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_configure(machine, 1u, 2u, 0u, false,
+                                          2u, 1u));
+            CHECK(ppu_bg_affine_set_map_entry(machine, 2u, 0u, 0u, 1u));
+            CHECK(ppu_bg_affine_fill_tile(machine, 2u, 1u, affine_pixels));
+            CHECK(ppu_bg_text_set_color(machine, 2u, UINT16_C(0x03E0)));
+            ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                        0, INT16_C(0x0100), 0, 0);
+            dispcnt = (uint16_t)(machine->dispcnt | UINT16_C(0x0100));
+            machine->dispcnt = dispcnt;
+            machine->ppu.dispcnt = dispcnt;
+            ppu_bg_store_u16(machine->ppu.bg_register_bytes, 0u,
+                             UINT16_C(0x0001));
+            ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u,
+                             (uint16_t)(ppu_bg_text_control(machine, 2u) &
+                                        UINT16_C(0xFFFC)));
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x03E0)));
+            free_machine(machine);
+        }
+    }
 
     for (case_index = 0u;
          case_index < sizeof(refused) / sizeof(refused[0]); ++case_index) {
@@ -5504,12 +5568,6 @@ static int run_ppu_controls(void)
     } unsupported[] = {
         { UINT16_C(0x0406), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
           "mode 6 is unsupported" },
-        { UINT16_C(0x0003), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
-          "missing BG2 is unsupported" },
-        { UINT16_C(0x0004), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
-          "mode-4 BG2 is disabled" },
-        { UINT16_C(0x0005), GBL_VIDEO_INVALID_REASON_BG2_DISABLED,
-          "mode-5 BG2 is disabled" },
         { UINT16_C(0x0483), GBL_VIDEO_INVALID_REASON_FORCED_BLANK,
           "forced blank is unsupported" },
         { UINT16_C(0x2403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
@@ -5561,6 +5619,26 @@ static int run_ppu_controls(void)
                       UINT64_C(197120)) == GBL_TIME_STATUS_OK);
         CHECK(machine->ppu.frame_epoch == 2u);
         CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        free_machine(machine);
+    }
+
+    for (index = 3u; index <= 5u; ++index) {
+        gbl_machine *machine = new_machine();
+        const uint16_t backdrop = UINT16_C(0x4210);
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        machine->dispcnt = (uint16_t)index;
+        machine->ppu.dispcnt = (uint16_t)index;
+        ppu_bg_store_u16(machine->pram, 0u, backdrop);
+        CHECK(gbl_machine_advance_to(
+                  machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                               UINT64_C(160)) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          backdrop));
         free_machine(machine);
     }
 
