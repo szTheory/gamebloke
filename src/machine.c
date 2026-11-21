@@ -3055,7 +3055,6 @@ static gbl_time_status gbl_preview_bus_write(
     bool key_control_written = false;
     bool waitcnt_written = false;
     bool dispstat_written = false;
-    bool dispcnt_written = false;
     uint32_t unsupported_register_bytes =
         preview->ppu.unsupported_register_bytes;
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
@@ -3092,12 +3091,10 @@ static gbl_time_status gbl_preview_bus_write(
             dispcnt = (uint16_t)(
                 (dispcnt & UINT16_C(0xFF00)) |
                 (uint16_t)byte_value);
-            dispcnt_written = true;
         } else if (lane_address == UINT32_C(0x04000001)) {
             dispcnt = (uint16_t)(
                 (dispcnt & UINT16_C(0x00FF)) |
                 (uint16_t)((uint16_t)byte_value << 8u));
-            dispcnt_written = true;
         } else if (lane_address >= UINT32_C(0x04000008) &&
                    lane_address <= UINT32_C(0x0400001F)) {
             const uint32_t register_byte =
@@ -3260,10 +3257,6 @@ static gbl_time_status gbl_preview_bus_write(
         }
     }
     preview->ppu.dispcnt = dispcnt;
-    if (dispcnt_written) {
-        gbl_ppu_invalidate_capture(
-            preview, gbl_ppu_dispcnt_invalid_reason(dispcnt));
-    }
     if (dispstat_written) {
         preview->ppu.dispstat = (uint16_t)(
             (preview->ppu.dispstat & UINT16_C(0x0007)) |

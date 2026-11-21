@@ -10164,11 +10164,84 @@ static int run_ppu_blank(void)
                                    GBL_BUS_CLASS_NONSEQUENTIAL,
                                    UINT16_C(0x0006));
             CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(mode->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(mode->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+            CHECK(gbl_machine_advance_to(mode, line_cycles) ==
+                  GBL_TIME_STATUS_OK);
             CHECK(mode->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
             CHECK(mode->ppu.capture_reason ==
                   GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
             CHECK(mode->ppu.captured_rows == 1u);
             free_machine(mode);
+        }
+    }
+
+    /* Renderer-only mode rejection is decided at the sampled row boundary.
+     * A mode-6 write followed by forced blank before that boundary must not
+     * poison the frame, while a sampled mode-6 row remains sticky-invalid. */
+    {
+        gbl_machine *transition = new_machine();
+        gbl_bus_result result;
+
+        CHECK(transition != NULL);
+        if (transition != NULL) {
+            transition->dispcnt = display;
+            transition->ppu.dispcnt = display;
+            CHECK(gbl_machine_advance_to(transition, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(transition->ppu.captured_rows == 1u);
+            CHECK(transition->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INCOMPLETE);
+
+            result = gbl_bus_write(transition, UINT32_C(0x04000000), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x0006));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(transition->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(transition->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+            result = gbl_bus_write(transition, UINT32_C(0x04000000), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x0086));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(gbl_machine_advance_to(transition, line_cycles) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(transition->ppu.captured_rows == 2u);
+            CHECK(transition->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(transition->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+            CHECK(ppu_row_is_white(transition, 1u));
+
+            result = gbl_bus_write(transition, UINT32_C(0x04000000), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x0006));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(gbl_machine_advance_to(
+                      transition, line_cycles * UINT64_C(2)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(transition->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(transition->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+            CHECK(transition->ppu.captured_rows == 2u);
+
+            result = gbl_bus_write(transition, UINT32_C(0x04000000), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x0086));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(gbl_machine_advance_to(
+                      transition, line_cycles * UINT64_C(3)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(transition->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(transition->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+            CHECK(transition->ppu.captured_rows == 2u);
+            free_machine(transition);
         }
     }
 

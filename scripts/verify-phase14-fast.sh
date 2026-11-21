@@ -127,17 +127,7 @@ run_gate order
 preflight_end=$(now)
 
 build_start=$(now)
-set --
-if [ ! -x "$bin_dir/bus_test" ] && [ ! -x "$bin_dir/bus_test.exe" ]; then
-  set -- "$@" bus_test
-fi
-if [ ! -x "$bin_dir/determinism_test" ] &&
-    [ ! -x "$bin_dir/determinism_test.exe" ]; then
-  set -- "$@" determinism_test
-fi
-if [ "$#" -gt 0 ]; then
-  cmake --build "$bin_dir" --target "$@"
-fi
+cmake --build "$bin_dir" --target bus_test determinism_test
 if { [ ! -x "$bin_dir/bus_test" ] && [ ! -x "$bin_dir/bus_test.exe" ]; } ||
     { [ ! -x "$bin_dir/determinism_test" ] &&
       [ ! -x "$bin_dir/determinism_test.exe" ]; }; then

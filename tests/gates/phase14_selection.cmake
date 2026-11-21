@@ -343,6 +343,18 @@ function(gbl_phase14_validate_location_and_state json index reason_out)
     set(${reason_out} disabled PARENT_SCOPE)
     return()
   endif()
+  gbl_phase14_json_property("${json}" ${index} PASS_REGULAR_EXPRESSION
+    pass_expression has_pass_expression)
+  if(has_pass_expression)
+    set(${reason_out} pass-regex PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase14_json_property("${json}" ${index} WILL_FAIL will_fail
+    has_will_fail)
+  if(has_will_fail AND will_fail)
+    set(${reason_out} will-fail PARENT_SCOPE)
+    return()
+  endif()
   set(${reason_out} "" PARENT_SCOPE)
 endfunction()
 
@@ -804,6 +816,30 @@ function(gbl_phase14_check_controls scratch_root)
     message(FATAL_ERROR
       "phase14-selection-control: skip-not-causal-${skip_reason}")
   endif()
+  string(JSON test_json GET "${clean_json}" tests ${tracer_index})
+  string(JSON property_count LENGTH "${test_json}" properties)
+  string(JSON test_json SET "${test_json}" properties ${property_count}
+    "{\"name\":\"PASS_REGULAR_EXPRESSION\",\"value\":[\"pass\"]}")
+  set(pass_regex_json "${clean_json}")
+  string(JSON pass_regex_json SET "${pass_regex_json}" tests ${tracer_index} "${test_json}")
+  gbl_phase14_validate_selection("${pass_regex_json}" pass_regex_reason)
+  if(NOT pass_regex_reason STREQUAL "pass-regex")
+    message(FATAL_ERROR
+      "phase14-selection-control: pass-regex-not-causal-${pass_regex_reason}")
+  endif()
+
+  string(JSON test_json GET "${clean_json}" tests ${tracer_index})
+  string(JSON property_count LENGTH "${test_json}" properties)
+  string(JSON test_json SET "${test_json}" properties ${property_count}
+    "{\"name\":\"WILL_FAIL\",\"value\":true}")
+  set(will_fail_json "${clean_json}")
+  string(JSON will_fail_json SET "${will_fail_json}" tests ${tracer_index} "${test_json}")
+  gbl_phase14_validate_selection("${will_fail_json}" will_fail_reason)
+  if(NOT will_fail_reason STREQUAL "will-fail")
+    message(FATAL_ERROR
+      "phase14-selection-control: will-fail-not-causal-${will_fail_reason}")
+  endif()
+
   string(JSON test_json GET "${clean_json}" tests ${tracer_index})
   string(JSON property_count LENGTH "${test_json}" properties)
   string(JSON test_json SET "${test_json}" properties ${property_count}
