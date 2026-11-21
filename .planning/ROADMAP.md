@@ -169,7 +169,12 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
   3. A bounded scenario through the real production bus and runner reports guest progress, machine cycles, raw pixels, and result metadata separately, with complete-frame status and failure-atomic refusal behavior visible.
   4. Fresh, split-run, reset, and interleaved-instance executions reproduce expected semantic pixels and raw output without shared mutable PPU state.
   5. Actual result metadata identifies the exact profile, no-BIOS/ROM-only scope, selected access/sampling policies, and unresolved evidence limits without claiming hardware qualification or broad retail compatibility.
-**Plans**: TBD
+**Plans**: 1/5 plans executed
+- [x] 15-01-PLAN.md
+- [ ] 15-02-PLAN.md
+- [ ] 15-03-PLAN.md
+- [ ] 15-04-PLAN.md
+- [ ] 15-05-PLAN.md
 
 ## Verification and Delivery Constraints
 
@@ -191,7 +196,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 | 12. Background Modes 0–5 | 8/8 | Complete    | 2026-11-20 |
 | 13. Objects and Layer Priorities | 8/8 | Complete    | 2026-11-21 |
 | 14. Windows and Display Effects | 11/11 | Complete | 2026-11-21 |
-| 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
+| 15. Production Access and Runner Evidence | 1/5 | In Progress | - |
 
 **Coverage:** 18/18 current v3.0 requirements assigned exactly once in
 [REQUIREMENTS.md](REQUIREMENTS.md#traceability). No orphan or duplicate assignments.

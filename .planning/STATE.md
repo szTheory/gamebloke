@@ -4,18 +4,18 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 15
 current_phase_name: Production Access and Runner Evidence
-current_plan: 11 of 11
+current_plan: 2
 status: executing
-stopped_at: Phase 15 context gathered
-last_updated: "2026-11-21T19:37:00.348Z"
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-11-21T20:15:21.614Z"
 last_activity: 2026-11-21
-last_activity_desc: Phase 14 execution started
-state_head: 8a8b8d63dd1a2ef6b4a45514f4cbe4f3c4304bc6
+last_activity_desc: Phase 15 execution started
+state_head: 179f22746fc72ab02ad87a3c913d9cef7222c46a
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 40
-  completed_plans: 35
+  completed_plans: 36
   percent: 80
 ---
 
@@ -27,15 +27,15 @@ See: .planning/PROJECT.md (updated 2026-11-21)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v3.0 PPU Modes and Composition (a GSD milestone label, not a software version)
-**Current focus:** Phase 14 — Windows and Display Effects
+**Current focus:** Phase 15 — Production Access and Runner Evidence
 
 ## Current Position
 
-Phase: 15 (Production Access and Runner Evidence) — READY TO EXECUTE
-Current Plan: 11 of 11
+Phase: 15 (Production Access and Runner Evidence) — EXECUTING
+Current Plan: 2
 Total Plans in Phase: 5
 Status: Ready to execute
-Last activity: 2026-11-21 — Phase 14 execution started
+Last activity: 2026-11-21 — Phase 15 execution started
 
 Progress: [████████░░] 80% (current milestone)
 
@@ -190,6 +190,7 @@ Progress: [████████░░] 80% (current milestone)
 | Phase 13 P06 | 61m | 2 tasks | 7 files |
 | Phase 13 P07 | 41min | 2 tasks | 7 files |
 | Phase 13 P08 | 39min minimum | 2 tasks | 14 files |
+| Phase 15 P01 | not measured | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -509,6 +510,8 @@ Recent decisions affecting current work:
 - [Phase 13]: Use independent semantic pixels and causal wrong-color/wrong-selection controls as correctness evidence; hashes are supplemental repeatability data.
 - [Phase 13]: Keep two-worker CTest and run the shared profile checks once in the inherited same-build closure; remove no quality gates.
 - [Phase 13]: Describe modes 0–5 and OBJ composition as partial software support with hardware qualification UNKNOWN; BG2-disabled mode 3 may emit valid backdrop-only output.
+- [Phase 15]: Keep semantic mailbox PASS distinct from the expected top-level GUEST_STOP for unregistered source-generated content.
+- [Phase 15]: Keep the runner result schema unchanged; named row-sample and event-before-write claims remain profile and source-test evidence.
 
 ### Pending Todos
 
@@ -560,9 +563,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-21T18:59:33.312Z
-Stopped at: Phase 15 context gathered
-Resume file: .planning/phases/15-production-access-and-runner-evidence/15-CONTEXT.md
+Last session: 2026-11-21T20:15:21.280Z
+Stopped at: Completed 15-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
