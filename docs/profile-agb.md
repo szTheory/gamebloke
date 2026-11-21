@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 13
+profile_version: 14
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -94,7 +94,7 @@ not qualify the PPU against hardware.
 | --- | --- |
 | `ppu_policy.policy_classification` | project-selected |
 | `ppu_policy.hardware_qualification` | UNKNOWN |
-| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5 and 6.1.7 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5, 6.1.7, 6.3.1–6.3.4 and 6.4, printed pp. 58–72 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
 | `ppu_policy.geometry` | 240x160 visible pixels, 308 dots per line, 228 lines per frame |
 | `ppu_policy.line_cycles` | 1232 |
 | `ppu_policy.nominal_visible_dot_cycles` | 960 |
@@ -117,10 +117,79 @@ not qualify the PPU against hardware.
 | `ppu_policy.row_same_cycle_write_policy` | PPU sample precedes a bus write completing on the sample cycle |
 | `ppu_policy.pixel_format` | BGR555 little-endian |
 | `ppu_policy.frame_validity` | complete coverage of 160 supported rows in one frame epoch, published at line 160 |
-| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, effects, and mosaic disabled |
-| `ppu_policy.unmodeled_controls` | zero or multiple enabled background sources in modes 0-2, BG2 disabled in modes 3-5, BG priority/composition, forced blank, OBJ, windows, effects, mosaic, and unsupported background-control encodings |
+| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition |
+| `ppu_policy.unmodeled_controls` | forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings |
 | `ppu_policy.interrupt_if_bits` | VBlank 0, HBlank 1, VCOUNT-match 2 |
 | `ppu_policy.blank_dma_eligibility` | HBlank on visible lines 0-159, VBlank at the line 160 transition |
+
+## PPU object policy
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.object_policy.regular_shapes` | square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64 |
+| `ppu_policy.object_policy.character_windows` | modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read |
+| `ppu_policy.object_policy.index_zero_transparency` | true |
+| `ppu_policy.object_policy.affine_quantization` | signed-8.8;wide-products;floor-by-256 |
+| `ppu_policy.object_policy.affine_field` | centered;double-size-destination-only;out-of-source-transparent |
+| `ppu_policy.object_policy.coordinate_wrap` | x-modulo-512;y-modulo-256;clip-240x160 |
+| `ppu_policy.object_policy.unsupported_modes` | prohibited;semitransparent;obj-window;mosaic |
+| `ppu_policy.object_policy.work_budget_units` | 1226 |
+| `ppu_policy.object_policy.regular_cost` | source-width |
+| `ppu_policy.object_policy.affine_cost` | 10+2*destination-field-width |
+| `ppu_policy.object_policy.eligibility` | enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund |
+| `ppu_policy.object_policy.admission_order` | ascending-oam;full-cost-fit;stop-at-first-nonfit |
+| `ppu_policy.object_policy.overflow_policy` | valid-partial-scene;omit-all-later-eligible |
+| `ppu_policy.object_policy.observation_scope` | internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api |
+
+D-01 supports normal regular shapes and sizes, horizontal and vertical flips,
+4bpp and 8bpp palettes, and 1D and 2D character mappings. D-02 confines tile
+reads to the mode-dependent physical character window and validates a complete
+tile span before any sampled-memory read. D-03 makes source index zero
+transparent; palette-resolved black remains opaque. D-04 wraps OAM coordinates
+then clips to 240x160 and refuses prohibited or Phase 14 OBJ controls
+deterministically. The manual source for OBJ formats and addressing is cited
+by section and page only; this profile does not reproduce its wording.
+[Nintendo AGB Programming Manual v1.1 §§6.3.1–6.3.3, printed pp. 58–69](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+D-05 uses signed 8.8 matrix values, wide integer products, and mathematical
+floor division by 256 as Gamebloke policy. D-06 centers affine sampling in the
+destination field; double-size expands only that field, and source coordinates
+outside the object are transparent. D-07 is covered by semantic vectors for
+shape and mapping selectors, matrix transforms, clipping, physical tile bounds,
+palette transparency, opaque black, and wrong-pixel controls. These are
+deterministic software rules, not hardware measurements.
+[Nintendo AGB Programming Manual v1.1 §6.3.4, printed pp. 70–71](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+D-11 sets a fixed budget of 1,226 abstract work units per visible row. It does
+not alter master cycles, HBlank duration, or the event schedule. D-12 charges
+regular objects by source width and affine objects by 10 plus twice their
+destination-field width. Only enabled supported objects whose vertical field
+intersects the row are eligible; horizontal clipping and transparent texels do
+not refund work. D-13 scans eligible entries in ascending OAM order, admits
+only a full-cost fit, stops at the first non-fit, and records selected, omitted,
+and used-work values through an internal row-capture seam without defining a
+stable public C API. D-14 overflow preserves valid partial-scene output and
+omits all later eligible objects. The work budget and admission behavior are
+project policy; silicon cost and exhaustion behavior remain unknown.
+[Nintendo AGB Programming Manual v1.1 §6.3.1, printed pp. 58–59](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+## PPU composition policy
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.composition_policy.priority_order` | ascending-numeric-0-3 |
+| `ppu_policy.composition_policy.bg_tie` | lower-bg-number |
+| `ppu_policy.composition_policy.obj_tie` | lower-oam-index |
+| `ppu_policy.composition_policy.obj_bg_tie` | obj-in-front-project-policy |
+| `ppu_policy.composition_policy.backdrop` | pram-color-zero;behind-all-enabled-opaque-candidates |
+
+D-08 gives lower numeric priority precedence, then uses the lower BG number or
+lower OAM index within the same class. D-09 selects OBJ in front of BG for an
+equal-priority cross-class tie as deterministic Gamebloke policy. D-10 keeps
+ascending-OAM admission separate from per-pixel priority composition. The
+manual's reversed-OAM-order/priority OBJ-BG sandwich remains a semantic case;
+its outcome does not establish a silicon comparator or hardware ordering.
+[Nintendo AGB Programming Manual v1.1 §6.4, printed p. 72](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
 
 ## PPU display capabilities
 
@@ -133,9 +202,9 @@ described in §§5.1.1 and 6.1.3–6.1.5. Bitmap formats and page layouts are
 described in §§6.2.1–6.2.4, and palette behavior in §7.1. [Nintendo AGB
 Programming Manual v1.1 §§5.1.1, 6.1.3–6.1.5, 6.2.1–6.2.4, and 7.1](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
 
-Modes 0, 1, and 2 currently render exactly one enabled background source per
-sampled row. Mode 0 admits text BG0–BG3; mode 1 admits text BG0/BG1 or affine
-BG2; mode 2 admits affine BG2/BG3. The text subset uses the four listed map
+Modes 0, 1, and 2 render any enabled supported background sources per sampled
+row. Mode 0 admits text BG0–BG3; mode 1 admits text BG0/BG1 or affine BG2;
+mode 2 admits affine BG2/BG3. The text subset uses the four listed map
 extents, scrolling, tile flips, 4bpp/8bpp selection, tile and palette selection,
 and transparent color-index samples resolved to the declared backdrop in raw
 output. The affine subset uses the listed square map extents and sampled VRAM,
@@ -157,11 +226,13 @@ black. The manual documents bitmap formats, extents, and pages in §§6.2.1–6.
 Mode-4 index-zero transparency follows secondary-source evidence as selected
 project policy. The explicit rounding/overflow behavior above is software policy,
 not a hardware measurement.
-Source lookups use canonical sampled video memory. Priority composition remains
-unmodeled. Zero or multiple enabled background sources in modes 0–2, disabled
-BG2 in modes 3–5, and enabled unsupported non-background controls retain
-deterministic frame invalidation behavior. Hardware qualification remains
-UNKNOWN.
+Background, normal regular/affine OBJ, and backdrop samples use the same
+captured row state and canonical sampled video memory. The shared compositor
+preserves transparency and source identity until priority selection. Forced
+blank, windows, effects, mosaic, and unsupported OBJ controls remain outside
+the supported subset; enabling unsupported controls retains deterministic
+frame invalidation behavior. All six display modes remain `partial`, and PPU
+hardware qualification remains `UNKNOWN`.
 
 | Mode | Implementation status | Background sources and dimensions |
 | --- | --- | --- |
@@ -741,7 +812,7 @@ must not claim the behavior of anything in this table.
 | `waitcnt` | Documented wait choices drive contextual ROM beat quotes, but hardware qualification remains UNKNOWN and the 128 KiB mapping has secondary provenance. |
 | `bus-costs` | Non-ROM values remain project-selected and all modeled bus costs remain hardware-unqualified. |
 | `hblank-flag-edge` | Hardware timing for the HBlank flag change remains unknown and disputed under disp-hblank-flag-edge; the selected 1,006-cycle model event is in ppu_policy and is not a hardware resolution. |
-| `ppu` | The deterministic timing, status, and supported mode-3 subset is in ppu_policy; other video modes and listed controls remain unsupported, and no PPU hardware qualification is claimed. |
+| `ppu` | The deterministic partial mode, normal OBJ, and composition subset is described in `ppu_policy`; hardware qualification remains UNKNOWN, and windows, effects, mosaic, forced blank, and unsupported object controls remain unmodeled. |
 | `audio` | Sound. |
 | `dma` | The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled. |
 | `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |

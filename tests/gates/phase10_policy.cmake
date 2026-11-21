@@ -216,6 +216,13 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
     return()
   endif()
 
+  gbl_phase10_expect_value(reason "${profile_json}" profile-version NUMBER 14
+    profile_version)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+
   gbl_phase10_expect_value(reason "${profile_json}" policy-classification STRING project-selected ppu_policy policy_classification)
   if(NOT "${reason}" STREQUAL "")
     set(${out_reason} "${reason}" PARENT_SCOPE)
@@ -224,6 +231,71 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
   gbl_phase10_expect_value(reason "${profile_json}" qualification-claim STRING UNKNOWN ppu_policy hardware_qualification)
   if(NOT "${reason}" STREQUAL "")
     set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_json_type(object_policy_type "${profile_json}"
+    ppu_policy object_policy)
+  if(NOT "${object_policy_type}" STREQUAL "OBJECT")
+    set(${out_reason} "object-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON object_policy_fields LENGTH "${profile_json}"
+    ppu_policy object_policy)
+  if(NOT object_policy_fields EQUAL 14)
+    set(${out_reason} "object-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_object_policy [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited;semitransparent;obj-window;mosaic","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
+  string(JSON actual_object_policy GET "${profile_json}"
+    ppu_policy object_policy)
+  string(JSON object_policy_matches EQUAL
+    "${actual_object_policy}" "${expected_object_policy}")
+  if(NOT object_policy_matches)
+    set(${out_reason} "object-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_json_type(composition_policy_type "${profile_json}"
+    ppu_policy composition_policy)
+  if(NOT "${composition_policy_type}" STREQUAL "OBJECT")
+    set(${out_reason} "composition-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON composition_policy_fields LENGTH "${profile_json}"
+    ppu_policy composition_policy)
+  if(NOT composition_policy_fields EQUAL 5)
+    set(${out_reason} "composition-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_composition_policy [=[{"priority_order":"ascending-numeric-0-3","bg_tie":"lower-bg-number","obj_tie":"lower-oam-index","obj_bg_tie":"obj-in-front-project-policy","backdrop":"pram-color-zero;behind-all-enabled-opaque-candidates"}]=])
+  string(JSON actual_composition_policy GET "${profile_json}"
+    ppu_policy composition_policy)
+  string(JSON composition_policy_matches EQUAL
+    "${actual_composition_policy}" "${expected_composition_policy}")
+  if(NOT composition_policy_matches)
+    set(${out_reason} "composition-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+
+  foreach(mode RANGE 0 5)
+    gbl_phase10_expect_value(reason "${profile_json}" capability-status STRING
+      partial ppu_policy display_capabilities modes ${mode} implementation_status)
+    if(NOT "${reason}" STREQUAL "")
+      set(${out_reason} "${reason}" PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+
+  gbl_phase10_json(supported_controls "${profile_json}"
+    ppu_policy supported_controls)
+  gbl_phase10_json(unmodeled_controls "${profile_json}"
+    ppu_policy unmodeled_controls)
+  if("${supported_controls}" MATCHES "exactly one enabled background|BG2 disabled in modes 3-5|BG priority/composition|OBJ disabled" OR
+     NOT "${supported_controls}" MATCHES "regular and affine OBJ rendering" OR
+     NOT "${supported_controls}" MATCHES "shared BG/OBJ/backdrop priority composition" OR
+     "${unmodeled_controls}" MATCHES "zero or multiple enabled background sources|BG2 disabled in modes 3-5|BG priority/composition, forced blank, OBJ")
+    set(${out_reason} "support-exclusions" PARENT_SCOPE)
     return()
   endif()
   gbl_phase10_expect_value(reason "${profile_json}" line-cycle-policy NUMBER 1232 ppu_policy line_cycles)
@@ -515,7 +587,26 @@ if(NOT CASE STREQUAL "verify")
   gbl_phase10_control(stale-document ppu-policy-doc doc
     "| `ppu_policy.row_sample_point` | visible-line-start |"
     replace "| `ppu_policy.row_sample_point` | after-line-end |")
-  message(STATUS "phase10-policy: eleven causal controls and clean twins passed")
+  gbl_phase10_control(object-work-budget object-policy-value profile
+    ppu_policy.object_policy.work_budget_units set 1225)
+  gbl_phase10_control(object-admission object-policy-value profile
+    ppu_policy.object_policy.admission_order set [=["ascending-oam;continue-after-nonfit"]=])
+  gbl_phase10_control(object-regular-charge object-policy-value profile
+    ppu_policy.object_policy.regular_cost set [=["pixel-count"]=])
+  gbl_phase10_control(object-affine-charge object-policy-value profile
+    ppu_policy.object_policy.affine_cost set [=["source-width"]=])
+  gbl_phase10_control(composition-tie composition-policy-value profile
+    ppu_policy.composition_policy.obj_bg_tie set [=["bg-in-front-project-policy"]=])
+  gbl_phase10_control(capability-complete capability-status profile
+    ppu_policy.display_capabilities.modes.0.implementation_status set [=["complete"]=])
+  gbl_phase10_control(qualification-removed qualification-claim profile
+    ppu_policy.hardware_qualification remove "")
+  gbl_phase10_control(stale-support support-exclusions profile
+    ppu_policy.supported_controls set [=["exactly one enabled background;OBJ disabled"]=])
+  gbl_phase10_control(stale-object-document ppu-object-policy-doc doc
+    "| `ppu_policy.object_policy.work_budget_units` | 1226 |"
+    replace "| `ppu_policy.object_policy.work_budget_units` | 1225 |")
+  message(STATUS "phase10-policy: PPU policy controls and clean twins passed")
 endif()
 
 gbl_phase10_assert_authority_unchanged()

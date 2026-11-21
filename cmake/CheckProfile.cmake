@@ -33,6 +33,11 @@
 #   ppu-policy-value      a selected PPU policy value, provenance, dispute, or
 #                          hardware qualification differs from its contract
 #   ppu-policy-doc        the PPU policy table is absent, stale, duplicated, or malformed
+#   ppu-object-policy-value the exact object support/work policy has a missing, extra,
+#                          mistyped, or altered field
+#   ppu-object-policy-doc the canonical object-policy table is stale or malformed
+#   ppu-composition-policy-value the exact layer-order/tie policy is wrong
+#   ppu-composition-policy-doc the canonical composition-policy table is stale or malformed
 #   ppu-capability-value  display capability shape, source layout, dimensions,
 #                         implementation status, or raw-output geometry is wrong
 #   ppu-capability-doc    the display capability or raw-output narrative is stale
@@ -86,7 +91,7 @@ set(GBL_PROFILE_HBLANK_DISPUTE disp-hblank-flag-edge)
 set(GBL_PROFILE_PPU_POLICY_ROWS
   "policy_classification|project-selected|STRING"
   "hardware_qualification|UNKNOWN|STRING"
-  "hardware_source_reference|Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5 and 6.1.7 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)|STRING"
+  "hardware_source_reference|Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5, 6.1.7, 6.3.1–6.3.4 and 6.4, printed pp. 58–72 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)|STRING"
   "geometry|240x160 visible pixels, 308 dots per line, 228 lines per frame|STRING"
   "line_cycles|1232|NUMBER"
   "nominal_visible_dot_cycles|960|NUMBER"
@@ -109,10 +114,18 @@ set(GBL_PROFILE_PPU_POLICY_ROWS
   "row_same_cycle_write_policy|PPU sample precedes a bus write completing on the sample cycle|STRING"
   "pixel_format|BGR555 little-endian|STRING"
   "frame_validity|complete coverage of 160 supported rows in one frame epoch, published at line 160|STRING"
-  "supported_controls|mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, effects, and mosaic disabled|STRING"
-  "unmodeled_controls|zero or multiple enabled background sources in modes 0-2, BG2 disabled in modes 3-5, BG priority/composition, forced blank, OBJ, windows, effects, mosaic, and unsupported background-control encodings|STRING"
+  "supported_controls|mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition|STRING"
+  "unmodeled_controls|forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings|STRING"
   "interrupt_if_bits|VBlank 0, HBlank 1, VCOUNT-match 2|STRING"
   "blank_dma_eligibility|HBlank on visible lines 0-159, VBlank at the line 160 transition|STRING")
+set(GBL_PROFILE_PPU_OBJECT_POLICY_JSON [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited;semitransparent;obj-window;mosaic","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
+set(GBL_PROFILE_PPU_OBJECT_POLICY_FIELDS
+  regular_shapes character_windows index_zero_transparency affine_quantization
+  affine_field coordinate_wrap unsupported_modes work_budget_units regular_cost
+  affine_cost eligibility admission_order overflow_policy observation_scope)
+set(GBL_PROFILE_PPU_COMPOSITION_POLICY_JSON [=[{"priority_order":"ascending-numeric-0-3","bg_tie":"lower-bg-number","obj_tie":"lower-oam-index","obj_bg_tie":"obj-in-front-project-policy","backdrop":"pram-color-zero;behind-all-enabled-opaque-candidates"}]=])
+set(GBL_PROFILE_PPU_COMPOSITION_POLICY_FIELDS
+  priority_order bg_tie obj_tie obj_bg_tie backdrop)
 set(GBL_PROFILE_PPU_RAW_OUTPUT_JSON [=[{"format":"BGR555_LE","width":240,"height":160,"stride_bytes":480,"byte_length":76800}]=])
 set(GBL_PROFILE_PPU_EXPECTED_MODES_JSON [=[
 [
@@ -1306,13 +1319,13 @@ function(gbl__profile_ppu_policy doc)
   string(JSON policy_version ERROR_VARIABLE version_error GET
     "${doc}" profile_version)
   if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
-      policy_version LESS 12)
+      policy_version LESS 14)
     gbl_finding(profile ppu-policy-value
-      "profile_version: expected 12 or later for affine and bitmap PPU capability metadata")
+      "profile_version: expected 14 or later for object and composition capability metadata")
   endif()
 
   list(LENGTH GBL_PROFILE_PPU_POLICY_ROWS scalar_field_count)
-  math(EXPR expected_field_count "${scalar_field_count}+2")
+  math(EXPR expected_field_count "${scalar_field_count}+4")
   string(JSON actual_field_count LENGTH "${doc}" ppu_policy)
   if(NOT actual_field_count EQUAL expected_field_count)
     gbl_finding(profile ppu-policy-value
@@ -1344,8 +1357,55 @@ function(gbl__profile_ppu_policy doc)
 
   gbl__profile_dispute("${doc}" "ppu_policy.hblank_dispute"
     ppu_policy hblank_dispute)
+  gbl__profile_ppu_policy_object("${doc}" object_policy
+    ppu-object-policy-value "${GBL_PROFILE_PPU_OBJECT_POLICY_JSON}"
+    ${GBL_PROFILE_PPU_OBJECT_POLICY_FIELDS})
+  gbl__profile_ppu_policy_object("${doc}" composition_policy
+    ppu-composition-policy-value "${GBL_PROFILE_PPU_COMPOSITION_POLICY_JSON}"
+    ${GBL_PROFILE_PPU_COMPOSITION_POLICY_FIELDS})
   gbl__profile_ppu_display_capabilities("${doc}")
   gbl__profile_ppu_video_memory_access("${doc}")
+endfunction()
+
+# Each nested policy is an exact, typed contract. Compare individual fields to
+# the canonical JSON so a bad value reports the causal path, while the count
+# rejects missing and unexpected fields.
+function(gbl__profile_ppu_policy_object doc object_key code expected_json)
+  set(path "ppu_policy.${object_key}")
+  gbl_json_type(actual_type "${doc}" ppu_policy "${object_key}")
+  if(NOT "${actual_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ${code}
+      "${path}: expected OBJECT, found ${actual_type}")
+    return()
+  endif()
+
+  string(JSON expected_count LENGTH "${expected_json}")
+  string(JSON actual_count LENGTH "${doc}" ppu_policy "${object_key}")
+  if(NOT actual_count EQUAL expected_count)
+    gbl_finding(profile ${code}
+      "${path}: expected ${expected_count} fields, found ${actual_count}")
+  endif()
+
+  foreach(field IN LISTS ARGN)
+    string(JSON expected_type TYPE "${expected_json}" "${field}")
+    string(JSON expected_value GET "${expected_json}" "${field}")
+    gbl_json_type(actual_field_type "${doc}" ppu_policy "${object_key}" "${field}")
+    if(NOT "${actual_field_type}" STREQUAL "${expected_type}")
+      gbl_finding(profile ${code}
+        "${path}.${field}: expected ${expected_type}, found ${actual_field_type}")
+      continue()
+    endif()
+
+    string(JSON actual_value ERROR_VARIABLE value_error GET
+      "${doc}" ppu_policy "${object_key}" "${field}")
+    if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+        NOT "${value_error}" STREQUAL "")
+      gbl_finding(profile ${code} "${path}.${field}: unreadable value")
+    elseif(NOT "${actual_value}" STREQUAL "${expected_value}")
+      gbl_finding(profile ${code}
+        "${path}.${field}: expected ${expected_value}")
+    endif()
+  endforeach()
 endfunction()
 
 # The CPU/DMA × PRAM/VRAM/OAM × state product shares one selected availability
@@ -2127,6 +2187,36 @@ function(gbl__profile_doc_policy_table normalized_text heading prefix expected_c
   endforeach()
 endfunction()
 
+# Compare a small policy table as a string so semicolons in canonical values
+# remain part of a cell instead of becoming CMake list separators.
+function(gbl__profile_doc_exact_policy_table normalized_text heading prefix
+    expected_table finding_code)
+  string(FIND "${normalized_text}" "\n${heading}\n" heading_at)
+  if(heading_at EQUAL -1)
+    gbl_finding(profile "${finding_code}" "missing ${heading} section")
+    return()
+  endif()
+  string(LENGTH "\n${heading}\n" heading_length)
+  math(EXPR section_start "${heading_at}+${heading_length}")
+  string(SUBSTRING "${normalized_text}" ${section_start} -1 section)
+  string(REGEX MATCH "\n#+[ \t]" next_heading "${section}")
+  if(NOT "${next_heading}" STREQUAL "")
+    string(FIND "${section}" "${next_heading}" next_heading_at)
+    string(SUBSTRING "${section}" 0 ${next_heading_at} section)
+  endif()
+  gbl__profile_doc_first_table(table "${section}" "${prefix}"
+    "Setting;Value")
+  if("${table}" STREQUAL "")
+    gbl_finding(profile "${finding_code}" "${prefix}: missing policy table")
+    return()
+  endif()
+  string(STRIP "${table}" actual_table)
+  string(STRIP "${expected_table}" expected_table)
+  if(NOT "${actual_table}" STREQUAL "${expected_table}")
+    gbl_finding(profile "${finding_code}" "${prefix}: missing or stale row")
+  endif()
+endfunction()
+
 function(gbl__profile_doc_timing_sync normalized_text profile)
   foreach(heading IN ITEMS "## Timing model scope" "## Timing model costs"
       "## WAITCNT policy" "## DMA policy"
@@ -2305,6 +2395,52 @@ function(gbl__profile_doc_ppu_sync normalized_text profile)
   gbl__profile_doc_policy_table("${normalized_text}"
     "## PPU behavior policy" ppu_policy ${ppu_count} ppu_rows
     "Setting;Value" ppu-policy-doc 2)
+
+  set(object_policy_table "| Setting | Value |\n| --- | --- |\n")
+  foreach(key IN LISTS GBL_PROFILE_PPU_OBJECT_POLICY_FIELDS)
+    gbl_json_type(value_type "${profile}" ppu_policy object_policy "${key}")
+    if("${value_type}" STREQUAL "MISSING")
+      set(value "<missing>")
+    else()
+      string(JSON value ERROR_VARIABLE value_error GET
+        "${profile}" ppu_policy object_policy "${key}")
+      if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+          NOT "${value_error}" STREQUAL "")
+        set(value "<invalid>")
+      elseif("${value_type}" STREQUAL "BOOLEAN")
+        if(value)
+          set(value true)
+        else()
+          set(value false)
+        endif()
+      endif()
+    endif()
+    string(APPEND object_policy_table
+      "| `ppu_policy.object_policy.${key}` | ${value} |\n")
+  endforeach()
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## PPU object policy" ppu_policy.object_policy
+    "${object_policy_table}" ppu-object-policy-doc)
+
+  set(composition_policy_table "| Setting | Value |\n| --- | --- |\n")
+  foreach(key IN LISTS GBL_PROFILE_PPU_COMPOSITION_POLICY_FIELDS)
+    gbl_json_type(value_type "${profile}" ppu_policy composition_policy "${key}")
+    if("${value_type}" STREQUAL "MISSING")
+      set(value "<missing>")
+    else()
+      string(JSON value ERROR_VARIABLE value_error GET
+        "${profile}" ppu_policy composition_policy "${key}")
+      if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+          NOT "${value_error}" STREQUAL "")
+        set(value "<invalid>")
+      endif()
+    endif()
+    string(APPEND composition_policy_table
+      "| `ppu_policy.composition_policy.${key}` | ${value} |\n")
+  endforeach()
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## PPU composition policy" ppu_policy.composition_policy
+    "${composition_policy_table}" ppu-composition-policy-doc)
 
   set(capability_rows)
   set(row "| `ppu_policy.display_capabilities.modes[0]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 text: 256x256, 512x256, 256x512, 512x512; BG3 text: 256x256, 512x256, 256x512, 512x512 |")

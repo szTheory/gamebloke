@@ -225,6 +225,24 @@ elseif(CASE STREQUAL "ppu_policy")
   expect_ppu_detail(ppu-object-policy-value
     "ppu_policy\\.object_policy\\.overflow_policy" "${p}")
 
+  profile_copy(p wrong_object_regular_cost)
+  gbl_json_mutate_set("${p}" [=["pixel-count"]=]
+    ppu_policy object_policy regular_cost)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.regular_cost" "${p}")
+
+  profile_copy(p wrong_object_affine_cost)
+  gbl_json_mutate_set("${p}" [=["source-width"]=]
+    ppu_policy object_policy affine_cost)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.affine_cost" "${p}")
+
+  profile_copy(p wrong_object_eligibility)
+  gbl_json_mutate_set("${p}" [=["horizontal-intersection-required"]=]
+    ppu_policy object_policy eligibility)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.eligibility" "${p}")
+
   profile_copy(p missing_object_policy)
   gbl_json_mutate_remove("${p}" ppu_policy object_policy)
   expect_ppu_detail(ppu-object-policy-value
@@ -253,6 +271,12 @@ elseif(CASE STREQUAL "ppu_policy")
   expect_ppu_detail(ppu-composition-policy-value
     "ppu_policy\\.composition_policy\\.obj_bg_tie" "${p}")
 
+  profile_copy(p wrong_object_tie)
+  gbl_json_mutate_set("${p}" [=["higher-oam-index"]=]
+    ppu_policy composition_policy obj_tie)
+  expect_ppu_detail(ppu-composition-policy-value
+    "ppu_policy\\.composition_policy\\.obj_tie" "${p}")
+
   profile_copy(p missing_composition_policy)
   gbl_json_mutate_remove("${p}" ppu_policy composition_policy)
   expect_ppu_detail(ppu-composition-policy-value
@@ -268,12 +292,24 @@ elseif(CASE STREQUAL "ppu_policy")
   gbl_json_mutate_set("${p}" [=["complete"]=]
     ppu_policy display_capabilities modes 0 implementation_status)
   expect_ppu_detail(ppu-capability-value
-    "display_capabilities\\.modes" "${p}")
+    "ppu_policy\\.display_capabilities\\.modes" "${p}")
 
   profile_copy(p removed_hardware_unknown)
   gbl_json_mutate_remove("${p}" ppu_policy hardware_qualification)
   expect_ppu_detail(ppu-policy-value
     "ppu_policy\\.hardware_qualification" "${p}")
+
+  profile_copy(p stale_legacy_supported_controls)
+  gbl_json_mutate_set("${p}" [=["exactly one enabled background;OBJ disabled"]=]
+    ppu_policy supported_controls)
+  expect_ppu_detail(ppu-policy-value
+    "ppu_policy\\.supported_controls" "${p}")
+
+  profile_copy(p stale_legacy_unmodeled_controls)
+  gbl_json_mutate_set("${p}" [=["BG2 disabled in modes 3-5;BG priority/composition;OBJ disabled"]=]
+    ppu_policy unmodeled_controls)
+  expect_ppu_detail(ppu-policy-value
+    "ppu_policy\\.unmodeled_controls" "${p}")
 
   profile_copy(p missing_display_capabilities)
   gbl_json_mutate_remove("${p}" ppu_policy display_capabilities)
@@ -507,7 +543,7 @@ elseif(CASE STREQUAL "ppu_policy")
   profile_copy(p stale_text_control_doc)
   doc_copy(d stale_text_control_doc)
   gbl_text_mutate("${d}"
-    "| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, effects, and mosaic disabled |"
+    "| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition |"
     "| `ppu_policy.supported_controls` | bitmap mode-3 only |")
   expect_ppu_detail(ppu-policy-doc
     "ppu_policy: missing or stale row" "${p}" "${d}")
@@ -515,10 +551,26 @@ elseif(CASE STREQUAL "ppu_policy")
   profile_copy(p stale_unmodeled_controls_doc)
   doc_copy(d stale_unmodeled_controls_doc)
   gbl_text_mutate("${d}"
-    "| `ppu_policy.unmodeled_controls` | zero or multiple enabled background sources in modes 0-2, BG2 disabled in modes 3-5, BG priority/composition, forced blank, OBJ, windows, effects, mosaic, and unsupported background-control encodings |"
+    "| `ppu_policy.unmodeled_controls` | forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings |"
     "| `ppu_policy.unmodeled_controls` | bitmap modes 3/4/5 and text scroll |")
   expect_ppu_detail(ppu-policy-doc
     "ppu_policy: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p stale_object_policy_doc)
+  doc_copy(d stale_object_policy_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.object_policy.work_budget_units` | 1226 |"
+    "| `ppu_policy.object_policy.work_budget_units` | 1225 |")
+  expect_ppu_detail(ppu-object-policy-doc
+    "ppu_policy\\.object_policy: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p stale_composition_policy_doc)
+  doc_copy(d stale_composition_policy_doc)
+  gbl_text_mutate("${d}"
+    "| `ppu_policy.composition_policy.obj_bg_tie` | obj-in-front-project-policy |"
+    "| `ppu_policy.composition_policy.obj_bg_tie` | bg-in-front-project-policy |")
+  expect_ppu_detail(ppu-composition-policy-doc
+    "ppu_policy\\.composition_policy: missing or stale row" "${p}" "${d}")
 
   profile_copy(p stale_raw_output_doc)
   doc_copy(d stale_raw_output_doc)
@@ -590,7 +642,7 @@ elseif(CASE STREQUAL "ppu_policy")
   profile_copy(p stale_affine_source_reference_doc)
   doc_copy(d stale_affine_source_reference_doc)
   gbl_text_mutate("${d}"
-    "| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5 and 6.1.7 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |"
+    "| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5, 6.1.7, 6.3.1–6.3.4 and 6.4, printed pp. 58–72 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |"
     "| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1 and 6.1.3–6.1.5 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |")
   expect_ppu_detail(ppu-policy-doc "ppu_policy: missing or stale row" "${p}" "${d}")
 

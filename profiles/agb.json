@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 13,
+  "profile_version": 14,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -68,7 +68,7 @@
   "ppu_policy": {
     "policy_classification": "project-selected",
     "hardware_qualification": "UNKNOWN",
-    "hardware_source_reference": "Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5 and 6.1.7 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+    "hardware_source_reference": "Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5, 6.1.7, 6.3.1–6.3.4 and 6.4, printed pp. 58–72 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
     "geometry": "240x160 visible pixels, 308 dots per line, 228 lines per frame",
     "line_cycles": 1232,
     "nominal_visible_dot_cycles": 960,
@@ -91,10 +91,33 @@
     "row_same_cycle_write_policy": "PPU sample precedes a bus write completing on the sample cycle",
     "pixel_format": "BGR555 little-endian",
     "frame_validity": "complete coverage of 160 supported rows in one frame epoch, published at line 160",
-    "supported_controls": "mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, other BG enable bits ignored, exactly one enabled background source per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, forced blank, OBJ, windows, effects, and mosaic disabled",
-    "unmodeled_controls": "zero or multiple enabled background sources in modes 0-2, BG2 disabled in modes 3-5, BG priority/composition, forced blank, OBJ, windows, effects, mosaic, and unsupported background-control encodings",
+    "supported_controls": "mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition",
+    "unmodeled_controls": "forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings",
     "interrupt_if_bits": "VBlank 0, HBlank 1, VCOUNT-match 2",
     "blank_dma_eligibility": "HBlank on visible lines 0-159, VBlank at the line 160 transition",
+    "object_policy": {
+      "regular_shapes": "square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64",
+      "character_windows": "modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read",
+      "index_zero_transparency": true,
+      "affine_quantization": "signed-8.8;wide-products;floor-by-256",
+      "affine_field": "centered;double-size-destination-only;out-of-source-transparent",
+      "coordinate_wrap": "x-modulo-512;y-modulo-256;clip-240x160",
+      "unsupported_modes": "prohibited;semitransparent;obj-window;mosaic",
+      "work_budget_units": 1226,
+      "regular_cost": "source-width",
+      "affine_cost": "10+2*destination-field-width",
+      "eligibility": "enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund",
+      "admission_order": "ascending-oam;full-cost-fit;stop-at-first-nonfit",
+      "overflow_policy": "valid-partial-scene;omit-all-later-eligible",
+      "observation_scope": "internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"
+    },
+    "composition_policy": {
+      "priority_order": "ascending-numeric-0-3",
+      "bg_tie": "lower-bg-number",
+      "obj_tie": "lower-oam-index",
+      "obj_bg_tie": "obj-in-front-project-policy",
+      "backdrop": "pram-color-zero;behind-all-enabled-opaque-candidates"
+    },
     "display_capabilities": {
       "model": "gamebloke-display-capabilities-1",
       "raw_output": {
@@ -341,7 +364,7 @@
     {
       "id": "ppu",
       "status": "unmodeled",
-      "reason": "The deterministic timing, status, and supported mode-3 subset is in ppu_policy; other video modes and listed controls remain unsupported, and no PPU hardware qualification is claimed."
+      "reason": "The deterministic partial mode, normal OBJ, and composition subset is described in ppu_policy; hardware qualification remains UNKNOWN, and windows, effects, mosaic, forced blank, and unsupported object controls remain unmodeled."
     },
     {
       "id": "audio",
