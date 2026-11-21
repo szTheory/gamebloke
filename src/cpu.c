@@ -4089,33 +4089,84 @@ static bool gbl_cpu_build_time_operations(
     return true;
 }
 
+static uint64_t gbl_cpu_ppu_row_digest_byte(uint64_t digest, uint8_t byte)
+{
+    return (digest ^ (uint64_t)byte) * UINT64_C(1099511628211);
+}
+
+static uint64_t gbl_cpu_ppu_row_digest_u64(uint64_t digest, uint64_t value)
+{
+    unsigned int byte_index;
+
+    for (byte_index = 0u; byte_index < 8u; ++byte_index) {
+        digest = gbl_cpu_ppu_row_digest_byte(
+            digest, (uint8_t)(value & UINT64_C(0xFF)));
+        value >>= 8u;
+    }
+    return digest;
+}
+
+static uint64_t gbl_cpu_ppu_row_digest_bytes(uint64_t digest,
+                                             const uint8_t *bytes,
+                                             size_t length)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        digest = gbl_cpu_ppu_row_digest_byte(digest, bytes[index]);
+    }
+    return digest;
+}
+
 static uint64_t gbl_cpu_ppu_row_digest(
     const uint8_t *bytes, size_t length,
     const gbl_ppu_row_capture *capture)
 {
     uint64_t digest = UINT64_C(14695981039346656037);
-    size_t index;
+    size_t affine_index;
 
-    for (index = 0u; index < length; ++index) {
-        digest ^= bytes[index];
-        digest *= UINT64_C(1099511628211);
+    digest = gbl_cpu_ppu_row_digest_bytes(digest, bytes, length);
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->cycle);
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->frame_epoch);
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->line);
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->dispcnt);
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->prior_write_count);
+    digest = gbl_cpu_ppu_row_digest_u64(
+        digest, capture->unsupported_register_bytes);
+    digest = gbl_cpu_ppu_row_digest_bytes(
+        digest, capture->render_register_bytes,
+        sizeof(capture->render_register_bytes));
+    digest = gbl_cpu_ppu_row_digest_bytes(
+        digest, capture->bg_register_bytes,
+        sizeof(capture->bg_register_bytes));
+    digest = gbl_cpu_ppu_row_digest_bytes(
+        digest, capture->window_register_bytes,
+        sizeof(capture->window_register_bytes));
+    for (affine_index = 0u;
+         affine_index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++affine_index) {
+        const gbl_ppu_affine_state *affine = &capture->affine[affine_index];
+
+        digest = gbl_cpu_ppu_row_digest_u64(digest, (uint16_t)affine->pa);
+        digest = gbl_cpu_ppu_row_digest_u64(digest, (uint16_t)affine->pb);
+        digest = gbl_cpu_ppu_row_digest_u64(digest, (uint16_t)affine->pc);
+        digest = gbl_cpu_ppu_row_digest_u64(digest, (uint16_t)affine->pd);
+        digest = gbl_cpu_ppu_row_digest_u64(
+            digest, affine->programmed_reference_x);
+        digest = gbl_cpu_ppu_row_digest_u64(
+            digest, affine->programmed_reference_y);
+        digest = gbl_cpu_ppu_row_digest_u64(digest, affine->origin_x);
+        digest = gbl_cpu_ppu_row_digest_u64(digest, affine->origin_y);
+        digest = gbl_cpu_ppu_row_digest_byte(
+            digest, affine->origin_valid ? 1u : 0u);
+        digest = gbl_cpu_ppu_row_digest_byte(
+            digest, affine->hblank_y_suppressed ? 1u : 0u);
     }
-    for (index = 0u; index < sizeof(capture->obj_selected_mask); ++index) {
-        digest ^= capture->obj_selected_mask[index];
-        digest *= UINT64_C(1099511628211);
-    }
-    digest ^= (uint8_t)(capture->obj_selected_count & UINT16_C(0x00FF));
-    digest *= UINT64_C(1099511628211);
-    digest ^= (uint8_t)(capture->obj_selected_count >> 8u);
-    digest *= UINT64_C(1099511628211);
-    digest ^= (uint8_t)(capture->obj_omitted_count & UINT16_C(0x00FF));
-    digest *= UINT64_C(1099511628211);
-    digest ^= (uint8_t)(capture->obj_omitted_count >> 8u);
-    digest *= UINT64_C(1099511628211);
-    digest ^= (uint8_t)(capture->obj_work_used & UINT16_C(0x00FF));
-    digest *= UINT64_C(1099511628211);
-    digest ^= (uint8_t)(capture->obj_work_used >> 8u);
-    digest *= UINT64_C(1099511628211);
+    digest = gbl_cpu_ppu_row_digest_bytes(
+        digest, capture->obj_selected_mask,
+        sizeof(capture->obj_selected_mask));
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->obj_selected_count);
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->obj_omitted_count);
+    digest = gbl_cpu_ppu_row_digest_u64(digest, capture->obj_work_used);
     return digest;
 }
 
