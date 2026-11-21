@@ -7446,6 +7446,64 @@ static int run_ppu_refusal(void)
     return 1;
 }
 
+static int run_ppu_effects_controls(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *twin = new_machine();
+    gbl_machine *before = malloc(sizeof(*before));
+    gbl_machine_time_preview *preview = malloc(sizeof(*preview));
+    gbl_machine_time_preview *twin_preview = malloc(sizeof(*twin_preview));
+    gbl_machine_time_preview *mutant = malloc(sizeof(*mutant));
+
+    if (machine == NULL || twin == NULL || before == NULL || preview == NULL ||
+        twin_preview == NULL || mutant == NULL) {
+        fprintf(stderr, "ppu.effects.controls: host allocation failed\n");
+        free(mutant);
+        free(twin_preview);
+        free(preview);
+        free(before);
+        free_machine(twin);
+        free_machine(machine);
+        return 1;
+    }
+
+    CHECK(gbl_machine_prepare_time(machine, UINT64_C(1), preview) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_prepare_time(twin, UINT64_C(1), twin_preview) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(preview->ppu_row_capture_count == 1u);
+    CHECK(gbl_test_time_preview_equal(preview, twin_preview));
+    CHECK(gbl_test_time_preview_ppu_digest(preview) ==
+          gbl_test_time_preview_ppu_digest(twin_preview));
+
+    *mutant = *preview;
+    mutant->ppu_row_captures[0].bg_register_bytes[8] ^= UINT8_C(1);
+    CHECK(!gbl_test_time_preview_equal(preview, mutant));
+    CHECK(gbl_test_time_preview_ppu_digest(preview) !=
+          gbl_test_time_preview_ppu_digest(mutant));
+
+    *before = *machine;
+    gbl_machine_commit_time(machine, mutant);
+    CHECK(gbl_test_canonical_equal(machine, before));
+    CHECK(gbl_test_ppu_video_equal(machine, before));
+    gbl_machine_commit_time(machine, preview);
+    gbl_machine_commit_time(twin, twin_preview);
+    CHECK(gbl_test_canonical_equal(machine, twin));
+    CHECK(gbl_test_ppu_video_equal(machine, twin));
+
+    free(mutant);
+    free(twin_preview);
+    free(preview);
+    free(before);
+    free_machine(twin);
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.effects.controls: raw BG capture mutations refuse atomically and clean twins retry");
+        return 0;
+    }
+    return 1;
+}
+
 static bool ppu_obj_boundary_scene(gbl_machine *machine)
 {
     size_t object;
@@ -10802,7 +10860,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.mosaic.bg|ppu.mosaic.obj|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.effects.controls|ppu.mosaic.bg|ppu.mosaic.obj|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -10828,6 +10886,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.effects.brightness") == 0) {
         return run_ppu_effects_brightness();
+    }
+    if (strcmp(argv[1], "ppu.effects.controls") == 0) {
+        return run_ppu_effects_controls();
     }
     if (strcmp(argv[1], "ppu.mosaic.bg") == 0) {
         return run_ppu_mosaic_bg();

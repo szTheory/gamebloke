@@ -94,6 +94,10 @@ gbl_add_test(
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.effects.brightness)
 gbl_add_test(
+  NAME ppu.effects.controls
+  LABELS bus core ppu unit
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.controls)
+gbl_add_test(
   NAME ppu.mosaic.bg
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.mosaic.bg)
