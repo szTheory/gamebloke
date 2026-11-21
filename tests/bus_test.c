@@ -3830,6 +3830,39 @@ static int run_ppu_mosaic_obj(void)
         free_machine(machine);
     }
 
+    /* The vertical size field independently reaches sixteen scanlines. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        machine->dispcnt = UINT16_C(0x1000);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (object = 0u; object < 128u; ++object) {
+            ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+        ppu_obj_store_u16(machine->oam, 2u, UINT16_C(0xC000));
+        ppu_obj_store_u16(machine->oam, 4u, 0u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, 0u, 1u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, 16u, 4u);
+        machine->pram[0] = UINT8_C(0x10);
+        machine->pram[1] = UINT8_C(0x42);
+        machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+        machine->pram[UINT32_C(0x203)] = 0u;
+        machine->pram[UINT32_C(0x208)] = UINT8_C(0xFF);
+        machine->pram[UINT32_C(0x209)] = UINT8_C(0x7F);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0xF0);
+        CHECK(gbl_machine_advance_to(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(18)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 15u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 16u,
+                                          UINT16_C(0x7FFF)));
+        free_machine(machine);
+    }
+
     /* Vertical groups use the visible screen grid across Y wrap. */
     machine = new_machine();
     CHECK(machine != NULL);
