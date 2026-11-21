@@ -921,6 +921,8 @@ ppu.obj.tracer bus,core,integration,ppu
 ppu.refusal bus,core,ppu,unit
 ppu.registers bus,core,ppu,unit
 ppu.tracer bus,core,integration,ppu
+ppu.window.obj bus,core,integration,ppu
+ppu.window.rect bus,core,integration,ppu
 runner.hash runner,unit
 runner.help runner,unit
 runner.input.cli gate,integration,runner

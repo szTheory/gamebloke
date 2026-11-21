@@ -114,6 +114,14 @@ gbl_add_test(
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.composition)
 gbl_add_test(
+  NAME ppu.window.rect
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.window.rect)
+gbl_add_test(
+  NAME ppu.window.obj
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.window.obj)
+gbl_add_test(
   NAME ppu.obj.tracer
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.obj.tracer)

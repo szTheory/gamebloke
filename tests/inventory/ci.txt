@@ -1081,6 +1081,8 @@ ppu.obj.tracer bus,core,integration,ppu
 ppu.refusal bus,core,ppu,unit
 ppu.registers bus,core,ppu,unit
 ppu.tracer bus,core,integration,ppu
+ppu.window.obj bus,core,integration,ppu
+ppu.window.rect bus,core,integration,ppu
 profile.lint gate,profile
 profile.nc.bad_bios_provider control,profile
 profile.nc.bad_boot control,profile
