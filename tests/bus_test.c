@@ -2185,6 +2185,206 @@ static bool ppu_obj_prepare_tracer(gbl_machine *machine)
     return true;
 }
 
+static bool ppu_obj_budget_prepare_base(gbl_machine *machine)
+{
+    size_t object;
+    size_t tile;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->dispcnt = UINT16_C(0x1040);
+    machine->ppu.dispcnt = machine->dispcnt;
+    for (object = 0u; object < 128u; ++object) {
+        ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+    }
+    for (tile = 0u; tile < 32u; ++tile) {
+        memset(&machine->vram[UINT32_C(0x10000) + tile * 32u],
+               UINT8_C(0x11), 32u);
+    }
+    machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+    machine->pram[UINT32_C(0x203)] = 0u;
+    machine->pram[UINT32_C(0x222)] = UINT8_C(0xE0);
+    machine->pram[UINT32_C(0x223)] = UINT8_C(0x03);
+    machine->pram[UINT32_C(0x242)] = UINT8_C(0x1F);
+    machine->pram[UINT32_C(0x243)] = UINT8_C(0x7C);
+    machine->pram[UINT32_C(0x262)] = UINT8_C(0xFF);
+    machine->pram[UINT32_C(0x263)] = UINT8_C(0x7F);
+    return true;
+}
+
+static void ppu_obj_budget_set_regular(gbl_machine *machine, size_t object,
+                                       uint16_t x, uint8_t y,
+                                       uint8_t shape, uint8_t size,
+                                       uint8_t palette_bank)
+{
+    const size_t offset = object * 8u;
+
+    ppu_obj_store_u16(machine->oam, offset,
+                      (uint16_t)((uint16_t)y |
+                                 ((uint32_t)shape << 14u)));
+    ppu_obj_store_u16(machine->oam, offset + 2u,
+                      (uint16_t)((x & UINT16_C(0x01FF)) |
+                                 ((uint16_t)size << 14u)));
+    ppu_obj_store_u16(machine->oam, offset + 4u,
+                      (uint16_t)((uint16_t)palette_bank << 12u));
+}
+
+static void ppu_obj_budget_set_affine(gbl_machine *machine, size_t object,
+                                      uint16_t x, uint8_t y,
+                                      uint8_t shape, uint8_t size,
+                                      uint8_t palette_bank, bool double_size)
+{
+    const size_t offset = object * 8u;
+
+    ppu_obj_store_u16(machine->oam, offset,
+                      (uint16_t)((uint16_t)y | UINT16_C(0x0100) |
+                                 (double_size ? UINT16_C(0x0200) : 0u) |
+                                 ((uint32_t)shape << 14u)));
+    ppu_obj_store_u16(machine->oam, offset + 2u,
+                      (uint16_t)((x & UINT16_C(0x01FF)) |
+                                 ((uint16_t)size << 14u)));
+    ppu_obj_store_u16(machine->oam, offset + 4u,
+                      (uint16_t)((uint16_t)palette_bank << 12u));
+}
+
+static bool ppu_obj_budget_prepare_exact_fit_scene(gbl_machine *machine)
+{
+    size_t object;
+
+    if (!ppu_obj_budget_prepare_base(machine)) {
+        return false;
+    }
+    for (object = 0u; object < 18u; ++object) {
+        ppu_obj_budget_set_regular(machine, object, 0u, 0u, 0u, 3u, 0u);
+    }
+    ppu_obj_budget_set_affine(machine, 18u, 100u, 0u, 0u, 2u, 1u, false);
+    ppu_obj_affine_store_matrix(machine->oam, 0u, 256, 0, 0, 256);
+    ppu_obj_budget_set_regular(machine, 19u, 200u, 0u, 0u, 0u, 2u);
+    return true;
+}
+
+static bool ppu_obj_budget_prepare_first_overflow_scene(
+    gbl_machine *machine)
+{
+    size_t object;
+
+    if (!ppu_obj_budget_prepare_base(machine)) {
+        return false;
+    }
+    for (object = 0u; object < 19u; ++object) {
+        ppu_obj_budget_set_regular(machine, object, 0u, 0u, 0u, 3u, 0u);
+    }
+    ppu_obj_budget_set_regular(machine, 19u, 120u, 0u, 0u, 1u, 1u);
+    ppu_obj_budget_set_regular(machine, 20u, 140u, 0u, 0u, 0u, 2u);
+    return true;
+}
+
+static bool ppu_obj_budget_mutations_refused(
+    gbl_machine *machine, const gbl_machine_time_preview *preview)
+{
+    gbl_machine *before = malloc(sizeof(*before));
+    gbl_machine_time_preview *changed =
+        malloc(sizeof(*changed));
+    gbl_machine_time_preview *caller_before =
+        malloc(sizeof(*caller_before));
+    bool valid = before != NULL && changed != NULL && caller_before != NULL;
+
+    if (!valid) {
+        free(caller_before);
+        free(changed);
+        free(before);
+        return false;
+    }
+#define CHECK_OBJ_BUDGET_MUTATION(change)                                  \
+    do {                                                                    \
+        memcpy(changed, preview, sizeof(*changed));                         \
+        change;                                                             \
+        if (gbl_test_time_preview_equal(preview, changed)) {                 \
+            valid = false;                                                  \
+        }                                                                   \
+        memcpy(caller_before, changed, sizeof(*caller_before));             \
+        *before = *machine;                                                 \
+        gbl_machine_commit_time(machine, changed);                          \
+        if (!gbl_test_canonical_equal(before, machine) ||                   \
+            !gbl_test_same_instance_identity_equal(before, machine) ||      \
+            memcmp(caller_before, changed, sizeof(*caller_before)) != 0) {  \
+            valid = false;                                                  \
+        }                                                                   \
+    } while (0)
+    CHECK_OBJ_BUDGET_MUTATION(
+        changed->ppu_row_captures[0].obj_selected_mask[0] ^= UINT8_C(1));
+    CHECK_OBJ_BUDGET_MUTATION(
+        ++changed->ppu_row_captures[0].obj_selected_count);
+    CHECK_OBJ_BUDGET_MUTATION(
+        ++changed->ppu_row_captures[0].obj_omitted_count);
+    CHECK_OBJ_BUDGET_MUTATION(
+        ++changed->ppu_row_captures[0].obj_work_used);
+#undef CHECK_OBJ_BUDGET_MUTATION
+    free(caller_before);
+    free(changed);
+    free(before);
+    return valid;
+}
+
+static int run_ppu_obj_budget(void)
+{
+    const uint64_t target =
+        (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(160);
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_obj_budget_prepare_exact_fit_scene(machine));
+        CHECK(gbl_machine_prepare_time(machine, target, &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_capture_count == GBL_PPU_VISIBLE_LINES);
+        CHECK(preview.ppu_row_captures[0].obj_selected_count == 19u);
+        CHECK(preview.ppu_row_captures[0].obj_omitted_count == 1u);
+        CHECK(preview.ppu_row_captures[0].obj_work_used ==
+              GBL_PPU_OBJ_WORK_BUDGET);
+        CHECK(preview.ppu_row_captures[0].obj_selected_mask[0] ==
+              UINT8_MAX);
+        CHECK(preview.ppu_row_captures[0].obj_selected_mask[1] ==
+              UINT8_MAX);
+        CHECK(preview.ppu_row_captures[0].obj_selected_mask[2] ==
+              UINT8_C(0x07));
+        CHECK(preview.ppu_row_captures[0].obj_selected_mask[3] == 0u);
+        CHECK(ppu_obj_budget_mutations_refused(machine, &preview));
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(machine->master_cycles == target);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 100u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 200u, 0u,
+                                          0u));
+        free_machine(machine);
+    }
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_obj_budget_prepare_first_overflow_scene(machine));
+        CHECK(gbl_machine_prepare_time(machine, target, &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_captures[0].obj_selected_count == 19u);
+        CHECK(preview.ppu_row_captures[0].obj_omitted_count == 2u);
+        CHECK(preview.ppu_row_captures[0].obj_work_used == 1216u);
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 120u, 0u,
+                                          0u));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 140u, 0u,
+                                          0u));
+        free_machine(machine);
+    }
+    if (CHECK_DONE() == 0) {
+        puts("ppu.obj.budget: first non-fit blocks later eligible objects");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_ppu_obj_tracer(void)
 {
     gbl_machine *machine = new_machine();
@@ -7000,7 +7200,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -7044,6 +7244,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.obj.affine") == 0) {
         return run_ppu_obj_affine();
+    }
+    if (strcmp(argv[1], "ppu.obj.budget") == 0) {
+        return run_ppu_obj_budget();
     }
     if (strcmp(argv[1], "ppu.refusal") == 0) {
         return run_ppu_refusal();

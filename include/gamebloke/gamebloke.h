@@ -58,6 +58,8 @@ typedef enum gbl_bus_status {
     (GBL_PPU_ROW_BYTES * GBL_PPU_VISIBLE_LINES)
 #define GBL_PPU_ROW_COVERAGE_BYTES ((GBL_PPU_VISIBLE_LINES + 7u) / 8u)
 #define GBL_PPU_ROW_CAPTURE_MAX GBL_PPU_VISIBLE_LINES
+#define GBL_PPU_OBJ_WORK_BUDGET 1226u
+#define GBL_PPU_OBJ_SELECTED_MASK_BYTES 16u
 #define GBL_CPU_FETCH_SLOT_MAX 2u
 #define GBL_CPU_DATA_SLOT_MAX 16u
 #define GBL_TIME_OPERATION_MAX \
@@ -161,6 +163,11 @@ typedef struct gbl_ppu_row_capture {
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
     gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
+    /* Bounded project work policy, not an emulated cycle count. */
+    uint8_t obj_selected_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES];
+    uint16_t obj_selected_count;
+    uint16_t obj_omitted_count;
+    uint16_t obj_work_used;
 } gbl_ppu_row_capture;
 
 typedef struct gbl_ppu_memory_write {

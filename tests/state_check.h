@@ -146,7 +146,13 @@ static bool gbl_test_ppu_row_capture_equal(
            gbl_test_bytes_equal(left->bg_register_bytes,
                                 right->bg_register_bytes,
                                 sizeof(left->bg_register_bytes)) &&
-           gbl_test_ppu_affine_array_equal(left->affine, right->affine);
+           gbl_test_ppu_affine_array_equal(left->affine, right->affine) &&
+           gbl_test_bytes_equal(left->obj_selected_mask,
+                                right->obj_selected_mask,
+                                sizeof(left->obj_selected_mask)) &&
+           left->obj_selected_count == right->obj_selected_count &&
+           left->obj_omitted_count == right->obj_omitted_count &&
+           left->obj_work_used == right->obj_work_used;
 }
 
 static bool gbl_test_ppu_memory_write_equal(

@@ -333,7 +333,8 @@ static gbl_time_status gbl_preview_insert_ppu_event(
     return GBL_TIME_STATUS_OK;
 }
 
-static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length)
+static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length,
+                                   const gbl_ppu_row_capture *capture)
 {
     uint64_t digest = UINT64_C(14695981039346656037);
     size_t index;
@@ -342,6 +343,22 @@ static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length)
         digest ^= bytes[index];
         digest *= UINT64_C(1099511628211);
     }
+    for (index = 0u; index < sizeof(capture->obj_selected_mask); ++index) {
+        digest ^= capture->obj_selected_mask[index];
+        digest *= UINT64_C(1099511628211);
+    }
+    digest ^= (uint8_t)(capture->obj_selected_count & UINT16_C(0x00FF));
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_selected_count >> 8u);
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_omitted_count & UINT16_C(0x00FF));
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_omitted_count >> 8u);
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_work_used & UINT16_C(0x00FF));
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_work_used >> 8u);
+    digest *= UINT64_C(1099511628211);
     return digest;
 }
 
@@ -1187,22 +1204,132 @@ static void gbl_ppu_offer_candidate(
     }
 }
 
+static const uint8_t gbl_ppu_object_dimensions[3][4][2] = {
+    { { 8u, 8u }, { 16u, 16u }, { 32u, 32u }, { 64u, 64u } },
+    { { 16u, 8u }, { 32u, 8u }, { 32u, 16u }, { 64u, 32u } },
+    { { 8u, 16u }, { 8u, 32u }, { 16u, 32u }, { 32u, 64u } }
+};
+
+typedef struct gbl_ppu_obj_admission {
+    uint8_t selected_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES];
+    uint16_t selected_count;
+    uint16_t omitted_count;
+    uint16_t work_used;
+} gbl_ppu_obj_admission;
+
+static bool gbl_ppu_build_obj_admission(
+    const uint8_t oam_bytes[GBL_OAM_SIZE], bool obj_enabled,
+    uint16_t line, gbl_ppu_obj_admission *admission)
+{
+    bool accepting = true;
+    size_t object;
+
+    if (oam_bytes == NULL || admission == NULL ||
+        line >= GBL_PPU_VISIBLE_LINES) {
+        return false;
+    }
+    *admission = (gbl_ppu_obj_admission){ 0 };
+    if (!obj_enabled) {
+        return true;
+    }
+    for (object = 0u; object < 128u; ++object) {
+        const size_t offset = object * 8u;
+        const uint16_t attribute0 = gbl_ppu_memory_u16(oam_bytes, offset);
+        const uint16_t attribute1 =
+            gbl_ppu_memory_u16(oam_bytes, offset + 2u);
+        const bool affine = (attribute0 & UINT16_C(0x0100)) != 0u;
+        const bool double_size = affine &&
+            (attribute0 & UINT16_C(0x0200)) != 0u;
+        const bool disabled = !affine &&
+            (attribute0 & UINT16_C(0x0200)) != 0u;
+        const uint16_t object_mode =
+            (uint16_t)(attribute0 & UINT16_C(0x0C00));
+        const uint16_t shape = (uint16_t)(attribute0 >> 14u);
+        const uint16_t size = (uint16_t)(attribute1 >> 14u);
+        const uint32_t object_y =
+            (uint32_t)(attribute0 & UINT16_C(0x00FF));
+        const uint32_t relative_y =
+            ((uint32_t)line - object_y) & UINT32_C(0x00FF);
+        uint32_t width;
+        uint32_t height;
+        uint32_t field_width;
+        uint32_t field_height;
+        uint32_t cost;
+
+        if (disabled) {
+            continue;
+        }
+        if (object_mode != 0u ||
+            (attribute0 & UINT16_C(0x1000)) != 0u || shape >= 3u) {
+            return false;
+        }
+        width = gbl_ppu_object_dimensions[shape][size][0];
+        height = gbl_ppu_object_dimensions[shape][size][1];
+        field_width = double_size ? width * 2u : width;
+        field_height = double_size ? height * 2u : height;
+        if (relative_y >= field_height) {
+            continue;
+        }
+        if (!accepting) {
+            ++admission->omitted_count;
+            continue;
+        }
+        cost = affine ? 10u + 2u * field_width : width;
+        if (cost > GBL_PPU_OBJ_WORK_BUDGET - admission->work_used) {
+            accepting = false;
+            ++admission->omitted_count;
+            continue;
+        }
+        admission->selected_mask[object >> 3u] |=
+            (uint8_t)(UINT8_C(1) << (object & 7u));
+        ++admission->selected_count;
+        admission->work_used = (uint16_t)(admission->work_used + cost);
+    }
+    return true;
+}
+
+static bool gbl_ppu_obj_is_selected(
+    const gbl_ppu_obj_admission *admission, size_t object)
+{
+    return admission != NULL && object < 128u &&
+           (admission->selected_mask[object >> 3u] &
+            (uint8_t)(UINT8_C(1) << (object & 7u))) != 0u;
+}
+
+static bool gbl_ppu_obj_admission_matches_capture(
+    const gbl_ppu_obj_admission *admission,
+    const gbl_ppu_row_capture *capture)
+{
+    size_t index;
+
+    if (admission == NULL || capture == NULL ||
+        admission->selected_count != capture->obj_selected_count ||
+        admission->omitted_count != capture->obj_omitted_count ||
+        admission->work_used != capture->obj_work_used) {
+        return false;
+    }
+    for (index = 0u; index < sizeof(admission->selected_mask); ++index) {
+        if (admission->selected_mask[index] !=
+            capture->obj_selected_mask[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool gbl_ppu_project_composed_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture,
-    uint8_t row[GBL_PPU_ROW_BYTES])
+    uint8_t row[GBL_PPU_ROW_BYTES],
+    gbl_ppu_obj_admission *admission_out)
 {
-    static const uint8_t object_dimensions[3][4][2] = {
-        { { 8u, 8u }, { 16u, 16u }, { 32u, 32u }, { 64u, 64u } },
-        { { 16u, 8u }, { 32u, 8u }, { 32u, 16u }, { 64u, 32u } },
-        { { 8u, 16u }, { 8u, 32u }, { 16u, 32u }, { 32u, 64u } }
-    };
     uint8_t oam_bytes[GBL_OAM_SIZE];
     uint8_t obj_palette[512];
     uint8_t backdrop_bytes[2];
     uint8_t background_row[GBL_PPU_ROW_BYTES];
     gbl_ppu_bg_sample background_samples[GBL_PPU_WIDTH];
     gbl_ppu_pixel_candidate candidates[GBL_PPU_WIDTH];
+    gbl_ppu_obj_admission admission;
     const uint16_t mode = (uint16_t)(capture->dispcnt & UINT16_C(0x0007));
     const uint8_t enabled_backgrounds =
         (uint8_t)((capture->dispcnt >> 8u) & UINT16_C(0x000F));
@@ -1232,6 +1359,15 @@ static bool gbl_ppu_project_composed_row(
              UINT32_C(0x200), 2u, sizeof(obj_palette), obj_palette,
              sizeof(obj_palette)) != GBL_PPU_SAMPLE_STATUS_OK)) {
         return false;
+    }
+    if (!gbl_ppu_build_obj_admission(oam_bytes, obj_enabled, capture->line,
+                                    &admission) ||
+        (admission_out == NULL &&
+         !gbl_ppu_obj_admission_matches_capture(&admission, capture))) {
+        return false;
+    }
+    if (admission_out != NULL) {
+        *admission_out = admission;
     }
     for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
         candidates[pixel] = (gbl_ppu_pixel_candidate){
@@ -1312,10 +1448,10 @@ static bool gbl_ppu_project_composed_row(
         const bool vertical_flip = !affine &&
             (attribute1 & UINT16_C(0x2000)) != 0u;
         const uint32_t width = shape < 3u
-            ? object_dimensions[shape][size][0]
+            ? gbl_ppu_object_dimensions[shape][size][0]
             : 0u;
         const uint32_t height = shape < 3u
-            ? object_dimensions[shape][size][1]
+            ? gbl_ppu_object_dimensions[shape][size][1]
             : 0u;
         const uint32_t field_width = double_size ? width * 2u : width;
         const uint32_t field_height = double_size ? height * 2u : height;
@@ -1343,6 +1479,9 @@ static bool gbl_ppu_project_composed_row(
         int16_t pc = 0;
         int16_t pd = 0;
 
+        if (!gbl_ppu_obj_is_selected(&admission, object)) {
+            continue;
+        }
         if (disabled) {
             continue;
         }
@@ -1503,7 +1642,7 @@ static bool gbl_ppu_project_row(const gbl_machine *machine,
                                const gbl_ppu_row_capture *capture,
                                uint8_t row[GBL_PPU_ROW_BYTES])
 {
-    return gbl_ppu_project_composed_row(machine, preview, capture, row);
+    return gbl_ppu_project_composed_row(machine, preview, capture, row, NULL);
 }
 
 static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
@@ -1665,6 +1804,7 @@ static gbl_time_status gbl_ppu_capture_row(
 {
     gbl_ppu_row_capture *capture;
     uint8_t row[GBL_PPU_ROW_BYTES];
+    gbl_ppu_obj_admission admission;
     const uint16_t line = preview->ppu.line;
     const uint8_t mask = (uint8_t)(UINT8_C(1) << (line & 7u));
     const size_t coverage_index = (size_t)(line >> 3u);
@@ -1685,6 +1825,7 @@ static gbl_time_status gbl_ppu_capture_row(
         return GBL_TIME_STATUS_EVENT_CAPACITY;
     }
     capture = &preview->ppu_row_captures[preview->ppu_row_capture_count];
+    *capture = (gbl_ppu_row_capture){ 0 };
     capture->cycle = preview->ppu.line_origin;
     capture->frame_epoch = preview->ppu.frame_epoch;
     capture->line = line;
@@ -1715,10 +1856,17 @@ static gbl_time_status gbl_ppu_capture_row(
         gbl_ppu_invalidate_capture(preview, reason);
         return GBL_TIME_STATUS_OK;
     }
-    if (!gbl_ppu_project_row(machine, preview, capture, row)) {
+    if (!gbl_ppu_project_composed_row(machine, preview, capture, row,
+                                      &admission)) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
-    capture->pixel_digest = gbl_ppu_row_digest(row, sizeof(row));
+    gbl_machine_copy_bytes(capture->obj_selected_mask,
+                           admission.selected_mask,
+                           sizeof(capture->obj_selected_mask));
+    capture->obj_selected_count = admission.selected_count;
+    capture->obj_omitted_count = admission.omitted_count;
+    capture->obj_work_used = admission.work_used;
+    capture->pixel_digest = gbl_ppu_row_digest(row, sizeof(row), capture);
     ++preview->ppu_row_capture_count;
     preview->ppu.row_coverage[coverage_index] |= mask;
     ++preview->ppu.captured_rows;
@@ -2840,7 +2988,7 @@ static bool gbl_ppu_commit_preview_valid(
                                           capture) !=
                 GBL_VIDEO_INVALID_REASON_NONE ||
             !gbl_ppu_project_row(machine, preview, capture, projected_row) ||
-            gbl_ppu_row_digest(projected_row, sizeof(projected_row)) !=
+            gbl_ppu_row_digest(projected_row, sizeof(projected_row), capture) !=
                 capture->pixel_digest) {
             return false;
         }
