@@ -39,7 +39,7 @@ work; decimal IDs are reserved for later insertions.
 - [x] **Phase 11: Sampled Rows and Transactional Visibility** - Callers can identify supported controls and observe ordered, failure-atomic raw-video rows.
 - [x] **Phase 12: Background Modes 0–5** - Text, affine, and bitmap backgrounds produce their declared semantic pixels from canonical video memory. (completed 2026-11-20)
 - [x] **Phase 13: Objects and Layer Priorities** - Regular and affine objects combine with backgrounds and backdrop through one bounded composition policy. (completed 2026-11-21)
-- [ ] **Phase 14: Windows and Display Effects** - Region masks, blending, brightness, mosaic, and forced blank interact predictably.
+- [x] **Phase 14: Windows and Display Effects** - Region masks, blending, brightness, mosaic, and forced blank interact predictably. (completed 2026-11-21)
 - [ ] **Phase 15: Production Access and Runner Evidence** - CPU/DMA video-memory behavior and complete PPU scenes agree through the shared clock and real runner.
 
 ## Phase Details
@@ -157,7 +157,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
   2. Alpha blending and brightness affect only eligible targets, with bounded validated coefficients and expected colors for target, transparency, and window interactions.
   3. Background and object mosaic repeat the declared anchor samples and dimensions, including clipping, window, and region-edge interactions.
   4. Forced blank produces its declared raw pixels and interacts consistently with sampled rows, transitions, and complete-frame validity.
-**Plans**: TBD
+**Plans**: 11/11 execution plans complete; the final local canonical workflow and independent goal verification passed. See [verification](phases/14-windows-and-display-effects/14-VERIFICATION.md), [evidence](phases/14-windows-and-display-effects/14-EVIDENCE.md), [review](phases/14-windows-and-display-effects/14-REVIEW-FOLLOWUP.md), and [security](phases/14-windows-and-display-effects/14-SECURITY.md).
 
 ### Phase 15: Production Access and Runner Evidence
 **Goal**: A bounded production-runner scene exercises the supported PPU through CPU/DMA video-memory access and produces independently expected pixels with separate guest, time, and result observations.
@@ -190,7 +190,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 | 11. Sampled Rows and Transactional Visibility | 8/8 | Complete | 2026-11-20 |
 | 12. Background Modes 0–5 | 8/8 | Complete    | 2026-11-20 |
 | 13. Objects and Layer Priorities | 8/8 | Complete    | 2026-11-21 |
-| 14. Windows and Display Effects | 0/TBD | Not started | - |
+| 14. Windows and Display Effects | 11/11 | Complete | 2026-11-21 |
 | 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
 
 **Coverage:** 18/18 current v3.0 requirements assigned exactly once in
@@ -205,10 +205,11 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 
 ## Next Action
 
-Discuss Phase 13, Objects and Layer Priorities, then plan and execute it through
-`$gsd-autonomous`. Phase 12 passed goal-backward verification and the post-review
-canonical local workflow. Hardware qualification, hosted qualification, and
-publication remain separate owner gates.
+Continue with Phase 15, Production Access and Runner Evidence, through
+`$gsd-autonomous`. Phases 11–14 have passed goal-backward verification and the
+current canonical local workflow; their verification bindings are refreshed
+against the current source tree. Hardware qualification, hosted qualification,
+and publication remain separate owner gates.
 
 ---
 *Roadmap created: 2026-11-19 for v3.0 PPU Modes and Composition.*
