@@ -52,6 +52,12 @@ function(result_copy_phase10 out variant)
   set(${out} "${path}" PARENT_SCOPE)
 endfunction()
 
+function(result_copy_current_producer_phase10 out variant)
+  set(path "${dir}/result_${variant}.json")
+  file(COPY_FILE "${dir}/result_actual_producer.json" "${path}")
+  set(${out} "${path}" PARENT_SCOPE)
+endfunction()
+
 # manifest_copy(<out-var> <variant>): a fresh sandbox copy of the example manifest.
 function(manifest_copy out variant)
   set(path "${dir}/manifest_${variant}.json")
@@ -814,7 +820,10 @@ elseif(CASE STREQUAL "phase10")
   phase10_report_success()
 
 elseif(CASE STREQUAL "phase10_negative")
-  phase10_expect_ok("${dir}/result.json")
+  file(COPY_FILE "${dir}/result.json" "${dir}/result_actual_producer.json")
+  result_copy_production_phase10_observation(
+    "${dir}/result_actual_producer.json")
+  phase10_expect_ok("${dir}/result_actual_producer.json")
 
   result_copy_phase10(r missing_current_display_capabilities)
   result_add_phase10_capabilities("${r}")
@@ -824,6 +833,28 @@ elseif(CASE STREQUAL "phase10_negative")
   result_copy_phase10(r missing_current_capability_member)
   result_add_phase10_capabilities("${r}")
   gbl_json_mutate_remove("${r}" phase10 display_capabilities modes 0 implementation_status)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_current_producer_phase10(r missing_current_composition_features)
+  gbl_json_mutate_remove("${r}" phase10 display_capabilities composition_features)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  foreach(feature IN ITEMS rectangular_windows object_windows alpha_blending
+      brightness bg_mosaic obj_mosaic forced_blank)
+    result_copy_current_producer_phase10(r false_current_feature_${feature})
+    gbl_json_mutate_set("${r}" "false"
+      phase10 display_capabilities composition_features ${feature})
+    phase10_expect_code(bad-phase10-capability "${r}")
+  endforeach()
+
+  result_copy_current_producer_phase10(r wrong_current_feature_classification)
+  gbl_json_mutate_set("${r}" "\"hardware-qualified\""
+    phase10 display_capabilities composition_features classification)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_current_producer_phase10(r overstated_current_feature_qualification)
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\""
+    phase10 display_capabilities composition_features hardware_qualification)
   phase10_expect_code(bad-phase10-capability "${r}")
 
   result_copy_phase10(r missing_current_profile_version)
@@ -935,6 +966,11 @@ elseif(CASE STREQUAL "phase10_negative")
     phase10_expect_code(bad-phase10-capability "${r}")
   endforeach()
 
+  result_copy_current_producer_phase10(r complete_current_mode_overclaim)
+  gbl_json_mutate_set("${r}" "\"complete\""
+    phase10 display_capabilities modes 3 implementation_status)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
   result_copy_phase10(r wrong_current_implementation_status)
   result_add_phase10_capabilities("${r}")
   gbl_json_mutate_set("${r}" "\"not-implemented\""
@@ -978,7 +1014,11 @@ elseif(CASE STREQUAL "phase10_negative")
   result_copy_phase10(r current_model_partial_capabilities)
   gbl_json_mutate_set("${r}" "\"gamebloke-ppu-observation-2\""
     phase10 model)
-  gbl_json_mutate_set("${r}" "10" phase10 profile_version)
+  gbl_json_mutate_set("${r}" "14" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_current_producer_phase10(r stale_current_producer_profile_14)
+  gbl_json_mutate_set("${r}" "14" phase10 profile_version)
   phase10_expect_code(bad-phase10-capability "${r}")
 
   result_copy_phase10(r historical_model1_partial_capabilities)

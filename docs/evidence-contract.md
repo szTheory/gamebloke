@@ -194,21 +194,44 @@ these fields:
   palette entry zero before page arithmetic, so it cannot read an adjacent page
   or unused tail. The mode-3 identity output remains the regression anchor.
   Modes 3–5 sample bitmap BG2 only when enabled; mode 3 with BG2 disabled may
-  still produce a valid backdrop-only frame. Forced blank, windows, color
-  effects, and mosaic remain unsupported. Regular and affine OBJ plus shared
-  layer composition are modeled under the profile's admission and tie policies;
-  all display modes remain partial and hardware qualification remains `UNKNOWN`.
-  Frame `state`
-  is `valid`,
-  `incomplete`, or `invalid`; `incomplete` has reason `incomplete`, while `invalid`
-  must name an unsupported control reason such as `unsupported-mode`,
-  `forced-blank`, `unsupported-obj-control`, `window-enabled`, `effect-enabled`, or
-  another explicitly unsupported control. Disabled BG2 is not itself an invalid
-  control; in mode 3 it selects backdrop-only composition. Historical records
-  may use the superseded `obj-enabled` reason; current producers reserve
-  `unsupported-obj-control` for unsupported OBJ settings. A non-valid
-  frame keeps epoch/sample/completion fields
-  null and cannot emit stale or partial bytes. For requested output, incomplete and
+  still produce a valid backdrop-only frame. Capability model 2 advertises
+  rectangular windows, object windows, alpha blending, brightness, BG and OBJ
+  mosaic, and forced blank as implemented software features. Their feature
+  classification is `project-selected`; hardware qualification is `UNKNOWN`.
+  All six display modes remain `partial`, independent of these composition flags.
+  The profile is the exact source for the mode/source/dimension rows and selected
+  composition policies; the feature tuple is not a hardware compatibility claim.
+  WIN0/WIN1 bounds are half-open, equal or reversed bounds are empty, and bounds
+  do not wrap. Region order is WIN0, WIN1, OBJ window, then outside. Layer and
+  effect masks are applied before priority; an admitted nonzero OBJ source index
+  supplies OBJ-window coverage without supplying its color, within the shared OBJ
+  budget. Color effects consider the top candidate and its immediately next visible
+  candidate, without searching deeper. Alpha follows the profile's mode and target
+  eligibility plus region effect mask. Semitransparent OBJ uses alpha only when the
+  next candidate is eligible in that region; ordinary first-target mode and
+  brightness do not override it. Coefficients use the low five bits, clamp at 16,
+  and channel math uses wide integers, division by 16 with truncation, and clamping
+  to 0–31. Brightness uses `c + floor((31-c)*EVY/16)` or
+  `c - floor(c*EVY/16)`.
+  BG and OBJ mosaic dimensions are the programmed field plus one and are
+  independent. Anchors use the visible screen origin (`x-x%width`, `y-y%height`);
+  each sampled row uses that row's captured registers and memory, with no cached
+  prior-row samples. Affine sampling projects the current origin backward by PB/PD
+  times the vertical anchor delta. Forced blank bypasses scene decoding after
+  structural transaction validation and emits BGR555 `0x7FFF` (`FF 7F`) on every
+  pixel. Its transitions apply at the next captured visible row without an extra
+  delay or frame restart; normal row coverage still validates the frame and
+  publishes at line 160. Its video-memory access policy remains the selected
+  existing-bus behavior.
+  Frame `state` is `valid`, `incomplete`, or `invalid`; `incomplete` has reason
+  `incomplete`, while current invalid frames name a genuinely unsupported mode or
+  control such as `unsupported-mode` or `unsupported-obj-control`. Supported
+  forced blank, windows, effects, and mosaic do not make a current frame invalid.
+  Disabled BG2 is not itself an invalid control; in mode 3 it selects backdrop-only
+  composition. Historical model-1 records keep their prior reason mapping,
+  including the superseded `obj-enabled` name. A non-valid frame keeps
+  epoch/sample/completion fields null and cannot emit stale or partial bytes. For
+  requested output, incomplete and
   invalid frame statuses match the frame state and carry no artifact; a valid frame
   without an output artifact is `not-emitted`. Writer failure is `HARNESS_FAIL`
   with reason `video-output-failed` and a named failure, and does not claim a
@@ -411,9 +434,13 @@ separate causes. Explicit executing project policies and static target refusals
 are listed in the profile. Public unsupported values remain compatible without
 inventing a legal unimplemented instruction. There is no BIOS execution/HLE, audio,
 physical-controller discovery or host presentation. DMA, WAITCNT timing, and the
-partial Mode 0–5 background display paths and OBJ composition have deterministic
-project-model behavior. DMA Prefetch, windows, color effects, and mosaic remain
-unmodeled.
+partial Mode 0–5 background display paths and OBJ/composition features have
+deterministic project-selected software behavior. The profile records selected
+window, effect, mosaic, and forced-blank policies; their hardware qualification is
+`UNKNOWN`, and every display mode is still partial. DMA Prefetch remains unmodeled.
+The Phase 15 production-scene evidence and any physical hardware qualification are
+separate requirements and are not established by this metadata or by repeatable
+frame output.
 The selected 1006-cycle HBlank point, DMA latch behavior, within-line visibility,
 affine transform behavior, and all display timing remain hardware-unqualified.
 Timer 0 and bus cycle observations use project-selected model behavior;
