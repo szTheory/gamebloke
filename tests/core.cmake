@@ -86,6 +86,10 @@ gbl_add_test(
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.tracer)
 gbl_add_test(
+  NAME ppu.effects.tracer
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.tracer)
+gbl_add_test(
   NAME ppu.bg.tracer
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.bg.tracer)
@@ -143,6 +147,10 @@ foreach(selector IN ITEMS ppu.boundary ppu.registers ppu.latch ppu.frame
     LABELS ${labels}
     COMMAND $<TARGET_FILE:bus_test> ${selector})
 endforeach()
+gbl_add_test(
+  NAME ppu.blank
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.blank)
 gbl_add_test(
   NAME bus.irq.registers
   LABELS bus core unit

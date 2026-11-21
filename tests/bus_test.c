@@ -7292,8 +7292,6 @@ static int run_ppu_controls(void)
     } unsupported[] = {
         { UINT16_C(0x0406), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
           "mode 6 is unsupported" },
-        { UINT16_C(0x0483), GBL_VIDEO_INVALID_REASON_FORCED_BLANK,
-          "forced blank is unsupported" },
         { UINT16_C(0x2403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
           "OBJ window is unsupported" },
         { UINT16_C(0x4403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
@@ -7477,6 +7475,416 @@ static int run_ppu_controls(void)
 
     if (CHECK_DONE() == 0) {
         puts("ppu.controls: unsupported display controls invalidate the epoch");
+        return 0;
+    }
+    return 1;
+}
+
+static bool ppu_row_is_white(const gbl_machine *machine, uint16_t line)
+{
+    size_t pixel;
+
+    if (machine == NULL || line >= GBL_PPU_VISIBLE_LINES) {
+        return false;
+    }
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const size_t offset = (size_t)line * GBL_PPU_ROW_BYTES + pixel * 2u;
+
+        if (machine->video_frame[offset] != UINT8_C(0xFF) ||
+            machine->video_frame[offset + 1u] != UINT8_C(0x7F)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool ppu_frame_is_white(const gbl_machine *machine)
+{
+    uint16_t line;
+
+    if (machine == NULL) {
+        return false;
+    }
+    for (line = 0u; line < GBL_PPU_VISIBLE_LINES; ++line) {
+        if (!ppu_row_is_white(machine, line)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool ppu_dma_write_register(gbl_machine *machine, uint32_t offset,
+                                   uint8_t width, uint32_t value)
+{
+    const gbl_bus_result result = gbl_bus_write(
+        machine, UINT32_C(0x040000B0) + offset, width,
+        GBL_BUS_CLASS_NONSEQUENTIAL, value);
+
+    return result.status == GBL_BUS_STATUS_OK &&
+           result.outcome == GBL_BUS_OUTCOME_IO_DMA_SUBSET;
+}
+
+static bool ppu_dma_configure_video_transfer(gbl_machine *machine)
+{
+    if (machine == NULL) {
+        return false;
+    }
+    machine->ewram[UINT32_C(0x20)] = UINT8_C(0x34);
+    machine->ewram[UINT32_C(0x21)] = UINT8_C(0x12);
+    return ppu_dma_write_register(machine, 0u, 4u,
+                                  UINT32_C(0x02000020)) &&
+           ppu_dma_write_register(machine, 4u, 4u,
+                                  UINT32_C(0x06000020)) &&
+           ppu_dma_write_register(machine, 8u, 2u, 1u) &&
+           ppu_dma_write_register(machine, 10u, 2u,
+                                  UINT32_C(0xC000));
+}
+
+static int run_ppu_blank(void)
+{
+    const uint64_t line_cycles = (uint64_t)GBL_PPU_LINE_CYCLES;
+    const uint16_t display = UINT16_C(0x0403);
+    const uint16_t forced_blank = UINT16_C(0x0483);
+
+    {
+        gbl_machine *complete = new_machine();
+        gbl_machine *partial = new_machine();
+        const uint64_t frame_end =
+            (uint64_t)GBL_PPU_VISIBLE_LINES * line_cycles;
+
+        CHECK(complete != NULL && partial != NULL);
+        if (complete == NULL || partial == NULL) {
+            free_machine(partial);
+            free_machine(complete);
+            return 1;
+        }
+        complete->dispcnt = forced_blank;
+        complete->ppu.dispcnt = forced_blank;
+        CHECK(gbl_machine_advance_to(complete, frame_end - UINT64_C(1)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(complete->master_cycles == frame_end - UINT64_C(1));
+        CHECK(complete->ppu.captured_rows == GBL_PPU_VISIBLE_LINES);
+        CHECK(complete->ppu.line == GBL_PPU_VISIBLE_LINES - 1u);
+        CHECK(complete->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+        CHECK(complete->ppu.capture_reason ==
+              GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+        CHECK(ppu_frame_is_white(complete));
+        CHECK(gbl_machine_advance_to(complete, frame_end) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(complete->master_cycles == frame_end);
+        CHECK(complete->ppu.line == GBL_PPU_VISIBLE_LINES);
+        CHECK(complete->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(complete->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE);
+        CHECK(ppu_frame_is_white(complete));
+
+        partial->dispcnt = forced_blank;
+        partial->ppu.dispcnt = forced_blank;
+        CHECK(gbl_machine_advance_to(
+                  partial, line_cycles * UINT64_C(79) + UINT64_C(1)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(partial->ppu.captured_rows == 80u);
+        CHECK(partial->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+        CHECK(partial->ppu.capture_reason ==
+              GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+        CHECK(ppu_row_is_white(partial, 79u));
+        free_machine(partial);
+        free_machine(complete);
+    }
+
+    /* Forced blank changes only at captured line starts. A same-cycle DISPCNT
+     * write follows the row sample; clearing blank resumes on the next row. */
+    {
+        gbl_machine *before = new_machine();
+        gbl_machine *on = new_machine();
+        gbl_machine *after = new_machine();
+        gbl_machine *clear = new_machine();
+        gbl_bus_result result;
+
+        CHECK(before != NULL && on != NULL && after != NULL && clear != NULL);
+        if (before == NULL || on == NULL || after == NULL || clear == NULL) {
+            free_machine(clear);
+            free_machine(after);
+            free_machine(on);
+            free_machine(before);
+            return 1;
+        }
+        before->dispcnt = display;
+        before->ppu.dispcnt = display;
+        CHECK(gbl_machine_advance_to(before, line_cycles - UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        result = gbl_bus_write(before, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, forced_blank);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(before->master_cycles == line_cycles - UINT64_C(1));
+        CHECK(gbl_machine_advance_to(before, line_cycles) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_pixel_matches(before->video_frame, 0u, 0u, 0u));
+        CHECK(ppu_row_is_white(before, 1u));
+
+        on->dispcnt = display;
+        on->ppu.dispcnt = display;
+        CHECK(gbl_machine_advance_to(on, line_cycles - UINT64_C(1)) ==
+              GBL_TIME_STATUS_OK);
+        result = gbl_bus_write(on, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, forced_blank);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(on->master_cycles == line_cycles);
+        CHECK(on->ppu.line == 1u);
+        CHECK(ppu_pixel_matches(on->video_frame, 1u, 0u, 0u));
+        CHECK(gbl_machine_advance_to(on, line_cycles * UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_row_is_white(on, 2u));
+
+        after->dispcnt = display;
+        after->ppu.dispcnt = display;
+        CHECK(gbl_machine_advance_to(after, line_cycles) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_pixel_matches(after->video_frame, 1u, 0u, 0u));
+        result = gbl_bus_write(after, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, forced_blank);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(after->master_cycles == line_cycles + UINT64_C(1));
+        CHECK(gbl_machine_advance_to(after, line_cycles * UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_row_is_white(after, 2u));
+
+        clear->dispcnt = forced_blank;
+        clear->ppu.dispcnt = forced_blank;
+        CHECK(gbl_machine_advance_to(clear, line_cycles) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_row_is_white(clear, 1u));
+        result = gbl_bus_write(clear, UINT32_C(0x04000000), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL, display);
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(clear->master_cycles == line_cycles + UINT64_C(1));
+        CHECK(gbl_machine_advance_to(clear, line_cycles * UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_pixel_matches(clear->video_frame, 2u, 0u, 0u));
+
+        free_machine(clear);
+        free_machine(after);
+        free_machine(on);
+        free_machine(before);
+    }
+
+    /* A mode-6 scene is harmless while sampled blank, then the original mode
+     * reason returns when blank is cleared. */
+    {
+        gbl_machine *mode = new_machine();
+        gbl_bus_result result;
+
+        CHECK(mode != NULL);
+        if (mode != NULL) {
+            mode->dispcnt = UINT16_C(0x0086);
+            mode->ppu.dispcnt = UINT16_C(0x0086);
+            CHECK(gbl_machine_advance_to(mode, 0u) == GBL_TIME_STATUS_OK);
+            CHECK(mode->ppu.captured_rows == 1u);
+            CHECK(mode->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(ppu_row_is_white(mode, 0u));
+            result = gbl_bus_write(mode, UINT32_C(0x04000000), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x0006));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(mode->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(mode->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+            CHECK(mode->ppu.captured_rows == 1u);
+            free_machine(mode);
+        }
+    }
+
+    /* Unsupported OBJ encoding is not decoded during blank, but its causal
+     * rejection returns when the first nonblank row is sampled. */
+    {
+        gbl_machine *object = new_machine();
+        gbl_bus_result result;
+
+        CHECK(object != NULL);
+        if (object != NULL) {
+            object->dispcnt = UINT16_C(0x1483);
+            object->ppu.dispcnt = UINT16_C(0x1483);
+            object->oam[0] = 0u;
+            object->oam[1] = UINT8_C(0xC0);
+            CHECK(gbl_machine_advance_to(object, 0u) == GBL_TIME_STATUS_OK);
+            CHECK(object->ppu.captured_rows == 1u);
+            CHECK(object->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(ppu_row_is_white(object, 0u));
+            result = gbl_bus_write(object, UINT32_C(0x04000000), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x1403));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(object->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(gbl_machine_advance_to(object, line_cycles) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(object->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(object->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_OBJ_ENABLED);
+            CHECK(object->ppu.captured_rows == 1u);
+            free_machine(object);
+        }
+    }
+
+    /* Nonneutral effect-register writes while blank do not invalidate the
+     * epoch. Clearing blank exposes the effect reason on the next row. */
+    {
+        gbl_machine *effects = new_machine();
+        gbl_bus_result result;
+
+        CHECK(effects != NULL);
+        if (effects != NULL) {
+            effects->dispcnt = forced_blank;
+            effects->ppu.dispcnt = forced_blank;
+            CHECK(gbl_machine_advance_to(effects, 0u) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(effects->ppu.captured_rows == 1u);
+            CHECK(ppu_row_is_white(effects, 0u));
+            result = gbl_bus_write(effects, UINT32_C(0x04000050), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(effects->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+            result = gbl_bus_write(effects, UINT32_C(0x04000000), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, display);
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+            CHECK(gbl_machine_advance_to(effects, line_cycles) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(effects->ppu.capture_reason ==
+                  GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
+            CHECK(effects->ppu.captured_rows == 1u);
+            free_machine(effects);
+        }
+    }
+
+    /* A malformed later row cannot expose partial output after an earlier
+     * white row; the valid retry still commits normally. */
+    {
+        gbl_machine *late = new_machine();
+        gbl_machine *before = malloc(sizeof(*before));
+        gbl_machine_time_preview preview;
+        gbl_machine_time_preview invalid_preview;
+        gbl_machine_time_preview invalid_before;
+        const gbl_time_operation next_row = {
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+        };
+
+        CHECK(late != NULL && before != NULL);
+        if (late == NULL || before == NULL) {
+            free(before);
+            free_machine(late);
+            return 1;
+        }
+        late->dispcnt = forced_blank;
+        late->ppu.dispcnt = forced_blank;
+        CHECK(gbl_machine_advance_to(late, line_cycles - UINT64_C(1)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(late->ppu.captured_rows == 1u);
+        CHECK(ppu_row_is_white(late, 0u));
+        memcpy(before, late, sizeof(*before));
+        CHECK(gbl_machine_prepare_operations(late, &next_row, 1u,
+                                             &preview) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_capture_count == 1u);
+        if (preview.ppu_row_capture_count == 1u) {
+            invalid_preview = preview;
+            invalid_preview.ppu_row_captures[0].pixel_digest ^= UINT64_C(1);
+            invalid_before = invalid_preview;
+            gbl_machine_commit_time(late, &invalid_preview);
+            CHECK(gbl_test_canonical_equal(late, before));
+            CHECK(gbl_test_same_instance_identity_equal(late, before));
+            CHECK(memcmp(&invalid_preview, &invalid_before,
+                         sizeof(invalid_preview)) == 0);
+            CHECK(ppu_row_is_white(late, 0u));
+            CHECK(bytes_are_zero(late->video_frame + GBL_PPU_ROW_BYTES,
+                                 GBL_PPU_ROW_BYTES));
+            gbl_machine_commit_time(late, &preview);
+            CHECK(late->master_cycles == line_cycles);
+            CHECK(ppu_row_is_white(late, 1u));
+        }
+        free(before);
+        free_machine(late);
+    }
+
+    /* CPU and DMA transfers to video memory retain their existing costs
+     * while forced blank is sampled. */
+    {
+        gbl_machine *cpu_normal = new_machine();
+        gbl_machine *cpu_blank = new_machine();
+        gbl_machine *dma_normal = new_machine();
+        gbl_machine *dma_blank = new_machine();
+        gbl_bus_result normal_write;
+        gbl_bus_result blank_write;
+        gbl_dma_step_result normal_startup = { 0 };
+        gbl_dma_step_result blank_startup = { 0 };
+        gbl_dma_step_result normal_unit = { 0 };
+        gbl_dma_step_result blank_unit = { 0 };
+
+        CHECK(cpu_normal != NULL && cpu_blank != NULL &&
+              dma_normal != NULL && dma_blank != NULL);
+        if (cpu_normal == NULL || cpu_blank == NULL || dma_normal == NULL ||
+            dma_blank == NULL) {
+            free_machine(dma_blank);
+            free_machine(dma_normal);
+            free_machine(cpu_blank);
+            free_machine(cpu_normal);
+            return 1;
+        }
+        cpu_normal->dispcnt = display;
+        cpu_normal->ppu.dispcnt = display;
+        cpu_blank->dispcnt = forced_blank;
+        cpu_blank->ppu.dispcnt = forced_blank;
+        normal_write = gbl_bus_write(cpu_normal, UINT32_C(0x06000020), 2u,
+                                     GBL_BUS_CLASS_NONSEQUENTIAL,
+                                     UINT32_C(0x1234));
+        blank_write = gbl_bus_write(cpu_blank, UINT32_C(0x06000020), 2u,
+                                    GBL_BUS_CLASS_NONSEQUENTIAL,
+                                    UINT32_C(0x1234));
+        CHECK(normal_write.status == GBL_BUS_STATUS_OK);
+        CHECK(blank_write.status == GBL_BUS_STATUS_OK);
+        CHECK(normal_write.cycles == blank_write.cycles);
+        CHECK(cpu_normal->master_cycles == cpu_blank->master_cycles);
+        CHECK(cpu_normal->vram[UINT32_C(0x20)] ==
+              cpu_blank->vram[UINT32_C(0x20)]);
+        CHECK(ppu_pixel_matches(cpu_normal->video_frame, 0u, 0u, 0u));
+        CHECK(ppu_row_is_white(cpu_blank, 0u));
+
+        dma_normal->dispcnt = display;
+        dma_normal->ppu.dispcnt = display;
+        dma_blank->dispcnt = forced_blank;
+        dma_blank->ppu.dispcnt = forced_blank;
+        CHECK(ppu_dma_configure_video_transfer(dma_normal));
+        CHECK(ppu_dma_configure_video_transfer(dma_blank));
+        CHECK(gbl_machine_dma_step(dma_normal, GBL_DMA_STARTUP_CYCLES,
+                                   &normal_startup) == GBL_DMA_STATUS_OK);
+        CHECK(gbl_machine_dma_step(dma_blank, GBL_DMA_STARTUP_CYCLES,
+                                   &blank_startup) == GBL_DMA_STATUS_OK);
+        CHECK(normal_startup.startup_cycles == blank_startup.startup_cycles);
+        CHECK(dma_normal->master_cycles == dma_blank->master_cycles);
+        CHECK(gbl_machine_dma_step(dma_normal, UINT64_C(64),
+                                   &normal_unit) == GBL_DMA_STATUS_OK);
+        CHECK(gbl_machine_dma_step(dma_blank, UINT64_C(64),
+                                   &blank_unit) == GBL_DMA_STATUS_OK);
+        CHECK(normal_unit.unit_completed && blank_unit.unit_completed);
+        CHECK(normal_unit.source_cycles == blank_unit.source_cycles);
+        CHECK(normal_unit.destination_cycles == blank_unit.destination_cycles);
+        CHECK(normal_unit.completion_cycle == blank_unit.completion_cycle);
+        CHECK(normal_unit.value == blank_unit.value);
+        CHECK(dma_normal->master_cycles == dma_blank->master_cycles);
+        CHECK(dma_normal->vram[UINT32_C(0x20)] == UINT8_C(0x34));
+        CHECK(dma_blank->vram[UINT32_C(0x20)] == UINT8_C(0x34));
+        CHECK(ppu_pixel_matches(dma_normal->video_frame, 0u, 0u, 0u));
+        CHECK(ppu_row_is_white(dma_blank, 0u));
+
+        free_machine(dma_blank);
+        free_machine(dma_normal);
+        free_machine(cpu_blank);
+        free_machine(cpu_normal);
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.blank: sampled transitions, white frame coverage and scene bypass hold");
         return 0;
     }
     return 1;
@@ -8220,7 +8628,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -8240,6 +8648,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.effects.tracer") == 0) {
         return run_ppu_effects_tracer();
+    }
+    if (strcmp(argv[1], "ppu.blank") == 0) {
+        return run_ppu_blank();
     }
     if (strcmp(argv[1], "ppu.bg.tracer") == 0) {
         return run_ppu_bg_tracer();
