@@ -1005,6 +1005,117 @@ static int run_ppu_tracer(void)
     return 1;
 }
 
+static int run_ppu_effects_tracer(void)
+{
+    const gbl_time_operation finish_line = {
+        GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
+    };
+    gbl_machine *machine = new_machine();
+    gbl_machine *before = malloc(sizeof(*before));
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview invalid_preview;
+    gbl_machine_time_preview invalid_before;
+    bool first_row_white = true;
+    bool second_row_white = true;
+    size_t pixel;
+
+    if (machine == NULL || before == NULL) {
+        fprintf(stderr, "ppu.effects.tracer: host allocation failed\n");
+        free(before);
+        free_machine(machine);
+        return 1;
+    }
+
+    /* Sample forced blank through the normal line clock and row transaction. */
+    machine->dispcnt = UINT16_C(0x0483);
+    machine->ppu.dispcnt = UINT16_C(0x0483);
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(1231)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->master_cycles == UINT64_C(1231));
+    CHECK(machine->ppu.captured_rows == 1u);
+    CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        first_row_white = first_row_white &&
+            machine->video_frame[pixel * 2u] == UINT8_C(0xFF) &&
+            machine->video_frame[pixel * 2u + 1u] == UINT8_C(0x7F);
+    }
+    CHECK(first_row_white);
+
+    CHECK(gbl_machine_prepare_operations(machine, &finish_line, 1u,
+                                         &preview) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(preview.master_cycles == UINT64_C(1232));
+    CHECK(preview.ppu_row_capture_count == 1u);
+    if (preview.ppu_row_capture_count == 1u) {
+        const gbl_ppu_row_capture *capture = &preview.ppu_row_captures[0];
+
+        CHECK(capture->cycle == UINT64_C(1232));
+        CHECK(capture->line == 1u);
+        CHECK(capture->frame_epoch == machine->ppu.frame_epoch);
+        CHECK((capture->dispcnt & UINT16_C(0x0080)) != 0u);
+        CHECK(capture->obj_selected_count == 0u);
+        CHECK(capture->obj_omitted_count == 0u);
+        CHECK(capture->obj_work_used == 0u);
+        CHECK(bytes_are_zero(capture->obj_selected_mask,
+                             sizeof(capture->obj_selected_mask)));
+    }
+
+    /* Forced blank remains bound to the row plan. Forged line, write-prefix,
+     * epoch, pixel digest, or sampled blank state must not commit anything. */
+    if (preview.ppu_row_capture_count == 1u) {
+#define CHECK_BLANK_CAPTURE_MUTATION(change)                               \
+    do {                                                                    \
+        invalid_preview = preview;                                         \
+        change;                                                             \
+        invalid_before = invalid_preview;                                   \
+        CHECK(!gbl_test_time_preview_equal(&preview, &invalid_preview));    \
+        CHECK(gbl_test_time_preview_ppu_digest(&preview) !=                 \
+              gbl_test_time_preview_ppu_digest(&invalid_preview));         \
+        memcpy(before, machine, sizeof(*before));                           \
+        gbl_machine_commit_time(machine, &invalid_preview);                 \
+        CHECK(gbl_test_canonical_equal(machine, before));                   \
+        CHECK(gbl_test_same_instance_identity_equal(machine, before));      \
+        CHECK(memcmp(&invalid_preview, &invalid_before,                     \
+                     sizeof(invalid_preview)) == 0);                       \
+    } while (0)
+    CHECK_BLANK_CAPTURE_MUTATION(
+        invalid_preview.ppu_row_captures[0].line = 0u);
+    CHECK_BLANK_CAPTURE_MUTATION(
+        invalid_preview.ppu_row_captures[0].prior_write_count = 1u);
+    CHECK_BLANK_CAPTURE_MUTATION(
+        invalid_preview.ppu_row_captures[0].frame_epoch++);
+    CHECK_BLANK_CAPTURE_MUTATION(
+        invalid_preview.ppu_row_captures[0].pixel_digest ^= UINT64_C(1));
+    CHECK_BLANK_CAPTURE_MUTATION(
+        invalid_preview.ppu_row_captures[0].dispcnt ^= UINT16_C(0x0080));
+#undef CHECK_BLANK_CAPTURE_MUTATION
+    }
+
+    gbl_machine_commit_time(machine, &preview);
+    CHECK(machine->master_cycles == UINT64_C(1232));
+    CHECK(machine->ppu.line == 1u);
+    CHECK(machine->ppu.captured_rows == 2u);
+    CHECK((machine->ppu.row_coverage[0] & UINT8_C(0x03)) == UINT8_C(0x03));
+    CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+    CHECK(machine->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        second_row_white = second_row_white &&
+            machine->video_frame[GBL_PPU_ROW_BYTES + pixel * 2u] ==
+                UINT8_C(0xFF) &&
+            machine->video_frame[GBL_PPU_ROW_BYTES + pixel * 2u + 1u] ==
+                UINT8_C(0x7F);
+    }
+    CHECK(second_row_white);
+
+    free(before);
+    free_machine(machine);
+    if (CHECK_DONE() == 0) {
+        puts("ppu.effects.tracer: sampled forced-blank rows emit white BGR555_LE");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_ppu_bg_tracer(void)
 {
     gbl_machine *machine = new_machine();
@@ -8109,7 +8220,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -8126,6 +8237,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.tracer") == 0) {
         return run_ppu_tracer();
+    }
+    if (strcmp(argv[1], "ppu.effects.tracer") == 0) {
+        return run_ppu_effects_tracer();
     }
     if (strcmp(argv[1], "ppu.bg.tracer") == 0) {
         return run_ppu_bg_tracer();
