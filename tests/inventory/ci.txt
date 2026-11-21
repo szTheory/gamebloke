@@ -1074,6 +1074,7 @@ ppu.effects.brightness bus,core,integration,ppu
 ppu.effects.tracer bus,core,integration,ppu
 ppu.frame bus,core,integration,ppu
 ppu.latch bus,core,ppu,unit
+ppu.mosaic.bg bus,core,integration,ppu
 ppu.obj.affine bus,core,integration,ppu
 ppu.obj.boundary bus,core,ppu,unit
 ppu.obj.budget bus,core,integration,ppu
