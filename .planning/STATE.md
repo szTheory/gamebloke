@@ -4,18 +4,18 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 13
 current_phase_name: Objects and Layer Priorities
-current_plan: 5
+current_plan: 6
 status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-11-21T01:10:17.558Z"
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-11-21T02:50:54.981Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 13 execution started
-state_head: 475c4bc0d59c502c1f391483b55b519ae81ba7c7
+state_head: 267e47fda3eee3933f262f4467c1379766ab9b74
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
   percent: 40
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 ## Current Position
 
 Phase: 13 (Objects and Layer Priorities) — EXECUTING
-Current Plan: 5
+Current Plan: 6
 Total Plans in Phase: 8
 Status: Ready to execute
 Last activity: 2026-11-20 — Phase 13 execution started
@@ -185,6 +185,7 @@ Progress: [████░░░░░░] 40% (current milestone)
 | Phase 13 P02 | 39m | 2 tasks | 5 files |
 | Phase 13 P03 | 25m 19s | 2 tasks | 5 files |
 | Phase 13 P04 | 21m12s | 2 tasks | 7 files |
+| Phase 13 P05 | 94 min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -491,6 +492,9 @@ Recent decisions affecting current work:
 - [Phase 13]: OBJ row work is a 1226-unit project policy and does not affect master cycles.
 - [Phase 13]: Admission scans eligible OAM entries in ascending order and stops selecting at the first full-cost non-fit.
 - [Phase 13]: Visible priority remains a compositor decision after OBJ admission.
+- [Phase 13]: Profile v14 encodes the exact 1226-unit OBJ budget, admission policy, and BG/OBJ composition while retaining partial modes and UNKNOWN qualification.
+- [Phase 13]: The current runner reports profile_version 14 and unsupported-obj-control for unsupported OBJ settings; historical obj-enabled results remain accepted under result/1.
+- [Phase 13]: CPU preview validation must mirror the compositor OBJ-aware digest and validate row captures in every supported display mode.
 
 ### Pending Todos
 
@@ -542,8 +546,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-21T01:10:17.394Z
-Stopped at: Completed 13-04-PLAN.md
+Last session: 2026-11-21T02:50:54.756Z
+Stopped at: Completed 13-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
