@@ -127,9 +127,9 @@ if(CASE STREQUAL "copy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
 elseif(CASE STREQUAL "ppu_policy")
-  if(NOT "${PROFILE_VERSION}" STREQUAL "14")
+  if(NOT "${PROFILE_VERSION}" STREQUAL "15")
     message(FATAL_ERROR
-      "profile OBJ/composition capability assertion: expected version 14, found ${PROFILE_VERSION}")
+      "profile OBJ/composition capability assertion: expected version 15, found ${PROFILE_VERSION}")
   endif()
   string(JSON mode0_status GET "${base_profile}"
     ppu_policy display_capabilities modes 0 implementation_status)
@@ -168,12 +168,45 @@ elseif(CASE STREQUAL "ppu_policy")
   endif()
   string(JSON actual_object_policy GET "${base_profile}"
     ppu_policy object_policy)
-  set(expected_object_policy [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited;semitransparent;obj-window;mosaic","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
+  set(expected_object_policy [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
   string(JSON object_policy_matches EQUAL
     "${actual_object_policy}" "${expected_object_policy}")
   if(NOT object_policy_matches)
     message(FATAL_ERROR
       "profile object policy assertion: differs from exact 14-field policy")
+  endif()
+
+  foreach(policy IN ITEMS window_policy effect_policy mosaic_policy forced_blank_policy)
+    string(JSON policy_type ERROR_VARIABLE policy_type_error TYPE
+      "${base_profile}" ppu_policy ${policy})
+    if(NOT "${policy_type_error}" STREQUAL "NOTFOUND" OR
+        NOT "${policy_type}" STREQUAL "OBJECT")
+      message(FATAL_ERROR "profile ${policy} assertion: expected OBJECT, found ${policy_type}")
+    endif()
+  endforeach()
+  string(JSON actual_window_policy GET "${base_profile}" ppu_policy window_policy)
+  set(expected_window_policy [=[{"region_order":"win0;win1;obj-window;outside","rectangle_bounds":"half-open;equal-or-reversed-empty;no-wrap","layer_stage":"filter-before-priority;dispcnt-master-gates","disabled_masters":"bypass-winin-winout","obj_coverage":"admitted-nonzero-source-index;no-color;shared-obj-budget","mask_bits":"bg0-bg3;obj;effects;reserved-ignored"}]=])
+  string(JSON window_policy_matches EQUAL "${actual_window_policy}" "${expected_window_policy}")
+  if(NOT window_policy_matches)
+    message(FATAL_ERROR "profile window policy assertion: differs from exact policy")
+  endif()
+  string(JSON actual_effect_policy GET "${base_profile}" ppu_policy effect_policy)
+  set(expected_effect_policy [=[{"pair":"top-and-immediate-next-visible;no-deeper-search","alpha":"mode1;first-target;second-target;region-effects-enabled","semitransparent_obj":"alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness","coefficient_max":16,"coefficient_input":"low-five-bits;clamp-to-16","channel_arithmetic":"wide-integer;divide16-truncate;clamp0-31","brighten":"c+floor((31-c)*evy/16)","darken":"c-floor(c*evy/16)"}]=])
+  string(JSON effect_policy_matches EQUAL "${actual_effect_policy}" "${expected_effect_policy}")
+  if(NOT effect_policy_matches)
+    message(FATAL_ERROR "profile effect policy assertion: differs from exact policy")
+  endif()
+  string(JSON actual_mosaic_policy GET "${base_profile}" ppu_policy mosaic_policy)
+  set(expected_mosaic_policy [=[{"dimensions":"field-plus-one;independent-bg-obj","anchors":"visible-screen-origin;x-x%w;y-y%h","sampling":"current-row-captured-registers-and-memory;no-old-row-cache","affine_origin":"current-origin-minus-pb-pd-times-row-anchor-delta","stage":"source-before-destination-window-and-effects","obj_field":"existing-destination-field;anchor-outside-transparent;no-field-growth"}]=])
+  string(JSON mosaic_policy_matches EQUAL "${actual_mosaic_policy}" "${expected_mosaic_policy}")
+  if(NOT mosaic_policy_matches)
+    message(FATAL_ERROR "profile mosaic policy assertion: differs from exact policy")
+  endif()
+  string(JSON actual_forced_blank_policy GET "${base_profile}" ppu_policy forced_blank_policy)
+  set(expected_forced_blank_policy [=[{"color_bgr555":32767,"raw_bytes":"FF 7F","transitions":"next-captured-visible-row;no-extra-delay-or-restart","frame_validity":"normal-epoch-row-coverage;publish-line160","precedence":"bypass-scene-decode;retain-structural-transaction-validation","access_policy":"unchanged-existing-bus-behavior"}]=])
+  string(JSON forced_blank_policy_matches EQUAL "${actual_forced_blank_policy}" "${expected_forced_blank_policy}")
+  if(NOT forced_blank_policy_matches)
+    message(FATAL_ERROR "profile forced blank policy assertion: differs from exact policy")
   endif()
 
   string(JSON composition_type ERROR_VARIABLE composition_type_error TYPE
@@ -199,6 +232,20 @@ elseif(CASE STREQUAL "ppu_policy")
       "profile composition policy assertion: differs from exact 5-field policy")
   endif()
 
+  string(JSON capability_model GET "${base_profile}"
+    ppu_policy display_capabilities model)
+  if(NOT "${capability_model}" STREQUAL "gamebloke-display-capabilities-2")
+    message(FATAL_ERROR "profile display capability assertion: expected model 2")
+  endif()
+  string(JSON actual_composition_features GET "${base_profile}"
+    ppu_policy display_capabilities composition_features)
+  set(expected_composition_features [=[{"rectangular_windows":true,"object_windows":true,"alpha_blending":true,"brightness":true,"bg_mosaic":true,"obj_mosaic":true,"forced_blank":true,"classification":"project-selected","hardware_qualification":"UNKNOWN"}]=])
+  string(JSON composition_features_matches EQUAL
+    "${actual_composition_features}" "${expected_composition_features}")
+  if(NOT composition_features_matches)
+    message(FATAL_ERROR "profile composition feature assertion: differs from exact nine-field tuple")
+  endif()
+
   profile_copy(p clean_ppu_policy)
   doc_copy(d clean_ppu_policy)
   check_command(cmd "${p}" "${d}")
@@ -212,6 +259,113 @@ elseif(CASE STREQUAL "ppu_policy")
     ppu_policy object_policy work_budget_units)
   expect_ppu_detail(ppu-object-policy-value
     "ppu_policy\\.object_policy\\.work_budget_units" "${p}")
+
+  profile_copy(p stale_profile_version)
+  gbl_json_mutate_set("${p}" "14" profile_version)
+  expect_ppu_detail(ppu-policy-value "profile_version: expected 15" "${p}")
+
+  profile_copy(p legacy_object_mode_exclusions)
+  gbl_json_mutate_set("${p}" [=["prohibited;semitransparent;obj-window;mosaic"]=]
+    ppu_policy object_policy unsupported_modes)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.unsupported_modes" "${p}")
+
+  profile_copy(p wrong_window_precedence)
+  gbl_json_mutate_set("${p}" [=["win1;win0;obj-window;outside"]=]
+    ppu_policy window_policy region_order)
+  expect_ppu_detail(ppu-window-policy-value
+    "ppu_policy\\.window_policy\\.region_order" "${p}")
+
+  profile_copy(p wrong_window_wrap)
+  gbl_json_mutate_set("${p}" [=["half-open;equal-or-reversed-empty;wrap"]=]
+    ppu_policy window_policy rectangle_bounds)
+  expect_ppu_detail(ppu-window-policy-value
+    "ppu_policy\\.window_policy\\.rectangle_bounds" "${p}")
+
+  profile_copy(p missing_window_policy)
+  gbl_json_mutate_remove("${p}" ppu_policy window_policy)
+  expect_ppu_detail(ppu-window-policy-value "ppu_policy\\.window_policy" "${p}")
+
+  profile_copy(p null_window_policy_field)
+  gbl_json_mutate_set("${p}" null ppu_policy window_policy rectangle_bounds)
+  expect_ppu_detail(ppu-window-policy-value
+    "ppu_policy\\.window_policy\\.rectangle_bounds: expected STRING" "${p}")
+
+  profile_copy(p extra_window_policy_field)
+  gbl_json_mutate_set("${p}" [=["unexpected"]=] ppu_policy window_policy unexpected)
+  expect_ppu_detail(ppu-window-policy-value
+    "ppu_policy\\.window_policy: expected 6 fields" "${p}")
+
+  profile_copy(p deeper_effect_search)
+  gbl_json_mutate_set("${p}" [=["top-and-any-later-target;deeper-search"]=]
+    ppu_policy effect_policy pair)
+  expect_ppu_detail(ppu-effect-policy-value "ppu_policy\\.effect_policy\\.pair" "${p}")
+
+  profile_copy(p unclamped_effect_coefficient)
+  gbl_json_mutate_set("${p}" [=["low-five-bits;no-clamp"]=]
+    ppu_policy effect_policy coefficient_input)
+  expect_ppu_detail(ppu-effect-policy-value
+    "ppu_policy\\.effect_policy\\.coefficient_input" "${p}")
+
+  profile_copy(p effect_coefficient_wrong_type)
+  gbl_json_mutate_set("${p}" [=["16"]=] ppu_policy effect_policy coefficient_max)
+  expect_ppu_detail(ppu-effect-policy-value
+    "ppu_policy\\.effect_policy\\.coefficient_max: expected NUMBER" "${p}")
+
+  profile_copy(p missing_effect_policy)
+  gbl_json_mutate_remove("${p}" ppu_policy effect_policy)
+  expect_ppu_detail(ppu-effect-policy-value "ppu_policy\\.effect_policy" "${p}")
+
+  profile_copy(p extra_effect_policy_field)
+  gbl_json_mutate_set("${p}" "true" ppu_policy effect_policy unexpected)
+  expect_ppu_detail(ppu-effect-policy-value
+    "ppu_policy\\.effect_policy: expected 8 fields" "${p}")
+
+  profile_copy(p stale_row_mosaic)
+  gbl_json_mutate_set("${p}" [=["previous-row-cache;anchor-pixel"]=]
+    ppu_policy mosaic_policy sampling)
+  expect_ppu_detail(ppu-mosaic-policy-value "ppu_policy\\.mosaic_policy\\.sampling" "${p}")
+
+  profile_copy(p wrong_mosaic_anchor)
+  gbl_json_mutate_set("${p}" [=["obj-relative;x-x%w;y-y%h"]=]
+    ppu_policy mosaic_policy anchors)
+  expect_ppu_detail(ppu-mosaic-policy-value "ppu_policy\\.mosaic_policy\\.anchors" "${p}")
+
+  profile_copy(p missing_mosaic_policy)
+  gbl_json_mutate_remove("${p}" ppu_policy mosaic_policy)
+  expect_ppu_detail(ppu-mosaic-policy-value "ppu_policy\\.mosaic_policy" "${p}")
+
+  profile_copy(p extra_mosaic_policy_field)
+  gbl_json_mutate_set("${p}" "true" ppu_policy mosaic_policy unexpected)
+  expect_ppu_detail(ppu-mosaic-policy-value
+    "ppu_policy\\.mosaic_policy: expected 6 fields" "${p}")
+
+  profile_copy(p invalid_forced_blank_output)
+  gbl_json_mutate_set("${p}" "0" ppu_policy forced_blank_policy color_bgr555)
+  expect_ppu_detail(ppu-forced-blank-policy-value
+    "ppu_policy\\.forced_blank_policy\\.color_bgr555" "${p}")
+
+  profile_copy(p invalid_forced_blank_bytes)
+  gbl_json_mutate_set("${p}" [=["00 00"]=]
+    ppu_policy forced_blank_policy raw_bytes)
+  expect_ppu_detail(ppu-forced-blank-policy-value
+    "ppu_policy\\.forced_blank_policy\\.raw_bytes" "${p}")
+
+  profile_copy(p forced_blank_access_change)
+  gbl_json_mutate_set("${p}" [=["denied-during-drawing"]=]
+    ppu_policy forced_blank_policy access_policy)
+  expect_ppu_detail(ppu-forced-blank-policy-value
+    "ppu_policy\\.forced_blank_policy\\.access_policy" "${p}")
+
+  profile_copy(p missing_forced_blank_policy)
+  gbl_json_mutate_remove("${p}" ppu_policy forced_blank_policy)
+  expect_ppu_detail(ppu-forced-blank-policy-value
+    "ppu_policy\\.forced_blank_policy" "${p}")
+
+  profile_copy(p extra_forced_blank_policy_field)
+  gbl_json_mutate_set("${p}" "true" ppu_policy forced_blank_policy unexpected)
+  expect_ppu_detail(ppu-forced-blank-policy-value
+    "ppu_policy\\.forced_blank_policy: expected 6 fields" "${p}")
 
   profile_copy(p wrong_object_admission_order)
   gbl_json_mutate_set("${p}" [=["select-later-fits"]=]
@@ -330,6 +484,36 @@ elseif(CASE STREQUAL "ppu_policy")
   gbl_json_mutate_set("${p}" "true" ppu_policy display_capabilities unexpected)
   expect_ppu_detail(ppu-capability-value
     "ppu_policy\\.display_capabilities" "${p}")
+
+  profile_copy(p stale_capability_model)
+  gbl_json_mutate_set("${p}" [=["gamebloke-display-capabilities-1"]=]
+    ppu_policy display_capabilities model)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.model" "${p}")
+
+  profile_copy(p false_window_feature)
+  gbl_json_mutate_set("${p}" "false"
+    ppu_policy display_capabilities composition_features rectangular_windows)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.composition_features\\.rectangular_windows" "${p}")
+
+  profile_copy(p missing_forced_blank_feature)
+  gbl_json_mutate_remove("${p}"
+    ppu_policy display_capabilities composition_features forced_blank)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.composition_features: expected 9 fields" "${p}")
+
+  profile_copy(p extra_composition_feature)
+  gbl_json_mutate_set("${p}" "true"
+    ppu_policy display_capabilities composition_features scanline_dma)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.composition_features: expected 9 fields" "${p}")
+
+  profile_copy(p qualified_composition_feature)
+  gbl_json_mutate_set("${p}" [=["QUALIFIED"]=]
+    ppu_policy display_capabilities composition_features hardware_qualification)
+  expect_ppu_detail(ppu-capability-value
+    "ppu_policy\\.display_capabilities\\.composition_features\\.hardware_qualification" "${p}")
 
   profile_copy(p wrong_raw_output_type)
   gbl_json_mutate_set("${p}" [=["invalid"]=] ppu_policy display_capabilities raw_output)
@@ -543,7 +727,7 @@ elseif(CASE STREQUAL "ppu_policy")
   profile_copy(p stale_text_control_doc)
   doc_copy(d stale_text_control_doc)
   gbl_text_mutate("${d}"
-    "| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition |"
+    "| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition, rectangular WIN0/WIN1 half-open regions, admitted OBJ-window masks and region-specific layer/effect masks, top-and-immediate-next-visible alpha and semitransparent OBJ effects, clamped 5-bit brightness, independent BG/OBJ screen-origin mosaic resampled from the current row, and forced-blank white rows with normal frame coverage |"
     "| `ppu_policy.supported_controls` | bitmap mode-3 only |")
   expect_ppu_detail(ppu-policy-doc
     "ppu_policy: missing or stale row" "${p}" "${d}")
@@ -551,7 +735,7 @@ elseif(CASE STREQUAL "ppu_policy")
   profile_copy(p stale_unmodeled_controls_doc)
   doc_copy(d stale_unmodeled_controls_doc)
   gbl_text_mutate("${d}"
-    "| `ppu_policy.unmodeled_controls` | forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings |"
+    "| `ppu_policy.unmodeled_controls` | prohibited OBJ mode/shape encodings and unsupported background-control encodings |"
     "| `ppu_policy.unmodeled_controls` | bitmap modes 3/4/5 and text scroll |")
   expect_ppu_detail(ppu-policy-doc
     "ppu_policy: missing or stale row" "${p}" "${d}")

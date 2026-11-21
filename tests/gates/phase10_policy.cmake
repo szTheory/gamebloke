@@ -133,6 +133,29 @@ function(gbl_phase10_expect_value out_reason json reason expected_type expected_
   endif()
 endfunction()
 
+function(gbl_phase10_expect_object out_reason json reason expected_json)
+  set(path ${ARGN})
+  gbl_phase10_json_type(actual_type "${json}" ${path})
+  if(NOT "${actual_type}" STREQUAL "OBJECT")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON expected_count LENGTH "${expected_json}")
+  string(JSON actual_count ERROR_VARIABLE count_error LENGTH "${json}" ${path})
+  if(NOT "${count_error}" STREQUAL "NOTFOUND" OR
+     NOT "${actual_count}" EQUAL "${expected_count}")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON actual_json GET "${json}" ${path})
+  string(JSON matches EQUAL "${actual_json}" "${expected_json}")
+  if(NOT matches)
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+  else()
+    set(${out_reason} "" PARENT_SCOPE)
+  endif()
+endfunction()
+
 function(gbl_phase10_collect_json out_record out_output selector expected_type)
   execute_process(COMMAND "${bus_test}" "${selector}"
     WORKING_DIRECTORY "${GBL_PHASE10_SRC}"
@@ -216,7 +239,7 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
     return()
   endif()
 
-  gbl_phase10_expect_value(reason "${profile_json}" profile-version NUMBER 14
+  gbl_phase10_expect_value(reason "${profile_json}" profile-version NUMBER 15
     profile_version)
   if(NOT "${reason}" STREQUAL "")
     set(${out_reason} "${reason}" PARENT_SCOPE)
@@ -246,7 +269,7 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
     set(${out_reason} "object-policy-value" PARENT_SCOPE)
     return()
   endif()
-  set(expected_object_policy [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited;semitransparent;obj-window;mosaic","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
+  set(expected_object_policy [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
   string(JSON actual_object_policy GET "${profile_json}"
     ppu_policy object_policy)
   string(JSON object_policy_matches EQUAL
@@ -278,6 +301,49 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
     return()
   endif()
 
+  set(expected_window_policy [=[{"region_order":"win0;win1;obj-window;outside","rectangle_bounds":"half-open;equal-or-reversed-empty;no-wrap","layer_stage":"filter-before-priority;dispcnt-master-gates","disabled_masters":"bypass-winin-winout","obj_coverage":"admitted-nonzero-source-index;no-color;shared-obj-budget","mask_bits":"bg0-bg3;obj;effects;reserved-ignored"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" window-policy-value
+    "${expected_window_policy}" ppu_policy window_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_effect_policy [=[{"pair":"top-and-immediate-next-visible;no-deeper-search","alpha":"mode1;first-target;second-target;region-effects-enabled","semitransparent_obj":"alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness","coefficient_max":16,"coefficient_input":"low-five-bits;clamp-to-16","channel_arithmetic":"wide-integer;divide16-truncate;clamp0-31","brighten":"c+floor((31-c)*evy/16)","darken":"c-floor(c*evy/16)"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" effect-policy-value
+    "${expected_effect_policy}" ppu_policy effect_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_mosaic_policy [=[{"dimensions":"field-plus-one;independent-bg-obj","anchors":"visible-screen-origin;x-x%w;y-y%h","sampling":"current-row-captured-registers-and-memory;no-old-row-cache","affine_origin":"current-origin-minus-pb-pd-times-row-anchor-delta","stage":"source-before-destination-window-and-effects","obj_field":"existing-destination-field;anchor-outside-transparent;no-field-growth"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" mosaic-policy-value
+    "${expected_mosaic_policy}" ppu_policy mosaic_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_forced_blank_policy [=[{"color_bgr555":32767,"raw_bytes":"FF 7F","transitions":"next-captured-visible-row;no-extra-delay-or-restart","frame_validity":"normal-epoch-row-coverage;publish-line160","precedence":"bypass-scene-decode;retain-structural-transaction-validation","access_policy":"unchanged-existing-bus-behavior"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" forced-blank-policy-value
+    "${expected_forced_blank_policy}" ppu_policy forced_blank_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" capability-model STRING
+    gamebloke-display-capabilities-2 ppu_policy display_capabilities model)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_composition_features [=[{"rectangular_windows":true,"object_windows":true,"alpha_blending":true,"brightness":true,"bg_mosaic":true,"obj_mosaic":true,"forced_blank":true,"classification":"project-selected","hardware_qualification":"UNKNOWN"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" composition-feature-value
+    "${expected_composition_features}"
+    ppu_policy display_capabilities composition_features)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+
   foreach(mode RANGE 0 5)
     gbl_phase10_expect_value(reason "${profile_json}" capability-status STRING
       partial ppu_policy display_capabilities modes ${mode} implementation_status)
@@ -294,6 +360,10 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
   if("${supported_controls}" MATCHES "exactly one enabled background|BG2 disabled in modes 3-5|BG priority/composition|OBJ disabled" OR
      NOT "${supported_controls}" MATCHES "regular and affine OBJ rendering" OR
      NOT "${supported_controls}" MATCHES "shared BG/OBJ/backdrop priority composition" OR
+     NOT "${supported_controls}" MATCHES "rectangular WIN0/WIN1 half-open regions" OR
+     NOT "${supported_controls}" MATCHES "top-and-immediate-next-visible alpha" OR
+     NOT "${supported_controls}" MATCHES "current row" OR
+     NOT "${supported_controls}" MATCHES "forced-blank white rows" OR
      "${unmodeled_controls}" MATCHES "zero or multiple enabled background sources|BG2 disabled in modes 3-5|BG priority/composition, forced blank, OBJ")
     set(${out_reason} "support-exclusions" PARENT_SCOPE)
     return()
@@ -606,6 +676,47 @@ if(NOT CASE STREQUAL "verify")
   gbl_phase10_control(stale-object-document ppu-object-policy-doc doc
     "| `ppu_policy.object_policy.work_budget_units` | 1226 |"
     replace "| `ppu_policy.object_policy.work_budget_units` | 1225 |")
+  gbl_phase10_control(window-precedence window-policy-value profile
+    ppu_policy.window_policy.region_order set [=["win1;win0;obj-window;outside"]=])
+  gbl_phase10_control(window-wrap window-policy-value profile
+    ppu_policy.window_policy.rectangle_bounds set [=["half-open;wraparound"]=])
+  gbl_phase10_control(effect-deeper-search effect-policy-value profile
+    ppu_policy.effect_policy.pair set [=["top-and-any-later-target;deeper-search"]=])
+  gbl_phase10_control(effect-unclamped effect-policy-value profile
+    ppu_policy.effect_policy.coefficient_input set [=["low-five-bits;no-clamp"]=])
+  gbl_phase10_control(mosaic-stale-row mosaic-policy-value profile
+    ppu_policy.mosaic_policy.sampling set [=["previous-row-cache;anchor-pixel"]=])
+  gbl_phase10_control(blank-invalid-output forced-blank-policy-value profile
+    ppu_policy.forced_blank_policy.color_bgr555 set 0)
+  gbl_phase10_control(blank-access-change forced-blank-policy-value profile
+    ppu_policy.forced_blank_policy.access_policy set [=["denied-during-drawing"]=])
+  gbl_phase10_control(capability-model-stale capability-model profile
+    ppu_policy.display_capabilities.model set [=["gamebloke-display-capabilities-1"]=])
+  gbl_phase10_control(feature-missing composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.forced_blank remove "")
+  gbl_phase10_control(feature-null composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.forced_blank set null)
+  gbl_phase10_control(feature-extra composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.scanline_dma set true)
+  gbl_phase10_control(feature-disabled composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.obj_mosaic set false)
+  gbl_phase10_control(feature-qualified composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.hardware_qualification set [=["QUALIFIED"]=])
+  gbl_phase10_control(stale-window-document ppu-window-policy-doc doc
+    "| `ppu_policy.window_policy.rectangle_bounds` | half-open;equal-or-reversed-empty;no-wrap |"
+    replace "| `ppu_policy.window_policy.rectangle_bounds` | half-open;wrap |")
+  gbl_phase10_control(stale-effect-document ppu-effect-policy-doc doc
+    "| `ppu_policy.effect_policy.pair` | top-and-immediate-next-visible;no-deeper-search |"
+    replace "| `ppu_policy.effect_policy.pair` | top-and-any-target;deeper-search |")
+  gbl_phase10_control(stale-mosaic-document ppu-mosaic-policy-doc doc
+    "| `ppu_policy.mosaic_policy.sampling` | current-row-captured-registers-and-memory;no-old-row-cache |"
+    replace "| `ppu_policy.mosaic_policy.sampling` | previous-row-cache |")
+  gbl_phase10_control(stale-forced-blank-document ppu-forced-blank-policy-doc doc
+    "| `ppu_policy.forced_blank_policy.raw_bytes` | FF 7F |"
+    replace "| `ppu_policy.forced_blank_policy.raw_bytes` | 00 00 |")
+  gbl_phase10_control(stale-feature-document ppu-capability-doc doc
+    "| `ppu_policy.display_capabilities.composition_features.hardware_qualification` | UNKNOWN |"
+    replace "| `ppu_policy.display_capabilities.composition_features.hardware_qualification` | QUALIFIED |")
   message(STATUS "phase10-policy: PPU policy controls and clean twins passed")
 endif()
 
