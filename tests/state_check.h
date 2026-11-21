@@ -282,6 +282,21 @@ static bool gbl_test_time_preview_equal(
         !gbl_test_ppu_equal(&left->ppu, &right->ppu) ||
         !gbl_test_ppu_affine_array_equal(left->ppu_affine_prepared,
                                          right->ppu_affine_prepared) ||
+        left->ppu_dispcnt_prepared != right->ppu_dispcnt_prepared ||
+        left->ppu_unsupported_register_bytes_prepared !=
+            right->ppu_unsupported_register_bytes_prepared ||
+        !gbl_test_bytes_equal(
+            left->ppu_render_register_bytes_prepared,
+            right->ppu_render_register_bytes_prepared,
+            sizeof(left->ppu_render_register_bytes_prepared)) ||
+        !gbl_test_bytes_equal(
+            left->ppu_bg_register_bytes_prepared,
+            right->ppu_bg_register_bytes_prepared,
+            sizeof(left->ppu_bg_register_bytes_prepared)) ||
+        !gbl_test_bytes_equal(
+            left->ppu_window_register_bytes_prepared,
+            right->ppu_window_register_bytes_prepared,
+            sizeof(left->ppu_window_register_bytes_prepared)) ||
         left->bus_owner != right->bus_owner ||
         left->dma_last_channel != right->dma_last_channel ||
         left->dma_last_width != right->dma_last_width ||
@@ -369,6 +384,21 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.ppu = machine->ppu;
     for (index = 0u; index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++index) {
         machine_time.ppu_affine_prepared[index] = machine->ppu.affine[index];
+    }
+    machine_time.ppu_dispcnt_prepared = machine->dispcnt;
+    machine_time.ppu_unsupported_register_bytes_prepared =
+        machine->ppu.unsupported_register_bytes;
+    for (index = 0u; index < GBL_PPU_RENDER_REGISTER_BYTES; ++index) {
+        machine_time.ppu_render_register_bytes_prepared[index] =
+            machine->ppu.render_register_bytes[index];
+    }
+    for (index = 0u; index < GBL_PPU_BG_REGISTER_BYTES; ++index) {
+        machine_time.ppu_bg_register_bytes_prepared[index] =
+            machine->ppu.bg_register_bytes[index];
+    }
+    for (index = 0u; index < GBL_PPU_WINDOW_REGISTER_BYTES; ++index) {
+        machine_time.ppu_window_register_bytes_prepared[index] =
+            machine->ppu.window_register_bytes[index];
     }
     machine_time.bus_owner = machine->bus_owner;
     machine_time.dma_last_channel = machine->dma_last_channel;
@@ -946,6 +976,30 @@ static inline uint64_t gbl_test_time_preview_ppu_digest(
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX) {
         return gbl_test_digest_byte(digest, UINT8_MAX);
     }
+    digest = gbl_test_digest_u64(digest, preview->ppu.dispcnt);
+    digest = gbl_test_digest_u64(
+        digest, preview->ppu.unsupported_register_bytes);
+    digest = gbl_test_digest_bytes(
+        digest, preview->ppu.render_register_bytes,
+        sizeof(preview->ppu.render_register_bytes));
+    digest = gbl_test_digest_bytes(
+        digest, preview->ppu.bg_register_bytes,
+        sizeof(preview->ppu.bg_register_bytes));
+    digest = gbl_test_digest_bytes(
+        digest, preview->ppu.window_register_bytes,
+        sizeof(preview->ppu.window_register_bytes));
+    digest = gbl_test_digest_u64(digest, preview->ppu_dispcnt_prepared);
+    digest = gbl_test_digest_u64(
+        digest, preview->ppu_unsupported_register_bytes_prepared);
+    digest = gbl_test_digest_bytes(
+        digest, preview->ppu_render_register_bytes_prepared,
+        sizeof(preview->ppu_render_register_bytes_prepared));
+    digest = gbl_test_digest_bytes(
+        digest, preview->ppu_bg_register_bytes_prepared,
+        sizeof(preview->ppu_bg_register_bytes_prepared));
+    digest = gbl_test_digest_bytes(
+        digest, preview->ppu_window_register_bytes_prepared,
+        sizeof(preview->ppu_window_register_bytes_prepared));
     digest = gbl_test_digest_u64(digest, preview->ppu_row_capture_count);
     for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
         digest = gbl_test_digest_u64(

@@ -306,6 +306,16 @@ typedef struct gbl_machine_time_preview {
      * refuses a preview whose candidate affine state was altered. */
     gbl_ppu_affine_state ppu_affine_prepared[
         GBL_PPU_AFFINE_BACKGROUND_COUNT];
+    /* Bind the final display-control lanes produced by preparation so a
+     * caller cannot alter a sampled window, effect, mosaic, or BG control
+     * after preview without being refused at commit. */
+    uint16_t ppu_dispcnt_prepared;
+    uint32_t ppu_unsupported_register_bytes_prepared;
+    uint8_t ppu_render_register_bytes_prepared[
+        GBL_PPU_RENDER_REGISTER_BYTES];
+    uint8_t ppu_bg_register_bytes_prepared[GBL_PPU_BG_REGISTER_BYTES];
+    uint8_t ppu_window_register_bytes_prepared[
+        GBL_PPU_WINDOW_REGISTER_BYTES];
     gbl_machine_bus_owner bus_owner;
     uint8_t dma_last_channel;
     uint8_t dma_last_width;

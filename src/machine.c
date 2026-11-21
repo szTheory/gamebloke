@@ -54,6 +54,21 @@ static void gbl_machine_copy_bytes(void *destination, const void *source,
     }
 }
 
+static bool gbl_machine_bytes_equal(const void *left, const void *right,
+                                    size_t length)
+{
+    const uint8_t *left_bytes = left;
+    const uint8_t *right_bytes = right;
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        if (left_bytes[index] != right_bytes[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void gbl_machine_clear_bytes(void *destination, size_t length)
 {
     uint8_t *destination_bytes = destination;
@@ -2670,6 +2685,44 @@ static gbl_time_status gbl_preview_dispatch_event(
     return gbl_preview_schedule_timer(preview, event->timer_index);
 }
 
+static void gbl_ppu_bind_prepared_registers(
+    gbl_machine_time_preview *preview)
+{
+    preview->ppu_dispcnt_prepared = preview->ppu.dispcnt;
+    preview->ppu_unsupported_register_bytes_prepared =
+        preview->ppu.unsupported_register_bytes;
+    gbl_machine_copy_bytes(preview->ppu_render_register_bytes_prepared,
+                           preview->ppu.render_register_bytes,
+                           sizeof(preview->ppu_render_register_bytes_prepared));
+    gbl_machine_copy_bytes(preview->ppu_bg_register_bytes_prepared,
+                           preview->ppu.bg_register_bytes,
+                           sizeof(preview->ppu_bg_register_bytes_prepared));
+    gbl_machine_copy_bytes(preview->ppu_window_register_bytes_prepared,
+                           preview->ppu.window_register_bytes,
+                           sizeof(preview->ppu_window_register_bytes_prepared));
+}
+
+static bool gbl_ppu_prepared_registers_valid(
+    const gbl_machine_time_preview *preview)
+{
+    return preview != NULL &&
+           preview->ppu.dispcnt == preview->ppu_dispcnt_prepared &&
+           preview->ppu.unsupported_register_bytes ==
+               preview->ppu_unsupported_register_bytes_prepared &&
+           gbl_machine_bytes_equal(
+               preview->ppu.render_register_bytes,
+               preview->ppu_render_register_bytes_prepared,
+               sizeof(preview->ppu_render_register_bytes_prepared)) &&
+           gbl_machine_bytes_equal(
+               preview->ppu.bg_register_bytes,
+               preview->ppu_bg_register_bytes_prepared,
+               sizeof(preview->ppu_bg_register_bytes_prepared)) &&
+           gbl_machine_bytes_equal(
+               preview->ppu.window_register_bytes,
+               preview->ppu_window_register_bytes_prepared,
+               sizeof(preview->ppu_window_register_bytes_prepared));
+}
+
 static void gbl_machine_time_copy_preview(
     const gbl_machine *machine, gbl_machine_time_preview *preview)
 {
@@ -2687,6 +2740,7 @@ static void gbl_machine_time_copy_preview(
     gbl_machine_copy_bytes(preview->ppu_affine_prepared,
                            preview->ppu.affine,
                            sizeof(preview->ppu_affine_prepared));
+    gbl_ppu_bind_prepared_registers(preview);
     preview->bus_owner = machine->bus_owner;
     preview->dma_last_channel = machine->dma_last_channel;
     preview->dma_last_width = machine->dma_last_width;
@@ -2955,6 +3009,7 @@ gbl_time_status gbl_machine_prepare_time(
     gbl_machine_copy_bytes(candidate.ppu_affine_prepared,
                            candidate.ppu.affine,
                            sizeof(candidate.ppu_affine_prepared));
+    gbl_ppu_bind_prepared_registers(&candidate);
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -3298,6 +3353,7 @@ gbl_time_status gbl_machine_prepare_operations(
     gbl_machine_copy_bytes(candidate.ppu_affine_prepared,
                            candidate.ppu.affine,
                            sizeof(candidate.ppu_affine_prepared));
+    gbl_ppu_bind_prepared_registers(&candidate);
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -3337,6 +3393,7 @@ static bool gbl_ppu_commit_preview_valid(
     if (machine == NULL || preview == NULL ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
+        !gbl_ppu_prepared_registers_valid(preview) ||
         !gbl_ppu_write_log_valid(machine, preview)) {
         return false;
     }
