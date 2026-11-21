@@ -121,6 +121,8 @@ cpu.no_bios core,cpu,unit
 cpu.peek core,cpu,unit
 cpu.pos.clean core,cpu,positive
 cpu.power.boundary core,cpu,unit
+cpu.ppu.access core,cpu,ppu,unit
+cpu.ppu.access-controls core,cpu,ppu,unit
 cpu.ppu.dma core,cpu,ppu,unit
 cpu.ppu.irq core,cpu,ppu,unit
 cpu.ppu.latch core,cpu,ppu,unit
@@ -903,6 +905,8 @@ dma.arbitration core,dma,unit
 dma.controls core,dma,unit
 dma.events core,dma,unit
 dma.latch core,dma,unit
+dma.ppu.access core,dma,ppu,unit
+dma.ppu.access-controls core,dma,ppu,unit
 dma.ppu.order core,dma,ppu,unit
 dma.ppu.refusal core,dma,ppu,unit
 dma.ppu.triggers core,dma,ppu,unit
@@ -1046,6 +1050,9 @@ phase13.selection.verify gate,ppu,time
 phase14.selection.control gate,ppu,time
 phase14.selection.order gate,ppu,time
 phase14.selection.verify gate,ppu,time
+phase15.selection.control gate,ppu,time
+phase15.selection.order gate,ppu,time
+phase15.selection.verify gate,ppu,time
 phase7.order gate,time,timer
 phase7.selection.control gate,time,timer
 phase8.order gate,time,timer
@@ -1182,6 +1189,8 @@ runner.no_args runner,unit
 runner.ppu.observation integration,ppu,runner
 runner.ppu.output integration,ppu,runner
 runner.ppu.output-controls integration,ppu,runner
+runner.ppu.production integration,ppu,runner
+runner.ppu.production-controls integration,ppu,runner
 runner.relocation gate,integration,runner
 runner.relocation_admitted diagnostics,gate,integration,runner skip-ok
 runner.relocation_control control,runner

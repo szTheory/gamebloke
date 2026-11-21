@@ -336,7 +336,7 @@ gbl_add_test(
   NAME cpu.dma.waitcnt
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> dma.waitcnt)
-foreach(selector IN ITEMS irq latch refusal dma)
+foreach(selector IN ITEMS irq latch refusal dma access access-controls)
   gbl_add_test(
     NAME cpu.ppu.${selector}
     LABELS core cpu ppu unit
@@ -381,7 +381,7 @@ if(GBL_INVENTORY_LANE STREQUAL "ci" OR GBL_INVENTORY_LANE STREQUAL "asan")
       COMMAND $<TARGET_FILE:cpu_test> dma.cpu)
   endif()
 endif()
-foreach(selector IN ITEMS triggers order refusal)
+foreach(selector IN ITEMS triggers order refusal access access-controls)
   gbl_add_test(
     NAME dma.ppu.${selector}
     LABELS core dma ppu unit
@@ -390,12 +390,31 @@ endforeach()
 
 # These runner checks use only synthetic-control fixtures. Give each case its
 # own scratch path because CTest may run them concurrently.
-foreach(selector IN ITEMS observation output output-controls)
+foreach(selector IN ITEMS observation output output-controls production
+    production-controls)
   gbl_add_test(
     NAME runner.ppu.${selector}
     LABELS integration ppu runner
     COMMAND $<TARGET_FILE:runner_test> ppu.${selector}
       "${CMAKE_BINARY_DIR}/runner-ppu-${selector}")
+endforeach()
+
+# Phase 15 exact access and production selection gates. The cheap gates are
+# registered here; the top-level fixture graph is added after this include.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase15.selection.control)
+  else()
+    set(test_name phase15.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase15_selection.cmake")
 endforeach()
 
 # The Phase 10 profile gate checks runtime observations without running a guest.
