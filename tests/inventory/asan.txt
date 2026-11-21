@@ -93,6 +93,8 @@ cpu.waitcnt core,cpu,unit
 determinism.interleave.controls determinism,gate,integration
 determinism.phase10 determinism,gate,integration
 determinism.phase10.controls determinism,gate,integration
+determinism.phase13 determinism,gate,integration
+determinism.phase13.controls determinism,gate,integration
 determinism.phase8 determinism,gate,integration
 determinism.phase8.controls determinism,gate,integration
 determinism.phase9 determinism,gate,integration
@@ -906,7 +908,9 @@ ppu.controls bus,core,ppu,unit
 ppu.frame bus,core,integration,ppu
 ppu.latch bus,core,ppu,unit
 ppu.obj.affine bus,core,integration,ppu
+ppu.obj.boundary bus,core,ppu,unit
 ppu.obj.budget bus,core,integration,ppu
+ppu.obj.controls bus,core,ppu,unit
 ppu.obj.regular bus,core,integration,ppu
 ppu.obj.tracer bus,core,integration,ppu
 ppu.refusal bus,core,ppu,unit

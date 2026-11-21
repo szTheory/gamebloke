@@ -5196,8 +5196,710 @@ done:
     return 0;
 }
 
+static void gbl_phase13_store_u16(uint8_t *bytes, size_t offset,
+                                 uint16_t value)
+{
+    bytes[offset] = (uint8_t)(value & UINT16_C(0x00FF));
+    bytes[offset + 1u] = (uint8_t)(value >> 8u);
+}
+
+static void gbl_phase13_store_obj_matrix(gbl_machine *machine,
+                                         int16_t pa, int16_t pb,
+                                         int16_t pc, int16_t pd)
+{
+    const int16_t coefficients[4] = { pa, pb, pc, pd };
+    size_t index;
+
+    for (index = 0u; index < 4u; ++index) {
+        gbl_phase13_store_u16(machine->oam, 6u + index * 8u,
+                              (uint16_t)coefficients[index]);
+    }
+}
+
+static void gbl_phase13_set_obj_pixel(gbl_machine *machine,
+                                      uint16_t tile, uint8_t x, uint8_t y,
+                                      uint8_t color_index)
+{
+    const size_t offset = UINT32_C(0x10000) + (size_t)tile * 32u +
+                          (size_t)y * 4u + (size_t)(x / 2u);
+    const uint8_t shift = (x & 1u) != 0u ? 4u : 0u;
+    const uint8_t mask = (uint8_t)(UINT8_C(0x0F) << shift);
+
+    machine->vram[offset] = (uint8_t)(
+        (machine->vram[offset] & (uint8_t)~mask) |
+        (uint8_t)((color_index & UINT8_C(0x0F)) << shift));
+}
+
+static bool gbl_phase13_seed(gbl_machine *machine, bool palette_variant,
+                             const char **failure)
+{
+    static const gbl_input_event input[] = {
+        { UINT64_C(4), UINT16_C(1) },
+        { UINT64_C(12), UINT16_C(0) }
+    };
+    size_t object;
+    size_t tile;
+    size_t map_entry;
+    uint8_t y;
+
+    if (machine == NULL || !machine->initialized || failure == NULL) {
+        if (failure != NULL) *failure = "phase13-machine-not-initialized";
+        return false;
+    }
+
+    /* Mode 0, 1D 4bpp OBJ mapping, BG0 beneath OBJ, BG priority 3. */
+    machine->dispcnt = UINT16_C(0x1140);
+    machine->ppu.dispcnt = machine->dispcnt;
+    gbl_phase13_store_u16(machine->ppu.bg_register_bytes, 0u,
+                          UINT16_C(0x0103));
+    memset(&machine->vram[UINT32_C(0x00020)], UINT8_C(0x11), 32u);
+    for (map_entry = 0u; map_entry < 1024u; ++map_entry) {
+        gbl_phase13_store_u16(machine->vram,
+                              UINT32_C(0x00800) + map_entry * 2u,
+                              UINT16_C(1));
+    }
+
+    /* BG tile 1 is opaque black; color 0 remains a blue backdrop. */
+    gbl_phase13_store_u16(machine->pram, 0u, UINT16_C(0x7C00));
+    gbl_phase13_store_u16(machine->pram, 2u, UINT16_C(0x0000));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x202),
+                          UINT16_C(0x001F));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x204),
+                          palette_variant ? UINT16_C(0x001F)
+                                          : UINT16_C(0x03E0));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x206),
+                          UINT16_C(0x7C00));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x208),
+                          UINT16_C(0x03FF));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x20A),
+                          UINT16_C(0x7C1F));
+
+    for (object = 0u; object < 128u; ++object) {
+        gbl_phase13_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+    }
+    memset(&machine->vram[UINT32_C(0x10020)], UINT8_C(0x11), 32u);
+    gbl_phase13_set_obj_pixel(machine, 1u, 1u, 0u, 0u);
+    for (y = 0u; y < 8u; ++y) {
+        uint8_t x;
+
+        for (x = 0u; x < 8u; ++x) {
+            gbl_phase13_set_obj_pixel(machine, 2u, x, y,
+                                      x < 4u ? 2u : 3u);
+        }
+    }
+    for (tile = 8u; tile < 72u; ++tile) {
+        memset(&machine->vram[UINT32_C(0x10000) + tile * 32u],
+               UINT8_C(0x44), 32u);
+    }
+    for (tile = 72u; tile < 136u; ++tile) {
+        memset(&machine->vram[UINT32_C(0x10000) + tile * 32u],
+               UINT8_C(0x55), 32u);
+    }
+
+    /* Regular red sprite with a transparent pixel over opaque BG0. */
+    gbl_phase13_store_u16(machine->oam, 0u, 0u);
+    gbl_phase13_store_u16(machine->oam, 2u, 0u);
+    gbl_phase13_store_u16(machine->oam, 4u, UINT16_C(1));
+    /* Affine 8x8 sprite: green left half, blue right half. */
+    gbl_phase13_store_u16(machine->oam, 8u, UINT16_C(0x0100));
+    gbl_phase13_store_u16(machine->oam, 10u, UINT16_C(16));
+    gbl_phase13_store_u16(machine->oam, 12u, UINT16_C(2));
+    gbl_phase13_store_obj_matrix(machine, 256, 0, 0, 256);
+    /* Eighteen 64x64 sprites consume most of the row budget. Object 20
+     * carries a distinct color and must be omitted by the bounded policy. */
+    for (object = 2u; object < 20u; ++object) {
+        const size_t offset = object * 8u;
+
+        gbl_phase13_store_u16(machine->oam, offset, 0u);
+        gbl_phase13_store_u16(machine->oam, offset + 2u,
+                              UINT16_C(0xC028));
+        gbl_phase13_store_u16(machine->oam, offset + 4u, UINT16_C(8));
+    }
+    gbl_phase13_store_u16(machine->oam, 20u * 8u, 0u);
+    gbl_phase13_store_u16(machine->oam, 20u * 8u + 2u,
+                          UINT16_C(0xC0A0));
+    gbl_phase13_store_u16(machine->oam, 20u * 8u + 4u, UINT16_C(72));
+
+    if (gbl_machine_set_input_timeline(
+            machine, input, sizeof input / sizeof input[0]) !=
+        GBL_TIME_STATUS_OK) {
+        *failure = "phase13-input-timeline-setup-failed";
+        return false;
+    }
+    return true;
+}
+
+static gbl_machine *gbl_phase13_new_machine(bool palette_variant,
+                                            const char **failure)
+{
+    gbl_machine *machine = calloc(1u, sizeof *machine);
+
+    if (machine == NULL) {
+        *failure = "phase13-machine-allocation-failed";
+        return NULL;
+    }
+    if (gbl_machine_init(machine, NULL) != GBL_BUS_STATUS_OK) {
+        free(machine);
+        *failure = "phase13-machine-init-failed";
+        return NULL;
+    }
+    if (!gbl_phase13_seed(machine, palette_variant, failure)) {
+        gbl_machine_dispose(machine);
+        free(machine);
+        return NULL;
+    }
+    return machine;
+}
+
+static void gbl_phase13_free_machine(gbl_machine **machine)
+{
+    if (machine == NULL || *machine == NULL) return;
+    gbl_machine_dispose(*machine);
+    free(*machine);
+    *machine = NULL;
+}
+
+static uint16_t gbl_phase13_pixel(const gbl_machine *machine, uint16_t x,
+                                 uint16_t y)
+{
+    const size_t offset =
+        ((size_t)y * GBL_PPU_WIDTH + (size_t)x) * 2u;
+
+    return (uint16_t)machine->video_frame[offset] |
+           (uint16_t)((uint16_t)machine->video_frame[offset + 1u] << 8u);
+}
+
+static bool gbl_phase13_row_observation(const gbl_ppu_row_capture *capture)
+{
+    static const uint8_t expected_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES] = {
+        UINT8_MAX, UINT8_MAX, UINT8_C(0x0F)
+    };
+    size_t index;
+
+    if (capture == NULL || capture->line != 0u ||
+        capture->obj_selected_count != 20u ||
+        capture->obj_omitted_count != 1u ||
+        capture->obj_work_used != 1186u ||
+        memcmp(capture->obj_selected_mask, expected_mask,
+               sizeof expected_mask) != 0) {
+        return false;
+    }
+    for (index = sizeof expected_mask; index <
+         sizeof capture->obj_selected_mask; ++index) {
+        if (capture->obj_selected_mask[index] != 0u) return false;
+    }
+    return true;
+}
+
+static bool gbl_phase13_start_row_zero(
+    gbl_machine *machine, gbl_ppu_row_capture *capture_out,
+    gbl_machine_time_preview *preview_out, const char **failure)
+{
+    gbl_machine_time_preview preview;
+
+    memset(&preview, 0xA5, sizeof preview);
+    if (machine == NULL ||
+        gbl_machine_prepare_time(machine, UINT64_C(1), &preview) !=
+            GBL_TIME_STATUS_OK ||
+        preview.ppu_row_capture_count != 1u ||
+        !gbl_phase13_row_observation(&preview.ppu_row_captures[0])) {
+        *failure = "phase13-row-zero-capture-mismatch";
+        return false;
+    }
+    if (capture_out != NULL) *capture_out = preview.ppu_row_captures[0];
+    if (preview_out != NULL) *preview_out = preview;
+    gbl_machine_commit_time(machine, &preview);
+    return true;
+}
+
+static bool gbl_phase13_advance(gbl_machine *machine, uint64_t target,
+                                const char **failure)
+{
+    if (machine == NULL || target < machine->master_cycles ||
+        gbl_machine_advance_to(machine, target) != GBL_TIME_STATUS_OK) {
+        *failure = "phase13-scheduled-advance-failed";
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_phase13_semantic_pixels(const gbl_machine *machine,
+                                        bool palette_variant)
+{
+    const uint16_t affine_green = palette_variant ? UINT16_C(0x001F)
+                                                  : UINT16_C(0x03E0);
+
+    return machine != NULL &&
+           gbl_phase13_pixel(machine, 0u, 0u) == UINT16_C(0x001F) &&
+           gbl_phase13_pixel(machine, 1u, 0u) == UINT16_C(0x0000) &&
+           gbl_phase13_pixel(machine, 2u, 0u) == UINT16_C(0x001F) &&
+           gbl_phase13_pixel(machine, 16u, 0u) == affine_green &&
+           gbl_phase13_pixel(machine, 20u, 0u) == UINT16_C(0x7C00) &&
+           gbl_phase13_pixel(machine, 40u, 0u) == UINT16_C(0x03FF) &&
+           gbl_phase13_pixel(machine, 160u, 0u) == UINT16_C(0x0000);
+}
+
+static bool gbl_phase13_frame_semantics(const gbl_machine *machine,
+                                        bool palette_variant)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    size_t index;
+
+    if (machine == NULL || machine->master_cycles != frame_end ||
+        machine->ppu.frame_epoch != 0u ||
+        machine->ppu.line != GBL_PPU_VISIBLE_LINES ||
+        machine->ppu.captured_rows != GBL_PPU_VISIBLE_LINES ||
+        machine->ppu.capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        machine->ppu.capture_reason != GBL_VIDEO_INVALID_REASON_NONE ||
+        machine->ppu.dispcnt != UINT16_C(0x1140) ||
+        machine->input_event_cursor != 2u || machine->pressed_keys != 0u ||
+        !gbl_phase13_semantic_pixels(machine, palette_variant)) {
+        return false;
+    }
+    for (index = 0u; index < GBL_PPU_ROW_COVERAGE_BYTES; ++index) {
+        if (machine->ppu.row_coverage[index] != UINT8_MAX) return false;
+    }
+    return true;
+}
+
+static bool gbl_phase13_same_machine(const gbl_machine *left,
+                                     const gbl_machine *right)
+{
+    return gbl_test_canonical_equal(left, right) &&
+           gbl_test_canonical_digest(left) ==
+               gbl_test_canonical_digest(right) &&
+           gbl_test_ppu_video_equal(left, right);
+}
+
+static bool gbl_phase13_run_split(gbl_machine *machine,
+                                  const char **failure)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    const uint64_t targets[] = {
+        UINT64_C(1005), UINT64_C(1006), UINT64_C(1231), UINT64_C(1232),
+        UINT64_C(1233), UINT64_C(8192), UINT64_C(65536), UINT64_C(120000),
+        frame_end
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof targets / sizeof targets[0]; ++index) {
+        if (targets[index] > machine->master_cycles &&
+            !gbl_phase13_advance(machine, targets[index], failure)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_phase13_run_interleaved(gbl_machine *first,
+                                        gbl_machine *second,
+                                        const char **failure)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    const uint64_t targets[] = {
+        UINT64_C(1232), UINT64_C(8192), UINT64_C(65536), UINT64_C(120000),
+        frame_end
+    };
+    size_t index;
+
+    for (index = 0u; index < sizeof targets / sizeof targets[0]; ++index) {
+        if (!gbl_phase13_advance(first, targets[index], failure) ||
+            !gbl_phase13_advance(second, targets[index], failure)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_phase13_preview_copy_halt_control(const char **failure)
+{
+    gbl_machine *first = gbl_phase13_new_machine(false, failure);
+    gbl_machine *second = gbl_phase13_new_machine(false, failure);
+    gbl_machine_time_preview *first_preview = malloc(sizeof *first_preview);
+    gbl_machine_time_preview *second_preview = malloc(sizeof *second_preview);
+    bool okay = false;
+
+    if (first == NULL || second == NULL || first_preview == NULL ||
+        second_preview == NULL) {
+        *failure = "phase13-halt-preview-allocation-failed";
+        goto done;
+    }
+    if (gbl_machine_set_power_state(first, GBL_MACHINE_POWER_HALTED) !=
+            GBL_TIME_STATUS_OK ||
+        gbl_machine_set_power_state(second, GBL_MACHINE_POWER_HALTED) !=
+            GBL_TIME_STATUS_OK) {
+        *failure = "phase13-halt-setup-failed";
+        goto done;
+    }
+    memset(first_preview, 0xA5, sizeof *first_preview);
+    memset(second_preview, 0x5A, sizeof *second_preview);
+    if (gbl_machine_prepare_time(first, UINT64_C(2), first_preview) !=
+            GBL_TIME_STATUS_OK ||
+        gbl_machine_prepare_time(second, UINT64_C(2), second_preview) !=
+            GBL_TIME_STATUS_OK ||
+        !gbl_test_time_preview_equal(first_preview, second_preview) ||
+        gbl_test_time_preview_ppu_digest(first_preview) !=
+            gbl_test_time_preview_ppu_digest(second_preview)) {
+        *failure = "phase13-halt-default-preview-differs";
+        goto done;
+    }
+    *second_preview = *first_preview;
+    gbl_machine_commit_time(first, first_preview);
+    gbl_machine_commit_time(second, second_preview);
+    if (first->master_cycles != UINT64_C(2) ||
+        second->master_cycles != UINT64_C(2) ||
+        first->power_state != GBL_MACHINE_POWER_HALTED ||
+        second->power_state != GBL_MACHINE_POWER_HALTED ||
+        first->input_event_cursor != 0u || second->input_event_cursor != 0u ||
+        !gbl_phase13_same_machine(first, second)) {
+        *failure = "phase13-halt-copied-preview-commit-differs";
+        goto done;
+    }
+    if (!gbl_phase13_advance(first, UINT64_C(4), failure) ||
+        !gbl_phase13_advance(second, UINT64_C(4), failure) ||
+        first->input_event_cursor != 1u || second->input_event_cursor != 1u ||
+        first->pressed_keys != UINT16_C(1) ||
+        second->pressed_keys != UINT16_C(1) ||
+        !gbl_phase13_same_machine(first, second)) {
+        *failure = "phase13-halt-keypad-event-differs";
+        goto done;
+    }
+    memset(first_preview, 0x3C, sizeof *first_preview);
+    memset(second_preview, 0xC3, sizeof *second_preview);
+    if (gbl_machine_prepare_time(first, UINT64_C(5), first_preview) !=
+            GBL_TIME_STATUS_OK ||
+        gbl_machine_prepare_time(second, UINT64_C(5), second_preview) !=
+            GBL_TIME_STATUS_OK ||
+        !gbl_test_time_preview_equal(first_preview, second_preview) ||
+        gbl_test_time_preview_ppu_digest(first_preview) !=
+            gbl_test_time_preview_ppu_digest(second_preview)) {
+        *failure = "phase13-halt-default-preview-after-keypad-differs";
+        goto done;
+    }
+    *second_preview = *first_preview;
+    gbl_machine_commit_time(first, first_preview);
+    gbl_machine_commit_time(second, second_preview);
+    if (!gbl_phase13_advance(first, UINT64_C(12), failure) ||
+        !gbl_phase13_advance(second, UINT64_C(12), failure) ||
+        first->input_event_cursor != 2u || second->input_event_cursor != 2u ||
+        first->pressed_keys != 0u || second->pressed_keys != 0u ||
+        !gbl_phase13_same_machine(first, second)) {
+        *failure = "phase13-halt-keypad-release-differs";
+        goto done;
+    }
+    okay = true;
+
+done:
+    free(first_preview);
+    free(second_preview);
+    gbl_phase13_free_machine(&first);
+    gbl_phase13_free_machine(&second);
+    return okay;
+}
+
+static int gbl_test_phase13_main(void)
+{
+    gbl_machine *whole = NULL;
+    gbl_machine *split = NULL;
+    gbl_machine *reset = NULL;
+    gbl_machine *variant = NULL;
+    gbl_machine *alternating_a = NULL;
+    gbl_machine *alternating_b = NULL;
+    gbl_ppu_row_capture rows[6];
+    gbl_machine_time_preview first_preview;
+    gbl_machine_time_preview second_preview;
+    gbl_time_status first_status;
+    gbl_time_status second_status;
+    const char *failure = "phase13-replay-setup-failed";
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    bool okay = false;
+
+    whole = gbl_phase13_new_machine(false, &failure);
+    split = gbl_phase13_new_machine(false, &failure);
+    reset = gbl_phase13_new_machine(false, &failure);
+    variant = gbl_phase13_new_machine(true, &failure);
+    alternating_a = gbl_phase13_new_machine(false, &failure);
+    alternating_b = gbl_phase13_new_machine(true, &failure);
+    if (whole == NULL || split == NULL || reset == NULL || variant == NULL ||
+        alternating_a == NULL || alternating_b == NULL) {
+        goto done;
+    }
+    memset(&first_preview, 0xA5, sizeof first_preview);
+    memset(&second_preview, 0x5A, sizeof second_preview);
+    first_status = gbl_machine_prepare_time(whole, UINT64_C(1),
+                                            &first_preview);
+    second_status = gbl_machine_prepare_time(split, UINT64_C(1),
+                                             &second_preview);
+    if (first_status != GBL_TIME_STATUS_OK ||
+        second_status != GBL_TIME_STATUS_OK ||
+        !gbl_test_time_preview_equal(&first_preview, &second_preview) ||
+        gbl_test_time_preview_ppu_digest(&first_preview) !=
+            gbl_test_time_preview_ppu_digest(&second_preview) ||
+        first_preview.ppu_row_capture_count != 1u ||
+        !gbl_phase13_row_observation(&first_preview.ppu_row_captures[0]) ||
+        !gbl_phase13_row_observation(&second_preview.ppu_row_captures[0])) {
+        failure = "phase13-fresh-row-preview-differs";
+        goto done;
+    }
+    rows[0] = first_preview.ppu_row_captures[0];
+    rows[1] = second_preview.ppu_row_captures[0];
+    gbl_machine_commit_time(whole, &first_preview);
+    gbl_machine_commit_time(split, &second_preview);
+    if (!gbl_phase13_same_machine(whole, split) ||
+        !gbl_phase13_advance(whole, frame_end, &failure) ||
+        !gbl_phase13_run_split(split, &failure) ||
+        !gbl_phase13_start_row_zero(reset, &rows[2], NULL, &failure) ||
+        !gbl_phase13_run_split(reset, &failure) ||
+        !gbl_phase13_start_row_zero(variant, &rows[3], NULL, &failure) ||
+        !gbl_phase13_advance(variant, frame_end, &failure) ||
+        !gbl_phase13_start_row_zero(alternating_a, &rows[4], NULL,
+                                    &failure) ||
+        !gbl_phase13_start_row_zero(alternating_b, &rows[5], NULL,
+                                    &failure) ||
+        !gbl_phase13_run_interleaved(alternating_a, alternating_b, &failure)) {
+        goto done;
+    }
+    if (!gbl_phase13_row_observation(&rows[0]) ||
+        !gbl_phase13_row_observation(&rows[1]) ||
+        !gbl_phase13_row_observation(&rows[2]) ||
+        !gbl_phase13_row_observation(&rows[3]) ||
+        !gbl_phase13_row_observation(&rows[4]) ||
+        !gbl_phase13_row_observation(&rows[5]) ||
+        !gbl_phase13_frame_semantics(whole, false) ||
+        !gbl_phase13_frame_semantics(split, false) ||
+        !gbl_phase13_frame_semantics(reset, false) ||
+        !gbl_phase13_frame_semantics(variant, true) ||
+        !gbl_phase13_frame_semantics(alternating_a, false) ||
+        !gbl_phase13_frame_semantics(alternating_b, true) ||
+        !gbl_test_ppu_row_capture_equal(&rows[0], &rows[1]) ||
+        !gbl_test_ppu_row_capture_equal(&rows[0], &rows[2]) ||
+        !gbl_test_ppu_row_capture_equal(&rows[0], &rows[4]) ||
+        !gbl_test_ppu_row_capture_equal(&rows[3], &rows[5]) ||
+        !gbl_phase13_same_machine(whole, split) ||
+        !gbl_phase13_same_machine(whole, reset) ||
+        !gbl_phase13_same_machine(whole, alternating_a) ||
+        !gbl_phase13_same_machine(variant, alternating_b) ||
+        memcmp(whole->video_frame, variant->video_frame,
+               GBL_PPU_VIDEO_BYTES) == 0) {
+        failure = "phase13-fresh-split-reset-interleaved-semantic-or-state-mismatch";
+        goto done;
+    }
+
+    gbl_machine_reset(reset);
+    if (!gbl_phase13_seed(reset, false, &failure) ||
+        !gbl_phase13_start_row_zero(reset, &rows[2], NULL, &failure) ||
+        !gbl_phase13_advance(reset, frame_end, &failure) ||
+        !gbl_phase13_frame_semantics(reset, false) ||
+        !gbl_phase13_same_machine(whole, reset)) {
+        failure = "phase13-reset-reseed-replay-differs";
+        goto done;
+    }
+    okay = true;
+
+done:
+    gbl_phase13_free_machine(&whole);
+    gbl_phase13_free_machine(&split);
+    gbl_phase13_free_machine(&reset);
+    gbl_phase13_free_machine(&variant);
+    gbl_phase13_free_machine(&alternating_a);
+    gbl_phase13_free_machine(&alternating_b);
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase13: %s\n", failure);
+        return 1;
+    }
+    puts("PASS determinism.phase13: fresh, split, reset and interleaved OBJ/BG replay matches named pixels, admission, timing and canonical state");
+    return 0;
+}
+
+static bool gbl_phase13_preview_mutations_refused(
+    gbl_machine *machine, gbl_machine *twin,
+    const gbl_machine_time_preview *preview, const char **failure)
+{
+    gbl_machine *snapshot = malloc(sizeof *snapshot);
+    gbl_machine_time_preview *changed = malloc(sizeof *changed);
+    bool okay = snapshot != NULL && changed != NULL;
+    size_t mutation;
+
+    if (!okay) {
+        *failure = "phase13-preview-mutation-allocation-failed";
+        goto done;
+    }
+    for (mutation = 0u; mutation < 2u; ++mutation) {
+        *changed = *preview;
+        if (mutation == 0u) {
+            changed->ppu_row_captures[0].obj_selected_mask[0] ^=
+                UINT8_C(1);
+        } else {
+            ++changed->ppu_row_captures[0].obj_work_used;
+        }
+        if (gbl_test_time_preview_equal(preview, changed) ||
+            gbl_test_time_preview_ppu_digest(preview) ==
+                gbl_test_time_preview_ppu_digest(changed)) {
+            *failure = mutation == 0u
+                ? "phase13-selected-mask-mutant-not-named"
+                : "phase13-work-mutant-not-named";
+            okay = false;
+            goto done;
+        }
+        memcpy(snapshot, machine, sizeof *snapshot);
+        gbl_machine_commit_time(machine, changed);
+        if (!gbl_test_canonical_equal(snapshot, machine) ||
+            !gbl_test_ppu_video_equal(snapshot, machine) ||
+            !gbl_phase13_same_machine(machine, twin)) {
+            *failure = mutation == 0u
+                ? "phase13-selected-mask-refusal-mutated-output"
+                : "phase13-work-refusal-mutated-output";
+            okay = false;
+            goto done;
+        }
+    }
+    okay = true;
+
+done:
+    free(changed);
+    free(snapshot);
+    return okay;
+}
+
+static bool gbl_phase13_controls_mutants(const char **failure)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    gbl_machine *baseline = gbl_phase13_new_machine(false, failure);
+    gbl_machine *clean_twin = gbl_phase13_new_machine(false, failure);
+    gbl_machine *matrix_mutant = gbl_phase13_new_machine(false, failure);
+    gbl_machine *palette_mutant = gbl_phase13_new_machine(true, failure);
+    gbl_ppu_row_capture baseline_row;
+    gbl_ppu_row_capture twin_row;
+    bool okay = false;
+
+    if (baseline == NULL || clean_twin == NULL || matrix_mutant == NULL ||
+        palette_mutant == NULL) {
+        *failure = "phase13-mutant-control-allocation-failed";
+        goto done;
+    }
+    if (!gbl_phase13_start_row_zero(baseline, &baseline_row, NULL, failure) ||
+        !gbl_phase13_start_row_zero(clean_twin, &twin_row, NULL, failure) ||
+        !gbl_phase13_row_observation(&baseline_row) ||
+        !gbl_test_ppu_row_capture_equal(&baseline_row, &twin_row) ||
+        !gbl_phase13_advance(baseline, frame_end, failure) ||
+        !gbl_phase13_advance(clean_twin, frame_end, failure) ||
+        !gbl_phase13_frame_semantics(baseline, false) ||
+        !gbl_phase13_frame_semantics(clean_twin, false) ||
+        !gbl_phase13_same_machine(baseline, clean_twin)) {
+        *failure = "phase13-clean-twin-control-failed";
+        goto done;
+    }
+
+    gbl_phase13_store_obj_matrix(matrix_mutant, 0, 0, 0, 256);
+    if (!gbl_phase13_start_row_zero(matrix_mutant, &twin_row, NULL, failure) ||
+        !gbl_phase13_advance(matrix_mutant, frame_end, failure) ||
+        gbl_test_canonical_digest(baseline) ==
+            gbl_test_canonical_digest(matrix_mutant) ||
+        memcmp(baseline->video_frame, matrix_mutant->video_frame,
+               GBL_PPU_VIDEO_BYTES) == 0 ||
+        (gbl_phase13_pixel(matrix_mutant, 16u, 0u) ==
+             gbl_phase13_pixel(baseline, 16u, 0u) &&
+         gbl_phase13_pixel(matrix_mutant, 20u, 0u) ==
+             gbl_phase13_pixel(baseline, 20u, 0u))) {
+        *failure = "phase13-matrix-mutant-not-detected-by-pixels-and-state";
+        goto done;
+    }
+
+    if (!gbl_phase13_start_row_zero(palette_mutant, &twin_row, NULL, failure) ||
+        !gbl_phase13_advance(palette_mutant, frame_end, failure) ||
+        !gbl_phase13_frame_semantics(palette_mutant, true) ||
+        gbl_phase13_pixel(palette_mutant, 16u, 0u) ==
+            gbl_phase13_pixel(baseline, 16u, 0u) ||
+        gbl_test_canonical_digest(palette_mutant) ==
+            gbl_test_canonical_digest(baseline)) {
+        *failure = "phase13-palette-mutant-not-detected-by-named-pixel";
+        goto done;
+    }
+    okay = true;
+
+done:
+    gbl_phase13_free_machine(&baseline);
+    gbl_phase13_free_machine(&clean_twin);
+    gbl_phase13_free_machine(&matrix_mutant);
+    gbl_phase13_free_machine(&palette_mutant);
+    return okay;
+}
+
+static int gbl_test_phase13_controls_main(void)
+{
+    const char *failure = "phase13-control-setup-failed";
+    gbl_machine *machine = NULL;
+    gbl_machine *twin = NULL;
+    gbl_machine_time_preview *preview = NULL;
+    gbl_machine_time_preview *twin_preview = NULL;
+    bool okay = false;
+
+    machine = gbl_phase13_new_machine(false, &failure);
+    twin = gbl_phase13_new_machine(false, &failure);
+    preview = malloc(sizeof *preview);
+    twin_preview = malloc(sizeof *twin_preview);
+    if (machine == NULL || twin == NULL || preview == NULL ||
+        twin_preview == NULL) {
+        failure = "phase13-control-allocation-failed";
+        goto done;
+    }
+    memset(preview, 0xA5, sizeof *preview);
+    memset(twin_preview, 0x5A, sizeof *twin_preview);
+    if (gbl_machine_prepare_time(machine, UINT64_C(1), preview) !=
+            GBL_TIME_STATUS_OK ||
+        gbl_machine_prepare_time(twin, UINT64_C(1), twin_preview) !=
+            GBL_TIME_STATUS_OK ||
+        !gbl_test_time_preview_equal(preview, twin_preview) ||
+        gbl_test_time_preview_ppu_digest(preview) !=
+            gbl_test_time_preview_ppu_digest(twin_preview) ||
+        !gbl_phase13_row_observation(&preview->ppu_row_captures[0]) ||
+        !gbl_phase13_preview_mutations_refused(machine, twin, preview,
+                                               &failure)) {
+        goto done;
+    }
+    gbl_machine_commit_time(machine, preview);
+    gbl_machine_commit_time(twin, twin_preview);
+    if (!gbl_phase13_same_machine(machine, twin) ||
+        !gbl_phase13_advance(machine,
+            (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES,
+            &failure) ||
+        !gbl_phase13_advance(twin,
+            (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES,
+            &failure) ||
+        !gbl_phase13_frame_semantics(machine, false) ||
+        !gbl_phase13_same_machine(machine, twin) ||
+        !gbl_phase13_controls_mutants(&failure) ||
+        !gbl_phase13_preview_copy_halt_control(&failure)) {
+        goto done;
+    }
+    okay = true;
+
+done:
+    free(preview);
+    free(twin_preview);
+    gbl_phase13_free_machine(&machine);
+    gbl_phase13_free_machine(&twin);
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase13.controls: %s\n", failure);
+        return 1;
+    }
+    puts("PASS determinism.phase13.controls: clean twins, matrix/palette mutants, admission refusal and copied HALT/keypad previews are independently detected");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "phase13") == 0) {
+        return gbl_test_phase13_main();
+    }
+    if (argc == 2 && strcmp(argv[1], "phase13-controls") == 0) {
+        return gbl_test_phase13_controls_main();
+    }
     if (argc == 2 && strcmp(argv[1], "phase10") == 0) {
         return gbl_test_phase10_main();
     }
