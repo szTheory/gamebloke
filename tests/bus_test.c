@@ -2780,6 +2780,14 @@ static int run_ppu_effects_alpha(void)
         "semitransparent OBJ region disables effects", 1u, 2u, 0u, true,
         UINT16_C(0x03E0), false, UINT16_C(0x0400), true, false, false,
         UINT16_C(0x0180), UINT16_C(0x0808), UINT16_C(0x7C00));
+    ppu_effect_check_text_case(
+        "alpha asymmetric coefficients", 0u, 1u, 3u, false,
+        UINT16_C(0x7C00), false, 0u, false, true, false,
+        UINT16_C(0x0241), UINT16_C(0x0408), UINT16_C(0x1C0F));
+    ppu_effect_check_text_case(
+        "alpha coefficient clamp and channel saturation", 0u, 1u, 3u,
+        false, UINT16_C(0x7FFF), false, 0u, false, true, false,
+        UINT16_C(0x0241), UINT16_C(0x1F11), UINT16_C(0x7FFF));
 
     machine = new_machine();
     CHECK(machine != NULL);
@@ -2816,6 +2824,181 @@ static int run_ppu_effects_alpha(void)
 
     if (CHECK_DONE() == 0) {
         puts("ppu.effects.alpha: immediate target pairs, semitransparent OBJ, windows and transparency");
+        return 0;
+    }
+    return 1;
+}
+
+static void ppu_effect_check_brightness_source(
+    const char *label, uint8_t source, uint16_t color,
+    uint16_t blend_control, uint16_t blend_y, uint16_t expected)
+{
+    gbl_machine *machine = new_machine();
+    uint16_t actual = 0u;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return;
+    }
+    if (source < 4u) {
+        CHECK(ppu_composition_prepare_text_bg(machine, 0u, source, 0u,
+                                              color));
+    } else if (source == 4u) {
+        CHECK(ppu_composition_prepare_text_scene(
+            machine, 3u, 3u, 0u, 1u, false, true));
+        ppu_bg_store_u16(machine->pram, UINT32_C(0x0202), color);
+    } else {
+        ppu_bg_store_u16(machine->pram, 0u, color);
+    }
+    CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000050),
+                                    blend_control));
+    CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000054),
+                                    blend_y));
+    CHECK(gbl_machine_advance_to(
+              machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+          GBL_TIME_STATUS_OK);
+    actual = ppu_effect_pixel(machine, 0u, source == 4u ? 8u : 0u);
+    fprintf(stderr, "%s: expected=0x%04X actual=0x%04X\n",
+            label, expected, actual);
+    CHECK(actual == expected);
+    CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+    free_machine(machine);
+}
+
+static int run_ppu_effects_brightness(void)
+{
+    static const uint16_t target_bits[6] = {
+        UINT16_C(0x0001), UINT16_C(0x0002), UINT16_C(0x0004),
+        UINT16_C(0x0008), UINT16_C(0x0010), UINT16_C(0x0020)
+    };
+    static const char *const source_names[6] = {
+        "BG0", "BG1", "BG2", "BG3", "OBJ", "backdrop"
+    };
+    static const uint16_t boundary_values[][3] = {
+        { 0u, UINT16_C(0x5A93), UINT16_C(0x5A93) },
+        { 1u, UINT16_C(0x5A93), UINT16_C(0x5672) },
+        { 8u, UINT16_C(0x6B39), UINT16_C(0x2D4A) },
+        { 16u, UINT16_C(0x7FFF), 0u },
+        { 17u, UINT16_C(0x7FFF), 0u },
+        { 31u, UINT16_C(0x7FFF), 0u }
+    };
+    static const uint16_t effect_modes[2] = {
+        UINT16_C(0x0080), UINT16_C(0x00C0)
+    };
+    size_t mode_index;
+    size_t source;
+    size_t boundary;
+
+    for (mode_index = 0u; mode_index < 2u; ++mode_index) {
+        const uint16_t expected = mode_index == 0u
+            ? UINT16_C(0x6B39) : UINT16_C(0x2D4A);
+
+        for (source = 0u; source < 6u; ++source) {
+            char label[64];
+
+            (void)snprintf(label, sizeof(label), "%s %s at EVY 8",
+                           mode_index == 0u ? "brighten" : "darken",
+                           source_names[source]);
+            ppu_effect_check_brightness_source(
+                label, (uint8_t)source, UINT16_C(0x5A93),
+                (uint16_t)(effect_modes[mode_index] | target_bits[source]),
+                UINT16_C(8), expected);
+        }
+    }
+
+    for (boundary = 0u;
+         boundary < sizeof(boundary_values) / sizeof(boundary_values[0]);
+         ++boundary) {
+        char label[64];
+
+        (void)snprintf(label, sizeof(label), "brighten BG0 EVY %u",
+                       (unsigned int)boundary_values[boundary][0]);
+        ppu_effect_check_brightness_source(
+            label, 0u, UINT16_C(0x5A93), UINT16_C(0x0081),
+            boundary_values[boundary][0], boundary_values[boundary][1]);
+        (void)snprintf(label, sizeof(label), "darken BG0 EVY %u",
+                       (unsigned int)boundary_values[boundary][0]);
+        ppu_effect_check_brightness_source(
+            label, 0u, UINT16_C(0x5A93), UINT16_C(0x00C1),
+            boundary_values[boundary][0], boundary_values[boundary][2]);
+    }
+    ppu_effect_check_brightness_source(
+        "brighten black BG0 EVY 1", 0u, 0u, UINT16_C(0x0081), 1u,
+        UINT16_C(0x0421));
+    ppu_effect_check_brightness_source(
+        "brighten red BG0 EVY 8", 0u, UINT16_C(0x001F),
+        UINT16_C(0x0081), 8u, UINT16_C(0x3DFF));
+    ppu_effect_check_brightness_source(
+        "darken red BG0 EVY 8", 0u, UINT16_C(0x001F),
+        UINT16_C(0x00C1), 8u, UINT16_C(0x0010));
+    ppu_effect_check_brightness_source(
+        "brighten BG0 target excluded", 0u, UINT16_C(0x5A93),
+        UINT16_C(0x0082), 16u, UINT16_C(0x5A93));
+    ppu_effect_check_brightness_source(
+        "BLDY upper bits ignored", 0u, UINT16_C(0x5A93),
+        UINT16_C(0x0081), UINT16_C(0xFFE0), UINT16_C(0x5A93));
+
+    {
+        gbl_machine *machine = new_machine();
+        uint16_t actual = 0u;
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, 0u, 1u, 3u, 1u, true, false));
+            machine->dispcnt = (uint16_t)(machine->dispcnt |
+                                         UINT16_C(0x2000));
+            machine->ppu.dispcnt = machine->dispcnt;
+            machine->ppu.window_register_bytes[0] = UINT8_C(10);
+            machine->ppu.window_register_bytes[1] = 0u;
+            machine->ppu.window_register_bytes[4] = UINT8_C(9);
+            machine->ppu.window_register_bytes[5] = UINT8_C(8);
+            machine->ppu.window_register_bytes[8] = UINT8_C(0x03);
+            machine->ppu.window_register_bytes[10] = UINT8_C(0x03);
+            CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000050),
+                                            UINT16_C(0x00C1)));
+            CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000054),
+                                            UINT16_C(16)));
+            CHECK(gbl_machine_advance_to(
+                      machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+                  GBL_TIME_STATUS_OK);
+            actual = ppu_effect_pixel(machine, 0u, 8u);
+            fprintf(stderr,
+                    "brightness window disables effects: expected=0x001F actual=0x%04X\n",
+                    actual);
+            CHECK(actual == UINT16_C(0x001F));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        uint16_t actual = 0u;
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, 1u, 2u, 0u, 1u, true, true));
+            ppu_obj_store_u16(machine->oam, 0u,
+                              UINT16_C(0x0408));
+            CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000050),
+                                            UINT16_C(0x0090)));
+            CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000054),
+                                            UINT16_C(16)));
+            CHECK(gbl_machine_advance_to(
+                      machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+                  GBL_TIME_STATUS_OK);
+            actual = ppu_effect_pixel(machine, 0u, 8u);
+            fprintf(stderr,
+                    "semitransparent OBJ skips brightness: expected=0x7C00 actual=0x%04X\n",
+                    actual);
+            CHECK(actual == UINT16_C(0x7C00));
+            free_machine(machine);
+        }
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.effects.brightness: target classes, channels, coefficients, windows and semitransparent OBJ");
         return 0;
     }
     return 1;
@@ -5730,8 +5913,15 @@ static int run_ppu_bg_controls(void)
 
 static bool prime_ppu_refusal_machine(gbl_machine *machine)
 {
+    static const uint8_t masked_effect_registers[6] = {
+        UINT8_C(0x80), 0u, UINT8_C(0xA1), UINT8_C(0x5F),
+        UINT8_C(0xFF), UINT8_C(0xA5)
+    };
+
     machine->dispcnt = UINT16_C(0x0403);
     machine->ppu.dispcnt = UINT16_C(0x0403);
+    memcpy(&machine->ppu.render_register_bytes[18],
+           masked_effect_registers, sizeof(masked_effect_registers));
     machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
     machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
     return gbl_machine_advance_to(machine, UINT64_C(1231)) ==
@@ -5779,6 +5969,7 @@ static int run_ppu_refusal(void)
     const gbl_time_operation cross_line = {
         GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, UINT64_C(1)
     };
+    size_t register_lane;
     bool equality_detects_ppu;
     bool preview_equality_detects_plan = false;
 
@@ -5816,6 +6007,10 @@ static int run_ppu_refusal(void)
                        UINT32_C(1));
     CHECK_PPU_MUTATION(changed->ppu.render_register_bytes[0] ^=
                        UINT8_C(1));
+    for (register_lane = 18u; register_lane < 24u; ++register_lane) {
+        CHECK_PPU_MUTATION(
+            changed->ppu.render_register_bytes[register_lane] ^= UINT8_C(1));
+    }
     CHECK_PPU_MUTATION(changed->ppu.bg_register_bytes[0] ^= UINT8_C(1));
     CHECK_PPU_MUTATION(changed->ppu.affine[0].programmed_reference_x++);
     CHECK_PPU_MUTATION(changed->ppu.affine[1].pd++);
@@ -5855,6 +6050,28 @@ static int run_ppu_refusal(void)
                 UINT8_C(1);
             preview_equality_detects_plan = preview_equality_detects_plan &&
                 !gbl_test_time_preview_equal(&preview, &changed_preview);
+            for (register_lane = 18u; register_lane < 24u;
+                 ++register_lane) {
+                changed_preview = preview;
+                changed_preview.ppu_row_captures[0]
+                    .render_register_bytes[register_lane] ^= UINT8_C(1);
+                preview_equality_detects_plan = preview_equality_detects_plan &&
+                    !gbl_test_time_preview_equal(&preview, &changed_preview);
+                CHECK(gbl_test_time_preview_ppu_digest(&preview) !=
+                      gbl_test_time_preview_ppu_digest(&changed_preview));
+                *before = *machine;
+                {
+                    const gbl_machine_time_preview rejected_before =
+                        changed_preview;
+
+                    gbl_machine_commit_time(machine, &changed_preview);
+                    CHECK(gbl_test_canonical_equal(before, machine));
+                    CHECK(gbl_test_same_instance_identity_equal(before,
+                                                                machine));
+                    CHECK(memcmp(&rejected_before, &changed_preview,
+                                 sizeof(changed_preview)) == 0);
+                }
+            }
             changed_preview = preview;
             changed_preview.ppu_row_captures[0].bg_register_bytes[0] ^=
                 UINT8_C(1);
@@ -6001,6 +6218,11 @@ static int run_ppu_refusal(void)
     CHECK(preview.ppu_row_captures[0].dispcnt == UINT16_C(0x0403));
     CHECK(preview.ppu_row_captures[0].render_register_bytes[1] == 1u);
     CHECK(preview.ppu_row_captures[0].render_register_bytes[7] == 1u);
+    for (register_lane = 18u; register_lane < 24u; ++register_lane) {
+        CHECK(preview.ppu_row_captures[0].render_register_bytes[
+                  register_lane] ==
+              clean_twin->ppu.render_register_bytes[register_lane]);
+    }
     CHECK(clean_twin->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34));
 
     free(changed);
@@ -9366,7 +9588,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -9389,6 +9611,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.effects.alpha") == 0) {
         return run_ppu_effects_alpha();
+    }
+    if (strcmp(argv[1], "ppu.effects.brightness") == 0) {
+        return run_ppu_effects_brightness();
     }
     if (strcmp(argv[1], "ppu.blank") == 0) {
         return run_ppu_blank();
