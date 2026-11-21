@@ -485,6 +485,24 @@ foreach(case IN ITEMS control verify order)
       "-DCASE=${case}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/phase13_selection.cmake")
 endforeach()
+
+# Phase 14 selection gates validate the display-effects manifest; Plan 10 adds
+# the live fixture edges after the exact names and commands are registered.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase14.selection.control)
+  else()
+    set(test_name phase14.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase14_selection.cmake")
+endforeach()
 set_tests_properties(cpu.power.boundary time.halt.boundary time.halt.refusal
   PROPERTIES TIMEOUT 10)
 
