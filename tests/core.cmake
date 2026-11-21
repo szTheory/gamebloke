@@ -106,6 +106,10 @@ gbl_add_test(
   LABELS bus core ppu unit
   COMMAND $<TARGET_FILE:bus_test> ppu.bg.controls)
 gbl_add_test(
+  NAME ppu.composition
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.composition)
+gbl_add_test(
   NAME ppu.obj.tracer
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.obj.tracer)

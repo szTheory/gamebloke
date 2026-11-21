@@ -1460,6 +1460,106 @@ static bool ppu_composition_prepare_text_scene(
     return true;
 }
 
+static bool ppu_composition_prepare_text_bg(
+    gbl_machine *machine, uint8_t mode, uint8_t background,
+    uint8_t priority, uint16_t color)
+{
+    uint8_t pixels[64];
+    const uint8_t map_base = (uint8_t)(background + 1u);
+
+    memset(pixels, 1, sizeof(pixels));
+    if (!ppu_bg_text_configure(machine, mode, background, 0u, false,
+                               0u, 0u, map_base, 0u) ||
+        !ppu_bg_text_set_map_entry(machine, background, 0u, 0u, 1u) ||
+        !ppu_bg_text_fill_tile(machine, background, 1u, pixels) ||
+        !ppu_bg_text_set_color(machine, 1u, color)) {
+        return false;
+    }
+    ppu_bg_store_u16(
+        machine->ppu.bg_register_bytes, (uint32_t)background * 2u,
+        (uint16_t)((ppu_bg_text_control(machine, background) &
+                    UINT16_C(0xFFFC)) | priority));
+    return true;
+}
+
+static bool ppu_composition_prepare_affine_bg(
+    gbl_machine *machine, uint8_t mode, uint8_t background,
+    uint8_t priority, uint16_t color)
+{
+    uint8_t pixels[64];
+    const uint8_t map_base = (uint8_t)(background - 1u);
+    const uint8_t character_base = (uint8_t)(background - 1u);
+
+    memset(pixels, 1, sizeof(pixels));
+    if (!ppu_bg_affine_configure(machine, mode, background, 0u, false,
+                                 map_base, character_base) ||
+        !ppu_bg_affine_set_map_entry(machine, background, 0u, 0u, 1u) ||
+        !ppu_bg_affine_fill_tile(machine, background, 1u, pixels) ||
+        !ppu_bg_text_set_color(machine, 1u, color)) {
+        return false;
+    }
+    ppu_bg_affine_set_transform(machine, background, INT16_C(0x0100), 0,
+                                0, INT16_C(0x0100), 0, 0);
+    ppu_bg_store_u16(
+        machine->ppu.bg_register_bytes, (uint32_t)background * 2u,
+        (uint16_t)((ppu_bg_text_control(machine, background) &
+                    UINT16_C(0xFFFC)) | priority));
+    return true;
+}
+
+static bool ppu_composition_prepare_bitmap_bg(
+    gbl_machine *machine, uint8_t mode, uint8_t priority,
+    uint16_t color)
+{
+    if (!ppu_bg_bitmap_configure(machine, mode, false)) {
+        return false;
+    }
+    ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0,
+                                0, INT16_C(0x0100), 0, 0);
+    ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u, priority);
+    if (mode == 4u) {
+        machine->vram[0] = 1u;
+        return ppu_bg_text_set_color(machine, 1u, color);
+    }
+    ppu_bg_store_u16(machine->vram, 0u, color);
+    return true;
+}
+
+static bool ppu_composition_prepare_obj_pair(
+    gbl_machine *machine, uint8_t bg0_priority, uint8_t bg1_priority,
+    uint8_t obj0_priority, uint8_t obj1_priority, uint8_t enabled_bg_mask,
+    bool swap_oam_order)
+{
+    const uint16_t dispcnt = (uint16_t)(UINT16_C(0x1000) |
+        (uint16_t)((uint16_t)enabled_bg_mask << 8u));
+    const uint8_t obj0_tile = swap_oam_order ? 2u : 1u;
+    const uint8_t obj1_tile = swap_oam_order ? 1u : 2u;
+    uint16_t attribute2;
+
+    if (!ppu_composition_prepare_text_scene(
+            machine, bg0_priority, bg1_priority, obj0_priority, 1u,
+            true, true)) {
+        return false;
+    }
+    machine->dispcnt = dispcnt;
+    machine->ppu.dispcnt = dispcnt;
+    ppu_bg_store_u16(machine->pram, UINT32_C(0x202), UINT16_C(0x001F));
+    ppu_bg_store_u16(machine->pram, UINT32_C(0x204), UINT16_C(0x7C00));
+    memset(&machine->vram[UINT32_C(0x10020)], UINT8_C(0x11), 32u);
+    memset(&machine->vram[UINT32_C(0x10040)], UINT8_C(0x22), 32u);
+    ppu_obj_store_u16(machine->oam, 0u, UINT16_C(8));
+    ppu_obj_store_u16(machine->oam, 2u, 0u);
+    attribute2 = (uint16_t)((uint16_t)obj0_tile |
+                            (uint16_t)((uint16_t)obj0_priority << 10u));
+    ppu_obj_store_u16(machine->oam, 4u, attribute2);
+    ppu_obj_store_u16(machine->oam, 8u, UINT16_C(8));
+    ppu_obj_store_u16(machine->oam, 10u, 0u);
+    attribute2 = (uint16_t)((uint16_t)obj1_tile |
+                            (uint16_t)((uint16_t)obj1_priority << 10u));
+    ppu_obj_store_u16(machine->oam, 12u, attribute2);
+    return true;
+}
+
 static int run_ppu_composition(void)
 {
     static const struct {
@@ -1475,9 +1575,40 @@ static int run_ppu_composition(void)
         { 1u, 1u, 3u, 1u, true, true, UINT16_C(0x001F) },
         { 2u, 1u, 1u, 1u, true, true, UINT16_C(0x7C00) },
         { 2u, 1u, 1u, 0u, true, true, UINT16_C(0x03E0) },
-        { 2u, 1u, 3u, 0u, false, false, UINT16_C(0x4210) }
+        { 2u, 1u, 3u, 0u, false, false, UINT16_C(0x4210) },
+        { 2u, 1u, 1u, 0u, false, true, UINT16_C(0x4210) }
+    };
+    static const struct {
+        uint8_t mode;
+        uint8_t background;
+        uint16_t expected;
+    } mode_sources[] = {
+        { 0u, 0u, UINT16_C(0x0111) }, { 0u, 1u, UINT16_C(0x0112) },
+        { 0u, 2u, UINT16_C(0x0113) }, { 0u, 3u, UINT16_C(0x0114) },
+        { 1u, 0u, UINT16_C(0x0121) }, { 1u, 1u, UINT16_C(0x0122) },
+        { 1u, 2u, UINT16_C(0x0123) },
+        { 2u, 2u, UINT16_C(0x0131) }, { 2u, 3u, UINT16_C(0x0132) },
+        { 3u, 2u, UINT16_C(0x0141) }, { 4u, 2u, UINT16_C(0x0142) },
+        { 5u, 2u, UINT16_C(0x0143) }
+    };
+    static const struct {
+        uint8_t obj0_priority;
+        uint8_t obj1_priority;
+        uint8_t enabled_bg_mask;
+        bool swap_oam_order;
+        uint16_t expected;
+        uint16_t wrong_winner;
+    } object_orders[] = {
+        { 2u, 0u, 2u, false, UINT16_C(0x7C00), UINT16_C(0x001F) },
+        { 0u, 2u, 2u, true, UINT16_C(0x7C00), UINT16_C(0x001F) },
+        { 0u, 0u, 0u, false, UINT16_C(0x001F), UINT16_C(0x7C00) },
+        { 0u, 0u, 0u, true, UINT16_C(0x001F), UINT16_C(0x001F) }
     };
     size_t scene;
+    size_t source_case;
+    size_t object_order;
+    uint8_t bg_priority;
+    uint8_t obj_priority;
 
     for (scene = 0u; scene < sizeof(scenes) / sizeof(scenes[0]); ++scene) {
         gbl_machine *machine = new_machine();
@@ -1499,8 +1630,379 @@ static int run_ppu_composition(void)
         free_machine(machine);
     }
 
+    for (bg_priority = 0u; bg_priority < 4u; ++bg_priority) {
+        for (obj_priority = 0u; obj_priority < 4u; ++obj_priority) {
+            const uint16_t expected = obj_priority <= bg_priority
+                ? UINT16_C(0x7C00)
+                : UINT16_C(0x001F);
+            gbl_machine *machine = new_machine();
+
+            CHECK(machine != NULL);
+            if (machine == NULL) {
+                continue;
+            }
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, bg_priority, bg_priority, obj_priority, 1u,
+                true, true));
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              expected));
+            CHECK(!ppu_bg_affine_pixel_matches(
+                machine->video_frame, 0u, 8u,
+                (uint16_t)(expected ^ UINT16_C(1))));
+            free_machine(machine);
+        }
+    }
+
+    for (source_case = 0u;
+         source_case < sizeof(mode_sources) / sizeof(mode_sources[0]);
+         ++source_case) {
+        const uint8_t mode = mode_sources[source_case].mode;
+        const uint8_t background = mode_sources[source_case].background;
+        const uint16_t expected = mode_sources[source_case].expected;
+        const uint8_t priority = (uint8_t)((mode + background) & 3u);
+        gbl_machine *machine = new_machine();
+        bool prepared = false;
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        if (mode == 0u || (mode == 1u && background < 2u)) {
+            prepared = ppu_composition_prepare_text_bg(
+                machine, mode, background, priority, expected);
+        } else if ((mode == 1u && background == 2u) || mode == 2u) {
+            prepared = ppu_composition_prepare_affine_bg(
+                machine, mode, background, priority, expected);
+        } else {
+            prepared = ppu_composition_prepare_bitmap_bg(
+                machine, mode, priority, expected);
+        }
+        CHECK(prepared);
+        CHECK(gbl_machine_advance_to(
+                  machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                               UINT64_C(160)) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          expected));
+        free_machine(machine);
+    }
+
+    for (object_order = 0u;
+         object_order < sizeof(object_orders) / sizeof(object_orders[0]);
+         ++object_order) {
+        gbl_machine *machine = new_machine();
+        const uint16_t bg0_priority = object_order < 2u ? 2u : 3u;
+        const uint16_t bg1_priority = object_order < 2u ? 1u : 3u;
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        CHECK(ppu_composition_prepare_obj_pair(
+            machine, (uint8_t)bg0_priority, (uint8_t)bg1_priority,
+            object_orders[object_order].obj0_priority,
+            object_orders[object_order].obj1_priority,
+            object_orders[object_order].enabled_bg_mask,
+            object_orders[object_order].swap_oam_order));
+        CHECK(gbl_machine_advance_to(
+                  machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                               UINT64_C(160)) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(ppu_bg_affine_pixel_matches(
+            machine->video_frame, 0u, 8u,
+            object_orders[object_order].expected));
+        CHECK(!ppu_bg_affine_pixel_matches(
+            machine->video_frame, 0u, 8u,
+            object_orders[object_order].wrong_winner));
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, 0u, 1u, 3u, 1u, true, false));
+            machine->dispcnt = UINT16_C(0x0100);
+            machine->ppu.dispcnt = machine->dispcnt;
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              UINT16_C(0x001F)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        uint8_t pixels[64];
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_bg(
+                machine, 1u, 0u, 2u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_text_set_map_entry(machine, 0u, 0u, 0u,
+                                            UINT16_C(0x1001)));
+            CHECK(ppu_composition_prepare_affine_bg(
+                machine, 1u, 2u, 1u, UINT16_C(0x03E0)));
+            CHECK(ppu_bg_text_set_color(machine, 17u, UINT16_C(0x001F)));
+            memset(pixels, 0, sizeof(pixels));
+            CHECK(ppu_bg_affine_fill_tile(machine, 2u, 1u, pixels));
+            machine->dispcnt |= UINT16_C(0x0100);
+            machine->ppu.dispcnt = machine->dispcnt;
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x001F)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_bg(
+                machine, 1u, 0u, 2u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_text_set_map_entry(machine, 0u, 0u, 0u,
+                                            UINT16_C(0x1001)));
+            CHECK(ppu_composition_prepare_affine_bg(
+                machine, 1u, 2u, 1u, UINT16_C(0x03E0)));
+            CHECK(ppu_bg_text_set_color(machine, 17u, UINT16_C(0x001F)));
+            machine->dispcnt |= UINT16_C(0x0100);
+            machine->ppu.dispcnt = machine->dispcnt;
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x03E0)));
+            CHECK(!ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                               UINT16_C(0x001F)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, 0u, 1u, 3u, 0u, true, false));
+            memset(&machine->vram[32u], 0, 32u);
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              UINT16_C(0x03E0)));
+            CHECK(!ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                               UINT16_C(0x001F)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_obj_pair(machine, 3u, 3u,
+                                                   0u, 0u, 0u, false));
+            memset(&machine->vram[UINT32_C(0x10020)], 0, 32u);
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              UINT16_C(0x7C00)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, 0u, 1u, 0u, 1u, true, true));
+            ppu_bg_store_u16(machine->pram, UINT32_C(0x202), 0u);
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              0u));
+            CHECK(!ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                               UINT16_C(0x7C00)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_scene(
+                machine, 0u, 1u, 3u, 1u, true, false));
+            CHECK(ppu_bg_text_set_color(machine, 1u, 0u));
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 8u,
+                                              0u));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_text_bg(
+                machine, 1u, 0u, 0u, UINT16_C(0x001F)));
+            machine->dispcnt |= UINT16_C(0x0800);
+            machine->ppu.dispcnt = machine->dispcnt;
+            ppu_bg_store_u16(machine->ppu.bg_register_bytes, 6u,
+                             UINT16_C(0x0010));
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x001F)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_bitmap_bg(
+                machine, 3u, 0u, 0u));
+            ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x03E0));
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              0u));
+            free_machine(machine);
+        }
+    }
+
+    for (scene = 3u; scene <= 5u; ++scene) {
+        gbl_machine *machine = new_machine();
+        const uint16_t dispcnt = (uint16_t)(
+            (uint16_t)scene | UINT16_C(0x0B00));
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        machine->dispcnt = dispcnt;
+        machine->ppu.dispcnt = dispcnt;
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 0u,
+                         UINT16_C(0xFFFF));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 2u,
+                         UINT16_C(0xFFFF));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u,
+                         UINT16_C(0x0040));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 6u,
+                         UINT16_C(0xFFFF));
+        memset(machine->vram, UINT8_C(0xFF), UINT32_C(0x10000));
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x4210));
+        CHECK(gbl_machine_advance_to(
+                  machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                               UINT64_C(160)) == GBL_TIME_STATUS_OK);
+        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x4210)));
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_affine_bg(
+                machine, 2u, 2u, 2u, UINT16_C(0x001F)));
+            CHECK(ppu_composition_prepare_affine_bg(
+                machine, 2u, 3u, 1u, UINT16_C(0x03E0)));
+            {
+                uint8_t bg2_pixels[64];
+
+                memset(bg2_pixels, 2, sizeof(bg2_pixels));
+                CHECK(ppu_bg_affine_fill_tile(machine, 2u, 1u,
+                                              bg2_pixels));
+                CHECK(ppu_bg_text_set_color(machine, 2u,
+                                            UINT16_C(0x001F)));
+            }
+            machine->dispcnt |= UINT16_C(0x0400);
+            machine->ppu.dispcnt = machine->dispcnt;
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x03E0)));
+            free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+
+        CHECK(machine != NULL);
+        if (machine != NULL) {
+            CHECK(ppu_composition_prepare_affine_bg(
+                machine, 2u, 2u, 1u, UINT16_C(0x001F)));
+            CHECK(ppu_composition_prepare_affine_bg(
+                machine, 2u, 3u, 1u, UINT16_C(0x03E0)));
+            {
+                uint8_t bg2_pixels[64];
+
+                memset(bg2_pixels, 2, sizeof(bg2_pixels));
+                CHECK(ppu_bg_affine_fill_tile(machine, 2u, 1u,
+                                              bg2_pixels));
+                CHECK(ppu_bg_text_set_color(machine, 2u,
+                                            UINT16_C(0x001F)));
+            }
+            machine->dispcnt |= UINT16_C(0x0400);
+            machine->ppu.dispcnt = machine->dispcnt;
+            CHECK(gbl_machine_advance_to(
+                      machine, (uint64_t)GBL_PPU_LINE_CYCLES *
+                                   UINT64_C(160)) == GBL_TIME_STATUS_OK);
+            CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x001F)));
+            CHECK(!ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                               UINT16_C(0x03E0)));
+            free_machine(machine);
+        }
+    }
+
     if (CHECK_DONE() == 0) {
-        puts("ppu.composition: shared BG/OBJ priority, transparency and backdrop frame pixels");
+        puts("ppu.composition: all mode sources, priority matrix, OAM-order policy, transparency, black and backdrop");
+        puts("{\"type\":\"ppu.composition\",\"policy\":\"priority first; equal OBJ/BG favors OBJ; lower BG/OAM index ties\",\"hardware_qualification\":\"UNKNOWN\"}");
         return 0;
     }
     return 1;
@@ -4737,7 +5239,9 @@ static int run_ppu_latch(void)
             CHECK(gbl_machine_advance_to(machine, sample_cycle) ==
                   GBL_TIME_STATUS_OK);
         }
-        CHECK(machine->ppu.captured_rows == (uint16_t)(1u + sampled));
+        /* Disabling bitmap BG2 no longer invalidates the row: every timing
+         * ordering publishes either the sampled bitmap or the backdrop. */
+        CHECK(machine->ppu.captured_rows == 2u);
         CHECK(ppu_pixel_matches(machine->video_frame, 1u, 0u,
                                 sampled ? UINT16_C(0x1234) : 0u));
         free_machine(machine);
