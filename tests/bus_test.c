@@ -1602,7 +1602,7 @@ static int run_ppu_composition(void)
         { 2u, 0u, 2u, false, UINT16_C(0x7C00), UINT16_C(0x001F) },
         { 0u, 2u, 2u, true, UINT16_C(0x7C00), UINT16_C(0x001F) },
         { 0u, 0u, 0u, false, UINT16_C(0x001F), UINT16_C(0x7C00) },
-        { 0u, 0u, 0u, true, UINT16_C(0x001F), UINT16_C(0x001F) }
+        { 0u, 0u, 0u, true, UINT16_C(0x7C00), UINT16_C(0x001F) }
     };
     size_t scene;
     size_t source_case;
