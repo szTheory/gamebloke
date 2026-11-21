@@ -56,10 +56,12 @@ expected_regex='^(ppu[.](boundary|registers|refusal)|phase10[.](policy([.]contro
 test_output=$(mktemp "$bin_dir/phase10-fast.XXXXXX")
 trap 'rm -f "$test_output"' 0 HUP INT TERM
 set +e
-# The exact Phase 7/8/9 predecessor closures just passed for these inputs.
-# Exclude only those fixtures here; normal CI/ASAN keeps the full graph.
+# Earlier closures run once on this tree. Phase 14's outer helper owns its
+# focused selectors before entering this inherited chain, so don't auto-expand
+# that later fixture again here. Normal CI/ASAN keeps the full graph.
 ctest --test-dir "$bin_dir" --output-on-failure --no-tests=error \
-  -FA '^(phase7_fast|phase8_fast|phase9_fast)$' -R "$expected_regex" \
+  -FA '^(phase7_fast|phase8_fast|phase9_fast|phase14_fast)$' \
+  -R "$expected_regex" \
   >"$test_output" 2>&1
 test_status=$?
 set -e

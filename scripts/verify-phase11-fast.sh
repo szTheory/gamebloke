@@ -76,9 +76,11 @@ cmake -E chdir "$bin_dir" cmake "-DSRC=$repo_root" "-DBIN=$bin_dir" \
 
 test_output=$(mktemp "$bin_dir/phase11-fast.XXXXXX")
 trap 'rm -f "$test_output"' 0 HUP INT TERM
+# Phase 14's outer helper runs its setup before entering the inherited chain;
+# exclude that later fixture to prevent nested CTest expansion.
 set +e
 ctest --test-dir "$bin_dir" --output-on-failure --no-tests=error \
-  -FA '^(phase7_fast|phase8_fast|phase9_fast|phase10_fast)$' \
+  -FA '^(phase7_fast|phase8_fast|phase9_fast|phase10_fast|phase14_fast)$' \
   -R "$expected_regex" >"$test_output" 2>&1
 test_status=$?
 set -e

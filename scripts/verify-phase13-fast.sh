@@ -126,8 +126,10 @@ inherited_names_file=$(mktemp "$bin_dir/phase13-inherited-names.XXXXXX")
 printf '%s\n' "$expected_inherited_names" >"$inherited_names_file"
 trap 'rm -f "$test_output" "$closure_output" "$inherited_names_file"' 0 HUP INT TERM
 set +e
+# Phase 14's outer helper runs the later display setup first. Exclude its
+# fixture from this nested predecessor selector so it is not expanded twice.
 ctest --test-dir "$bin_dir" --output-on-failure --no-tests=error \
-  -FA '^(phase7_fast|phase8_fast|phase9_fast|phase10_fast|phase11_fast|phase12_fast)$' \
+  -FA '^(phase7_fast|phase8_fast|phase9_fast|phase10_fast|phase11_fast|phase12_fast|phase14_fast)$' \
   -R "$expected_regex" >"$test_output" 2>&1
 test_status=$?
 set -e

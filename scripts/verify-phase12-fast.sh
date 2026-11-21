@@ -111,8 +111,10 @@ fi
 test_start=$(now)
 test_output=$(mktemp "$bin_dir/phase12-fast.XXXXXX")
 set +e
+# Phase 14's outer helper executes its display selectors before this inherited
+# chain; excluding phase14_fast avoids expanding that later setup a second time.
 ctest --test-dir "$bin_dir" --output-on-failure --no-tests=error \
-  -FA '^(phase7_fast|phase8_fast|phase9_fast|phase10_fast|phase11_fast)$' \
+  -FA '^(phase7_fast|phase8_fast|phase9_fast|phase10_fast|phase11_fast|phase14_fast)$' \
   -R "$expected_regex" >"$test_output" 2>&1
 test_status=$?
 set -e
