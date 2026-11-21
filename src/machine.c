@@ -359,6 +359,10 @@ static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length,
     digest *= UINT64_C(1099511628211);
     digest ^= (uint8_t)(capture->obj_work_used >> 8u);
     digest *= UINT64_C(1099511628211);
+    for (index = 0u; index < sizeof(capture->window_register_bytes); ++index) {
+        digest ^= capture->window_register_bytes[index];
+        digest *= UINT64_C(1099511628211);
+    }
     return digest;
 }
 
@@ -1317,6 +1321,45 @@ static bool gbl_ppu_obj_admission_matches_capture(
     return true;
 }
 
+static bool gbl_ppu_window_contains(const gbl_ppu_row_capture *capture,
+                                   size_t horizontal_offset,
+                                   size_t vertical_offset,
+                                   uint32_t x, uint32_t y)
+{
+    const uint32_t right =
+        capture->window_register_bytes[horizontal_offset];
+    const uint32_t left =
+        capture->window_register_bytes[horizontal_offset + 1u];
+    const uint32_t bottom =
+        capture->window_register_bytes[vertical_offset];
+    const uint32_t top =
+        capture->window_register_bytes[vertical_offset + 1u];
+
+    return left < right && top < bottom && x >= left && x < right &&
+           y >= top && y < bottom;
+}
+
+static uint8_t gbl_ppu_window_permissions(
+    const gbl_ppu_row_capture *capture, uint32_t x)
+{
+    const uint16_t masters = (uint16_t)(capture->dispcnt & UINT16_C(0xE000));
+
+    if (masters == 0u) {
+        return UINT8_C(0x3F);
+    }
+    if ((masters & UINT16_C(0x2000)) != 0u &&
+        gbl_ppu_window_contains(capture, 0u, 4u, x, capture->line)) {
+        return (uint8_t)(capture->window_register_bytes[8u] &
+                         UINT8_C(0x3F));
+    }
+    if ((masters & UINT16_C(0x4000)) != 0u &&
+        gbl_ppu_window_contains(capture, 2u, 6u, x, capture->line)) {
+        return (uint8_t)(capture->window_register_bytes[9u] &
+                         UINT8_C(0x3F));
+    }
+    return (uint8_t)(capture->window_register_bytes[10u] & UINT8_C(0x3F));
+}
+
 static bool gbl_ppu_project_composed_row(
     const gbl_machine *machine, const gbl_machine_time_preview *preview,
     const gbl_ppu_row_capture *capture,
@@ -1329,6 +1372,7 @@ static bool gbl_ppu_project_composed_row(
     uint8_t background_row[GBL_PPU_ROW_BYTES];
     gbl_ppu_bg_sample background_samples[GBL_PPU_WIDTH];
     gbl_ppu_pixel_candidate candidates[GBL_PPU_WIDTH];
+    uint8_t region_permissions[GBL_PPU_WIDTH];
     gbl_ppu_obj_admission admission;
     const uint16_t mode = (uint16_t)(capture->dispcnt & UINT16_C(0x0007));
     const uint8_t enabled_backgrounds =
@@ -1355,6 +1399,11 @@ static bool gbl_ppu_project_composed_row(
             row[pixel * 2u + 1u] = UINT8_C(0x7F);
         }
         return true;
+    }
+
+    for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        region_permissions[pixel] = gbl_ppu_window_permissions(capture,
+                                                               pixel);
     }
 
     if (gbl_ppu_sample_read(
@@ -1432,8 +1481,10 @@ static bool gbl_ppu_project_composed_row(
                 .transparent = sample->transparent
             };
 
-            gbl_ppu_offer_candidate(&candidates[pixel],
-                                    &background_candidate);
+            if ((region_permissions[pixel] & background_bit) != 0u) {
+                gbl_ppu_offer_candidate(&candidates[pixel],
+                                        &background_candidate);
+            }
         }
     }
 
@@ -1627,6 +1678,9 @@ static bool gbl_ppu_project_composed_row(
             if (color_index == 0u) {
                 continue;
             }
+            if ((region_permissions[screen_x] & UINT8_C(0x10)) == 0u) {
+                continue;
+            }
             color = (uint16_t)(
                 (uint16_t)obj_palette[palette_index * 2u] |
                 (uint16_t)((uint16_t)obj_palette[palette_index * 2u + 1u]
@@ -1673,9 +1727,6 @@ static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
         mode != UINT16_C(3) && mode != UINT16_C(4) &&
         mode != UINT16_C(5)) {
         return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-    }
-    if ((dispcnt & UINT16_C(0xE000)) != 0u) {
-        return GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED;
     }
     return GBL_VIDEO_INVALID_REASON_NONE;
 }
@@ -1863,6 +1914,9 @@ static gbl_time_status gbl_ppu_capture_row(
     gbl_machine_copy_bytes(capture->bg_register_bytes,
                            preview->ppu.bg_register_bytes,
                            sizeof(capture->bg_register_bytes));
+    gbl_machine_copy_bytes(capture->window_register_bytes,
+                           preview->ppu.window_register_bytes,
+                           sizeof(capture->window_register_bytes));
     {
         size_t affine_index;
 
@@ -2596,11 +2650,11 @@ static gbl_time_status gbl_preview_bus_write(
     bool dispstat_written = false;
     bool dispcnt_written = false;
     bool unsupported_effect_write = false;
-    bool window_register_write = false;
     uint32_t unsupported_register_bytes =
         preview->ppu.unsupported_register_bytes;
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
+    uint8_t window_register_bytes[GBL_PPU_WINDOW_REGISTER_BYTES];
     gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
     uint32_t lane;
 
@@ -2610,6 +2664,9 @@ static gbl_time_status gbl_preview_bus_write(
     gbl_machine_copy_bytes(bg_register_bytes,
                            preview->ppu.bg_register_bytes,
                            sizeof(bg_register_bytes));
+    gbl_machine_copy_bytes(window_register_bytes,
+                           preview->ppu.window_register_bytes,
+                           sizeof(window_register_bytes));
     {
         size_t affine_index;
 
@@ -2667,7 +2724,8 @@ static gbl_time_status gbl_preview_bus_write(
                 !preview->ppu.next_boundary_hblank);
         } else if (lane_address >= UINT32_C(0x04000040) &&
                    lane_address <= UINT32_C(0x0400004B)) {
-            window_register_write = true;
+            window_register_bytes[lane_address - UINT32_C(0x04000040)] =
+                byte_value;
         } else if (lane_address >= UINT32_C(0x0400004C) &&
                    lane_address <= UINT32_C(0x0400004D)) {
             gbl_ppu_update_register_byte_deviation(
@@ -2793,6 +2851,9 @@ static gbl_time_status gbl_preview_bus_write(
                            sizeof(render_register_bytes));
     gbl_machine_copy_bytes(preview->ppu.bg_register_bytes,
                            bg_register_bytes, sizeof(bg_register_bytes));
+    gbl_machine_copy_bytes(preview->ppu.window_register_bytes,
+                           window_register_bytes,
+                           sizeof(window_register_bytes));
     {
         size_t affine_index;
 
@@ -2811,10 +2872,6 @@ static gbl_time_status gbl_preview_bus_write(
         if (unsupported_effect_write) {
             gbl_ppu_invalidate_capture(
                 preview, GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
-        } else if (window_register_write &&
-                   (dispcnt & UINT16_C(0xE000)) != 0u) {
-            gbl_ppu_invalidate_capture(
-                preview, GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED);
         }
     }
     if (dispstat_written) {
@@ -3001,6 +3058,9 @@ static bool gbl_ppu_commit_preview_valid(
         gbl_machine_copy_bytes(sampled_ppu.bg_register_bytes,
                                capture->bg_register_bytes,
                                sizeof(sampled_ppu.bg_register_bytes));
+        gbl_machine_copy_bytes(sampled_ppu.window_register_bytes,
+                               capture->window_register_bytes,
+                               sizeof(sampled_ppu.window_register_bytes));
         {
             size_t affine_index;
 

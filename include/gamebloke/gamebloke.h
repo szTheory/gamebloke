@@ -53,6 +53,7 @@ typedef enum gbl_bus_status {
 #define GBL_PPU_ROW_BYTES (GBL_PPU_WIDTH * 2u)
 #define GBL_PPU_RENDER_REGISTER_BYTES 24u
 #define GBL_PPU_BG_REGISTER_BYTES 24u
+#define GBL_PPU_WINDOW_REGISTER_BYTES 12u
 #define GBL_PPU_AFFINE_BACKGROUND_COUNT 2u
 #define GBL_PPU_VIDEO_BYTES \
     (GBL_PPU_ROW_BYTES * GBL_PPU_VISIBLE_LINES)
@@ -144,6 +145,8 @@ typedef struct gbl_ppu_timing_state {
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     /* BG0CNT..BG3CNT, then BG0HOFS/BG0VOFS..BG3HOFS/BG3VOFS bytes. */
     uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
+    /* WIN0H..WINOUT byte lanes, sampled at the line boundary. */
+    uint8_t window_register_bytes[GBL_PPU_WINDOW_REGISTER_BYTES];
     gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
     gbl_video_capture_state capture_state;
     gbl_video_invalid_reason capture_reason;
@@ -162,6 +165,7 @@ typedef struct gbl_ppu_row_capture {
     uint32_t unsupported_register_bytes;
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
     uint8_t bg_register_bytes[GBL_PPU_BG_REGISTER_BYTES];
+    uint8_t window_register_bytes[GBL_PPU_WINDOW_REGISTER_BYTES];
     gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
     /* Bounded project work policy, not an emulated cycle count. */
     uint8_t obj_selected_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES];

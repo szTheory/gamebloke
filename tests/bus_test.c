@@ -2119,6 +2119,256 @@ static int run_ppu_composition(void)
     return 1;
 }
 
+static void ppu_window_store_u16(uint8_t *bytes, size_t offset,
+                                 uint16_t value)
+{
+    bytes[offset] = (uint8_t)(value & UINT16_C(0x00FF));
+    bytes[offset + 1u] = (uint8_t)(value >> 8u);
+}
+
+static bool ppu_window_rect_scene(gbl_machine *machine)
+{
+    uint32_t tile_x;
+
+    if (!ppu_composition_prepare_text_scene(
+            machine, 0u, 1u, 0u, 1u, true, true)) {
+        return false;
+    }
+    for (tile_x = 0u; tile_x < 4u; ++tile_x) {
+        if (!ppu_bg_text_set_map_entry(machine, 0u, tile_x, 1u, 1u) ||
+            !ppu_bg_text_set_map_entry(machine, 1u, tile_x, 1u, 1u)) {
+            return false;
+        }
+    }
+    ppu_obj_store_u16(machine->oam, 0u, UINT16_C(8));
+    ppu_obj_store_u16(machine->oam, 2u, UINT16_C(16));
+    return true;
+}
+
+static bool ppu_window_capture_lanes_bound(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *snapshot = malloc(sizeof(*snapshot));
+    gbl_machine *changed_state = malloc(sizeof(*changed_state));
+    gbl_machine_time_preview preview;
+    size_t lane;
+    bool valid = machine != NULL && snapshot != NULL &&
+                 changed_state != NULL;
+
+    if (!valid) {
+        free(changed_state);
+        free(snapshot);
+        free_machine(machine);
+        return false;
+    }
+    valid = gbl_machine_prepare_time(machine, 0u, &preview) ==
+                GBL_TIME_STATUS_OK &&
+            preview.ppu_row_capture_count == 1u;
+    if (!valid) {
+        free(changed_state);
+        free(snapshot);
+        free_machine(machine);
+        return false;
+    }
+    memcpy(snapshot, machine, sizeof(*snapshot));
+    for (lane = 0u; lane < GBL_PPU_WINDOW_REGISTER_BYTES; ++lane) {
+        gbl_machine_time_preview changed_preview = preview;
+
+        changed_preview.ppu_row_captures[0].window_register_bytes[lane] ^=
+            UINT8_C(1);
+        if (gbl_test_time_preview_equal(&preview, &changed_preview) ||
+            gbl_test_ppu_row_capture_equal(
+                &preview.ppu_row_captures[0],
+                &changed_preview.ppu_row_captures[0]) ||
+            gbl_test_ppu_row_capture_digest(
+                &preview.ppu_row_captures[0]) ==
+                gbl_test_ppu_row_capture_digest(
+                    &changed_preview.ppu_row_captures[0])) {
+            valid = false;
+        }
+        gbl_machine_commit_time(machine, &changed_preview);
+        if (!gbl_test_canonical_equal(snapshot, machine)) {
+            valid = false;
+        }
+
+        memcpy(changed_state, snapshot, sizeof(*changed_state));
+        changed_state->ppu.window_register_bytes[lane] ^= UINT8_C(1);
+        if (gbl_test_canonical_equal(snapshot, changed_state) ||
+            gbl_test_canonical_digest(snapshot) ==
+                gbl_test_canonical_digest(changed_state)) {
+            valid = false;
+        }
+    }
+    free(changed_state);
+    free(snapshot);
+    free_machine(machine);
+    return valid;
+}
+
+static int run_ppu_window_rect(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+    CHECK(ppu_window_capture_lanes_bound());
+    CHECK(ppu_window_rect_scene(machine));
+    machine->dispcnt |= UINT16_C(0x6000);
+    machine->ppu.dispcnt = machine->dispcnt;
+    /* Row 0 captures empty window controls; following byte/halfword/word
+     * writes must be visible at later line starts. */
+    CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x04000040), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(20));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x04000041), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(10));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x04000042), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x0F18));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x04000044), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x080A080A));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    result = gbl_bus_write(machine, UINT32_C(0x04000048), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x00C1D2C2));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(machine->ppu.window_register_bytes[0] == UINT8_C(20));
+    CHECK(machine->ppu.window_register_bytes[1] == UINT8_C(10));
+    CHECK(machine->ppu.window_register_bytes[2] == UINT8_C(24));
+    CHECK(machine->ppu.window_register_bytes[3] == UINT8_C(15));
+    CHECK(machine->ppu.window_register_bytes[4] == UINT8_C(10));
+    CHECK(machine->ppu.window_register_bytes[5] == UINT8_C(8));
+    CHECK(machine->ppu.window_register_bytes[6] == UINT8_C(10));
+    CHECK(machine->ppu.window_register_bytes[7] == UINT8_C(8));
+    CHECK(machine->ppu.window_register_bytes[8] == UINT8_C(0xC2));
+    CHECK(machine->ppu.window_register_bytes[9] == UINT8_C(0xD2));
+    CHECK(machine->ppu.window_register_bytes[10] == UINT8_C(0xC1));
+    CHECK(machine->ppu.window_register_bytes[11] == UINT8_C(0));
+    CHECK(gbl_machine_advance_to(
+              machine, GBL_PPU_LINE_CYCLES * UINT64_C(11)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 9u, 8u,
+                                      UINT16_C(0x001F)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 10u, 8u,
+                                      UINT16_C(0x03E0)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 14u, 8u,
+                                      UINT16_C(0x03E0)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 15u, 8u,
+                                      UINT16_C(0x03E0)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 19u, 8u,
+                                      UINT16_C(0x03E0)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 15u, 9u,
+                                      UINT16_C(0x03E0)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 20u, 8u,
+                                      UINT16_C(0x7C00)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 23u, 8u,
+                                      UINT16_C(0x7C00)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 24u, 8u,
+                                      UINT16_C(0x001F)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 15u, 10u,
+                                      UINT16_C(0x001F)));
+    free_machine(machine);
+
+    {
+        size_t case_index;
+
+        for (case_index = 0u; case_index < 2u; ++case_index) {
+            gbl_machine *bounds = new_machine();
+            uint16_t horizontal = case_index == 0u
+                ? UINT16_C(0x0A0A)
+                : UINT16_C(0x140A);
+            uint16_t vertical = case_index == 0u
+                ? UINT16_C(0x080A)
+                : UINT16_C(0x0A08);
+
+            CHECK(bounds != NULL);
+            if (bounds == NULL) {
+                continue;
+            }
+            CHECK(ppu_window_rect_scene(bounds));
+            bounds->dispcnt |= UINT16_C(0x2000);
+            bounds->ppu.dispcnt = bounds->dispcnt;
+            ppu_window_store_u16(bounds->ppu.window_register_bytes, 0u,
+                                 horizontal);
+            ppu_window_store_u16(bounds->ppu.window_register_bytes, 4u,
+                                 vertical);
+            ppu_window_store_u16(bounds->ppu.window_register_bytes, 8u,
+                                 UINT16_C(0x0001));
+            ppu_window_store_u16(bounds->ppu.window_register_bytes, 10u,
+                                 UINT16_C(0x0002));
+            CHECK(gbl_machine_advance_to(
+                      bounds, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_bg_affine_pixel_matches(
+                bounds->video_frame, 15u, 8u, UINT16_C(0x03E0)));
+            free_machine(bounds);
+        }
+    }
+
+    {
+        gbl_machine *disabled = new_machine();
+
+        CHECK(disabled != NULL);
+        if (disabled != NULL) {
+            CHECK(ppu_window_rect_scene(disabled));
+            memset(disabled->ppu.window_register_bytes, 0,
+                   sizeof(disabled->ppu.window_register_bytes));
+            CHECK(gbl_machine_advance_to(
+                      disabled, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_bg_affine_pixel_matches(
+                disabled->video_frame, 0u, 8u, UINT16_C(0x001F)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                disabled->video_frame, 16u, 8u, UINT16_C(0x7C00)));
+            free_machine(disabled);
+        }
+    }
+
+    {
+        gbl_machine *edge = new_machine();
+        uint32_t tile_x;
+
+        CHECK(edge != NULL);
+        if (edge != NULL) {
+            CHECK(ppu_window_rect_scene(edge));
+            edge->dispcnt |= UINT16_C(0x2000);
+            edge->ppu.dispcnt = edge->dispcnt;
+            ppu_window_store_u16(edge->ppu.window_register_bytes, 0u,
+                                 UINT16_C(0xEFF0));
+            ppu_window_store_u16(edge->ppu.window_register_bytes, 4u,
+                                 UINT16_C(0x9FA0));
+            ppu_window_store_u16(edge->ppu.window_register_bytes, 8u,
+                                 UINT16_C(0x0002));
+            ppu_window_store_u16(edge->ppu.window_register_bytes, 10u,
+                                 UINT16_C(0x0001));
+            for (tile_x = 0u; tile_x < 30u; ++tile_x) {
+                CHECK(ppu_bg_text_set_map_entry(edge, 0u, tile_x, 19u, 1u));
+                CHECK(ppu_bg_text_set_map_entry(edge, 1u, tile_x, 19u, 1u));
+            }
+            CHECK(gbl_machine_advance_to(
+                      edge, GBL_PPU_LINE_CYCLES * UINT64_C(160)) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_bg_affine_pixel_matches(
+                edge->video_frame, 239u, 159u, UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(
+                edge->video_frame, 238u, 159u, UINT16_C(0x001F)));
+            free_machine(edge);
+        }
+    }
+    if (CHECK_DONE() == 0) {
+        puts("ppu.window.rect: half-open edges, overlap precedence, outside and sampled controls");
+        return 0;
+    }
+    return 1;
+}
+
 static void ppu_obj_affine_store_matrix(uint8_t *oam, uint8_t matrix,
                                         int16_t pa, int16_t pb,
                                         int16_t pc, int16_t pd)
@@ -7291,13 +7541,7 @@ static int run_ppu_controls(void)
         const char *name;
     } unsupported[] = {
         { UINT16_C(0x0406), GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE,
-          "mode 6 is unsupported" },
-        { UINT16_C(0x2403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
-          "OBJ window is unsupported" },
-        { UINT16_C(0x4403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
-          "window 0 is unsupported" },
-        { UINT16_C(0x8403), GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED,
-          "window 1 is unsupported" }
+          "mode 6 is unsupported" }
     };
     size_t index;
 
@@ -7474,7 +7718,7 @@ static int run_ppu_controls(void)
     }
 
     if (CHECK_DONE() == 0) {
-        puts("ppu.controls: unsupported display controls invalidate the epoch");
+        puts("ppu.controls: unsupported display mode invalidates the epoch");
         return 0;
     }
     return 1;
@@ -8669,6 +8913,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.composition") == 0) {
         return run_ppu_composition();
+    }
+    if (strcmp(argv[1], "ppu.window.rect") == 0) {
+        return run_ppu_window_rect();
     }
     if (strcmp(argv[1], "ppu.obj.tracer") == 0) {
         return run_ppu_obj_tracer();

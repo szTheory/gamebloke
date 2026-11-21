@@ -111,6 +111,9 @@ static bool gbl_test_ppu_equal(const gbl_ppu_timing_state *left,
            gbl_test_bytes_equal(left->bg_register_bytes,
                                 right->bg_register_bytes,
                                 sizeof(left->bg_register_bytes)) &&
+           gbl_test_bytes_equal(left->window_register_bytes,
+                                right->window_register_bytes,
+                                sizeof(left->window_register_bytes)) &&
            gbl_test_ppu_affine_array_equal(left->affine, right->affine) &&
            left->capture_state == right->capture_state &&
            left->capture_reason == right->capture_reason &&
@@ -146,6 +149,9 @@ static bool gbl_test_ppu_row_capture_equal(
            gbl_test_bytes_equal(left->bg_register_bytes,
                                 right->bg_register_bytes,
                                 sizeof(left->bg_register_bytes)) &&
+           gbl_test_bytes_equal(left->window_register_bytes,
+                                right->window_register_bytes,
+                                sizeof(left->window_register_bytes)) &&
            gbl_test_ppu_affine_array_equal(left->affine, right->affine) &&
            gbl_test_bytes_equal(left->obj_selected_mask,
                                 right->obj_selected_mask,
@@ -770,6 +776,9 @@ static uint64_t gbl_test_time_state_digest_at(const gbl_machine *machine,
     digest = gbl_test_digest_bytes(
         digest, machine->ppu.bg_register_bytes,
         sizeof(machine->ppu.bg_register_bytes));
+    digest = gbl_test_digest_bytes(
+        digest, machine->ppu.window_register_bytes,
+        sizeof(machine->ppu.window_register_bytes));
     for (index = 0u; index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++index) {
         const gbl_ppu_affine_state *affine = &machine->ppu.affine[index];
 
@@ -897,6 +906,8 @@ static inline uint64_t gbl_test_ppu_row_capture_digest(
                                    sizeof(capture->render_register_bytes));
     digest = gbl_test_digest_bytes(digest, capture->bg_register_bytes,
                                    sizeof(capture->bg_register_bytes));
+    digest = gbl_test_digest_bytes(digest, capture->window_register_bytes,
+                                   sizeof(capture->window_register_bytes));
     for (affine_index = 0u;
          affine_index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++affine_index) {
         const gbl_ppu_affine_state *affine = &capture->affine[affine_index];
