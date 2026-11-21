@@ -4951,6 +4951,77 @@ static int run_ppu_bg_text(void)
     return CHECK_DONE() == 0 ? 0 : 1;
 }
 
+static int run_ppu_mosaic_bg(void)
+{
+    static const uint16_t palette_colors[8] = {
+        UINT16_C(0x001F), UINT16_C(0x03E0), UINT16_C(0x7C00),
+        UINT16_C(0x7FFF), UINT16_C(0x03FF), UINT16_C(0x7FE0),
+        UINT16_C(0x7C1F), UINT16_C(0x4210)
+    };
+    gbl_machine *machine = new_machine();
+    uint8_t pixels[64];
+    size_t x;
+    size_t y;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+    CHECK(ppu_bg_text_configure(machine, 0u, 0u, 0u, false,
+                                0u, 0u, 1u, 0u));
+    for (y = 0u; y < 8u; ++y) {
+        for (x = 0u; x < 8u; ++x) {
+            const uint8_t first_index = y < 2u ? 1u : 5u;
+
+            pixels[y * 8u + x] = (uint8_t)(first_index + (x & 3u));
+        }
+    }
+    CHECK(ppu_bg_text_set_map_entry(machine, 0u, 0u, 0u, 1u));
+    CHECK(ppu_bg_text_fill_tile(machine, 0u, 1u, pixels));
+    for (x = 0u; x < sizeof(palette_colors) / sizeof(palette_colors[0]);
+         ++x) {
+        CHECK(ppu_bg_text_set_color(machine, (uint32_t)x + 1u,
+                                    palette_colors[x]));
+    }
+    ppu_bg_store_u16(machine->ppu.bg_register_bytes, 0u,
+                     (uint16_t)(ppu_bg_text_control(machine, 0u) |
+                                UINT16_C(0x0040)));
+    machine->ppu.render_register_bytes[16] = UINT8_C(0x11);
+    machine->ppu.render_register_bytes[17] = 0u;
+    CHECK(gbl_machine_advance_to(
+              machine, GBL_PPU_LINE_CYCLES * UINT64_C(4)) ==
+          GBL_TIME_STATUS_OK);
+
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                      UINT16_C(0x001F)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                      UINT16_C(0x001F)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 0u,
+                                      UINT16_C(0x7C00)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 0u,
+                                      UINT16_C(0x7C00)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                      UINT16_C(0x001F)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 1u,
+                                      UINT16_C(0x7C00)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                      UINT16_C(0x03FF)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 2u,
+                                      UINT16_C(0x03FF)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 2u,
+                                      UINT16_C(0x7C1F)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 2u,
+                                      UINT16_C(0x7C1F)));
+    CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+    free_machine(machine);
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.mosaic.bg: text BG repeats screen-origin source anchors across horizontal and vertical groups");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_ppu_bg_affine(void)
 {
     const uint16_t expected = UINT16_C(0x2A35);
@@ -9591,7 +9662,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.mosaic.bg|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -9617,6 +9688,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.effects.brightness") == 0) {
         return run_ppu_effects_brightness();
+    }
+    if (strcmp(argv[1], "ppu.mosaic.bg") == 0) {
+        return run_ppu_mosaic_bg();
     }
     if (strcmp(argv[1], "ppu.blank") == 0) {
         return run_ppu_blank();
