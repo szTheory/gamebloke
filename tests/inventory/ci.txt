@@ -1069,6 +1069,8 @@ ppu.blank bus,core,integration,ppu
 ppu.boundary bus,core,ppu,unit
 ppu.composition bus,core,integration,ppu
 ppu.controls bus,core,ppu,unit
+ppu.effects.alpha bus,core,integration,ppu
+ppu.effects.brightness bus,core,integration,ppu
 ppu.effects.tracer bus,core,integration,ppu
 ppu.frame bus,core,integration,ppu
 ppu.latch bus,core,ppu,unit

@@ -2843,6 +2843,9 @@ static void ppu_effect_check_brightness_source(
     if (source < 4u) {
         CHECK(ppu_composition_prepare_text_bg(machine, 0u, source, 0u,
                                               color));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes,
+                         UINT32_C(10) + (uint32_t)source * UINT32_C(4),
+                         UINT16_C(248));
     } else if (source == 4u) {
         CHECK(ppu_composition_prepare_text_scene(
             machine, 3u, 3u, 0u, 1u, false, true));
@@ -2857,7 +2860,7 @@ static void ppu_effect_check_brightness_source(
     CHECK(gbl_machine_advance_to(
               machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
           GBL_TIME_STATUS_OK);
-    actual = ppu_effect_pixel(machine, 0u, source == 4u ? 8u : 0u);
+    actual = ppu_effect_pixel(machine, 0u, 8u);
     fprintf(stderr, "%s: expected=0x%04X actual=0x%04X\n",
             label, expected, actual);
     CHECK(actual == expected);

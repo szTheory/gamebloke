@@ -86,6 +86,14 @@ gbl_add_test(
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.tracer)
 gbl_add_test(
+  NAME ppu.effects.alpha
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.alpha)
+gbl_add_test(
+  NAME ppu.effects.brightness
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.brightness)
+gbl_add_test(
   NAME ppu.effects.tracer
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.effects.tracer)

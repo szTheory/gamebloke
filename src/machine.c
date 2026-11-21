@@ -368,6 +368,10 @@ static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length,
         digest ^= capture->window_register_bytes[index];
         digest *= UINT64_C(1099511628211);
     }
+    for (index = 18u; index < 24u; ++index) {
+        digest ^= capture->render_register_bytes[index];
+        digest *= UINT64_C(1099511628211);
+    }
     return digest;
 }
 
@@ -1435,6 +1439,33 @@ static uint16_t gbl_ppu_alpha_blend(uint16_t source, uint16_t target,
     return (uint16_t)(result & UINT16_C(0x7FFF));
 }
 
+static uint16_t gbl_ppu_brightness(uint16_t source, uint8_t effect_mode,
+                                   uint8_t evy)
+{
+    uint16_t result = 0u;
+    uint32_t shift;
+
+    for (shift = 0u; shift < 15u; shift += 5u) {
+        const uint32_t source_channel =
+            (uint32_t)((source >> shift) & UINT16_C(0x001F));
+        uint32_t channel;
+
+        if (effect_mode == 2u) {
+            channel = source_channel +
+                ((UINT32_C(31) - source_channel) * (uint32_t)evy) /
+                    UINT32_C(16);
+        } else {
+            channel = source_channel -
+                (source_channel * (uint32_t)evy) / UINT32_C(16);
+        }
+        if (channel > 31u) {
+            channel = 31u;
+        }
+        result = (uint16_t)(result | (uint16_t)(channel << shift));
+    }
+    return (uint16_t)(result & UINT16_C(0x7FFF));
+}
+
 static uint16_t gbl_ppu_apply_pixel_effect(
     const gbl_ppu_row_capture *capture, uint8_t region_permissions,
     const gbl_ppu_candidate_pair *pair)
@@ -1443,6 +1474,8 @@ static uint16_t gbl_ppu_apply_pixel_effect(
         gbl_ppu_memory_u16(capture->render_register_bytes, 18u);
     const uint16_t blend_alpha =
         gbl_ppu_memory_u16(capture->render_register_bytes, 20u);
+    const uint16_t blend_y =
+        gbl_ppu_memory_u16(capture->render_register_bytes, 22u);
     const uint8_t effect_mode = (uint8_t)(
         (blend_control >> 6u) & UINT16_C(0x0003));
     const uint16_t first_target =
@@ -1474,6 +1507,13 @@ static uint16_t gbl_ppu_apply_pixel_effect(
             gbl_ppu_effect_coefficient(blend_alpha),
             gbl_ppu_effect_coefficient(
                 (uint16_t)(blend_alpha >> 8u)));
+    }
+    if ((region_permissions & UINT8_C(0x20)) != 0u &&
+        (effect_mode == 2u || effect_mode == 3u) &&
+        (blend_control & first_target) != 0u) {
+        return gbl_ppu_brightness(
+            (uint16_t)(pair->top.color & UINT16_C(0x7FFF)), effect_mode,
+            gbl_ppu_effect_coefficient(blend_y));
     }
     return (uint16_t)(pair->top.color & UINT16_C(0x7FFF));
 }
