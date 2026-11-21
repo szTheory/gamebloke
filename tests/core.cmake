@@ -121,6 +121,10 @@ gbl_add_test(
   NAME ppu.obj.affine
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.obj.affine)
+gbl_add_test(
+  NAME ppu.obj.budget
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.obj.budget)
 foreach(selector IN ITEMS ppu.boundary ppu.registers ppu.latch ppu.frame
     ppu.refusal ppu.controls)
   if(selector STREQUAL "ppu.frame")

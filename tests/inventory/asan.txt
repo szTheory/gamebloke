@@ -906,6 +906,7 @@ ppu.controls bus,core,ppu,unit
 ppu.frame bus,core,integration,ppu
 ppu.latch bus,core,ppu,unit
 ppu.obj.affine bus,core,integration,ppu
+ppu.obj.budget bus,core,integration,ppu
 ppu.obj.regular bus,core,integration,ppu
 ppu.obj.tracer bus,core,integration,ppu
 ppu.refusal bus,core,ppu,unit

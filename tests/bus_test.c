@@ -2213,10 +2213,10 @@ static bool ppu_obj_budget_prepare_base(gbl_machine *machine)
     return true;
 }
 
-static void ppu_obj_budget_set_regular(gbl_machine *machine, size_t object,
-                                       uint16_t x, uint8_t y,
-                                       uint8_t shape, uint8_t size,
-                                       uint8_t palette_bank)
+static void ppu_obj_budget_set_regular_ex(
+    gbl_machine *machine, size_t object, uint16_t x, uint8_t y,
+    uint8_t shape, uint8_t size, uint8_t palette_bank,
+    uint16_t tile_base, uint8_t priority)
 {
     const size_t offset = object * 8u;
 
@@ -2227,7 +2227,18 @@ static void ppu_obj_budget_set_regular(gbl_machine *machine, size_t object,
                       (uint16_t)((x & UINT16_C(0x01FF)) |
                                  ((uint16_t)size << 14u)));
     ppu_obj_store_u16(machine->oam, offset + 4u,
-                      (uint16_t)((uint16_t)palette_bank << 12u));
+                      (uint16_t)((tile_base & UINT16_C(0x03FF)) |
+                                 ((uint16_t)priority << 10u) |
+                                 ((uint16_t)palette_bank << 12u)));
+}
+
+static void ppu_obj_budget_set_regular(gbl_machine *machine, size_t object,
+                                       uint16_t x, uint8_t y,
+                                       uint8_t shape, uint8_t size,
+                                       uint8_t palette_bank)
+{
+    ppu_obj_budget_set_regular_ex(machine, object, x, y, shape, size,
+                                  palette_bank, 0u, 0u);
 }
 
 static void ppu_obj_budget_set_affine(gbl_machine *machine, size_t object,
@@ -2277,6 +2288,84 @@ static bool ppu_obj_budget_prepare_first_overflow_scene(
     }
     ppu_obj_budget_set_regular(machine, 19u, 120u, 0u, 0u, 1u, 1u);
     ppu_obj_budget_set_regular(machine, 20u, 140u, 0u, 0u, 0u, 2u);
+    return true;
+}
+
+static bool ppu_obj_budget_prepare_no_refund_scene(
+    gbl_machine *machine, bool transparent)
+{
+    size_t object;
+
+    if (!ppu_obj_budget_prepare_base(machine)) {
+        return false;
+    }
+    if (transparent) {
+        memset(&machine->vram[UINT32_C(0x10000) + 16u * 32u], 0,
+               8u * 32u);
+        ppu_obj_budget_set_regular_ex(machine, 0u, 100u, 0u, 0u, 3u,
+                                      0u, 16u, 0u);
+        for (object = 1u; object < 18u; ++object) {
+            ppu_obj_budget_set_regular_ex(machine, object, 0u, 0u, 0u,
+                                          3u, 0u, 1u, 0u);
+        }
+    } else {
+        for (object = 0u; object < 17u; ++object) {
+            ppu_obj_budget_set_regular_ex(machine, object, 0u, 0u, 0u,
+                                          3u, 0u, 1u, 0u);
+        }
+        ppu_obj_budget_set_regular_ex(machine, 17u, 400u, 0u, 0u, 3u,
+                                      1u, 1u, 0u);
+    }
+    ppu_obj_budget_set_affine(machine, 18u, transparent ? 160u : 100u,
+                              0u, 0u, 2u, 1u, false);
+    ppu_obj_affine_store_matrix(machine->oam, 0u, 256, 0, 0, 256);
+    ppu_obj_budget_set_regular(machine, 19u, 200u, 0u, 0u, 0u, 3u);
+    return true;
+}
+
+static bool ppu_obj_budget_observation_matches(
+    const gbl_ppu_row_capture *capture,
+    const uint8_t selected_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES],
+    uint16_t selected_count, uint16_t omitted_count, uint16_t work_used)
+{
+    return capture != NULL && selected_mask != NULL &&
+           capture->obj_selected_count == selected_count &&
+           capture->obj_omitted_count == omitted_count &&
+           capture->obj_work_used == work_used &&
+           memcmp(capture->obj_selected_mask, selected_mask,
+                  GBL_PPU_OBJ_SELECTED_MASK_BYTES) == 0;
+}
+
+static bool ppu_obj_budget_rows_bounded(
+    const gbl_machine_time_preview *preview)
+{
+    size_t row;
+
+    if (preview == NULL ||
+        preview->ppu_row_capture_count != GBL_PPU_VISIBLE_LINES) {
+        return false;
+    }
+    for (row = 0u; row < preview->ppu_row_capture_count; ++row) {
+        const gbl_ppu_row_capture *capture = &preview->ppu_row_captures[row];
+        uint16_t selected_bits = 0u;
+        size_t index;
+
+        for (index = 0u; index < GBL_PPU_OBJ_SELECTED_MASK_BYTES; ++index) {
+            uint8_t mask_byte = capture->obj_selected_mask[index];
+
+            while (mask_byte != 0u) {
+                selected_bits = (uint16_t)(selected_bits +
+                    (uint16_t)(mask_byte & UINT8_C(1)));
+                mask_byte = (uint8_t)(mask_byte >> 1u);
+            }
+        }
+        if (capture->obj_work_used > GBL_PPU_OBJ_WORK_BUDGET ||
+            selected_bits != capture->obj_selected_count ||
+            capture->obj_selected_count + capture->obj_omitted_count >
+                128u) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -2331,55 +2420,278 @@ static int run_ppu_obj_budget(void)
 {
     const uint64_t target =
         (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(160);
+    uint8_t exact_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES] = { 0u };
+    size_t object;
     gbl_machine *machine = new_machine();
     gbl_machine_time_preview preview;
 
+    for (object = 0u; object < 19u; ++object) {
+        exact_mask[object >> 3u] |=
+            (uint8_t)(UINT8_C(1) << (object & 7u));
+    }
     CHECK(machine != NULL);
     if (machine != NULL) {
         CHECK(ppu_obj_budget_prepare_exact_fit_scene(machine));
         CHECK(gbl_machine_prepare_time(machine, target, &preview) ==
               GBL_TIME_STATUS_OK);
         CHECK(preview.ppu_row_capture_count == GBL_PPU_VISIBLE_LINES);
-        CHECK(preview.ppu_row_captures[0].obj_selected_count == 19u);
-        CHECK(preview.ppu_row_captures[0].obj_omitted_count == 1u);
-        CHECK(preview.ppu_row_captures[0].obj_work_used ==
-              GBL_PPU_OBJ_WORK_BUDGET);
-        CHECK(preview.ppu_row_captures[0].obj_selected_mask[0] ==
-              UINT8_MAX);
-        CHECK(preview.ppu_row_captures[0].obj_selected_mask[1] ==
-              UINT8_MAX);
-        CHECK(preview.ppu_row_captures[0].obj_selected_mask[2] ==
-              UINT8_C(0x07));
-        CHECK(preview.ppu_row_captures[0].obj_selected_mask[3] == 0u);
+        CHECK(ppu_obj_budget_rows_bounded(&preview));
+        CHECK(ppu_obj_budget_observation_matches(
+            &preview.ppu_row_captures[0], exact_mask, 19u, 1u,
+            GBL_PPU_OBJ_WORK_BUDGET));
+        {
+            uint8_t wrong_selection[GBL_PPU_OBJ_SELECTED_MASK_BYTES];
+            gbl_machine *clean_twin = new_machine();
+            gbl_machine_time_preview twin_preview;
+
+            memcpy(wrong_selection, exact_mask, sizeof(wrong_selection));
+            wrong_selection[0] ^= UINT8_C(1);
+            CHECK(!ppu_obj_budget_observation_matches(
+                &preview.ppu_row_captures[0], wrong_selection, 19u, 1u,
+                GBL_PPU_OBJ_WORK_BUDGET));
+            CHECK(!ppu_obj_budget_observation_matches(
+                &preview.ppu_row_captures[0], exact_mask, 19u, 1u,
+                (uint16_t)(GBL_PPU_OBJ_WORK_BUDGET - 1u)));
+            CHECK(clean_twin != NULL);
+            if (clean_twin != NULL) {
+                CHECK(ppu_obj_budget_prepare_exact_fit_scene(clean_twin));
+                CHECK(gbl_machine_prepare_time(clean_twin, target,
+                                               &twin_preview) ==
+                      GBL_TIME_STATUS_OK);
+                CHECK(gbl_test_time_preview_equal(&preview,
+                                                 &twin_preview));
+                CHECK(ppu_obj_budget_observation_matches(
+                    &twin_preview.ppu_row_captures[0], exact_mask, 19u, 1u,
+                    GBL_PPU_OBJ_WORK_BUDGET));
+                free_machine(clean_twin);
+            }
+        }
         CHECK(ppu_obj_budget_mutations_refused(machine, &preview));
         gbl_machine_commit_time(machine, &preview);
         CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
         CHECK(machine->master_cycles == target);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x001F)));
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 100u, 0u,
                                           UINT16_C(0x03E0)));
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 200u, 0u,
                                           0u));
         free_machine(machine);
     }
+
     machine = new_machine();
     CHECK(machine != NULL);
     if (machine != NULL) {
+        gbl_machine *repeated = new_machine();
+        gbl_machine *timing_twin = new_machine();
+        gbl_machine_time_preview repeated_preview;
+        gbl_machine_time_preview timing_preview;
+        uint8_t first_overflow_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES] = { 0u };
+
+        for (object = 0u; object < 19u; ++object) {
+            first_overflow_mask[object >> 3u] |=
+                (uint8_t)(UINT8_C(1) << (object & 7u));
+        }
         CHECK(ppu_obj_budget_prepare_first_overflow_scene(machine));
         CHECK(gbl_machine_prepare_time(machine, target, &preview) ==
               GBL_TIME_STATUS_OK);
-        CHECK(preview.ppu_row_captures[0].obj_selected_count == 19u);
-        CHECK(preview.ppu_row_captures[0].obj_omitted_count == 2u);
-        CHECK(preview.ppu_row_captures[0].obj_work_used == 1216u);
+        CHECK(ppu_obj_budget_rows_bounded(&preview));
+        CHECK(ppu_obj_budget_observation_matches(
+            &preview.ppu_row_captures[0], first_overflow_mask, 19u, 2u,
+            1216u));
+        CHECK(repeated != NULL);
+        if (repeated != NULL) {
+            CHECK(ppu_obj_budget_prepare_first_overflow_scene(repeated));
+            CHECK(gbl_machine_prepare_time(repeated, target,
+                                           &repeated_preview) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(gbl_test_time_preview_equal(&preview, &repeated_preview));
+        }
+        CHECK(timing_twin != NULL);
+        if (timing_twin != NULL) {
+            CHECK(ppu_obj_budget_prepare_base(timing_twin));
+            ppu_obj_budget_set_regular(timing_twin, 0u, 0u, 0u, 0u, 0u,
+                                       0u);
+            CHECK(gbl_machine_prepare_time(timing_twin, target,
+                                           &timing_preview) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(timing_twin->dispcnt == machine->dispcnt);
+        }
         gbl_machine_commit_time(machine, &preview);
         CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 120u, 0u,
                                           0u));
         CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 140u, 0u,
                                           0u));
+        CHECK(machine->master_cycles == target);
+        if (repeated != NULL) {
+            gbl_machine_commit_time(repeated, &repeated_preview);
+            CHECK(repeated->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(memcmp(machine->video_frame, repeated->video_frame,
+                         GBL_PPU_VIDEO_BYTES) == 0);
+            free_machine(repeated);
+        }
+        if (timing_twin != NULL) {
+            gbl_machine_commit_time(timing_twin, &timing_preview);
+            CHECK(gbl_test_time_state_equal(machine, timing_twin));
+            CHECK(machine->master_cycles == timing_twin->master_cycles);
+            CHECK(machine->next_event_sequence ==
+                  timing_twin->next_event_sequence);
+            free_machine(timing_twin);
+        }
         free_machine(machine);
     }
+
+    {
+        uint8_t variant;
+
+        for (variant = 0u; variant < 2u; ++variant) {
+            gbl_machine *no_refund = new_machine();
+
+            CHECK(no_refund != NULL);
+            if (no_refund != NULL) {
+                CHECK(ppu_obj_budget_prepare_no_refund_scene(
+                    no_refund, variant == 0u));
+                CHECK(gbl_machine_prepare_time(no_refund, target,
+                                               &preview) ==
+                      GBL_TIME_STATUS_OK);
+                CHECK(ppu_obj_budget_observation_matches(
+                    &preview.ppu_row_captures[0], exact_mask, 19u, 1u,
+                    GBL_PPU_OBJ_WORK_BUDGET));
+                gbl_machine_commit_time(no_refund, &preview);
+                CHECK(no_refund->ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_VALID);
+                CHECK(ppu_bg_affine_pixel_matches(no_refund->video_frame,
+                                                  200u, 0u, 0u));
+                if (variant == 0u) {
+                    CHECK(ppu_bg_affine_pixel_matches(no_refund->video_frame,
+                                                      100u, 0u, 0u));
+                } else {
+                    CHECK(ppu_bg_affine_pixel_matches(no_refund->video_frame,
+                                                      400u, 0u, 0u));
+                }
+                free_machine(no_refund);
+            }
+        }
+    }
+
+    {
+        uint8_t double_size;
+
+        for (double_size = 0u; double_size < 2u; ++double_size) {
+            gbl_machine *affine = new_machine();
+            const uint16_t expected_work = double_size != 0u ? 138u : 74u;
+            uint8_t one_selected[GBL_PPU_OBJ_SELECTED_MASK_BYTES] = { 1u };
+
+            CHECK(affine != NULL);
+            if (affine != NULL) {
+                CHECK(ppu_obj_budget_prepare_base(affine));
+                ppu_obj_budget_set_affine(affine, 0u, 100u, 0u, 0u, 2u,
+                                          1u, double_size != 0u);
+                ppu_obj_affine_store_matrix(affine->oam, 0u, 256, 0, 0,
+                                            256);
+                CHECK(gbl_machine_prepare_time(affine, target, &preview) ==
+                      GBL_TIME_STATUS_OK);
+                CHECK(ppu_obj_budget_observation_matches(
+                    &preview.ppu_row_captures[0], one_selected, 1u, 0u,
+                    expected_work));
+                gbl_machine_commit_time(affine, &preview);
+                CHECK(affine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+                free_machine(affine);
+            }
+        }
+    }
+
+    {
+        gbl_machine *mixed = new_machine();
+        const uint8_t mixed_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES] = { 0x0Fu };
+
+        CHECK(mixed != NULL);
+        if (mixed != NULL) {
+            CHECK(ppu_obj_budget_prepare_base(mixed));
+            ppu_obj_budget_set_regular(mixed, 0u, 0u, 0u, 0u, 0u, 0u);
+            ppu_obj_budget_set_regular(mixed, 1u, 16u, 0u, 1u, 0u, 1u);
+            ppu_obj_budget_set_regular(mixed, 2u, 32u, 0u, 0u, 2u, 2u);
+            ppu_obj_budget_set_affine(mixed, 3u, 80u, 0u, 0u, 1u, 3u,
+                                      false);
+            ppu_obj_affine_store_matrix(mixed->oam, 0u, 256, 0, 0, 256);
+            CHECK(gbl_machine_prepare_time(mixed, target, &preview) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_obj_budget_observation_matches(
+                &preview.ppu_row_captures[0], mixed_mask, 4u, 0u, 98u));
+            gbl_machine_commit_time(mixed, &preview);
+            CHECK(mixed->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            free_machine(mixed);
+        }
+    }
+
+    {
+        gbl_machine *ineligible = new_machine();
+        uint8_t ineligible_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES] = { 0u };
+
+        for (object = 0u; object < 17u; ++object) {
+            ineligible_mask[object >> 3u] |=
+                (uint8_t)(UINT8_C(1) << (object & 7u));
+        }
+        ineligible_mask[19u >> 3u] |=
+            (uint8_t)(UINT8_C(1) << (19u & 7u));
+        ineligible_mask[20u >> 3u] |=
+            (uint8_t)(UINT8_C(1) << (20u & 7u));
+        CHECK(ineligible != NULL);
+        if (ineligible != NULL) {
+            CHECK(ppu_obj_budget_prepare_base(ineligible));
+            for (object = 0u; object < 17u; ++object) {
+                ppu_obj_budget_set_regular(ineligible, object, 0u, 0u, 0u,
+                                           3u, 0u);
+            }
+            ppu_obj_budget_set_regular(ineligible, 18u, 0u, 64u, 0u, 3u,
+                                       1u);
+            ppu_obj_budget_set_regular(ineligible, 19u, 0u, 0u, 0u, 3u,
+                                       0u);
+            ppu_obj_budget_set_affine(ineligible, 20u, 100u, 0u, 0u, 2u,
+                                      1u, false);
+            ppu_obj_affine_store_matrix(ineligible->oam, 0u, 256, 0, 0,
+                                        256);
+            ppu_obj_budget_set_regular(ineligible, 21u, 200u, 0u, 0u, 0u,
+                                       3u);
+            CHECK(gbl_machine_prepare_time(ineligible, target, &preview) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_obj_budget_observation_matches(
+                &preview.ppu_row_captures[0], ineligible_mask, 19u, 1u,
+                GBL_PPU_OBJ_WORK_BUDGET));
+            gbl_machine_commit_time(ineligible, &preview);
+            CHECK(ineligible->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(ineligible->video_frame, 200u,
+                                              0u, 0u));
+            free_machine(ineligible);
+        }
+    }
+
+    {
+        gbl_machine *priority = new_machine();
+        const uint8_t priority_mask[GBL_PPU_OBJ_SELECTED_MASK_BYTES] = { 3u };
+
+        CHECK(priority != NULL);
+        if (priority != NULL) {
+            CHECK(ppu_obj_budget_prepare_base(priority));
+            ppu_obj_budget_set_regular_ex(priority, 0u, 10u, 0u, 0u, 0u,
+                                          1u, 0u, 3u);
+            ppu_obj_budget_set_regular_ex(priority, 1u, 10u, 0u, 0u, 0u,
+                                          2u, 0u, 0u);
+            CHECK(gbl_machine_prepare_time(priority, target, &preview) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(ppu_obj_budget_observation_matches(
+                &preview.ppu_row_captures[0], priority_mask, 2u, 0u, 16u));
+            gbl_machine_commit_time(priority, &preview);
+            CHECK(priority->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID);
+            CHECK(ppu_bg_affine_pixel_matches(priority->video_frame, 10u,
+                                              0u, UINT16_C(0x7C1F)));
+            free_machine(priority);
+        }
+    }
+
     if (CHECK_DONE() == 0) {
-        puts("ppu.obj.budget: first non-fit blocks later eligible objects");
+        puts("ppu.obj.budget: exact fit, first overflow, no-refund charging, affine costs, eligibility, priority and stable partial output");
         return 0;
     }
     return 1;
