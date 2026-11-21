@@ -127,9 +127,9 @@ if(CASE STREQUAL "copy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
 elseif(CASE STREQUAL "ppu_policy")
-  if(NOT "${PROFILE_VERSION}" STREQUAL "13")
+  if(NOT "${PROFILE_VERSION}" STREQUAL "14")
     message(FATAL_ERROR
-      "profile bitmap capability assertion: expected version 13, found ${PROFILE_VERSION}")
+      "profile OBJ/composition capability assertion: expected version 14, found ${PROFILE_VERSION}")
   endif()
   string(JSON mode0_status GET "${base_profile}"
     ppu_policy display_capabilities modes 0 implementation_status)
@@ -153,6 +153,52 @@ elseif(CASE STREQUAL "ppu_policy")
       "profile display capability assertion: all six modes must be partial, found ${mode0_status}/${mode1_status}/${mode2_status}/${mode3_status}/${mode4_status}/${mode5_status}")
   endif()
 
+  string(JSON object_type ERROR_VARIABLE object_type_error TYPE
+    "${base_profile}" ppu_policy object_policy)
+  if(NOT "${object_type_error}" STREQUAL "NOTFOUND" OR
+      NOT "${object_type}" STREQUAL "OBJECT")
+    message(FATAL_ERROR
+      "profile object policy assertion: expected OBJECT, found ${object_type}")
+  endif()
+  string(JSON object_fields LENGTH "${base_profile}"
+    ppu_policy object_policy)
+  if(NOT object_fields EQUAL 14)
+    message(FATAL_ERROR
+      "profile object policy assertion: expected 14 fields, found ${object_fields}")
+  endif()
+  string(JSON actual_object_policy GET "${base_profile}"
+    ppu_policy object_policy)
+  set(expected_object_policy [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited;semitransparent;obj-window;mosaic","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
+  string(JSON object_policy_matches EQUAL
+    "${actual_object_policy}" "${expected_object_policy}")
+  if(NOT object_policy_matches)
+    message(FATAL_ERROR
+      "profile object policy assertion: differs from exact 14-field policy")
+  endif()
+
+  string(JSON composition_type ERROR_VARIABLE composition_type_error TYPE
+    "${base_profile}" ppu_policy composition_policy)
+  if(NOT "${composition_type_error}" STREQUAL "NOTFOUND" OR
+      NOT "${composition_type}" STREQUAL "OBJECT")
+    message(FATAL_ERROR
+      "profile composition policy assertion: expected OBJECT, found ${composition_type}")
+  endif()
+  string(JSON composition_fields LENGTH "${base_profile}"
+    ppu_policy composition_policy)
+  if(NOT composition_fields EQUAL 5)
+    message(FATAL_ERROR
+      "profile composition policy assertion: expected 5 fields, found ${composition_fields}")
+  endif()
+  string(JSON actual_composition_policy GET "${base_profile}"
+    ppu_policy composition_policy)
+  set(expected_composition_policy [=[{"priority_order":"ascending-numeric-0-3","bg_tie":"lower-bg-number","obj_tie":"lower-oam-index","obj_bg_tie":"obj-in-front-project-policy","backdrop":"pram-color-zero;behind-all-enabled-opaque-candidates"}]=])
+  string(JSON composition_policy_matches EQUAL
+    "${actual_composition_policy}" "${expected_composition_policy}")
+  if(NOT composition_policy_matches)
+    message(FATAL_ERROR
+      "profile composition policy assertion: differs from exact 5-field policy")
+  endif()
+
   profile_copy(p clean_ppu_policy)
   doc_copy(d clean_ppu_policy)
   check_command(cmd "${p}" "${d}")
@@ -160,6 +206,74 @@ elseif(CASE STREQUAL "ppu_policy")
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
   check_ppu_command(ppu_cmd "${p}" "${d}")
   gbl_expect_pass(COMMAND ${ppu_cmd} REGEX "profile: ok \\(agb PPU policy\\)")
+
+  profile_copy(p wrong_object_work_budget)
+  gbl_json_mutate_set("${p}" "1225"
+    ppu_policy object_policy work_budget_units)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.work_budget_units" "${p}")
+
+  profile_copy(p wrong_object_admission_order)
+  gbl_json_mutate_set("${p}" [=["select-later-fits"]=]
+    ppu_policy object_policy admission_order)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.admission_order" "${p}")
+
+  profile_copy(p wrong_object_overflow_policy)
+  gbl_json_mutate_set("${p}" [=["invalidate-frame"]=]
+    ppu_policy object_policy overflow_policy)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.overflow_policy" "${p}")
+
+  profile_copy(p missing_object_policy)
+  gbl_json_mutate_remove("${p}" ppu_policy object_policy)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy" "${p}")
+
+  profile_copy(p malformed_object_policy)
+  gbl_json_mutate_set("${p}" [=["policy"]=] ppu_policy object_policy)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy" "${p}")
+
+  profile_copy(p extra_object_policy_field)
+  gbl_json_mutate_set("${p}" [=["unexpected"]=]
+    ppu_policy object_policy unexpected)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy: expected 14 fields" "${p}")
+
+  profile_copy(p wrong_object_boolean_type)
+  gbl_json_mutate_set("${p}" [=["true"]=]
+    ppu_policy object_policy index_zero_transparency)
+  expect_ppu_detail(ppu-object-policy-value
+    "ppu_policy\\.object_policy\\.index_zero_transparency: expected BOOLEAN" "${p}")
+
+  profile_copy(p wrong_composition_tie)
+  gbl_json_mutate_set("${p}" [=["bg-in-front-project-policy"]=]
+    ppu_policy composition_policy obj_bg_tie)
+  expect_ppu_detail(ppu-composition-policy-value
+    "ppu_policy\\.composition_policy\\.obj_bg_tie" "${p}")
+
+  profile_copy(p missing_composition_policy)
+  gbl_json_mutate_remove("${p}" ppu_policy composition_policy)
+  expect_ppu_detail(ppu-composition-policy-value
+    "ppu_policy\\.composition_policy" "${p}")
+
+  profile_copy(p extra_composition_policy_field)
+  gbl_json_mutate_set("${p}" [=["unexpected"]=]
+    ppu_policy composition_policy unexpected)
+  expect_ppu_detail(ppu-composition-policy-value
+    "ppu_policy\\.composition_policy: expected 5 fields" "${p}")
+
+  profile_copy(p complete_display_mode)
+  gbl_json_mutate_set("${p}" [=["complete"]=]
+    ppu_policy display_capabilities modes 0 implementation_status)
+  expect_ppu_detail(ppu-capability-value
+    "display_capabilities\\.modes" "${p}")
+
+  profile_copy(p removed_hardware_unknown)
+  gbl_json_mutate_remove("${p}" ppu_policy hardware_qualification)
+  expect_ppu_detail(ppu-policy-value
+    "ppu_policy\\.hardware_qualification" "${p}")
 
   profile_copy(p missing_display_capabilities)
   gbl_json_mutate_remove("${p}" ppu_policy display_capabilities)
