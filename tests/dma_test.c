@@ -1728,58 +1728,218 @@ static bool dma_ppu_unit_quotes(const gbl_machine *machine, uint8_t width,
            source_cost->cycles != 0u && destination_cost->cycles != 0u;
 }
 
-static bool dma_ppu_boundary_case(int8_t offset)
+static uint8_t *dma_ppu_access_memory(gbl_machine *machine, uint8_t region,
+                                      uint32_t address);
+static bool dma_ppu_write_dispcnt(gbl_machine *machine, uint16_t value);
+static const char *dma_ppu_region_name(uint8_t region);
+
+static uint32_t dma_ppu_boundary_destination(uint8_t region, uint8_t width)
+{
+    if (region == (uint8_t)GBL_BUS_REGION_PRAM) {
+        return width == 4u ? UINT32_C(0x05000000)
+                           : UINT32_C(0x05000002);
+    }
+    if (region == (uint8_t)GBL_BUS_REGION_VRAM) {
+        return UINT32_C(0x060001E0);
+    }
+    return UINT32_C(0x07000000);
+}
+
+static uint32_t dma_ppu_boundary_value(uint8_t region, uint8_t width)
+{
+    if (region == (uint8_t)GBL_BUS_REGION_PRAM) {
+        return width == 4u ? UINT32_C(0x62341234)
+                           : UINT32_C(0x00002345);
+    }
+    if (region == (uint8_t)GBL_BUS_REGION_VRAM) {
+        return width == 4u ? UINT32_C(0x21234321)
+                           : UINT32_C(0x00002345);
+    }
+    return UINT32_C(10);
+}
+
+static bool dma_ppu_prepare_boundary_scene(gbl_machine *machine,
+                                           uint8_t region)
+{
+    size_t index;
+
+    if (region == (uint8_t)GBL_BUS_REGION_VRAM) {
+        machine->ppu.affine[0].pa = 256;
+        machine->ppu.affine[0].pb = 0;
+        machine->ppu.affine[0].pc = 0;
+        machine->ppu.affine[0].pd = 0;
+        machine->ppu.affine[0].programmed_reference_x = 0u;
+        machine->ppu.affine[0].programmed_reference_y = 0u;
+        machine->ppu.affine[0].origin_x = 0u;
+        machine->ppu.affine[0].origin_y = 0u;
+        machine->ppu.affine[0].origin_valid = true;
+        if (!dma_ppu_write_dispcnt(machine, UINT16_C(0x0403))) {
+            return false;
+        }
+        machine->vram[GBL_PPU_ROW_BYTES] = UINT8_C(0x34);
+        machine->vram[GBL_PPU_ROW_BYTES + 1u] = UINT8_C(0x12);
+        return true;
+    }
+
+    if (!dma_ppu_write_dispcnt(machine, UINT16_C(0x0100))) {
+        return false;
+    }
+    machine->ppu.bg_register_bytes[0] = 0u;
+    machine->ppu.bg_register_bytes[1] = UINT8_C(0x01);
+    machine->vram[UINT32_C(0x0800)] = UINT8_C(1);
+    machine->vram[UINT32_C(0x0801)] = 0u;
+    machine->pram[0] = UINT8_C(0x10);
+    machine->pram[1] = UINT8_C(0x42);
+    machine->pram[2] = UINT8_C(0x34);
+    machine->pram[3] = UINT8_C(0x12);
+    machine->pram[4] = UINT8_C(0x78);
+    machine->pram[5] = UINT8_C(0x56);
+    for (index = 0u; index < 8u; ++index) {
+        machine->vram[UINT32_C(0x0020) + index * 4u] = UINT8_C(0x11);
+        machine->vram[UINT32_C(0x0040) + index * 4u] = UINT8_C(0x22);
+        machine->vram[UINT32_C(0x2020) + index * 4u] = UINT8_C(0x22);
+    }
+    if (region == (uint8_t)GBL_BUS_REGION_OAM) {
+        for (index = 0u; index < 128u; ++index) {
+            machine->oam[index * 8u] = 0u;
+            machine->oam[index * 8u + 1u] = UINT8_C(0x02);
+        }
+        if (!dma_ppu_write_dispcnt(machine, UINT16_C(0x1140))) {
+            return false;
+        }
+        machine->pram[2] = UINT8_C(0x10);
+        machine->pram[3] = UINT8_C(0x42);
+        machine->pram[UINT32_C(0x0202)] = 0u;
+        machine->pram[UINT32_C(0x0203)] = UINT8_C(0x7C);
+        machine->oam[0] = UINT8_C(1);
+        machine->oam[1] = 0u;
+        machine->oam[2] = 0u;
+        machine->oam[3] = 0u;
+        machine->oam[4] = UINT8_C(1);
+        machine->oam[5] = 0u;
+        memset(&machine->vram[UINT32_C(0x10020)], UINT8_C(0x11), 32u);
+    }
+    return true;
+}
+
+static bool dma_ppu_boundary_case(uint8_t region, uint8_t width,
+                                  int8_t offset, uint16_t *row1_out,
+                                  uint16_t *row2_out)
 {
     gbl_machine *machine = new_machine();
+    gbl_dma_step_result startup = { 0 };
     gbl_dma_step_result step = { 0 };
     gbl_cycle_cost source_cost = { 0 };
     gbl_cycle_cost destination_cost = { 0 };
-    const uint32_t destination = UINT32_C(0x060001E0);
+    const uint32_t destination = dma_ppu_boundary_destination(region, width);
+    const uint32_t value = dma_ppu_boundary_value(region, width);
     const uint64_t row_start = GBL_PPU_LINE_CYCLES;
     const uint64_t completion = (uint64_t)((int64_t)row_start + offset);
+    const uint16_t width_control = width == 4u ? UINT16_C(0x0400) : 0u;
+    const uint8_t expected_bytes[4] = {
+        (uint8_t)(value & UINT32_C(0xFF)),
+        (uint8_t)((value >> 8u) & UINT32_C(0xFF)),
+        (uint8_t)((value >> 16u) & UINT32_C(0xFF)),
+        (uint8_t)((value >> 24u) & UINT32_C(0xFF))
+    };
     uint64_t unit_cycles = 0u;
+    uint16_t row1_pixel = UINT16_MAX;
+    uint16_t row2_pixel = UINT16_MAX;
+    const uint16_t old_pixel = region == (uint8_t)GBL_BUS_REGION_OAM
+                                   ? UINT16_C(0x7C00)
+                                   : UINT16_C(0x1234);
+    const uint16_t new_pixel = region == (uint8_t)GBL_BUS_REGION_OAM
+                                   ? UINT16_C(0x4210)
+                               : region == (uint8_t)GBL_BUS_REGION_PRAM
+                                   ? (width == 4u ? UINT16_C(0x6234)
+                                                  : UINT16_C(0x2345))
+                               : width == 4u ? UINT16_C(0x4321)
+                                             : UINT16_C(0x2345);
     bool valid = machine != NULL;
+    size_t index;
 
     if (!valid) {
         return false;
     }
-    valid = dma_ppu_prepare_video_machine(
-                machine, (uint8_t)GBL_BUS_REGION_VRAM, 2u) &&
-            dma_ppu_unit_quotes(machine, 2u, destination, &source_cost,
+    machine->iwram[0x20u] = expected_bytes[0];
+    machine->iwram[0x21u] = expected_bytes[1];
+    machine->iwram[0x22u] = expected_bytes[2];
+    machine->iwram[0x23u] = expected_bytes[3];
+    valid = dma_ppu_prepare_boundary_scene(machine, region) &&
+            configure_dma(machine, 0u, UINT32_C(0x03000020), destination,
+                          1u, (uint16_t)(UINT16_C(0x8000) | width_control)) &&
+            dma_ppu_unit_quotes(machine, width, destination, &source_cost,
                                 &destination_cost) &&
-            gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES, &step) ==
-                GBL_DMA_STATUS_OK && !step.unit_completed;
+            source_cost.cycles == UINT64_C(1) &&
+            destination_cost.cycles == UINT64_C(1) &&
+            gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES,
+                                 &startup) == GBL_DMA_STATUS_OK &&
+            !startup.unit_completed &&
+            startup.startup_cycles == GBL_DMA_STARTUP_CYCLES;
     unit_cycles = source_cost.cycles + destination_cost.cycles;
     if (valid) {
         ppu_refusal_seed_boundary(
             machine, completion - unit_cycles, row_start, 1u, false,
             machine->ppu.generation + 1u, machine->next_event_sequence);
-        /* The synthetic boundary skips line-0 HBlank, which normally advances
-         * the identity affine BG2 origin before sampling line 1. */
+        /* This synthetic boundary skips line-0 HBlank. For the direct-color
+         * affine scene, set row 1's source origin explicitly; PB/PD remain
+         * zero so row 2 samples the same source pixel. */
         machine->ppu.affine[0].origin_y = UINT32_C(0x00000100);
-        valid = gbl_machine_dma_step(machine, unit_cycles, &step) ==
+        valid = machine->master_cycles == completion - unit_cycles &&
+                machine->ppu.line == 1u &&
+                machine->ppu.scheduled_line == 1u &&
+                !machine->ppu.next_boundary_hblank &&
+                machine->ppu.line_origin == row_start &&
+                machine->event_count == 1u && machine->events[0].live &&
+                machine->events[0].cycle == row_start &&
+                gbl_machine_dma_step(machine, unit_cycles, &step) ==
                     GBL_DMA_STATUS_OK && step.unit_completed &&
                 step.completion_cycle == completion &&
+                machine->master_cycles == completion &&
                 step.source_address == UINT32_C(0x03000020) &&
                 step.destination_address == destination &&
-                step.value == UINT32_C(0x2345) && step.width == 2u &&
+                step.value == value && step.width == width &&
                 step.source_cycles == source_cost.cycles &&
-                step.destination_cycles == destination_cost.cycles &&
-                machine->vram[GBL_PPU_ROW_BYTES] == UINT8_C(0x45) &&
-                machine->vram[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x23);
+                step.destination_cycles == destination_cost.cycles;
     }
     if (valid && completion < row_start) {
         valid = gbl_machine_advance_to(machine, row_start) ==
                 GBL_TIME_STATUS_OK;
     }
     if (valid) {
-        const uint16_t pixel = (uint16_t)(
+        row1_pixel = (uint16_t)(
             (uint16_t)machine->video_frame[GBL_PPU_ROW_BYTES] |
             (uint16_t)((uint16_t)machine->video_frame[
                            GBL_PPU_ROW_BYTES + 1u] << 8u));
-        const uint16_t expected = offset < 0 ? UINT16_C(0x2345)
-                                              : UINT16_C(0x1234);
-        valid = pixel == expected;
+        valid = gbl_machine_advance_to(
+                    machine, UINT64_C(2) * GBL_PPU_LINE_CYCLES) ==
+                    GBL_TIME_STATUS_OK &&
+                (machine->ppu.row_coverage[0] & UINT8_C(0x06)) ==
+                    UINT8_C(0x06);
+        if (valid) {
+            const size_t row2 = (size_t)GBL_PPU_ROW_BYTES * 2u;
+
+            row2_pixel = (uint16_t)(
+                (uint16_t)machine->video_frame[row2] |
+                (uint16_t)((uint16_t)machine->video_frame[row2 + 1u] << 8u));
+            valid = row1_pixel == (offset < 0 ? new_pixel : old_pixel) &&
+                    row2_pixel == new_pixel;
+            if (row1_out != NULL) {
+                *row1_out = row1_pixel;
+            }
+            if (row2_out != NULL) {
+                *row2_out = row2_pixel;
+            }
+        }
+        if (valid) {
+            uint8_t *memory = dma_ppu_access_memory(
+                machine, region, destination);
+
+            valid = memory != NULL;
+            for (index = 0u; valid && index < width; ++index) {
+                valid = memory[index] == expected_bytes[index];
+            }
+        }
     }
     free_machine(machine);
     return valid;
@@ -1908,6 +2068,507 @@ static bool dma_ppu_video_lane_matrix(void)
     return true;
 }
 
+typedef enum dma_ppu_access_state {
+    DMA_PPU_STATE_DRAWING = 0,
+    DMA_PPU_STATE_HBLANK = 1,
+    DMA_PPU_STATE_VBLANK = 2,
+    DMA_PPU_STATE_FORCED_BLANK = 3
+} dma_ppu_access_state;
+
+typedef struct dma_ppu_access_evidence {
+    uint8_t state;
+    uint8_t region;
+    bool video_source;
+    uint8_t width;
+    uint64_t source_cycles;
+    uint64_t destination_cycles;
+    uint8_t lane_mask;
+} dma_ppu_access_evidence;
+
+typedef enum dma_ppu_access_verdict {
+    DMA_PPU_ACCESS_ACCEPT = 0,
+    DMA_PPU_ACCESS_INVALID_CELL = 1,
+    DMA_PPU_ACCESS_DUPLICATE_CELL = 2,
+    DMA_PPU_ACCESS_MISSING_CELL = 3,
+    DMA_PPU_ACCESS_COST_MISMATCH = 4,
+    DMA_PPU_ACCESS_LANE_MISMATCH = 5
+} dma_ppu_access_verdict;
+
+static const char *dma_ppu_state_name(uint8_t state)
+{
+    static const char *const names[] = {
+        "drawing", "hblank", "vblank", "forced-blank"
+    };
+
+    return state < sizeof(names) / sizeof(names[0]) ? names[state]
+                                                     : "invalid";
+}
+
+static const char *dma_ppu_region_name(uint8_t region)
+{
+    switch ((gbl_bus_region)region) {
+    case GBL_BUS_REGION_PRAM: return "pram";
+    case GBL_BUS_REGION_VRAM: return "vram";
+    case GBL_BUS_REGION_OAM: return "oam";
+    default: return "invalid";
+    }
+}
+
+static uint32_t dma_ppu_access_address(uint8_t region)
+{
+    switch ((gbl_bus_region)region) {
+    case GBL_BUS_REGION_PRAM: return UINT32_C(0x05000020);
+    case GBL_BUS_REGION_VRAM: return UINT32_C(0x060001E0);
+    case GBL_BUS_REGION_OAM: return UINT32_C(0x07000020);
+    default: return 0u;
+    }
+}
+
+static uint8_t *dma_ppu_access_memory(gbl_machine *machine, uint8_t region,
+                                      uint32_t address)
+{
+    if (region == (uint8_t)GBL_BUS_REGION_PRAM) {
+        return &machine->pram[address & (GBL_PRAM_SIZE - 1u)];
+    }
+    if (region == (uint8_t)GBL_BUS_REGION_VRAM) {
+        return &machine->vram[address - UINT32_C(0x06000000)];
+    }
+    if (region == (uint8_t)GBL_BUS_REGION_OAM) {
+        return &machine->oam[address & (GBL_OAM_SIZE - 1u)];
+    }
+    return NULL;
+}
+
+static bool dma_ppu_write_dispcnt(gbl_machine *machine, uint16_t value)
+{
+    const gbl_bus_result result = gbl_bus_write(
+        machine, UINT32_C(0x04000000), 2u,
+        GBL_BUS_CLASS_NONSEQUENTIAL, value);
+
+    return result.status == GBL_BUS_STATUS_OK &&
+           result.outcome == GBL_BUS_OUTCOME_IO_MODE_SUBSET &&
+           machine->dispcnt == value && machine->ppu.dispcnt == value;
+}
+
+static bool dma_ppu_matrix_state_matches(const gbl_machine *machine,
+                                        uint8_t state)
+{
+    uint16_t expected_flags = 0u;
+    uint16_t expected_line = 0u;
+    const bool expected_forced = state == DMA_PPU_STATE_FORCED_BLANK;
+
+    if (state == DMA_PPU_STATE_HBLANK) {
+        expected_flags = UINT16_C(0x0002);
+    } else if (state == DMA_PPU_STATE_VBLANK) {
+        expected_flags = UINT16_C(0x0001);
+        expected_line = GBL_PPU_VISIBLE_LINES;
+    }
+    return machine->ppu.line == expected_line &&
+           (machine->ppu.dispstat & UINT16_C(0x0003)) == expected_flags &&
+           ((machine->dispcnt & UINT16_C(0x0080)) != 0u) == expected_forced &&
+           machine->ppu.dispcnt == machine->dispcnt;
+}
+
+static bool dma_ppu_prepare_matrix_state(gbl_machine *machine,
+                                         uint8_t state)
+{
+    uint64_t target = UINT64_C(8);
+    uint16_t dispcnt = UINT16_C(0x0403);
+
+    if (state == DMA_PPU_STATE_HBLANK) {
+        target = GBL_PPU_HBLANK_CYCLES + UINT64_C(8);
+    } else if (state == DMA_PPU_STATE_VBLANK) {
+        target = (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES +
+                 UINT64_C(8);
+    } else if (state == DMA_PPU_STATE_FORCED_BLANK) {
+        dispcnt |= UINT16_C(0x0080);
+    }
+    if (!dma_ppu_write_dispcnt(machine, dispcnt) ||
+        gbl_machine_advance_to(machine, target) != GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    return dma_ppu_matrix_state_matches(machine, state);
+}
+
+static uint32_t dma_ppu_declared_value(uint8_t region, bool video_source,
+                                       uint8_t width)
+{
+    if (video_source) {
+        return width == 4u ? UINT32_C(0x54433221)
+                           : UINT32_C(0x00003221);
+    }
+    (void)region;
+    return width == 4u ? UINT32_C(0xA1B2C3D4)
+                       : UINT32_C(0x0000C3D4);
+}
+
+static bool dma_ppu_access_matrix_cell(uint8_t state, uint8_t region,
+                                       bool video_source, uint8_t width,
+                                       dma_ppu_access_evidence *evidence,
+                                       uint64_t *startup_cycles,
+                                       uint64_t *completion_cycle)
+{
+    const uint32_t video_address = dma_ppu_access_address(region);
+    const uint32_t iwram_source = UINT32_C(0x03000020);
+    const uint32_t iwram_destination = UINT32_C(0x03000200);
+    const uint32_t source_address = video_source ? video_address : iwram_source;
+    const uint32_t destination_address =
+        video_source ? iwram_destination : video_address;
+    const uint32_t value = dma_ppu_declared_value(region, video_source, width);
+    const uint8_t expected_bytes[4] = {
+        (uint8_t)(value & UINT32_C(0xFF)),
+        (uint8_t)((value >> 8u) & UINT32_C(0xFF)),
+        (uint8_t)((value >> 16u) & UINT32_C(0xFF)),
+        (uint8_t)((value >> 24u) & UINT32_C(0xFF))
+    };
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result startup = { 0 };
+    gbl_dma_step_result step = { 0 };
+    gbl_cycle_cost source_quote = { 0 };
+    gbl_cycle_cost destination_quote = { 0 };
+    uint8_t *video_bytes;
+    uint8_t *destination_bytes;
+    uint64_t start_cycle;
+    uint64_t expected_cycles;
+    size_t index;
+    uint8_t lane_mask = 0u;
+    bool valid = machine != NULL;
+
+    if (!valid) {
+        return false;
+    }
+    video_bytes = dma_ppu_access_memory(machine, region, video_address);
+    if (video_bytes == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    video_bytes[0] = video_source ? UINT8_C(0x21) : UINT8_C(0x5A);
+    video_bytes[1] = video_source ? UINT8_C(0x32) : UINT8_C(0x6B);
+    video_bytes[2] = video_source ? UINT8_C(0x43) : UINT8_C(0x7C);
+    video_bytes[3] = video_source ? UINT8_C(0x54) : UINT8_C(0x8D);
+    machine->iwram[0x20u] = UINT8_C(0xD4);
+    machine->iwram[0x21u] = UINT8_C(0xC3);
+    machine->iwram[0x22u] = UINT8_C(0xB2);
+    machine->iwram[0x23u] = UINT8_C(0xA1);
+    if (!dma_ppu_prepare_matrix_state(machine, state)) {
+        free_machine(machine);
+        return false;
+    }
+    if (!gbl_bus_quote(machine, source_address, GBL_BUS_DIRECTION_READ,
+                       width, GBL_BUS_CLASS_NONSEQUENTIAL,
+                       GBL_BUS_ROLE_DATA, &source_quote) ||
+        !gbl_bus_quote(machine, destination_address,
+                       GBL_BUS_DIRECTION_WRITE, width,
+                       GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
+                       &destination_quote)) {
+        free_machine(machine);
+        return false;
+    }
+    /* Every video and IWRAM data lane in this selected profile is one cycle;
+     * DMA startup is separately charged by GBL_DMA_STARTUP_CYCLES. */
+    valid = source_quote.cycles == UINT64_C(1) &&
+            destination_quote.cycles == UINT64_C(1) &&
+            configure_dma(machine, 0u, source_address, destination_address,
+                          1u, (uint16_t)(UINT16_C(0x8000) |
+                                         (width == 4u ? UINT16_C(0x0400)
+                                                      : 0u)));
+    start_cycle = machine->master_cycles;
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, GBL_DMA_STARTUP_CYCLES,
+                                     &startup) == GBL_DMA_STATUS_OK &&
+                startup.channel == 0u && !startup.unit_completed &&
+                startup.startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+                startup.completion_cycle ==
+                    start_cycle + GBL_DMA_STARTUP_CYCLES &&
+                dma_ppu_matrix_state_matches(machine, state);
+    }
+    expected_cycles = source_quote.cycles + destination_quote.cycles;
+    if (valid) {
+        valid = gbl_machine_dma_step(machine, expected_cycles, &step) ==
+                    GBL_DMA_STATUS_OK && step.unit_completed &&
+                step.channel == 0u && step.owner == GBL_MACHINE_BUS_OWNER_DMA &&
+                step.source_address == source_address &&
+                step.destination_address == destination_address &&
+                step.width == width && step.value == value &&
+                step.startup_cycles == 0u &&
+                step.source_cycles == source_quote.cycles &&
+                step.destination_cycles == destination_quote.cycles &&
+                step.source_sequence == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                step.destination_sequence == GBL_BUS_CLASS_NONSEQUENTIAL &&
+                step.completion_cycle == start_cycle +
+                    GBL_DMA_STARTUP_CYCLES + expected_cycles &&
+                machine->master_cycles == step.completion_cycle &&
+                dma_ppu_matrix_state_matches(machine, state) &&
+                !step.used_channel_latch;
+    }
+    if (valid) {
+        destination_bytes = video_source
+                               ? &machine->iwram[0x200u]
+                               : dma_ppu_access_memory(machine, region,
+                                                       destination_address);
+        valid = destination_bytes != NULL;
+        for (index = 0u; valid && index < width; ++index) {
+            if (destination_bytes[index] == expected_bytes[index]) {
+                lane_mask = (uint8_t)(lane_mask |
+                                      (uint8_t)(1u << index));
+            }
+        }
+        valid = valid && lane_mask == (uint8_t)((1u << width) - 1u);
+    }
+    if (evidence != NULL && valid) {
+        *evidence = (dma_ppu_access_evidence){
+            state, region, video_source, width, step.source_cycles,
+            step.destination_cycles, lane_mask
+        };
+    }
+    if (startup_cycles != NULL) {
+        *startup_cycles = startup.startup_cycles;
+    }
+    if (completion_cycle != NULL) {
+        *completion_cycle = step.completion_cycle;
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static dma_ppu_access_verdict dma_ppu_evaluate_access_matrix(
+    const dma_ppu_access_evidence *rows, size_t row_count)
+{
+    bool seen[4][3][2][2] = { false };
+    size_t index;
+
+    if (rows == NULL && row_count != 0u) {
+        return DMA_PPU_ACCESS_INVALID_CELL;
+    }
+    for (index = 0u; index < row_count; ++index) {
+        const dma_ppu_access_evidence *row = &rows[index];
+        const size_t direction = row->video_source ? 0u : 1u;
+        const size_t width_index = row->width == 2u ? 0u
+                                  : row->width == 4u ? 1u : 2u;
+
+        if (row->state >= 4u ||
+            (row->region != (uint8_t)GBL_BUS_REGION_PRAM &&
+             row->region != (uint8_t)GBL_BUS_REGION_VRAM &&
+             row->region != (uint8_t)GBL_BUS_REGION_OAM) ||
+            width_index == 2u) {
+            return DMA_PPU_ACCESS_INVALID_CELL;
+        }
+        if (seen[row->state][row->region == (uint8_t)GBL_BUS_REGION_PRAM
+                                 ? 0u
+                                 : row->region == (uint8_t)GBL_BUS_REGION_VRAM
+                                       ? 1u : 2u]
+                 [direction][width_index]) {
+            return DMA_PPU_ACCESS_DUPLICATE_CELL;
+        }
+        seen[row->state][row->region == (uint8_t)GBL_BUS_REGION_PRAM
+                             ? 0u
+                             : row->region == (uint8_t)GBL_BUS_REGION_VRAM
+                                   ? 1u : 2u]
+             [direction][width_index] = true;
+        if (row->source_cycles != UINT64_C(1) ||
+            row->destination_cycles != UINT64_C(1)) {
+            return DMA_PPU_ACCESS_COST_MISMATCH;
+        }
+        if (row->lane_mask != (uint8_t)((1u << row->width) - 1u)) {
+            return DMA_PPU_ACCESS_LANE_MISMATCH;
+        }
+    }
+    {
+        size_t state;
+
+        for (state = 0u; state < 4u; ++state) {
+            size_t region;
+
+            for (region = 0u; region < 3u; ++region) {
+                size_t direction;
+
+                for (direction = 0u; direction < 2u; ++direction) {
+                    size_t width;
+
+                    for (width = 0u; width < 2u; ++width) {
+                        if (!seen[state][region][direction][width]) {
+                            return DMA_PPU_ACCESS_MISSING_CELL;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return row_count == 48u ? DMA_PPU_ACCESS_ACCEPT
+                            : DMA_PPU_ACCESS_MISSING_CELL;
+}
+
+static bool dma_ppu_boundary_pixels_match(uint16_t actual_row1,
+                                          uint16_t actual_row2,
+                                          uint16_t expected_row1,
+                                          uint16_t expected_row2)
+{
+    return actual_row1 == expected_row1 && actual_row2 == expected_row2;
+}
+
+static bool dma_ppu_access_controls(void)
+{
+    static const uint8_t states[] = {
+        DMA_PPU_STATE_DRAWING, DMA_PPU_STATE_HBLANK,
+        DMA_PPU_STATE_VBLANK, DMA_PPU_STATE_FORCED_BLANK
+    };
+    static const uint8_t regions[] = {
+        (uint8_t)GBL_BUS_REGION_PRAM,
+        (uint8_t)GBL_BUS_REGION_VRAM,
+        (uint8_t)GBL_BUS_REGION_OAM
+    };
+    static const uint8_t widths[] = { 2u, 4u };
+    dma_ppu_access_evidence rows[48];
+    dma_ppu_access_evidence mutant[48];
+    size_t row_count = 0u;
+    size_t state;
+    uint16_t row1 = 0u;
+    uint16_t row2 = 0u;
+    bool clean_boundary;
+
+    for (state = 0u; state < sizeof(states) / sizeof(states[0]); ++state) {
+        size_t region;
+
+        for (region = 0u; region < sizeof(regions) / sizeof(regions[0]);
+             ++region) {
+            size_t direction;
+
+            for (direction = 0u; direction < 2u; ++direction) {
+                size_t width;
+
+                for (width = 0u; width < sizeof(widths) / sizeof(widths[0]);
+                     ++width) {
+                    rows[row_count++] = (dma_ppu_access_evidence){
+                        states[state], regions[region], direction == 0u,
+                        widths[width], UINT64_C(1), UINT64_C(1),
+                        (uint8_t)((1u << widths[width]) - 1u)
+                    };
+                }
+            }
+        }
+    }
+    check_count = 0u;
+    failure_count = 0u;
+    test_case(row_count == 48u &&
+                  dma_ppu_evaluate_access_matrix(rows, row_count) ==
+                      DMA_PPU_ACCESS_ACCEPT,
+              "clean DMA access matrix evidence is accepted");
+    test_case(dma_ppu_evaluate_access_matrix(rows, row_count - 1u) ==
+                  DMA_PPU_ACCESS_MISSING_CELL,
+              "one missing DMA access cell is rejected");
+    memcpy(mutant, rows, sizeof(rows));
+    mutant[47] = mutant[46];
+    test_case(dma_ppu_evaluate_access_matrix(mutant, row_count) ==
+                  DMA_PPU_ACCESS_DUPLICATE_CELL,
+              "one duplicate DMA access cell is rejected");
+    memcpy(mutant, rows, sizeof(rows));
+    mutant[0].source_cycles = UINT64_C(2);
+    test_case(dma_ppu_evaluate_access_matrix(mutant, row_count) ==
+                  DMA_PPU_ACCESS_COST_MISMATCH,
+              "one incorrect DMA data-lane cost is rejected");
+    memcpy(mutant, rows, sizeof(rows));
+    mutant[0].lane_mask &= (uint8_t)~UINT8_C(0x02);
+    test_case(dma_ppu_evaluate_access_matrix(mutant, row_count) ==
+                  DMA_PPU_ACCESS_LANE_MISMATCH,
+              "one missing DMA destination lane is rejected");
+    clean_boundary = dma_ppu_boundary_case(
+        (uint8_t)GBL_BUS_REGION_VRAM, 2u, 0, &row1, &row2);
+    test_case(clean_boundary && dma_ppu_boundary_pixels_match(
+                  row1, row2, UINT16_C(0x1234), UINT16_C(0x2345)),
+              "clean same-cycle DMA pixels match the literal old and later-row colors");
+    test_case(clean_boundary && !dma_ppu_boundary_pixels_match(
+                  row1, row2, UINT16_C(0x1235), UINT16_C(0x5678)),
+              "one wrong expected DMA pixel is rejected semantically");
+    return failure_count == 0u;
+}
+
+static int run_ppu_access_controls(void)
+{
+    printf("TAP version 13\n1..7\n");
+    return dma_ppu_access_controls() ? 0 : 1;
+}
+
+static bool dma_ppu_access_matrix(void)
+{
+    static const uint8_t states[] = {
+        DMA_PPU_STATE_DRAWING, DMA_PPU_STATE_HBLANK,
+        DMA_PPU_STATE_VBLANK, DMA_PPU_STATE_FORCED_BLANK
+    };
+    static const uint8_t regions[] = {
+        (uint8_t)GBL_BUS_REGION_PRAM,
+        (uint8_t)GBL_BUS_REGION_VRAM,
+        (uint8_t)GBL_BUS_REGION_OAM
+    };
+    static const uint8_t widths[] = { 2u, 4u };
+    dma_ppu_access_evidence rows[48];
+    size_t row_count = 0u;
+    size_t state_index;
+
+    check_count = 0u;
+    failure_count = 0u;
+    for (state_index = 0u;
+         state_index < sizeof(states) / sizeof(states[0]); ++state_index) {
+        size_t region_index;
+
+        for (region_index = 0u;
+             region_index < sizeof(regions) / sizeof(regions[0]);
+             ++region_index) {
+            size_t direction;
+
+            for (direction = 0u; direction < 2u; ++direction) {
+                size_t width_index;
+
+                for (width_index = 0u;
+                     width_index < sizeof(widths) / sizeof(widths[0]);
+                     ++width_index) {
+                    dma_ppu_access_evidence row = { 0 };
+                    uint64_t startup_cycles = 0u;
+                    uint64_t completion_cycle = 0u;
+                    const bool video_source = direction == 0u;
+                    const bool passed = dma_ppu_access_matrix_cell(
+                        states[state_index], regions[region_index],
+                        video_source, widths[width_index], &row,
+                        &startup_cycles, &completion_cycle);
+                    char description[160];
+
+                    (void)snprintf(
+                        description, sizeof(description),
+                        "DMA %s %s %s width %u keeps one-cycle lanes and reports actual completion",
+                        dma_ppu_state_name(states[state_index]),
+                        dma_ppu_region_name(regions[region_index]),
+                        video_source ? "video-source" : "video-destination",
+                        (unsigned int)widths[width_index]);
+                    test_case(passed, description);
+                    (void)printf(
+                        "# ppu.access state=%s region=%s direction=%s width=%u startup=%llu source=%llu destination=%llu completion=%llu lanes=0x%X\n",
+                        dma_ppu_state_name(states[state_index]),
+                        dma_ppu_region_name(regions[region_index]),
+                        video_source ? "read" : "write",
+                        (unsigned int)widths[width_index],
+                        (unsigned long long)startup_cycles,
+                        (unsigned long long)row.source_cycles,
+                        (unsigned long long)row.destination_cycles,
+                        (unsigned long long)completion_cycle,
+                        (unsigned int)row.lane_mask);
+                    if (passed && row_count < sizeof(rows) / sizeof(rows[0])) {
+                        rows[row_count++] = row;
+                    }
+                }
+            }
+        }
+    }
+    test_case(dma_ppu_evaluate_access_matrix(rows, row_count) ==
+                  DMA_PPU_ACCESS_ACCEPT,
+              "DMA PPU access matrix contains each of the 48 supported cells exactly once");
+    return failure_count == 0u;
+}
+
+static int run_ppu_access(void)
+{
+    printf("TAP version 13\n1..49\n");
+    return dma_ppu_access_matrix() ? 0 : 1;
+}
+
 static bool dma_ppu_overflow_refusal_is_atomic(void)
 {
     gbl_machine *refused = new_machine();
@@ -1951,16 +2612,32 @@ static bool dma_ppu_overflow_refusal_is_atomic(void)
         *before = *refused;
         valid = gbl_machine_dma_step(refused, UINT64_C(64), &refused_step) ==
                     GBL_DMA_STATUS_TIME_OVERFLOW &&
+                refused_step.status == GBL_DMA_STATUS_TIME_OVERFLOW &&
                 !refused_step.unit_completed &&
+                refused_step.source_address == 0u &&
+                refused_step.destination_address == 0u &&
+                refused_step.value == 0u && refused_step.width == 0u &&
+                refused_step.source_cycles == 0u &&
+                refused_step.destination_cycles == 0u &&
                 gbl_test_canonical_equal(before, refused) &&
                 refused->open_bus == before->open_bus &&
                 refused->dma_channels[0].read_latch ==
                     before->dma_channels[0].read_latch &&
-                refused->vram[GBL_PPU_ROW_BYTES] ==
-                    before->vram[GBL_PPU_ROW_BYTES] &&
+                gbl_test_bytes_equal(refused->pram, before->pram,
+                                     GBL_PRAM_SIZE) &&
+                gbl_test_bytes_equal(refused->vram, before->vram,
+                                     GBL_VRAM_SIZE) &&
+                gbl_test_bytes_equal(refused->oam, before->oam,
+                                     GBL_OAM_SIZE) &&
                 gbl_test_bytes_equal(refused->video_frame,
                                      before->video_frame,
                                      GBL_PPU_VIDEO_BYTES) &&
+                refused->ppu.capture_state == before->ppu.capture_state &&
+                refused->ppu.capture_reason == before->ppu.capture_reason &&
+                refused->ppu.captured_rows == before->ppu.captured_rows &&
+                memcmp(refused->ppu.row_coverage,
+                       before->ppu.row_coverage,
+                       sizeof(refused->ppu.row_coverage)) == 0 &&
                 gbl_machine_prepare_time(refused, refused->master_cycles,
                                          &preview) == GBL_TIME_STATUS_OK;
     }
@@ -1975,6 +2652,10 @@ static bool dma_ppu_overflow_refusal_is_atomic(void)
                 sample_sentinel[1] == UINT8_C(0x5A);
     }
     if (valid) {
+        clean_twin->ppu.affine[0].pa = 256;
+        clean_twin->ppu.affine[0].pb = 0;
+        clean_twin->ppu.affine[0].pc = 0;
+        clean_twin->ppu.affine[0].pd = 0;
         ppu_refusal_seed_boundary(
             clean_twin, row_start - unit_cycles, row_start, 1u, false,
             clean_twin->ppu.generation + 1u,
@@ -1990,7 +2671,14 @@ static bool dma_ppu_overflow_refusal_is_atomic(void)
                 clean_twin->vram[GBL_PPU_ROW_BYTES + 1u] == UINT8_C(0x23) &&
                 clean_twin->video_frame[GBL_PPU_ROW_BYTES] == UINT8_C(0x34) &&
                 clean_twin->video_frame[GBL_PPU_ROW_BYTES + 1u] ==
-                    UINT8_C(0x12);
+                    UINT8_C(0x12) &&
+                gbl_machine_advance_to(
+                    clean_twin, UINT64_C(2) * GBL_PPU_LINE_CYCLES) ==
+                    GBL_TIME_STATUS_OK &&
+                clean_twin->video_frame[2u * GBL_PPU_ROW_BYTES] ==
+                    UINT8_C(0x45) &&
+                clean_twin->video_frame[2u * GBL_PPU_ROW_BYTES + 1u] ==
+                    UINT8_C(0x23);
     }
     free(before);
     free_machine(refused);
@@ -2046,21 +2734,58 @@ static bool run_ppu_triggers(void)
 static bool run_ppu_order(void)
 {
     static const int8_t offsets[] = { -1, 0, 1 };
-    size_t index;
+    static const uint8_t regions[] = {
+        (uint8_t)GBL_BUS_REGION_PRAM,
+        (uint8_t)GBL_BUS_REGION_VRAM,
+        (uint8_t)GBL_BUS_REGION_OAM
+    };
+    static const uint8_t widths[] = { 2u, 4u };
+    static const char *const timing_names[] = { "before", "on", "after" };
+    size_t region_index;
 
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..4\n");
+    printf("TAP version 13\n1..20\n");
     (void)test_ppu_same_cycle_input_order();
-    for (index = 0u; index < sizeof(offsets) / sizeof(offsets[0]); ++index) {
-        const char *description = offsets[index] < 0
-            ? "DMA halfword completing before line start updates the sampled row"
-            : offsets[index] == 0
-                ? "DMA halfword completing on line start follows sample-before-write order"
-                : "DMA halfword completing after line start leaves the sampled row unchanged";
+    for (region_index = 0u;
+         region_index < sizeof(regions) / sizeof(regions[0]);
+         ++region_index) {
+        size_t width_index;
 
-        test_case(dma_ppu_boundary_case(offsets[index]), description);
+        for (width_index = 0u;
+             width_index < sizeof(widths) / sizeof(widths[0]);
+             ++width_index) {
+            size_t timing_index;
+
+            for (timing_index = 0u;
+                 timing_index < sizeof(offsets) / sizeof(offsets[0]);
+                 ++timing_index) {
+                const bool passed = dma_ppu_boundary_case(
+                    regions[region_index], widths[width_index],
+                    offsets[timing_index], NULL, NULL);
+                const uint64_t completion = (uint64_t)(
+                    (int64_t)GBL_PPU_LINE_CYCLES +
+                    (int64_t)offsets[timing_index]);
+                char description[170];
+
+                (void)snprintf(
+                    description, sizeof(description),
+                    "DMA %s width %u completing %s line start samples literal row 1 and row 2 pixels",
+                    dma_ppu_region_name(regions[region_index]),
+                    (unsigned int)widths[width_index],
+                    timing_names[timing_index]);
+                test_case(passed, description);
+                (void)printf(
+                    "# ppu.order region=%s width=%u timing=%s completion=%llu\n",
+                    dma_ppu_region_name(regions[region_index]),
+                    (unsigned int)widths[width_index],
+                    timing_names[timing_index],
+                    (unsigned long long)completion);
+            }
+        }
     }
+    test_case(check_count == 19u,
+              "DMA boundary evidence reports all 18 region/width/timing cases plus same-cycle ordering exactly once");
     return failure_count == 0u ? 0 : 1;
 }
 
@@ -2133,6 +2858,12 @@ static bool run_controls(void)
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "ppu.access") == 0) {
+        return run_ppu_access();
+    }
+    if (argc == 2 && strcmp(argv[1], "ppu.access-controls") == 0) {
+        return run_ppu_access_controls();
+    }
     if (argc == 2 && strcmp(argv[1], "ppu.refusal") == 0) {
         return run_ppu_refusal();
     }
