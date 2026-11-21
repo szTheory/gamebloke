@@ -2663,34 +2663,159 @@ static uint16_t ppu_effect_pixel(const gbl_machine *machine, uint16_t x,
                                  << 8u));
 }
 
-static int run_ppu_effects_alpha(void)
+static bool ppu_effect_render(gbl_machine *machine, uint16_t blend_control,
+                              uint16_t blend_alpha)
 {
-    const uint16_t expected = UINT16_C(0x3C0F);
+    return ppu_effect_write_register(machine, UINT32_C(0x04000050),
+                                     blend_control) &&
+           ppu_effect_write_register(machine, UINT32_C(0x04000052),
+                                     blend_alpha) &&
+           gbl_machine_advance_to(
+               machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+               GBL_TIME_STATUS_OK;
+}
+
+static void ppu_effect_check_text_case(
+    const char *label, uint8_t bg0_priority, uint8_t bg1_priority,
+    uint8_t obj_priority, bool enable_obj, uint16_t bg1_color,
+    bool transparent_bg1, uint16_t object_mode, bool window_enabled,
+    bool window_effects, bool blue_backdrop, uint16_t blend_control,
+    uint16_t blend_alpha, uint16_t expected)
+{
     gbl_machine *machine = new_machine();
-    uint16_t actual = 0u;
+    uint16_t actual;
 
     CHECK(machine != NULL);
     if (machine == NULL) {
-        return 1;
+        return;
     }
     CHECK(ppu_composition_prepare_text_scene(
-        machine, 0u, 1u, 3u, 1u, true, false));
-    CHECK(ppu_bg_text_set_color(machine, 2u, UINT16_C(0x7C00)));
-    CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000050),
-                                    UINT16_C(0x0241)));
-    CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000052),
-                                    UINT16_C(0x0808)));
-    CHECK(gbl_machine_advance_to(
-              machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
-          GBL_TIME_STATUS_OK);
+        machine, bg0_priority, bg1_priority, obj_priority, 1u, true,
+        enable_obj));
+    CHECK(ppu_bg_text_set_color(machine, 2u, bg1_color));
+    if (transparent_bg1) {
+        CHECK(ppu_bg_text_set_map_entry(machine, 1u, 0u, 1u, 0u));
+    }
+    if (object_mode != 0u) {
+        ppu_obj_store_u16(machine->oam, 0u,
+                          (uint16_t)(UINT16_C(8) | object_mode));
+    }
+    if (blue_backdrop) {
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x7C00));
+    }
+    if (window_enabled) {
+        uint8_t window_mask = UINT8_C(0x03);
+
+        if (enable_obj) {
+            window_mask = (uint8_t)(window_mask | UINT8_C(0x10));
+        }
+        if (window_effects) {
+            window_mask = (uint8_t)(window_mask | UINT8_C(0x20));
+        }
+        machine->dispcnt = (uint16_t)(machine->dispcnt | UINT16_C(0x2000));
+        machine->ppu.dispcnt = machine->dispcnt;
+        machine->ppu.window_register_bytes[0] = UINT8_C(10);
+        machine->ppu.window_register_bytes[1] = UINT8_C(0);
+        machine->ppu.window_register_bytes[4] = UINT8_C(9);
+        machine->ppu.window_register_bytes[5] = UINT8_C(8);
+        machine->ppu.window_register_bytes[8] = window_mask;
+        machine->ppu.window_register_bytes[10] = window_mask;
+    }
+    CHECK(ppu_effect_render(machine, blend_control, blend_alpha));
     actual = ppu_effect_pixel(machine, 0u, 8u);
-    fprintf(stderr, "ppu.effects.alpha: expected=0x%04X actual=0x%04X\n",
-            expected, actual);
+    fprintf(stderr, "%s: expected=0x%04X actual=0x%04X\n",
+            label, expected, actual);
     CHECK(actual == expected);
+    CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
     free_machine(machine);
+}
+
+static int run_ppu_effects_alpha(void)
+{
+    const uint16_t expected = UINT16_C(0x3C0F);
+    gbl_machine *machine;
+    uint16_t actual;
+
+    ppu_effect_check_text_case(
+        "alpha BG0/BG1", 0u, 1u, 3u, false, UINT16_C(0x7C00), false,
+        0u, false, true, false, UINT16_C(0x0241), UINT16_C(0x0808),
+        expected);
+    ppu_effect_check_text_case(
+        "alpha opaque black target", 0u, 1u, 3u, false, 0u, false, 0u,
+        false, true, false, UINT16_C(0x0241), UINT16_C(0x0808),
+        UINT16_C(0x000F));
+    ppu_effect_check_text_case(
+        "alpha backdrop target", 0u, 1u, 3u, false, UINT16_C(0x7C00),
+        true, 0u, false, true, true, UINT16_C(0x2041), UINT16_C(0x0808),
+        expected);
+    ppu_effect_check_text_case(
+        "alpha transparent BG reveals OBJ target", 0u, 1u, 3u, true,
+        UINT16_C(0x03E0), true, 0u, false, true, false, UINT16_C(0x1041),
+        UINT16_C(0x0808), expected);
+    ppu_effect_check_text_case(
+        "alpha immediate non-target blocks deeper OBJ", 0u, 1u, 3u, true,
+        UINT16_C(0x03E0), false, 0u, false, true, false,
+        UINT16_C(0x1041), UINT16_C(0x0808), UINT16_C(0x001F));
+    ppu_effect_check_text_case(
+        "alpha BG priority tie", 1u, 1u, 3u, false, UINT16_C(0x7C00),
+        false, 0u, false, true, false, UINT16_C(0x0241), UINT16_C(0x0808),
+        expected);
+    ppu_effect_check_text_case(
+        "alpha OBJ/BG priority tie", 0u, 2u, 0u, true,
+        UINT16_C(0x03E0), false, 0u, false, true, false,
+        UINT16_C(0x0150), UINT16_C(0x0808), expected);
+    ppu_effect_check_text_case(
+        "alpha window disables effects", 0u, 1u, 3u, false,
+        UINT16_C(0x7C00), false, 0u, true, false, false,
+        UINT16_C(0x0241), UINT16_C(0x0808), UINT16_C(0x001F));
+    ppu_effect_check_text_case(
+        "semitransparent OBJ exception", 1u, 2u, 0u, true,
+        UINT16_C(0x03E0), false, UINT16_C(0x0400), false, true, false,
+        UINT16_C(0x0180), UINT16_C(0x0808), expected);
+    ppu_effect_check_text_case(
+        "semitransparent OBJ without target", 1u, 2u, 0u, true,
+        UINT16_C(0x03E0), false, UINT16_C(0x0400), false, true, false,
+        UINT16_C(0x0080), UINT16_C(0x0808), UINT16_C(0x7C00));
+    ppu_effect_check_text_case(
+        "semitransparent OBJ region disables effects", 1u, 2u, 0u, true,
+        UINT16_C(0x03E0), false, UINT16_C(0x0400), true, false, false,
+        UINT16_C(0x0180), UINT16_C(0x0808), UINT16_C(0x7C00));
+
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_composition_prepare_obj_pair(
+            machine, 3u, 3u, 0u, 0u, 0u, false));
+        CHECK(ppu_effect_render(machine, UINT16_C(0x1050),
+                                UINT16_C(0x0808)));
+        actual = ppu_effect_pixel(machine, 0u, 8u);
+        fprintf(stderr,
+                "alpha OBJ/OBJ tie: expected=0x%04X actual=0x%04X\n",
+                expected, actual);
+        CHECK(actual == expected);
+        CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+        free_machine(machine);
+    }
+
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_composition_prepare_obj_pair(
+            machine, 0u, 3u, 1u, 2u, 1u, false));
+        memset(&machine->vram[UINT32_C(0x10020)], 0, 32u);
+        CHECK(ppu_effect_render(machine, UINT16_C(0x1041),
+                                UINT16_C(0x0808)));
+        actual = ppu_effect_pixel(machine, 0u, 8u);
+        fprintf(stderr,
+                "alpha transparent OBJ reveals next source: expected=0x%04X actual=0x%04X\n",
+                expected, actual);
+        CHECK(actual == expected);
+        CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+        free_machine(machine);
+    }
 
     if (CHECK_DONE() == 0) {
-        puts("ppu.effects.alpha: immediate visible targets blend with bounded BGR555 arithmetic");
+        puts("ppu.effects.alpha: immediate target pairs, semitransparent OBJ, windows and transparency");
         return 0;
     }
     return 1;
@@ -3942,7 +4067,7 @@ static int run_ppu_obj_regular(void)
 
     {
         static const uint16_t unsupported_attributes[] = {
-            UINT16_C(0x0400), UINT16_C(0x0800), UINT16_C(0x0C00),
+            UINT16_C(0x0800), UINT16_C(0x0C00),
             UINT16_C(0x1000), UINT16_C(0xC000)
         };
         size_t control;
@@ -3974,6 +4099,37 @@ static int run_ppu_obj_regular(void)
             CHECK(gbl_test_canonical_equal(snapshot, machine));
             free(snapshot);
             free_machine(machine);
+        }
+    }
+
+    {
+        gbl_machine *semitransparent = new_machine();
+        gbl_machine_time_preview preview;
+        size_t object;
+
+        CHECK(semitransparent != NULL);
+        if (semitransparent != NULL) {
+            semitransparent->dispcnt = UINT16_C(0x1000);
+            semitransparent->ppu.dispcnt = semitransparent->dispcnt;
+            for (object = 1u; object < 128u; ++object) {
+                ppu_obj_store_u16(semitransparent->oam, object * 8u,
+                                  UINT16_C(0x0200));
+            }
+            ppu_obj_store_u16(semitransparent->oam, 0u,
+                              UINT16_C(0x0400));
+            CHECK(gbl_machine_prepare_time(semitransparent, 0u, &preview) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(preview.ppu_row_capture_count == 1u);
+            if (preview.ppu_row_capture_count == 1u) {
+                CHECK(preview.ppu.capture_state ==
+                      GBL_VIDEO_CAPTURE_INCOMPLETE);
+                CHECK(preview.ppu_row_captures[0].obj_selected_count == 1u);
+                CHECK(preview.ppu_row_captures[0].obj_work_used == 8u);
+            }
+            gbl_machine_commit_time(semitransparent, &preview);
+            CHECK(semitransparent->ppu.capture_state !=
+                  GBL_VIDEO_CAPTURE_INVALID);
+            free_machine(semitransparent);
         }
     }
 
@@ -7949,12 +8105,21 @@ static int run_ppu_controls(void)
                   GBL_TIME_STATUS_OK);
             result = gbl_bus_write(effects, UINT32_C(0x04000050), 2u,
                                    GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT32_C(0x0001));
+                                   UINT32_C(0x0041));
             CHECK(result.status == GBL_BUS_STATUS_OK);
-            CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
-            CHECK(effects->ppu.capture_reason ==
-                  GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
-            puts("ppu.controls control: blending registers are unsupported");
+            result = gbl_bus_write(effects, UINT32_C(0x04000052), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x0808));
+            CHECK(result.status == GBL_BUS_STATUS_OK);
+            CHECK(effects->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(effects->ppu.render_register_bytes[18] == UINT8_C(0x41));
+            CHECK(effects->ppu.render_register_bytes[20] == UINT8_C(0x08));
+            CHECK(effects->ppu.render_register_bytes[21] == UINT8_C(0x08));
+            CHECK(gbl_machine_advance_to(effects, GBL_PPU_LINE_CYCLES) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(effects->ppu.captured_rows == 2u);
+            CHECK(effects->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+            puts("ppu.controls control: BLDCNT/BLDALPHA are sampled");
             free_machine(effects);
         }
         if (mosaic != NULL) {
@@ -8295,8 +8460,8 @@ static int run_ppu_blank(void)
         }
     }
 
-    /* Nonneutral effect-register writes while blank do not invalidate the
-     * epoch. Clearing blank exposes the effect reason on the next row. */
+    /* Effect registers remain sampled while blank. Clearing blank resumes
+     * scene rendering on the next row without invalidating the epoch. */
     {
         gbl_machine *effects = new_machine();
         gbl_bus_result result;
@@ -8321,10 +8486,12 @@ static int run_ppu_blank(void)
             CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE);
             CHECK(gbl_machine_advance_to(effects, line_cycles) ==
                   GBL_TIME_STATUS_OK);
-            CHECK(effects->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(effects->ppu.capture_state ==
+                  GBL_VIDEO_CAPTURE_INCOMPLETE);
             CHECK(effects->ppu.capture_reason ==
-                  GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
-            CHECK(effects->ppu.captured_rows == 1u);
+                  GBL_VIDEO_INVALID_REASON_INCOMPLETE);
+            CHECK(effects->ppu.captured_rows == 2u);
+            CHECK(effects->ppu.render_register_bytes[18] == UINT8_C(1));
             free_machine(effects);
         }
     }
