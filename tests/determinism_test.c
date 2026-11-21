@@ -5892,8 +5892,594 @@ done:
     return 0;
 }
 
+static bool gbl_phase14_seed(gbl_machine *machine, bool object_variant,
+                             const char **failure)
+{
+    static const uint8_t background_pattern[8] = {
+        1u, 2u, 3u, 0u, 1u, 2u, 3u, 0u
+    };
+    static const uint8_t object_pattern[8] = {
+        1u, 2u, 3u, 1u, 2u, 3u, 1u, 2u
+    };
+    size_t entry;
+    size_t row;
+
+    if (machine == NULL || !machine->initialized || failure == NULL) {
+        if (failure != NULL) *failure = "phase14-machine-not-initialized";
+        return false;
+    }
+
+    machine->dispcnt = UINT16_C(0x3140);
+    machine->ppu.dispcnt = machine->dispcnt;
+    gbl_phase13_store_u16(machine->ppu.bg_register_bytes, 0u,
+                          UINT16_C(0x0140));
+    for (entry = 0u; entry < 1024u; ++entry) {
+        gbl_phase13_store_u16(machine->vram,
+                              UINT32_C(0x00800) + entry * 2u,
+                              UINT16_C(1));
+    }
+    for (row = 0u; row < 8u; ++row) {
+        size_t column;
+
+        for (column = 0u; column < 8u; column += 2u) {
+            machine->vram[UINT32_C(0x00020) + row * 4u + column / 2u] =
+                (uint8_t)(background_pattern[column] |
+                    (uint8_t)(background_pattern[column + 1u] << 4u));
+        }
+    }
+    gbl_phase13_store_u16(machine->pram, 0u, UINT16_C(0x4210));
+    gbl_phase13_store_u16(machine->pram, 2u, UINT16_C(0x0010));
+    gbl_phase13_store_u16(machine->pram, 4u, UINT16_C(0x03E0));
+    gbl_phase13_store_u16(machine->pram, 6u, UINT16_C(0x7C00));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x202),
+                          object_variant ? UINT16_C(0x03F0)
+                                         : UINT16_C(0x0200));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x204),
+                          UINT16_C(0x7C00));
+    gbl_phase13_store_u16(machine->pram, UINT32_C(0x206),
+                          UINT16_C(0x001F));
+
+    for (entry = 0u; entry < 128u; ++entry) {
+        gbl_phase13_store_u16(machine->oam, entry * 8u,
+                              UINT16_C(0x0200));
+    }
+    gbl_phase13_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+    gbl_phase13_store_u16(machine->oam, 2u, UINT16_C(16));
+    gbl_phase13_store_u16(machine->oam, 4u, UINT16_C(1));
+    for (row = 0u; row < 8u; ++row) {
+        uint8_t column;
+
+        for (column = 0u; column < 8u; ++column) {
+            gbl_phase13_set_obj_pixel(machine, 1u, column, (uint8_t)row,
+                                      object_pattern[column]);
+        }
+    }
+
+    machine->ppu.render_register_bytes[16] = UINT8_C(1);
+    machine->ppu.render_register_bytes[17] = UINT8_C(1);
+    machine->ppu.render_register_bytes[18] = UINT8_C(0x50);
+    machine->ppu.render_register_bytes[19] = UINT8_C(1);
+    machine->ppu.render_register_bytes[20] = UINT8_C(8);
+    machine->ppu.render_register_bytes[21] = UINT8_C(8);
+    machine->ppu.window_register_bytes[0] = UINT8_C(8);
+    machine->ppu.window_register_bytes[1] = 0u;
+    machine->ppu.window_register_bytes[4] = UINT8_C(4);
+    machine->ppu.window_register_bytes[5] = 0u;
+    machine->ppu.window_register_bytes[8] = UINT8_C(1);
+    machine->ppu.window_register_bytes[10] = UINT8_C(0x31);
+    return true;
+}
+
+static gbl_machine *gbl_phase14_new_machine(bool object_variant,
+                                            const char **failure)
+{
+    gbl_machine *machine = calloc(1u, sizeof *machine);
+
+    if (machine == NULL) {
+        *failure = "phase14-machine-allocation-failed";
+        return NULL;
+    }
+    if (gbl_machine_init(machine, NULL) != GBL_BUS_STATUS_OK) {
+        free(machine);
+        *failure = "phase14-machine-init-failed";
+        return NULL;
+    }
+    if (!gbl_phase14_seed(machine, object_variant, failure)) {
+        gbl_machine_dispose(machine);
+        free(machine);
+        return NULL;
+    }
+    return machine;
+}
+
+static void gbl_phase14_free_machine(gbl_machine **machine)
+{
+    if (machine == NULL || *machine == NULL) return;
+    gbl_machine_dispose(*machine);
+    free(*machine);
+    *machine = NULL;
+}
+
+static uint16_t gbl_phase14_pixel(const gbl_machine *machine, uint16_t x,
+                                 uint16_t y)
+{
+    return gbl_phase13_pixel(machine, x, y);
+}
+
+static bool gbl_phase14_advance(gbl_machine *machine, uint64_t target,
+                                bool split, const char **failure)
+{
+    static const uint64_t split_cycles[] = {
+        UINT64_C(1), UINT64_C(1005), UINT64_C(1006), UINT64_C(1229),
+        UINT64_C(1232), UINT64_C(1233), UINT64_C(2459), UINT64_C(2462),
+        UINT64_C(2464), UINT64_C(2465), UINT64_C(3690), UINT64_C(3693),
+        UINT64_C(3696), UINT64_C(120000)
+    };
+    size_t index;
+
+    if (machine == NULL || target < machine->master_cycles) {
+        *failure = "phase14-invalid-advance-target";
+        return false;
+    }
+    if (split) {
+        for (index = 0u;
+             index < sizeof split_cycles / sizeof split_cycles[0]; ++index) {
+            if (split_cycles[index] > machine->master_cycles &&
+                split_cycles[index] < target &&
+                gbl_machine_advance_to(machine, split_cycles[index]) !=
+                    GBL_TIME_STATUS_OK) {
+                *failure = "phase14-split-advance-failed";
+                return false;
+            }
+        }
+    }
+    if (gbl_machine_advance_to(machine, target) != GBL_TIME_STATUS_OK) {
+        *failure = "phase14-scheduled-advance-failed";
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_phase14_write(gbl_machine *machine, uint64_t completion_cycle,
+                              uint32_t address, uint8_t width, uint32_t value,
+                              const char **failure)
+{
+    const gbl_time_operation operation = {
+        GBL_TIME_OPERATION_BUS_WRITE, width, address, value, UINT64_C(1)
+    };
+    gbl_machine_time_preview preview;
+
+    if (machine == NULL || completion_cycle == 0u ||
+        completion_cycle <= machine->master_cycles ||
+        !gbl_phase14_advance(machine, completion_cycle - UINT64_C(1),
+                             false, failure) ||
+        gbl_machine_prepare_operations(machine, &operation, 1u, &preview) !=
+            GBL_TIME_STATUS_OK ||
+        preview.master_cycles != completion_cycle) {
+        *failure = "phase14-timed-write-failed";
+        return false;
+    }
+    gbl_machine_commit_time(machine, &preview);
+    return true;
+}
+
+static bool gbl_phase14_run_frame(gbl_machine *machine, bool split,
+                                  bool force_blank,
+                                  uint16_t final_dispcnt,
+                                  const char **failure)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+
+    if ((machine->master_cycles == 0u &&
+         !gbl_phase14_advance(machine, UINT64_C(1), split, failure)) ||
+        machine->master_cycles != UINT64_C(1) ||
+        machine->ppu.captured_rows != 1u ||
+        !gbl_phase14_advance(machine, UINT64_C(1229), split, failure) ||
+        !gbl_phase14_write(machine, UINT64_C(1230), UINT32_C(0x04000050),
+                           2u, UINT32_C(0x0081), failure) ||
+        !gbl_phase14_write(machine, UINT64_C(1231), UINT32_C(0x04000054),
+                           1u, UINT32_C(8), failure) ||
+        !gbl_phase14_advance(machine, UINT64_C(2462), split, failure) ||
+        !gbl_phase14_write(machine, UINT64_C(2463), UINT32_C(0x04000000),
+                           2u, force_blank
+                                    ? (uint32_t)(final_dispcnt |
+                                                 UINT16_C(0x0080))
+                                    : (uint32_t)final_dispcnt, failure) ||
+        !gbl_phase14_advance(machine, UINT64_C(3693), split, failure) ||
+        !gbl_phase14_write(machine, UINT64_C(3694), UINT32_C(0x04000050),
+                           2u, UINT32_C(0x0150), failure) ||
+        !gbl_phase14_write(machine, UINT64_C(3695), UINT32_C(0x04000000),
+                           2u, (uint32_t)final_dispcnt, failure) ||
+        !gbl_phase14_advance(machine, frame_end, split, failure)) {
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_phase14_frame_semantics(const gbl_machine *machine,
+                                        bool object_variant)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    const uint16_t object_blend = object_variant ? UINT16_C(0x01F0)
+                                                : UINT16_C(0x0108);
+
+    return machine != NULL && machine->master_cycles == frame_end &&
+           machine->ppu.line == GBL_PPU_VISIBLE_LINES &&
+           machine->ppu.captured_rows == GBL_PPU_VISIBLE_LINES &&
+           machine->ppu.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           machine->ppu.capture_reason == GBL_VIDEO_INVALID_REASON_NONE &&
+           machine->ppu.dispcnt == UINT16_C(0x3140) &&
+           machine->ppu.render_register_bytes[18] == UINT8_C(0x50) &&
+           machine->ppu.render_register_bytes[19] == UINT8_C(1) &&
+           machine->ppu.render_register_bytes[22] == UINT8_C(8) &&
+           gbl_phase14_pixel(machine, 0u, 0u) == UINT16_C(0x0010) &&
+           gbl_phase14_pixel(machine, 1u, 0u) == UINT16_C(0x0010) &&
+           gbl_phase14_pixel(machine, 2u, 0u) == UINT16_C(0x7C00) &&
+           gbl_phase14_pixel(machine, 3u, 0u) == UINT16_C(0x7C00) &&
+           gbl_phase14_pixel(machine, 16u, 0u) == object_blend &&
+           gbl_phase14_pixel(machine, 17u, 0u) == object_blend &&
+           gbl_phase14_pixel(machine, 18u, 0u) == UINT16_C(0x3C0F) &&
+           gbl_phase14_pixel(machine, 24u, 0u) == UINT16_C(0x0010) &&
+           gbl_phase14_pixel(machine, 24u, 1u) == UINT16_C(0x3DF7) &&
+           gbl_phase14_pixel(machine, 0u, 2u) == UINT16_C(0x7FFF) &&
+           gbl_phase14_pixel(machine, 16u, 2u) == UINT16_C(0x7FFF) &&
+           gbl_phase14_pixel(machine, 16u, 3u) == object_blend;
+}
+
+static bool gbl_phase14_start_row_zero(
+    gbl_machine *machine, gbl_ppu_row_capture *capture_out,
+    gbl_machine_time_preview *preview_out, const char **failure)
+{
+    gbl_machine_time_preview preview;
+
+    memset(&preview, 0xA5, sizeof preview);
+    if (machine == NULL ||
+        gbl_machine_prepare_time(machine, UINT64_C(1), &preview) !=
+            GBL_TIME_STATUS_OK ||
+        preview.master_cycles != UINT64_C(1) ||
+        preview.ppu_row_capture_count != 1u ||
+        preview.ppu_row_captures[0].line != 0u ||
+        preview.ppu_row_captures[0].cycle != 0u ||
+        preview.ppu_row_captures[0].obj_selected_count != 1u) {
+        *failure = "phase14-row-zero-preview-mismatch";
+        return false;
+    }
+    if (capture_out != NULL) *capture_out = preview.ppu_row_captures[0];
+    if (preview_out != NULL) *preview_out = preview;
+    gbl_machine_commit_time(machine, &preview);
+    return true;
+}
+
+static bool gbl_phase14_run_interleaved(gbl_machine *first,
+                                        gbl_machine *second,
+                                        const char **failure)
+{
+    const uint64_t frame_end =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+
+    if (first == NULL || second == NULL || first->master_cycles != 1u ||
+        second->master_cycles != 1u ||
+        !gbl_phase14_advance(first, UINT64_C(1229), false, failure) ||
+        !gbl_phase14_advance(second, UINT64_C(1229), false, failure) ||
+        !gbl_phase14_write(first, UINT64_C(1230), UINT32_C(0x04000050),
+                           2u, UINT32_C(0x0081), failure) ||
+        !gbl_phase14_write(second, UINT64_C(1230), UINT32_C(0x04000050),
+                           2u, UINT32_C(0x0081), failure) ||
+        !gbl_phase14_write(first, UINT64_C(1231), UINT32_C(0x04000054),
+                           1u, UINT32_C(8), failure) ||
+        !gbl_phase14_write(second, UINT64_C(1231), UINT32_C(0x04000054),
+                           1u, UINT32_C(8), failure) ||
+        !gbl_phase14_advance(first, UINT64_C(2462), false, failure) ||
+        !gbl_phase14_advance(second, UINT64_C(2462), false, failure) ||
+        !gbl_phase14_write(first, UINT64_C(2463), UINT32_C(0x04000000),
+                           2u, UINT32_C(0x31C0), failure) ||
+        !gbl_phase14_write(second, UINT64_C(2463), UINT32_C(0x04000000),
+                           2u, UINT32_C(0x31C0), failure) ||
+        !gbl_phase14_advance(first, UINT64_C(3693), false, failure) ||
+        !gbl_phase14_advance(second, UINT64_C(3693), false, failure) ||
+        !gbl_phase14_write(first, UINT64_C(3694), UINT32_C(0x04000050),
+                           2u, UINT32_C(0x0150), failure) ||
+        !gbl_phase14_write(second, UINT64_C(3694), UINT32_C(0x04000050),
+                           2u, UINT32_C(0x0150), failure) ||
+        !gbl_phase14_write(first, UINT64_C(3695), UINT32_C(0x04000000),
+                           2u, UINT32_C(0x3140), failure) ||
+        !gbl_phase14_write(second, UINT64_C(3695), UINT32_C(0x04000000),
+                           2u, UINT32_C(0x3140), failure) ||
+        !gbl_phase14_advance(first, frame_end, false, failure) ||
+        !gbl_phase14_advance(second, frame_end, false, failure)) {
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_phase14_control_case(size_t control,
+                                     const char **failure)
+{
+    static const uint16_t expected_baseline[] = {
+        UINT16_C(0x0108), UINT16_C(0x0108), UINT16_C(0x0010),
+        UINT16_C(0x0108), UINT16_C(0x7FFF), UINT16_C(0x0108),
+        UINT16_C(0x0108)
+    };
+    static const uint16_t expected_mutant[] = {
+        UINT16_C(0x0010), UINT16_C(0x008C), UINT16_C(0x03E0),
+        UINT16_C(0x3C08), UINT16_C(0x0010), UINT16_C(0x0010),
+        UINT16_C(0x0108)
+    };
+    static const uint16_t x_coordinates[] = { 16u, 16u, 1u, 17u,
+                                               0u, 16u, 16u };
+    static const uint16_t y_coordinates[] = { 0u, 0u, 0u, 0u,
+                                               2u, 0u, 0u };
+    static const char *const names[] = {
+        "window-mask", "blend-coefficient", "BG-mosaic-dimension",
+        "OBJ-mosaic-dimension", "forced-blank-bit", "OBJ-mode",
+        "inactive-window-control"
+    };
+    const bool invisible = control == 6u;
+    gbl_machine *baseline = gbl_phase14_new_machine(false, failure);
+    gbl_machine *twin = gbl_phase14_new_machine(false, failure);
+    gbl_machine *mutant = gbl_phase14_new_machine(false, failure);
+    gbl_ppu_row_capture baseline_row;
+    gbl_ppu_row_capture twin_row;
+    gbl_ppu_row_capture mutant_row;
+    gbl_machine_time_preview baseline_preview;
+    gbl_machine_time_preview twin_preview;
+    gbl_machine_time_preview mutant_preview;
+    bool okay = baseline != NULL && twin != NULL && mutant != NULL;
+    bool force_blank = true;
+    const bool scheduled_control = control == 4u;
+    uint16_t mutant_x = x_coordinates[control];
+    uint16_t mutant_y = y_coordinates[control];
+
+    if (!okay) {
+        *failure = "phase14-control-case-allocation-failed";
+        goto done;
+    }
+    switch (control) {
+    case 0u:
+        mutant->ppu.window_register_bytes[0] = UINT8_C(24);
+        break;
+    case 1u:
+        mutant->ppu.render_register_bytes[20] = UINT8_C(4);
+        mutant->ppu.render_register_bytes[21] = UINT8_C(12);
+        break;
+    case 2u:
+        mutant->ppu.render_register_bytes[16] = 0u;
+        break;
+    case 3u:
+        mutant->ppu.render_register_bytes[17] = 0u;
+        break;
+    case 4u:
+        force_blank = false;
+        break;
+    case 5u:
+        mutant->dispcnt = (uint16_t)(mutant->dispcnt | UINT16_C(0x8000));
+        mutant->ppu.dispcnt = mutant->dispcnt;
+        gbl_phase13_store_u16(mutant->oam, 0u, UINT16_C(0x1800));
+        mutant->ppu.window_register_bytes[11] = UINT8_C(1);
+        break;
+    case 6u:
+        mutant->ppu.window_register_bytes[2] = UINT8_C(8);
+        break;
+    default:
+        *failure = "phase14-unknown-control-case";
+        okay = false;
+        goto done;
+    }
+
+    if (!gbl_phase14_start_row_zero(baseline, &baseline_row,
+                                    &baseline_preview, failure) ||
+        !gbl_phase14_start_row_zero(twin, &twin_row, &twin_preview, failure) ||
+        !gbl_phase14_start_row_zero(mutant, &mutant_row, &mutant_preview,
+                                    failure)) {
+        okay = false;
+        goto done;
+    }
+    if (!gbl_test_time_preview_equal(&baseline_preview, &twin_preview) ||
+        !gbl_test_ppu_row_capture_equal(&baseline_row, &twin_row) ||
+        (scheduled_control
+             ? (!gbl_test_time_preview_equal(&baseline_preview,
+                                             &mutant_preview) ||
+                !gbl_test_ppu_row_capture_equal(&baseline_row,
+                                                &mutant_row) ||
+                baseline_row.pixel_digest != mutant_row.pixel_digest)
+             : (gbl_test_time_preview_equal(&baseline_preview,
+                                           &mutant_preview) ||
+                (invisible
+                     ? memcmp(baseline->video_frame, mutant->video_frame,
+                              GBL_PPU_ROW_BYTES) != 0
+                     : false)))) {
+        *failure = "phase14-control-preview-or-row-binding-mismatch";
+        okay = false;
+        goto done;
+    }
+    if (!gbl_phase14_run_frame(baseline, false, true, UINT16_C(0x3140),
+                               failure) ||
+        !gbl_phase14_run_frame(twin, true, true, UINT16_C(0x3140), failure) ||
+        !gbl_phase14_run_frame(
+            mutant, false, force_blank,
+            control == 5u ? UINT16_C(0xB140) : UINT16_C(0x3140), failure)) {
+        okay = false;
+        goto done;
+    }
+    if (!gbl_phase14_frame_semantics(baseline, false) ||
+        !gbl_phase14_frame_semantics(twin, false) ||
+        gbl_phase14_pixel(baseline, x_coordinates[control],
+                          y_coordinates[control]) !=
+            expected_baseline[control] ||
+        gbl_phase14_pixel(mutant, mutant_x, mutant_y) !=
+            expected_mutant[control] ||
+        mutant->ppu.capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        mutant->ppu.captured_rows != GBL_PPU_VISIBLE_LINES ||
+        (invisible
+             ? memcmp(baseline->video_frame, mutant->video_frame,
+                      GBL_PPU_VIDEO_BYTES) != 0
+             : memcmp(baseline->video_frame, mutant->video_frame,
+                      GBL_PPU_VIDEO_BYTES) == 0) ||
+        !gbl_phase13_same_machine(baseline, twin) ||
+        gbl_phase13_same_machine(baseline, mutant) ||
+        gbl_test_canonical_equal(baseline, mutant)) {
+        fprintf(stderr,
+                "phase14 control[%zu] pixels=0x%04X/0x%04X expected=0x%04X/0x%04X canonical_equal=%d digest_equal=%d video_equal=%d state=%u rows=%u\n",
+                control,
+                (unsigned int)gbl_phase14_pixel(
+                    baseline, x_coordinates[control], y_coordinates[control]),
+                (unsigned int)gbl_phase14_pixel(mutant, mutant_x, mutant_y),
+                (unsigned int)expected_baseline[control],
+                (unsigned int)expected_mutant[control],
+                (int)gbl_test_canonical_equal(baseline, mutant),
+                (int)(gbl_test_canonical_digest(baseline) ==
+                      gbl_test_canonical_digest(mutant)),
+                (int)gbl_test_ppu_video_equal(baseline, mutant),
+                (unsigned int)mutant->ppu.capture_state,
+                (unsigned int)mutant->ppu.captured_rows);
+        *failure = "phase14-control-mutant-not-detected-by-semantic-and-named-state";
+        okay = false;
+        goto done;
+    }
+    if ((scheduled_control
+             ? gbl_test_time_preview_ppu_digest(&baseline_preview) !=
+                   gbl_test_time_preview_ppu_digest(&mutant_preview)
+             : gbl_test_time_preview_ppu_digest(&baseline_preview) ==
+                   gbl_test_time_preview_ppu_digest(&mutant_preview)) ||
+        gbl_test_canonical_digest(baseline) ==
+            gbl_test_canonical_digest(mutant)) {
+        *failure = "phase14-control-digest-sensitivity-mismatch";
+        okay = false;
+        goto done;
+    }
+    printf("PASS determinism.phase14.controls case=%s baseline=0x%04X mutant=0x%04X\n",
+           names[control], expected_baseline[control], expected_mutant[control]);
+
+done:
+    gbl_phase14_free_machine(&baseline);
+    gbl_phase14_free_machine(&twin);
+    gbl_phase14_free_machine(&mutant);
+    return okay;
+}
+
+static int gbl_test_phase14_controls_main(void)
+{
+    const char *failure = "phase14-controls-setup-failed";
+    size_t control;
+
+    for (control = 0u; control < 7u; ++control) {
+        if (!gbl_phase14_control_case(control, &failure)) {
+            fprintf(stderr,
+                    "FAIL determinism.phase14.controls: %s (case=%zu)\n",
+                    failure, control);
+            return 1;
+        }
+    }
+    puts("PASS determinism.phase14.controls: window, effect, both mosaic lanes, forced blank, OBJ mode and inactive control mutations have clean twins and semantic checkpoints");
+    return 0;
+}
+
+static int gbl_test_phase14_main(void)
+{
+    const char *failure = "phase14-replay-setup-failed";
+    gbl_machine *whole = gbl_phase14_new_machine(false, &failure);
+    gbl_machine *split = gbl_phase14_new_machine(false, &failure);
+    gbl_machine *reset = gbl_phase14_new_machine(false, &failure);
+    gbl_machine *interleaved_a = gbl_phase14_new_machine(false, &failure);
+    gbl_machine *interleaved_b = gbl_phase14_new_machine(true, &failure);
+    gbl_ppu_row_capture whole_row;
+    gbl_ppu_row_capture split_row;
+    gbl_ppu_row_capture reset_row;
+    gbl_ppu_row_capture interleaved_a_row;
+    gbl_ppu_row_capture interleaved_b_row;
+    gbl_machine_time_preview whole_preview;
+    gbl_machine_time_preview split_preview;
+    gbl_machine_time_preview reset_preview;
+    gbl_machine_time_preview interleaved_a_preview;
+    gbl_machine_time_preview interleaved_b_preview;
+    bool okay = whole != NULL && split != NULL && reset != NULL &&
+                interleaved_a != NULL && interleaved_b != NULL;
+
+    if (okay &&
+        (!gbl_phase14_start_row_zero(whole, &whole_row, &whole_preview,
+                                     &failure) ||
+         !gbl_phase14_start_row_zero(split, &split_row, &split_preview,
+                                     &failure) ||
+         !gbl_phase14_start_row_zero(reset, &reset_row, &reset_preview,
+                                     &failure) ||
+         !gbl_phase14_start_row_zero(interleaved_a, &interleaved_a_row,
+                                     &interleaved_a_preview, &failure) ||
+         !gbl_phase14_start_row_zero(interleaved_b, &interleaved_b_row,
+                                     &interleaved_b_preview, &failure))) {
+        okay = false;
+    }
+    if (okay &&
+        (!gbl_test_time_preview_equal(&whole_preview, &split_preview) ||
+         !gbl_test_time_preview_equal(&whole_preview, &reset_preview) ||
+         !gbl_test_time_preview_equal(&whole_preview,
+                                      &interleaved_a_preview) ||
+         gbl_test_time_preview_equal(&whole_preview,
+                                     &interleaved_b_preview) ||
+         !gbl_test_ppu_row_capture_equal(&whole_row, &split_row) ||
+         !gbl_test_ppu_row_capture_equal(&whole_row, &reset_row) ||
+         !gbl_test_ppu_row_capture_equal(&whole_row, &interleaved_a_row) ||
+         gbl_test_ppu_row_capture_equal(&whole_row, &interleaved_b_row) ||
+         gbl_test_time_preview_ppu_digest(&whole_preview) !=
+             gbl_test_time_preview_ppu_digest(&split_preview))) {
+        failure = "phase14-fresh-row-named-preview-mismatch";
+        okay = false;
+    }
+    if (okay &&
+        (!gbl_phase14_run_frame(whole, false, true, UINT16_C(0x3140),
+                                &failure) ||
+         !gbl_phase14_run_frame(split, true, true, UINT16_C(0x3140),
+                                &failure) ||
+         !gbl_phase14_run_interleaved(interleaved_a, interleaved_b,
+                                      &failure))) {
+        okay = false;
+    }
+    if (okay) {
+        gbl_machine_reset(reset);
+        if (!gbl_phase14_seed(reset, false, &failure) ||
+            !gbl_phase14_start_row_zero(reset, NULL, NULL, &failure) ||
+            !gbl_phase14_run_frame(reset, true, true, UINT16_C(0x3140),
+                                   &failure)) {
+            okay = false;
+        }
+    }
+    if (okay &&
+        (!gbl_phase14_frame_semantics(whole, false) ||
+         !gbl_phase14_frame_semantics(split, false) ||
+         !gbl_phase14_frame_semantics(reset, false) ||
+         !gbl_phase14_frame_semantics(interleaved_a, false) ||
+         !gbl_phase14_frame_semantics(interleaved_b, true) ||
+         !gbl_phase13_same_machine(whole, split) ||
+         !gbl_phase13_same_machine(whole, reset) ||
+         !gbl_phase13_same_machine(whole, interleaved_a) ||
+         gbl_phase13_same_machine(whole, interleaved_b) ||
+         memcmp(whole->video_frame, interleaved_b->video_frame,
+                GBL_PPU_VIDEO_BYTES) == 0)) {
+        failure = "phase14-fresh-split-reset-interleaved-semantic-state-mismatch";
+        okay = false;
+    }
+    gbl_phase14_free_machine(&whole);
+    gbl_phase14_free_machine(&split);
+    gbl_phase14_free_machine(&reset);
+    gbl_phase14_free_machine(&interleaved_a);
+    gbl_phase14_free_machine(&interleaved_b);
+    if (!okay) {
+        fprintf(stderr, "FAIL determinism.phase14: %s\n", failure);
+        return 1;
+    }
+    puts("PASS determinism.phase14: window, mosaic, alpha, brightness and forced-blank pixels match source-owned expectations");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "phase14-controls") == 0) {
+        return gbl_test_phase14_controls_main();
+    }
+    if (argc == 2 && strcmp(argv[1], "phase14") == 0) {
+        return gbl_test_phase14_main();
+    }
     if (argc == 2 && strcmp(argv[1], "phase13") == 0) {
         return gbl_test_phase13_main();
     }
