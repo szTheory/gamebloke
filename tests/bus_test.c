@@ -7486,6 +7486,19 @@ static int run_ppu_effects_controls(void)
     gbl_machine_commit_time(machine, mutant);
     CHECK(gbl_test_canonical_equal(machine, before));
     CHECK(gbl_test_ppu_video_equal(machine, before));
+    *machine = *before;
+
+    *mutant = *preview;
+    mutant->ppu.bg_register_bytes[8] ^= UINT8_C(1);
+    CHECK(!gbl_test_time_preview_equal(preview, mutant));
+    CHECK(gbl_test_time_preview_ppu_digest(preview) !=
+          gbl_test_time_preview_ppu_digest(mutant));
+    *before = *machine;
+    gbl_machine_commit_time(machine, mutant);
+    CHECK(gbl_test_canonical_equal(machine, before));
+    CHECK(gbl_test_ppu_video_equal(machine, before));
+    *machine = *before;
+
     gbl_machine_commit_time(machine, preview);
     gbl_machine_commit_time(twin, twin_preview);
     CHECK(gbl_test_canonical_equal(machine, twin));
