@@ -98,6 +98,10 @@ gbl_add_test(
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.mosaic.bg)
 gbl_add_test(
+  NAME ppu.mosaic.obj
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.mosaic.obj)
+gbl_add_test(
   NAME ppu.effects.tracer
   LABELS bus core integration ppu
   COMMAND $<TARGET_FILE:bus_test> ppu.effects.tracer)
