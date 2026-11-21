@@ -114,11 +114,12 @@ set(GBL_PROFILE_PPU_POLICY_ROWS
   "row_same_cycle_write_policy|PPU sample precedes a bus write completing on the sample cycle|STRING"
   "pixel_format|BGR555 little-endian|STRING"
   "frame_validity|complete coverage of 160 supported rows in one frame epoch, published at line 160|STRING"
-  "supported_controls|mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition|STRING"
-  "unmodeled_controls|forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings|STRING"
+  "supported_controls|mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition, rectangular WIN0/WIN1 half-open regions, admitted OBJ-window masks and region-specific layer/effect masks, top-and-immediate-next-visible alpha and semitransparent OBJ effects, clamped 5-bit brightness, independent BG/OBJ screen-origin mosaic resampled from the current row, and forced-blank white rows with normal frame coverage|STRING"
+  "unmodeled_controls|prohibited OBJ mode/shape encodings and unsupported background-control encodings|STRING"
   "interrupt_if_bits|VBlank 0, HBlank 1, VCOUNT-match 2|STRING"
   "blank_dma_eligibility|HBlank on visible lines 0-159, VBlank at the line 160 transition|STRING")
 set(GBL_PROFILE_PPU_OBJECT_POLICY_JSON [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited;semitransparent;obj-window;mosaic","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
+set(GBL_PROFILE_PPU_OBJECT_POLICY_JSON [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
 set(GBL_PROFILE_PPU_OBJECT_POLICY_FIELDS
   regular_shapes character_windows index_zero_transparency affine_quantization
   affine_field coordinate_wrap unsupported_modes work_budget_units regular_cost
@@ -126,6 +127,23 @@ set(GBL_PROFILE_PPU_OBJECT_POLICY_FIELDS
 set(GBL_PROFILE_PPU_COMPOSITION_POLICY_JSON [=[{"priority_order":"ascending-numeric-0-3","bg_tie":"lower-bg-number","obj_tie":"lower-oam-index","obj_bg_tie":"obj-in-front-project-policy","backdrop":"pram-color-zero;behind-all-enabled-opaque-candidates"}]=])
 set(GBL_PROFILE_PPU_COMPOSITION_POLICY_FIELDS
   priority_order bg_tie obj_tie obj_bg_tie backdrop)
+set(GBL_PROFILE_PPU_WINDOW_POLICY_JSON [=[{"region_order":"win0;win1;obj-window;outside","rectangle_bounds":"half-open;equal-or-reversed-empty;no-wrap","layer_stage":"filter-before-priority;dispcnt-master-gates","disabled_masters":"bypass-winin-winout","obj_coverage":"admitted-nonzero-source-index;no-color;shared-obj-budget","mask_bits":"bg0-bg3;obj;effects;reserved-ignored"}]=])
+set(GBL_PROFILE_PPU_WINDOW_POLICY_FIELDS
+  region_order rectangle_bounds layer_stage disabled_masters obj_coverage mask_bits)
+set(GBL_PROFILE_PPU_EFFECT_POLICY_JSON [=[{"pair":"top-and-immediate-next-visible;no-deeper-search","alpha":"mode1;first-target;second-target;region-effects-enabled","semitransparent_obj":"alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness","coefficient_max":16,"coefficient_input":"low-five-bits;clamp-to-16","channel_arithmetic":"wide-integer;divide16-truncate;clamp0-31","brighten":"c+floor((31-c)*evy/16)","darken":"c-floor(c*evy/16)"}]=])
+set(GBL_PROFILE_PPU_EFFECT_POLICY_FIELDS
+  pair alpha semitransparent_obj coefficient_max coefficient_input
+  channel_arithmetic brighten darken)
+set(GBL_PROFILE_PPU_MOSAIC_POLICY_JSON [=[{"dimensions":"field-plus-one;independent-bg-obj","anchors":"visible-screen-origin;x-x%w;y-y%h","sampling":"current-row-captured-registers-and-memory;no-old-row-cache","affine_origin":"current-origin-minus-pb-pd-times-row-anchor-delta","stage":"source-before-destination-window-and-effects","obj_field":"existing-destination-field;anchor-outside-transparent;no-field-growth"}]=])
+set(GBL_PROFILE_PPU_MOSAIC_POLICY_FIELDS
+  dimensions anchors sampling affine_origin stage obj_field)
+set(GBL_PROFILE_PPU_FORCED_BLANK_POLICY_JSON [=[{"color_bgr555":32767,"raw_bytes":"FF 7F","transitions":"next-captured-visible-row;no-extra-delay-or-restart","frame_validity":"normal-epoch-row-coverage;publish-line160","precedence":"bypass-scene-decode;retain-structural-transaction-validation","access_policy":"unchanged-existing-bus-behavior"}]=])
+set(GBL_PROFILE_PPU_FORCED_BLANK_POLICY_FIELDS
+  color_bgr555 raw_bytes transitions frame_validity precedence access_policy)
+set(GBL_PROFILE_PPU_COMPOSITION_FEATURES_JSON [=[{"rectangular_windows":true,"object_windows":true,"alpha_blending":true,"brightness":true,"bg_mosaic":true,"obj_mosaic":true,"forced_blank":true,"classification":"project-selected","hardware_qualification":"UNKNOWN"}]=])
+set(GBL_PROFILE_PPU_COMPOSITION_FEATURES_FIELDS
+  rectangular_windows object_windows alpha_blending brightness bg_mosaic
+  obj_mosaic forced_blank classification hardware_qualification)
 set(GBL_PROFILE_PPU_RAW_OUTPUT_JSON [=[{"format":"BGR555_LE","width":240,"height":160,"stride_bytes":480,"byte_length":76800}]=])
 set(GBL_PROFILE_PPU_EXPECTED_MODES_JSON [=[
 [
@@ -1319,13 +1337,13 @@ function(gbl__profile_ppu_policy doc)
   string(JSON policy_version ERROR_VARIABLE version_error GET
     "${doc}" profile_version)
   if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
-      policy_version LESS 14)
+      policy_version LESS 15)
     gbl_finding(profile ppu-policy-value
-      "profile_version: expected 14 or later for object and composition capability metadata")
+      "profile_version: expected 15 or later for window/effect/mosaic and forced-blank policy metadata")
   endif()
 
   list(LENGTH GBL_PROFILE_PPU_POLICY_ROWS scalar_field_count)
-  math(EXPR expected_field_count "${scalar_field_count}+4")
+  math(EXPR expected_field_count "${scalar_field_count}+8")
   string(JSON actual_field_count LENGTH "${doc}" ppu_policy)
   if(NOT actual_field_count EQUAL expected_field_count)
     gbl_finding(profile ppu-policy-value
@@ -1363,6 +1381,18 @@ function(gbl__profile_ppu_policy doc)
   gbl__profile_ppu_policy_object("${doc}" composition_policy
     ppu-composition-policy-value "${GBL_PROFILE_PPU_COMPOSITION_POLICY_JSON}"
     ${GBL_PROFILE_PPU_COMPOSITION_POLICY_FIELDS})
+  gbl__profile_ppu_policy_object("${doc}" window_policy
+    ppu-window-policy-value "${GBL_PROFILE_PPU_WINDOW_POLICY_JSON}"
+    ${GBL_PROFILE_PPU_WINDOW_POLICY_FIELDS})
+  gbl__profile_ppu_policy_object("${doc}" effect_policy
+    ppu-effect-policy-value "${GBL_PROFILE_PPU_EFFECT_POLICY_JSON}"
+    ${GBL_PROFILE_PPU_EFFECT_POLICY_FIELDS})
+  gbl__profile_ppu_policy_object("${doc}" mosaic_policy
+    ppu-mosaic-policy-value "${GBL_PROFILE_PPU_MOSAIC_POLICY_JSON}"
+    ${GBL_PROFILE_PPU_MOSAIC_POLICY_FIELDS})
+  gbl__profile_ppu_policy_object("${doc}" forced_blank_policy
+    ppu-forced-blank-policy-value "${GBL_PROFILE_PPU_FORCED_BLANK_POLICY_JSON}"
+    ${GBL_PROFILE_PPU_FORCED_BLANK_POLICY_FIELDS})
   gbl__profile_ppu_display_capabilities("${doc}")
   gbl__profile_ppu_video_memory_access("${doc}")
 endfunction()
@@ -1430,6 +1460,49 @@ function(gbl__profile_ppu_video_memory_access doc)
   endif()
 endfunction()
 
+function(gbl__profile_ppu_composition_features doc)
+  set(path "ppu_policy.display_capabilities.composition_features")
+  gbl_json_type(features_type "${doc}"
+    ppu_policy display_capabilities composition_features)
+  if(NOT "${features_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ppu-capability-value
+      "${path}: expected OBJECT, found ${features_type}")
+    return()
+  endif()
+
+  string(JSON expected_count LENGTH
+    "${GBL_PROFILE_PPU_COMPOSITION_FEATURES_JSON}")
+  string(JSON actual_count LENGTH "${doc}"
+    ppu_policy display_capabilities composition_features)
+  if(NOT actual_count EQUAL expected_count)
+    gbl_finding(profile ppu-capability-value
+      "${path}: expected ${expected_count} fields, found ${actual_count}")
+  endif()
+
+  foreach(field IN LISTS GBL_PROFILE_PPU_COMPOSITION_FEATURES_FIELDS)
+    string(JSON expected_type TYPE
+      "${GBL_PROFILE_PPU_COMPOSITION_FEATURES_JSON}" "${field}")
+    string(JSON expected_value GET
+      "${GBL_PROFILE_PPU_COMPOSITION_FEATURES_JSON}" "${field}")
+    gbl_json_type(actual_type "${doc}"
+      ppu_policy display_capabilities composition_features "${field}")
+    if(NOT "${actual_type}" STREQUAL "${expected_type}")
+      gbl_finding(profile ppu-capability-value
+        "${path}.${field}: expected ${expected_type}, found ${actual_type}")
+      continue()
+    endif()
+    string(JSON actual_value ERROR_VARIABLE value_error GET "${doc}"
+      ppu_policy display_capabilities composition_features "${field}")
+    if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+        NOT "${value_error}" STREQUAL "")
+      gbl_finding(profile ppu-capability-value "${path}.${field}: unreadable value")
+    elseif(NOT "${actual_value}" STREQUAL "${expected_value}")
+      gbl_finding(profile ppu-capability-value
+        "${path}.${field}: expected ${expected_value}")
+    endif()
+  endforeach()
+endfunction()
+
 function(gbl__profile_ppu_display_capabilities doc)
   gbl_json_type(capability_type "${doc}" ppu_policy display_capabilities)
   if(NOT "${capability_type}" STREQUAL "OBJECT")
@@ -1438,15 +1511,16 @@ function(gbl__profile_ppu_display_capabilities doc)
     return()
   endif()
   string(JSON capability_fields LENGTH "${doc}" ppu_policy display_capabilities)
-  if(NOT capability_fields EQUAL 3)
+  if(NOT capability_fields EQUAL 4)
     gbl_finding(profile ppu-capability-value
-      "ppu_policy.display_capabilities: expected 3 fields, found ${capability_fields}")
+      "ppu_policy.display_capabilities: expected 4 fields, found ${capability_fields}")
   endif()
   gbl_json_string(model "${doc}" ppu_policy display_capabilities model)
-  if(NOT "${model}" STREQUAL "gamebloke-display-capabilities-1")
+  if(NOT "${model}" STREQUAL "gamebloke-display-capabilities-2")
     gbl_finding(profile ppu-capability-value
-      "ppu_policy.display_capabilities.model: expected gamebloke-display-capabilities-1")
+      "ppu_policy.display_capabilities.model: expected gamebloke-display-capabilities-2")
   endif()
+  gbl__profile_ppu_composition_features("${doc}")
 
   gbl_json_type(raw_type "${doc}" ppu_policy display_capabilities raw_output)
   if(NOT "${raw_type}" STREQUAL "OBJECT")
@@ -2217,6 +2291,32 @@ function(gbl__profile_doc_exact_policy_table normalized_text heading prefix
   endif()
 endfunction()
 
+function(gbl__profile_doc_ppu_object_table out profile object_key)
+  set(table "| Setting | Value |\n| --- | --- |\n")
+  foreach(field IN LISTS ARGN)
+    gbl_json_type(value_type "${profile}" ppu_policy "${object_key}" "${field}")
+    if("${value_type}" STREQUAL "MISSING")
+      set(value "<missing>")
+    else()
+      string(JSON value ERROR_VARIABLE value_error GET
+        "${profile}" ppu_policy "${object_key}" "${field}")
+      if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+          NOT "${value_error}" STREQUAL "")
+        set(value "<invalid>")
+      elseif("${value_type}" STREQUAL "BOOLEAN")
+        if(value)
+          set(value true)
+        else()
+          set(value false)
+        endif()
+      endif()
+    endif()
+    string(APPEND table
+      "| `ppu_policy.${object_key}.${field}` | ${value} |\n")
+  endforeach()
+  set(${out} "${table}" PARENT_SCOPE)
+endfunction()
+
 function(gbl__profile_doc_timing_sync normalized_text profile)
   foreach(heading IN ITEMS "## Timing model scope" "## Timing model costs"
       "## WAITCNT policy" "## DMA policy"
@@ -2441,6 +2541,47 @@ function(gbl__profile_doc_ppu_sync normalized_text profile)
   gbl__profile_doc_exact_policy_table("${normalized_text}"
     "## PPU composition policy" ppu_policy.composition_policy
     "${composition_policy_table}" ppu-composition-policy-doc)
+
+  gbl__profile_doc_ppu_object_table(window_policy_table "${profile}"
+    window_policy ${GBL_PROFILE_PPU_WINDOW_POLICY_FIELDS})
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## PPU window policy" ppu_policy.window_policy
+    "${window_policy_table}" ppu-window-policy-doc)
+
+  gbl__profile_doc_ppu_object_table(effect_policy_table "${profile}"
+    effect_policy ${GBL_PROFILE_PPU_EFFECT_POLICY_FIELDS})
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## PPU color-effects policy" ppu_policy.effect_policy
+    "${effect_policy_table}" ppu-effect-policy-doc)
+
+  gbl__profile_doc_ppu_object_table(mosaic_policy_table "${profile}"
+    mosaic_policy ${GBL_PROFILE_PPU_MOSAIC_POLICY_FIELDS})
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## PPU mosaic policy" ppu_policy.mosaic_policy
+    "${mosaic_policy_table}" ppu-mosaic-policy-doc)
+
+  gbl__profile_doc_ppu_object_table(forced_blank_policy_table "${profile}"
+    forced_blank_policy ${GBL_PROFILE_PPU_FORCED_BLANK_POLICY_FIELDS})
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## Forced blank policy" ppu_policy.forced_blank_policy
+    "${forced_blank_policy_table}" ppu-forced-blank-policy-doc)
+
+  set(composition_features_table
+    "| Setting | Value |\n| --- | --- |\n"
+    "| `ppu_policy.display_capabilities.model` | gamebloke-display-capabilities-2 |\n"
+    "| `ppu_policy.display_capabilities.composition_features.rectangular_windows` | true |\n"
+    "| `ppu_policy.display_capabilities.composition_features.object_windows` | true |\n"
+    "| `ppu_policy.display_capabilities.composition_features.alpha_blending` | true |\n"
+    "| `ppu_policy.display_capabilities.composition_features.brightness` | true |\n"
+    "| `ppu_policy.display_capabilities.composition_features.bg_mosaic` | true |\n"
+    "| `ppu_policy.display_capabilities.composition_features.obj_mosaic` | true |\n"
+    "| `ppu_policy.display_capabilities.composition_features.forced_blank` | true |\n"
+    "| `ppu_policy.display_capabilities.composition_features.classification` | project-selected |\n"
+    "| `ppu_policy.display_capabilities.composition_features.hardware_qualification` | UNKNOWN |")
+  string(JOIN "" composition_features_table ${composition_features_table})
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## PPU composition features" ppu_policy.display_capabilities.composition_features
+    "${composition_features_table}" ppu-capability-doc)
 
   set(capability_rows)
   set(row "| `ppu_policy.display_capabilities.modes[0]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 text: 256x256, 512x256, 256x512, 512x512; BG3 text: 256x256, 512x256, 256x512, 512x512 |")

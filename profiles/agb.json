@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 14,
+  "profile_version": 15,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -91,8 +91,8 @@
     "row_same_cycle_write_policy": "PPU sample precedes a bus write completing on the sample cycle",
     "pixel_format": "BGR555 little-endian",
     "frame_validity": "complete coverage of 160 supported rows in one frame epoch, published at line 160",
-    "supported_controls": "mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition",
-    "unmodeled_controls": "forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings",
+    "supported_controls": "mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition, rectangular WIN0/WIN1 half-open regions, admitted OBJ-window masks and region-specific layer/effect masks, top-and-immediate-next-visible alpha and semitransparent OBJ effects, clamped 5-bit brightness, independent BG/OBJ screen-origin mosaic resampled from the current row, and forced-blank white rows with normal frame coverage",
+    "unmodeled_controls": "prohibited OBJ mode/shape encodings and unsupported background-control encodings",
     "interrupt_if_bits": "VBlank 0, HBlank 1, VCOUNT-match 2",
     "blank_dma_eligibility": "HBlank on visible lines 0-159, VBlank at the line 160 transition",
     "object_policy": {
@@ -102,7 +102,7 @@
       "affine_quantization": "signed-8.8;wide-products;floor-by-256",
       "affine_field": "centered;double-size-destination-only;out-of-source-transparent",
       "coordinate_wrap": "x-modulo-512;y-modulo-256;clip-240x160",
-      "unsupported_modes": "prohibited;semitransparent;obj-window;mosaic",
+      "unsupported_modes": "prohibited",
       "work_budget_units": 1226,
       "regular_cost": "source-width",
       "affine_cost": "10+2*destination-field-width",
@@ -118,8 +118,53 @@
       "obj_bg_tie": "obj-in-front-project-policy",
       "backdrop": "pram-color-zero;behind-all-enabled-opaque-candidates"
     },
+    "window_policy": {
+      "region_order": "win0;win1;obj-window;outside",
+      "rectangle_bounds": "half-open;equal-or-reversed-empty;no-wrap",
+      "layer_stage": "filter-before-priority;dispcnt-master-gates",
+      "disabled_masters": "bypass-winin-winout",
+      "obj_coverage": "admitted-nonzero-source-index;no-color;shared-obj-budget",
+      "mask_bits": "bg0-bg3;obj;effects;reserved-ignored"
+    },
+    "effect_policy": {
+      "pair": "top-and-immediate-next-visible;no-deeper-search",
+      "alpha": "mode1;first-target;second-target;region-effects-enabled",
+      "semitransparent_obj": "alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness",
+      "coefficient_max": 16,
+      "coefficient_input": "low-five-bits;clamp-to-16",
+      "channel_arithmetic": "wide-integer;divide16-truncate;clamp0-31",
+      "brighten": "c+floor((31-c)*evy/16)",
+      "darken": "c-floor(c*evy/16)"
+    },
+    "mosaic_policy": {
+      "dimensions": "field-plus-one;independent-bg-obj",
+      "anchors": "visible-screen-origin;x-x%w;y-y%h",
+      "sampling": "current-row-captured-registers-and-memory;no-old-row-cache",
+      "affine_origin": "current-origin-minus-pb-pd-times-row-anchor-delta",
+      "stage": "source-before-destination-window-and-effects",
+      "obj_field": "existing-destination-field;anchor-outside-transparent;no-field-growth"
+    },
+    "forced_blank_policy": {
+      "color_bgr555": 32767,
+      "raw_bytes": "FF 7F",
+      "transitions": "next-captured-visible-row;no-extra-delay-or-restart",
+      "frame_validity": "normal-epoch-row-coverage;publish-line160",
+      "precedence": "bypass-scene-decode;retain-structural-transaction-validation",
+      "access_policy": "unchanged-existing-bus-behavior"
+    },
     "display_capabilities": {
-      "model": "gamebloke-display-capabilities-1",
+      "model": "gamebloke-display-capabilities-2",
+      "composition_features": {
+        "rectangular_windows": true,
+        "object_windows": true,
+        "alpha_blending": true,
+        "brightness": true,
+        "bg_mosaic": true,
+        "obj_mosaic": true,
+        "forced_blank": true,
+        "classification": "project-selected",
+        "hardware_qualification": "UNKNOWN"
+      },
       "raw_output": {
         "format": "BGR555_LE",
         "width": 240,
@@ -364,7 +409,7 @@
     {
       "id": "ppu",
       "status": "unmodeled",
-      "reason": "The deterministic partial mode, normal OBJ, and composition subset is described in ppu_policy; hardware qualification remains UNKNOWN, and windows, effects, mosaic, forced blank, and unsupported object controls remain unmodeled."
+      "reason": "The deterministic partial mode, OBJ, window, effect, mosaic, and forced-blank subset is described in ppu_policy as project-selected software behavior; all six mode statuses remain partial and hardware qualification remains UNKNOWN. Prohibited OBJ mode/shape encodings and unsupported background-control encodings remain unmodeled."
     },
     {
       "id": "audio",

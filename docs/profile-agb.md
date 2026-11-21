@@ -15,7 +15,10 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 14
+profile_version: 15
+
+`profile_version` tracks the capability-policy contract; it is independent of
+the software package version.
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -117,8 +120,8 @@ not qualify the PPU against hardware.
 | `ppu_policy.row_same_cycle_write_policy` | PPU sample precedes a bus write completing on the sample cycle |
 | `ppu_policy.pixel_format` | BGR555 little-endian |
 | `ppu_policy.frame_validity` | complete coverage of 160 supported rows in one frame epoch, published at line 160 |
-| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition |
-| `ppu_policy.unmodeled_controls` | forced blank, rectangular and object windows, semitransparent OBJ, OBJ-window mode, mosaic, color effects, prohibited OBJ encodings, and unsupported background-control encodings |
+| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition, rectangular WIN0/WIN1 half-open regions, admitted OBJ-window masks and region-specific layer/effect masks, top-and-immediate-next-visible alpha and semitransparent OBJ effects, clamped 5-bit brightness, independent BG/OBJ screen-origin mosaic resampled from the current row, and forced-blank white rows with normal frame coverage |
+| `ppu_policy.unmodeled_controls` | prohibited OBJ mode/shape encodings and unsupported background-control encodings |
 | `ppu_policy.interrupt_if_bits` | VBlank 0, HBlank 1, VCOUNT-match 2 |
 | `ppu_policy.blank_dma_eligibility` | HBlank on visible lines 0-159, VBlank at the line 160 transition |
 
@@ -132,7 +135,7 @@ not qualify the PPU against hardware.
 | `ppu_policy.object_policy.affine_quantization` | signed-8.8;wide-products;floor-by-256 |
 | `ppu_policy.object_policy.affine_field` | centered;double-size-destination-only;out-of-source-transparent |
 | `ppu_policy.object_policy.coordinate_wrap` | x-modulo-512;y-modulo-256;clip-240x160 |
-| `ppu_policy.object_policy.unsupported_modes` | prohibited;semitransparent;obj-window;mosaic |
+| `ppu_policy.object_policy.unsupported_modes` | prohibited |
 | `ppu_policy.object_policy.work_budget_units` | 1226 |
 | `ppu_policy.object_policy.regular_cost` | source-width |
 | `ppu_policy.object_policy.affine_cost` | 10+2*destination-field-width |
@@ -191,6 +194,111 @@ manual's reversed-OAM-order/priority OBJ-BG sandwich remains a semantic case;
 its outcome does not establish a silicon comparator or hardware ordering.
 [Nintendo AGB Programming Manual v1.1 §6.4, printed p. 72](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
 
+## PPU window policy
+
+The manual describes display-window controls and masks in §7.3, printed
+pp. 76–79. Precedence among overlapping windows and edge handling below are
+selected Gamebloke policy. Secondary sources disagree on reversed endpoints:
+gbadoc describes wraparound while GBATEK describes clamping. The manual does
+not settle this detail, so equal or reversed intervals are empty and never wrap.
+The manual copy is third-party hosted and marked confidential; this document
+cites it without reproducing its text or figures.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.window_policy.region_order` | win0;win1;obj-window;outside |
+| `ppu_policy.window_policy.rectangle_bounds` | half-open;equal-or-reversed-empty;no-wrap |
+| `ppu_policy.window_policy.layer_stage` | filter-before-priority;dispcnt-master-gates |
+| `ppu_policy.window_policy.disabled_masters` | bypass-winin-winout |
+| `ppu_policy.window_policy.obj_coverage` | admitted-nonzero-source-index;no-color;shared-obj-budget |
+| `ppu_policy.window_policy.mask_bits` | bg0-bg3;obj;effects;reserved-ignored |
+
+WIN0 takes precedence over WIN1, then the OBJ window, then outside. Each active
+region filters BG0–BG3 and OBJ candidates before priority composition and
+separately controls whether effects may run. DISPCNT layer bits remain master
+gates. If all window master bits are clear, stale WININ/WINOUT values are
+bypassed. The OBJ window covers only admitted OBJ-window pixels whose sampled
+source index is nonzero; it contributes no color and consumes the existing
+shared OBJ row-work budget. These overlap and endpoint rules are deterministic
+software choices, not hardware qualifications.
+
+## PPU color-effects policy
+
+The manual documents target selection and color effects in §§8.1–8.2, printed
+pp. 80–83. The immediate-next-layer rule, coefficient clamp, arithmetic
+rounding, and uniform 5-bit channel behavior below are explicit Gamebloke
+policy; the manual does not settle all of those details for this output path.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.effect_policy.pair` | top-and-immediate-next-visible;no-deeper-search |
+| `ppu_policy.effect_policy.alpha` | mode1;first-target;second-target;region-effects-enabled |
+| `ppu_policy.effect_policy.semitransparent_obj` | alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness |
+| `ppu_policy.effect_policy.coefficient_max` | 16 |
+| `ppu_policy.effect_policy.coefficient_input` | low-five-bits;clamp-to-16 |
+| `ppu_policy.effect_policy.channel_arithmetic` | wide-integer;divide16-truncate;clamp0-31 |
+| `ppu_policy.effect_policy.brighten` | c+floor((31-c)*evy/16) |
+| `ppu_policy.effect_policy.darken` | c-floor(c*evy/16) |
+
+Ordinary alpha blends only the top visible layer and its immediate next visible
+layer when their first/second target bits and the destination region's effect
+permission allow it. The renderer does not skip a nearer non-target layer to
+search deeper. A top semitransparent OBJ uses its selected alpha path with an
+eligible next layer and region permission, even when ordinary first-target
+selection would not trigger it; this path does not brighten or darken. Brighten
+and darken apply per 5-bit BGR channel using the recorded formulas and clamp
+after wide-integer division. These are software-model rules, not silicon
+measurement.
+
+## PPU mosaic policy
+
+The manual documents BG and OBJ mosaic controls in §§9.1–9.2, printed pp. 82–83.
+The visible-screen anchor, current-row resampling after writes, affine origin
+projection, and placement before destination masks are selected Gamebloke
+policies. The cited mirror cannot establish their hardware pipeline ordering.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.mosaic_policy.dimensions` | field-plus-one;independent-bg-obj |
+| `ppu_policy.mosaic_policy.anchors` | visible-screen-origin;x-x%w;y-y%h |
+| `ppu_policy.mosaic_policy.sampling` | current-row-captured-registers-and-memory;no-old-row-cache |
+| `ppu_policy.mosaic_policy.affine_origin` | current-origin-minus-pb-pd-times-row-anchor-delta |
+| `ppu_policy.mosaic_policy.stage` | source-before-destination-window-and-effects |
+| `ppu_policy.mosaic_policy.obj_field` | existing-destination-field;anchor-outside-transparent;no-field-growth |
+
+Each size field means field value plus one, independently for BG and OBJ. Groups
+anchor to the visible screen origin at `(x - x % w, y - y % h)`. A later row
+re-samples that source coordinate through the current row's captured registers
+and memory; it does not reuse an older row or committed frame pixel. Window
+visibility and effects are evaluated at the destination pixel after source
+sampling. OBJ mosaic uses the existing destination field, and out-of-field
+anchors remain transparent without expanding it.
+
+## Forced blank policy
+
+The two available manual revisions disagree on forced-blank transition wording:
+the B4 mirror describes delayed resume while the B6 mirror describes different
+on/off transitions. Both copies are third-party mirrors; this conflict does not
+establish physical behavior. Gamebloke selects the sampled-row rule below and
+leaves hardware transition timing UNKNOWN. The policy cites §5, printed
+pp. 29–30, without reproducing manual text or figures.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.forced_blank_policy.color_bgr555` | 32767 |
+| `ppu_policy.forced_blank_policy.raw_bytes` | FF 7F |
+| `ppu_policy.forced_blank_policy.transitions` | next-captured-visible-row;no-extra-delay-or-restart |
+| `ppu_policy.forced_blank_policy.frame_validity` | normal-epoch-row-coverage;publish-line160 |
+| `ppu_policy.forced_blank_policy.precedence` | bypass-scene-decode;retain-structural-transaction-validation |
+| `ppu_policy.forced_blank_policy.access_policy` | unchanged-existing-bus-behavior |
+
+A forced-blank sampled row emits 240 white BGR555 pixels (`0x7FFF`, bytes
+`FF 7F`) without BG/OBJ/effect scene decoding. The shared clock and ordinary row
+coverage continue; a complete all-white frame is valid, and a partial frame is
+still incomplete. The sampled bit changes output on the next captured visible
+row. Structural capture validation and transactional refusal remain in force.
+This transition is a project policy, not qualified hardware behavior.
+
 ## PPU display capabilities
 
 The mode table describes available background source layouts and their source
@@ -226,13 +334,14 @@ black. The manual documents bitmap formats, extents, and pages in §§6.2.1–6.
 Mode-4 index-zero transparency follows secondary-source evidence as selected
 project policy. The explicit rounding/overflow behavior above is software policy,
 not a hardware measurement.
-Background, normal regular/affine OBJ, and backdrop samples use the same
-captured row state and canonical sampled video memory. The shared compositor
-preserves transparency and source identity until priority selection. Forced
-blank, windows, effects, mosaic, and unsupported OBJ controls remain outside
-the supported subset; enabling unsupported controls retains deterministic
-frame invalidation behavior. All six display modes remain `partial`, and PPU
-hardware qualification remains `UNKNOWN`.
+Background, regular/affine OBJ, window, effect, mosaic, forced-blank, and
+backdrop samples use the same captured row state and canonical sampled video
+memory. The shared compositor preserves transparency and source identity until
+priority selection. These implemented features expand the selected software
+subset, not hardware qualification: every mode remains `partial`, and PPU
+hardware qualification remains `UNKNOWN`. Unsupported background-control
+encodings and prohibited OBJ mode/shape encodings still invalidate the sampled
+frame deterministically.
 
 | Mode | Implementation status | Background sources and dimensions |
 | --- | --- | --- |
@@ -242,6 +351,24 @@ hardware qualification remains `UNKNOWN`.
 | `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |
 | `ppu_policy.display_capabilities.modes[4]` | partial | BG2 indexed-bitmap: 240x160 |
 | `ppu_policy.display_capabilities.modes[5]` | partial | BG2 direct-color-bitmap: 160x128 |
+
+## PPU composition features
+
+The model-2 tuple identifies implemented software composition features and
+their qualification boundary. It does not upgrade any mode from `partial`.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.display_capabilities.model` | gamebloke-display-capabilities-2 |
+| `ppu_policy.display_capabilities.composition_features.rectangular_windows` | true |
+| `ppu_policy.display_capabilities.composition_features.object_windows` | true |
+| `ppu_policy.display_capabilities.composition_features.alpha_blending` | true |
+| `ppu_policy.display_capabilities.composition_features.brightness` | true |
+| `ppu_policy.display_capabilities.composition_features.bg_mosaic` | true |
+| `ppu_policy.display_capabilities.composition_features.obj_mosaic` | true |
+| `ppu_policy.display_capabilities.composition_features.forced_blank` | true |
+| `ppu_policy.display_capabilities.composition_features.classification` | project-selected |
+| `ppu_policy.display_capabilities.composition_features.hardware_qualification` | UNKNOWN |
 
 ## PPU raw output
 
@@ -812,7 +939,7 @@ must not claim the behavior of anything in this table.
 | `waitcnt` | Documented wait choices drive contextual ROM beat quotes, but hardware qualification remains UNKNOWN and the 128 KiB mapping has secondary provenance. |
 | `bus-costs` | Non-ROM values remain project-selected and all modeled bus costs remain hardware-unqualified. |
 | `hblank-flag-edge` | Hardware timing for the HBlank flag change remains unknown and disputed under disp-hblank-flag-edge; the selected 1,006-cycle model event is in ppu_policy and is not a hardware resolution. |
-| `ppu` | The deterministic partial mode, normal OBJ, and composition subset is described in `ppu_policy`; hardware qualification remains UNKNOWN, and windows, effects, mosaic, forced blank, and unsupported object controls remain unmodeled. |
+| `ppu` | The deterministic partial modes, OBJ, window, effect, mosaic, and forced-blank subset is described in `ppu_policy` as project-selected software behavior; all six mode statuses remain partial and hardware qualification remains UNKNOWN. Prohibited OBJ mode/shape encodings and unsupported background-control encodings remain unmodeled. |
 | `audio` | Sound. |
 | `dma` | The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled. |
 | `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |
