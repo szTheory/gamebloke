@@ -892,6 +892,7 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     gbl_runner_result incomplete = { 0 };
     gbl_runner_result next_epoch_incomplete = { 0 };
     gbl_runner_result unsupported = { 0 };
+    gbl_runner_status unsupported_status;
     gbl_runner_result fresh = { 0 };
     gbl_runner_result invalid_path = { 0 };
     gbl_runner_result not_requested = { 0 };
@@ -915,6 +916,7 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     char existing_bytes[8] = { 0 };
     FILE *file;
     bool okay;
+    bool unsupported_okay;
 
     if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
                        "ppu-output-controls.gba") ||
@@ -1047,36 +1049,87 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                   "\"failure\":\"video-frame-unavailable\","
                   "\"format\":\"bgr555-le\"}") != NULL;
 
-    okay = okay &&
-           gbl_test_execute_ppu(unsupported_rom_path, unsupported_path,
-                                unsupported_events,
-                                sizeof unsupported_events /
-                                    sizeof unsupported_events[0],
-                                true, UINT64_C(500000),
-                                (gbl_runner_allocator){ 0 }, &unsupported) ==
-               GBL_RUNNER_HARNESS_FAIL &&
-           unsupported.phase10.frame_epoch == UINT64_C(1) &&
-           unsupported.phase10.capture_state == GBL_VIDEO_CAPTURE_INVALID &&
-           unsupported.phase10.capture_reason ==
-               GBL_VIDEO_INVALID_REASON_BG2_DISABLED &&
-           unsupported.phase10.video_bytes == NULL &&
-           unsupported.phase10.video_length == 0u &&
-           !unsupported.phase10.video_emitted &&
-           strcmp(unsupported.phase10.video_output_error,
-                  "video-frame-unavailable") == 0 &&
-           access(unsupported_path, F_OK) != 0 && errno == ENOENT &&
-           gbl_test_serialize_result(&unsupported, json, sizeof json) &&
-           strstr(json,
-                  "\"frame\":{\"state\":\"invalid\","
-                  "\"reason\":\"bg2-disabled\"") != NULL &&
-           strstr(json,
-                  "\"mode\":3,\"implementation_status\":\"partial\"") != NULL &&
-           strstr(json,
-                  "\"raw_video\":{\"requested\":true,"
-                  "\"status\":\"failed\",\"emitted\":false,"
-                  "\"byte_length\":null,\"sha256\":null,"
-                  "\"failure\":\"video-frame-unavailable\","
-                  "\"format\":\"bgr555-le\"}") != NULL;
+    unsupported_status = gbl_test_execute_ppu(
+        unsupported_rom_path, unsupported_path, unsupported_events,
+        sizeof unsupported_events / sizeof unsupported_events[0], true,
+        UINT64_C(500000), (gbl_runner_allocator){ 0 }, &unsupported);
+    unsupported_okay = unsupported_status == GBL_RUNNER_TIMEOUT &&
+                       unsupported.phase8.applied_input_events == 2u &&
+                       unsupported.phase10.frame_epoch == UINT64_C(1) &&
+                       unsupported.phase10.capture_state ==
+                           GBL_VIDEO_CAPTURE_VALID &&
+                       unsupported.phase10.capture_reason ==
+                           GBL_VIDEO_INVALID_REASON_NONE &&
+                       unsupported.phase10.video_bytes != NULL &&
+                       unsupported.phase10.video_length ==
+                           GBL_RUNNER_VIDEO_BYTES &&
+                       unsupported.phase10.video_emitted &&
+                       unsupported.phase10.video_bytes[0] == 0u &&
+                       unsupported.phase10.video_bytes[1] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           (80u * GBL_PPU_WIDTH + 120u) * 2u] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           (80u * GBL_PPU_WIDTH + 120u) * 2u + 1u] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           GBL_RUNNER_VIDEO_BYTES - 2u] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           GBL_RUNNER_VIDEO_BYTES - 1u] == 0u &&
+                       gbl_test_video_file_matches(
+                           unsupported_path, unsupported.phase10.video_bytes,
+                           GBL_RUNNER_VIDEO_BYTES) &&
+                       gbl_test_serialize_result(&unsupported, json,
+                                                 sizeof json) &&
+                       strstr(json,
+                              "\"frame\":{\"state\":\"valid\","
+                              "\"reason\":\"none\"") != NULL &&
+                       strstr(json,
+                              "\"mode\":3,\"implementation_status\":\"partial\"") != NULL &&
+                       strstr(json,
+                              "\"raw_video\":{\"requested\":true,"
+                  "\"status\":\"emitted\",\"emitted\":true,") != NULL &&
+           strstr(json, "\"format\":\"bgr555-le\"}") != NULL;
+    if (!unsupported_okay) {
+        fprintf(stderr,
+                "runner_test: backdrop transition mismatch: status=%d "
+                "events=%zu epoch=%llu state=%d reason=%d emitted=%d "
+                "length=%zu pixel0=%02x%02x pixel_mid=%02x%02x "
+                "pixel_last=%02x%02x file=%d\n",
+                (int)unsupported_status,
+                unsupported.phase8.applied_input_events,
+                (unsigned long long)unsupported.phase10.frame_epoch,
+                (int)unsupported.phase10.capture_state,
+                (int)unsupported.phase10.capture_reason,
+                unsupported.phase10.video_emitted ? 1 : 0,
+                unsupported.phase10.video_length,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[0]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[1]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          (80u * GBL_PPU_WIDTH + 120u) * 2u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          (80u * GBL_PPU_WIDTH + 120u) * 2u + 1u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          GBL_RUNNER_VIDEO_BYTES - 2u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          GBL_RUNNER_VIDEO_BYTES - 1u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? gbl_test_video_file_matches(
+                          unsupported_path, unsupported.phase10.video_bytes,
+                          GBL_RUNNER_VIDEO_BYTES)
+                    : 0);
+    }
+    okay = okay && unsupported_okay;
 
     okay = okay &&
            gbl_test_execute_ppu(rom_path, fresh_path, &pressed_a, 1u, true,
@@ -1200,8 +1253,7 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
            !bad_parent.phase10.video_emitted &&
            !allocation.phase10.video_emitted &&
            !incomplete.phase10.video_emitted &&
-           !next_epoch_incomplete.phase10.video_emitted &&
-           !unsupported.phase10.video_emitted;
+           !next_epoch_incomplete.phase10.video_emitted;
 
     gbl_runner_result_dispose(&existing);
     gbl_runner_result_dispose(&bad_parent);
@@ -3525,7 +3577,7 @@ int main(int argc, char **argv)
         printf("1..1\n");
         gbl_test_case(
             gbl_test_runner_ppu_output_controls(argv[2]),
-            "runner-ppu-output-controls: refusals preserve files, capture state, allocation balance, and emitted=false");
+            "runner-ppu-output-controls: refusals preserve output while BG2-disabled bitmap mode emits backdrop pixels");
         return gbl_test_failures == 0u ? 0 : 1;
     }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
