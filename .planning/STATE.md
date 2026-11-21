@@ -2,48 +2,48 @@
 gsd_state_version: "1.0"
 milestone: v3.0
 milestone_name: PPU Modes and Composition
-current_phase: 13
-current_phase_name: Objects and Layer Priorities
-current_plan: 8
-status: verifying
-stopped_at: Completed 13-08-PLAN.md
-last_updated: "2026-11-21T05:53:17.916Z"
-last_activity: 2026-11-20
-last_activity_desc: Phase 13 execution started
-state_head: 913c4bffde09b1194f32025c1c66baa744b880fa
+current_phase: 14
+current_phase_name: Windows and Display Effects
+current_plan: Not started
+status: planning
+stopped_at: Phase 13 complete, ready to plan Phase 14
+last_updated: "2026-11-21T06:48:01.000Z"
+last_activity: 2026-11-21
+last_activity_desc: Phase 13 complete, transitioned to Phase 14
+state_head: 00968d5fe55af4858b8734e79d97c317b2b5df4d
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 24
   completed_plans: 24
-  percent: 40
+  percent: 60
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-20)
+See: .planning/PROJECT.md (updated 2026-11-21)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Current milestone:** v3.0 PPU Modes and Composition (a GSD milestone label, not a software version)
-**Current focus:** Phase 13 — Objects and Layer Priorities
+**Current focus:** Phase 14 — Windows and Display Effects
 
 ## Current Position
 
-Phase: 13 (Objects and Layer Priorities) — EXECUTING
-Current Plan: 8
+Phase: 14 — Windows and Display Effects
+Current Plan: Not started
 Total Plans in Phase: 8
-Status: Phase complete — ready for verification
-Last activity: 2026-11-20 — Phase 13 execution started
+Status: Ready to plan
+Last activity: 2026-11-21 — Phase 13 complete, transitioned to Phase 14
 
-Progress: [████░░░░░░] 40% (current milestone)
+Progress: [██████░░░░] 60% (current milestone)
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 104
+- Total plans completed: 112
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -61,6 +61,7 @@ Progress: [████░░░░░░] 40% (current milestone)
 | 9 | 8 | - | - |
 | 10 | 11 | - | - |
 | 12 | 8 | - | - |
+| 13 | 8 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -202,6 +203,9 @@ Recent decisions affecting current work:
 - [Phase 12]: Modes 0–5 now render their declared text, affine, or bitmap background families from canonical video memory; mode capability remains partial until composition and display effects ship.
 - [Phase 12]: Preserve semantic pixel expectations and bounds/refusal checks. The review fixes and direct-preview regression passed focused checks and final local CI; no hardware qualification follows.
 - [Phase 12]: Keep two-worker CTest; the measured run showed no safe setting change. The exact fast helper caught a direct-preview regression before the long canonical workflow.
+- [Phase 13]: Regular/affine OBJ and the shared BG/OBJ/backdrop compositor passed semantic pixel, boundary, refusal, replay, exact-selector, and canonical CI checks. Equal-priority OBJ-over-BG and the 1,226-unit per-row budget are deterministic software policies; hardware qualification remains UNKNOWN.
+- [Phase 13]: The exact helper removed duplicate profile checks while retaining the required inherited closure. Canonical CTest measured 907.20 seconds; the slow profile mutation tests exercise distinct evidence, so no further safe coverage-preserving shortcut was identified.
+- [Phase 13]: The required L1 security audit recorded 25 distinct threats closed and zero blockers in `13-SECURITY.md`; no accepted risks were added.
 
 - [v2.0 Roadmap]: Phase 7 owns TIME-01, TIME-03, TIME-05, BUS-06, and VERIF-08: one machine time/event path, all four timers, explicit cycle-accounting scope, an original BIOS-free Timer 0 polling proof, and cheap event-boundary/test-selection checks. Model evidence must remain labeled until required timing costs are sourced and modeled.
 - [v2.0 Roadmap]: Phase 8 owns IRQ/HALT/timestamped input; Phase 9 owns WAITCNT/prefetch scope and DMA arbitration; Phase 10 owns PPU timing, raw mode-3 output, and polling Playable 0. Device requests remain distinct from CPU acceptance/entry and HALT wake.
@@ -556,11 +560,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-21T05:53:17.760Z
-Stopped at: Completed 13-08-PLAN.md
+Last session: 2026-11-21T06:48:01.000Z
+Stopped at: Phase 13 verified and secured; preparing Phase 14 context
 Resume file: None
 
 ## Operator Next Steps
 
 
-- Discuss Phase 13, Objects and Layer Priorities, then plan and execute it through `$gsd-autonomous`. Phase 12 verification passed. Hardware qualification, hosted qualification, and publication remain separate owner gates.
+- Continue Phase 14, Windows and Display Effects, through `$gsd-autonomous`. Phase 13 verification and its L1 security audit passed. Hardware qualification, hosted qualification, and publication remain separate owner gates.

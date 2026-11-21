@@ -38,7 +38,7 @@ work; decimal IDs are reserved for later insertions.
 
 - [x] **Phase 11: Sampled Rows and Transactional Visibility** - Callers can identify supported controls and observe ordered, failure-atomic raw-video rows.
 - [x] **Phase 12: Background Modes 0–5** - Text, affine, and bitmap backgrounds produce their declared semantic pixels from canonical video memory. (completed 2026-11-20)
-- [ ] **Phase 13: Objects and Layer Priorities** - Regular and affine objects combine with backgrounds and backdrop through one bounded composition policy.
+- [x] **Phase 13: Objects and Layer Priorities** - Regular and affine objects combine with backgrounds and backdrop through one bounded composition policy. (completed 2026-11-21)
 - [ ] **Phase 14: Windows and Display Effects** - Region masks, blending, brightness, mosaic, and forced blank interact predictably.
 - [ ] **Phase 15: Production Access and Runner Evidence** - CPU/DMA video-memory behavior and complete PPU scenes agree through the shared clock and real runner.
 
@@ -123,7 +123,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
   2. Affine objects produce expected transformed pixels from their selected matrices, with the declared signed fixed-point, bounding-field, clipping, transparency, and address limits.
   3. Overlapping objects, backgrounds, and backdrop resolve to expected colors under the declared enable, transparency, priority, and tie-breaking rules.
   4. A line that exceeds the declared object-work bound yields repeatable, inspectable selection and output under the stable ordering policy; that bound is labeled project policy where silicon behavior is unknown.
-**Plans**: 8/8 plans executed
+**Plans**: 8/8 plans complete
 **Wave 1**
 - [x] 13-01-PLAN.md — Sampled regular OBJ tracer and complete regular decoding.
 
@@ -189,7 +189,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 |-------|----------------|--------|-----------|
 | 11. Sampled Rows and Transactional Visibility | 8/8 | Complete | 2026-11-20 |
 | 12. Background Modes 0–5 | 8/8 | Complete    | 2026-11-20 |
-| 13. Objects and Layer Priorities | 8/8 | In Progress | - |
+| 13. Objects and Layer Priorities | 8/8 | Complete    | 2026-11-21 |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
 | 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
 
