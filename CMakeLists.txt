@@ -808,3 +808,28 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     endif()
   endforeach()
 endif()
+
+# Phase 15's access/production selectors receive a cheap, acyclic gate before
+# longer CPU/DMA/runner PPU checks. Keep only the three selector gates in the
+# setup fixture; every earlier-phase prerequisite remains appended as before.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase15_fast_setup_tests
+    phase15.selection.verify
+    phase15.selection.control
+    phase15.selection.order)
+  foreach(test_name IN LISTS gbl_phase15_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase15_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase15_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase15_fast)
+    endif()
+  endforeach()
+endif()
