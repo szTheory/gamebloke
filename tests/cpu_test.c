@@ -15239,7 +15239,9 @@ static void test_ppu_cpu_store_boundaries(void)
                 cpu_ppu_run_store_at_cycle(
                     dispcnt_address, 2u, UINT32_C(0x0483), completion,
                     register_cost, &sampled_pixel, &actual_cycle);
-            const uint16_t expected = index == 0u ? 0u : UINT16_C(0x1234);
+            const uint16_t expected = index == 0u
+                                          ? UINT16_C(0x7FFF)
+                                          : UINT16_C(0x1234);
 
             test_case(ran && actual_cycle == completion &&
                           sampled_pixel == expected,
