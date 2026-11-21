@@ -4,18 +4,18 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 13
 current_phase_name: Objects and Layer Priorities
-current_plan: 4
+current_plan: 5
 status: executing
-stopped_at: Completed 13-03-PLAN.md
-last_updated: "2026-11-21T00:37:48.974Z"
+stopped_at: Completed 13-04-PLAN.md
+last_updated: "2026-11-21T01:10:17.558Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 13 execution started
-state_head: 53b66c495e05f30b9dd5fc7849039629d9bff03b
+state_head: 475c4bc0d59c502c1f391483b55b519ae81ba7c7
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 24
-  completed_plans: 19
+  completed_plans: 20
   percent: 40
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 ## Current Position
 
 Phase: 13 (Objects and Layer Priorities) — EXECUTING
-Current Plan: 4
+Current Plan: 5
 Total Plans in Phase: 8
 Status: Ready to execute
 Last activity: 2026-11-20 — Phase 13 execution started
@@ -184,6 +184,7 @@ Progress: [████░░░░░░] 40% (current milestone)
 | Phase 13 P01 | 37min | 2 tasks | 5 files |
 | Phase 13 P02 | 39m | 2 tasks | 5 files |
 | Phase 13 P03 | 25m 19s | 2 tasks | 5 files |
+| Phase 13 P04 | 21m12s | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -487,6 +488,9 @@ Recent decisions affecting current work:
 - [Phase 13]: D-08: Lower numeric priority wins; same-class ties favor lower BG number or lower OAM index.
 - [Phase 13]: D-09: Equal-priority OBJ wins over BG as deterministic software policy; the manual sandwich is not a silicon comparator claim.
 - [Phase 13]: D-10: Admit OBJ candidates in ascending OAM order, but resolve visible pixels by priority first.
+- [Phase 13]: OBJ row work is a 1226-unit project policy and does not affect master cycles.
+- [Phase 13]: Admission scans eligible OAM entries in ascending order and stops selecting at the first full-cost non-fit.
+- [Phase 13]: Visible priority remains a compositor decision after OBJ admission.
 
 ### Pending Todos
 
@@ -538,8 +542,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-21T00:37:48.836Z
-Stopped at: Completed 13-03-PLAN.md
+Last session: 2026-11-21T01:10:17.394Z
+Stopped at: Completed 13-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -26,7 +26,7 @@ claim cycle accuracy, hardware qualification, or broad compatibility.
 
 - [x] **OBJ-01**: Regular objects render supported shape/size, 1D/2D mapping, flips, palette modes, clipping, transparency, and mode-dependent object tile availability from canonical OAM and video memory.
 - [x] **OBJ-02**: Affine objects render from their selected transform matrices with declared signed fixed-point, bounding-field, clipping, transparency, and address-bound behavior.
-- [ ] **OBJ-03**: Object selection and composition use a documented stable ordering and explicit bounded per-line work policy; exceeding that policy produces deterministic, inspectable output.
+- [x] **OBJ-03**: Object selection and composition use a documented stable ordering and explicit bounded per-line work policy; exceeding that policy produces deterministic, inspectable output.
 
 ### Composition
 
@@ -74,7 +74,7 @@ The roadmap assigns every current v3.0 requirement to exactly one phase.
 | BG-03 | Phase 12 | Complete |
 | OBJ-01 | Phase 13 | Complete |
 | OBJ-02 | Phase 13 | Complete |
-| OBJ-03 | Phase 13 | Pending |
+| OBJ-03 | Phase 13 | Complete |
 | COMP-01 | Phase 13 | Complete |
 | COMP-02 | Phase 14 | Pending |
 | COMP-03 | Phase 14 | Pending |
