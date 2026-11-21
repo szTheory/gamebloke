@@ -14876,6 +14876,310 @@ static uint32_t cpu_ppu_store_opcode(uint8_t width)
                                0u, 1u, 0u);
 }
 
+static uint32_t cpu_ppu_access_opcode(bool write, uint8_t width)
+{
+    const uint8_t data_register = write ? 1u : 2u;
+    const bool load = !write;
+
+    if (width == 2u) {
+        return encode_arm_subword(false, true, true, false, load, false,
+                                  true, 0u, data_register, 0u);
+    }
+    return encode_arm_transfer(false, true, true, width == 1u, false, load,
+                               0u, data_register, 0u);
+}
+
+static uint8_t *cpu_ppu_video_memory(gbl_machine *machine, size_t region)
+{
+    if (region == 0u) {
+        return machine->pram;
+    }
+    if (region == 1u) {
+        return machine->vram;
+    }
+    return machine->oam;
+}
+
+static void test_ppu_cpu_access_matrix(void)
+{
+    static const struct {
+        const char *name;
+        uint64_t cycle;
+        uint16_t dispcnt;
+        uint16_t line;
+        uint16_t status_mask;
+        uint16_t status_value;
+        bool forced_blank;
+    } states[] = {
+        { "drawing", UINT64_C(100), UINT16_C(0x0403), 0u,
+          UINT16_C(0x0003), 0u, false },
+        { "hblank", GBL_PPU_HBLANK_CYCLES, UINT16_C(0x0403), 0u,
+          UINT16_C(0x0003), UINT16_C(0x0002), false },
+        { "vblank",
+          (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES,
+          UINT16_C(0x0403), GBL_PPU_VISIBLE_LINES,
+          UINT16_C(0x0003), UINT16_C(0x0001), false },
+        { "forced-blank", UINT64_C(100), UINT16_C(0x0483), 0u,
+          UINT16_C(0x0003), 0u, true }
+    };
+    static const struct {
+        const char *name;
+        uint32_t address;
+        uint8_t initial[4];
+    } regions[] = {
+        { "PRAM", UINT32_C(0x05000000),
+          { UINT8_C(0x11), UINT8_C(0x22), UINT8_C(0x33), UINT8_C(0x44) } },
+        { "VRAM", UINT32_C(0x06000000),
+          { UINT8_C(0x55), UINT8_C(0x66), UINT8_C(0x77), UINT8_C(0x88) } },
+        { "OAM", UINT32_C(0x07000000),
+          { UINT8_C(0x99), UINT8_C(0xAA), UINT8_C(0xBB), UINT8_C(0xCC) } }
+    };
+    static const uint8_t widths[] = { 1u, 2u, 4u };
+    static const char *const width_names[] = { "byte", "halfword", "word" };
+    static const char *const operation_names[] = { "LDR", "STR" };
+    bool seen[4][3][2][3] = { false };
+    unsigned int emitted = 0u;
+    size_t state_index;
+
+    for (state_index = 0u;
+         state_index < sizeof(states) / sizeof(states[0]);
+         ++state_index) {
+        size_t region_index;
+
+        for (region_index = 0u;
+             region_index < sizeof(regions) / sizeof(regions[0]);
+             ++region_index) {
+            size_t operation_index;
+
+            for (operation_index = 0u; operation_index < 2u;
+                 ++operation_index) {
+                size_t width_index;
+
+                for (width_index = 0u;
+                     width_index < sizeof(widths) / sizeof(widths[0]);
+                     ++width_index) {
+                    uint8_t image[TEST_IMAGE_SIZE];
+                    gbl_machine machine = { 0 };
+                    gbl_run_result result = { 0 };
+                    gbl_trace_record records[8] = { { 0 } };
+                    gbl_trace_buffer trace = { records, 8u, 0u, 1u };
+                    uint8_t expected_memory[4];
+                    uint8_t *memory = NULL;
+                    uint64_t data_cycle = 0u;
+                    const uint8_t width = widths[width_index];
+                    const bool write = operation_index != 0u;
+                    const uint32_t store_value = UINT32_C(0xA1B2C3D4);
+                    uint64_t start_cycle = 0u;
+                    unsigned int matching_records = 0u;
+                    unsigned int fetch_records = 0u;
+                    bool fetch_matches = true;
+                    size_t trace_index;
+                    bool loaded;
+                    bool ready;
+                    bool ran = false;
+                    bool state_observed = false;
+                    bool memory_matches = false;
+                    bool data_matches = true;
+                    char description[160];
+
+                    seen[state_index][region_index][operation_index]
+                        [width_index] = true;
+                    ++emitted;
+                    make_empty_image(image);
+                    loaded = machine_load_with_allocator(&machine, image,
+                                                         NULL);
+                    ready = loaded;
+                    if (ready) {
+                        memory = cpu_ppu_video_memory(&machine,
+                                                      region_index);
+                        memcpy(memory, regions[region_index].initial,
+                               sizeof(regions[region_index].initial));
+                        ready = gbl_bus_write(
+                                    &machine, UINT32_C(0x04000000), 2u,
+                                    GBL_BUS_CLASS_NONSEQUENTIAL,
+                                    UINT32_C(0x0403)).status ==
+                                GBL_BUS_STATUS_OK;
+                    }
+                    if (ready &&
+                        gbl_machine_advance_to(&machine,
+                                               states[state_index].cycle) !=
+                            GBL_TIME_STATUS_OK) {
+                        ready = false;
+                    }
+                    if (ready && states[state_index].forced_blank) {
+                        const gbl_bus_result blank_write = gbl_bus_write(
+                            &machine, UINT32_C(0x04000000), 2u,
+                            GBL_BUS_CLASS_NONSEQUENTIAL,
+                            states[state_index].dispcnt);
+
+                        ready = blank_write.status == GBL_BUS_STATUS_OK &&
+                                blank_write.outcome ==
+                                    GBL_BUS_OUTCOME_IO_MODE_SUBSET &&
+                                blank_write.cycles == 1u;
+                    }
+                    if (ready) {
+                        memcpy(expected_memory,
+                               regions[region_index].initial,
+                               sizeof(expected_memory));
+                        machine.cpu.r0_7[0] = regions[region_index].address;
+                        machine.cpu.r0_7[1] = store_value;
+                        machine.cpu.r0_7[2] = UINT32_C(0xDEADBEEF);
+                        start_cycle = machine.master_cycles;
+                        ran = run_arm_instruction_with_trace(
+                            &machine,
+                            cpu_ppu_access_opcode(write, width),
+                            TEST_CPSR_SYSTEM, UINT64_C(64), &trace, &result) &&
+                            result.instructions == 1u &&
+                            result.termination == GBL_RUN_PROGRESS;
+                    }
+                    if (ran) {
+                        for (trace_index = 0u; trace_index < trace.count;
+                             ++trace_index) {
+                            const gbl_trace_record *record =
+                                &records[trace_index];
+
+                            if (record->category == GBL_TRACE_BUS &&
+                                record->instruction_address ==
+                                    UINT32_C(0x08000000) &&
+                                record->address ==
+                                    regions[region_index].address &&
+                                record->width == width) {
+                                ++matching_records;
+                                data_cycle = record->guest_cycle;
+                                data_matches =
+                                    record->bus_outcome ==
+                                        GBL_BUS_OUTCOME_RAM &&
+                                    record->access_class ==
+                                        GBL_BUS_CLASS_NONSEQUENTIAL &&
+                                    (!write
+                                         ? record->value ==
+                                               machine.cpu.r0_7[2]
+                                         : true);
+                            } else if (record->category == GBL_TRACE_BUS &&
+                                       record->instruction_address ==
+                                           UINT32_C(0x08000000)) {
+                                ++fetch_records;
+                                fetch_matches = fetch_matches &&
+                                    record->address ==
+                                        UINT32_C(0x08000008) &&
+                                    record->width == 4u &&
+                                    record->bus_outcome ==
+                                        GBL_BUS_OUTCOME_ROM &&
+                                    record->access_class ==
+                                        GBL_BUS_CLASS_SEQUENTIAL &&
+                                    record->guest_cycle ==
+                                        start_cycle + UINT64_C(7);
+                            }
+                        }
+                        if (write &&
+                            !(width == 1u && region_index == 2u)) {
+                            expected_memory[0] = UINT8_C(0xD4);
+                            if (width == 1u) {
+                                expected_memory[1] = UINT8_C(0xD4);
+                            } else {
+                                expected_memory[1] = UINT8_C(0xC3);
+                            }
+                            if (width == 4u) {
+                                expected_memory[2] = UINT8_C(0xB2);
+                                expected_memory[3] = UINT8_C(0xA1);
+                            }
+                        }
+                        memory_matches = memory != NULL &&
+                            memcmp(memory, expected_memory,
+                                   sizeof(expected_memory)) == 0;
+                        if (!write) {
+                            const uint32_t expected_value =
+                                (uint32_t)regions[region_index].initial[0] |
+                                ((uint32_t)regions[region_index].initial[1]
+                                 << 8u) |
+                                ((uint32_t)regions[region_index].initial[2]
+                                 << 16u) |
+                                ((uint32_t)regions[region_index].initial[3]
+                                 << 24u);
+                            const uint32_t mask = width == 1u
+                                ? UINT32_C(0x000000FF)
+                                : width == 2u ? UINT32_C(0x0000FFFF)
+                                              : UINT32_MAX;
+
+                            data_matches = data_matches &&
+                                machine.cpu.r0_7[2] ==
+                                    (expected_value & mask);
+                        }
+                        state_observed =
+                            machine.ppu.line == states[state_index].line &&
+                            (machine.ppu.dispstat &
+                             states[state_index].status_mask) ==
+                                states[state_index].status_value &&
+                            (((machine.ppu.dispcnt & UINT16_C(0x0080)) != 0u)
+                             == states[state_index].forced_blank);
+                    }
+                    (void)printf(
+                        "# ppu.access cell=%u state=%s region=%s operation=%s width=%u data_completion_cycle=%llu total_cycles=%llu\n",
+                        emitted, states[state_index].name,
+                        regions[region_index].name,
+                        operation_names[operation_index], (unsigned int)width,
+                        (unsigned long long)data_cycle,
+                        (unsigned long long)result.cycles);
+                    {
+                        /* The real PPU request completes one cycle after
+                         * instruction start. The separately traced next
+                         * sequential ROM word fetch accounts for six more
+                         * cycles at reset WAITCNT, per the profile's
+                         * contextual WAITCNT beat formula. */
+                        const bool passed = ran && matching_records == 1u &&
+                            data_cycle == start_cycle + UINT64_C(1) &&
+                            fetch_records == 1u && fetch_matches &&
+                            result.bus_cycles == UINT64_C(7) &&
+                            result.internal_cycles == 0u &&
+                            result.cycles == machine.master_cycles - start_cycle &&
+                            result.cycles == result.bus_cycles +
+                                                 result.internal_cycles &&
+                            data_matches && memory_matches && state_observed;
+
+                        (void)snprintf(
+                            description, sizeof(description),
+                            "CPU %s %s %s preserves literal lanes and one bus cycle in %s",
+                            operation_names[operation_index],
+                            regions[region_index].name,
+                            width_names[width_index], states[state_index].name);
+                        test_case(passed, description);
+                    }
+                    if (loaded) {
+                        gbl_machine_dispose(&machine);
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        bool complete = emitted == 72u;
+        size_t state_index_check;
+
+        for (state_index_check = 0u;
+             state_index_check < 4u; ++state_index_check) {
+            size_t region_index;
+
+            for (region_index = 0u; region_index < 3u; ++region_index) {
+                size_t operation_index;
+
+                for (operation_index = 0u; operation_index < 2u;
+                     ++operation_index) {
+                    size_t width_index;
+
+                    for (width_index = 0u; width_index < 3u; ++width_index) {
+                        complete = complete &&
+                            seen[state_index_check][region_index]
+                                [operation_index][width_index];
+                    }
+                }
+            }
+        }
+        test_case(complete,
+                  "CPU PPU matrix reports each of the 72 state/region/direction/width cells exactly once");
+    }
+}
+
 static bool cpu_ppu_store_trace_cycle(gbl_trace_buffer *trace,
                                       uint32_t address, uint8_t width,
                                       uint64_t *cycle)
@@ -14996,6 +15300,287 @@ static bool cpu_ppu_store_cost(uint32_t address, uint8_t width,
         gbl_machine_dispose(&machine);
     }
     return ran && cycle != 0u;
+}
+
+static void cpu_ppu_store_u16(uint8_t *bytes, size_t offset, uint16_t value)
+{
+    bytes[offset] = (uint8_t)(value & UINT16_C(0x00FF));
+    bytes[offset + 1u] = (uint8_t)(value >> 8u);
+}
+
+static bool cpu_ppu_prepare_boundary_scene(gbl_machine *machine,
+                                           size_t region)
+{
+    size_t row;
+
+    if (machine == NULL || region > 2u) {
+        return false;
+    }
+    if (region == 1u) {
+        machine->dispcnt = UINT16_C(0x0403);
+        machine->ppu.dispcnt = machine->dispcnt;
+        machine->ppu.affine[0].pa = 256;
+        machine->ppu.affine[0].pb = 0;
+        machine->ppu.affine[0].pc = 0;
+        machine->ppu.affine[0].pd = 0;
+        machine->ppu.affine[0].programmed_reference_x = 0u;
+        machine->ppu.affine[0].programmed_reference_y = 0u;
+        machine->ppu.affine[0].origin_x = 0u;
+        machine->ppu.affine[0].origin_y = 0u;
+        machine->ppu.affine[0].origin_valid = true;
+        cpu_ppu_store_u16(machine->vram, 0u, UINT16_C(0x1234));
+        return true;
+    }
+    machine->dispcnt = UINT16_C(0x0100);
+    machine->ppu.dispcnt = machine->dispcnt;
+    machine->ppu.bg_register_bytes[0] = 0u;
+    machine->ppu.bg_register_bytes[1] = UINT8_C(0x01);
+    cpu_ppu_store_u16(machine->vram, UINT32_C(0x0800), UINT16_C(1));
+    cpu_ppu_store_u16(machine->pram, 0u, UINT16_C(0x4210));
+    cpu_ppu_store_u16(machine->pram, 2u, UINT16_C(0x1234));
+    cpu_ppu_store_u16(machine->pram, 4u, UINT16_C(0x5678));
+    for (row = 0u; row < 8u; ++row) {
+        machine->vram[UINT32_C(0x0020) + (uint32_t)row * 4u] =
+            UINT8_C(0x11);
+        machine->vram[UINT32_C(0x0040) + (uint32_t)row * 4u] =
+            UINT8_C(0x22);
+        machine->vram[UINT32_C(0x2020) + (uint32_t)row * 4u] =
+            UINT8_C(0x22);
+    }
+    if (region == 2u) {
+        size_t object;
+
+        machine->dispcnt = UINT16_C(0x1140);
+        machine->ppu.dispcnt = machine->dispcnt;
+        cpu_ppu_store_u16(machine->pram, 2u, UINT16_C(0x4210));
+        cpu_ppu_store_u16(machine->pram, UINT32_C(0x0202),
+                          UINT16_C(0x7C00));
+        for (object = 0u; object < 128u; ++object) {
+            cpu_ppu_store_u16(machine->oam, object * 8u,
+                              UINT16_C(0x0200));
+        }
+        cpu_ppu_store_u16(machine->oam, 0u, UINT16_C(1));
+        cpu_ppu_store_u16(machine->oam, 2u, 0u);
+        cpu_ppu_store_u16(machine->oam, 4u, UINT16_C(1));
+        memset(&machine->vram[UINT32_C(0x10020)], UINT8_C(0x11), 32u);
+    }
+    return true;
+}
+
+static uint32_t cpu_ppu_boundary_address(size_t region, uint8_t width)
+{
+    if (region == 0u) {
+        return width == 4u ? UINT32_C(0x05000000)
+                           : UINT32_C(0x05000002);
+    }
+    if (region == 1u) {
+        return UINT32_C(0x06000000);
+    }
+    return UINT32_C(0x07000000);
+}
+
+static uint32_t cpu_ppu_boundary_value(size_t region, uint8_t width)
+{
+    if (region == 0u) {
+        return width == 1u ? UINT32_C(0x5A)
+                           : width == 2u ? UINT32_C(0x2345)
+                                         : UINT32_C(0x62341234);
+    }
+    if (region == 1u) {
+        return width == 1u ? UINT32_C(0x5A)
+                           : width == 2u ? UINT32_C(0x2345)
+                                         : UINT32_C(0x21234321);
+    }
+    return UINT32_C(10);
+}
+
+static bool cpu_ppu_run_boundary_store_at_cycle(
+    size_t region, uint8_t width, uint64_t completion_cycle, uint64_t cost,
+    uint16_t *row1_pixel, uint16_t *row2_pixel,
+    uint8_t observed_memory[4], uint64_t *actual_cycle)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_trace_record records[16] = { { 0 } };
+    gbl_trace_buffer trace = { records, 16u, 0u, 1u };
+    uint8_t *memory;
+    uint64_t observed_cycle = 0u;
+    bool loaded;
+    bool ran = false;
+    bool stored = false;
+
+    make_empty_image(image);
+    loaded = machine_load_with_allocator(&machine, image, NULL);
+    if (loaded) {
+        ran = cpu_ppu_prepare_boundary_scene(&machine, region) &&
+              completion_cycle >= cost &&
+              gbl_machine_advance_to(&machine, completion_cycle - cost) ==
+                  GBL_TIME_STATUS_OK;
+    }
+    if (ran) {
+        machine.cpu.r0_7[0] = cpu_ppu_boundary_address(region, width);
+        machine.cpu.r0_7[1] = cpu_ppu_boundary_value(region, width);
+        ran = run_arm_instruction_with_trace(
+            &machine, cpu_ppu_store_opcode(width), TEST_CPSR_SYSTEM,
+            UINT64_C(64), &trace, &result) &&
+            result.instructions == 1u &&
+            result.termination == GBL_RUN_PROGRESS;
+    }
+    if (ran) {
+        stored = cpu_ppu_store_trace_cycle(
+            &trace, cpu_ppu_boundary_address(region, width), width,
+            &observed_cycle) && observed_cycle == completion_cycle;
+        if (row1_pixel != NULL) {
+            *row1_pixel = (uint16_t)(
+                (uint16_t)machine.video_frame[GBL_PPU_ROW_BYTES] |
+                (uint16_t)((uint16_t)machine.video_frame[
+                               GBL_PPU_ROW_BYTES + 1u]
+                           << 8u));
+        }
+        if (actual_cycle != NULL) {
+            *actual_cycle = observed_cycle;
+        }
+        if (gbl_machine_advance_to(
+                &machine, UINT64_C(2) * GBL_PPU_LINE_CYCLES) !=
+            GBL_TIME_STATUS_OK) {
+            ran = false;
+        }
+        if (ran) {
+            ran = (machine.ppu.row_coverage[0] & UINT8_C(0x06)) ==
+                  UINT8_C(0x06);
+        }
+        if (ran && row2_pixel != NULL) {
+            const size_t row2 = (size_t)GBL_PPU_ROW_BYTES * 2u;
+
+            *row2_pixel = (uint16_t)(
+                (uint16_t)machine.video_frame[row2] |
+                (uint16_t)((uint16_t)machine.video_frame[row2 + 1u] << 8u));
+        }
+        if (ran && observed_memory != NULL) {
+            if (region == 0u) {
+                memory = &machine.pram[2u];
+            } else if (region == 1u) {
+                memory = machine.vram;
+            } else {
+                memory = machine.oam;
+            }
+            memcpy(observed_memory, memory, 4u);
+        }
+    }
+    if (loaded) {
+        gbl_machine_dispose(&machine);
+    }
+    return ran && stored;
+}
+
+typedef enum cpu_ppu_lane_expectation {
+    CPU_PPU_LANE_DIRECT = 0,
+    CPU_PPU_LANE_DUPLICATED = 1,
+    CPU_PPU_LANE_IGNORED = 2
+} cpu_ppu_lane_expectation;
+
+typedef struct cpu_ppu_access_evidence_row {
+    uint8_t state;
+    uint8_t region;
+    bool write;
+    uint8_t width;
+    uint64_t bus_cycles;
+    gbl_bus_outcome outcome;
+    cpu_ppu_lane_expectation lane;
+} cpu_ppu_access_evidence_row;
+
+typedef enum cpu_ppu_access_verdict {
+    CPU_PPU_ACCESS_ACCEPT = 0,
+    CPU_PPU_ACCESS_INVALID_CELL = 1,
+    CPU_PPU_ACCESS_DUPLICATE_CELL = 2,
+    CPU_PPU_ACCESS_MISSING_CELL = 3,
+    CPU_PPU_ACCESS_COST_MISMATCH = 4,
+    CPU_PPU_ACCESS_OUTCOME_MISMATCH = 5,
+    CPU_PPU_ACCESS_LANE_MISMATCH = 6
+} cpu_ppu_access_verdict;
+
+static cpu_ppu_lane_expectation cpu_ppu_expected_lane(
+    size_t region, bool write, uint8_t width)
+{
+    if (!write || width != 1u) {
+        return CPU_PPU_LANE_DIRECT;
+    }
+    if (region == 2u) {
+        return CPU_PPU_LANE_IGNORED;
+    }
+    return CPU_PPU_LANE_DUPLICATED;
+}
+
+static cpu_ppu_access_verdict cpu_ppu_evaluate_access_matrix(
+    const cpu_ppu_access_evidence_row *rows, size_t row_count)
+{
+    static const uint8_t widths[] = { 1u, 2u, 4u };
+    bool seen[4][3][2][3] = { false };
+    size_t row_index;
+
+    if (rows == NULL && row_count != 0u) {
+        return CPU_PPU_ACCESS_INVALID_CELL;
+    }
+    for (row_index = 0u; row_index < row_count; ++row_index) {
+        const cpu_ppu_access_evidence_row *row = &rows[row_index];
+        size_t width_index;
+        const size_t operation_index = row->write ? 1u : 0u;
+
+        for (width_index = 0u; width_index < 3u; ++width_index) {
+            if (widths[width_index] == row->width) {
+                break;
+            }
+        }
+        if (row->state >= 4u || row->region >= 3u || width_index == 3u) {
+            return CPU_PPU_ACCESS_INVALID_CELL;
+        }
+        if (seen[row->state][row->region][operation_index][width_index]) {
+            return CPU_PPU_ACCESS_DUPLICATE_CELL;
+        }
+        seen[row->state][row->region][operation_index][width_index] = true;
+        if (row->bus_cycles != UINT64_C(1)) {
+            return CPU_PPU_ACCESS_COST_MISMATCH;
+        }
+        if (row->outcome != GBL_BUS_OUTCOME_RAM) {
+            return CPU_PPU_ACCESS_OUTCOME_MISMATCH;
+        }
+        if (row->lane != cpu_ppu_expected_lane(row->region, row->write,
+                                               row->width)) {
+            return CPU_PPU_ACCESS_LANE_MISMATCH;
+        }
+    }
+    {
+        size_t state;
+
+        for (state = 0u; state < 4u; ++state) {
+            size_t region;
+
+            for (region = 0u; region < 3u; ++region) {
+                size_t operation;
+
+                for (operation = 0u; operation < 2u; ++operation) {
+                    size_t width;
+
+                    for (width = 0u; width < 3u; ++width) {
+                        if (!seen[state][region][operation][width]) {
+                            return CPU_PPU_ACCESS_MISSING_CELL;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return row_count == 72u ? CPU_PPU_ACCESS_ACCEPT
+                            : CPU_PPU_ACCESS_MISSING_CELL;
+}
+
+static bool cpu_ppu_boundary_pixels_match(uint16_t actual_row1,
+                                          uint16_t actual_row2,
+                                          uint16_t expected_row1,
+                                          uint16_t expected_row2)
+{
+    return actual_row1 == expected_row1 && actual_row2 == expected_row2;
 }
 
 static bool cpu_ppu_execute_quoted_store(gbl_machine *machine,
@@ -15192,6 +15777,212 @@ static bool cpu_ppu_access_policy_quotes(void)
         }
     }
     return valid;
+}
+
+static void test_ppu_cpu_access_boundaries(void)
+{
+    static const int8_t offsets[] = { -1, 0, 1 };
+    static const char *const timing_names[] = { "before", "on", "after" };
+    static const char *const region_names[] = { "PRAM", "VRAM", "OAM" };
+    static const uint8_t widths[] = { 1u, 2u, 4u };
+    const uint64_t row_start = GBL_PPU_LINE_CYCLES;
+    size_t region;
+
+    for (region = 0u; region < 3u; ++region) {
+        size_t width_index;
+
+        for (width_index = 0u; width_index < 3u; ++width_index) {
+            const uint8_t width = widths[width_index];
+            const uint32_t address =
+                cpu_ppu_boundary_address(region, width);
+            const uint32_t value = cpu_ppu_boundary_value(region, width);
+            uint64_t cost = 0u;
+            const bool calibrated = cpu_ppu_store_cost(
+                                        address, width, value, &cost) &&
+                                    cost == UINT64_C(1);
+            size_t timing;
+
+            for (timing = 0u; timing < 3u; ++timing) {
+                const uint64_t completion = (uint64_t)(
+                    (int64_t)row_start + (int64_t)offsets[timing]);
+                uint16_t row1_pixel = UINT16_MAX;
+                uint16_t row2_pixel = UINT16_MAX;
+                uint8_t observed_memory[4] = { 0u, 0u, 0u, 0u };
+                uint8_t expected_memory[4] = { 0u, 0u, 0u, 0u };
+                uint16_t old_pixel;
+                uint16_t new_pixel;
+                uint16_t expected_row1;
+                uint16_t expected_row2;
+                uint64_t actual_cycle = 0u;
+                char description[160];
+                const bool ran = calibrated &&
+                    cpu_ppu_run_boundary_store_at_cycle(
+                        region, width, completion, cost, &row1_pixel,
+                        &row2_pixel, observed_memory, &actual_cycle);
+
+                if (region == 0u) {
+                    old_pixel = UINT16_C(0x1234);
+                    new_pixel = width == 1u
+                                    ? UINT16_C(0x5A5A)
+                                    : width == 2u ? UINT16_C(0x2345)
+                                                  : UINT16_C(0x6234);
+                    if (width == 1u) {
+                        expected_memory[0] = UINT8_C(0x5A);
+                        expected_memory[1] = UINT8_C(0x5A);
+                        expected_memory[2] = UINT8_C(0x78);
+                        expected_memory[3] = UINT8_C(0x56);
+                    } else if (width == 2u) {
+                        expected_memory[0] = UINT8_C(0x45);
+                        expected_memory[1] = UINT8_C(0x23);
+                        expected_memory[2] = UINT8_C(0x78);
+                        expected_memory[3] = UINT8_C(0x56);
+                    } else {
+                        expected_memory[0] = UINT8_C(0x34);
+                        expected_memory[1] = UINT8_C(0x62);
+                        expected_memory[2] = UINT8_C(0x78);
+                        expected_memory[3] = UINT8_C(0x56);
+                    }
+                } else if (region == 1u) {
+                    old_pixel = UINT16_C(0x1234);
+                    new_pixel = width == 1u
+                                    ? UINT16_C(0x5A5A)
+                                    : width == 2u ? UINT16_C(0x2345)
+                                                  : UINT16_C(0x4321);
+                    if (width == 1u) {
+                        expected_memory[0] = UINT8_C(0x5A);
+                        expected_memory[1] = UINT8_C(0x5A);
+                    } else if (width == 2u) {
+                        expected_memory[0] = UINT8_C(0x45);
+                        expected_memory[1] = UINT8_C(0x23);
+                    } else {
+                        expected_memory[0] = UINT8_C(0x21);
+                        expected_memory[1] = UINT8_C(0x43);
+                        expected_memory[2] = UINT8_C(0x23);
+                        expected_memory[3] = UINT8_C(0x21);
+                    }
+                } else {
+                    const bool write_applies = width != 1u;
+
+                    old_pixel = UINT16_C(0x7C00);
+                    new_pixel = UINT16_C(0x4210);
+                    expected_memory[0] = write_applies
+                                             ? UINT8_C(10)
+                                             : UINT8_C(1);
+                    expected_memory[1] = 0u;
+                }
+                if (region != 2u) {
+                    expected_row1 = timing == 0u ? new_pixel : old_pixel;
+                    expected_row2 = new_pixel;
+                } else if (width == 1u) {
+                    expected_row1 = old_pixel;
+                    expected_row2 = old_pixel;
+                } else {
+                    expected_row1 = timing == 0u ? new_pixel : old_pixel;
+                    expected_row2 = new_pixel;
+                }
+                if (region == 2u && width == 1u) {
+                    (void)snprintf(
+                        description, sizeof(description),
+                        "CPU OAM byte %s line start keeps ignored lanes and both OBJ pixels",
+                        timing_names[timing]);
+                } else {
+                    (void)snprintf(
+                        description, sizeof(description),
+                        "CPU %s width %u %s line start samples old/new pixels and later row",
+                        region_names[region], (unsigned int)width,
+                        timing_names[timing]);
+                }
+                test_case(ran && actual_cycle == completion &&
+                              row1_pixel == expected_row1 &&
+                              row2_pixel == expected_row2 &&
+                              memcmp(observed_memory, expected_memory,
+                                     sizeof(expected_memory)) == 0,
+                          description);
+                (void)printf(
+                    "# ppu.access-boundary region=%s width=%u timing=%s completion_cycle=%llu row1=%04X row2=%04X\n",
+                    region_names[region], (unsigned int)width,
+                    timing_names[timing],
+                    (unsigned long long)actual_cycle,
+                    (unsigned int)row1_pixel, (unsigned int)row2_pixel);
+            }
+        }
+    }
+}
+
+static void test_ppu_cpu_access_controls(void)
+{
+    cpu_ppu_access_evidence_row rows[72];
+    cpu_ppu_access_evidence_row mutant[72];
+    static const uint8_t widths[] = { 1u, 2u, 4u };
+    size_t row_index = 0u;
+    size_t state;
+    uint16_t row1_pixel = 0u;
+    uint16_t row2_pixel = 0u;
+    uint8_t observed_memory[4] = { 0u, 0u, 0u, 0u };
+    uint64_t actual_cycle = 0u;
+    bool clean_pixels;
+
+    for (state = 0u; state < 4u; ++state) {
+        size_t region;
+
+        for (region = 0u; region < 3u; ++region) {
+            size_t operation;
+
+            for (operation = 0u; operation < 2u; ++operation) {
+                size_t width_index;
+
+                for (width_index = 0u; width_index < 3u; ++width_index) {
+                    rows[row_index++] = (cpu_ppu_access_evidence_row){
+                        (uint8_t)state, (uint8_t)region, operation != 0u,
+                        widths[width_index], UINT64_C(1),
+                        GBL_BUS_OUTCOME_RAM,
+                        cpu_ppu_expected_lane(region, operation != 0u,
+                                              widths[width_index])
+                    };
+                }
+            }
+        }
+    }
+    test_case(row_index == 72u &&
+                  cpu_ppu_evaluate_access_matrix(rows, row_index) ==
+                      CPU_PPU_ACCESS_ACCEPT,
+              "clean CPU PPU access matrix evidence is accepted");
+    test_case(cpu_ppu_evaluate_access_matrix(rows, row_index - 1u) ==
+                  CPU_PPU_ACCESS_MISSING_CELL,
+              "one missing CPU access cell is rejected as incomplete coverage");
+
+    memcpy(mutant, rows, sizeof(rows));
+    mutant[71] = mutant[70];
+    test_case(cpu_ppu_evaluate_access_matrix(mutant, row_index) ==
+                  CPU_PPU_ACCESS_DUPLICATE_CELL,
+              "one duplicated CPU access cell is rejected as a duplicate");
+
+    memcpy(mutant, rows, sizeof(rows));
+    mutant[3].bus_cycles = UINT64_C(2);
+    test_case(cpu_ppu_evaluate_access_matrix(mutant, row_index) ==
+                  CPU_PPU_ACCESS_COST_MISMATCH,
+              "one altered CPU video bus cost is rejected for its cost mismatch");
+
+    memcpy(mutant, rows, sizeof(rows));
+    mutant[3].lane = CPU_PPU_LANE_DIRECT;
+    test_case(cpu_ppu_evaluate_access_matrix(mutant, row_index) ==
+                  CPU_PPU_ACCESS_LANE_MISMATCH,
+              "one wrong PRAM byte-lane expectation is rejected for its lane mismatch");
+
+    clean_pixels = cpu_ppu_run_boundary_store_at_cycle(
+        1u, 2u, GBL_PPU_LINE_CYCLES, UINT64_C(1), &row1_pixel,
+        &row2_pixel, observed_memory, &actual_cycle) &&
+        actual_cycle == GBL_PPU_LINE_CYCLES;
+    test_case(clean_pixels &&
+                  cpu_ppu_boundary_pixels_match(
+                      row1_pixel, row2_pixel, UINT16_C(0x1234),
+                      UINT16_C(0x2345)),
+              "clean same-cycle CPU VRAM pixel evidence is accepted");
+    test_case(clean_pixels &&
+                  !cpu_ppu_boundary_pixels_match(
+                      row1_pixel, row2_pixel, UINT16_C(0x1235),
+                      UINT16_C(0x5678)),
+              "one wrong expected boundary pixel is rejected semantically");
 }
 
 static void test_ppu_cpu_store_boundaries(void)
@@ -17032,6 +17823,13 @@ static const cpu_test_function ppu_latch_functions[] = {
     test_ppu_latch_cpu_paths,
     test_ppu_cpu_store_boundaries
 };
+static const cpu_test_function ppu_access_functions[] = {
+    test_ppu_cpu_access_matrix,
+    test_ppu_cpu_access_boundaries
+};
+static const cpu_test_function ppu_access_controls_functions[] = {
+    test_ppu_cpu_access_controls
+};
 static const cpu_test_function power_boundary_functions[] = {
     test_power_boundary
 };
@@ -17042,6 +17840,9 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("ppu.refusal", 3u, ppu_refusal_functions),
     CPU_TEST_GROUP("ppu.irq", 5u, ppu_irq_functions),
     CPU_TEST_GROUP("ppu.latch", 10u, ppu_latch_functions),
+    CPU_TEST_GROUP("ppu.access", 100u, ppu_access_functions),
+    CPU_TEST_GROUP("ppu.access-controls", 7u,
+                   ppu_access_controls_functions),
     CPU_TEST_GROUP("lifecycle", 9u, lifecycle_functions),
     CPU_TEST_GROUP("multiply_signed_timing", 86u,
                    multiply_signed_timing_functions),
