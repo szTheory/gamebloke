@@ -507,12 +507,13 @@ static bool gbl_test_write_dma_guest(const char *path)
     return okay;
 }
 
-static bool gbl_test_write_ppu_guest(const char *path)
+static bool gbl_test_write_ppu_guest_with_dispcnt(const char *path,
+                                                   uint32_t dispcnt)
 {
     uint8_t image[0xC0u] = { 0u };
     const size_t literal_offset = 0x80u;
     const uint32_t literals[] = {
-        UINT32_C(0x04000000), UINT32_C(0x0403),
+        UINT32_C(0x04000000), dispcnt,
         UINT32_C(0x04000130), UINT32_C(0x06000000),
         UINT32_C(0x001F), UINT32_C(0x03E0)
     };
@@ -547,6 +548,11 @@ static bool gbl_test_write_ppu_guest(const char *path)
         okay = false;
     }
     return okay;
+}
+
+static bool gbl_test_write_ppu_guest(const char *path)
+{
+    return gbl_test_write_ppu_guest_with_dispcnt(path, UINT32_C(0x0403));
 }
 
 static bool gbl_test_write_ppu_transition_guest(const char *path)
@@ -610,7 +616,8 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
 
     if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
                        "ppu-observation.gba") ||
-        !gbl_test_write_ppu_guest(rom_path)) {
+        !gbl_test_write_ppu_guest_with_dispcnt(rom_path,
+                                               UINT32_C(0x1000))) {
         return false;
     }
     options.rom_path = rom_path;
@@ -629,10 +636,14 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
         json[json_length] = '\0';
         okay = strstr(json, "\"phase10\":{") != NULL &&
                strstr(json,
-                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":13") != NULL &&
+                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":14") != NULL &&
                strstr(json, "\"line_cycle\":") != NULL &&
                strstr(json, "\"frame_epoch\":") != NULL &&
                strstr(json, "\"state\":\"valid\"") != NULL &&
+               result.phase10.capture_reason == GBL_VIDEO_INVALID_REASON_NONE &&
+               result.phase10.supported_controls &&
+               strstr(json,
+                      "\"reason\":\"none\",\"supported_controls\":true") != NULL &&
                strstr(json, "\"completion_cycle\":\"") != NULL &&
                strstr(json,
                       "\"display_capabilities\":{\"model\":\"gamebloke-display-capabilities-1\",\"raw_output\":{\"format\":\"BGR555_LE\",\"width\":240,\"height\":160,\"stride_bytes\":480,\"byte_length\":76800}") != NULL &&
