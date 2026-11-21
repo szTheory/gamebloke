@@ -585,6 +585,22 @@ static uint32_t gbl_ppu_bg_mosaic_size(
     return field + UINT32_C(1);
 }
 
+static uint32_t gbl_ppu_obj_mosaic_size(
+    const gbl_ppu_row_capture *capture, uint16_t attribute0,
+    bool vertical)
+{
+    uint32_t shift;
+    uint32_t field;
+
+    if ((attribute0 & UINT16_C(0x1000)) == 0u) {
+        return UINT32_C(1);
+    }
+    shift = vertical ? UINT32_C(4) : UINT32_C(0);
+    field = ((uint32_t)capture->render_register_bytes[17] >> shift) &
+            UINT32_C(0x0F);
+    return field + UINT32_C(1);
+}
+
 static uint32_t gbl_ppu_mosaic_anchor(uint32_t coordinate, uint32_t size)
 {
     return coordinate - coordinate % size;
@@ -1355,7 +1371,7 @@ static bool gbl_ppu_build_obj_admission(
         }
         if ((object_mode != 0u && object_mode != UINT16_C(0x0400) &&
              !(obj_window_enabled && object_mode == UINT16_C(0x0800))) ||
-            (attribute0 & UINT16_C(0x1000)) != 0u || shape >= 3u) {
+            shape >= 3u) {
             return false;
         }
         width = gbl_ppu_object_dimensions[shape][size][0];
@@ -1766,7 +1782,7 @@ static bool gbl_ppu_project_composed_row(
         if ((object_mode != 0u && object_mode != UINT16_C(0x0400) &&
              !(obj_window_enabled &&
                object_mode == UINT16_C(0x0800))) ||
-            (attribute0 & UINT16_C(0x1000)) != 0u || shape >= 3u) {
+            shape >= 3u) {
             return false;
         }
         if (object_mode == 0u && !obj_enabled) {
@@ -1794,6 +1810,8 @@ static bool gbl_ppu_project_composed_row(
             const uint32_t screen_x =
                 (object_x + local_x) &
                 UINT32_C(0x01FF);
+            uint32_t sample_local_x = local_x;
+            uint32_t sample_relative_y = relative_y;
             uint32_t source_x;
             uint32_t source_y;
             uint32_t source_tile_row;
@@ -1807,11 +1825,32 @@ static bool gbl_ppu_project_composed_row(
             if (screen_x >= GBL_PPU_WIDTH) {
                 continue;
             }
+            if ((attribute0 & UINT16_C(0x1000)) != 0u) {
+                const uint32_t mosaic_width =
+                    gbl_ppu_obj_mosaic_size(capture, attribute0, false);
+                const uint32_t mosaic_height =
+                    gbl_ppu_obj_mosaic_size(capture, attribute0, true);
+                const uint32_t anchor_x =
+                    gbl_ppu_mosaic_anchor(screen_x, mosaic_width);
+                const uint32_t anchor_y =
+                    gbl_ppu_mosaic_anchor(capture->line, mosaic_height);
+
+                sample_local_x =
+                    (anchor_x - object_x) & UINT32_C(0x01FF);
+                sample_relative_y =
+                    (anchor_y - object_y) & UINT32_C(0x00FF);
+                if (sample_local_x >= field_width ||
+                    sample_relative_y >= field_height) {
+                    continue;
+                }
+            }
             if (affine) {
                 const int64_t dx =
-                    (int64_t)local_x - (int64_t)(field_width / 2u);
+                    (int64_t)sample_local_x -
+                    (int64_t)(field_width / 2u);
                 const int64_t dy =
-                    (int64_t)relative_y - (int64_t)(field_height / 2u);
+                    (int64_t)sample_relative_y -
+                    (int64_t)(field_height / 2u);
                 const int64_t transformed_x =
                     (int64_t)(width / 2u) + gbl_ppu_floor_div_256(
                         (int64_t)pa * dx + (int64_t)pb * dy);
@@ -1828,11 +1867,11 @@ static bool gbl_ppu_project_composed_row(
                 source_y = (uint32_t)transformed_y;
             } else {
                 source_x = horizontal_flip
-                    ? width - 1u - local_x
-                    : local_x;
-                source_y = vertical_flip && height > relative_y
-                    ? height - 1u - relative_y
-                    : relative_y;
+                    ? width - 1u - sample_local_x
+                    : sample_local_x;
+                source_y = vertical_flip && height > sample_relative_y
+                    ? height - 1u - sample_relative_y
+                    : sample_relative_y;
             }
             source_tile_row = source_y & 7u;
             tile_y = source_y >> 3u;
@@ -2032,8 +2071,7 @@ static gbl_video_invalid_reason gbl_ppu_obj_control_invalid_reason(
         if (disabled) {
             continue;
         }
-        if ((attribute0 & UINT16_C(0x1000)) != 0u ||
-            (object_mode == UINT16_C(0x0800) && !obj_window_enabled) ||
+        if ((object_mode == UINT16_C(0x0800) && !obj_window_enabled) ||
             object_mode == UINT16_C(0x0C00) ||
             (attribute0 >> 14u) == UINT16_C(3)) {
             return GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;

@@ -3696,6 +3696,355 @@ static int run_ppu_obj_budget(void)
     return 1;
 }
 
+static int run_ppu_mosaic_obj(void)
+{
+    static const uint8_t shape_sizes[12][2] = {
+        { 0u, 0u }, { 0u, 1u }, { 0u, 2u }, { 0u, 3u },
+        { 1u, 0u }, { 1u, 1u }, { 1u, 2u }, { 1u, 3u },
+        { 2u, 0u }, { 2u, 1u }, { 2u, 2u }, { 2u, 3u }
+    };
+    gbl_machine *machine = new_machine();
+    size_t object;
+    size_t row;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+    machine->dispcnt = UINT16_C(0x1040);
+    machine->ppu.dispcnt = machine->dispcnt;
+    for (object = 0u; object < 128u; ++object) {
+        ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+    }
+    /* Non-origin sprite: the first screen-grid anchor (x=0) lies outside
+     * this object's field; x=4 anchors to local source x=3. A neighboring
+     * object with MOSAIC disabled keeps sampling each destination pixel. */
+    ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+    ppu_obj_store_u16(machine->oam, 2u, UINT16_C(0x0001));
+    ppu_obj_store_u16(machine->oam, 4u, 0u);
+    ppu_obj_store_u16(machine->oam, 8u, 0u);
+    ppu_obj_store_u16(machine->oam, 10u, UINT16_C(0x0010));
+    ppu_obj_store_u16(machine->oam, 12u, 0u);
+    for (row = 0u; row < 8u; ++row) {
+        uint8_t *tile_row = &machine->vram[UINT32_C(0x10000) + row * 4u];
+
+        tile_row[0] = UINT8_C(0x21);
+        tile_row[1] = UINT8_C(0x43);
+        tile_row[2] = UINT8_C(0x65);
+        tile_row[3] = UINT8_C(0x07);
+    }
+    machine->pram[0] = UINT8_C(0x10);
+    machine->pram[1] = UINT8_C(0x42);
+    machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+    machine->pram[UINT32_C(0x203)] = 0u;
+    machine->pram[UINT32_C(0x204)] = 0u;
+    machine->pram[UINT32_C(0x205)] = 0u;
+    machine->pram[UINT32_C(0x206)] = 0u;
+    machine->pram[UINT32_C(0x207)] = UINT8_C(0x7C);
+    machine->pram[UINT32_C(0x208)] = UINT8_C(0xFF);
+    machine->pram[UINT32_C(0x209)] = UINT8_C(0x7F);
+    machine->ppu.render_register_bytes[17] = UINT8_C(0x03);
+
+    CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+    CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                      UINT16_C(0x4210)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 0u,
+                                      UINT16_C(0x4210)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 4u, 0u,
+                                      UINT16_C(0x7FFF)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 7u, 0u,
+                                      UINT16_C(0x7FFF)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 8u, 0u,
+                                      UINT16_C(0x4210)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 16u, 0u,
+                                      UINT16_C(0x001F)));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 17u, 0u, 0u));
+    CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 18u, 0u,
+                                      UINT16_C(0x7C00)));
+    free_machine(machine);
+
+    /* Every supported shape/size family uses the same screen-grid anchors. */
+    for (object = 0u;
+         object < sizeof(shape_sizes) / sizeof(shape_sizes[0]); ++object) {
+        machine = new_machine();
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        machine->dispcnt = UINT16_C(0x1040);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (row = 0u; row < 128u; ++row) {
+            ppu_obj_store_u16(machine->oam, row * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u,
+                          (uint16_t)(UINT16_C(0x1000) |
+                              ((uint16_t)shape_sizes[object][0] << 14u)));
+        ppu_obj_store_u16(machine->oam, 2u,
+                          (uint16_t)((uint16_t)shape_sizes[object][1] <<
+                                     14u));
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, 0u, 2u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 5u, 0u, 3u);
+        machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+        machine->pram[UINT32_C(0x203)] = 0u;
+        machine->pram[UINT32_C(0x204)] = UINT8_C(0xE0);
+        machine->pram[UINT32_C(0x205)] = UINT8_C(0x03);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x03);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 4u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 7u, 0u,
+                                          UINT16_C(0x03E0)));
+        free_machine(machine);
+    }
+
+    /* A 16-pixel horizontal block anchors at source x=0 then x=16. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        machine->dispcnt = UINT16_C(0x1040);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (object = 0u; object < 128u; ++object) {
+            ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+        ppu_obj_store_u16(machine->oam, 2u, UINT16_C(0xC000));
+        ppu_obj_store_u16(machine->oam, 4u, 0u);
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        memset(&machine->vram[UINT32_C(0x10040)], UINT8_C(0x33), 32u);
+        machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+        machine->pram[UINT32_C(0x203)] = 0u;
+        machine->pram[UINT32_C(0x206)] = 0u;
+        machine->pram[UINT32_C(0x207)] = UINT8_C(0x7C);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x0F);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 15u, 0u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 16u, 0u,
+                                          UINT16_C(0x7C00)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 31u, 0u,
+                                          UINT16_C(0x7C00)));
+        free_machine(machine);
+    }
+
+    /* Vertical groups use the visible screen grid across Y wrap. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        machine->dispcnt = UINT16_C(0x1040);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (object = 0u; object < 128u; ++object) {
+            ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u,
+                          (uint16_t)(UINT16_C(0x1000) | UINT16_C(0x8000) |
+                                     UINT16_C(0x00FF)));
+        ppu_obj_store_u16(machine->oam, 2u, UINT16_C(0x4000));
+        ppu_obj_store_u16(machine->oam, 4u, 0u);
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, 1u, 2u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, 5u, 3u);
+        machine->pram[0] = UINT8_C(0x10);
+        machine->pram[1] = UINT8_C(0x42);
+        machine->pram[UINT32_C(0x204)] = UINT8_C(0xE0);
+        machine->pram[UINT32_C(0x205)] = UINT8_C(0x03);
+        machine->pram[UINT32_C(0x206)] = 0u;
+        machine->pram[UINT32_C(0x207)] = UINT8_C(0x7C);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x30);
+        CHECK(gbl_machine_advance_to(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 3u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 4u,
+                                          UINT16_C(0x7C00)));
+        free_machine(machine);
+    }
+
+    /* Affine scale is applied to the anchored local point, not each pixel. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_obj_affine_setup(machine, UINT16_C(0x1040), 0u, 0u,
+                                   0u, 0u, 0u, 0u, false,
+                                   128, 0, 0, 256));
+        machine->oam[1] |= UINT8_C(0x10);
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        for (row = 0u; row < 8u; ++row) {
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 2u, (uint8_t)row,
+                                          2u);
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, (uint8_t)row,
+                                          5u);
+        }
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x03);
+        CHECK(ppu_obj_affine_render_to_line(machine, 0u));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 4u, 0u,
+                                          UINT16_C(0x7FFF)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 7u, 0u,
+                                          UINT16_C(0x7FFF)));
+        free_machine(machine);
+    }
+
+    /* Screen-group anchors are reflected only after local coordinates map
+     * through the ordinary horizontal-flip rule. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        machine->dispcnt = UINT16_C(0x1040);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (object = 0u; object < 128u; ++object) {
+            ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+        ppu_obj_store_u16(machine->oam, 2u, UINT16_C(0x1000));
+        ppu_obj_store_u16(machine->oam, 4u, 0u);
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 3u, 0u, 4u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 7u, 0u, 8u);
+        machine->pram[UINT32_C(0x208)] = UINT8_C(0xFF);
+        machine->pram[UINT32_C(0x209)] = UINT8_C(0x7F);
+        machine->pram[UINT32_C(0x210)] = 0u;
+        machine->pram[UINT32_C(0x211)] = UINT8_C(0x7C);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x03);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x7C00)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 0u,
+                                          UINT16_C(0x7C00)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 4u, 0u,
+                                          UINT16_C(0x7FFF)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 7u, 0u,
+                                          UINT16_C(0x7FFF)));
+        free_machine(machine);
+    }
+
+    /* A field wrapping through x=511 samples the screen anchor after wrap. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        machine->dispcnt = UINT16_C(0x1040);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (object = 0u; object < 128u; ++object) {
+            ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+        ppu_obj_store_u16(machine->oam, 2u,
+                          (uint16_t)(UINT16_C(0x01FC) | UINT16_C(0x4000)));
+        ppu_obj_store_u16(machine->oam, 4u, 0u);
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        memset(&machine->vram[UINT32_C(0x10020)], UINT8_C(0x22), 32u);
+        ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, 0u, 5u);
+        machine->pram[UINT32_C(0x20A)] = UINT8_C(0xFF);
+        machine->pram[UINT32_C(0x20B)] = UINT8_C(0x7F);
+        machine->pram[UINT32_C(0x204)] = UINT8_C(0xE0);
+        machine->pram[UINT32_C(0x205)] = UINT8_C(0x03);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x03);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x7FFF)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 0u,
+                                          UINT16_C(0x7FFF)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 4u, 0u,
+                                          UINT16_C(0x03E0)));
+        free_machine(machine);
+    }
+
+    /* At the right edge, a screen anchor outside the sprite stays transparent
+     * and a grouped sample never extends the object's clipped field. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        machine->dispcnt = UINT16_C(0x1040);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (object = 0u; object < 128u; ++object) {
+            ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+        ppu_obj_store_u16(machine->oam, 2u, UINT16_C(0x00ED));
+        ppu_obj_store_u16(machine->oam, 4u, 0u);
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        machine->pram[0] = UINT8_C(0x10);
+        machine->pram[1] = UINT8_C(0x42);
+        machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x03);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 237u, 0u,
+                                          UINT16_C(0x4210)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 239u, 0u,
+                                          UINT16_C(0x4210)));
+        free_machine(machine);
+    }
+
+    /* Mosaic may repeat inside the final physical OBJ tile but cannot turn
+     * the next, out-of-range tile into a readable source. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        machine->dispcnt = UINT16_C(0x1040);
+        machine->ppu.dispcnt = machine->dispcnt;
+        for (object = 0u; object < 128u; ++object) {
+            ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+        }
+        ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x1000));
+        ppu_obj_store_u16(machine->oam, 2u, UINT16_C(0x4000));
+        ppu_obj_store_u16(machine->oam, 4u, UINT16_C(1023));
+        memset(&machine->vram[UINT32_C(0x17FE0)], UINT8_C(0x11), 32u);
+        machine->pram[0] = UINT8_C(0x10);
+        machine->pram[1] = UINT8_C(0x42);
+        machine->pram[UINT32_C(0x202)] = UINT8_C(0x1F);
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x03);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 4u, 0u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 7u, 0u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 8u, 0u,
+                                          UINT16_C(0x4210)));
+        free_machine(machine);
+    }
+
+    /* Double-size affine fields retain the existing centered transform. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_obj_affine_setup(machine, UINT16_C(0x1040), 0u, 0u,
+                                   0u, 0u, 0u, 0u, true,
+                                   256, 0, 0, 256));
+        machine->oam[1] |= UINT8_C(0x10);
+        memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x11), 32u);
+        for (row = 0u; row < 8u; ++row) {
+            ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, (uint8_t)row,
+                                          5u);
+        }
+        machine->ppu.render_register_bytes[17] = UINT8_C(0x33);
+        CHECK(ppu_obj_affine_render_to_line(machine, 8u));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 4u, 4u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 7u, 7u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 8u, 4u,
+                                          UINT16_C(0x7FFF)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 11u, 7u,
+                                          UINT16_C(0x7FFF)));
+        free_machine(machine);
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.mosaic.obj: regular object screen-grid source anchors are field bounded");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_ppu_obj_tracer(void)
 {
     gbl_machine *machine = new_machine();
@@ -4253,8 +4602,7 @@ static int run_ppu_obj_regular(void)
 
     {
         static const uint16_t unsupported_attributes[] = {
-            UINT16_C(0x0800), UINT16_C(0x0C00),
-            UINT16_C(0x1000), UINT16_C(0xC000)
+            UINT16_C(0x0800), UINT16_C(0x0C00), UINT16_C(0xC000)
         };
         size_t control;
 
@@ -10119,7 +10467,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.mosaic.bg|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.mosaic.bg|ppu.mosaic.obj|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -10148,6 +10496,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.mosaic.bg") == 0) {
         return run_ppu_mosaic_bg();
+    }
+    if (strcmp(argv[1], "ppu.mosaic.obj") == 0) {
+        return run_ppu_mosaic_obj();
     }
     if (strcmp(argv[1], "ppu.blank") == 0) {
         return run_ppu_blank();
