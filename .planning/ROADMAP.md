@@ -123,7 +123,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
   2. Affine objects produce expected transformed pixels from their selected matrices, with the declared signed fixed-point, bounding-field, clipping, transparency, and address limits.
   3. Overlapping objects, backgrounds, and backdrop resolve to expected colors under the declared enable, transparency, priority, and tie-breaking rules.
   4. A line that exceeds the declared object-work bound yields repeatable, inspectable selection and output under the stable ordering policy; that bound is labeled project policy where silicon behavior is unknown.
-**Plans**: 6/8 plans executed
+**Plans**: 7/8 plans executed
 **Wave 1**
 - [x] 13-01-PLAN.md — Sampled regular OBJ tracer and complete regular decoding.
 
@@ -143,7 +143,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 - [x] 13-06-PLAN.md — Sampled-write boundaries, atomic refusal and replay.
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 13-07-PLAN.md — Exact cheap-first selector gate and fast helper.
+- [x] 13-07-PLAN.md — Exact cheap-first selector gate and fast helper.
 
 **Wave 8** *(blocked on Wave 7 completion)*
 - [ ] 13-08-PLAN.md — Source-bound fast and canonical local acceptance.
@@ -189,7 +189,7 @@ Overlapping layers receive their complete shared priority contract in Phase 13.
 |-------|----------------|--------|-----------|
 | 11. Sampled Rows and Transactional Visibility | 8/8 | Complete | 2026-11-20 |
 | 12. Background Modes 0–5 | 8/8 | Complete    | 2026-11-20 |
-| 13. Objects and Layer Priorities | 6/8 | In Progress | - |
+| 13. Objects and Layer Priorities | 7/8 | In Progress | - |
 | 14. Windows and Display Effects | 0/TBD | Not started | - |
 | 15. Production Access and Runner Evidence | 0/TBD | Not started | - |
 

@@ -4,18 +4,18 @@ milestone: v3.0
 milestone_name: PPU Modes and Composition
 current_phase: 13
 current_phase_name: Objects and Layer Priorities
-current_plan: 7
+current_plan: 8
 status: executing
-stopped_at: Completed 13-06-PLAN.md
-last_updated: "2026-11-21T04:20:50.138Z"
+stopped_at: Completed 13-07-PLAN.md
+last_updated: "2026-11-21T05:03:26.165Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 13 execution started
-state_head: 284380672836830a6f9bd692327c92fbff567268
+state_head: 0877a0c1ae7398fed48c6b2b8f37af0860a91f55
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 24
-  completed_plans: 22
+  completed_plans: 23
   percent: 40
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 ## Current Position
 
 Phase: 13 (Objects and Layer Priorities) — EXECUTING
-Current Plan: 7
+Current Plan: 8
 Total Plans in Phase: 8
 Status: Ready to execute
 Last activity: 2026-11-20 — Phase 13 execution started
@@ -187,6 +187,7 @@ Progress: [████░░░░░░] 40% (current milestone)
 | Phase 13 P04 | 21m12s | 2 tasks | 7 files |
 | Phase 13 P05 | 94 min | 2 tasks | 12 files |
 | Phase 13 P06 | 61m | 2 tasks | 7 files |
+| Phase 13 P07 | 41min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -499,6 +500,7 @@ Recent decisions affecting current work:
 - [Phase 13]: Existing row-capture revalidation and commit refusal already protected the tested OBJ observations, so Plan 13-06 needed no production source or model-header changes.
 - [Phase 13]: The time/HALT CTest fixture prerequisites remain required; the 17-test expansion retained phase7.selection.control as graph evidence.
 - [Phase 13]: The Plan 13-06 deterministic software checks preserve the 1226-unit work policy, existing video-memory access behavior, and UNKNOWN hardware qualification.
+- [Phase 13]: Keep both CI profile checks registered, inventoried, and fixture-validated; execute them once in the inherited same-build closure and require both in aggregate evidence.
 
 ### Pending Todos
 
@@ -550,8 +552,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-21T04:20:49.982Z
-Stopped at: Completed 13-06-PLAN.md
+Last session: 2026-11-21T05:03:26.006Z
+Stopped at: Completed 13-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
