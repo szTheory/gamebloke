@@ -282,7 +282,17 @@ static bool gbl_runner_write_phase10_capabilities(FILE *output)
     size_t mode_index;
 
     if (fputs(",\"display_capabilities\":{"
-              "\"model\":\"gamebloke-display-capabilities-1\","
+              "\"model\":\"gamebloke-display-capabilities-2\","
+              "\"composition_features\":{"
+              "\"rectangular_windows\":true,"
+              "\"object_windows\":true,"
+              "\"alpha_blending\":true,"
+              "\"brightness\":true,"
+              "\"bg_mosaic\":true,"
+              "\"obj_mosaic\":true,"
+              "\"forced_blank\":true,"
+              "\"classification\":\"project-selected\","
+              "\"hardware_qualification\":\"UNKNOWN\"},"
               "\"raw_output\":{\"format\":\"BGR555_LE\","
               "\"width\":240,\"height\":160,\"stride_bytes\":480,"
               "\"byte_length\":76800},\"modes\":[",

@@ -555,6 +555,44 @@ static bool gbl_test_write_ppu_guest(const char *path)
     return gbl_test_write_ppu_guest_with_dispcnt(path, UINT32_C(0x0403));
 }
 
+static bool gbl_test_write_ppu_invalid_obj_guest(const char *path)
+{
+    uint8_t image[0xC0u] = { 0u };
+    const size_t literal_offset = 0x80u;
+    const uint32_t literals[] = {
+        UINT32_C(0x04000000), UINT32_C(0x1000),
+        UINT32_C(0x07000000), UINT32_C(0x0C00)
+    };
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 8u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, literal_offset + index * 4u,
+                            literals[index]);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
 static bool gbl_test_write_ppu_transition_guest(const char *path)
 {
     uint8_t image[0xC0u] = { 0u };
@@ -606,6 +644,34 @@ static bool gbl_test_write_ppu_transition_guest(const char *path)
 
 static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
 {
+    static const char expected_display_capabilities[] =
+        "\"display_capabilities\":{\"model\":\"gamebloke-display-capabilities-2\","
+        "\"composition_features\":{\"rectangular_windows\":true,"
+        "\"object_windows\":true,\"alpha_blending\":true,\"brightness\":true,"
+        "\"bg_mosaic\":true,\"obj_mosaic\":true,\"forced_blank\":true,"
+        "\"classification\":\"project-selected\","
+        "\"hardware_qualification\":\"UNKNOWN\"},"
+        "\"raw_output\":{\"format\":\"BGR555_LE\",\"width\":240,"
+        "\"height\":160,\"stride_bytes\":480,\"byte_length\":76800},"
+        "\"modes\":["
+        "{\"mode\":0,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":0,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":1,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":2,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":3,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]}]},"
+        "{\"mode\":1,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":0,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":1,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]}]},"
+        "{\"mode\":2,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]},"
+        "{\"bg\":3,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]}]},"
+        "{\"mode\":3,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]}]},"
+        "{\"mode\":4,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"indexed-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]}]},"
+        "{\"mode\":5,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":160,\"height\":128}]}]}]}";
     const gbl_input_event input_event = { 0u, UINT16_C(0x0001) };
     gbl_runner_options options = { 0 };
     gbl_runner_result result = { 0 };
@@ -613,6 +679,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
     char json[16384];
     size_t json_length = 0u;
     bool okay;
+    const char *capabilities;
 
     if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
                        "ppu-observation.gba") ||
@@ -634,9 +701,10 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
            (json_length = strlen(json)) > 0u;
     if (okay) {
         json[json_length] = '\0';
+        capabilities = strstr(json, "\"display_capabilities\":");
         okay = strstr(json, "\"phase10\":{") != NULL &&
                strstr(json,
-                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":14") != NULL &&
+                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":15") != NULL &&
                strstr(json, "\"line_cycle\":") != NULL &&
                strstr(json, "\"frame_epoch\":") != NULL &&
                strstr(json, "\"state\":\"valid\"") != NULL &&
@@ -645,20 +713,10 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
                strstr(json,
                       "\"reason\":\"none\",\"supported_controls\":true") != NULL &&
                strstr(json, "\"completion_cycle\":\"") != NULL &&
-               strstr(json,
-                      "\"display_capabilities\":{\"model\":\"gamebloke-display-capabilities-1\",\"raw_output\":{\"format\":\"BGR555_LE\",\"width\":240,\"height\":160,\"stride_bytes\":480,\"byte_length\":76800}") != NULL &&
-               strstr(json,
-                      "\"mode\":0,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\"") != NULL &&
-               strstr(json,
-                      "\"mode\":1,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":0,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},{\"bg\":1,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]}]") != NULL &&
-               strstr(json,
-                      "\"mode\":2,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]},{\"bg\":3,\"source\":\"affine\"") != NULL &&
-               strstr(json,
-                      "\"mode\":3,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]") != NULL &&
-               strstr(json,
-                      "\"mode\":4,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"indexed-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]") != NULL &&
-               strstr(json,
-                      "\"mode\":5,\"implementation_status\":\"partial\",\"backgrounds\":[{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":160,\"height\":128}]") != NULL &&
+               capabilities != NULL &&
+               strncmp(capabilities, expected_display_capabilities,
+                       sizeof expected_display_capabilities - 1u) == 0 &&
+               capabilities[sizeof expected_display_capabilities - 1u] == ',' &&
                strstr(json,
                       "\"video_memory_access\":{\"classification\":\"project-selected\",\"hardware_qualification\":\"UNKNOWN\",\"masters\":[\"cpu\",\"dma\"],\"regions\":[\"pram\",\"vram\",\"oam\"],\"states\":[\"drawing\",\"hblank\",\"vblank\",\"forced-blank\"],\"availability\":\"existing-bus-behavior\",\"ppu_extra_cycles\":0,\"cost_reference\":\"bus_policy.request_cycles\"}") != NULL &&
                strstr(json, "\"classification\":\"disputed\"") != NULL &&
@@ -734,6 +792,23 @@ static bool gbl_test_video_file_matches(const char *path,
     }
     free(actual);
     return okay;
+}
+
+static bool gbl_test_video_is_forced_blank_white(const uint8_t *video,
+                                                size_t video_length)
+{
+    size_t byte;
+
+    if (video == NULL || video_length != GBL_RUNNER_VIDEO_BYTES) {
+        return false;
+    }
+    for (byte = 0u; byte < video_length; byte += 2u) {
+        if (video[byte] != UINT8_C(0xFF) ||
+            video[byte + 1u] != UINT8_C(0x7F)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool gbl_test_ppu_write_limit(const char *rom_path,
@@ -894,6 +969,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     gbl_runner_result unsupported = { 0 };
     gbl_runner_status unsupported_status;
     gbl_runner_result fresh = { 0 };
+    gbl_runner_result forced_blank = { 0 };
+    gbl_runner_result invalid_obj = { 0 };
     gbl_runner_result invalid_path = { 0 };
     gbl_runner_result not_requested = { 0 };
     gbl_runner_result owned = { 0 };
@@ -908,6 +985,10 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     char next_epoch_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char unsupported_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char unsupported_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char forced_blank_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char forced_blank_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char invalid_obj_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char invalid_obj_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char fresh_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char writer_guard_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char write_limit_path[GBL_RUNNER_TEST_PATH_CAPACITY];
@@ -917,6 +998,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     FILE *file;
     bool okay;
     bool unsupported_okay;
+    bool forced_blank_okay;
+    bool invalid_obj_okay;
 
     if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
                        "ppu-output-controls.gba") ||
@@ -934,6 +1017,14 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                        scratch_directory, "ppu-output-unsupported.gba") ||
         !gbl_test_path(unsupported_path, sizeof unsupported_path,
                        scratch_directory, "ppu-output-unsupported.raw") ||
+        !gbl_test_path(forced_blank_rom_path, sizeof forced_blank_rom_path,
+                       scratch_directory, "ppu-output-forced-blank.gba") ||
+        !gbl_test_path(forced_blank_path, sizeof forced_blank_path,
+                       scratch_directory, "ppu-output-forced-blank.raw") ||
+        !gbl_test_path(invalid_obj_rom_path, sizeof invalid_obj_rom_path,
+                       scratch_directory, "ppu-output-invalid-obj.gba") ||
+        !gbl_test_path(invalid_obj_path, sizeof invalid_obj_path,
+                       scratch_directory, "ppu-output-invalid-obj.raw") ||
         !gbl_test_path(fresh_path, sizeof fresh_path, scratch_directory,
                        "ppu-output-fresh.raw") ||
         !gbl_test_path(writer_guard_path, sizeof writer_guard_path,
@@ -943,6 +1034,9 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
         !gbl_test_path(owned_path, sizeof owned_path, scratch_directory,
                        "ppu-output-owned.raw") ||
         !gbl_test_write_ppu_guest(rom_path) ||
+        !gbl_test_write_ppu_guest_with_dispcnt(forced_blank_rom_path,
+                                               UINT32_C(0x0080)) ||
+        !gbl_test_write_ppu_invalid_obj_guest(invalid_obj_rom_path) ||
         !gbl_test_write_ppu_transition_guest(unsupported_rom_path)) {
         return false;
     }
@@ -952,6 +1046,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     (void)remove(incomplete_path);
     (void)remove(next_epoch_path);
     (void)remove(unsupported_path);
+    (void)remove(forced_blank_path);
+    (void)remove(invalid_obj_path);
     (void)remove(fresh_path);
     (void)remove(writer_guard_path);
     (void)remove(write_limit_path);
@@ -991,6 +1087,102 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
                   "video-output-open-failed") == 0 &&
            !bad_parent.phase10.video_emitted &&
            access(bad_path, F_OK) != 0 && errno == ENOENT;
+
+    {
+        const gbl_runner_status forced_blank_status = gbl_test_execute_ppu(
+            forced_blank_rom_path, forced_blank_path, &pressed_a, 1u, true,
+            UINT64_C(500000), (gbl_runner_allocator){ 0 }, &forced_blank);
+
+        forced_blank_okay =
+            forced_blank_status == GBL_RUNNER_TIMEOUT && forced_blank.ran &&
+            forced_blank.cycles > 0u && forced_blank.phase10.frame_started &&
+            forced_blank.phase10.has_sample_cycle &&
+            forced_blank.phase10.has_completion_cycle &&
+            forced_blank.phase10.sample_cycle <=
+                forced_blank.phase10.completion_cycle &&
+            forced_blank.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+            forced_blank.phase10.capture_reason ==
+                GBL_VIDEO_INVALID_REASON_NONE &&
+            forced_blank.phase10.supported_controls &&
+            forced_blank.phase10.video_emitted &&
+            gbl_test_video_is_forced_blank_white(
+                forced_blank.phase10.video_bytes,
+                forced_blank.phase10.video_length) &&
+            gbl_test_video_file_matches(forced_blank_path,
+                                         forced_blank.phase10.video_bytes,
+                                         GBL_RUNNER_VIDEO_BYTES) &&
+            gbl_test_serialize_result(&forced_blank, json, sizeof json) &&
+            strstr(json, "\"frame\":{\"state\":\"valid\","
+                         "\"reason\":\"none\"") != NULL &&
+            strstr(json, "\"raw_video\":{\"requested\":true,"
+                         "\"status\":\"emitted\",\"emitted\":true,") !=
+                NULL;
+        if (!forced_blank_okay) {
+            fprintf(stderr,
+                    "runner_test: forced-blank result status=%d ran=%d "
+                    "cycles=%llu frame=%d reason=%d supported=%d emitted=%d "
+                    "length=%zu white=%d file=%d sample=%llu completion=%llu\n",
+                    (int)forced_blank_status, forced_blank.ran ? 1 : 0,
+                    (unsigned long long)forced_blank.cycles,
+                    (int)forced_blank.phase10.capture_state,
+                    (int)forced_blank.phase10.capture_reason,
+                    forced_blank.phase10.supported_controls ? 1 : 0,
+                    forced_blank.phase10.video_emitted ? 1 : 0,
+                    forced_blank.phase10.video_length,
+                    gbl_test_video_is_forced_blank_white(
+                        forced_blank.phase10.video_bytes,
+                        forced_blank.phase10.video_length) ? 1 : 0,
+                    gbl_test_video_file_matches(
+                        forced_blank_path, forced_blank.phase10.video_bytes,
+                        GBL_RUNNER_VIDEO_BYTES) ? 1 : 0,
+                    (unsigned long long)forced_blank.phase10.sample_cycle,
+                    (unsigned long long)forced_blank.phase10.completion_cycle);
+        }
+    }
+
+    {
+        const gbl_runner_status invalid_obj_status = gbl_test_execute_ppu(
+            invalid_obj_rom_path, invalid_obj_path, NULL, 0u, false,
+            UINT64_C(500000), (gbl_runner_allocator){ 0 }, &invalid_obj);
+
+        invalid_obj_okay =
+            invalid_obj_status == GBL_RUNNER_HARNESS_FAIL &&
+            invalid_obj.status == GBL_RUNNER_HARNESS_FAIL &&
+            strcmp(invalid_obj.termination, "timeout") == 0 &&
+            invalid_obj.ran && invalid_obj.cycles > 0u &&
+            invalid_obj.phase10.capture_state == GBL_VIDEO_CAPTURE_INVALID &&
+            invalid_obj.phase10.capture_reason ==
+                GBL_VIDEO_INVALID_REASON_OBJ_ENABLED &&
+            !invalid_obj.phase10.supported_controls &&
+            !invalid_obj.phase10.video_emitted &&
+            invalid_obj.phase10.video_bytes == NULL &&
+            invalid_obj.phase10.video_length == 0u &&
+            strcmp(invalid_obj.phase10.video_output_error,
+                   "video-frame-unavailable") == 0 &&
+            access(invalid_obj_path, F_OK) != 0 && errno == ENOENT &&
+            gbl_test_serialize_result(&invalid_obj, json, sizeof json) &&
+            strstr(json,
+                   "\"state\":\"invalid\",\"reason\":"
+                   "\"unsupported-obj-control\","
+                   "\"supported_controls\":false") != NULL;
+        if (!invalid_obj_okay) {
+            fprintf(stderr,
+                    "runner_test: invalid-OBJ result status=%d actual=%d "
+                    "termination=%s ran=%d cycles=%llu frame=%d reason=%d "
+                    "supported=%d emitted=%d length=%zu error=%s file=%d\n",
+                    (int)invalid_obj_status, (int)invalid_obj.status,
+                    invalid_obj.termination, invalid_obj.ran ? 1 : 0,
+                    (unsigned long long)invalid_obj.cycles,
+                    (int)invalid_obj.phase10.capture_state,
+                    (int)invalid_obj.phase10.capture_reason,
+                    invalid_obj.phase10.supported_controls ? 1 : 0,
+                    invalid_obj.phase10.video_emitted ? 1 : 0,
+                    invalid_obj.phase10.video_length,
+                    invalid_obj.phase10.video_output_error,
+                    access(invalid_obj_path, F_OK) != 0 ? errno : 0);
+        }
+    }
+    okay = okay && forced_blank_okay && invalid_obj_okay;
 
     memset(&allocator_state, 0, sizeof allocator_state);
     allocator_state.fail_at = 4u;
@@ -1262,6 +1454,8 @@ static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
     gbl_runner_result_dispose(&next_epoch_incomplete);
     gbl_runner_result_dispose(&unsupported);
     gbl_runner_result_dispose(&fresh);
+    gbl_runner_result_dispose(&forced_blank);
+    gbl_runner_result_dispose(&invalid_obj);
     gbl_runner_result_dispose(&invalid_path);
     return okay;
 }
@@ -3577,7 +3771,7 @@ int main(int argc, char **argv)
         printf("1..1\n");
         gbl_test_case(
             gbl_test_runner_ppu_output_controls(argv[2]),
-            "runner-ppu-output-controls: refusals preserve output while BG2-disabled bitmap mode emits backdrop pixels");
+            "runner-ppu-output-controls: refusals preserve output, bitmap backdrop and forced blank emit, prohibited OBJ mode retains cause");
         return gbl_test_failures == 0u ? 0 : 1;
     }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
