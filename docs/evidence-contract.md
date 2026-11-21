@@ -193,16 +193,19 @@ these fields:
   coordinate outside the mode's declared width/height resolves to backdrop
   palette entry zero before page arithmetic, so it cannot read an adjacent page
   or unused tail. The mode-3 identity output remains the regression anchor.
-  These bitmap modes require BG2 enabled and forced blank disabled. Regular and
-  affine OBJ plus shared layer composition are software-supported under the
-  profile's admission and tie policies; windows, color effects, and mosaic
-  remain unsupported, and all display modes remain partial. Frame `state`
+  Modes 3–5 sample bitmap BG2 only when enabled; mode 3 with BG2 disabled may
+  still produce a valid backdrop-only frame. Forced blank, windows, color
+  effects, and mosaic remain unsupported. Regular and affine OBJ plus shared
+  layer composition are modeled under the profile's admission and tie policies;
+  all display modes remain partial and hardware qualification remains `UNKNOWN`.
+  Frame `state`
   is `valid`,
   `incomplete`, or `invalid`; `incomplete` has reason `incomplete`, while `invalid`
-  must name an unsupported control reason such as `unsupported-mode`, `bg2-disabled`,
+  must name an unsupported control reason such as `unsupported-mode`,
   `forced-blank`, `unsupported-obj-control`, `window-enabled`, `effect-enabled`, or
-  `bg2-transform-unmodeled` for transforms used by text-only modes. Historical
-  records may use the superseded `obj-enabled` reason; current producers reserve
+  another explicitly unsupported control. Disabled BG2 is not itself an invalid
+  control; in mode 3 it selects backdrop-only composition. Historical records
+  may use the superseded `obj-enabled` reason; current producers reserve
   `unsupported-obj-control` for unsupported OBJ settings. A non-valid
   frame keeps epoch/sample/completion fields
   null and cannot emit stale or partial bytes. For requested output, incomplete and
@@ -408,8 +411,9 @@ separate causes. Explicit executing project policies and static target refusals
 are listed in the profile. Public unsupported values remain compatible without
 inventing a legal unimplemented instruction. There is no BIOS execution/HLE, audio,
 physical-controller discovery or host presentation. DMA, WAITCNT timing, and the
-partial Mode 0–5 background display paths have deterministic project-model behavior.
-DMA Prefetch, OBJ composition, windows, color effects, and mosaic remain unmodeled.
+partial Mode 0–5 background display paths and OBJ composition have deterministic
+project-model behavior. DMA Prefetch, windows, color effects, and mosaic remain
+unmodeled.
 The selected 1006-cycle HBlank point, DMA latch behavior, within-line visibility,
 affine transform behavior, and all display timing remain hardware-unqualified.
 Timer 0 and bus cycle observations use project-selected model behavior;

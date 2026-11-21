@@ -215,11 +215,14 @@ a concise PASS summary; it does not persist the JSON line as a separate file.
 Redirect stdout to a new file under the ignored build tree when preserving a
 separate result artifact is useful.
 
-Only mode 3 with BG2 enabled and forced blank disabled is supported. Other
-display modes, disabled BG2, forced blank, OBJ, windows, effects, and unmodeled
-BG2 transforms produce `invalid` frames with a named reason. A frame with fewer
-than 160 captured rows is `incomplete`. Neither state exposes old or partial
-bytes as a fresh valid frame. A writer error is `HARNESS_FAIL` with
+Display modes 0–5 and regular/affine OBJ composition have partial deterministic
+software-model support. The exact sources and dimensions vary by mode and are
+not a claim of broad game compatibility; hardware qualification remains
+`UNKNOWN`. In mode 3, disabled BG2 can produce a valid backdrop-only frame.
+Explicitly unsupported controls such as forced blank, windows, color effects,
+mosaic, or unsupported OBJ encodings produce `invalid` frames with a named
+reason. A frame with fewer than 160 captured rows is `incomplete`. Neither
+state exposes old or partial bytes as a fresh valid frame. A writer error is `HARNESS_FAIL` with
 `video-output-failed`; the result names the writer failure and does not claim a
 complete artifact. An unrequested frame has `raw_video.status: not-requested`.
 
