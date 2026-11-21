@@ -7446,6 +7446,30 @@ static int run_ppu_refusal(void)
     return 1;
 }
 
+static bool ppu_effects_control_mutation_refused(
+    gbl_machine *machine, const gbl_machine_time_preview *preview,
+    const gbl_machine_time_preview *twin_preview,
+    gbl_machine_time_preview *mutant, gbl_machine *before,
+    gbl_machine_time_preview *caller_before)
+{
+    bool unchanged;
+
+    if (gbl_test_time_preview_equal(preview, mutant) ||
+        gbl_test_time_preview_ppu_digest(preview) ==
+            gbl_test_time_preview_ppu_digest(mutant)) {
+        return false;
+    }
+    *before = *machine;
+    *caller_before = *mutant;
+    gbl_machine_commit_time(machine, mutant);
+    unchanged = gbl_test_canonical_equal(machine, before) &&
+                gbl_test_ppu_video_equal(machine, before) &&
+                gbl_test_time_preview_equal(mutant, caller_before) &&
+                gbl_test_time_preview_equal(preview, twin_preview);
+    *machine = *before;
+    return unchanged;
+}
+
 static int run_ppu_effects_controls(void)
 {
     gbl_machine *machine = new_machine();
@@ -7454,10 +7478,14 @@ static int run_ppu_effects_controls(void)
     gbl_machine_time_preview *preview = malloc(sizeof(*preview));
     gbl_machine_time_preview *twin_preview = malloc(sizeof(*twin_preview));
     gbl_machine_time_preview *mutant = malloc(sizeof(*mutant));
+    gbl_machine_time_preview *caller_before = malloc(sizeof(*caller_before));
+    size_t lane;
+    size_t affine_index;
 
     if (machine == NULL || twin == NULL || before == NULL || preview == NULL ||
-        twin_preview == NULL || mutant == NULL) {
+        twin_preview == NULL || mutant == NULL || caller_before == NULL) {
         fprintf(stderr, "ppu.effects.controls: host allocation failed\n");
+        free(caller_before);
         free(mutant);
         free(twin_preview);
         free(preview);
@@ -7476,34 +7504,180 @@ static int run_ppu_effects_controls(void)
     CHECK(gbl_test_time_preview_ppu_digest(preview) ==
           gbl_test_time_preview_ppu_digest(twin_preview));
 
-    *mutant = *preview;
-    mutant->ppu_row_captures[0].bg_register_bytes[8] ^= UINT8_C(1);
-    CHECK(!gbl_test_time_preview_equal(preview, mutant));
-    CHECK(gbl_test_time_preview_ppu_digest(preview) !=
-          gbl_test_time_preview_ppu_digest(mutant));
+#define CHECK_EFFECT_CONTROL_MUTATION(change)                              \
+    do {                                                                    \
+        bool mutation_refused;                                              \
+        *mutant = *preview;                                                 \
+        change;                                                             \
+        mutation_refused = ppu_effects_control_mutation_refused(            \
+            machine, preview, twin_preview, mutant, before, caller_before); \
+        if (!mutation_refused) {                                            \
+            fprintf(stderr, "unbound PPU mutation: %s\n", #change);       \
+        }                                                                   \
+        CHECK(mutation_refused);                                            \
+    } while (0)
 
-    *before = *machine;
-    gbl_machine_commit_time(machine, mutant);
-    CHECK(gbl_test_canonical_equal(machine, before));
-    CHECK(gbl_test_ppu_video_equal(machine, before));
-    *machine = *before;
+    /* The row has no enabled window, effect, mosaic, BG, or OBJ source. Each
+     * raw lane mutation therefore keeps the rendered backdrop pixel equal. */
+    for (lane = 0u;
+         lane < sizeof(preview->ppu_row_captures[0].window_register_bytes);
+         ++lane) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].window_register_bytes[lane] ^=
+                UINT8_C(1));
+    }
+    for (lane = 0u;
+         lane < sizeof(preview->ppu_row_captures[0].render_register_bytes);
+         ++lane) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].render_register_bytes[lane] ^=
+                UINT8_C(1));
+    }
+    for (lane = 0u;
+         lane < sizeof(preview->ppu_row_captures[0].bg_register_bytes);
+         ++lane) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].bg_register_bytes[lane] ^=
+                UINT8_C(1));
+    }
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].dispcnt ^= UINT16_C(0x0100));
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].unsupported_register_bytes ^=
+            UINT32_C(1));
+    CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu_row_captures[0].cycle++);
+    CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu_row_captures[0].line = 1u);
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].frame_epoch++);
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].prior_write_count++);
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].pixel_digest ^= UINT64_C(1));
+    for (lane = 0u;
+         lane < sizeof(preview->ppu_row_captures[0].obj_selected_mask);
+         ++lane) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].obj_selected_mask[lane] ^=
+                UINT8_C(1));
+    }
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].obj_selected_count++);
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].obj_omitted_count++);
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_row_captures[0].obj_work_used++);
+    for (affine_index = 0u;
+         affine_index < GBL_PPU_AFFINE_BACKGROUND_COUNT;
+         ++affine_index) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index].pa++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index].pb++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index].pc++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index].pd++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index]
+                .programmed_reference_x++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index]
+                .programmed_reference_y++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index].origin_x++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index].origin_y++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index].origin_valid =
+                !mutant->ppu_row_captures[0].affine[affine_index]
+                     .origin_valid);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_row_captures[0].affine[affine_index]
+                .hblank_y_suppressed = true);
+    }
 
-    *mutant = *preview;
-    mutant->ppu.bg_register_bytes[8] ^= UINT8_C(1);
-    CHECK(!gbl_test_time_preview_equal(preview, mutant));
-    CHECK(gbl_test_time_preview_ppu_digest(preview) !=
-          gbl_test_time_preview_ppu_digest(mutant));
-    *before = *machine;
-    gbl_machine_commit_time(machine, mutant);
-    CHECK(gbl_test_canonical_equal(machine, before));
-    CHECK(gbl_test_ppu_video_equal(machine, before));
-    *machine = *before;
+    /* Final candidate and prepared-copy lanes are independently visible and
+     * validation rejects either side when they no longer agree. */
+    for (lane = 0u; lane < GBL_PPU_RENDER_REGISTER_BYTES; ++lane) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu.render_register_bytes[lane] ^= UINT8_C(1));
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_render_register_bytes_prepared[lane] ^= UINT8_C(1));
+    }
+    for (lane = 0u; lane < GBL_PPU_BG_REGISTER_BYTES; ++lane) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu.bg_register_bytes[lane] ^= UINT8_C(1));
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_bg_register_bytes_prepared[lane] ^= UINT8_C(1));
+    }
+    for (lane = 0u; lane < GBL_PPU_WINDOW_REGISTER_BYTES; ++lane) {
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu.window_register_bytes[lane] ^= UINT8_C(1));
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_window_register_bytes_prepared[lane] ^=
+                UINT8_C(1));
+    }
+    CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.dispcnt ^= UINT16_C(0x0100));
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_dispcnt_prepared ^= UINT16_C(0x0100));
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu.unsupported_register_bytes++);
+    CHECK_EFFECT_CONTROL_MUTATION(
+        mutant->ppu_unsupported_register_bytes_prepared++);
+    CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.frame_epoch++);
+    for (affine_index = 0u;
+         affine_index < GBL_PPU_AFFINE_BACKGROUND_COUNT;
+         ++affine_index) {
+        CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.affine[affine_index].pa++);
+        CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.affine[affine_index].pb++);
+        CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.affine[affine_index].pc++);
+        CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.affine[affine_index].pd++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu.affine[affine_index].programmed_reference_x++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu.affine[affine_index].programmed_reference_y++);
+        CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.affine[affine_index].origin_x++);
+        CHECK_EFFECT_CONTROL_MUTATION(mutant->ppu.affine[affine_index].origin_y++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu.affine[affine_index].origin_valid =
+                !mutant->ppu.affine[affine_index].origin_valid);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu.affine[affine_index].hblank_y_suppressed =
+                !mutant->ppu.affine[affine_index].hblank_y_suppressed);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].pa++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].pb++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].pc++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].pd++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index]
+                .programmed_reference_x++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index]
+                .programmed_reference_y++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].origin_x++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].origin_y++);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].origin_valid =
+                !mutant->ppu_affine_prepared[affine_index].origin_valid);
+        CHECK_EFFECT_CONTROL_MUTATION(
+            mutant->ppu_affine_prepared[affine_index].hblank_y_suppressed =
+                !mutant->ppu_affine_prepared[affine_index]
+                     .hblank_y_suppressed);
+    }
+#undef CHECK_EFFECT_CONTROL_MUTATION
 
     gbl_machine_commit_time(machine, preview);
     gbl_machine_commit_time(twin, twin_preview);
     CHECK(gbl_test_canonical_equal(machine, twin));
     CHECK(gbl_test_ppu_video_equal(machine, twin));
 
+    free(caller_before);
     free(mutant);
     free(twin_preview);
     free(preview);
@@ -7511,7 +7685,69 @@ static int run_ppu_effects_controls(void)
     free_machine(twin);
     free_machine(machine);
     if (CHECK_DONE() == 0) {
-        puts("ppu.effects.controls: raw BG capture mutations refuse atomically and clean twins retry");
+        puts("ppu.effects.controls: raw feature lanes, prepared bindings, boundary metadata and OBJ observations refuse atomically with clean twin retry");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_effects_boundary(void)
+{
+    static const uint64_t write_cycles[3] = {
+        UINT64_C(1231), UINT64_C(1232), UINT64_C(1233)
+    };
+    static const uint16_t expected_line_one[3] = {
+        UINT16_C(0x7FFF), UINT16_C(0x001F), UINT16_C(0x001F)
+    };
+    size_t timing;
+
+    for (timing = 0u; timing < 3u; ++timing) {
+        gbl_machine *machine = new_machine();
+        gbl_machine_time_preview preview;
+        const gbl_time_operation write_bldy = {
+            GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x04000054),
+            UINT32_C(16), UINT64_C(1)
+        };
+
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        ppu_bg_store_u16(machine->pram, 0u, UINT16_C(0x001F));
+        machine->dispcnt = 0u;
+        machine->ppu.dispcnt = machine->dispcnt;
+        machine->ppu.render_register_bytes[18] = UINT8_C(0xA0);
+        CHECK(gbl_machine_advance_to(
+                  machine, write_cycles[timing] - UINT64_C(1)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(machine->master_cycles == write_cycles[timing] - UINT64_C(1));
+        CHECK(ppu_effect_pixel(machine, 0u, 0u) == UINT16_C(0x001F));
+
+        CHECK(gbl_machine_prepare_operations(
+                  machine, &write_bldy, 1u, &preview) == GBL_TIME_STATUS_OK);
+        CHECK(preview.master_cycles == write_cycles[timing]);
+        CHECK(preview.ppu.render_register_bytes[22] == UINT8_C(16));
+        if (timing != 1u) {
+            CHECK(preview.ppu_row_capture_count == 0u);
+        } else {
+            CHECK(preview.ppu_row_capture_count == 1u);
+            CHECK(preview.ppu_row_captures[0].cycle == UINT64_C(1232));
+            CHECK(preview.ppu_row_captures[0].line == 1u);
+            CHECK(preview.ppu_row_captures[0].prior_write_count == 0u);
+            CHECK(preview.ppu_row_captures[0].render_register_bytes[22] ==
+                  0u);
+        }
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(gbl_machine_advance_to(machine, UINT64_C(2464)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_effect_pixel(machine, 0u, 1u) ==
+              expected_line_one[timing]);
+        CHECK(ppu_effect_pixel(machine, 0u, 2u) == UINT16_C(0x7FFF));
+        free_machine(machine);
+    }
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.effects.boundary: BLDY writes before/on/after line start preserve sampled colors and ordered row prefixes");
         return 0;
     }
     return 1;
@@ -10873,7 +11109,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.effects.controls|ppu.mosaic.bg|ppu.mosaic.obj|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.effects.brightness|ppu.effects.boundary|ppu.effects.controls|ppu.mosaic.bg|ppu.mosaic.obj|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -10902,6 +11138,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.effects.controls") == 0) {
         return run_ppu_effects_controls();
+    }
+    if (strcmp(argv[1], "ppu.effects.boundary") == 0) {
+        return run_ppu_effects_boundary();
     }
     if (strcmp(argv[1], "ppu.mosaic.bg") == 0) {
         return run_ppu_mosaic_bg();

@@ -976,9 +976,27 @@ static inline uint64_t gbl_test_time_preview_ppu_digest(
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX) {
         return gbl_test_digest_byte(digest, UINT8_MAX);
     }
+    digest = gbl_test_digest_u64(digest, preview->ppu.line_origin);
+    digest = gbl_test_digest_u64(digest, preview->ppu.generation);
+    digest = gbl_test_digest_u64(digest, preview->ppu.frame_epoch);
+    digest = gbl_test_digest_u64(digest, preview->ppu.line);
+    digest = gbl_test_digest_u64(digest, preview->ppu.scheduled_line);
     digest = gbl_test_digest_u64(digest, preview->ppu.dispcnt);
+    digest = gbl_test_digest_u64(digest, preview->ppu.dispstat);
+    digest = gbl_test_digest_u64(digest, preview->ppu.compare);
+    digest = gbl_test_digest_u64(digest, preview->ppu.captured_rows);
     digest = gbl_test_digest_u64(
         digest, preview->ppu.unsupported_register_bytes);
+    digest = gbl_test_digest_u64(
+        digest, (uint64_t)preview->ppu.capture_state);
+    digest = gbl_test_digest_u64(
+        digest, (uint64_t)preview->ppu.capture_reason);
+    digest = gbl_test_digest_byte(
+        digest, preview->ppu.next_boundary_hblank ? 1u : 0u);
+    digest = gbl_test_digest_byte(
+        digest, preview->ppu.frame_started ? 1u : 0u);
+    digest = gbl_test_digest_bytes(digest, preview->ppu.row_coverage,
+                                   sizeof(preview->ppu.row_coverage));
     digest = gbl_test_digest_bytes(
         digest, preview->ppu.render_register_bytes,
         sizeof(preview->ppu.render_register_bytes));
@@ -1000,6 +1018,34 @@ static inline uint64_t gbl_test_time_preview_ppu_digest(
     digest = gbl_test_digest_bytes(
         digest, preview->ppu_window_register_bytes_prepared,
         sizeof(preview->ppu_window_register_bytes_prepared));
+    for (index = 0u; index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++index) {
+        const gbl_ppu_affine_state *affine = &preview->ppu.affine[index];
+        const gbl_ppu_affine_state *prepared =
+            &preview->ppu_affine_prepared[index];
+        const gbl_ppu_affine_state *affine_states[2] = {
+            affine, prepared
+        };
+        size_t state_index;
+
+        for (state_index = 0u; state_index < 2u; ++state_index) {
+            const gbl_ppu_affine_state *state = affine_states[state_index];
+
+            digest = gbl_test_digest_u64(digest, (uint16_t)state->pa);
+            digest = gbl_test_digest_u64(digest, (uint16_t)state->pb);
+            digest = gbl_test_digest_u64(digest, (uint16_t)state->pc);
+            digest = gbl_test_digest_u64(digest, (uint16_t)state->pd);
+            digest = gbl_test_digest_u64(
+                digest, state->programmed_reference_x);
+            digest = gbl_test_digest_u64(
+                digest, state->programmed_reference_y);
+            digest = gbl_test_digest_u64(digest, state->origin_x);
+            digest = gbl_test_digest_u64(digest, state->origin_y);
+            digest = gbl_test_digest_byte(
+                digest, state->origin_valid ? 1u : 0u);
+            digest = gbl_test_digest_byte(
+                digest, state->hblank_y_suppressed ? 1u : 0u);
+        }
+    }
     digest = gbl_test_digest_u64(digest, preview->ppu_row_capture_count);
     for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
         digest = gbl_test_digest_u64(
