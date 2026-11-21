@@ -555,6 +555,340 @@ static bool gbl_test_write_ppu_guest(const char *path)
     return gbl_test_write_ppu_guest_with_dispcnt(path, UINT32_C(0x0403));
 }
 
+enum {
+    GBL_PRODUCTION_IMAGE_BYTES = 0xC00u,
+    GBL_PRODUCTION_LITERAL_OFFSET = 0x600u,
+    GBL_PRODUCTION_OAM_OFFSET = 0x800u,
+    GBL_PRODUCTION_OAM_ENTRIES = 128u,
+    GBL_PRODUCTION_CYCLE_BUDGET = 600000u,
+    GBL_PRODUCTION_CASE_ID = 0x15A1u
+};
+
+typedef enum gbl_test_production_reason {
+    GBL_PRODUCTION_ACCEPTED = 0,
+    GBL_PRODUCTION_FRAME_INCOMPLETE,
+    GBL_PRODUCTION_COMPLETION_MISSING,
+    GBL_PRODUCTION_PROGRESS_WRONG,
+    GBL_PRODUCTION_CYCLES_INCONSISTENT,
+    GBL_PRODUCTION_PIXEL_MISMATCH,
+    GBL_PRODUCTION_METADATA_WRONG
+} gbl_test_production_reason;
+
+typedef struct gbl_test_production_pixel {
+    uint16_t x;
+    uint16_t y;
+    uint16_t bgr555;
+} gbl_test_production_pixel;
+
+typedef struct gbl_test_production_store {
+    uint32_t address;
+    uint32_t value;
+    uint8_t width_bytes;
+} gbl_test_production_store;
+
+static const gbl_test_production_pixel gbl_test_production_oracle[] = {
+    { 20u, 12u, UINT16_C(0x001F) }, /* transparent OBJ reveals red BG */
+    { 21u, 12u, UINT16_C(0x3C0F) }, /* 8/8 blue OBJ over red BG */
+    { 23u, 12u, UINT16_C(0x3C0F) }, /* last pixel inside half-open WIN0 */
+    { 24u, 12u, UINT16_C(0x7C00) }, /* immediately outside WIN0 */
+    { 28u, 12u, UINT16_C(0x001F) }, /* immediately outside the OBJ */
+    { 20u, 20u, UINT16_C(0x001F) }  /* immediately below WIN0 and OBJ */
+};
+
+static bool gbl_test_production_emit_load(uint8_t *image, size_t *offset,
+                                          size_t *literal_count,
+                                          unsigned int destination,
+                                          uint32_t value)
+{
+    size_t literal;
+
+    if (image == NULL || offset == NULL || literal_count == NULL ||
+        *offset + 4u > GBL_PRODUCTION_LITERAL_OFFSET) {
+        return false;
+    }
+    literal = GBL_PRODUCTION_LITERAL_OFFSET +
+              *literal_count * sizeof(uint32_t);
+    if (literal + sizeof(uint32_t) > GBL_PRODUCTION_OAM_OFFSET) {
+        return false;
+    }
+    gbl_test_emit_arm_ldr_literal(image, offset, destination, literal);
+    gbl_test_write_le32(image, literal, value);
+    (*literal_count)++;
+    return true;
+}
+
+static bool gbl_test_production_emit_store16(uint8_t *image, size_t *offset,
+                                             size_t *literal_count,
+                                             uint32_t address,
+                                             uint16_t value)
+{
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 0u,
+                                       address) ||
+        !gbl_test_production_emit_load(image, offset, literal_count, 1u,
+                                       value) ||
+        *offset + 4u > GBL_PRODUCTION_LITERAL_OFFSET) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1C010B0));
+    return true;
+}
+
+static bool gbl_test_production_emit_store32(uint8_t *image, size_t *offset,
+                                             size_t *literal_count,
+                                             uint32_t address,
+                                             uint32_t value)
+{
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 0u,
+                                       address) ||
+        !gbl_test_production_emit_load(image, offset, literal_count, 1u,
+                                       value) ||
+        *offset + 4u > GBL_PRODUCTION_LITERAL_OFFSET) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5801000));
+    return true;
+}
+
+static bool gbl_test_production_emit_stores(
+    uint8_t *image, size_t *offset, size_t *literal_count,
+    const gbl_test_production_store *stores, size_t store_count)
+{
+    size_t index;
+
+    if (stores == NULL || store_count == 0u) {
+        return false;
+    }
+    for (index = 0u; index < store_count; ++index) {
+        bool stored;
+
+        if (stores[index].width_bytes == 2u) {
+            stored = gbl_test_production_emit_store16(
+                image, offset, literal_count, stores[index].address,
+                (uint16_t)stores[index].value);
+        } else if (stores[index].width_bytes == 4u) {
+            stored = gbl_test_production_emit_store32(
+                image, offset, literal_count, stores[index].address,
+                stores[index].value);
+        } else {
+            return false;
+        }
+        if (!stored) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void gbl_test_production_patch_branch(uint8_t *image,
+                                             size_t instruction_offset,
+                                             size_t target_offset,
+                                             unsigned int condition)
+{
+    const int64_t distance = (int64_t)target_offset -
+                             (int64_t)(instruction_offset + 8u);
+    const int64_t words = distance / 4;
+    const uint32_t opcode = ((uint32_t)condition << 28u) |
+                            UINT32_C(0x0A000000) |
+                            ((uint32_t)words & UINT32_C(0x00FFFFFF));
+
+    gbl_test_write_le32(image, instruction_offset, opcode);
+}
+
+static bool gbl_test_production_emit_compare16(
+    uint8_t *image, size_t *offset, size_t *literal_count, uint32_t address,
+    uint16_t expected, size_t *branch_offset)
+{
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 0u,
+                                       address)) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1D010B0)); /* LDRH */
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 2u,
+                                       expected)) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1510002)); /* CMP */
+    *branch_offset = *offset;
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1A00000)); /* patched BNE */
+    return true;
+}
+
+static bool gbl_test_write_production_guest(const char *path)
+{
+    const gbl_test_production_store background_stores[] = {
+        { UINT32_C(0x04000008), UINT32_C(0x1C01), 2u },
+        { UINT32_C(0x0600E000), 0u, 2u },
+        { UINT32_C(0x05000002), 0u, 2u },
+        { UINT32_C(0x05000204), UINT32_C(0x7C00), 2u }
+    };
+    const gbl_test_production_store window_stores[] = {
+        { UINT32_C(0x04000040), UINT32_C(0x1418), 2u },
+        { UINT32_C(0x04000044), UINT32_C(0x0C14), 2u },
+        { UINT32_C(0x04000048), UINT32_C(0x0031), 2u },
+        { UINT32_C(0x0400004A), UINT32_C(0x0011), 2u },
+        { UINT32_C(0x04000050), UINT32_C(0x0150), 2u },
+        { UINT32_C(0x04000052), UINT32_C(0x0808), 2u }
+    };
+    const gbl_test_production_store dma_stores[] = {
+        { UINT32_C(0x040000D4), UINT32_C(0x08000800), 4u },
+        { UINT32_C(0x040000D8), UINT32_C(0x07000000), 4u },
+        { UINT32_C(0x040000DC), UINT32_C(512), 2u },
+        { UINT32_C(0x040000DE), UINT32_C(0x8000), 2u }
+    };
+    const gbl_test_production_store mailbox_stores[] = {
+        { UINT32_C(0x03007FC0), UINT32_C(0x47424C4B), 4u },
+        { UINT32_C(0x03007FC4), 1u, 4u },
+        { UINT32_C(0x03007FC8), 1u, 4u },
+        { UINT32_C(0x03007FCC), GBL_PRODUCTION_CASE_ID, 4u },
+        { UINT32_C(0x03007FD0), 0u, 4u }
+    };
+    uint8_t image[GBL_PRODUCTION_IMAGE_BYTES] = { 0u };
+    const uint16_t background_color = UINT16_C(0x001F);
+    size_t offset = 0u;
+    size_t literal_count = 0u;
+    size_t mismatch_branches[3];
+    size_t mismatch_count = 0u;
+    size_t first_vblank_loop;
+    size_t leave_vblank_loop;
+    size_t next_vblank_loop;
+    size_t failure_loop;
+    size_t object;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    /* Keep DISPCNT forced blank while the original guest writes its scene. */
+    if (!gbl_test_production_emit_store16(
+            image, &offset, &literal_count, UINT32_C(0x04000000),
+            UINT16_C(0x31C0))) {
+        return false;
+    }
+
+    /* Mode 0, BG0 text map at screen base 28, BG priority below the OBJ. */
+    {
+        gbl_test_production_store initial_writes[4];
+
+        memcpy(initial_writes, background_stores,
+               sizeof background_stores);
+        initial_writes[2].value = background_color;
+        if (!gbl_test_production_emit_stores(
+                image, &offset, &literal_count, initial_writes,
+                sizeof initial_writes / sizeof initial_writes[0])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 16u; ++index) {
+        if (!gbl_test_production_emit_store16(
+                image, &offset, &literal_count,
+                UINT32_C(0x06000000) + (uint32_t)(index * 2u),
+                UINT16_C(0x1111))) {
+            return false;
+        }
+        if (!gbl_test_production_emit_store16(
+                image, &offset, &literal_count,
+                UINT32_C(0x06010000) + (uint32_t)(index * 2u),
+                index == 0u ? UINT16_C(0x2220) : UINT16_C(0x2222))) {
+            return false;
+        }
+    }
+
+    /* WIN0 is [20,24) x [12,20); effects are enabled only inside it. */
+    if (!gbl_test_production_emit_stores(
+            image, &offset, &literal_count, window_stores,
+            sizeof window_stores / sizeof window_stores[0])) {
+        return false;
+    }
+
+    /* DMA3 copies all 128 OAM entries from the guest image. */
+    if (!gbl_test_production_emit_stores(
+            image, &offset, &literal_count, dma_stores,
+            sizeof dma_stores / sizeof dma_stores[0])) {
+        return false;
+    }
+
+    /* Publish progress before enabling the scene; completion remains last. */
+    if (!gbl_test_production_emit_stores(
+            image, &offset, &literal_count, mailbox_stores,
+            sizeof mailbox_stores / sizeof mailbox_stores[0]) ||
+        !gbl_test_production_emit_store16(
+            image, &offset, &literal_count, UINT32_C(0x04000000),
+            UINT16_C(0x3140))) {
+        return false;
+    }
+
+    if (!gbl_test_production_emit_load(image, &offset, &literal_count, 0u,
+                                       UINT32_C(0x04000004))) {
+        return false;
+    }
+    first_vblank_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3110001)); /* TST */
+    gbl_test_production_patch_branch(image, offset, first_vblank_loop, 0u);
+    offset += 4u;
+
+    leave_vblank_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3110001));
+    gbl_test_production_patch_branch(image, offset, leave_vblank_loop, 1u);
+    offset += 4u;
+
+    next_vblank_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3110001));
+    gbl_test_production_patch_branch(image, offset, next_vblank_loop, 0u);
+    offset += 4u;
+
+    /* Read back one CPU-written palette witness and both OAM DMA edges. */
+    if (!gbl_test_production_emit_compare16(
+            image, &offset, &literal_count, UINT32_C(0x05000002),
+            background_color, &mismatch_branches[mismatch_count++]) ||
+        !gbl_test_production_emit_compare16(
+            image, &offset, &literal_count, UINT32_C(0x07000000),
+            UINT16_C(0x040C), &mismatch_branches[mismatch_count++]) ||
+        !gbl_test_production_emit_compare16(
+            image, &offset, &literal_count, UINT32_C(0x070003F8),
+            UINT16_C(0x0200), &mismatch_branches[mismatch_count++]) ||
+        !gbl_test_production_emit_store32(
+            image, &offset, &literal_count, UINT32_C(0x03007FC8), 2u) ||
+        !gbl_test_production_emit_store32(
+            image, &offset, &literal_count, UINT32_C(0x03007FD0),
+            UINT32_C(0x434F4D50))) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    failure_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    for (index = 0u; index < mismatch_count; ++index) {
+        gbl_test_production_patch_branch(image, mismatch_branches[index],
+                                         failure_loop, 1u);
+    }
+    if (offset >= GBL_PRODUCTION_LITERAL_OFFSET ||
+        GBL_PRODUCTION_LITERAL_OFFSET + literal_count * sizeof(uint32_t) >
+            GBL_PRODUCTION_OAM_OFFSET) {
+        return false;
+    }
+
+    for (object = 0u; object < GBL_PRODUCTION_OAM_ENTRIES; ++object) {
+        const uint32_t attr0 = object == 0u ? UINT32_C(0x040C)
+                                            : UINT32_C(0x0200);
+        const uint32_t attr1 = object == 0u ? UINT32_C(20) : 0u;
+        const size_t entry = GBL_PRODUCTION_OAM_OFFSET + object * 8u;
+
+        gbl_test_write_le32(image, entry, attr0 | (attr1 << 16u));
+        gbl_test_write_le32(image, entry + 4u, 0u);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
 static bool gbl_test_write_ppu_invalid_obj_guest(const char *path)
 {
     uint8_t image[0xC0u] = { 0u };
@@ -792,6 +1126,245 @@ static bool gbl_test_video_file_matches(const char *path,
     }
     free(actual);
     return okay;
+}
+
+static bool gbl_test_production_pixels_match(
+    const uint8_t *video, size_t video_length,
+    const gbl_test_production_pixel *expected, size_t expected_count)
+{
+    size_t index;
+
+    if (video == NULL || video_length != GBL_RUNNER_VIDEO_BYTES ||
+        expected == NULL || expected_count == 0u) {
+        return false;
+    }
+    for (index = 0u; index < expected_count; ++index) {
+        size_t offset;
+        uint16_t actual;
+
+        if (expected[index].x >= 240u || expected[index].y >= 160u) {
+            return false;
+        }
+        offset = ((size_t)expected[index].y * 240u + expected[index].x) * 2u;
+        actual = (uint16_t)((uint16_t)video[offset] |
+                            ((uint16_t)video[offset + 1u] << 8u));
+        if (actual != expected[index].bgr555) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static size_t gbl_test_count_substring(const char *text,
+                                       const char *needle)
+{
+    size_t count = 0u;
+    size_t length;
+    const char *found;
+
+    if (text == NULL || needle == NULL || needle[0] == '\0') {
+        return 0u;
+    }
+    length = strlen(needle);
+    found = text;
+    while ((found = strstr(found, needle)) != NULL) {
+        ++count;
+        found += length;
+    }
+    return count;
+}
+
+static bool gbl_test_production_metadata_matches(const char *json)
+{
+    static const char access_policy[] =
+        "\"video_memory_access\":{\"classification\":\"project-selected\","
+        "\"hardware_qualification\":\"UNKNOWN\",\"masters\":[\"cpu\",\"dma\"],"
+        "\"regions\":[\"pram\",\"vram\",\"oam\"],"
+        "\"states\":[\"drawing\",\"hblank\",\"vblank\",\"forced-blank\"],"
+        "\"availability\":\"existing-bus-behavior\",\"ppu_extra_cycles\":0,"
+        "\"cost_reference\":\"bus_policy.request_cycles\"}";
+    unsigned int mode;
+
+    if (json == NULL ||
+        strstr(json,
+               "\"machine\":\"agb\",\"boot\":\"direct-start\","
+               "\"bios_provider\":\"none\",\"cart\":{\"kind\":\"rom-only\"") ==
+            NULL ||
+        strstr(json, access_policy) == NULL ||
+        strstr(json, "\"hardware_qualification\":\"UNKNOWN\"") == NULL ||
+        strstr(json, "\"state\":\"valid\",\"reason\":\"none\"") ==
+            NULL ||
+        strstr(json, "\"format\":\"bgr555-le\"") == NULL ||
+        strstr(json, "\"width\":240,\"height\":160,\"stride_bytes\":480,") ==
+            NULL ||
+        strstr(json, "\"byte_length\":76800") == NULL ||
+        strstr(json, "\"sample_cycle\":\"") == NULL ||
+        strstr(json, "\"completion_cycle\":\"") == NULL ||
+        gbl_test_count_substring(json,
+                                 "\"implementation_status\":\"partial\"") !=
+            6u) {
+        return false;
+    }
+    for (mode = 0u; mode <= 5u; ++mode) {
+        char expected_mode[64];
+
+        if (snprintf(expected_mode, sizeof expected_mode,
+                     "\"mode\":%u,\"implementation_status\":\"partial\"",
+                     mode) < 0 || strstr(json, expected_mode) == NULL) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static gbl_test_production_reason gbl_test_production_evaluate(
+    const gbl_runner_result *result, const uint8_t *video,
+    const char *serialized_json,
+    const gbl_test_production_pixel *expected_pixels,
+    size_t expected_pixel_count)
+{
+    const gbl_runner_phase10_observation *frame;
+
+    if (result == NULL) {
+        return GBL_PRODUCTION_FRAME_INCOMPLETE;
+    }
+    frame = &result->phase10;
+    if (!frame->observed || !frame->frame_started ||
+        frame->capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        frame->capture_reason != GBL_VIDEO_INVALID_REASON_NONE ||
+        !frame->supported_controls || !frame->has_sample_cycle ||
+        !frame->has_completion_cycle ||
+        frame->sample_cycle > frame->completion_cycle ||
+        frame->completion_cycle > result->cycles ||
+        !frame->video_requested || !frame->video_emitted ||
+        frame->video_bytes == NULL ||
+        frame->video_length != GBL_RUNNER_VIDEO_BYTES || video == NULL ||
+        video != frame->video_bytes) {
+        return GBL_PRODUCTION_FRAME_INCOMPLETE;
+    }
+    if (result->semantic.status != GBL_MAILBOX_PASS) {
+        return GBL_PRODUCTION_COMPLETION_MISSING;
+    }
+    if (result->semantic.case_id != GBL_PRODUCTION_CASE_ID) {
+        return GBL_PRODUCTION_PROGRESS_WRONG;
+    }
+    /* DMA pause observations sit outside the bus/internal components; include
+     * them once in the total machine-cycle equation. */
+    if (!result->ran || result->budget_cycles != GBL_PRODUCTION_CYCLE_BUDGET ||
+        result->cycles == 0u || result->cycles > GBL_PRODUCTION_CYCLE_BUDGET ||
+        result->instructions == 0u ||
+        result->bus_cycles > result->cycles ||
+        result->internal_cycles > result->cycles ||
+        result->dma_pause_cycles > result->cycles ||
+        result->bus_cycles + result->internal_cycles +
+                result->dma_pause_cycles !=
+            result->cycles ||
+        result->phase10.machine_cycles != result->cycles ||
+        !result->phase9.observed ||
+        result->phase9.machine_cycles != result->cycles ||
+        result->phase9.bus_owner != GBL_MACHINE_BUS_OWNER_CPU ||
+        result->dma_completed_units != GBL_PRODUCTION_OAM_ENTRIES * 4u ||
+        result->phase9.channels[3].completed_units !=
+            GBL_PRODUCTION_OAM_ENTRIES * 4u ||
+        result->phase9.channels[3].remaining != 0u ||
+        result->dma_startup_cycles == 0u || result->dma_source_cycles == 0u ||
+        result->dma_destination_cycles == 0u) {
+        return GBL_PRODUCTION_CYCLES_INCONSISTENT;
+    }
+    if (!gbl_test_production_pixels_match(video, frame->video_length,
+                                          expected_pixels,
+                                          expected_pixel_count)) {
+        return GBL_PRODUCTION_PIXEL_MISMATCH;
+    }
+    if (result->status != GBL_RUNNER_GUEST_STOP ||
+        strcmp(result->reason, "unregistered-content") != 0 ||
+        strcmp(result->termination, "unregistered-content") != 0 ||
+        result->has_fixture_id ||
+        !gbl_test_production_metadata_matches(serialized_json)) {
+        return GBL_PRODUCTION_METADATA_WRONG;
+    }
+    return GBL_PRODUCTION_ACCEPTED;
+}
+
+static const char *gbl_test_production_reason_name(
+    gbl_test_production_reason reason)
+{
+    switch (reason) {
+    case GBL_PRODUCTION_ACCEPTED: return "accepted";
+    case GBL_PRODUCTION_FRAME_INCOMPLETE: return "frame-incomplete";
+    case GBL_PRODUCTION_COMPLETION_MISSING: return "semantic-completion";
+    case GBL_PRODUCTION_PROGRESS_WRONG: return "progress";
+    case GBL_PRODUCTION_CYCLES_INCONSISTENT: return "cycle-accounting";
+    case GBL_PRODUCTION_PIXEL_MISMATCH: return "pixel-oracle";
+    case GBL_PRODUCTION_METADATA_WRONG: return "metadata";
+    }
+    return "unknown";
+}
+
+static bool gbl_test_runner_production(const char *scratch_directory)
+{
+    gbl_runner_result result = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char video_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[16384];
+    gbl_test_production_reason reason = GBL_PRODUCTION_FRAME_INCOMPLETE;
+    bool setup;
+
+    setup = gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                          "ppu-production.gba") &&
+            gbl_test_path(video_path, sizeof video_path, scratch_directory,
+                          "ppu-production.raw");
+    if (!setup) {
+        return false;
+    }
+    (void)remove(rom_path);
+    (void)remove(video_path);
+    setup = gbl_test_write_production_guest(rom_path);
+    if (setup) {
+        (void)gbl_test_execute_ppu(
+            rom_path, video_path, NULL, 0u, false,
+            GBL_PRODUCTION_CYCLE_BUDGET, (gbl_runner_allocator){ 0 },
+            &result);
+        setup = gbl_test_serialize_result(&result, json, sizeof json);
+    }
+    if (setup) {
+        reason = gbl_test_production_evaluate(
+            &result, result.phase10.video_bytes, json,
+            gbl_test_production_oracle,
+            sizeof gbl_test_production_oracle /
+                sizeof gbl_test_production_oracle[0]);
+        setup = reason == GBL_PRODUCTION_ACCEPTED &&
+                gbl_test_video_file_matches(video_path,
+                                            result.phase10.video_bytes,
+                                            GBL_RUNNER_VIDEO_BYTES);
+    }
+    gbl_test_case(setup,
+                  "ppu.production: bounded CPU/DMA scene reaches mailbox PASS, full frame and independent literal pixels; top-level GUEST_STOP remains unregistered-content");
+    if (!setup) {
+        fprintf(stderr,
+                "runner_test: production evaluator returned %s: status=%d reason=%s termination=%s semantic=%d case=%u cycles=%llu budget=%llu instructions=%llu bus=%llu internal=%llu phase10=%llu phase9=%llu dma=%llu channel3=%llu remaining=%u startup=%llu source=%llu destination=%llu pause=%llu\n",
+                gbl_test_production_reason_name(reason), (int)result.status,
+                result.reason, result.termination,
+                (int)result.semantic.status, result.semantic.case_id,
+                (unsigned long long)result.cycles,
+                (unsigned long long)result.budget_cycles,
+                (unsigned long long)result.instructions,
+                (unsigned long long)result.bus_cycles,
+                (unsigned long long)result.internal_cycles,
+                (unsigned long long)result.phase10.machine_cycles,
+                (unsigned long long)result.phase9.machine_cycles,
+                (unsigned long long)result.dma_completed_units,
+                (unsigned long long)result.phase9.channels[3].completed_units,
+                result.phase9.channels[3].remaining,
+                (unsigned long long)result.dma_startup_cycles,
+                (unsigned long long)result.dma_source_cycles,
+                (unsigned long long)result.dma_destination_cycles,
+                (unsigned long long)result.dma_pause_cycles);
+    }
+    gbl_runner_result_dispose(&result);
+    (void)remove(rom_path);
+    (void)remove(video_path);
+    return true;
 }
 
 static bool gbl_test_video_is_forced_blank_white(const uint8_t *video,
@@ -3774,6 +4347,20 @@ int main(int argc, char **argv)
             "runner-ppu-output-controls: refusals preserve output, bitmap backdrop and forced blank emit, prohibited OBJ mode retains cause");
         return gbl_test_failures == 0u ? 0 : 1;
     }
+    if (argc == 3 && strcmp(argv[1], "ppu.production") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: production scratch directory setup failed\n",
+                  stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        if (!gbl_test_runner_production(argv[2])) {
+            fputs("runner_test: production scene setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 1u ? 0 : 1;
+    }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
         fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH | "
@@ -3781,7 +4368,8 @@ int main(int argc, char **argv)
               "runner_test playable0 {verify|control} SCRATCH_DIR | "
               "runner_test ppu.observation SCRATCH_DIR | "
               "runner_test ppu.output SCRATCH_DIR | "
-              "runner_test ppu.output-controls SCRATCH_DIR\n",
+              "runner_test ppu.output-controls SCRATCH_DIR | "
+              "runner_test ppu.production SCRATCH_DIR\n",
               stderr);
         return 2;
     }
