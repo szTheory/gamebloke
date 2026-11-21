@@ -438,9 +438,15 @@ partial Mode 0–5 background display paths and OBJ/composition features have
 deterministic project-selected software behavior. The profile records selected
 window, effect, mosaic, and forced-blank policies; their hardware qualification is
 `UNKNOWN`, and every display mode is still partial. DMA Prefetch remains unmodeled.
-The Phase 15 production-scene evidence and any physical hardware qualification are
-separate requirements and are not established by this metadata or by repeatable
-frame output.
+Phase 15 now has a bounded source-generated production-scene receipt: it records
+the measured 3,072-byte guest image digest, mailbox PASS separately from the
+top-level unregistered-content stop, actual machine-cycle components, complete
+frame sample/completion epochs, six literal pixel expectations, serialized
+metadata, and raw-frame digest. The source-bound coverage map and local-only
+rights boundary are in the [Phase 15 evidence ledger](../.planning/phases/15-production-access-and-runner-evidence/15-EVIDENCE.md).
+That evidence and any physical hardware qualification are separate: it does not
+establish silicon accuracy, broad compatibility, or redistribution rights, and
+a repeatable frame digest alone remains a determinism observation.
 The selected 1006-cycle HBlank point, DMA latch behavior, within-line visibility,
 affine transform behavior, and all display timing remain hardware-unqualified.
 Timer 0 and bus cycle observations use project-selected model behavior;

@@ -399,6 +399,11 @@ visibility disputes remain open.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ppu_policy.video_memory_access.matrix` | project-selected | UNKNOWN | cpu, dma | pram, vram, oam | drawing, hblank, vblank, forced-blank | existing-bus-behavior | 0 | `bus_policy.request_cycles` |
 
+Phase 15 binds this matrix to real CPU instructions and DMA transfers, with
+before/on/after sampled-row observations and a production-runner scene. The
+source selectors, exercised cells, measured guest receipt, and remaining
+hardware limits are listed in the [Phase 15 evidence ledger](../.planning/phases/15-production-access-and-runner-evidence/15-EVIDENCE.md).
+
 ## Timing model scope
 
 Model ID: gamebloke-timer-model-1

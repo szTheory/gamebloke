@@ -1380,7 +1380,11 @@ static bool gbl_test_runner_production(const char *scratch_directory)
     gbl_runner_result result = { 0 };
     char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char video_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char rom_bytes[GBL_PRODUCTION_IMAGE_BYTES + 1u];
+    char source_rom_sha256[GBL_SHA256_HEX_CAPACITY];
+    char video_sha256[GBL_SHA256_HEX_CAPACITY];
     char json[16384];
+    struct stat rom_status;
     gbl_test_production_reason reason = GBL_PRODUCTION_FRAME_INCOMPLETE;
     bool setup;
 
@@ -1394,13 +1398,21 @@ static bool gbl_test_runner_production(const char *scratch_directory)
     (void)remove(rom_path);
     (void)remove(video_path);
     setup = gbl_test_write_production_guest(
-        rom_path, GBL_PRODUCTION_GUEST_NORMAL);
+            rom_path, GBL_PRODUCTION_GUEST_NORMAL) &&
+            stat(rom_path, &rom_status) == 0 &&
+            rom_status.st_size == (off_t)GBL_PRODUCTION_IMAGE_BYTES &&
+            gbl_test_read_file(rom_path, rom_bytes, sizeof rom_bytes) &&
+            gbl_sha256_span((const uint8_t *)rom_bytes,
+                            GBL_PRODUCTION_IMAGE_BYTES,
+                            source_rom_sha256);
     if (setup) {
         (void)gbl_test_execute_ppu(
             rom_path, video_path, NULL, 0u, false,
             GBL_PRODUCTION_CYCLE_BUDGET, (gbl_runner_allocator){ 0 },
             &result);
-        setup = gbl_test_serialize_result(&result, json, sizeof json);
+        setup = result.has_rom_sha256 &&
+                strcmp(source_rom_sha256, result.rom_sha256) == 0 &&
+                gbl_test_serialize_result(&result, json, sizeof json);
     }
     if (setup) {
         reason = gbl_test_production_evaluate(
@@ -1410,9 +1422,44 @@ static bool gbl_test_runner_production(const char *scratch_directory)
                 sizeof gbl_test_production_oracle[0]);
         setup = result.budget_cycles == GBL_PRODUCTION_CYCLE_BUDGET &&
                 reason == GBL_PRODUCTION_ACCEPTED &&
+                result.phase10.has_video_sha256 &&
+                gbl_sha256_span(result.phase10.video_bytes,
+                                result.phase10.video_length, video_sha256) &&
+                strcmp(video_sha256, result.phase10.video_sha256) == 0 &&
                 gbl_test_video_file_matches(video_path,
                                             result.phase10.video_bytes,
                                             GBL_RUNNER_VIDEO_BYTES);
+    }
+    if (setup) {
+        printf("# ppu.production.receipt "
+               "source=tests/runner_test.c:gbl_test_write_production_guest "
+               "image_bytes=%u rom_sha256=%s profile=agb "
+               "boot=direct-start bios=none fixture=none mode=0 "
+               "raw_format=BGR555_LE width=240 height=160 "
+               "status=GUEST_STOP reason=unregistered-content "
+               "termination=unregistered-content mailbox=PASS "
+               "case_id=0x%04X pixel_oracle=passed pixel_count=%zu ran=%s "
+               "cycles=%" PRIu64 " budget_cycles=%" PRIu64 " "
+               "instructions=%" PRIu64 " bus_cycles=%" PRIu64 " "
+               "internal_cycles=%" PRIu64 " wait_cycles=%" PRIu64 " "
+               "dma_startup_cycles=%" PRIu64 " dma_source_cycles=%" PRIu64
+               " dma_destination_cycles=%" PRIu64 " "
+               "dma_completed_units=%" PRIu64 " dma_pause_cycles=%" PRIu64
+               " capture=VALID capture_reason=none sample_cycle=%" PRIu64 " "
+               "completion_cycle=%" PRIu64 " video_bytes=%zu "
+               "video_sha256=%s\n",
+               (unsigned int)GBL_PRODUCTION_IMAGE_BYTES, source_rom_sha256,
+               (unsigned int)GBL_PRODUCTION_CASE_ID,
+               sizeof gbl_test_production_oracle /
+                   sizeof gbl_test_production_oracle[0],
+               result.ran ? "true" : "false", result.cycles,
+               result.budget_cycles, result.instructions, result.bus_cycles,
+               result.internal_cycles, result.wait_cycles,
+               result.dma_startup_cycles, result.dma_source_cycles,
+               result.dma_destination_cycles, result.dma_completed_units,
+               result.dma_pause_cycles, result.phase10.sample_cycle,
+               result.phase10.completion_cycle, result.phase10.video_length,
+               video_sha256);
     }
     gbl_test_case(setup,
                   "ppu.production: bounded CPU/DMA scene reaches mailbox PASS, full frame and independent literal pixels; top-level GUEST_STOP remains unregistered-content");
