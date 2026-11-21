@@ -69,7 +69,9 @@ if(NOT GBL_PHASE13_LANE STREQUAL "ci" AND
   message(FATAL_ERROR "phase13-selection: unsupported-lane-${GBL_PHASE13_LANE}")
 endif()
 if(GBL_PHASE13_LANE STREQUAL "ci")
-  list(APPEND GBL_PHASE13_EXPECTED profile.lint profile.nc.ppu_policy)
+  set(GBL_PHASE13_INHERITED_PROFILE profile.lint profile.nc.ppu_policy)
+else()
+  set(GBL_PHASE13_INHERITED_PROFILE)
 endif()
 set(regex_parts)
 foreach(name IN LISTS GBL_PHASE13_EXPECTED)
@@ -845,6 +847,133 @@ function(gbl_phase13_validate_order json reason_out)
   set(${reason_out} "" PARENT_SCOPE)
 endfunction()
 
+function(gbl_phase13_check_helper_controls scratch_root)
+  set(helper "${GBL_PHASE13_SRC}/scripts/verify-phase13-fast.sh")
+  if(NOT EXISTS "${helper}")
+    message(FATAL_ERROR "phase13-helper-control: helper-missing")
+  endif()
+  set(control_root "${scratch_root}/helper")
+  set(source_dir "${control_root}/source")
+  set(build_dir "${control_root}/build")
+  set(shim_dir "${control_root}/shim")
+  file(MAKE_DIRECTORY "${source_dir}" "${shim_dir}")
+  set(project_text
+    "cmake_minimum_required(VERSION 3.25)\nproject(phase13_helper_scratch NONE)\nenable_testing()\nset(GBL_LANE asan CACHE STRING \"lane\")\n")
+  set(control_expected
+    ppu.obj.tracer ppu.obj.regular ppu.obj.affine ppu.obj.budget
+    ppu.obj.boundary ppu.obj.controls ppu.composition ppu.refusal
+    determinism.phase13 determinism.phase13.controls
+    phase13.selection.control)
+  file(MAKE_DIRECTORY "${build_dir}")
+  foreach(name IN LISTS control_expected)
+    if(name MATCHES "^ppu[.]")
+      string(APPEND project_text
+        "add_test(NAME ${name} COMMAND \"${build_dir}/bus_test${CMAKE_EXECUTABLE_SUFFIX}\" ${name})\n")
+      if(name MATCHES "^(ppu[.]obj[.](tracer|regular|affine|budget)|ppu[.]composition)$")
+        set(labels "bus;core;integration;ppu")
+      else()
+        set(labels "bus;core;ppu;unit")
+      endif()
+    elseif(name MATCHES "^determinism[.]phase13([.]controls)?$")
+      if(name STREQUAL "determinism.phase13.controls")
+        set(argument phase13-controls)
+      else()
+        set(argument phase13)
+      endif()
+      string(APPEND project_text
+        "add_test(NAME ${name} COMMAND \"${build_dir}/determinism_test${CMAKE_EXECUTABLE_SUFFIX}\" ${argument})\n")
+      set(labels "determinism;gate;integration")
+    elseif(name STREQUAL "phase13.selection.control")
+      string(APPEND project_text
+        "add_test(NAME ${name} COMMAND \"${CMAKE_COMMAND}\" \"-DSRC=${GBL_PHASE13_SRC}\" \"-DBIN=${build_dir}\" -DCASE=control -P \"${GBL_PHASE13_GATE}\")\n")
+      set(labels "gate;ppu;time")
+    endif()
+    if(name STREQUAL "ppu.refusal")
+      set(setup_fixtures "phase10_fast;phase13_fast")
+    else()
+      set(setup_fixtures phase13_fast)
+    endif()
+    string(APPEND project_text
+      "set_tests_properties(${name} PROPERTIES LABELS \"${labels}\" FIXTURES_SETUP \"${setup_fixtures}\" WORKING_DIRECTORY \"${build_dir}\")\n")
+  endforeach()
+  foreach(case IN ITEMS verify order)
+    set(name "phase13.selection.${case}")
+    string(APPEND project_text
+      "add_test(NAME ${name} COMMAND \"${CMAKE_COMMAND}\" \"-DSRC=${GBL_PHASE13_SRC}\" \"-DBIN=${build_dir}\" -DCASE=${case} -P \"${GBL_PHASE13_GATE}\")\n")
+    string(APPEND project_text
+      "set_tests_properties(${name} PROPERTIES LABELS \"gate;ppu;time\" FIXTURES_REQUIRED phase13_fast WORKING_DIRECTORY \"${build_dir}\")\n")
+  endforeach()
+  file(WRITE "${source_dir}/CMakeLists.txt" "${project_text}")
+  file(WRITE "${build_dir}/bus_test${CMAKE_EXECUTABLE_SUFFIX}"
+    "#!/bin/sh\nif [ \"\${GBL_PHASE13_CONTROL_FAIL:-}\" = \"\$1\" ]; then exit 31; fi\nexit 0\n")
+  file(WRITE "${build_dir}/determinism_test${CMAKE_EXECUTABLE_SUFFIX}"
+    "#!/bin/sh\nexit 0\n")
+  file(CHMOD "${build_dir}/bus_test${CMAKE_EXECUTABLE_SUFFIX}"
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+  file(CHMOD "${build_dir}/determinism_test${CMAKE_EXECUTABLE_SUFFIX}"
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+  file(WRITE "${shim_dir}/sh"
+    "#!/bin/sh\ncase \"\${1:-}\" in\n  */scripts/verify-phase12-fast.sh)\n    printf 'closure\\n' >> \"\$GBL_PHASE13_CONTROL_CLOSURE_SENTINEL\"\n    printf '%s\\n' 'phase13-helper-control: inherited closure sentinel reached'\n    exit 0\n    ;;\nesac\nexec /bin/sh \"\$@\"\n")
+  file(CHMOD "${shim_dir}/sh" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+
+  execute_process(
+    COMMAND "${CMAKE_PROGRAM}" -S "${source_dir}" -B "${build_dir}"
+    RESULT_VARIABLE configure_result OUTPUT_VARIABLE configure_output
+    ERROR_VARIABLE configure_error)
+  if(NOT "${configure_result}" STREQUAL "0")
+    file(REMOVE_RECURSE "${control_root}")
+    message(FATAL_ERROR
+      "phase13-helper-control: scratch-configure\n${configure_output}${configure_error}")
+  endif()
+  file(READ "${build_dir}/CMakeCache.txt" cache_text)
+  string(REPLACE "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}"
+    "CMAKE_HOME_DIRECTORY:INTERNAL=${GBL_PHASE13_SRC}" cache_text "${cache_text}")
+  file(WRITE "${build_dir}/CMakeCache.txt" "${cache_text}")
+
+  set(fail_sentinel "${control_root}/fail-closure.ran")
+  execute_process(
+    COMMAND "${CMAKE_PROGRAM}" -E env
+      "PATH=${shim_dir}:$ENV{PATH}"
+      "GBL_PHASE13_SKIP_HELPER_CONTROL=1"
+      "GBL_PHASE13_CONTROL_CLOSURE_SENTINEL=${fail_sentinel}"
+      "GBL_PHASE13_CONTROL_FAIL=ppu.obj.tracer"
+      "${helper}" --bin "${build_dir}"
+    RESULT_VARIABLE fail_result OUTPUT_VARIABLE fail_output ERROR_VARIABLE fail_error)
+  string(FIND "${fail_output}${fail_error}" "phase13-selector-failure" failure_marker)
+  if("${fail_result}" STREQUAL "0" OR failure_marker EQUAL -1 OR
+      EXISTS "${fail_sentinel}")
+    file(REMOVE_RECURSE "${control_root}")
+    message(FATAL_ERROR
+      "phase13-helper-control: cheap-failure-did-not-block-closure\n${fail_output}${fail_error}")
+  endif()
+
+  set(pass_sentinel "${control_root}/pass-closure.ran")
+  execute_process(
+    COMMAND "${CMAKE_PROGRAM}" -E env
+      "PATH=${shim_dir}:$ENV{PATH}"
+      "GBL_PHASE13_SKIP_HELPER_CONTROL=1"
+      "GBL_PHASE13_CONTROL_CLOSURE_SENTINEL=${pass_sentinel}"
+      "GBL_PHASE13_CONTROL_FAIL="
+      "${helper}" --bin "${build_dir}"
+    RESULT_VARIABLE pass_result OUTPUT_VARIABLE pass_output ERROR_VARIABLE pass_error)
+  if(NOT "${pass_result}" STREQUAL "0" OR
+      NOT "${pass_output}${pass_error}" MATCHES "phase13-helper-control: inherited closure sentinel reached" OR
+      NOT EXISTS "${pass_sentinel}")
+    file(REMOVE_RECURSE "${control_root}")
+    message(FATAL_ERROR
+      "phase13-helper-control: clean-run-did-not-reach-closure\n${pass_output}${pass_error}")
+  endif()
+  file(READ "${pass_sentinel}" pass_contents)
+  if(NOT pass_contents STREQUAL "closure\n")
+    file(REMOVE_RECURSE "${control_root}")
+    message(FATAL_ERROR
+      "phase13-helper-control: closure-sentinel-count-not-one: ${pass_contents}")
+  endif()
+  file(REMOVE_RECURSE "${control_root}")
+  message(STATUS
+    "phase13-helper-control: cheap failure blocks closure; clean exact run reaches it once")
+endfunction()
+
 function(gbl_phase13_check_fixture_controls scratch_root)
   foreach(mode IN ITEMS fail pass)
     set(source "${scratch_root}/fixture-${mode}/source")
@@ -982,8 +1111,13 @@ if(CASE STREQUAL "manifest")
   list(LENGTH GBL_PHASE13_EXPECTED manifest_count)
   message("phase13-manifest-count=${manifest_count}")
   message("phase13-manifest-regex=${GBL_PHASE13_REGEX}")
+  list(LENGTH GBL_PHASE13_INHERITED_PROFILE inherited_profile_count)
+  message("phase13-manifest-inherited-count=${inherited_profile_count}")
   foreach(name IN LISTS GBL_PHASE13_EXPECTED)
     message("phase13-manifest-name=${name}")
+  endforeach()
+  foreach(name IN LISTS GBL_PHASE13_INHERITED_PROFILE)
+    message("phase13-manifest-inherited-name=${name}")
   endforeach()
 elseif(CASE STREQUAL "verify")
   foreach(lane IN ITEMS ci asan)
@@ -1011,6 +1145,9 @@ elseif(CASE STREQUAL "verify")
   message(STATUS "phase13-selection: exact cheap selector set passed")
 elseif(CASE STREQUAL "control")
   gbl_phase13_check_selection_controls("${GBL_PHASE13_BIN}/phase13-selection-controls")
+  if(NOT DEFINED ENV{GBL_PHASE13_SKIP_HELPER_CONTROL})
+    gbl_phase13_check_helper_controls("${GBL_PHASE13_BIN}/phase13-helper-controls")
+  endif()
 elseif(CASE STREQUAL "order")
   gbl_phase13_check_order_graph("${GBL_PHASE13_BIN}/phase13-order-controls")
 else()

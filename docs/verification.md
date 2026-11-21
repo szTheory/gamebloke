@@ -1,5 +1,44 @@
 # PPU and video verification
 
+## Phase 13 OBJ and composition
+
+Configure the synthetic-only CI tree once, then run the same-build Phase 13
+fast path:
+
+```sh
+cmake --preset ci
+sh scripts/verify-phase13-fast.sh --bin build/ci
+```
+
+The helper checks the source root and lane, validates the exact CTest manifest
+and Phase 13 fixture graph, then runs these 11 Phase 13-specific selectors:
+`ppu.obj.tracer`, `ppu.obj.regular`, `ppu.obj.affine`, `ppu.obj.budget`,
+`ppu.obj.boundary`, `ppu.obj.controls`, `ppu.composition`, `ppu.refusal`,
+`determinism.phase13`, `determinism.phase13.controls`, and
+`phase13.selection.control`. It excludes the already-proven Phase 7–12 fixture
+set while running these selectors. The CI profile checks remain registered,
+inventoried, and validated in the Phase 13 fixture graph; the inherited Phase
+12 closure runs the shared `profile.lint` and `profile.nc.ppu_policy` checks
+once, and the helper verifies those names in the closure output. ASan has no
+profile selectors. A missing, duplicate, skipped, disabled, foreign-root, or
+unrun case fails the helper.
+
+The helper runs read-only selection and ordering checks before any focused
+build or inherited closure. Its control test proves a failed semantic selector
+does not reach the inherited-closure sentinel and a clean exact run reaches it
+once. It builds `bus_test` and `determinism_test` only when either executable
+is missing. Stage timings and the exact Phase 13/inherited membership are
+printed at the end.
+
+The canonical full local workflow remains:
+
+```sh
+cmake --workflow --preset ci
+```
+
+The fast helper is early feedback on the current configured tree; it does not
+replace the full workflow.
+
 ## Phase 11 sampled rows and transactional visibility
 
 Configure the synthetic-only CI tree when `build/ci` is absent or belongs to
