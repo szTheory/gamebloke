@@ -768,3 +768,43 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
       FIXTURES_REQUIRED phase13_fast)
   endforeach()
 endif()
+
+# Phase 14's exact display-effects manifest is the cheap prerequisite for
+# longer CPU/DMA/runner/result PPU consumers. The Phase 14 helper runs this
+# setup explicitly before its single inherited closure.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase14_fast_setup_tests
+    ppu.effects.tracer
+    ppu.blank
+    ppu.window.rect
+    ppu.window.obj
+    ppu.effects.alpha
+    ppu.effects.brightness
+    ppu.mosaic.bg
+    ppu.mosaic.obj
+    ppu.effects.boundary
+    ppu.effects.controls
+    determinism.phase14
+    determinism.phase14.controls
+    phase14.selection.control)
+  foreach(test_name IN LISTS gbl_phase14_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase14_fast)
+  endforeach()
+  foreach(test_name IN ITEMS phase14.selection.verify phase14.selection.order)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_REQUIRED phase14_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase14_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES
+        "^(cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|result[.](nc|pos)[.]phase10|phase10[.]cli([.]control)?)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase14_fast)
+    endif()
+  endforeach()
+endif()
