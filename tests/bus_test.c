@@ -5170,6 +5170,603 @@ static int run_ppu_refusal(void)
     return 1;
 }
 
+static bool ppu_obj_boundary_scene(gbl_machine *machine)
+{
+    size_t object;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->dispcnt = UINT16_C(0x1000);
+    machine->ppu.dispcnt = machine->dispcnt;
+    machine->pram[0] = 0u;
+    machine->pram[1] = UINT8_C(0x7C);
+    ppu_obj_affine_set_palette_color(machine, 2u, UINT16_C(0x001F));
+    memset(&machine->vram[UINT32_C(0x10000)], UINT8_C(0x22), 32u);
+    for (object = 0u; object < 128u; ++object) {
+        ppu_obj_store_u16(machine->oam, object * 8u, UINT16_C(0x0200));
+    }
+    ppu_obj_store_u16(machine->oam, 0u, 0u);
+    ppu_obj_store_u16(machine->oam, 2u, 0u);
+    ppu_obj_store_u16(machine->oam, 4u, 0u);
+    return true;
+}
+
+static bool ppu_obj_prepare_timed_write(
+    gbl_machine *machine, uint64_t write_cycle, uint64_t target_cycle,
+    uint32_t address, uint8_t width, uint32_t value,
+    gbl_machine_time_preview *preview)
+{
+    gbl_time_operation operations[3];
+    size_t operation_count = 0u;
+
+    if (machine == NULL || preview == NULL || write_cycle == 0u ||
+        write_cycle > target_cycle) {
+        return false;
+    }
+    if (write_cycle > UINT64_C(1)) {
+        operations[operation_count++] = (gbl_time_operation){
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, write_cycle - 1u
+        };
+    }
+    operations[operation_count++] = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_WRITE, width, address, value, UINT64_C(1)
+    };
+    if (write_cycle < target_cycle) {
+        operations[operation_count++] = (gbl_time_operation){
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+            target_cycle - write_cycle
+        };
+    }
+    return gbl_machine_prepare_operations(machine, operations,
+                                          operation_count, preview) ==
+           GBL_TIME_STATUS_OK;
+}
+
+static bool ppu_obj_boundary_palette_case(uint64_t write_cycle,
+                                          uint16_t expected_line_one,
+                                          size_t expected_prior_writes)
+{
+    const uint64_t boundary = (uint64_t)GBL_PPU_LINE_CYCLES;
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    bool valid = machine != NULL;
+
+    if (valid) {
+        valid = ppu_obj_boundary_scene(machine) &&
+                ppu_obj_prepare_timed_write(
+                    machine, write_cycle, boundary * UINT64_C(2),
+                    UINT32_C(0x05000204), 2u, UINT32_C(0x03E0), &preview) &&
+                preview.ppu_row_capture_count == 3u &&
+                preview.ppu_memory_write_count == 1u &&
+                preview.ppu_row_captures[1].line == 1u &&
+                preview.ppu_row_captures[1].prior_write_count ==
+                    expected_prior_writes &&
+                preview.ppu_row_captures[2].line == 2u &&
+                preview.ppu_row_captures[2].prior_write_count == 1u;
+        if (valid) {
+            gbl_machine_commit_time(machine, &preview);
+            valid = ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                                 expected_line_one) &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                                 UINT16_C(0x03E0));
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_obj_boundary_attribute_case(uint64_t write_cycle,
+                                            bool sampled_before_write)
+{
+    const uint64_t boundary = (uint64_t)GBL_PPU_LINE_CYCLES;
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    bool valid = machine != NULL;
+
+    if (valid) {
+        valid = ppu_obj_boundary_scene(machine);
+        if (valid) {
+            ppu_obj_store_u16(machine->oam, 0u, UINT16_C(0x0200));
+            valid = ppu_obj_prepare_timed_write(
+                        machine, write_cycle, boundary * UINT64_C(2),
+                        UINT32_C(0x07000000), 2u, 0u, &preview) &&
+                    preview.ppu_row_capture_count == 3u &&
+                    preview.ppu_memory_write_count == 1u &&
+                    preview.ppu_row_captures[1].prior_write_count ==
+                        (sampled_before_write ? 1u : 0u) &&
+                    preview.ppu_row_captures[1].obj_selected_count ==
+                        (sampled_before_write ? 1u : 0u) &&
+                    preview.ppu_row_captures[2].obj_selected_count == 1u;
+        }
+        if (valid) {
+            gbl_machine_commit_time(machine, &preview);
+            valid = ppu_bg_affine_pixel_matches(
+                        machine->video_frame, 0u, 1u,
+                        sampled_before_write ? UINT16_C(0x001F)
+                                             : UINT16_C(0x7C00)) &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                                UINT16_C(0x001F));
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_obj_boundary_tile_case(uint64_t write_cycle,
+                                       bool sampled_before_write)
+{
+    const uint64_t boundary = (uint64_t)GBL_PPU_LINE_CYCLES;
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    bool valid = machine != NULL;
+
+    if (valid) {
+        valid = ppu_obj_boundary_scene(machine);
+        if (valid) {
+            machine->vram[UINT32_C(0x10004)] = 0u;
+            valid = ppu_obj_prepare_timed_write(
+                        machine, write_cycle, boundary * UINT64_C(2),
+                        UINT32_C(0x06010004), 2u, UINT32_C(0x0022),
+                        &preview) &&
+                    preview.ppu_row_capture_count == 3u &&
+                    preview.ppu_memory_write_count == 1u &&
+                    preview.ppu_row_captures[1].prior_write_count ==
+                        (sampled_before_write ? 1u : 0u) &&
+                    preview.ppu_row_captures[2].prior_write_count == 1u;
+        }
+        if (valid) {
+            gbl_machine_commit_time(machine, &preview);
+            valid = ppu_bg_affine_pixel_matches(
+                        machine->video_frame, 0u, 1u,
+                        sampled_before_write ? UINT16_C(0x001F)
+                                             : UINT16_C(0x7C00)) &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                                UINT16_C(0x001F));
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_obj_boundary_bg_priority_case(uint64_t write_cycle,
+                                              bool sampled_before_write)
+{
+    const uint64_t boundary = (uint64_t)GBL_PPU_LINE_CYCLES;
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    bool valid = machine != NULL;
+
+    if (valid) {
+        valid = ppu_composition_prepare_text_scene(
+                    machine, 2u, 3u, 1u, 2u, true, true) &&
+                ppu_bg_text_set_map_entry(machine, 0u, 0u, 0u, 1u) &&
+                ppu_bg_text_set_color(machine, 1u, UINT16_C(0x03E0));
+        if (valid) {
+            ppu_obj_affine_set_palette_color(machine, 2u, UINT16_C(0x001F));
+            ppu_obj_store_u16(machine->oam, 0u, 0u);
+            ppu_obj_store_u16(machine->oam, 2u, 0u);
+            valid = ppu_obj_prepare_timed_write(
+                        machine, write_cycle, boundary * UINT64_C(2),
+                        UINT32_C(0x04000008), 2u, UINT32_C(0x0100),
+                        &preview) &&
+                    preview.ppu_row_capture_count == 3u &&
+                    preview.ppu_memory_write_count == 0u;
+        }
+        if (valid) {
+            const uint16_t row_one_bg_control =
+                (uint16_t)preview.ppu_row_captures[1].bg_register_bytes[0] |
+                (uint16_t)((uint16_t)preview.ppu_row_captures[1]
+                               .bg_register_bytes[1] << 8u);
+            const uint16_t row_two_bg_control =
+                (uint16_t)preview.ppu_row_captures[2].bg_register_bytes[0] |
+                (uint16_t)((uint16_t)preview.ppu_row_captures[2]
+                               .bg_register_bytes[1] << 8u);
+
+            valid = row_one_bg_control ==
+                        (sampled_before_write ? UINT16_C(0x0100)
+                                              : UINT16_C(0x0102)) &&
+                    row_two_bg_control == UINT16_C(0x0100);
+            if (valid) {
+                gbl_machine_commit_time(machine, &preview);
+                valid = ppu_bg_affine_pixel_matches(
+                            machine->video_frame, 0u, 1u,
+                            sampled_before_write ? UINT16_C(0x03E0)
+                                                 : UINT16_C(0x001F)) &&
+                        ppu_bg_affine_pixel_matches(machine->video_frame,
+                                                    0u, 2u,
+                                                    UINT16_C(0x03E0));
+            }
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_obj_boundary_bg_source_case(uint64_t write_cycle,
+                                            bool sampled_before_write)
+{
+    const uint64_t boundary = (uint64_t)GBL_PPU_LINE_CYCLES;
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    bool valid = machine != NULL;
+
+    if (valid) {
+        valid = ppu_composition_prepare_text_scene(
+                    machine, 0u, 3u, 1u, 2u, true, true) &&
+                ppu_bg_text_set_map_entry(machine, 0u, 0u, 0u, 1u) &&
+                ppu_bg_text_set_color(machine, 1u, UINT16_C(0x03E0));
+        if (valid) {
+            ppu_obj_affine_set_palette_color(machine, 2u, UINT16_C(0x001F));
+            ppu_obj_store_u16(machine->oam, 0u, 0u);
+            ppu_obj_store_u16(machine->oam, 2u, 0u);
+            valid = ppu_obj_prepare_timed_write(
+                        machine, write_cycle, boundary * UINT64_C(2),
+                        UINT32_C(0x06000024), 2u, 0u, &preview) &&
+                    preview.ppu_row_capture_count == 3u &&
+                    preview.ppu_memory_write_count == 1u &&
+                    preview.ppu_row_captures[1].prior_write_count ==
+                        (sampled_before_write ? 1u : 0u) &&
+                    preview.ppu_row_captures[2].prior_write_count == 1u;
+        }
+        if (valid) {
+            gbl_machine_commit_time(machine, &preview);
+            valid = ppu_bg_affine_pixel_matches(
+                        machine->video_frame, 0u, 1u,
+                        sampled_before_write ? UINT16_C(0x001F)
+                                             : UINT16_C(0x03E0)) &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                                UINT16_C(0x03E0));
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_obj_boundary_ordered_writes(void)
+{
+    const uint64_t boundary = (uint64_t)GBL_PPU_LINE_CYCLES;
+    const gbl_time_operation operations[4] = {
+        { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+          boundary - UINT64_C(2) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x05000204),
+          UINT32_C(0x03E0), UINT64_C(1) },
+        { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x05000204),
+          UINT32_C(0x7C00), UINT64_C(1) },
+        { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+          boundary * UINT64_C(2) - boundary }
+    };
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    bool valid = machine != NULL;
+
+    if (valid) {
+        valid = ppu_obj_boundary_scene(machine) &&
+                gbl_machine_prepare_operations(machine, operations, 4u,
+                                               &preview) ==
+                    GBL_TIME_STATUS_OK &&
+                preview.ppu_row_capture_count == 3u &&
+                preview.ppu_memory_write_count == 2u &&
+                preview.ppu_memory_writes[0].cycle == boundary - 1u &&
+                preview.ppu_memory_writes[1].cycle == boundary &&
+                preview.ppu_row_captures[1].prior_write_count == 1u &&
+                preview.ppu_row_captures[2].prior_write_count == 2u;
+        if (valid) {
+            gbl_machine_commit_time(machine, &preview);
+            valid = ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                                 UINT16_C(0x03E0)) &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                                 UINT16_C(0x7C00));
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_obj_boundary_matrix_case(uint64_t write_cycle,
+                                         bool sampled_before_write)
+{
+    const uint64_t boundary = (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(24);
+    const uint64_t target = (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(26);
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    bool valid = machine != NULL;
+    uint8_t source_y;
+
+    if (valid) {
+        valid = (write_cycle == boundary - UINT64_C(1) ||
+                 write_cycle == boundary || write_cycle == boundary + 1u) &&
+                ppu_obj_affine_setup(machine, 0u, 24u, 24u, 0u, 0u, 0u,
+                                     0u, false, 0, 0, 0, 256);
+        if (valid) {
+            for (source_y = 0u; source_y < 8u; ++source_y) {
+                ppu_obj_affine_set_4bpp_pixel(machine, 0u, 0u, source_y,
+                                               1u);
+                ppu_obj_affine_set_4bpp_pixel(machine, 0u, 4u, source_y,
+                                               2u);
+            }
+            valid = ppu_obj_prepare_timed_write(
+                        machine, write_cycle, target,
+                        UINT32_C(0x07000006), 2u, UINT32_C(0x0100),
+                        &preview) &&
+                    preview.ppu_row_capture_count == 27u &&
+                    preview.ppu_memory_write_count == 1u &&
+                    preview.ppu_row_captures[24].line == 24u &&
+                    preview.ppu_row_captures[24].prior_write_count ==
+                        (sampled_before_write ? 1u : 0u) &&
+                    preview.ppu_row_captures[25].line == 25u &&
+                    preview.ppu_row_captures[25].prior_write_count == 1u;
+        }
+        if (valid) {
+            gbl_machine_commit_time(machine, &preview);
+            valid = ppu_bg_affine_pixel_matches(
+                        machine->video_frame, 24u, 24u,
+                        sampled_before_write ? UINT16_C(0x001F)
+                                             : UINT16_C(0x03E0)) &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame,
+                                                24u, 25u,
+                                                UINT16_C(0x001F));
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static bool ppu_obj_controls_mutations_refused(
+    gbl_machine *machine, const gbl_machine_time_preview *preview,
+    uint32_t write_mutation_mask)
+{
+    gbl_machine *before = malloc(sizeof(*before));
+    gbl_machine *clean_twin = malloc(sizeof(*clean_twin));
+    gbl_machine_time_preview *changed = malloc(sizeof(*changed));
+    gbl_machine_time_preview *caller_before = malloc(sizeof(*caller_before));
+    bool valid = before != NULL && clean_twin != NULL && changed != NULL &&
+                 caller_before != NULL;
+    size_t byte;
+
+    if (!valid) {
+        free(caller_before);
+        free(changed);
+        free(clean_twin);
+        free(before);
+        return false;
+    }
+#define CHECK_OBJ_CAPTURE_MUTATION(change)                                  \
+    do {                                                                     \
+        memcpy(changed, preview, sizeof(*changed));                          \
+        change;                                                              \
+        memcpy(before, machine, sizeof(*before));                            \
+        memcpy(clean_twin, machine, sizeof(*clean_twin));                    \
+        memcpy(caller_before, changed, sizeof(*caller_before));              \
+        if (gbl_test_time_preview_equal(preview, changed) ||                 \
+            gbl_test_time_preview_ppu_digest(preview) ==                     \
+                gbl_test_time_preview_ppu_digest(changed)) {                  \
+            valid = false;                                                   \
+        }                                                                    \
+        gbl_machine_commit_time(machine, changed);                           \
+        if (!gbl_test_canonical_equal(before, machine) ||                    \
+            !gbl_test_canonical_equal(clean_twin, machine) ||                \
+            gbl_test_canonical_digest(before) !=                             \
+                gbl_test_canonical_digest(machine) ||                        \
+            memcmp(caller_before, changed, sizeof(*changed)) != 0 ||         \
+            !gbl_test_same_instance_identity_equal(before, machine)) {       \
+            valid = false;                                                   \
+        }                                                                    \
+    } while (0)
+    for (byte = 0u; byte < GBL_PPU_OBJ_SELECTED_MASK_BYTES; ++byte) {
+        unsigned bit;
+
+        for (bit = 0u; bit < 8u; ++bit) {
+            CHECK_OBJ_CAPTURE_MUTATION(
+                changed->ppu_row_captures[0].obj_selected_mask[byte] ^=
+                    (uint8_t)(UINT8_C(1) << bit));
+        }
+    }
+    CHECK_OBJ_CAPTURE_MUTATION(
+        ++changed->ppu_row_captures[0].obj_selected_count);
+    CHECK_OBJ_CAPTURE_MUTATION(
+        ++changed->ppu_row_captures[0].obj_omitted_count);
+    CHECK_OBJ_CAPTURE_MUTATION(
+        ++changed->ppu_row_captures[0].obj_work_used);
+    CHECK_OBJ_CAPTURE_MUTATION(
+        ++changed->ppu_row_captures[0].prior_write_count);
+    CHECK_OBJ_CAPTURE_MUTATION(
+        changed->ppu_row_captures[0].pixel_digest ^= UINT64_C(1));
+    CHECK_OBJ_CAPTURE_MUTATION(
+        changed->ppu_row_captures[0].dispcnt ^= UINT16_C(0x1000));
+    if (preview->ppu_memory_write_count == 0u) {
+        valid = false;
+    } else {
+        CHECK_OBJ_CAPTURE_MUTATION(
+            changed->ppu_memory_writes[0].value ^= write_mutation_mask);
+    }
+#undef CHECK_OBJ_CAPTURE_MUTATION
+    free(caller_before);
+    free(changed);
+    free(clean_twin);
+    free(before);
+    return valid;
+}
+
+static bool ppu_obj_late_row_refusal_is_atomic(void)
+{
+    const uint64_t line_cycles = (uint64_t)GBL_PPU_LINE_CYCLES;
+    const uint64_t target = line_cycles * UINT64_C(7);
+    gbl_machine *machine = new_machine();
+    gbl_machine *before = malloc(sizeof(*before));
+    gbl_machine *clean_twin = malloc(sizeof(*clean_twin));
+    gbl_machine_time_preview *preview = malloc(sizeof(*preview));
+    gbl_machine_time_preview *changed = malloc(sizeof(*changed));
+    gbl_machine_time_preview *caller_before = malloc(sizeof(*caller_before));
+    gbl_machine_time_preview retry;
+    bool valid = machine != NULL && before != NULL && clean_twin != NULL &&
+                 preview != NULL && changed != NULL && caller_before != NULL;
+
+    if (!valid) {
+        free(caller_before);
+        free(changed);
+        free(preview);
+        free(clean_twin);
+        free(before);
+        free_machine(machine);
+        return false;
+    }
+    valid = ppu_obj_boundary_scene(machine) &&
+            ppu_obj_prepare_timed_write(
+                machine, line_cycles - UINT64_C(1), target,
+                UINT32_C(0x05000204), 2u, UINT32_C(0x03E0), preview) &&
+            preview->ppu_row_capture_count == 8u &&
+            preview->ppu_row_captures[7].line == 7u;
+    if (valid) {
+        *before = *machine;
+        *clean_twin = *machine;
+        memcpy(changed, preview, sizeof(*changed));
+        changed->ppu_row_captures[7].pixel_digest ^= UINT64_C(1);
+        memcpy(caller_before, changed, sizeof(*caller_before));
+        valid = !gbl_test_time_preview_equal(preview, changed) &&
+                gbl_test_time_preview_ppu_digest(preview) !=
+                    gbl_test_time_preview_ppu_digest(changed);
+        gbl_machine_commit_time(machine, changed);
+        valid = valid && gbl_test_canonical_equal(before, machine) &&
+                gbl_test_canonical_equal(clean_twin, machine) &&
+                gbl_test_canonical_digest(before) ==
+                    gbl_test_canonical_digest(machine) &&
+                memcmp(caller_before, changed, sizeof(*changed)) == 0 &&
+                ppu_obj_prepare_timed_write(
+                    machine, line_cycles - UINT64_C(1), target,
+                    UINT32_C(0x05000204), 2u, UINT32_C(0x03E0), &retry) &&
+                gbl_test_time_preview_equal(preview, &retry);
+        if (valid) {
+            gbl_machine_commit_time(machine, &retry);
+            valid = machine->master_cycles == target &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                                 UINT16_C(0x03E0)) &&
+                    ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 7u,
+                                                 UINT16_C(0x03E0));
+        }
+    }
+    free(caller_before);
+    free(changed);
+    free(preview);
+    free(clean_twin);
+    free(before);
+    free_machine(machine);
+    return valid;
+}
+
+static int run_ppu_obj_boundary(void)
+{
+    const uint64_t line_boundary = (uint64_t)GBL_PPU_LINE_CYCLES;
+    const uint64_t matrix_boundary =
+        (uint64_t)GBL_PPU_LINE_CYCLES * UINT64_C(24);
+
+    CHECK(ppu_obj_boundary_palette_case(line_boundary - UINT64_C(1),
+                                        UINT16_C(0x03E0), 1u));
+    CHECK(ppu_obj_boundary_palette_case(line_boundary, UINT16_C(0x001F), 0u));
+    CHECK(ppu_obj_boundary_palette_case(line_boundary + UINT64_C(1),
+                                        UINT16_C(0x001F), 0u));
+    CHECK(ppu_obj_boundary_attribute_case(line_boundary - UINT64_C(1), true));
+    CHECK(ppu_obj_boundary_attribute_case(line_boundary, false));
+    CHECK(ppu_obj_boundary_attribute_case(line_boundary + UINT64_C(1), false));
+    CHECK(ppu_obj_boundary_tile_case(line_boundary - UINT64_C(1), true));
+    CHECK(ppu_obj_boundary_tile_case(line_boundary, false));
+    CHECK(ppu_obj_boundary_tile_case(line_boundary + UINT64_C(1), false));
+    CHECK(ppu_obj_boundary_bg_priority_case(line_boundary - UINT64_C(1), true));
+    CHECK(ppu_obj_boundary_bg_priority_case(line_boundary, false));
+    CHECK(ppu_obj_boundary_bg_priority_case(line_boundary + UINT64_C(1), false));
+    CHECK(ppu_obj_boundary_bg_source_case(line_boundary - UINT64_C(1), true));
+    CHECK(ppu_obj_boundary_bg_source_case(line_boundary, false));
+    CHECK(ppu_obj_boundary_bg_source_case(line_boundary + UINT64_C(1), false));
+    CHECK(ppu_obj_boundary_ordered_writes());
+    CHECK(ppu_obj_boundary_matrix_case(matrix_boundary - UINT64_C(1), true));
+    CHECK(ppu_obj_boundary_matrix_case(matrix_boundary, false));
+    CHECK(ppu_obj_boundary_matrix_case(matrix_boundary + UINT64_C(1), false));
+    if (CHECK_DONE() == 0) {
+        puts("ppu.obj.boundary: OAM attributes, OBJ matrices/tiles/palette and BG priority obey before/on/after row prefixes");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_ppu_obj_controls(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *matrix_machine = new_machine();
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview matrix_preview;
+
+    CHECK(machine != NULL && matrix_machine != NULL);
+    if (machine != NULL && matrix_machine != NULL) {
+        const gbl_time_operation operations[2] = {
+            { GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x07000000),
+              0u, UINT64_C(1) },
+            { GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u,
+              (uint64_t)GBL_PPU_LINE_CYCLES - UINT64_C(1) }
+        };
+
+        CHECK(ppu_obj_boundary_scene(machine));
+        CHECK(gbl_machine_prepare_operations(machine, operations, 2u,
+                                             &preview) == GBL_TIME_STATUS_OK);
+        CHECK(preview.ppu_row_capture_count == 2u);
+        if (preview.ppu_row_capture_count > 1u) {
+            CHECK(preview.ppu_row_captures[1].line == 1u);
+            CHECK(preview.ppu_row_captures[1].obj_selected_count == 1u);
+            CHECK(preview.ppu_row_captures[1].prior_write_count == 1u);
+        }
+        if (!ppu_obj_controls_mutations_refused(machine, &preview,
+                                                UINT32_C(0x0200))) {
+            CHECK(false);
+        } else {
+            CHECK(true);
+        }
+        gbl_machine_commit_time(machine, &preview);
+        CHECK(machine->master_cycles == (uint64_t)GBL_PPU_LINE_CYCLES);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x001F)));
+        free_machine(machine);
+
+        {
+            uint8_t source_y;
+            const uint64_t boundary =
+                (uint64_t)GBL_PPU_LINE_CYCLES;
+            const uint64_t target = boundary * UINT64_C(2);
+
+            CHECK(ppu_obj_affine_setup(
+                matrix_machine, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+                false, 0, 0, 0, 256));
+            for (source_y = 0u; source_y < 8u; ++source_y) {
+                ppu_obj_affine_set_4bpp_pixel(matrix_machine, 0u, 0u,
+                                               source_y, 1u);
+                ppu_obj_affine_set_4bpp_pixel(matrix_machine, 0u, 4u,
+                                               source_y, 2u);
+            }
+            CHECK(ppu_obj_prepare_timed_write(
+                matrix_machine, boundary - UINT64_C(1), target,
+                UINT32_C(0x07000006), 2u, UINT32_C(0x0100),
+                &matrix_preview));
+            CHECK(matrix_preview.ppu_row_capture_count == 3u);
+            CHECK(matrix_preview.ppu_row_captures[1].prior_write_count == 1u);
+            CHECK(ppu_obj_controls_mutations_refused(
+                matrix_machine, &matrix_preview, UINT32_C(0x0100)));
+            gbl_machine_commit_time(matrix_machine, &matrix_preview);
+            CHECK(ppu_bg_affine_pixel_matches(matrix_machine->video_frame,
+                                              0u, 0u, UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(matrix_machine->video_frame,
+                                              0u, 1u, UINT16_C(0x001F)));
+        }
+        CHECK(ppu_obj_late_row_refusal_is_atomic());
+        free_machine(matrix_machine);
+    } else {
+        free_machine(machine);
+        free_machine(matrix_machine);
+    }
+    if (CHECK_DONE() == 0) {
+        puts("ppu.obj.controls: selected masks/counters, OAM attributes/matrices, prefixes and pixel digests are sensitive and refusal is atomic");
+        return 0;
+    }
+    return 1;
+}
+
 static int run_state(void)
 {
     gbl_machine *machine = new_machine();
@@ -7512,7 +8109,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -7559,6 +8156,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.obj.budget") == 0) {
         return run_ppu_obj_budget();
+    }
+    if (strcmp(argv[1], "ppu.obj.boundary") == 0) {
+        return run_ppu_obj_boundary();
+    }
+    if (strcmp(argv[1], "ppu.obj.controls") == 0) {
+        return run_ppu_obj_controls();
     }
     if (strcmp(argv[1], "ppu.refusal") == 0) {
         return run_ppu_refusal();

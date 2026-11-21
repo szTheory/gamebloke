@@ -876,6 +876,85 @@ static uint64_t gbl_test_time_state_digest(const gbl_machine *machine)
                                                 machine->master_cycles);
 }
 
+static inline uint64_t gbl_test_ppu_row_capture_digest(
+    const gbl_ppu_row_capture *capture)
+{
+    uint64_t digest = UINT64_C(14695981039346656037);
+    size_t affine_index;
+
+    if (capture == NULL) {
+        return gbl_test_digest_byte(digest, UINT8_MAX);
+    }
+    digest = gbl_test_digest_u64(digest, capture->cycle);
+    digest = gbl_test_digest_u64(digest, capture->frame_epoch);
+    digest = gbl_test_digest_u64(digest, capture->pixel_digest);
+    digest = gbl_test_digest_u64(digest, capture->line);
+    digest = gbl_test_digest_u64(digest, capture->dispcnt);
+    digest = gbl_test_digest_u64(digest, capture->prior_write_count);
+    digest = gbl_test_digest_u64(digest,
+                                 capture->unsupported_register_bytes);
+    digest = gbl_test_digest_bytes(digest, capture->render_register_bytes,
+                                   sizeof(capture->render_register_bytes));
+    digest = gbl_test_digest_bytes(digest, capture->bg_register_bytes,
+                                   sizeof(capture->bg_register_bytes));
+    for (affine_index = 0u;
+         affine_index < GBL_PPU_AFFINE_BACKGROUND_COUNT; ++affine_index) {
+        const gbl_ppu_affine_state *affine = &capture->affine[affine_index];
+
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pa);
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pb);
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pc);
+        digest = gbl_test_digest_u64(digest, (uint16_t)affine->pd);
+        digest = gbl_test_digest_u64(digest,
+                                     affine->programmed_reference_x);
+        digest = gbl_test_digest_u64(digest,
+                                     affine->programmed_reference_y);
+        digest = gbl_test_digest_u64(digest, (uint32_t)affine->origin_x);
+        digest = gbl_test_digest_u64(digest, (uint32_t)affine->origin_y);
+        digest = gbl_test_digest_byte(digest,
+                                      affine->origin_valid ? 1u : 0u);
+        digest = gbl_test_digest_byte(
+            digest, affine->hblank_y_suppressed ? 1u : 0u);
+    }
+    digest = gbl_test_digest_bytes(digest, capture->obj_selected_mask,
+                                   sizeof(capture->obj_selected_mask));
+    digest = gbl_test_digest_u64(digest, capture->obj_selected_count);
+    digest = gbl_test_digest_u64(digest, capture->obj_omitted_count);
+    digest = gbl_test_digest_u64(digest, capture->obj_work_used);
+    return digest;
+}
+
+static inline uint64_t gbl_test_time_preview_ppu_digest(
+    const gbl_machine_time_preview *preview)
+{
+    uint64_t digest = UINT64_C(14695981039346656037);
+    size_t index;
+
+    if (preview == NULL ||
+        preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
+        preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX) {
+        return gbl_test_digest_byte(digest, UINT8_MAX);
+    }
+    digest = gbl_test_digest_u64(digest, preview->ppu_row_capture_count);
+    for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
+        digest = gbl_test_digest_u64(
+            digest,
+            gbl_test_ppu_row_capture_digest(&preview->ppu_row_captures[index]));
+    }
+    digest = gbl_test_digest_u64(digest, preview->ppu_memory_write_count);
+    for (index = 0u; index < preview->ppu_memory_write_count; ++index) {
+        const gbl_ppu_memory_write *write = &preview->ppu_memory_writes[index];
+
+        digest = gbl_test_digest_u64(digest, write->cycle);
+        digest = gbl_test_digest_u64(digest, write->address);
+        digest = gbl_test_digest_u64(digest, write->value);
+        digest = gbl_test_digest_u64(digest, write->dispcnt);
+        digest = gbl_test_digest_byte(digest, write->width);
+        digest = gbl_test_digest_byte(digest, write->region);
+    }
+    return digest;
+}
+
 /* Test-only streaming FNV-1a over canonical fields in fixed byte order. */
 static uint64_t gbl_test_canonical_digest(const gbl_machine *machine)
 {
