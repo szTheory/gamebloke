@@ -2644,6 +2644,58 @@ static int run_ppu_window_obj(void)
     return 1;
 }
 
+static bool ppu_effect_write_register(gbl_machine *machine,
+                                      uint32_t address, uint16_t value)
+{
+    const gbl_bus_result result = gbl_bus_write(
+        machine, address, 2u, GBL_BUS_CLASS_NONSEQUENTIAL, value);
+
+    return result.status == GBL_BUS_STATUS_OK;
+}
+
+static uint16_t ppu_effect_pixel(const gbl_machine *machine, uint16_t x,
+                                 uint16_t y)
+{
+    const size_t offset = (size_t)y * GBL_PPU_ROW_BYTES + (size_t)x * 2u;
+
+    return (uint16_t)((uint16_t)machine->video_frame[offset] |
+                      (uint16_t)((uint16_t)machine->video_frame[offset + 1u]
+                                 << 8u));
+}
+
+static int run_ppu_effects_alpha(void)
+{
+    const uint16_t expected = UINT16_C(0x3C0F);
+    gbl_machine *machine = new_machine();
+    uint16_t actual = 0u;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return 1;
+    }
+    CHECK(ppu_composition_prepare_text_scene(
+        machine, 0u, 1u, 3u, 1u, true, false));
+    CHECK(ppu_bg_text_set_color(machine, 2u, UINT16_C(0x7C00)));
+    CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000050),
+                                    UINT16_C(0x0241)));
+    CHECK(ppu_effect_write_register(machine, UINT32_C(0x04000052),
+                                    UINT16_C(0x0808)));
+    CHECK(gbl_machine_advance_to(
+              machine, GBL_PPU_LINE_CYCLES * UINT64_C(9)) ==
+          GBL_TIME_STATUS_OK);
+    actual = ppu_effect_pixel(machine, 0u, 8u);
+    fprintf(stderr, "ppu.effects.alpha: expected=0x%04X actual=0x%04X\n",
+            expected, actual);
+    CHECK(actual == expected);
+    free_machine(machine);
+
+    if (CHECK_DONE() == 0) {
+        puts("ppu.effects.alpha: immediate visible targets blend with bounded BGR555 arithmetic");
+        return 0;
+    }
+    return 1;
+}
+
 static void ppu_obj_affine_store_matrix(uint8_t *oam, uint8_t matrix,
                                         int16_t pa, int16_t pb,
                                         int16_t pc, int16_t pd)
@@ -9147,7 +9199,7 @@ static int run_waitcnt_registers(void)
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
+        fprintf(stderr, "usage: bus_test <timing|state|decode|video|ppu.tracer|ppu.effects.tracer|ppu.effects.alpha|ppu.blank|ppu.bg.tracer|ppu.bg.text|ppu.bg.affine|ppu.bg.bitmap|ppu.composition|ppu.obj.tracer|ppu.obj.regular|ppu.obj.affine|ppu.obj.budget|ppu.obj.boundary|ppu.obj.controls|ppu.refusal|ppu.boundary|ppu.registers|ppu.latch|ppu.sample|ppu.bounds|ppu.frame|ppu.controls|irq.registers|keypad.registers|waitcnt.matrix|waitcnt.boundary|waitcnt.registers>\n");
         return 2;
     }
     if (strcmp(argv[1], "timing") == 0) {
@@ -9167,6 +9219,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ppu.effects.tracer") == 0) {
         return run_ppu_effects_tracer();
+    }
+    if (strcmp(argv[1], "ppu.effects.alpha") == 0) {
+        return run_ppu_effects_alpha();
     }
     if (strcmp(argv[1], "ppu.blank") == 0) {
         return run_ppu_blank();
