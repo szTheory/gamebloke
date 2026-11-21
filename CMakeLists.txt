@@ -737,3 +737,34 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
     endif()
   endforeach()
 endif()
+
+# Phase 13 OBJ and composition checks gate only their own verification graph.
+# Keep Phase 7–12 selectors outside this prerequisite so predecessor helpers
+# do not inherit or duplicate the new setup closure.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase13_fast_setup_tests
+    ppu.obj.tracer
+    ppu.obj.regular
+    ppu.obj.affine
+    ppu.obj.budget
+    ppu.obj.boundary
+    ppu.obj.controls
+    ppu.composition
+    ppu.refusal
+    determinism.phase13
+    determinism.phase13.controls
+    phase13.selection.control)
+  if(GBL_LANE STREQUAL "ci")
+    list(APPEND gbl_phase13_fast_setup_tests
+      profile.lint
+      profile.nc.ppu_policy)
+  endif()
+  foreach(test_name IN LISTS gbl_phase13_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase13_fast)
+  endforeach()
+  foreach(test_name IN ITEMS phase13.selection.verify phase13.selection.order)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_REQUIRED phase13_fast)
+  endforeach()
+endif()

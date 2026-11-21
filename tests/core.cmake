@@ -427,6 +427,24 @@ foreach(case IN ITEMS control verify order)
       "-DCASE=${case}"
       -P "${CMAKE_SOURCE_DIR}/tests/gates/phase12_selection.cmake")
 endforeach()
+
+# Phase 13 selector checks validate the exact OBJ/composition set and the
+# fixture edges that gate their longer consumers.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase13.selection.control)
+  else()
+    set(test_name phase13.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase13_selection.cmake")
+endforeach()
 set_tests_properties(cpu.power.boundary time.halt.boundary time.halt.refusal
   PROPERTIES TIMEOUT 10)
 

@@ -886,6 +886,9 @@ phase11.selection.verify gate,ppu,time
 phase12.selection.control gate,ppu,time
 phase12.selection.order gate,ppu,time
 phase12.selection.verify gate,ppu,time
+phase13.selection.control gate,ppu,time
+phase13.selection.order gate,ppu,time
+phase13.selection.verify gate,ppu,time
 phase7.order gate,time,timer
 phase7.selection.control gate,time,timer
 phase8.order gate,time,timer
