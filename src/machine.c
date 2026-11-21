@@ -1341,6 +1341,22 @@ static bool gbl_ppu_project_composed_row(
     uint32_t pixel;
     size_t object;
 
+    if ((capture->dispcnt & UINT16_C(0x0080)) != 0u) {
+        const gbl_ppu_obj_admission blank_admission = { 0 };
+
+        if (admission_out != NULL) {
+            *admission_out = blank_admission;
+        } else if (!gbl_ppu_obj_admission_matches_capture(
+                       &blank_admission, capture)) {
+            return false;
+        }
+        for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+            row[pixel * 2u] = UINT8_C(0xFF);
+            row[pixel * 2u + 1u] = UINT8_C(0x7F);
+        }
+        return true;
+    }
+
     if (gbl_ppu_sample_read(
             machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
             sizeof(backdrop_bytes), backdrop_bytes,
@@ -1650,13 +1666,13 @@ static gbl_video_invalid_reason gbl_ppu_dispcnt_invalid_reason(
 {
     const uint16_t mode = (uint16_t)(dispcnt & UINT16_C(0x0007));
 
+    if ((dispcnt & UINT16_C(0x0080)) != 0u) {
+        return GBL_VIDEO_INVALID_REASON_NONE;
+    }
     if (mode != 0u && mode != UINT16_C(1) && mode != UINT16_C(2) &&
         mode != UINT16_C(3) && mode != UINT16_C(4) &&
         mode != UINT16_C(5)) {
         return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
-    }
-    if ((dispcnt & UINT16_C(0x0080)) != 0u) {
-        return GBL_VIDEO_INVALID_REASON_FORCED_BLANK;
     }
     if ((dispcnt & UINT16_C(0xE000)) != 0u) {
         return GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED;
@@ -1704,16 +1720,23 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
     const gbl_ppu_timing_state *ppu,
     const gbl_ppu_row_capture *capture)
 {
-    const uint16_t mode = (uint16_t)(ppu->dispcnt & UINT16_C(0x0007));
-    const uint8_t enabled_backgrounds =
-        (uint8_t)((ppu->dispcnt >> 8u) & UINT16_C(0x000F));
-    const uint8_t legal_backgrounds = gbl_ppu_legal_background_mask(mode);
-    const gbl_video_invalid_reason dispcnt_reason =
-        gbl_ppu_dispcnt_invalid_reason(ppu->dispcnt);
-    const gbl_video_invalid_reason obj_reason =
-        gbl_ppu_obj_control_invalid_reason(machine, preview, ppu, capture);
+    uint16_t mode;
+    uint8_t enabled_backgrounds;
+    uint8_t legal_backgrounds;
+    gbl_video_invalid_reason dispcnt_reason;
+    gbl_video_invalid_reason obj_reason;
     uint8_t background;
 
+    if ((ppu->dispcnt & UINT16_C(0x0080)) != 0u) {
+        return GBL_VIDEO_INVALID_REASON_NONE;
+    }
+    mode = (uint16_t)(ppu->dispcnt & UINT16_C(0x0007));
+    enabled_backgrounds =
+        (uint8_t)((ppu->dispcnt >> 8u) & UINT16_C(0x000F));
+    legal_backgrounds = gbl_ppu_legal_background_mask(mode);
+    dispcnt_reason = gbl_ppu_dispcnt_invalid_reason(ppu->dispcnt);
+    obj_reason =
+        gbl_ppu_obj_control_invalid_reason(machine, preview, ppu, capture);
     if (dispcnt_reason != GBL_VIDEO_INVALID_REASON_NONE) {
         return dispcnt_reason;
     }
@@ -2784,13 +2807,15 @@ static gbl_time_status gbl_preview_bus_write(
         gbl_ppu_invalidate_capture(
             preview, gbl_ppu_dispcnt_invalid_reason(dispcnt));
     }
-    if (unsupported_effect_write) {
-        gbl_ppu_invalidate_capture(
-            preview, GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
-    } else if (window_register_write &&
-               (dispcnt & UINT16_C(0xE000)) != 0u) {
-        gbl_ppu_invalidate_capture(
-            preview, GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED);
+    if ((dispcnt & UINT16_C(0x0080)) == 0u) {
+        if (unsupported_effect_write) {
+            gbl_ppu_invalidate_capture(
+                preview, GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
+        } else if (window_register_write &&
+                   (dispcnt & UINT16_C(0xE000)) != 0u) {
+            gbl_ppu_invalidate_capture(
+                preview, GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED);
+        }
     }
     if (dispstat_written) {
         preview->ppu.dispstat = (uint16_t)(
@@ -2960,6 +2985,8 @@ static bool gbl_ppu_commit_preview_valid(
             capture->prior_write_count > preview->ppu_memory_write_count ||
             !gbl_ppu_capture_prefix_valid(preview, capture) ||
             seen_rows[capture->line] ||
+            (machine->ppu.frame_epoch == capture->frame_epoch &&
+             (machine->ppu.row_coverage[coverage_index] & row_mask) != 0u) ||
             (preview->ppu.row_coverage[coverage_index] & row_mask) == 0u ||
             (capture->unsupported_register_bytes &
              ~((UINT32_C(1) << GBL_PPU_RENDER_REGISTER_BYTES) - 1u)) != 0u) {
