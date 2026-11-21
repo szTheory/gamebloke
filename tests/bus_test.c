@@ -5015,6 +5015,261 @@ static int run_ppu_mosaic_bg(void)
     CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
     free_machine(machine);
 
+    /* Mode 1 text BG1 anchors before scroll; a 3-row vertical block restarts
+     * at line 3 and still uses each destination row's captured map/palette. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        uint8_t text_pixels[64];
+
+        CHECK(ppu_bg_text_configure(machine, 1u, 1u, 0u, true,
+                                    1u, 0u, 2u, 1u));
+        CHECK(ppu_bg_text_set_map_entry(machine, 1u, 0u, 0u, 1u));
+        for (y = 0u; y < 8u; ++y) {
+            for (x = 0u; x < 8u; ++x) {
+                text_pixels[y * 8u + x] =
+                    (uint8_t)(1u + (x & 3u) + (y >= 3u ? 4u : 0u));
+            }
+        }
+        CHECK(ppu_bg_text_fill_tile(machine, 1u, 1u, text_pixels));
+        for (x = 0u; x < sizeof(palette_colors) / sizeof(palette_colors[0]);
+             ++x) {
+            CHECK(ppu_bg_text_set_color(machine, (uint32_t)x + 1u,
+                                        palette_colors[x]));
+        }
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 2u,
+                         (uint16_t)(ppu_bg_text_control(machine, 1u) |
+                                    UINT16_C(0x0040)));
+        machine->ppu.render_register_bytes[16] = UINT8_C(0x21);
+        CHECK(gbl_machine_advance_to(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(4)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 2u,
+                                          UINT16_C(0x7FFF)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 3u,
+                                          UINT16_C(0x7FE0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 3u,
+                                          UINT16_C(0x4210)));
+        free_machine(machine);
+    }
+
+    /* Mode 1 BG2 and mode 2 BG3 reconstruct the anchor origin from the
+     * current captured row, including negative 8.8 coordinates and PB/PD. */
+    for (y = 1u; y <= 2u; ++y) {
+        const uint8_t mode = (uint8_t)y;
+        const uint8_t background = mode == 1u ? 2u : 3u;
+        uint8_t affine_pixels[64];
+
+        machine = new_machine();
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        CHECK(ppu_bg_affine_configure(machine, mode, background, 0u, false,
+                                      0u, 0u));
+        CHECK(ppu_bg_affine_set_map_entry(machine, background, 0u, 0u, 1u));
+        for (size_t source_y = 0u; source_y < 8u; ++source_y) {
+            for (x = 0u; x < 8u; ++x) {
+                affine_pixels[source_y * 8u + x] = (uint8_t)(
+                    1u + (x & 3u) + ((source_y >= 2u) ? 4u : 0u));
+            }
+        }
+        CHECK(ppu_bg_affine_fill_tile(machine, background, 1u,
+                                      affine_pixels));
+        CHECK(ppu_bg_text_set_color(machine, 0u, UINT16_C(0x4210)));
+        for (x = 0u; x < sizeof(palette_colors) / sizeof(palette_colors[0]);
+             ++x) {
+            CHECK(ppu_bg_text_set_color(machine, (uint32_t)x + 1u,
+                                        palette_colors[x]));
+        }
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes,
+                         (uint32_t)background * 2u,
+                         (uint16_t)(ppu_bg_text_control(machine, background) |
+                                    UINT16_C(0x0040)));
+        machine->ppu.render_register_bytes[16] = UINT8_C(0x11);
+        ppu_bg_affine_set_transform(
+            machine, background, INT16_C(0x0100), INT16_C(0x0080), 0,
+            INT16_C(0x0100), -128, 0);
+        CHECK(gbl_machine_advance_to(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(4)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x4210)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x4210)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 1u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                          UINT16_C(0x03FF)));
+        free_machine(machine);
+    }
+
+    /* Modes 3, 4 and 5 mosaic the bitmap coordinate before source sampling.
+     * Mode 4 keeps index-zero transparency; direct-color modes keep opaque
+     * black and use backdrop only for out-of-extent samples. */
+    for (uint8_t mode = 3u; mode <= 5u; ++mode) {
+        machine = new_machine();
+        CHECK(machine != NULL);
+        if (machine == NULL) {
+            continue;
+        }
+        CHECK(ppu_bg_bitmap_configure(machine, mode, false));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u,
+                         UINT16_C(0x0040));
+        machine->ppu.render_register_bytes[16] = UINT8_C(0x11);
+        CHECK(ppu_bg_text_set_color(machine, 0u, UINT16_C(0x4210)));
+        CHECK(ppu_bg_text_set_color(machine, 1u, UINT16_C(0x001F)));
+        CHECK(ppu_bg_text_set_color(machine, 2u, UINT16_C(0x03E0)));
+        CHECK(ppu_bg_text_set_color(machine, 3u, UINT16_C(0x7C00)));
+        CHECK(ppu_bg_text_set_color(machine, 4u, UINT16_C(0x7FFF)));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0, 0,
+                                    INT16_C(0x0100), 0, 0);
+        if (mode == 4u) {
+            machine->vram[0] = 0u;
+            machine->vram[1] = 1u;
+            machine->vram[2] = 2u;
+            machine->vram[3] = 3u;
+            machine->vram[UINT32_C(0x01E0)] = 4u;
+            machine->vram[UINT32_C(0x01E2)] = 3u;
+        } else {
+            const uint32_t width = mode == 3u ? UINT32_C(240)
+                                              : UINT32_C(160);
+            const uint32_t bytes_per_pixel = UINT32_C(2);
+            const uint32_t second_row = width * bytes_per_pixel * 2u;
+
+            ppu_bg_store_u16(machine->vram, 0u, 0u);
+            ppu_bg_store_u16(machine->vram, 2u, UINT16_C(0x001F));
+            ppu_bg_store_u16(machine->vram, 4u, UINT16_C(0x03E0));
+            ppu_bg_store_u16(machine->vram, 6u, UINT16_C(0x7C00));
+            ppu_bg_store_u16(machine->vram, second_row,
+                             UINT16_C(0x7FFF));
+            ppu_bg_store_u16(machine->vram, second_row + 4u,
+                             UINT16_C(0x7C00));
+        }
+        CHECK(gbl_machine_advance_to(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(4)) ==
+              GBL_TIME_STATUS_OK);
+        if (mode == 4u) {
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              UINT16_C(0x4210)));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 1u,
+                                              UINT16_C(0x4210)));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 0u,
+                                              UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 1u,
+                                              UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                              UINT16_C(0x7FFF)));
+        } else {
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                              0u));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 1u,
+                                              0u));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 2u, 0u,
+                                              UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 3u, 1u,
+                                              UINT16_C(0x03E0)));
+            CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 2u,
+                                              UINT16_C(0x7FFF)));
+        }
+        free_machine(machine);
+    }
+
+    /* BGCNT mosaic is per source: BG0 is enabled for grouping while the
+     * visible BG1 pattern remains pixel-specific. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        uint8_t bg0_pixels[64];
+        uint8_t bg1_pixels[64];
+
+        CHECK(ppu_bg_text_configure(machine, 0u, 0u, 0u, true,
+                                    0u, 0u, 1u, 0u));
+        CHECK(ppu_bg_text_configure(machine, 0u, 1u, 0u, true,
+                                    0u, 0u, 2u, 1u));
+        memset(bg0_pixels, 1, sizeof(bg0_pixels));
+        for (x = 0u; x < 64u; ++x) {
+            bg1_pixels[x] = (uint8_t)(2u + (x & 3u));
+        }
+        CHECK(ppu_bg_text_set_map_entry(machine, 0u, 0u, 0u, 1u));
+        CHECK(ppu_bg_text_fill_tile(machine, 0u, 1u, bg0_pixels));
+        CHECK(ppu_bg_text_set_map_entry(machine, 1u, 0u, 0u, 1u));
+        CHECK(ppu_bg_text_fill_tile(machine, 1u, 1u, bg1_pixels));
+        CHECK(ppu_bg_text_set_color(machine, 1u, UINT16_C(0x001F)));
+        CHECK(ppu_bg_text_set_color(machine, 2u, UINT16_C(0x03E0)));
+        CHECK(ppu_bg_text_set_color(machine, 3u, UINT16_C(0x7C00)));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 0u,
+                         (uint16_t)(ppu_bg_text_control(machine, 0u) |
+                                    UINT16_C(0x0041)));
+        machine->dispcnt = UINT16_C(0x0300);
+        machine->ppu.dispcnt = machine->dispcnt;
+        machine->ppu.render_register_bytes[16] = UINT8_C(0x11);
+        CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                          UINT16_C(0x7C00)));
+        free_machine(machine);
+    }
+
+    /* Size fields encode field+1: zero is 1x1, 15 is 16x16. */
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 5u, false));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u,
+                         UINT16_C(0x0040));
+        machine->ppu.render_register_bytes[16] = 0u;
+        ppu_bg_store_u16(machine->vram, 0u, UINT16_C(0x001F));
+        ppu_bg_store_u16(machine->vram, 2u, UINT16_C(0x03E0));
+        ppu_bg_store_u16(machine->vram, UINT32_C(320), UINT16_C(0x7C00));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0, 0,
+                                    INT16_C(0x0100), 0, 0);
+        CHECK(gbl_machine_advance_to(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(2)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 0u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 1u, 0u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 1u,
+                                          UINT16_C(0x7C00)));
+        free_machine(machine);
+    }
+
+    machine = new_machine();
+    CHECK(machine != NULL);
+    if (machine != NULL) {
+        CHECK(ppu_bg_bitmap_configure(machine, 5u, false));
+        ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u,
+                         UINT16_C(0x0040));
+        machine->ppu.render_register_bytes[16] = UINT8_C(0xFF);
+        ppu_bg_store_u16(machine->vram, 0u, UINT16_C(0x001F));
+        ppu_bg_store_u16(machine->vram, UINT32_C(32), UINT16_C(0x03E0));
+        ppu_bg_store_u16(machine->vram, UINT32_C(320 * 16),
+                         UINT16_C(0x7C00));
+        ppu_bg_affine_set_transform(machine, 2u, INT16_C(0x0100), 0, 0,
+                                    INT16_C(0x0100), 0, 0);
+        CHECK(gbl_machine_advance_to(
+                  machine, GBL_PPU_LINE_CYCLES * UINT64_C(17)) ==
+              GBL_TIME_STATUS_OK);
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 15u, 15u,
+                                          UINT16_C(0x001F)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 16u, 15u,
+                                          UINT16_C(0x03E0)));
+        CHECK(ppu_bg_affine_pixel_matches(machine->video_frame, 0u, 16u,
+                                          UINT16_C(0x7C00)));
+        free_machine(machine);
+    }
+
     if (CHECK_DONE() == 0) {
         puts("ppu.mosaic.bg: text BG repeats screen-origin source anchors across horizontal and vertical groups");
         return 0;
@@ -5746,7 +6001,7 @@ static int run_ppu_bg_bitmap(void)
         free_machine(machine);
     }
 
-    /* Mosaic remains an unsupported source control after bitmap admission. */
+    /* BG mosaic is accepted for bitmap sources. */
     machine = new_machine();
     CHECK(machine != NULL);
     if (machine != NULL) {
@@ -5754,9 +6009,7 @@ static int run_ppu_bg_bitmap(void)
         ppu_bg_store_u16(machine->ppu.bg_register_bytes, 4u,
                          UINT16_C(0x0040));
         CHECK(gbl_machine_advance_to(machine, 0u) == GBL_TIME_STATUS_OK);
-        CHECK(machine->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
-        CHECK(machine->ppu.capture_reason ==
-              GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE);
+        CHECK(machine->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
         free_machine(machine);
     }
 
@@ -6081,7 +6334,7 @@ static int run_ppu_refusal(void)
                        UINT32_C(1));
     CHECK_PPU_MUTATION(changed->ppu.render_register_bytes[0] ^=
                        UINT8_C(1));
-    for (register_lane = 18u; register_lane < 24u; ++register_lane) {
+    for (register_lane = 16u; register_lane < 24u; ++register_lane) {
         CHECK_PPU_MUTATION(
             changed->ppu.render_register_bytes[register_lane] ^= UINT8_C(1));
     }
@@ -6124,7 +6377,7 @@ static int run_ppu_refusal(void)
                 UINT8_C(1);
             preview_equality_detects_plan = preview_equality_detects_plan &&
                 !gbl_test_time_preview_equal(&preview, &changed_preview);
-            for (register_lane = 18u; register_lane < 24u;
+            for (register_lane = 16u; register_lane < 24u;
                  ++register_lane) {
                 changed_preview = preview;
                 changed_preview.ppu_row_captures[0]
@@ -6292,7 +6545,7 @@ static int run_ppu_refusal(void)
     CHECK(preview.ppu_row_captures[0].dispcnt == UINT16_C(0x0403));
     CHECK(preview.ppu_row_captures[0].render_register_bytes[1] == 1u);
     CHECK(preview.ppu_row_captures[0].render_register_bytes[7] == 1u);
-    for (register_lane = 18u; register_lane < 24u; ++register_lane) {
+    for (register_lane = 16u; register_lane < 24u; ++register_lane) {
         CHECK(preview.ppu_row_captures[0].render_register_bytes[
                   register_lane] ==
               clean_twin->ppu.render_register_bytes[register_lane]);
@@ -8427,10 +8680,14 @@ static int run_ppu_controls(void)
                                    GBL_BUS_CLASS_NONSEQUENTIAL,
                                    UINT32_C(0x0001));
             CHECK(result.status == GBL_BUS_STATUS_OK);
-            CHECK(mosaic->ppu.capture_state == GBL_VIDEO_CAPTURE_INVALID);
-            CHECK(mosaic->ppu.capture_reason ==
-                  GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
-            puts("ppu.controls control: MOSAIC is unsupported");
+            CHECK(mosaic->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+            CHECK(mosaic->ppu.render_register_bytes[16] == UINT8_C(1));
+            CHECK(mosaic->ppu.render_register_bytes[17] == 0u);
+            CHECK(gbl_machine_advance_to(mosaic, GBL_PPU_LINE_CYCLES) ==
+                  GBL_TIME_STATUS_OK);
+            CHECK(mosaic->ppu.captured_rows == 2u);
+            CHECK(mosaic->ppu.capture_state != GBL_VIDEO_CAPTURE_INVALID);
+            puts("ppu.controls control: MOSAIC register is sampled");
             free_machine(mosaic);
         }
         if (affine != NULL) {

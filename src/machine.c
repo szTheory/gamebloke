@@ -9,7 +9,7 @@
 #define GBL_PPU_EVENT_PRIORITY 9u
 #define GBL_PPU_BG_MEMORY_BYTES UINT32_C(0x00010000)
 #define GBL_PPU_BG_REGISTER_SCROLL_OFFSET UINT32_C(8)
-#define GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK UINT16_C(0x2050)
+#define GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK UINT16_C(0x2010)
 #define GBL_PPU_AFFINE_REFERENCE_MASK UINT32_C(0x0FFFFFFF)
 #define GBL_PPU_AFFINE_REFERENCE_SIGN UINT32_C(0x08000000)
 
@@ -368,7 +368,7 @@ static uint64_t gbl_ppu_row_digest(const uint8_t *bytes, size_t length,
         digest ^= capture->window_register_bytes[index];
         digest *= UINT64_C(1099511628211);
     }
-    for (index = 18u; index < 24u; ++index) {
+    for (index = 16u; index < 24u; ++index) {
         digest ^= capture->render_register_bytes[index];
         digest *= UINT64_C(1099511628211);
     }
@@ -570,6 +570,26 @@ static uint16_t gbl_ppu_register_u16(const uint8_t *register_bytes,
         (uint16_t)((uint16_t)register_bytes[offset + 1u] << 8u));
 }
 
+static uint32_t gbl_ppu_bg_mosaic_size(
+    const gbl_ppu_row_capture *capture, uint16_t control, bool vertical)
+{
+    uint32_t shift;
+    uint32_t field;
+
+    if ((control & UINT16_C(0x0040)) == 0u) {
+        return UINT32_C(1);
+    }
+    shift = vertical ? UINT32_C(4) : UINT32_C(0);
+    field = ((uint32_t)capture->render_register_bytes[16] >> shift) &
+            UINT32_C(0x0F);
+    return field + UINT32_C(1);
+}
+
+static uint32_t gbl_ppu_mosaic_anchor(uint32_t coordinate, uint32_t size)
+{
+    return coordinate - coordinate % size;
+}
+
 static int16_t gbl_ppu_signed_u16(uint16_t bits)
 {
     if ((bits & UINT16_C(0x8000)) != 0u) {
@@ -597,6 +617,16 @@ static uint32_t gbl_ppu_affine_add_reference(uint32_t origin,
 {
     return (origin + (uint32_t)(int32_t)increment) &
            GBL_PPU_AFFINE_REFERENCE_MASK;
+}
+
+static uint32_t gbl_ppu_affine_back_project(uint32_t origin,
+                                           int16_t increment,
+                                           uint32_t rows)
+{
+    const int64_t projected = (int64_t)origin -
+        (int64_t)increment * (int64_t)rows;
+
+    return (uint32_t)projected & GBL_PPU_AFFINE_REFERENCE_MASK;
 }
 
 static void gbl_ppu_affine_write_register(gbl_ppu_affine_state *affine,
@@ -733,6 +763,17 @@ static bool gbl_ppu_project_affine_row(
     const uint32_t character_base =
         (uint32_t)((control >> 2u) & UINT16_C(0x0003)) * UINT32_C(0x4000);
     const bool wrap = (control & UINT16_C(0x2000)) != 0u;
+    const uint32_t mosaic_width =
+        gbl_ppu_bg_mosaic_size(capture, control, false);
+    const uint32_t mosaic_height =
+        gbl_ppu_bg_mosaic_size(capture, control, true);
+    const uint32_t anchor_line =
+        gbl_ppu_mosaic_anchor(capture->line, mosaic_height);
+    const uint32_t anchor_delta = capture->line - anchor_line;
+    const uint32_t anchor_origin_x = gbl_ppu_affine_back_project(
+        affine->origin_x, affine->pb, anchor_delta);
+    const uint32_t anchor_origin_y = gbl_ppu_affine_back_project(
+        affine->origin_y, affine->pd, anchor_delta);
     uint8_t palette_bytes[512];
     uint8_t tile_row[8];
     uint32_t previous_tile_x = UINT32_MAX;
@@ -741,7 +782,7 @@ static bool gbl_ppu_project_affine_row(
     uint32_t pixel;
 
     if (!affine->origin_valid ||
-        (control & UINT16_C(0x0070)) != 0u ||
+        (control & UINT16_C(0x0030)) != 0u ||
         gbl_ppu_sample_read(
             machine, preview, capture, GBL_BUS_REGION_PRAM, 0u, 2u,
             sizeof(palette_bytes), palette_bytes, sizeof(palette_bytes)) !=
@@ -750,12 +791,14 @@ static bool gbl_ppu_project_affine_row(
     }
 
     for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const uint32_t anchor_x =
+            gbl_ppu_mosaic_anchor(pixel, mosaic_width);
         const int64_t source_x_fixed =
-            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_x) +
-            (int64_t)affine->pa * (int64_t)pixel;
+            (int64_t)gbl_ppu_sign_extend_reference(anchor_origin_x) +
+            (int64_t)affine->pa * (int64_t)anchor_x;
         const int64_t source_y_fixed =
-            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_y) +
-            (int64_t)affine->pc * (int64_t)pixel;
+            (int64_t)gbl_ppu_sign_extend_reference(anchor_origin_y) +
+            (int64_t)affine->pc * (int64_t)anchor_x;
         int64_t source_x = gbl_ppu_floor_fixed_8_8(source_x_fixed);
         int64_t source_y = gbl_ppu_floor_fixed_8_8(source_y_fixed);
         uint8_t color_index = 0u;
@@ -852,6 +895,17 @@ static bool gbl_ppu_project_bitmap_row(
     const uint16_t control =
         gbl_ppu_register_u16(capture->bg_register_bytes, UINT32_C(4));
     const uint8_t priority = (uint8_t)(control & UINT16_C(0x0003));
+    const uint32_t mosaic_width =
+        gbl_ppu_bg_mosaic_size(capture, control, false);
+    const uint32_t mosaic_height =
+        gbl_ppu_bg_mosaic_size(capture, control, true);
+    const uint32_t anchor_line =
+        gbl_ppu_mosaic_anchor(capture->line, mosaic_height);
+    const uint32_t anchor_delta = capture->line - anchor_line;
+    const uint32_t anchor_origin_x = gbl_ppu_affine_back_project(
+        affine->origin_x, affine->pb, anchor_delta);
+    const uint32_t anchor_origin_y = gbl_ppu_affine_back_project(
+        affine->origin_y, affine->pd, anchor_delta);
     uint32_t source_width;
     uint32_t source_height;
     uint32_t bytes_per_pixel;
@@ -910,7 +964,7 @@ static bool gbl_ppu_project_bitmap_row(
     constant_source_row = affine->pc == 0;
     if (constant_source_row) {
         const int64_t source_y = gbl_ppu_floor_fixed_8_8(
-            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_y));
+            (int64_t)gbl_ppu_sign_extend_reference(anchor_origin_y));
 
         if (source_y >= 0 && source_y < (int64_t)source_height) {
             const uint64_t source_offset_wide = (uint64_t)page_base +
@@ -933,12 +987,14 @@ static bool gbl_ppu_project_bitmap_row(
     }
 
     for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const uint32_t anchor_x =
+            gbl_ppu_mosaic_anchor(pixel, mosaic_width);
         const int64_t source_x_fixed =
-            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_x) +
-            (int64_t)affine->pa * (int64_t)pixel;
+            (int64_t)gbl_ppu_sign_extend_reference(anchor_origin_x) +
+            (int64_t)affine->pa * (int64_t)anchor_x;
         const int64_t source_y_fixed =
-            (int64_t)gbl_ppu_sign_extend_reference(affine->origin_y) +
-            (int64_t)affine->pc * (int64_t)pixel;
+            (int64_t)gbl_ppu_sign_extend_reference(anchor_origin_y) +
+            (int64_t)affine->pc * (int64_t)anchor_x;
         const int64_t source_x = gbl_ppu_floor_fixed_8_8(source_x_fixed);
         const int64_t source_y = gbl_ppu_floor_fixed_8_8(source_y_fixed);
         uint16_t color;
@@ -1043,6 +1099,12 @@ static bool gbl_ppu_project_text_row(
         (uint32_t)((control >> 8u) & UINT16_C(0x001F)) * UINT32_C(0x0800);
     const uint32_t character_base =
         (uint32_t)((control >> 2u) & UINT16_C(0x0003)) * UINT32_C(0x4000);
+    const uint32_t mosaic_width =
+        gbl_ppu_bg_mosaic_size(capture, control, false);
+    const uint32_t mosaic_height =
+        gbl_ppu_bg_mosaic_size(capture, control, true);
+    const uint32_t anchor_line =
+        gbl_ppu_mosaic_anchor(capture->line, mosaic_height);
     const bool color_8bpp = (control & UINT16_C(0x0080)) != 0u;
     const uint8_t tile_bytes_per_row = color_8bpp ? 8u : 4u;
     const uint32_t tile_bytes_per_tile = color_8bpp ? 64u : 32u;
@@ -1068,10 +1130,12 @@ static bool gbl_ppu_project_text_row(
     }
 
     for (pixel = 0u; pixel < GBL_PPU_WIDTH; ++pixel) {
+        const uint32_t anchor_x =
+            gbl_ppu_mosaic_anchor(pixel, mosaic_width);
         const uint32_t source_x =
-            (pixel + horizontal_scroll) & (map_width - 1u);
+            (anchor_x + horizontal_scroll) & (map_width - 1u);
         const uint32_t source_y =
-            ((uint32_t)capture->line + vertical_scroll) & (map_height - 1u);
+            (anchor_line + vertical_scroll) & (map_height - 1u);
         const uint32_t tile_x = source_x >> 3u;
         const uint32_t tile_y = source_y >> 3u;
         gbl_ppu_bg_sample sample = { 0 };
@@ -2021,9 +2085,9 @@ static gbl_video_invalid_reason gbl_ppu_active_invalid_reason(
         if (mode == 0u || (mode == 1u && background < 2u)) {
             unsupported_mask = GBL_PPU_TEXT_BG_UNSUPPORTED_CONTROL_MASK;
         } else if (mode == 1u || mode == 2u) {
-            unsupported_mask = UINT16_C(0x0070);
+            unsupported_mask = UINT16_C(0x0030);
         } else {
-            unsupported_mask = UINT16_C(0x0040);
+            unsupported_mask = 0u;
         }
         if ((control & unsupported_mask) != 0u) {
             return GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE;
@@ -2857,7 +2921,6 @@ static gbl_time_status gbl_preview_bus_write(
     bool waitcnt_written = false;
     bool dispstat_written = false;
     bool dispcnt_written = false;
-    bool unsupported_mosaic_write = false;
     uint32_t unsupported_register_bytes =
         preview->ppu.unsupported_register_bytes;
     uint8_t render_register_bytes[GBL_PPU_RENDER_REGISTER_BYTES];
@@ -2936,15 +2999,8 @@ static gbl_time_status gbl_preview_bus_write(
                 byte_value;
         } else if (lane_address >= UINT32_C(0x0400004C) &&
                    lane_address <= UINT32_C(0x0400004D)) {
-            gbl_ppu_update_register_byte_deviation(
-                &unsupported_register_bytes,
-                UINT32_C(16) + lane_address - UINT32_C(0x0400004C),
-                byte_value, 0u);
             render_register_bytes[
                 16u + (lane_address - UINT32_C(0x0400004C))] = byte_value;
-            if (byte_value != 0u) {
-                unsupported_mosaic_write = true;
-            }
         } else if (lane_address >= UINT32_C(0x04000050) &&
                    lane_address <= UINT32_C(0x04000055)) {
             gbl_ppu_update_register_byte_deviation(
@@ -3072,11 +3128,6 @@ static gbl_time_status gbl_preview_bus_write(
     if (dispcnt_written) {
         gbl_ppu_invalidate_capture(
             preview, gbl_ppu_dispcnt_invalid_reason(dispcnt));
-    }
-    if ((dispcnt & UINT16_C(0x0080)) == 0u &&
-        unsupported_mosaic_write) {
-        gbl_ppu_invalidate_capture(
-            preview, GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED);
     }
     if (dispstat_written) {
         preview->ppu.dispstat = (uint16_t)(
