@@ -1204,6 +1204,16 @@ static size_t gbl_test_count_substring(const char *text,
     return count;
 }
 
+static bool gbl_test_u64_add(uint64_t left, uint64_t right,
+                            uint64_t *sum_out)
+{
+    if (sum_out == NULL || right > UINT64_MAX - left) {
+        return false;
+    }
+    *sum_out = left + right;
+    return true;
+}
+
 static bool gbl_test_production_metadata_matches(const char *json)
 {
     static const char access_policy[] =
@@ -1254,6 +1264,8 @@ static gbl_test_production_reason gbl_test_production_evaluate(
     size_t expected_pixel_count)
 {
     const gbl_runner_phase10_observation *frame;
+    uint64_t computed_cycles;
+    uint64_t computed_dma_pause;
 
     if (result == NULL) {
         return GBL_PRODUCTION_FRAME_INCOMPLETE;
@@ -1278,8 +1290,8 @@ static gbl_test_production_reason gbl_test_production_evaluate(
     if (result->semantic.case_id != GBL_PRODUCTION_CASE_ID) {
         return GBL_PRODUCTION_PROGRESS_WRONG;
     }
-    /* DMA pause observations sit outside the bus/internal components; include
-     * them once in the total machine-cycle equation. */
+    /* DMA pause is a reported subtotal. Reconcile it with the DMA components,
+     * then account for those components exactly once in total machine time. */
     if (!result->ran || result->budget_cycles == 0u ||
         result->budget_cycles > GBL_PRODUCTION_CYCLE_BUDGET ||
         result->cycles == 0u || result->cycles > result->budget_cycles ||
@@ -1287,9 +1299,26 @@ static gbl_test_production_reason gbl_test_production_evaluate(
         result->bus_cycles > result->cycles ||
         result->internal_cycles > result->cycles ||
         result->dma_pause_cycles > result->cycles ||
-        result->bus_cycles + result->internal_cycles +
-                result->dma_pause_cycles !=
-            result->cycles ||
+        !result->phase8.observed ||
+        result->phase8.wait_cycles != result->wait_cycles ||
+        !gbl_test_u64_add(result->dma_startup_cycles,
+                          result->dma_source_cycles,
+                          &computed_dma_pause) ||
+        !gbl_test_u64_add(computed_dma_pause,
+                          result->dma_destination_cycles,
+                          &computed_dma_pause) ||
+        computed_dma_pause != result->dma_pause_cycles ||
+        !gbl_test_u64_add(result->bus_cycles, result->internal_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->wait_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->dma_startup_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->dma_source_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->dma_destination_cycles,
+                          &computed_cycles) ||
+        computed_cycles != result->cycles ||
         result->phase10.machine_cycles != result->cycles ||
         !result->phase9.observed ||
         result->phase9.machine_cycles != result->cycles ||
@@ -1500,6 +1529,8 @@ static bool gbl_test_runner_production_controls(
     gbl_runner_result altered = { 0 };
     gbl_runner_result damaged_progress = { 0 };
     gbl_runner_result inconsistent_cycles = { 0 };
+    gbl_runner_result inconsistent_wait = { 0 };
+    gbl_runner_result inconsistent_dma_source = { 0 };
     char clean_rom[GBL_RUNNER_TEST_PATH_CAPACITY];
     char altered_rom[GBL_RUNNER_TEST_PATH_CAPACITY];
     char withheld_rom[GBL_RUNNER_TEST_PATH_CAPACITY];
@@ -1524,6 +1555,8 @@ static bool gbl_test_runner_production_controls(
     gbl_test_production_reason progress_reason = GBL_PRODUCTION_ACCEPTED;
     gbl_test_production_reason cycles_reason = GBL_PRODUCTION_ACCEPTED;
     gbl_test_production_reason metadata_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason wait_cycles_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason dma_source_reason = GBL_PRODUCTION_ACCEPTED;
     bool setup;
     bool clean_okay;
     bool replay_okay;
@@ -1533,6 +1566,8 @@ static bool gbl_test_runner_production_controls(
     bool altered_okay;
     bool progress_okay;
     bool cycles_okay;
+    bool wait_cycles_okay;
+    bool dma_source_okay;
     bool metadata_okay;
     char *changed_access;
 
@@ -1719,6 +1754,31 @@ static bool gbl_test_runner_production_controls(
     cycles_okay = cycles_reason == GBL_PRODUCTION_CYCLES_INCONSISTENT;
     gbl_test_case(cycles_okay,
                   "one-fault bus-cycle mutation is rejected by the machine accounting equation");
+
+    inconsistent_wait = clean;
+    inconsistent_wait.wait_cycles += 1u;
+    wait_cycles_reason = gbl_test_production_evaluate(
+        &inconsistent_wait, inconsistent_wait.phase10.video_bytes, clean_json,
+        gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    wait_cycles_okay =
+        wait_cycles_reason == GBL_PRODUCTION_CYCLES_INCONSISTENT;
+    gbl_test_case(wait_cycles_okay,
+                  "one-fault wait-cycle mutation is rejected against phase-8 observations and elapsed cycles");
+
+    inconsistent_dma_source = clean;
+    inconsistent_dma_source.dma_source_cycles += 1u;
+    dma_source_reason = gbl_test_production_evaluate(
+        &inconsistent_dma_source,
+        inconsistent_dma_source.phase10.video_bytes, clean_json,
+        gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    dma_source_okay =
+        dma_source_reason == GBL_PRODUCTION_CYCLES_INCONSISTENT;
+    gbl_test_case(dma_source_okay,
+                  "one-fault DMA-source mutation with the pause subtotal held fixed is rejected");
 
     memcpy(tampered_json, clean_json, strlen(clean_json) + 1u);
     changed_access = strstr(tampered_json, "\"ppu_extra_cycles\":0");
@@ -4754,12 +4814,12 @@ int main(int argc, char **argv)
                   stderr);
             return 2;
         }
-        printf("1..8\n");
+        printf("1..10\n");
         if (!gbl_test_runner_production_controls(argv[2])) {
             fputs("runner_test: production controls setup failed\n", stderr);
             return 2;
         }
-        return gbl_test_failures == 0u && gbl_test_number == 8u ? 0 : 1;
+        return gbl_test_failures == 0u && gbl_test_number == 10u ? 0 : 1;
     }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
