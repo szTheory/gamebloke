@@ -5,17 +5,17 @@ milestone_name: PPU Modes and Composition
 current_phase: 13
 current_phase_name: Objects and Layer Priorities
 current_plan: 8
-status: executing
-stopped_at: Completed 13-07-PLAN.md
-last_updated: "2026-11-21T05:03:26.165Z"
+status: verifying
+stopped_at: Completed 13-08-PLAN.md
+last_updated: "2026-11-21T05:53:17.916Z"
 last_activity: 2026-11-20
 last_activity_desc: Phase 13 execution started
-state_head: 0877a0c1ae7398fed48c6b2b8f37af0860a91f55
+state_head: 913c4bffde09b1194f32025c1c66baa744b880fa
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 24
-  completed_plans: 23
+  completed_plans: 24
   percent: 40
 ---
 
@@ -34,7 +34,7 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 Phase: 13 (Objects and Layer Priorities) — EXECUTING
 Current Plan: 8
 Total Plans in Phase: 8
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-20 — Phase 13 execution started
 
 Progress: [████░░░░░░] 40% (current milestone)
@@ -188,6 +188,7 @@ Progress: [████░░░░░░] 40% (current milestone)
 | Phase 13 P05 | 94 min | 2 tasks | 12 files |
 | Phase 13 P06 | 61m | 2 tasks | 7 files |
 | Phase 13 P07 | 41min | 2 tasks | 7 files |
+| Phase 13 P08 | 39min minimum | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -501,6 +502,9 @@ Recent decisions affecting current work:
 - [Phase 13]: The time/HALT CTest fixture prerequisites remain required; the 17-test expansion retained phase7.selection.control as graph evidence.
 - [Phase 13]: The Plan 13-06 deterministic software checks preserve the 1226-unit work policy, existing video-memory access behavior, and UNKNOWN hardware qualification.
 - [Phase 13]: Keep both CI profile checks registered, inventoried, and fixture-validated; execute them once in the inherited same-build closure and require both in aggregate evidence.
+- [Phase 13]: Use independent semantic pixels and causal wrong-color/wrong-selection controls as correctness evidence; hashes are supplemental repeatability data.
+- [Phase 13]: Keep two-worker CTest and run the shared profile checks once in the inherited same-build closure; remove no quality gates.
+- [Phase 13]: Describe modes 0–5 and OBJ composition as partial software support with hardware qualification UNKNOWN; BG2-disabled mode 3 may emit valid backdrop-only output.
 
 ### Pending Todos
 
@@ -552,8 +556,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-21T05:03:26.006Z
-Stopped at: Completed 13-07-PLAN.md
+Last session: 2026-11-21T05:53:17.760Z
+Stopped at: Completed 13-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
