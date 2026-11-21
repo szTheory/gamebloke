@@ -170,7 +170,7 @@ these fields:
   capture state and reason. Unknown PPU observation models are rejected. PPU observations bind
   their raster machine cycle to `time.cycles`, constrain line and pixel layout to the AGB
   profile, and keep unavailable frame epoch/sample/completion values null. A valid frame
-  requires a supported single-background source, reason `none`, one started epoch, all 160 visible row samples, and a
+  requires a supported configured display source, reason `none`, one started epoch, all 160 visible row samples, and a
   completion cycle 160 profile line lengths after the sample cycle. Unsupported controls
   cannot yield a valid frame. Row sampling follows the profile's visible-line-start point;
   serialized pixels use a 480-byte row stride.
@@ -193,13 +193,17 @@ these fields:
   coordinate outside the mode's declared width/height resolves to backdrop
   palette entry zero before page arithmetic, so it cannot read an adjacent page
   or unused tail. The mode-3 identity output remains the regression anchor.
-  These modes still require BG2 enabled, forced blank disabled, no OBJ,
-  windows, color effects, or mosaic, and a single selected source. Frame `state`
+  These bitmap modes require BG2 enabled and forced blank disabled. Regular and
+  affine OBJ plus shared layer composition are software-supported under the
+  profile's admission and tie policies; windows, color effects, and mosaic
+  remain unsupported, and all display modes remain partial. Frame `state`
   is `valid`,
   `incomplete`, or `invalid`; `incomplete` has reason `incomplete`, while `invalid`
   must name an unsupported control reason such as `unsupported-mode`, `bg2-disabled`,
-  `forced-blank`, `obj-enabled`, `window-enabled`, `effect-enabled`, or
-  `bg2-transform-unmodeled` for transforms used by text-only modes. A non-valid
+  `forced-blank`, `unsupported-obj-control`, `window-enabled`, `effect-enabled`, or
+  `bg2-transform-unmodeled` for transforms used by text-only modes. Historical
+  records may use the superseded `obj-enabled` reason; current producers reserve
+  `unsupported-obj-control` for unsupported OBJ settings. A non-valid
   frame keeps epoch/sample/completion fields
   null and cannot emit stale or partial bytes. For requested output, incomplete and
   invalid frame statuses match the frame state and carry no artifact; a valid frame

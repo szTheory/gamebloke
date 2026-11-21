@@ -1211,7 +1211,7 @@ function(gbl__result_phase10_check doc time_cycles result_status result_ran
       gbl_finding(result bad-phase10-frame "phase10.frame.state is unknown")
     endif()
     if(NOT "${frame_reason}" MATCHES
-        "^(none|incomplete|unsupported-mode|bg2-disabled|forced-blank|obj-enabled|window-enabled|effect-enabled|bg2-transform-unmodeled)$")
+        "^(none|incomplete|unsupported-mode|bg2-disabled|forced-blank|obj-enabled|unsupported-obj-control|window-enabled|effect-enabled|bg2-transform-unmodeled)$")
       gbl_finding(result bad-phase10-frame "phase10.frame.reason is unknown")
     endif()
 

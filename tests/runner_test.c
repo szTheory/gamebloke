@@ -617,7 +617,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
     if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
                        "ppu-observation.gba") ||
         !gbl_test_write_ppu_guest_with_dispcnt(rom_path,
-                                               UINT32_C(0x1000))) {
+                                               UINT32_C(0x1100))) {
         return false;
     }
     options.rom_path = rom_path;
@@ -668,6 +668,18 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
                strstr(json, "\"cycles\":") != NULL &&
                strstr(json,
                       "\"input_timeline\":{\"kind\":\"script\",\"sha256\":") != NULL;
+    }
+    if (okay) {
+        gbl_runner_result unsupported_obj = result;
+
+        unsupported_obj.phase10.capture_state = GBL_VIDEO_CAPTURE_INVALID;
+        unsupported_obj.phase10.capture_reason =
+            GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
+        unsupported_obj.phase10.supported_controls = false;
+        okay = gbl_test_serialize_result(&unsupported_obj, json,
+                                         sizeof json) &&
+               strstr(json,
+                      "\"state\":\"invalid\",\"reason\":\"unsupported-obj-control\",\"supported_controls\":false") != NULL;
     }
     gbl_runner_result_dispose(&result);
     return okay;

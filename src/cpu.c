@@ -4089,6 +4089,36 @@ static bool gbl_cpu_build_time_operations(
     return true;
 }
 
+static uint64_t gbl_cpu_ppu_row_digest(
+    const uint8_t *bytes, size_t length,
+    const gbl_ppu_row_capture *capture)
+{
+    uint64_t digest = UINT64_C(14695981039346656037);
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        digest ^= bytes[index];
+        digest *= UINT64_C(1099511628211);
+    }
+    for (index = 0u; index < sizeof(capture->obj_selected_mask); ++index) {
+        digest ^= capture->obj_selected_mask[index];
+        digest *= UINT64_C(1099511628211);
+    }
+    digest ^= (uint8_t)(capture->obj_selected_count & UINT16_C(0x00FF));
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_selected_count >> 8u);
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_omitted_count & UINT16_C(0x00FF));
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_omitted_count >> 8u);
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_work_used & UINT16_C(0x00FF));
+    digest *= UINT64_C(1099511628211);
+    digest ^= (uint8_t)(capture->obj_work_used >> 8u);
+    digest *= UINT64_C(1099511628211);
+    return digest;
+}
+
 static bool gbl_cpu_time_preview_matches_machine(
     const gbl_machine *machine,
     const gbl_machine_time_preview *preview)
@@ -4198,6 +4228,8 @@ static bool gbl_cpu_time_preview_matches_machine(
             return false;
         }
     }
+    /* The PPU can capture rows in every display mode; capability status is
+     * decided by the PPU policy, while this check validates time and bytes. */
     for (index = 0u; index < preview->ppu_row_capture_count; ++index) {
         const gbl_ppu_row_capture *capture =
             &preview->ppu_row_captures[index];
@@ -4206,16 +4238,13 @@ static bool gbl_cpu_time_preview_matches_machine(
             (uint64_t)capture->line * GBL_PPU_LINE_CYCLES;
         uint64_t frame_offset;
         uint64_t expected_cycle;
-        uint64_t digest = UINT64_C(14695981039346656037);
+        uint64_t digest;
         size_t expected_prefix = 0u;
         size_t write_index;
-        size_t pixel;
 
         if (capture->line >= GBL_PPU_VISIBLE_LINES ||
             capture->frame_epoch != preview->ppu.frame_epoch ||
             capture->frame_epoch > UINT64_MAX / GBL_PPU_FRAME_CYCLES ||
-            (capture->dispcnt & UINT16_C(0x0007)) != UINT16_C(3) ||
-            (capture->dispcnt & UINT16_C(0x0400)) == 0u ||
             (machine->ppu.row_coverage[capture->line >> 3u] &
              (uint8_t)(UINT8_C(1) << (capture->line & 7u))) == 0u ||
             capture->prior_write_count > preview->ppu_memory_write_count) {
@@ -4245,10 +4274,8 @@ static bool gbl_cpu_time_preview_matches_machine(
         if (expected_prefix != (size_t)capture->prior_write_count) {
             return false;
         }
-        for (pixel = 0u; pixel < GBL_PPU_ROW_BYTES; ++pixel) {
-            digest ^= machine->video_frame[offset + pixel];
-            digest *= UINT64_C(1099511628211);
-        }
+        digest = gbl_cpu_ppu_row_digest(&machine->video_frame[offset],
+                                        GBL_PPU_ROW_BYTES, capture);
         if (digest != capture->pixel_digest) {
             return false;
         }

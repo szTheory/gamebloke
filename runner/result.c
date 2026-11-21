@@ -888,7 +888,8 @@ static const char *gbl_runner_video_reason_name(gbl_video_invalid_reason reason)
     case GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE: return "unsupported-mode";
     case GBL_VIDEO_INVALID_REASON_BG2_DISABLED: return "bg2-disabled";
     case GBL_VIDEO_INVALID_REASON_FORCED_BLANK: return "forced-blank";
-    case GBL_VIDEO_INVALID_REASON_OBJ_ENABLED: return "obj-enabled";
+    case GBL_VIDEO_INVALID_REASON_OBJ_ENABLED:
+        return "unsupported-obj-control";
     case GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED: return "window-enabled";
     case GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED: return "effect-enabled";
     case GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED:
