@@ -139,6 +139,18 @@ static int run_registers(void)
     result = write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080));
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET);
+
+    /* Wave enable permits a trigger but does not itself start channel 3. */
+    result = write16(machine, UINT32_C(0x04000070), UINT16_C(0x0080));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0004)) == 0u);
+    result = write16(machine, UINT32_C(0x04000074), UINT16_C(0x8000));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0004)) != 0u);
+    result = write16(machine, UINT32_C(0x04000070), 0u);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0004)) == 0u);
+
     for (index = 0u; index < sizeof(policies) / sizeof(policies[0]); ++index) {
         const uint16_t expected =
             policies[index].address == UINT32_C(0x04000064) ||

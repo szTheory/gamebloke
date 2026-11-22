@@ -247,10 +247,6 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
     } else if (index == 12u && (next & UINT16_C(0xF800)) == 0u) {
         state->active_channels &= (uint8_t)~UINT8_C(0x08);
     }
-    if (index == 8u && (lane_mask & UINT8_C(1)) != 0u &&
-        (merged & UINT16_C(0x0080)) != 0u) {
-        state->active_channels |= UINT8_C(0x04);
-    }
 }
 
 void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
