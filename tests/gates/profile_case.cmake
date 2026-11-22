@@ -153,6 +153,62 @@ elseif(CASE STREQUAL "audio_policy")
   gbl_expect_pass(COMMAND ${audio_cmd}
     REGEX "profile: ok \\(agb audio policy\\)")
 
+  profile_copy(p missing_psg_first_tick)
+  gbl_json_mutate_remove("${p}" audio_policy psg_sequencer_first_tick_cycle)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.psg_sequencer_first_tick_cycle: expected NUMBER, found MISSING" "${p}")
+
+  profile_copy(p wrong_psg_first_step)
+  gbl_json_mutate_set("${p}" "1" audio_policy psg_sequencer_first_step)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.psg_sequencer_first_step: expected 0" "${p}")
+
+  profile_copy(p wrong_psg_source)
+  gbl_json_mutate_set("${p}" [=["unreviewed source interpretation"]=]
+    audio_policy psg_ch3_rate_policy)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.psg_ch3_rate_policy: expected manual-whole-pattern-derived" "${p}")
+
+  profile_copy(p wrong_psg_bank)
+  gbl_json_mutate_set("${p}" [=["selected-front-bank"]=]
+    audio_policy psg_wave_guest_bank_policy)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.psg_wave_guest_bank_policy: expected bank-opposite-SOUND3CNT_L-front-bank" "${p}")
+
+  profile_copy(p wrong_psg_noise_mask)
+  gbl_json_mutate_set("${p}" [=["15-bit=0x6000,7-bit=0x40"]=]
+    audio_policy psg_noise_feedback_masks)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.psg_noise_feedback_masks: expected 15-bit=0x6000,7-bit=0x60" "${p}")
+
+  profile_copy(p psg_policy_order_drift)
+  doc_copy(d psg_policy_order_drift)
+  file(READ "${d}" psg_order_before)
+  string(REPLACE
+    "| `audio_policy.psg_sequencer_period_cycles` | 32768 |\n| `audio_policy.psg_sequencer_rate_hz` | 512 |"
+    "| `audio_policy.psg_sequencer_rate_hz` | 512 |\n| `audio_policy.psg_sequencer_period_cycles` | 32768 |"
+    psg_order_after "${psg_order_before}")
+  if("${psg_order_after}" STREQUAL "${psg_order_before}")
+    message(FATAL_ERROR "mutate: no-match: PSG policy table order")
+  endif()
+  file(WRITE "${d}" "${psg_order_after}")
+  expect_audio_detail(audio-policy-doc
+    "audio_policy: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p psg_stale_bank_documentation)
+  doc_copy(d psg_stale_bank_documentation)
+  file(READ "${d}" psg_bank_doc_before)
+  string(REPLACE
+    "| `audio_policy.psg_wave_guest_bank_policy` | bank-opposite-SOUND3CNT_L-front-bank |"
+    "| `audio_policy.psg_wave_guest_bank_policy` | selected-front-bank |"
+    psg_bank_doc_after "${psg_bank_doc_before}")
+  if("${psg_bank_doc_after}" STREQUAL "${psg_bank_doc_before}")
+    message(FATAL_ERROR "mutate: no-match: PSG policy documentation row")
+  endif()
+  file(WRITE "${d}" "${psg_bank_doc_after}")
+  expect_audio_detail(audio-policy-doc
+    "audio_policy: missing or stale row" "${p}" "${d}")
+
   profile_copy(p wrong_audio_first_sample)
   gbl_json_mutate_set("${p}" "513" audio_policy first_sample_cycle)
   expect_audio_detail(audio-policy-value

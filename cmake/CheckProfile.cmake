@@ -91,7 +91,7 @@ set(GBL_PROFILE_REQUIRED_UNMODELED
   hblank-flag-edge ppu audio dma irq-controller backup-media bios-protection
   io-devices)
 set(GBL_PROFILE_AUDIO_POLICY_ROWS
-  "model|gamebloke-audio-model-1|STRING"
+  "model|gamebloke-audio-model-2|STRING"
   "classification|project-selected|STRING"
   "hardware_qualification|UNKNOWN|STRING"
   "tap|pre-pwm|STRING"
@@ -104,7 +104,7 @@ set(GBL_PROFILE_AUDIO_POLICY_ROWS
   "first_sample_cycle|512|NUMBER"
   "interval|start-exclusive-end-inclusive|STRING"
   "sample_value|signed-zero|STRING"
-  "modeled_sources|none|STRING"
+  "modeled_sources|psg-channel-sources-1-2-3-4|STRING"
   "capture_bound_scope|caller-owned-session|STRING"
   "capture_session_start|explicit-current-machine-cycle|STRING"
   "capture_session_progress|accepted-contiguous-operations|STRING"
@@ -114,19 +114,64 @@ set(GBL_PROFILE_AUDIO_POLICY_ROWS
   "max_capture_bytes|131072|NUMBER"
   "refusal_postcondition|machine-output-session-progress-unchanged|STRING"
   "event_dispatch_limit_per_operation|4096|NUMBER"
-  "same_cycle_order|ordered-device-effects-including-timer-overflow-and-dma-readiness,then-sample-old-route,then-completing-bus-write-including-dma-data-write|STRING")
+  "same_cycle_order|ordered-device-effects-including-timer-overflow-and-dma-readiness,then-PSG-progression,then-sample-old-route,then-completing-bus-write-including-dma-data-write|STRING"
+  "psg_primary_source|AGB Programming Manual v1.1 §§10.3-10.6 consulted via third-party-hosted copy|STRING"
+  "psg_supplemental_source|GBATEK 3.06 community reverse-engineered supplement|STRING"
+  "psg_sequencer_period_cycles|32768|NUMBER"
+  "psg_sequencer_rate_hz|512|NUMBER"
+  "psg_sequencer_epoch|reset-cycle-zero|STRING"
+  "psg_sequencer_first_tick_cycle|32768|NUMBER"
+  "psg_sequencer_first_step|0|NUMBER"
+  "psg_sequencer_steps|length-0-2-4-6,sweep-channel-1-steps-2-and-6,envelope-7|STRING"
+  "psg_sequencer_master_off_phase|reset-anchored-cycle-phase-continues|STRING"
+  "psg_trigger_policy|completion-anchored-trigger,resets-source-phase,square-phase-zero-high,requires-channel-DAC|STRING"
+  "psg_reset_policy|machine-reset-clears-channel-state-status-and-both-Wave-RAM-banks|STRING"
+  "psg_master_off_policy|clears-channel-registers-and-source-state,retains-Wave-RAM,keeps-sequencer-reset-anchor|STRING"
+  "psg_dac_disable_policy|clears-that-channel-source-state-and-status,CH3-Wave-RAM-aperture-remains-accessible|STRING"
+  "psg_channel_status_policy|separate-from-trigger-and-length-enable,trigger-sets-when-DAC-enabled,length-expiry-or-DAC-disable-clears|STRING"
+  "psg_length_policy|trigger-loads-maximum-minus-register,next-eligible-clock-decrements,zero-register-loads-full-maximum,enabled-only|STRING"
+  "psg_length_maxima|ch1=64,ch2=64,ch3=256,ch4=64|STRING"
+  "psg_envelope_policy|channels-1-2-4,trigger-latches-volume-direction-period,step-7,period-zero-disabled,saturates-at-0-or-15|STRING"
+  "psg_square_period_cycles|128*(2048-fdat)|STRING"
+  "psg_square_duty_policy|duty-high-ratios-1-2-4-6-eighths|STRING"
+  "psg_ch1_sweep_policy|trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,underflow-keeps-frequency-active,overflow-above-2047-clears-active-status|STRING"
+  "psg_noise_divider_formula|32*r*2^(shift+1),ratio-zero-r=1/2|STRING"
+  "psg_noise_width_bits|15-or-7|STRING"
+  "psg_noise_seeds|15-bit=0x4000,7-bit=0x40|STRING"
+  "psg_noise_feedback_masks|15-bit=0x6000,7-bit=0x60|STRING"
+  "psg_noise_lfsr_step|right-shift-xor-feedback-to-width-specific-high-bit|STRING"
+  "psg_noise_prohibited_shifts|14,15|STRING"
+  "psg_noise_prohibited_behavior|holds-LFSR-phase-and-current-output,length-and-envelope-clocks-continue|STRING"
+  "psg_wave_bank_count|2|NUMBER"
+  "psg_wave_bank_bytes|16|NUMBER"
+  "psg_wave_samples_per_bank|32|NUMBER"
+  "psg_wave_total_bytes|32|NUMBER"
+  "psg_wave_guest_aperture|0x04000090-0x0400009F|STRING"
+  "psg_wave_guest_widths|1,2,4|STRING"
+  "psg_wave_guest_lane_order|little-endian|STRING"
+  "psg_wave_guest_bank_policy|bank-opposite-SOUND3CNT_L-front-bank|STRING"
+  "psg_wave_pattern_length_nibbles|32-or-64|STRING"
+  "psg_wave_64_nibble_order|selected-front-bank-then-other-bank|STRING"
+  "psg_wave_nibble_order|high-then-low|STRING"
+  "psg_wave_nibble_period_cycles|4*(2048-fdat)|STRING"
+  "psg_wave_volume_policy|field-0-mute-1-full-2-half-3-quarter,force-bit-three-quarter|STRING"
+  "psg_live_update_policy|CH1-sweep-controls-trigger-latched,CH2-frequency-keeps-phase-modulo-new-period,CH3-period-and-pattern-updates-normalize-phase,CH4-width-change-reseeds-and-frequency-changes-normalize-phase|STRING"
+  "psg_ch3_rate_policy|manual-whole-pattern-derived-4*(2048-fdat)-cycles-per-nibble|STRING"
+  "psg_ch3_rate_conflict|GBATEK-nibble-rate-interpretation-differs-by-factor-of-two|STRING"
+  "psg_ch3_length_source_note|AGB-manual-CH3-expiration-paragraph-names-CH2-status-bit,model-uses-CH3-status|STRING"
+  "psg_wave_retrigger_corruption|unmodeled|STRING")
 set(GBL_PROFILE_AUDIO_SOUNDBIAS_JSON [=[{"address":"0x04000088-0x04000089","writable_mask":"0xC3FF","reset_value":"0x0200","master_off_access":"available","cadence_effect":"none","capture_quantization":"none"}]=])
 set(GBL_PROFILE_AUDIO_SOUNDBIAS_FIELDS
   address writable_mask reset_value master_off_access cadence_effect
   capture_quantization)
 set(GBL_PROFILE_AUDIO_REGISTERS_JSON [=[[
-  {"name":"SOUND1CNT_L","address":"0x04000060","retained_mask":"0x007F","read_mask":"0x007F","action_mask":"0x0000","effect":"retained-control-no-source"},
+  {"name":"SOUND1CNT_L","address":"0x04000060","retained_mask":"0x007F","read_mask":"0x007F","action_mask":"0x0000","effect":"sweep-control"},
   {"name":"SOUND1CNT_H","address":"0x04000062","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
   {"name":"SOUND1CNT_X","address":"0x04000064","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
   {"name":"SOUND2CNT_L","address":"0x04000068","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
   {"name":"SOUND2CNT_H","address":"0x0400006C","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
-  {"name":"SOUND3CNT_L","address":"0x04000070","retained_mask":"0x00E0","read_mask":"0x00E0","action_mask":"0x0000","effect":"length-enable-control"},
-  {"name":"SOUND3CNT_H","address":"0x04000072","retained_mask":"0xE0FF","read_mask":"0xE000","action_mask":"0x0000","effect":"volume-and-bank-control"},
+  {"name":"SOUND3CNT_L","address":"0x04000070","retained_mask":"0x00E0","read_mask":"0x00E0","action_mask":"0x0000","effect":"DAC-bank-and-dimension-control"},
+  {"name":"SOUND3CNT_H","address":"0x04000072","retained_mask":"0xE0FF","read_mask":"0xE000","action_mask":"0x0000","effect":"length-data-and-volume-control"},
   {"name":"SOUND3CNT_X","address":"0x04000074","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
   {"name":"SOUND4CNT_L","address":"0x04000078","retained_mask":"0xFF3F","read_mask":"0xFF00","action_mask":"0x0000","effect":"length-and-envelope-control"},
   {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
@@ -2805,6 +2850,13 @@ function(gbl__profile_doc_audio_sync normalized_text profile)
   gbl__profile_doc_policy_table("${normalized_text}"
     "## Audio behavior policy" audio_policy ${audio_count} audio_rows
     "Setting;Value" audio-policy-doc 2)
+  set(expected_audio_table "| Setting | Value |\n| --- | --- |\n")
+  foreach(row IN LISTS audio_rows)
+    string(APPEND expected_audio_table "${row}\n")
+  endforeach()
+  gbl__profile_doc_exact_policy_table("${normalized_text}"
+    "## Audio behavior policy" audio_policy "${expected_audio_table}"
+    audio-policy-doc)
 
   set(soundbias_rows)
   foreach(field IN LISTS GBL_PROFILE_AUDIO_SOUNDBIAS_FIELDS)

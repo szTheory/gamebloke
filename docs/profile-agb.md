@@ -934,9 +934,10 @@ This profile does not state that the SP is identical to the AGB.
 
 ## Audio behavior policy
 
-The audio profile is the `gamebloke-audio-model-1` project-selected contract.
-Its capture tap is signed zero before PWM conversion: no PSG or Direct Sound
-source is mixed yet. PCM is stereo, interleaved left then right, signed 16-bit
+The audio profile is the `gamebloke-audio-model-2` project-selected contract.
+The four PSG channel source calculations are modeled, but the capture tap is
+still signed zero before PWM conversion: PSG sources and Direct Sound are not
+routed into PCM yet. PCM is stereo, interleaved left then right, signed 16-bit
 little-endian, at 32,768 frames per second. The global grid starts at reset
 cycle 0 and emits its first frame at cycle 512, then every 512 master cycles.
 An interval is start-exclusive and end-inclusive; SOUNDBIAS does not retime the
@@ -944,7 +945,7 @@ grid or quantize samples.
 
 | Setting | Value |
 | --- | --- |
-| `audio_policy.model` | gamebloke-audio-model-1 |
+| `audio_policy.model` | gamebloke-audio-model-2 |
 | `audio_policy.classification` | project-selected |
 | `audio_policy.hardware_qualification` | UNKNOWN |
 | `audio_policy.tap` | pre-pwm |
@@ -957,7 +958,7 @@ grid or quantize samples.
 | `audio_policy.first_sample_cycle` | 512 |
 | `audio_policy.interval` | start-exclusive-end-inclusive |
 | `audio_policy.sample_value` | signed-zero |
-| `audio_policy.modeled_sources` | none |
+| `audio_policy.modeled_sources` | psg-channel-sources-1-2-3-4 |
 | `audio_policy.capture_bound_scope` | caller-owned-session |
 | `audio_policy.capture_session_start` | explicit-current-machine-cycle |
 | `audio_policy.capture_session_progress` | accepted-contiguous-operations |
@@ -967,7 +968,52 @@ grid or quantize samples.
 | `audio_policy.max_capture_bytes` | 131072 |
 | `audio_policy.refusal_postcondition` | machine-output-session-progress-unchanged |
 | `audio_policy.event_dispatch_limit_per_operation` | 4096 |
-| `audio_policy.same_cycle_order` | ordered-device-effects-including-timer-overflow-and-dma-readiness,then-sample-old-route,then-completing-bus-write-including-dma-data-write |
+| `audio_policy.same_cycle_order` | ordered-device-effects-including-timer-overflow-and-dma-readiness,then-PSG-progression,then-sample-old-route,then-completing-bus-write-including-dma-data-write |
+| `audio_policy.psg_primary_source` | AGB Programming Manual v1.1 §§10.3-10.6 consulted via third-party-hosted copy |
+| `audio_policy.psg_supplemental_source` | GBATEK 3.06 community reverse-engineered supplement |
+| `audio_policy.psg_sequencer_period_cycles` | 32768 |
+| `audio_policy.psg_sequencer_rate_hz` | 512 |
+| `audio_policy.psg_sequencer_epoch` | reset-cycle-zero |
+| `audio_policy.psg_sequencer_first_tick_cycle` | 32768 |
+| `audio_policy.psg_sequencer_first_step` | 0 |
+| `audio_policy.psg_sequencer_steps` | length-0-2-4-6,sweep-channel-1-steps-2-and-6,envelope-7 |
+| `audio_policy.psg_sequencer_master_off_phase` | reset-anchored-cycle-phase-continues |
+| `audio_policy.psg_trigger_policy` | completion-anchored-trigger,resets-source-phase,square-phase-zero-high,requires-channel-DAC |
+| `audio_policy.psg_reset_policy` | machine-reset-clears-channel-state-status-and-both-Wave-RAM-banks |
+| `audio_policy.psg_master_off_policy` | clears-channel-registers-and-source-state,retains-Wave-RAM,keeps-sequencer-reset-anchor |
+| `audio_policy.psg_dac_disable_policy` | clears-that-channel-source-state-and-status,CH3-Wave-RAM-aperture-remains-accessible |
+| `audio_policy.psg_channel_status_policy` | separate-from-trigger-and-length-enable,trigger-sets-when-DAC-enabled,length-expiry-or-DAC-disable-clears |
+| `audio_policy.psg_length_policy` | trigger-loads-maximum-minus-register,next-eligible-clock-decrements,zero-register-loads-full-maximum,enabled-only |
+| `audio_policy.psg_length_maxima` | ch1=64,ch2=64,ch3=256,ch4=64 |
+| `audio_policy.psg_envelope_policy` | channels-1-2-4,trigger-latches-volume-direction-period,step-7,period-zero-disabled,saturates-at-0-or-15 |
+| `audio_policy.psg_square_period_cycles` | 128*(2048-fdat) |
+| `audio_policy.psg_square_duty_policy` | duty-high-ratios-1-2-4-6-eighths |
+| `audio_policy.psg_ch1_sweep_policy` | trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,underflow-keeps-frequency-active,overflow-above-2047-clears-active-status |
+| `audio_policy.psg_noise_divider_formula` | 32*r*2^(shift+1),ratio-zero-r=1/2 |
+| `audio_policy.psg_noise_width_bits` | 15-or-7 |
+| `audio_policy.psg_noise_seeds` | 15-bit=0x4000,7-bit=0x40 |
+| `audio_policy.psg_noise_feedback_masks` | 15-bit=0x6000,7-bit=0x60 |
+| `audio_policy.psg_noise_lfsr_step` | right-shift-xor-feedback-to-width-specific-high-bit |
+| `audio_policy.psg_noise_prohibited_shifts` | 14,15 |
+| `audio_policy.psg_noise_prohibited_behavior` | holds-LFSR-phase-and-current-output,length-and-envelope-clocks-continue |
+| `audio_policy.psg_wave_bank_count` | 2 |
+| `audio_policy.psg_wave_bank_bytes` | 16 |
+| `audio_policy.psg_wave_samples_per_bank` | 32 |
+| `audio_policy.psg_wave_total_bytes` | 32 |
+| `audio_policy.psg_wave_guest_aperture` | 0x04000090-0x0400009F |
+| `audio_policy.psg_wave_guest_widths` | 1,2,4 |
+| `audio_policy.psg_wave_guest_lane_order` | little-endian |
+| `audio_policy.psg_wave_guest_bank_policy` | bank-opposite-SOUND3CNT_L-front-bank |
+| `audio_policy.psg_wave_pattern_length_nibbles` | 32-or-64 |
+| `audio_policy.psg_wave_64_nibble_order` | selected-front-bank-then-other-bank |
+| `audio_policy.psg_wave_nibble_order` | high-then-low |
+| `audio_policy.psg_wave_nibble_period_cycles` | 4*(2048-fdat) |
+| `audio_policy.psg_wave_volume_policy` | field-0-mute-1-full-2-half-3-quarter,force-bit-three-quarter |
+| `audio_policy.psg_live_update_policy` | CH1-sweep-controls-trigger-latched,CH2-frequency-keeps-phase-modulo-new-period,CH3-period-and-pattern-updates-normalize-phase,CH4-width-change-reseeds-and-frequency-changes-normalize-phase |
+| `audio_policy.psg_ch3_rate_policy` | manual-whole-pattern-derived-4*(2048-fdat)-cycles-per-nibble |
+| `audio_policy.psg_ch3_rate_conflict` | GBATEK-nibble-rate-interpretation-differs-by-factor-of-two |
+| `audio_policy.psg_ch3_length_source_note` | AGB-manual-CH3-expiration-paragraph-names-CH2-status-bit,model-uses-CH3-status |
+| `audio_policy.psg_wave_retrigger_corruption` | unmodeled |
 
 The capture cap is cumulative across one explicitly started caller-owned
 session and accepted contiguous operations; starting a session records the
@@ -981,22 +1027,69 @@ report capture refusal separately from general runner status; the current
 production runner has no audio-output request yet.
 
 Same-cycle order is project policy: ordered device effects (including timer
-overflow and DMA readiness) settle first, the sample observes that state and
-the old sound route, and the completing bus write follows. A DMA data write
-uses the same completing-write rule; DMA readiness/arbitration is not itself a
-data write.
+overflow and DMA readiness) and PSG progression settle first, the sample
+observes that state and the old sound route, and the completing bus write
+follows. A DMA data write uses the same completing-write rule; DMA
+readiness/arbitration is not itself a data write.
+
+### PSG source behavior policy
+
+The sequencer is reset-anchored at cycle 0 with its first 512 Hz tick at cycle
+32,768, step 0. Length clocks run on steps 0, 2, 4, and 6; channel 1 sweep
+runs on steps 2 and 6; envelopes run on step 7. The step is derived from the
+absolute machine cycle, so master-off time does not rephase it. A trigger is
+applied at the completing write, resets the channel source phase, and sets
+active status only when that channel's DAC is enabled. Length, DAC enable, and
+active status are separate state. Trigger loads the channel's maximum length
+minus its length register; a zero length register loads the full maximum, and
+only enabled lengths decrement at eligible sequencer clocks. Envelopes for
+channels 1, 2, and 4 latch initial volume, direction, and period on trigger,
+clock on step 7, and stop at 0 or 15; period zero disables envelope clocks.
+
+Channels 1 and 2 use a square period of `128 * (2048 - fdat)` master cycles.
+The eight-part duty choices have 1/8, 2/8, 4/8, or 6/8 high time; trigger
+starts phase zero high, and live frequency writes retain elapsed phase modulo
+the new period. Channel 1 latches its sweep controls and effective frequency
+on trigger. Sweep clocks on steps 2 and 6; shift zero leaves frequency
+unchanged, time zero disables sweep, a negative result keeps the current
+frequency and activity, and a result above 2047 clears channel 1 activity.
+
+Channel 4 uses the selected divider equation `32 * r * 2^(shift + 1)`, where
+ratio zero selects `r = 1/2`. The 15-bit and 7-bit LFSRs seed to `0x4000` and
+`0x40`, use feedback masks `0x6000` and `0x60`, and shift right with feedback
+into the width-specific high bit. Shift codes 14 and 15 hold the LFSR phase
+and current output; shared length and envelope clocks continue.
+
+Channel 3 has two 16-byte banks, each storing 32 packed four-bit samples. Its
+16-byte guest window at `0x04000090–0x0400009F` supports byte, halfword, and
+word lanes in little-endian order and always exposes the bank opposite the
+selected front bank. Playback reads the high nibble then low nibble, starts
+with the selected bank, and appends the other bank in 64-nibble mode. Volume
+fields select mute, full, half, or quarter level; the force-volume bit selects
+three-quarter level. The selected rate is `4 * (2048 - fdat)` master cycles
+per nibble for both pattern lengths.
+
+The selected formulas follow Nintendo's *AGB Programming Manual* v1.1
+§§10.3–10.6, consulted through a [third-party-hosted copy](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf).
+[GBATEK 3.06](https://problemkaputt.de/gbatek.htm) is supplementary
+community reverse-engineered evidence. Its channel 3 nibble-rate reading
+differs from the manual-derived selection by a factor of two. The manual's
+channel 3 expiration paragraph names the channel 2 status bit; this model
+uses channel 3's own status. Undocumented channel 3 retrigger corruption is
+unmodeled. These are software policy and source limitations, not hardware
+qualification; hardware qualification remains UNKNOWN.
 
 ## Audio register policy
 
 | Setting | Register | Address | Retained mask | Read mask | Action mask | Projected effect |
 | --- | --- | --- | --- | --- | --- | --- |
-| `audio_policy.registers.SOUND1CNT_L` | `SOUND1CNT_L` | `0x04000060` | `0x007F` | `0x007F` | `0x0000` | retained-control-no-source |
+| `audio_policy.registers.SOUND1CNT_L` | `SOUND1CNT_L` | `0x04000060` | `0x007F` | `0x007F` | `0x0000` | sweep-control |
 | `audio_policy.registers.SOUND1CNT_H` | `SOUND1CNT_H` | `0x04000062` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
 | `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND2CNT_L` | `SOUND2CNT_L` | `0x04000068` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
 | `audio_policy.registers.SOUND2CNT_H` | `SOUND2CNT_H` | `0x0400006C` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
-| `audio_policy.registers.SOUND3CNT_L` | `SOUND3CNT_L` | `0x04000070` | `0x00E0` | `0x00E0` | `0x0000` | length-enable-control |
-| `audio_policy.registers.SOUND3CNT_H` | `SOUND3CNT_H` | `0x04000072` | `0xE0FF` | `0xE000` | `0x0000` | volume-and-bank-control |
+| `audio_policy.registers.SOUND3CNT_L` | `SOUND3CNT_L` | `0x04000070` | `0x00E0` | `0x00E0` | `0x0000` | DAC-bank-and-dimension-control |
+| `audio_policy.registers.SOUND3CNT_H` | `SOUND3CNT_H` | `0x04000072` | `0xE0FF` | `0xE000` | `0x0000` | length-data-and-volume-control |
 | `audio_policy.registers.SOUND3CNT_X` | `SOUND3CNT_X` | `0x04000074` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND4CNT_L` | `SOUND4CNT_L` | `0x04000078` | `0xFF3F` | `0xFF00` | `0x0000` | length-and-envelope-control |
 | `audio_policy.registers.SOUND4CNT_H` | `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
@@ -1023,8 +1116,10 @@ master enable is off and is outside that reset subset.
 | `audio_policy.soundbias.cadence_effect` | none |
 | `audio_policy.soundbias.capture_quantization` | none |
 
-Wave RAM and FIFO data access, PSG and Direct Sound source output, PWM carrier,
-and analog output are unmodeled. Hardware qualification remains UNKNOWN. A
+Direct Sound and FIFO source/data behavior, PCM routing and mixing, PWM carrier,
+and analog output are unmodeled. PSG source calculations and Wave RAM access
+are implemented as software model behavior, but are not routed to capture.
+Hardware qualification remains UNKNOWN. A
 digest establishes byte identity/replay equality only, not source correctness,
 hardware accuracy, compatibility, or rights.
 
@@ -1041,7 +1136,7 @@ must not claim the behavior of anything in this table.
 | `bus-costs` | Non-ROM values remain project-selected and all modeled bus costs remain hardware-unqualified. |
 | `hblank-flag-edge` | Hardware timing for the HBlank flag change remains unknown and disputed under disp-hblank-flag-edge; the selected 1,006-cycle model event is in ppu_policy and is not a hardware resolution. |
 | `ppu` | The deterministic partial modes, OBJ, window, effect, mosaic, and forced-blank subset is described in `ppu_policy` as project-selected software behavior; all six mode statuses remain partial and hardware qualification remains UNKNOWN. Prohibited OBJ mode/shape encodings and unsupported background-control encodings remain unmodeled. |
-| `audio` | Sound-control state and bounded signed-zero pre-PWM capture are described by `audio_policy`; PSG/Direct Sound source output, Wave RAM/FIFO data access, PWM carrier, and analog output are unmodeled, and hardware qualification remains UNKNOWN. |
+| `audio` | Four PSG source calculations, bounded Wave RAM access, sound-control state, and signed-zero pre-PWM capture are described by `audio_policy`; Direct Sound/FIFO data, PCM routing/mixing, PWM carrier, and analog output remain unmodeled, and hardware qualification remains UNKNOWN. |
 | `dma` | The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled. |
 | `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |
 | `irq-controller` | A complete hardware-qualified GBA interrupt controller. The deterministic IF/IE/IME and CPU-boundary subset is implemented under `irq_input_power_policy`; exact GBA IRQ latency and BIOS-handler behavior remain unqualified. |
