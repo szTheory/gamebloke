@@ -91,6 +91,12 @@ typedef struct gbl_audio_state {
      * channel activity is projected separately into SOUNDCNT_X. */
     uint16_t registers[19];
     uint8_t active_channels;
+    /* Phase is elapsed master cycles within each square period. Channel
+     * indices are CH1 then CH2; levels are retained for direct source
+     * observation, while channel_volume holds the triggered envelope value. */
+    uint32_t square_phase[2];
+    uint8_t channel_volume[4];
+    bool square_high[2];
 } gbl_audio_state;
 
 typedef enum gbl_event_kind {
