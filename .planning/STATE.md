@@ -6,10 +6,10 @@ current_phase: 17
 current_phase_name: PSG Channels and Sequencer
 status: planning
 stopped_at: Phase 16 complete, ready to plan Phase 17
-last_updated: "2026-11-22T18:56:52.519Z"
+last_updated: "2026-11-22T19:03:09.800Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 16 complete, transitioned to Phase 17
-state_head: 1dd672a17859972e244cd5a2e87cbd8e7f705444
+state_head: c04ef2122d597c0ea2fb63f6ee1031708e9f3ef0
 progress:
   total_phases: 4
   completed_phases: 1
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v3.0 PPU Modes and Composition (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Phase 16 — Audio Registers and Capture Contract
+**Current focus:** Phase 17 — PSG Channels and Sequencer
 
 ## Current Position
 
