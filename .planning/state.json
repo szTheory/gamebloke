@@ -6,7 +6,7 @@
     {
       "number": "16",
       "name": "Audio Registers and Capture Contract",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "17",
@@ -26,8 +26,8 @@
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step (plan phase 16)",
-    "reason": "Phase 1 of 4 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 4 · 0% · executing"
   },
-  "updated_at": "2026-11-22T13:30:29.027Z"
+  "updated_at": "2026-11-22T15:18:18.420Z"
 }
