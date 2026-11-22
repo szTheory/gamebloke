@@ -155,8 +155,8 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
 
   # Both targets compile the same host-independent core sources and options;
   # only their private configure-time expectation differs.
-  set(GBL_CORE_SOURCES src/version.c src/machine.c src/bus.c src/loader.c
-    src/cpu.c src/inspect.c)
+  set(GBL_CORE_SOURCES src/version.c src/machine.c src/audio.c src/bus.c
+    src/loader.c src/cpu.c src/inspect.c)
   function(gbl__add_core_target target expected_digest)
     add_library(${target} STATIC ${GBL_CORE_SOURCES})
     target_include_directories(${target} PUBLIC include)

@@ -44,5 +44,8 @@ void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
                       int16_t *left, int16_t *right);
 void gbl_audio_write_frame(const gbl_audio_state *state, uint64_t cycle,
                            uint8_t *destination);
+gbl_time_status gbl_audio_advance_span(
+    gbl_audio_state *state, uint64_t target, uint8_t *staging,
+    size_t staging_capacity, size_t *staged_bytes);
 
 #endif
