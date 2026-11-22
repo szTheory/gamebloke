@@ -1,4 +1,5 @@
 #include "gamebloke/gamebloke.h"
+#include "audio_internal.h"
 #include "ppu_internal.h"
 
 #define GBL_EWRAM_MASK 0x3FFFFu
@@ -597,6 +598,14 @@ static bool gbl_bus_read_lane(
         return false;
     }
     case GBL_BUS_REGION_IO:
+        if (address == UINT32_C(0x04000088) ||
+            address == UINT32_C(0x04000089)) {
+            *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+            *value = (uint8_t)(gbl_audio_read_soundbias(
+                                   &time_preview->audio) >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
         if (gbl_bus_is_dispcnt_byte(address)) {
             *outcome = GBL_BUS_OUTCOME_IO_MODE_SUBSET;
             *value = address == 0x04000000u
@@ -770,6 +779,10 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
     case GBL_BUS_REGION_BIOS:
         return GBL_BUS_OUTCOME_BIOS_ABSENT;
     case GBL_BUS_REGION_IO:
+        if (address == UINT32_C(0x04000088) ||
+            address == UINT32_C(0x04000089)) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
         if (gbl_bus_is_dispcnt_byte(address)) {
             if (address == 0x04000000u) {
                 machine->dispcnt = (uint16_t)(

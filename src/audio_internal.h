@@ -1,0 +1,48 @@
+#ifndef GBL_AUDIO_INTERNAL_H
+#define GBL_AUDIO_INTERNAL_H
+
+#include "gamebloke/gamebloke.h"
+
+#define GBL_AUDIO_SAMPLE_RATE UINT32_C(32768)
+#define GBL_AUDIO_SAMPLE_CYCLES UINT64_C(512)
+#define GBL_AUDIO_FRAME_BYTES 4u
+#define GBL_AUDIO_MAX_CAPTURE_CYCLES UINT64_C(16777216)
+#define GBL_AUDIO_MAX_CAPTURE_FRAMES UINT64_C(32768)
+#define GBL_AUDIO_MAX_CAPTURE_BYTES ((size_t)131072u)
+
+typedef struct gbl_audio_capture {
+    gbl_machine *machine;
+    uint8_t *destination;
+    size_t capacity;
+    uint64_t initial_cycle;
+    uint64_t last_accepted_cycle;
+    size_t bytes_written;
+} gbl_audio_capture;
+
+/* Capture storage remains caller-owned. A new begin explicitly starts a new
+ * bounded session; callers must end it before resetting the machine. */
+gbl_time_status gbl_audio_capture_begin(gbl_machine *machine,
+                                        gbl_audio_capture *capture,
+                                        uint8_t *destination,
+                                        size_t capacity);
+gbl_time_status gbl_machine_advance_to_audio(gbl_machine *machine,
+                                              uint64_t target,
+                                              gbl_audio_capture *capture);
+
+/* Optional staging seam shared by capture and later CPU/DMA operations. */
+gbl_time_status gbl_machine_prepare_operations_audio(
+    const gbl_machine *machine, const gbl_time_operation *operations,
+    size_t operation_count, gbl_machine_time_preview *preview,
+    uint8_t *staging, size_t staging_capacity, size_t *staged_bytes);
+bool gbl_machine_commit_time_checked(
+    gbl_machine *machine, const gbl_machine_time_preview *preview);
+
+uint16_t gbl_audio_read_soundbias(const gbl_audio_state *state);
+void gbl_audio_write_soundbias(gbl_audio_state *state, uint32_t address,
+                               uint8_t value);
+void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
+                      int16_t *left, int16_t *right);
+void gbl_audio_write_frame(const gbl_audio_state *state, uint64_t cycle,
+                           uint8_t *destination);
+
+#endif

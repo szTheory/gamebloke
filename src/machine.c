@@ -1,4 +1,5 @@
 #include "gamebloke/gamebloke.h"
+#include "audio_internal.h"
 #include "ppu_internal.h"
 
 #define GBL_KEYPAD_INPUT_MASK UINT16_C(0x03FF)
@@ -67,6 +68,108 @@ static bool gbl_machine_bytes_equal(const void *left, const void *right,
         }
     }
     return true;
+}
+
+uint16_t gbl_audio_read_soundbias(const gbl_audio_state *state)
+{
+    return state == NULL ? 0u
+                         : (uint16_t)(state->soundbias & UINT16_C(0xC3FF));
+}
+
+void gbl_audio_write_soundbias(gbl_audio_state *state, uint32_t address,
+                               uint8_t value)
+{
+    if (state == NULL || (address != UINT32_C(0x04000088) &&
+                          address != UINT32_C(0x04000089))) {
+        return;
+    }
+    if (address == UINT32_C(0x04000088)) {
+        state->soundbias = (uint16_t)((state->soundbias & UINT16_C(0xFF00)) |
+                                      (uint16_t)value);
+    } else {
+        state->soundbias = (uint16_t)((state->soundbias & UINT16_C(0x00FF)) |
+                                      ((uint16_t)value << 8u));
+    }
+    state->soundbias &= UINT16_C(0xC3FF);
+}
+
+void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
+                      int16_t *left, int16_t *right)
+{
+    (void)state;
+    (void)cycle;
+    if (left != NULL) {
+        *left = 0;
+    }
+    if (right != NULL) {
+        *right = 0;
+    }
+}
+
+void gbl_audio_write_frame(const gbl_audio_state *state, uint64_t cycle,
+                           uint8_t *destination)
+{
+    int16_t left;
+    int16_t right;
+    uint16_t left_bits;
+    uint16_t right_bits;
+
+    if (destination == NULL) {
+        return;
+    }
+    gbl_audio_sample(state, cycle, &left, &right);
+    left_bits = (uint16_t)left;
+    right_bits = (uint16_t)right;
+    destination[0] = (uint8_t)left_bits;
+    destination[1] = (uint8_t)(left_bits >> 8u);
+    destination[2] = (uint8_t)right_bits;
+    destination[3] = (uint8_t)(right_bits >> 8u);
+}
+
+static gbl_time_status gbl_audio_advance_span(
+    gbl_audio_state *state, uint64_t target, uint8_t *staging,
+    size_t staging_capacity, size_t *staged_bytes)
+{
+    uint64_t first_frame;
+    uint64_t final_frame;
+    uint64_t frame_count;
+    size_t byte_count;
+    uint64_t frame;
+
+    if (state == NULL || staged_bytes == NULL ||
+        (staging == NULL && staging_capacity != 0u)) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    if (target < state->cycle_anchor) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    first_frame = state->cycle_anchor / GBL_AUDIO_SAMPLE_CYCLES;
+    final_frame = target / GBL_AUDIO_SAMPLE_CYCLES;
+    frame_count = final_frame - first_frame;
+    if (staging == NULL) {
+        state->cycle_anchor = target;
+        return GBL_TIME_STATUS_OK;
+    }
+    if (frame_count > (uint64_t)(SIZE_MAX / GBL_AUDIO_FRAME_BYTES)) {
+        return GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT;
+    }
+    byte_count = (size_t)frame_count * GBL_AUDIO_FRAME_BYTES;
+    if (staging != NULL &&
+        (*staged_bytes > staging_capacity ||
+         byte_count > staging_capacity - *staged_bytes)) {
+        return GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT;
+    }
+    if (staging != NULL) {
+        for (frame = first_frame + 1u; frame <= final_frame; ++frame) {
+            const uint64_t cycle = frame * GBL_AUDIO_SAMPLE_CYCLES;
+
+            gbl_audio_write_frame(state, cycle,
+                                  staging + *staged_bytes);
+            *staged_bytes += GBL_AUDIO_FRAME_BYTES;
+        }
+    }
+    state->cycle_anchor = target;
+    return GBL_TIME_STATUS_OK;
 }
 
 static void gbl_machine_clear_bytes(void *destination, size_t length)
@@ -2735,6 +2838,8 @@ static void gbl_machine_time_copy_preview(
     preview->interrupt_enable = machine->interrupt_enable;
     preview->interrupt_master_enable = machine->interrupt_master_enable;
     preview->waitcnt = machine->waitcnt;
+    preview->audio = machine->audio;
+    preview->audio_prepared = machine->audio;
     preview->ppu = machine->ppu;
     preview->ppu.dispcnt = machine->dispcnt;
     gbl_machine_copy_bytes(preview->ppu_affine_prepared,
@@ -2910,13 +3015,13 @@ static gbl_time_status gbl_preview_dma_register_write(
 
 static gbl_time_status gbl_preview_advance_to(
     const gbl_machine *machine, gbl_machine_time_preview *preview,
-    uint64_t target,
-    size_t *dispatched)
+    uint64_t target, size_t *dispatched, uint8_t *staging,
+    size_t staging_capacity, size_t *staged_bytes)
 {
     gbl_machine_time_preview candidate;
     size_t index;
 
-    if (preview == NULL || dispatched == NULL ||
+    if (preview == NULL || dispatched == NULL || staged_bytes == NULL ||
         preview->event_count > GBL_EVENT_CAPACITY ||
         preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
         preview->input_event_cursor > preview->input_event_count) {
@@ -2929,8 +3034,7 @@ static gbl_time_status gbl_preview_advance_to(
 
     while (candidate.event_count > 0u) {
         size_t next_index = 0u;
-        gbl_event event;
-        gbl_time_status status;
+        uint64_t event_cycle;
 
         for (index = 1u; index < candidate.event_count; ++index) {
             if (gbl_event_precedes(&candidate.events[index],
@@ -2941,46 +3045,100 @@ static gbl_time_status gbl_preview_advance_to(
         if (candidate.events[next_index].cycle > target) {
             break;
         }
-        if (*dispatched >= GBL_MACHINE_MAX_EVENT_DISPATCH) {
-            return GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT;
-        }
-        event = candidate.events[next_index];
-        gbl_preview_remove_event(&candidate, next_index);
-        if (event.kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) {
-            if (event.timer_index >= GBL_TIMER_COUNT) {
-                return GBL_TIME_STATUS_INVALID_ARGUMENT;
-            }
-        } else if (event.kind == (uint8_t)GBL_EVENT_KIND_DMA_READY) {
-            if (event.dma_channel >= GBL_DMA_CHANNEL_COUNT) {
-                return GBL_TIME_STATUS_INVALID_ARGUMENT;
-            }
-        } else if (event.kind != (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
-                   event.kind != (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) {
-            return GBL_TIME_STATUS_INVALID_ARGUMENT;
-        }
-        if (event.cycle < candidate.master_cycles) {
-            const uint64_t generation =
-                event.kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW
-                    ? candidate.timers[event.timer_index].generation
-                    : event.kind == (uint8_t)GBL_EVENT_KIND_DMA_READY
-                          ? candidate.dma_channels[event.dma_channel].generation
-                          : event.kind ==
-                                    (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY
-                                ? candidate.ppu.generation
-                          : candidate.input_generation;
+        event_cycle = candidate.events[next_index].cycle;
+        if (event_cycle > candidate.master_cycles) {
+            const uint64_t before_event = event_cycle - 1u;
+            gbl_time_status status = gbl_audio_advance_span(
+                &candidate.audio, before_event, staging, staging_capacity,
+                staged_bytes);
 
-            if (event.generation == generation) {
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
+            candidate.master_cycles = before_event;
+        }
+        for (;;) {
+            gbl_event event;
+            gbl_time_status status;
+
+            next_index = 0u;
+            for (index = 1u; index < candidate.event_count; ++index) {
+                if (gbl_event_precedes(&candidate.events[index],
+                                       &candidate.events[next_index])) {
+                    next_index = index;
+                }
+            }
+            if (candidate.event_count == 0u ||
+                candidate.events[next_index].cycle != event_cycle) {
+                break;
+            }
+            if (*dispatched >= GBL_MACHINE_MAX_EVENT_DISPATCH) {
+                return GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT;
+            }
+            event = candidate.events[next_index];
+            gbl_preview_remove_event(&candidate, next_index);
+            if (event.kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW) {
+                if (event.timer_index >= GBL_TIMER_COUNT) {
+                    return GBL_TIME_STATUS_INVALID_ARGUMENT;
+                }
+            } else if (event.kind == (uint8_t)GBL_EVENT_KIND_DMA_READY) {
+                if (event.dma_channel >= GBL_DMA_CHANNEL_COUNT) {
+                    return GBL_TIME_STATUS_INVALID_ARGUMENT;
+                }
+            } else if (event.kind !=
+                           (uint8_t)GBL_EVENT_KIND_KEYPAD_INPUT &&
+                       event.kind !=
+                           (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY) {
                 return GBL_TIME_STATUS_INVALID_ARGUMENT;
             }
+            if (event.cycle < candidate.master_cycles) {
+                const uint64_t generation =
+                    event.kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW
+                        ? candidate.timers[event.timer_index].generation
+                        : event.kind == (uint8_t)GBL_EVENT_KIND_DMA_READY
+                              ? candidate.dma_channels[event.dma_channel]
+                                    .generation
+                              : event.kind ==
+                                        (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY
+                                    ? candidate.ppu.generation
+                                    : candidate.input_generation;
+
+                if (event.generation == generation) {
+                    return GBL_TIME_STATUS_INVALID_ARGUMENT;
+                }
+            }
+            if (event.cycle > candidate.master_cycles) {
+                candidate.master_cycles = event.cycle;
+            }
+            status = gbl_preview_dispatch_event(machine, &candidate, &event);
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
+            ++(*dispatched);
         }
-        if (event.cycle > candidate.master_cycles) {
-            candidate.master_cycles = event.cycle;
+        if (event_cycle > candidate.master_cycles) {
+            candidate.master_cycles = event_cycle;
         }
-        status = gbl_preview_dispatch_event(machine, &candidate, &event);
+        {
+            const uint64_t audio_target = candidate.master_cycles > event_cycle
+                                              ? candidate.master_cycles
+                                              : event_cycle;
+            gbl_time_status status = gbl_audio_advance_span(
+                &candidate.audio, audio_target, staging, staging_capacity,
+                staged_bytes);
+
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+    {
+        gbl_time_status status = gbl_audio_advance_span(
+            &candidate.audio, target, staging, staging_capacity, staged_bytes);
+
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
-        ++(*dispatched);
     }
     candidate.master_cycles = target;
     *preview = candidate;
@@ -2994,6 +3152,7 @@ gbl_time_status gbl_machine_prepare_time(
     gbl_machine_time_preview candidate;
     gbl_time_status status;
     size_t dispatched = 0u;
+    size_t staged_bytes = 0u;
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
         machine->event_count > GBL_EVENT_CAPACITY ||
@@ -3002,7 +3161,8 @@ gbl_time_status gbl_machine_prepare_time(
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     gbl_machine_time_copy_preview(machine, &candidate);
-    status = gbl_preview_advance_to(machine, &candidate, target, &dispatched);
+    status = gbl_preview_advance_to(machine, &candidate, target, &dispatched,
+                                    NULL, 0u, &staged_bytes);
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
@@ -3010,6 +3170,7 @@ gbl_time_status gbl_machine_prepare_time(
                            candidate.ppu.affine,
                            sizeof(candidate.ppu_affine_prepared));
     gbl_ppu_bind_prepared_registers(&candidate);
+    candidate.audio_prepared = candidate.audio;
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -3087,7 +3248,11 @@ static gbl_time_status gbl_preview_bus_write(
         const uint8_t byte_value =
             (uint8_t)((value >> (lane * 8u)) & UINT32_C(0xFF));
 
-        if (lane_address == UINT32_C(0x04000000)) {
+        if (lane_address == UINT32_C(0x04000088) ||
+            lane_address == UINT32_C(0x04000089)) {
+            gbl_audio_write_soundbias(&preview->audio, lane_address,
+                                      byte_value);
+        } else if (lane_address == UINT32_C(0x04000000)) {
             dispcnt = (uint16_t)(
                 (dispcnt & UINT16_C(0xFF00)) |
                 (uint16_t)byte_value);
@@ -3272,13 +3437,15 @@ static gbl_time_status gbl_preview_bus_write(
     return GBL_TIME_STATUS_OK;
 }
 
-gbl_time_status gbl_machine_prepare_operations(
+gbl_time_status gbl_machine_prepare_operations_audio(
     const gbl_machine *machine,
     const gbl_time_operation *operations,
-    size_t operation_count, gbl_machine_time_preview *preview)
+    size_t operation_count, gbl_machine_time_preview *preview,
+    uint8_t *staging, size_t staging_capacity, size_t *staged_bytes_out)
 {
     gbl_machine_time_preview candidate;
     size_t dispatched = 0u;
+    size_t staged_bytes = 0u;
     size_t index;
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
@@ -3286,7 +3453,8 @@ gbl_time_status gbl_machine_prepare_operations(
         machine->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
         machine->input_event_cursor > machine->input_event_count ||
         operation_count > GBL_TIME_OPERATION_MAX ||
-        (operation_count != 0u && operations == NULL)) {
+        (operation_count != 0u && operations == NULL) ||
+        (staging == NULL && staging_capacity != 0u)) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
     gbl_machine_time_copy_preview(machine, &candidate);
@@ -3314,7 +3482,8 @@ gbl_time_status gbl_machine_prepare_operations(
         }
         target = candidate.master_cycles + operation->cycles;
         status = gbl_preview_advance_to(machine, &candidate, target,
-                                        &dispatched);
+                                        &dispatched, staging,
+                                        staging_capacity, &staged_bytes);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
@@ -3347,7 +3516,211 @@ gbl_time_status gbl_machine_prepare_operations(
                            candidate.ppu.affine,
                            sizeof(candidate.ppu_affine_prepared));
     gbl_ppu_bind_prepared_registers(&candidate);
+    candidate.audio_prepared = candidate.audio;
     *preview = candidate;
+    if (staged_bytes_out != NULL) {
+        *staged_bytes_out = staged_bytes;
+    }
+    return GBL_TIME_STATUS_OK;
+}
+
+gbl_time_status gbl_machine_prepare_operations(
+    const gbl_machine *machine, const gbl_time_operation *operations,
+    size_t operation_count, gbl_machine_time_preview *preview)
+{
+    return gbl_machine_prepare_operations_audio(
+        machine, operations, operation_count, preview, NULL, 0u, NULL);
+}
+
+static bool gbl_audio_extent(const void *pointer, size_t length,
+                             uintptr_t *begin, uintptr_t *end)
+{
+    uintptr_t address;
+
+    if (begin == NULL || end == NULL || (pointer == NULL && length != 0u)) {
+        return false;
+    }
+    address = (uintptr_t)pointer;
+    if (length > UINTPTR_MAX - address) {
+        return false;
+    }
+    *begin = address;
+    *end = address + (uintptr_t)length;
+    return true;
+}
+
+static bool gbl_audio_extents_overlap(uintptr_t left_begin,
+                                      uintptr_t left_end,
+                                      uintptr_t right_begin,
+                                      uintptr_t right_end)
+{
+    return left_begin < right_end && right_begin < left_end;
+}
+
+static bool gbl_audio_capture_ranges_valid(
+    const gbl_machine *machine, const gbl_audio_capture *capture,
+    uint8_t *destination, size_t capacity)
+{
+    uintptr_t machine_begin;
+    uintptr_t machine_end;
+    uintptr_t capture_begin;
+    uintptr_t capture_end;
+    uintptr_t destination_begin;
+    uintptr_t destination_end;
+    uintptr_t rom_begin = 0u;
+    uintptr_t rom_end = 0u;
+
+    if (machine == NULL || capture == NULL ||
+        !gbl_audio_extent(machine, sizeof(*machine), &machine_begin,
+                          &machine_end) ||
+        !gbl_audio_extent(capture, sizeof(*capture), &capture_begin,
+                          &capture_end) ||
+        !gbl_audio_extent(destination, capacity, &destination_begin,
+                          &destination_end) ||
+        gbl_audio_extents_overlap(capture_begin, capture_end, machine_begin,
+                                  machine_end) ||
+        gbl_audio_extents_overlap(destination_begin, destination_end,
+                                  machine_begin, machine_end) ||
+        gbl_audio_extents_overlap(destination_begin, destination_end,
+                                  capture_begin, capture_end)) {
+        return false;
+    }
+    if (machine->rom != NULL && machine->rom_length != 0u) {
+        if (!gbl_audio_extent(machine->rom, machine->rom_length, &rom_begin,
+                              &rom_end) ||
+            gbl_audio_extents_overlap(capture_begin, capture_end, rom_begin,
+                                      rom_end) ||
+            gbl_audio_extents_overlap(destination_begin, destination_end,
+                                      rom_begin, rom_end)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_audio_capture_consistent(
+    const gbl_machine *machine, const gbl_audio_capture *capture)
+{
+    uint64_t frame_count;
+    size_t expected_bytes;
+
+    if (machine == NULL || capture == NULL ||
+        capture->machine != machine ||
+        (capture->destination == NULL && capture->capacity != 0u) ||
+        capture->initial_cycle > capture->last_accepted_cycle ||
+        capture->last_accepted_cycle < capture->initial_cycle ||
+        capture->last_accepted_cycle - capture->initial_cycle >
+            GBL_AUDIO_MAX_CAPTURE_CYCLES ||
+        !gbl_audio_capture_ranges_valid(machine, capture,
+                                        capture->destination,
+                                        capture->capacity)) {
+        return false;
+    }
+    frame_count = capture->last_accepted_cycle / GBL_AUDIO_SAMPLE_CYCLES -
+                  capture->initial_cycle / GBL_AUDIO_SAMPLE_CYCLES;
+    if (frame_count > GBL_AUDIO_MAX_CAPTURE_FRAMES ||
+        frame_count > (uint64_t)(SIZE_MAX / GBL_AUDIO_FRAME_BYTES)) {
+        return false;
+    }
+    expected_bytes = (size_t)frame_count * GBL_AUDIO_FRAME_BYTES;
+    return capture->bytes_written == expected_bytes &&
+           capture->bytes_written <= capture->capacity &&
+           capture->bytes_written <= GBL_AUDIO_MAX_CAPTURE_BYTES;
+}
+
+gbl_time_status gbl_audio_capture_begin(gbl_machine *machine,
+                                        gbl_audio_capture *capture,
+                                        uint8_t *destination,
+                                        size_t capacity)
+{
+    gbl_audio_capture candidate;
+
+    if (machine == NULL || !machine->initialized || capture == NULL ||
+        (destination == NULL && capacity != 0u) ||
+        machine->audio.cycle_anchor != machine->master_cycles) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    candidate = (gbl_audio_capture){
+        .machine = machine,
+        .destination = destination,
+        .capacity = capacity,
+        .initial_cycle = machine->master_cycles,
+        .last_accepted_cycle = machine->master_cycles,
+        .bytes_written = 0u
+    };
+    if (!gbl_audio_capture_ranges_valid(machine, capture, destination,
+                                        capacity)) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    *capture = candidate;
+    return GBL_TIME_STATUS_OK;
+}
+
+gbl_time_status gbl_machine_advance_to_audio(gbl_machine *machine,
+                                              uint64_t target,
+                                              gbl_audio_capture *capture)
+{
+    gbl_machine_time_preview preview;
+    uint8_t staging[GBL_AUDIO_MAX_CAPTURE_BYTES];
+    gbl_time_operation operation;
+    size_t staged_bytes = 0u;
+    size_t append_bytes;
+    uint64_t prior_frame;
+    uint64_t final_frame;
+    uint64_t total_frames;
+    gbl_time_status status;
+
+    if (machine == NULL || !machine->initialized || capture == NULL) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    if (target < machine->master_cycles) {
+        return GBL_TIME_STATUS_BACKWARD;
+    }
+    if (!gbl_audio_capture_consistent(machine, capture) ||
+        capture->last_accepted_cycle != machine->master_cycles ||
+        machine->audio.cycle_anchor != machine->master_cycles) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    if (target - capture->initial_cycle > GBL_AUDIO_MAX_CAPTURE_CYCLES) {
+        return GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT;
+    }
+    prior_frame = capture->last_accepted_cycle / GBL_AUDIO_SAMPLE_CYCLES;
+    final_frame = target / GBL_AUDIO_SAMPLE_CYCLES;
+    total_frames = final_frame -
+                   capture->initial_cycle / GBL_AUDIO_SAMPLE_CYCLES;
+    if (total_frames > GBL_AUDIO_MAX_CAPTURE_FRAMES ||
+        total_frames > (uint64_t)(SIZE_MAX / GBL_AUDIO_FRAME_BYTES)) {
+        return GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT;
+    }
+    append_bytes = (size_t)(final_frame - prior_frame) *
+                   GBL_AUDIO_FRAME_BYTES;
+    if (total_frames * GBL_AUDIO_FRAME_BYTES >
+            (uint64_t)GBL_AUDIO_MAX_CAPTURE_BYTES ||
+        append_bytes > capture->capacity - capture->bytes_written) {
+        return GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT;
+    }
+    operation = (gbl_time_operation){
+        .kind = GBL_TIME_OPERATION_INTERNAL,
+        .cycles = target - machine->master_cycles
+    };
+    status = gbl_machine_prepare_operations_audio(
+        machine, &operation, 1u, &preview,
+        append_bytes == 0u ? NULL : staging, append_bytes, &staged_bytes);
+    if (status != GBL_TIME_STATUS_OK) {
+        return status;
+    }
+    if (staged_bytes != append_bytes) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    if (!gbl_machine_commit_time_checked(machine, &preview)) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    if (append_bytes != 0u) {
+        gbl_machine_copy_bytes(capture->destination + capture->bytes_written,
+                               staging, append_bytes);
+    }
+    capture->bytes_written += append_bytes;
+    capture->last_accepted_cycle = target;
     return GBL_TIME_STATUS_OK;
 }
 
@@ -3386,6 +3759,11 @@ static bool gbl_ppu_commit_preview_valid(
     if (machine == NULL || preview == NULL ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
+        preview->audio.cycle_anchor != preview->master_cycles ||
+        preview->audio.soundbias !=
+            (uint16_t)(preview->audio.soundbias & UINT16_C(0xC3FF)) ||
+        preview->audio.cycle_anchor != preview->audio_prepared.cycle_anchor ||
+        preview->audio.soundbias != preview->audio_prepared.soundbias ||
         !gbl_ppu_prepared_registers_valid(preview) ||
         !gbl_ppu_write_log_valid(machine, preview)) {
         return false;
@@ -3469,8 +3847,8 @@ static bool gbl_ppu_commit_preview_valid(
     return true;
 }
 
-void gbl_machine_commit_time(gbl_machine *machine,
-                            const gbl_machine_time_preview *preview)
+bool gbl_machine_commit_time_checked(
+    gbl_machine *machine, const gbl_machine_time_preview *preview)
 {
     size_t index;
 
@@ -3481,7 +3859,7 @@ void gbl_machine_commit_time(gbl_machine *machine,
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
         !gbl_ppu_commit_preview_valid(machine, preview)) {
-        return;
+        return false;
     }
     gbl_ppu_materialize_capture_plan(machine, preview);
     machine->master_cycles = preview->master_cycles;
@@ -3490,6 +3868,7 @@ void gbl_machine_commit_time(gbl_machine *machine,
     machine->interrupt_enable = preview->interrupt_enable;
     machine->interrupt_master_enable = preview->interrupt_master_enable;
     machine->waitcnt = preview->waitcnt;
+    machine->audio = preview->audio;
     machine->dispcnt = preview->ppu.dispcnt;
     machine->ppu = preview->ppu;
     machine->bus_owner = preview->bus_owner;
@@ -3518,6 +3897,13 @@ void gbl_machine_commit_time(gbl_machine *machine,
     for (index = 0u; index < GBL_INPUT_EVENT_CAPACITY; ++index) {
         machine->input_events[index] = preview->input_events[index];
     }
+    return true;
+}
+
+void gbl_machine_commit_time(gbl_machine *machine,
+                            const gbl_machine_time_preview *preview)
+{
+    (void)gbl_machine_commit_time_checked(machine, preview);
 }
 
 static gbl_dma_status gbl_dma_status_from_time(gbl_time_status status)
@@ -4014,6 +4400,10 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->interrupt_enable = 0u;
     machine->interrupt_master_enable = 0u;
     machine->waitcnt = 0u;
+    machine->audio = (gbl_audio_state){
+        .cycle_anchor = 0u,
+        .soundbias = UINT16_C(0x0200)
+    };
     machine->bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
     machine->dma_last_channel = 0u;
     machine->dma_last_width = 0u;

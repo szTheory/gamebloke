@@ -78,8 +78,16 @@ typedef enum gbl_time_status {
     GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT = 7,
     GBL_TIME_STATUS_INPUT_CAPACITY = 8,
     GBL_TIME_STATUS_INPUT_OVERLAP = 9,
-    GBL_TIME_STATUS_INPUT_MASK = 10
+    GBL_TIME_STATUS_INPUT_MASK = 10,
+    GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT = 11
 } gbl_time_status;
+
+/* Deterministic, value-only audio device state. Output storage and capture
+ * sessions are caller-owned and never retained by the machine. */
+typedef struct gbl_audio_state {
+    uint64_t cycle_anchor;
+    uint16_t soundbias;
+} gbl_audio_state;
 
 typedef enum gbl_event_kind {
     GBL_EVENT_KIND_TIMER_OVERFLOW = 1,
@@ -301,6 +309,8 @@ typedef struct gbl_machine_time_preview {
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
     uint16_t waitcnt;
+    gbl_audio_state audio;
+    gbl_audio_state audio_prepared;
     gbl_ppu_timing_state ppu;
     /* Bind the final affine transition result produced by preparation. Commit
      * refuses a preview whose candidate affine state was altered. */
@@ -375,7 +385,8 @@ typedef enum gbl_bus_outcome {
     GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET = 11,
     GBL_BUS_OUTCOME_IO_DMA_SUBSET = 12,
     GBL_BUS_OUTCOME_IO_WAITCNT_SUBSET = 13,
-    GBL_BUS_OUTCOME_IO_PPU_SUBSET = 14
+    GBL_BUS_OUTCOME_IO_PPU_SUBSET = 14,
+    GBL_BUS_OUTCOME_IO_AUDIO_SUBSET = 15
 } gbl_bus_outcome;
 
 typedef enum gbl_bus_access_class {
@@ -778,6 +789,7 @@ typedef struct gbl_machine {
     uint16_t interrupt_enable;
     uint16_t interrupt_master_enable;
     uint16_t waitcnt;
+    gbl_audio_state audio;
     gbl_ppu_timing_state ppu;
     gbl_machine_bus_owner bus_owner;
     uint8_t dma_last_channel;
