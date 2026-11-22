@@ -67,6 +67,24 @@ gbl_add_test(
   LABELS core unit
   COMMAND $<TARGET_FILE:version_test>)
 
+add_executable(audio_test tests/audio_test.c)
+target_include_directories(audio_test PRIVATE src)
+target_link_libraries(audio_test PRIVATE gamebloke_core gbl_warnings)
+foreach(selector IN ITEMS tracer registers cadence boundaries refusal cpu)
+  if(selector STREQUAL "tracer" OR selector STREQUAL "registers" OR
+     selector STREQUAL "cpu")
+    set(audio_labels audio core integration)
+  elseif(selector STREQUAL "refusal")
+    set(audio_labels audio control core)
+  else()
+    set(audio_labels audio core unit)
+  endif()
+  gbl_add_test(
+    NAME audio.${selector}
+    LABELS ${audio_labels}
+    COMMAND $<TARGET_FILE:audio_test> ${selector})
+endforeach()
+
 add_executable(bus_test tests/bus_test.c)
 target_link_libraries(bus_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(

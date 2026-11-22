@@ -1,4 +1,10 @@
 # Literal sorted snapshot of actual top-directory CTest registration.
+audio.boundaries audio,core,unit
+audio.cadence audio,core,unit
+audio.cpu audio,core,integration
+audio.refusal audio,control,core
+audio.registers audio,core,integration
+audio.tracer audio,core,integration
 bus.decode bus,core,unit
 bus.irq.registers bus,core,unit
 bus.keypad.registers bus,core,unit
