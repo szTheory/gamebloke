@@ -1,5 +1,6 @@
 #include "gamebloke/gamebloke.h"
 
+#include "audio_internal.h"
 #include "cpu_helpers.h"
 
 #include <limits.h>
@@ -4184,6 +4185,7 @@ static bool gbl_cpu_time_preview_matches_machine(
         machine->interrupt_master_enable !=
             preview->interrupt_master_enable ||
         machine->waitcnt != preview->waitcnt ||
+        !gbl_audio_state_equal(&machine->audio, &preview->audio) ||
         machine->dispcnt != preview->ppu.dispcnt ||
         machine->bus_owner != preview->bus_owner ||
         machine->pressed_keys != preview->pressed_keys ||

@@ -9,6 +9,13 @@
 #define GBL_AUDIO_MAX_CAPTURE_CYCLES UINT64_C(16777216)
 #define GBL_AUDIO_MAX_CAPTURE_FRAMES UINT64_C(32768)
 #define GBL_AUDIO_MAX_CAPTURE_BYTES ((size_t)131072u)
+#define GBL_AUDIO_REGISTER_FIRST UINT32_C(0x04000060)
+#define GBL_AUDIO_REGISTER_LAST UINT32_C(0x04000085)
+#define GBL_AUDIO_REGISTER_COUNT 19u
+
+typedef void (*gbl_audio_sample_provider)(
+    const gbl_machine_time_preview *candidate, uint64_t cycle,
+    void *context, int16_t *left, int16_t *right);
 
 typedef struct gbl_audio_capture {
     gbl_machine *machine;
@@ -35,10 +42,24 @@ gbl_time_status gbl_machine_prepare_operations_audio(
     const gbl_machine *machine, const gbl_time_operation *operations,
     size_t operation_count, gbl_machine_time_preview *preview,
     uint8_t *staging, size_t staging_capacity, size_t *staged_bytes);
+gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
+    const gbl_machine *machine, const gbl_time_operation *operations,
+    size_t operation_count, gbl_machine_time_preview *preview,
+    uint8_t *staging, size_t staging_capacity, size_t *staged_bytes,
+    gbl_audio_sample_provider provider, void *provider_context);
 bool gbl_machine_commit_time_checked(
     gbl_machine *machine, const gbl_machine_time_preview *preview);
 
 uint16_t gbl_audio_read_soundbias(const gbl_audio_state *state);
+bool gbl_audio_register_address(uint32_t address);
+uint16_t gbl_audio_read_register(const gbl_audio_state *state,
+                                 uint32_t address);
+bool gbl_audio_state_equal(const gbl_audio_state *left,
+                           const gbl_audio_state *right);
+bool gbl_audio_state_valid(const gbl_audio_state *state);
+void gbl_audio_apply_register_write(gbl_audio_state *state,
+                                    uint32_t address, uint16_t value,
+                                    uint8_t lane_mask);
 void gbl_audio_write_soundbias(gbl_audio_state *state, uint32_t address,
                                uint8_t value);
 void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
@@ -46,7 +67,8 @@ void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
 void gbl_audio_write_frame(const gbl_audio_state *state, uint64_t cycle,
                            uint8_t *destination);
 gbl_time_status gbl_audio_advance_span(
-    gbl_audio_state *state, uint64_t target, uint8_t *staging,
-    size_t staging_capacity, size_t *staged_bytes);
+    gbl_machine_time_preview *candidate, uint64_t target, uint8_t *staging,
+    size_t staging_capacity, size_t *staged_bytes,
+    gbl_audio_sample_provider provider, void *provider_context);
 
 #endif

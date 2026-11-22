@@ -87,6 +87,10 @@ typedef enum gbl_time_status {
 typedef struct gbl_audio_state {
     uint64_t cycle_anchor;
     uint16_t soundbias;
+    /* Retained project register values for SOUNDCNT0..SOUNDCNT_X. Dynamic
+     * channel activity is projected separately into SOUNDCNT_X. */
+    uint16_t registers[19];
+    uint8_t active_channels;
 } gbl_audio_state;
 
 typedef enum gbl_event_kind {

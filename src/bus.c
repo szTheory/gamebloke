@@ -598,6 +598,12 @@ static bool gbl_bus_read_lane(
         return false;
     }
     case GBL_BUS_REGION_IO:
+        if (gbl_audio_register_address(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+            *value = (uint8_t)gbl_audio_read_register(
+                &time_preview->audio, address);
+            return true;
+        }
         if (address == UINT32_C(0x04000088) ||
             address == UINT32_C(0x04000089)) {
             *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
@@ -779,6 +785,9 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
     case GBL_BUS_REGION_BIOS:
         return GBL_BUS_OUTCOME_BIOS_ABSENT;
     case GBL_BUS_REGION_IO:
+        if (gbl_audio_register_address(address)) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
         if (address == UINT32_C(0x04000088) ||
             address == UINT32_C(0x04000089)) {
             return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
