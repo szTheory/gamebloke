@@ -42,7 +42,7 @@ v4.0. Hardware qualification remains UNKNOWN.
 
 ## Phases
 
-- [ ] **Phase 16: Audio Registers and Capture Contract** - Guests can exercise supported sound control registers and callers can observe the fixed sample grid with bounded capture.
+- [x] **Phase 16: Audio Registers and Capture Contract** - Guests can exercise supported sound control registers and callers can observe the fixed sample grid with bounded capture. (completed 2026-11-22)
 - [ ] **Phase 17: PSG Channels and Sequencer** - Guests can drive all four PSG channels through supported register controls on guest time.
 - [ ] **Phase 18: Direct Sound and FIFO DMA** - Guests can consume FIFO A/B samples on timer overflow and refill both FIFOs through shared DMA arbitration.
 - [ ] **Phase 19: Stereo Mixing and Runner Evidence** - Callers can capture the combined stereo signal with repeatable samples, guest results, and explicit support limits.
@@ -60,7 +60,7 @@ v4.0. Hardware qualification remains UNKNOWN.
   3. A PCM serialization vector with distinct left/right samples verifies channel order and S16LE bytes. Muted capture is signed zero, and interval edges yield exact counts and bytes from the declared epoch.
   4. Bounded capture refusal preserves machine state and caller buffers. Sample and oscillator progression do not add an event per output frame or waveform edge, so a guest second does not exhaust the 4,096-event dispatch allowance.
 
-**Plans**: 3/3 plans executed
+**Plans**: 3/3 plans complete
 
 - [x] 16-01-PLAN.md — Wire timed SOUNDBIAS and the first sample through the canonical core
 - [x] 16-02-PLAN.md — Complete audio registers, capture bounds, and semantic vectors
@@ -109,7 +109,7 @@ v4.0. Hardware qualification remains UNKNOWN.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 16. Audio Registers and Capture Contract | 3/3 | In Progress | — |
+| 16. Audio Registers and Capture Contract | 3/3 | Complete    | 2026-11-22 |
 | 17. PSG Channels and Sequencer | 0/TBD | Not started | — |
 | 18. Direct Sound and FIFO DMA | 0/TBD | Not started | — |
 | 19. Stereo Mixing and Runner Evidence | 0/TBD | Not started | — |
