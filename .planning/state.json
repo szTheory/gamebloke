@@ -1,12 +1,33 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v4.0",
-  "phases": [],
+  "milestone": "v4.0 — Audio",
+  "phases": [
+    {
+      "number": "16",
+      "name": "Audio Registers and Capture Contract",
+      "status": "pending"
+    },
+    {
+      "number": "17",
+      "name": "PSG Channels and Sequencer",
+      "status": "pending"
+    },
+    {
+      "number": "18",
+      "name": "Direct Sound and FIFO DMA",
+      "status": "pending"
+    },
+    {
+      "number": "19",
+      "name": "Stereo Mixing and Runner Evidence",
+      "status": "pending"
+    }
+  ],
   "next": {
-    "command": "$gsd-discuss-phase",
-    "label": "Discuss the first phase",
-    "reason": "Project initialized — plan your first phase"
+    "command": "$gsd-progress --next",
+    "label": "Advance to the next step (plan phase 16)",
+    "reason": "Phase 1 of 4 — needs a plan"
   },
-  "updated_at": "2026-11-22T02:17:08.090Z"
+  "updated_at": "2026-11-22T13:30:29.027Z"
 }

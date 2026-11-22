@@ -2,11 +2,16 @@
 gsd_state_version: "1.0"
 milestone: v4.0
 milestone_name: Audio
+current_phase: 16
+current_phase_name: Audio Registers and Capture Contract
 status: planning
-last_updated: "2026-11-22T02:17:08.088Z"
-last_activity: 2026-11-21
+stopped_at: v4.0 Audio roadmap approved; Phase 16 planning has not started.
+last_updated: "2026-11-22T13:28:22Z"
+last_activity: 2026-11-22
+last_activity_desc: Approved v4.0 Audio roadmap; Phase 16 remains unplanned
+state_head: 01d9a363773df7761e7c32f7b90e9919703e38d4
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,18 +22,20 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-21)
+See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v3.0 PPU Modes and Composition (completed locally; a GSD milestone label, not a software version)
-**Current focus:** v4.0 Audio scope and fixed raw-capture policy approved; requirements committed, roadmap pending
+**Current focus:** v4.0 Audio upstream scope review is complete and the four-phase roadmap is approved. Phase 16 planning has not started.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 16 (Audio Registers and Capture Contract)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-11-21 — Milestone v4.0 started
+Status: Planning
+Last activity: 2026-11-22
+Last activity description: Approved v4.0 Audio roadmap; Phase 16 remains unplanned
+Progress: [░░░░░░░░░░] 0%
 
 
 ## Performance Metrics
@@ -555,11 +562,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-21T20:15:21.280Z
-Stopped at: Phase 15 complete — all phases complete
+Last session: 2026-11-22T13:28:22Z
+Stopped at: v4.0 Audio roadmap approved; Phase 16 planning has not started.
 Resume file: None
 
 ## Operator Next Steps
 
 
-- Start the next milestone with $gsd-new-milestone
+- Review the v4.0 Audio roadmap. After approval, start Phase 16 with `$gsd-discuss-phase 16`.

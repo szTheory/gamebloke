@@ -17,23 +17,23 @@ This is the committed scope for GSD milestone v4.0; it is not a software release
 
 ### Direct Sound and Mixing
 
-- [ ] **DS-01**: Direct Sound FIFO A and B maintain independent bounded sample queues and consume one signed 8-bit sample on each selected Timer 0 or Timer 1 overflow, with empty-FIFO behavior named as model policy.
-- [ ] **DS-02**: FIFO refill requests use the sound-specific DMA 1/2 transfer rules and shared machine arbitration; refused bounded work leaves machine state unchanged.
-- [ ] **MIX-01**: Guest routing, gain, ratio, and SOUNDBIAS controls produce deterministic stereo samples using declared integer arithmetic, rounding, and clipping behavior.
+- [ ] **DS-01**: Direct Sound FIFO A and B each maintain a bounded 32-byte queue and consume one signed 8-bit sample on each selected Timer 0 or Timer 1 overflow, with empty-FIFO behavior named as model policy.
+- [ ] **DS-02**: FIFO A requests DMA1 and FIFO B requests DMA2 after a timer pop leaves four 32-bit words (16 bytes); each request transfers four 32-bit words to its fixed FIFO destination through shared machine arbitration, regardless of programmed DMA word count; refused bounded work leaves machine state unchanged.
+- [ ] **MIX-01**: Guest routing, gain, ratio, and master-enable controls produce deterministic pre-PWM stereo PCM using declared integer arithmetic, rounding, and clipping. SOUNDBIAS access/effects follow an explicit profile policy and cannot retime or quantize the fixed PCM stream.
 
 ### Raw Capture and Evidence
 
-- [ ] **CAP-01**: Raw capture uses interleaved stereo signed 16-bit little-endian PCM at a fixed 32,768 frames per second, one frame every 512 `agb` master cycles, with a declared first-sample epoch and capture bounds.
-- [ ] **CAP-02**: The production headless runner can capture bounded raw samples and report the profile and audio-policy identity, cycle interval, cadence and encoding, sample and byte counts, validity, guest result, and digest; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results remain distinguishable.
+- [ ] **CAP-01**: Raw capture is an interleaved stereo signed 16-bit little-endian tap before PWM conversion, at a fixed 32,768 frames per second aligned to reset cycle 0; its first frame is at cycle 512, subsequent frames are every 512 `agb` master cycles, and capture has explicit bounds.
+- [ ] **CAP-02**: The production headless runner captures bounded raw samples and reports profile/policy identity, cycle interval, cadence/encoding, sample/byte counts, and digest. Audio capture validity is separate from overall runner status and guest result; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results remain distinguishable.
 - [ ] **CAP-03**: Fresh runs advanced as one interval or irregular sub-intervals produce identical concatenated audio and machine observations for the same timed guest input.
-- [ ] **EVID-01**: Canonical verification runs an original, rights-cleared, BIOS-free audio diagnostic with independent semantic expectations for guest progress and audio behavior, and records its source, revision, build recipe, digest, notices, BIOS needs, and permitted use.
-- [ ] **CLAIM-01**: Profile and result metadata name implemented audio capabilities, fixed capture policy, selected model policies, unsupported edges, and evidence limits; hardware qualification remains UNKNOWN.
+- [ ] **EVID-01**: Canonical verification runs an original, rights-cleared, BIOS-free audio diagnostic with independent guest-progress and expected-sample assertions bound to its exact build and run; a digest is used only for identity and replay equality. Fixture metadata records source, revision, build recipe, digest, license, notices, BIOS needs, and permitted use.
+- [ ] **CLAIM-01**: Profile and result metadata name implemented audio capabilities, the fixed pre-PWM capture policy, selected model policies, unsupported edges, and evidence limits; hardware qualification remains UNKNOWN.
 
 ## v2 Requirements
 
 Deferred audio capabilities that are not part of v4.0:
 
-- **CAP-04**: Raw capture can represent guest programs that change SOUNDBIAS cadence through a segmented or otherwise explicitly variable-rate stream.
+- **CAP-04**: Raw capture can model SOUNDBIAS-dependent PWM timebases/resolution or represent them in an explicitly variable-rate result when a concrete consumer requires it.
 - **HOST-01**: A separate host adapter can play captured or streamed samples through selected devices with host-clock buffering and resampling.
 - **QUAL-01**: Gamebloke can compare a named model/profile against an independently captured physical GBA signal using authorized hardware and rights-cleared diagnostics.
 
@@ -42,6 +42,7 @@ Deferred audio capabilities that are not part of v4.0:
 | Feature | Reason |
 |---------|--------|
 | Host playback, device selection, and host resampling | Host timing belongs behind a future adapter; v4.0 ends at raw machine samples. |
+| PWM carrier, analog filtering, and physical audio output | The v4.0 stream is a deterministic digital mixer tap before PWM conversion, not a hardware capture. |
 | Physical hardware qualification | Requires separately authorized hardware, capture equipment, and a reviewed diagnostic; software replay evidence does not establish it. |
 | Universal or broad retail-game compatibility claims | Every claim must name the exact profile, BIOS mode, cartridge and save device, and evidence. |
 | Commercial ROMs, Nintendo BIOS bytes, private saves, or unlicensed fixtures | Rights policy; none may enter source control or public CI. |
@@ -49,16 +50,27 @@ Deferred audio capabilities that are not part of v4.0:
 
 ## Traceability
 
-The roadmapper will assign each requirement to exactly one phase.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| AUD-01 | Phase 16 | Pending |
+| PSG-01 | Phase 17 | Pending |
+| PSG-02 | Phase 17 | Pending |
+| PSG-03 | Phase 17 | Pending |
+| PSG-04 | Phase 17 | Pending |
+| DS-01 | Phase 18 | Pending |
+| DS-02 | Phase 18 | Pending |
+| MIX-01 | Phase 19 | Pending |
+| CAP-01 | Phase 16 | Pending |
+| CAP-02 | Phase 19 | Pending |
+| CAP-03 | Phase 19 | Pending |
+| EVID-01 | Phase 19 | Pending |
+| CLAIM-01 | Phase 19 | Pending |
 
 **Coverage:**
 - v1 requirements: 13 total
-- Mapped to phases: 0
-- Unmapped: 13 (roadmap pending)
+- Mapped to phases: 13
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-11-22*  
-*Last updated: 2026-11-22 after owner approval of v4.0 scope and capture policy*
+*Last updated: 2026-11-22 after mapping the approved requirements to roadmap phases*

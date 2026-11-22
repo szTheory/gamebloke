@@ -47,7 +47,8 @@ and hardware qualification outside the claim.
 - GBA PSG channels and Direct Sound FIFO playback integrated with the existing
   machine clock, timers, and DMA boundaries.
 - A declared raw sample format and cadence with deterministic mixing/output
-  semantics.
+  semantics at a pre-PWM digital mixer tap. The profile explicitly limits
+  SOUNDBIAS behavior; analog PWM output is not modeled.
 - Headless runner audio capture and semantic/repeatability evidence from
   original, rights-cleared diagnostic guests.
 
@@ -189,7 +190,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Time and timer evidence boundary (Phase 7) | Keep one-cycle non-ROM costs and timer edge choices project-selected; separate semantic guest completion, IF request, and model cycles | Verified locally as model evidence; no GBA timing qualification is claimed |
 | IRQ/HALT and logical input boundary (Phase 8) | Keep device IF, CPU eligibility/entry, HALT wake, and timestamped host-neutral input distinct | Verified locally; no BIOS handler, hardware IRQ latency, or physical-controller behavior is claimed |
 | PPU and Playable 0 boundary (Phase 10) | Use explicit PPU events, complete supported mode-3 frame capture, semantic pixel checks, and a local host; preserve HBlank evidence and dispute labels | Verified locally; the owner accepted the original diagnostic demo only; no hardware, retail-game, audio/save, or redistribution claim is implied |
-| v4.0 Audio scope and raw capture policy (owner, 2026-11-22) | Add PSG 1–4 and Direct Sound FIFO A/B on guest time, with bounded runner capture at fixed 32,768 Hz stereo S16LE and explicit project-policy labels | ✓ Scope and output contract approved; no host playback or hardware qualification claim |
+| v4.0 Audio scope and raw capture policy (owner, 2026-11-22) | Add PSG 1–4 and Direct Sound FIFO A/B on guest time, with bounded pre-PWM capture at fixed 32,768 Hz stereo S16LE and explicit model-policy labels | ✓ Scope and output contract approved; no host playback, PWM/analog-output, or hardware qualification claim |
 | Local interactive host boundary (Phase 10) | Reuse the canonical machine through the official Libretro ABI; use a dependency-free terminal fallback after managed RetroArch launch denial | Verified locally; no policy bypass, second core, or runtime dependency was added |
 | v2.0 owner judgment (2026-11-19) | The owner ran the terminal demo and accepted the visible original BIOS-free diagnostic behavior | ✓ Accepted for scoped Playable 0 demo; broader compatibility, hardware, physical-controller, and rights decisions remain open |
 | v3.0 PPU scope (owner-prepared recommendation; 2026-11-19) | Extend the mode-3 path to functional modes 0–5 and common composition through raw video, preserving explicit project-model and hardware-evidence limits | ✓ Completed across Phases 11–15; deterministic model and local production-runner evidence only; hardware qualification remains UNKNOWN |
