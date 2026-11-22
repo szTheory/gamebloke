@@ -1068,7 +1068,7 @@ static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
         capabilities = strstr(json, "\"display_capabilities\":");
         okay = strstr(json, "\"phase10\":{") != NULL &&
                strstr(json,
-                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":15") != NULL &&
+                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":16") != NULL &&
                strstr(json, "\"line_cycle\":") != NULL &&
                strstr(json, "\"frame_epoch\":") != NULL &&
                strstr(json, "\"state\":\"valid\"") != NULL &&

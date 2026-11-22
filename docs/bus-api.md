@@ -55,7 +55,7 @@ The result fields are:
 | Field | Meaning |
 |---|---|
 | `status` | `OK`, `INVALID_ARGUMENT`, or `TIME_OVERFLOW` |
-| `outcome` | `NONE`, `RAM`, `BIOS_ABSENT`, `IO_UNIMPLEMENTED`, `IO_MODE_SUBSET`, `ROM`, `ROM_TAIL`, `UNMAPPED`, or `VIDEO_INVALID_MODE_POLICY` |
+| `outcome` | `NONE`, `RAM`, `BIOS_ABSENT`, `IO_UNIMPLEMENTED`, `IO_MODE_SUBSET`, `IO_AUDIO_SUBSET`, `ROM`, `ROM_TAIL`, `UNMAPPED`, or `VIDEO_INVALID_MODE_POLICY` |
 | `value` | Read value; zero for writes and refusals |
 | `cycles` | Cost charged to the machine clock; zero for refusals |
 | `access_class` | Requested class for a valid read/write, or non-sequential for internal cycles |
@@ -79,7 +79,7 @@ documentation or physical hardware qualification.
 | `0x00000000–0x00003FFF` BIOS | No BIOS provider is installed. | Reads return the saved latch and report `BIOS_ABSENT`; writes are ignored. | GBATEK's “GBA Memory Map” and “Memory Mirrors” describe the window and say BIOS is not mirrored. Current-latch behavior is an unverified project placeholder, not BIOS protection. |
 | `0x02000000–0x02FFFFFF` EWRAM | 256 KiB backing, `address & 0x3FFFF`. | Raw 8/16/32-bit reads and writes. | GBATEK's “GBA Memory Map” and “Memory Mirrors”; one-cycle cost is Gamebloke project policy. |
 | `0x03000000–0x03FFFFFF` IWRAM | 32 KiB backing, `address & 0x7FFF`. | Raw 8/16/32-bit reads and writes. | GBATEK's “GBA Memory Map” and “Memory Mirrors”; one-cycle cost is Gamebloke project policy. |
-| `0x04000000–0x040003FF` I/O | The byte-address window is decoded. Only DISPCNT bytes `0x04000000–0x04000001` are modeled; all other registers are unsupported. | DISPCNT exposes only bits 0–2 (BG mode) and reports `IO_MODE_SUBSET`. Unsupported reads return the saved latch and report `IO_UNIMPLEMENTED`; unsupported writes are ignored. | GBATEK's “GBA I/O Map” and “LCD I/O Display Control”. This is a mode selector for bus classification, not a PPU or full DISPCNT implementation. |
+| `0x04000000–0x040003FF` I/O | The byte-address window is decoded. DISPCNT mode bits, the sound-control halfwords at `0x04000060–0x04000085`, and SOUNDBIAS at `0x04000088–0x04000089` are modeled subsets. | DISPCNT exposes BG mode and reports `IO_MODE_SUBSET`; implemented sound-control and SOUNDBIAS lanes report `IO_AUDIO_SUBSET`. Unsupported audio holes and other unsupported I/O reads return the saved latch and report `IO_UNIMPLEMENTED`; unsupported writes are ignored. | GBATEK's “GBA I/O Map” identifies the device windows. Gamebloke's exact audio masks, actions, and capture policy are project-selected in `profiles/agb.json`; this is not hardware qualification. |
 | `0x04000800–0x04FFFFFF` port aliases | The special port is recognized at each 64 KiB alias whose low 16 bits are `0x0800–0x0803`. | Reads use the current-latch placeholder and report `IO_UNIMPLEMENTED`; writes have no effect. | GBATEK's “Memory Mirrors” calls this port undocumented and says it repeats every 64 KiB. Gamebloke does not model its internal-memory-control effect. |
 | `0x05000000–0x05FFFFFF` palette RAM | 1 KiB backing, `address & 0x3FF`. | Reads and 16/32-bit writes are raw. A byte write duplicates its value to both bytes of the containing aligned halfword. | GBATEK's “GBA Memory Map”, “Memory Mirrors”, and “Writing 8bit Data to Video Memory”. |
 | `0x06000000–0x06FFFFFF` VRAM | 128 KiB address period: `address & 0x1FFFF`, then offsets `0x18000–0x1FFFF` subtract `0x8000` into the preceding physical 32 KiB. | Reads and 16/32-bit writes use raw little-endian lanes. In modes 0–2 byte writes duplicate below physical `0x10000` and are ignored at/above it. In modes 3–5 the threshold is `0x14000`. Modes 6–7 use the same `0x14000` threshold as explicit project policy; byte writes report `VIDEO_INVALID_MODE_POLICY`. | GBATEK's “Memory Mirrors”, “LCD VRAM Overview”, “LCD I/O Display Control”, and “Writing 8bit Data to Video Memory” support the mirror and valid-mode threshold cases. Modes 6–7 are not claimed as hardware behavior. |
@@ -117,9 +117,10 @@ The bus contract does not imply the following behavior:
 - WAITCNT region-specific sequential/non-sequential timing, Game Pak
   prefetch, and CPU pipeline-dependent open-bus values.
 - BIOS protection and access rules beyond the absent-provider placeholder.
-- I/O behavior other than the DISPCNT mode bits: display-control bits other
-  than mode, PPU registers and rendering, audio, timers, DMA, interrupts,
-  keypad input, and other peripherals.
+- I/O behavior beyond the implemented DISPCNT mode bits and audio control
+  projection: display-control bits other than mode, PSG/Direct Sound source
+  output, Wave RAM and FIFO data access, PWM/analog output, timers, DMA,
+  interrupts, keypad input, and other peripherals.
 - PPU display-period access restrictions, bus contention, and scanline timing.
 - The undocumented `0x04000800` port's internal-memory-control behavior.
 - Game Pak SRAM, flash/EEPROM, save devices, and other cartridge peripherals.

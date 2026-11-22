@@ -15,7 +15,7 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 15
+profile_version: 16
 
 `profile_version` tracks the capability-policy contract; it is independent of
 the software package version.
@@ -932,6 +932,94 @@ until owner hardware exists.
 
 This profile does not state that the SP is identical to the AGB.
 
+## Audio behavior policy
+
+The audio profile is the `gamebloke-audio-model-1` project-selected contract.
+Its capture tap is signed zero before PWM conversion: no PSG or Direct Sound
+source is mixed yet. PCM is stereo, interleaved left then right, signed 16-bit
+little-endian, at 32,768 frames per second. The global grid starts at reset
+cycle 0 and emits its first frame at cycle 512, then every 512 master cycles.
+An interval is start-exclusive and end-inclusive; SOUNDBIAS does not retime the
+grid or quantize samples.
+
+| Setting | Value |
+| --- | --- |
+| `audio_policy.model` | gamebloke-audio-model-1 |
+| `audio_policy.classification` | project-selected |
+| `audio_policy.hardware_qualification` | UNKNOWN |
+| `audio_policy.tap` | pre-pwm |
+| `audio_policy.encoding` | signed-s16le |
+| `audio_policy.channel_layout` | stereo-interleaved-left-first |
+| `audio_policy.sample_rate_hz` | 32768 |
+| `audio_policy.bytes_per_frame` | 4 |
+| `audio_policy.master_cycles_per_frame` | 512 |
+| `audio_policy.reset_epoch_cycle` | 0 |
+| `audio_policy.first_sample_cycle` | 512 |
+| `audio_policy.interval` | start-exclusive-end-inclusive |
+| `audio_policy.sample_value` | signed-zero |
+| `audio_policy.modeled_sources` | none |
+| `audio_policy.capture_bound_scope` | caller-owned-session |
+| `audio_policy.capture_session_start` | explicit-current-machine-cycle |
+| `audio_policy.capture_session_progress` | accepted-contiguous-operations |
+| `audio_policy.capture_session_global_grid` | unchanged |
+| `audio_policy.max_capture_cycles` | 16777216 |
+| `audio_policy.max_capture_frames` | 32768 |
+| `audio_policy.max_capture_bytes` | 131072 |
+| `audio_policy.refusal_postcondition` | machine-output-session-progress-unchanged |
+| `audio_policy.event_dispatch_limit_per_operation` | 4096 |
+| `audio_policy.same_cycle_order` | ordered-device-effects-including-timer-overflow-and-dma-readiness;sample-old-route;completing-bus-write-including-dma-data-write |
+
+The capture cap is cumulative across one explicitly started caller-owned
+session and accepted contiguous operations; starting a session records the
+current machine cycle without moving the global sample grid. Refusal preserves
+the machine, caller output, and session progress. The existing 4,096
+event-dispatch limit remains per operation. One second at the capture cap
+contains more than 59 periods of the existing 280,896-cycle video frame, so
+later audio edge and FIFO-refill probes can use bounded windows without
+replacing existing headless cycle budgets. An audio-requested runner path must
+report capture refusal separately from general runner status; the current
+production runner has no audio-output request yet.
+
+Same-cycle order is project policy: ordered device effects (including timer
+overflow and DMA readiness) settle first, the sample observes that state and
+the old sound route, and the completing bus write follows. A DMA data write
+uses the same completing-write rule; DMA readiness/arbitration is not itself a
+data write.
+
+| Register | Address | Retained mask | Read mask | Action mask | Projected effect |
+| --- | --- | --- | --- | --- | --- |
+| `SOUND1CNT_L` | `0x04000060` | `0x007F` | `0x007F` | `0x0000` | retained-control-no-source |
+| `SOUND1CNT_H` | `0x04000062` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
+| `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |
+| `SOUND2CNT_L` | `0x04000068` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
+| `SOUND2CNT_H` | `0x0400006C` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |
+| `SOUND3CNT_L` | `0x04000070` | `0x00E0` | `0x00E0` | `0x0000` | length-enable-control |
+| `SOUND3CNT_H` | `0x04000072` | `0xE0FF` | `0xE000` | `0x0000` | volume-and-bank-control |
+| `SOUND3CNT_X` | `0x04000074` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |
+| `SOUND4CNT_L` | `0x04000078` | `0xFF3F` | `0xFF00` | `0x0000` | length-and-envelope-control |
+| `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | trigger-self-clears-status-dynamic |
+| `SOUNDCNT_L` | `0x04000080` | `0xFF77` | `0xFF77` | `0x0000` | psg-routing-and-volume-state |
+| `SOUNDCNT_H` | `0x04000082` | `0x770F` | `0x770F` | `0x8800` | direct-sound-routing-and-volume-state-fifo-actions-unmodeled |
+| `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x8800` | master-enable-dynamic-channel-status-disable-clears-channel-state |
+
+`SOUNDCNT_X` master enable gates channel-register writes; disabling it clears
+the channel register/activity state. SOUNDBIAS remains accessible while audio
+master enable is off and is outside that reset subset.
+
+| Setting | Value |
+| --- | --- |
+| `audio_policy.soundbias.address` | `0x04000088-0x04000089` |
+| `audio_policy.soundbias.writable_mask` | `0xC3FF` |
+| `audio_policy.soundbias.reset_value` | `0x0200` |
+| `audio_policy.soundbias.master_off_access` | available |
+| `audio_policy.soundbias.cadence_effect` | none |
+| `audio_policy.soundbias.capture_quantization` | none |
+
+Wave RAM and FIFO data access, PSG and Direct Sound source output, PWM carrier,
+and analog output are unmodeled. Hardware qualification remains UNKNOWN. A
+digest establishes byte identity/replay equality only, not source correctness,
+hardware accuracy, compatibility, or rights.
+
 ## Unmodeled
 
 Each entry below is listed in `profiles/agb.json` with status `unmodeled`. A result
@@ -945,7 +1033,7 @@ must not claim the behavior of anything in this table.
 | `bus-costs` | Non-ROM values remain project-selected and all modeled bus costs remain hardware-unqualified. |
 | `hblank-flag-edge` | Hardware timing for the HBlank flag change remains unknown and disputed under disp-hblank-flag-edge; the selected 1,006-cycle model event is in ppu_policy and is not a hardware resolution. |
 | `ppu` | The deterministic partial modes, OBJ, window, effect, mosaic, and forced-blank subset is described in `ppu_policy` as project-selected software behavior; all six mode statuses remain partial and hardware qualification remains UNKNOWN. Prohibited OBJ mode/shape encodings and unsupported background-control encodings remain unmodeled. |
-| `audio` | Sound. |
+| `audio` | Sound-control state and bounded signed-zero pre-PWM capture are described by `audio_policy`; PSG/Direct Sound source output, Wave RAM/FIFO data access, PWM carrier, and analog output are unmodeled, and hardware qualification remains UNKNOWN. |
 | `dma` | The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled. |
 | `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |
 | `irq-controller` | A complete hardware-qualified GBA interrupt controller. The deterministic IF/IE/IME and CPU-boundary subset is implemented under `irq_input_power_policy`; exact GBA IRQ latency and BIOS-handler behavior remain unqualified. |

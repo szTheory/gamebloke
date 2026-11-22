@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 15,
+  "profile_version": 16,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -375,6 +375,55 @@
     "latch_update": "mapped-read-width-replicated",
     "write_latch": "preserve"
   },
+  "audio_policy": {
+    "model": "gamebloke-audio-model-1",
+    "classification": "project-selected",
+    "hardware_qualification": "UNKNOWN",
+    "tap": "pre-pwm",
+    "encoding": "signed-s16le",
+    "channel_layout": "stereo-interleaved-left-first",
+    "sample_rate_hz": 32768,
+    "bytes_per_frame": 4,
+    "master_cycles_per_frame": 512,
+    "reset_epoch_cycle": 0,
+    "first_sample_cycle": 512,
+    "interval": "start-exclusive-end-inclusive",
+    "sample_value": "signed-zero",
+    "modeled_sources": "none",
+    "capture_bound_scope": "caller-owned-session",
+    "capture_session_start": "explicit-current-machine-cycle",
+    "capture_session_progress": "accepted-contiguous-operations",
+    "capture_session_global_grid": "unchanged",
+    "max_capture_cycles": 16777216,
+    "max_capture_frames": 32768,
+    "max_capture_bytes": 131072,
+    "refusal_postcondition": "machine-output-session-progress-unchanged",
+    "event_dispatch_limit_per_operation": 4096,
+    "same_cycle_order": "ordered-device-effects-including-timer-overflow-and-dma-readiness;sample-old-route;completing-bus-write-including-dma-data-write",
+    "soundbias": {
+      "address": "0x04000088-0x04000089",
+      "writable_mask": "0xC3FF",
+      "reset_value": "0x0200",
+      "master_off_access": "available",
+      "cadence_effect": "none",
+      "capture_quantization": "none"
+    },
+    "registers": [
+      {"name":"SOUND1CNT_L","address":"0x04000060","retained_mask":"0x007F","read_mask":"0x007F","action_mask":"0x0000","effect":"retained-control-no-source"},
+      {"name":"SOUND1CNT_H","address":"0x04000062","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
+      {"name":"SOUND1CNT_X","address":"0x04000064","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+      {"name":"SOUND2CNT_L","address":"0x04000068","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
+      {"name":"SOUND2CNT_H","address":"0x0400006C","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+      {"name":"SOUND3CNT_L","address":"0x04000070","retained_mask":"0x00E0","read_mask":"0x00E0","action_mask":"0x0000","effect":"length-enable-control"},
+      {"name":"SOUND3CNT_H","address":"0x04000072","retained_mask":"0xE0FF","read_mask":"0xE000","action_mask":"0x0000","effect":"volume-and-bank-control"},
+      {"name":"SOUND3CNT_X","address":"0x04000074","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+      {"name":"SOUND4CNT_L","address":"0x04000078","retained_mask":"0xFF3F","read_mask":"0xFF00","action_mask":"0x0000","effect":"length-and-envelope-control"},
+      {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+      {"name":"SOUNDCNT_L","address":"0x04000080","retained_mask":"0xFF77","read_mask":"0xFF77","action_mask":"0x0000","effect":"psg-routing-and-volume-state"},
+      {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-actions-unmodeled"},
+      {"name":"SOUNDCNT_X","address":"0x04000084","retained_mask":"0x0080","read_mask":"0x008F","action_mask":"0x8800","effect":"master-enable-dynamic-channel-status-disable-clears-channel-state"}
+    ]
+  },
   "unmodeled": [
     {
       "id": "sp-micro-differences",
@@ -414,7 +463,7 @@
     {
       "id": "audio",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim audio behavior."
+      "reason": "The gamebloke-audio-model-1 project policy exposes sound-control register state and bounded signed-zero pre-PWM capture only; PSG and Direct Sound source output, Wave RAM/FIFO data access, PWM-carrier and analog output are unmodeled, and hardware qualification remains UNKNOWN."
     },
     {
       "id": "dma",
