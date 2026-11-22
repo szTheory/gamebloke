@@ -600,8 +600,9 @@ static bool gbl_bus_read_lane(
     case GBL_BUS_REGION_IO:
         if (gbl_audio_register_address(address)) {
             *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
-            *value = (uint8_t)gbl_audio_read_register(
-                &time_preview->audio, address);
+            *value = (uint8_t)(gbl_audio_read_register(
+                                   &time_preview->audio, address) >>
+                               ((address & UINT32_C(1)) * 8u));
             return true;
         }
         if (address == UINT32_C(0x04000088) ||

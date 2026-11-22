@@ -105,7 +105,7 @@ uint16_t gbl_audio_read_register(const gbl_audio_state *state,
                            (uint16_t)(state->active_channels &
                                       UINT8_C(0x0F)));
     }
-    return (uint16_t)(value >> ((address & UINT32_C(1)) * 8u));
+    return value;
 }
 
 bool gbl_audio_state_equal(const gbl_audio_state *left,
