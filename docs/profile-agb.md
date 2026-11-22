@@ -979,6 +979,7 @@ grid or quantize samples.
 | `audio_policy.psg_sequencer_steps` | length-0-2-4-6,sweep-channel-1-steps-2-and-6,envelope-7 |
 | `audio_policy.psg_sequencer_master_off_phase` | reset-anchored-cycle-phase-continues |
 | `audio_policy.psg_trigger_policy` | completion-anchored-trigger,resets-source-phase,square-phase-zero-high,requires-channel-DAC |
+| `audio_policy.psg_ch1_frequency_policy` | effective-frequency-and-sweep-controls-latch-on-trigger,guest-readback-remains-programmed |
 | `audio_policy.psg_reset_policy` | machine-reset-clears-channel-state-status-and-both-Wave-RAM-banks |
 | `audio_policy.psg_master_off_policy` | clears-channel-registers-and-source-state,retains-Wave-RAM,keeps-sequencer-reset-anchor |
 | `audio_policy.psg_dac_disable_policy` | clears-that-channel-source-state-and-status,CH3-Wave-RAM-aperture-remains-accessible |
@@ -995,7 +996,7 @@ grid or quantize samples.
 | `audio_policy.psg_noise_feedback_masks` | 15-bit=0x6000,7-bit=0x60 |
 | `audio_policy.psg_noise_lfsr_step` | right-shift-xor-feedback-to-width-specific-high-bit |
 | `audio_policy.psg_noise_prohibited_shifts` | 14,15 |
-| `audio_policy.psg_noise_prohibited_behavior` | holds-LFSR-phase-and-current-output,length-and-envelope-clocks-continue |
+| `audio_policy.psg_noise_prohibited_behavior` | holds-LFSR-phase-and-noise-bit,length-and-envelope-clocks-continue |
 | `audio_policy.psg_wave_bank_count` | 2 |
 | `audio_policy.psg_wave_bank_bytes` | 16 |
 | `audio_policy.psg_wave_samples_per_bank` | 32 |
@@ -1009,7 +1010,7 @@ grid or quantize samples.
 | `audio_policy.psg_wave_nibble_order` | high-then-low |
 | `audio_policy.psg_wave_nibble_period_cycles` | 4*(2048-fdat) |
 | `audio_policy.psg_wave_volume_policy` | field-0-mute-1-full-2-half-3-quarter,force-bit-three-quarter |
-| `audio_policy.psg_live_update_policy` | CH1-sweep-controls-trigger-latched,CH2-frequency-keeps-phase-modulo-new-period,CH3-period-and-pattern-updates-normalize-phase,CH4-width-change-reseeds-and-frequency-changes-normalize-phase |
+| `audio_policy.psg_live_update_policy` | CH1-frequency-and-sweep-controls-trigger-latched,CH2-frequency-keeps-square-phase-modulo-new-period,CH3-frequency-normalizes-nibble-cycle-remainder-and-pattern-write-normalizes-index,CH4-width-change-reseeds-and-frequency-write-normalizes-cycle-remainder |
 | `audio_policy.psg_ch3_rate_policy` | manual-whole-pattern-derived-4*(2048-fdat)-cycles-per-nibble |
 | `audio_policy.psg_ch3_rate_conflict` | GBATEK-nibble-rate-interpretation-differs-by-factor-of-two |
 | `audio_policy.psg_ch3_length_source_note` | AGB-manual-CH3-expiration-paragraph-names-CH2-status-bit,model-uses-CH3-status |
@@ -1052,13 +1053,15 @@ starts phase zero high, and live frequency writes retain elapsed phase modulo
 the new period. Channel 1 latches its sweep controls and effective frequency
 on trigger. Sweep clocks on steps 2 and 6; shift zero leaves frequency
 unchanged, time zero disables sweep, a negative result keeps the current
-frequency and activity, and a result above 2047 clears channel 1 activity.
+frequency and activity, and a result above 2047 clears channel 1 activity. The
+effective frequency and sweep controls are trigger-latched; guest frequency
+readback continues to report the programmed value.
 
 Channel 4 uses the selected divider equation `32 * r * 2^(shift + 1)`, where
 ratio zero selects `r = 1/2`. The 15-bit and 7-bit LFSRs seed to `0x4000` and
 `0x40`, use feedback masks `0x6000` and `0x60`, and shift right with feedback
 into the width-specific high bit. Shift codes 14 and 15 hold the LFSR phase
-and current output; shared length and envelope clocks continue.
+and output bit; shared length and envelope clocks continue.
 
 Channel 3 has two 16-byte banks, each storing 32 packed four-bit samples. Its
 16-byte guest window at `0x04000090–0x0400009F` supports byte, halfword, and
