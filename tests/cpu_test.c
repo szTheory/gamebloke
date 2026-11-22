@@ -168,6 +168,7 @@ static void machine_set_synthetic_cpu_clock(gbl_machine *machine,
     size_t index;
 
     machine->master_cycles = master_cycles;
+    machine->audio.cycle_anchor = master_cycles;
     for (index = 0u; index < machine->event_count; ++index) {
         gbl_event *event = &machine->events[index];
 
