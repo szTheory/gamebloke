@@ -5,16 +5,16 @@ milestone_name: Audio
 current_phase: 17
 current_phase_name: PSG Channels and Sequencer
 status: executing
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-11-22T20:57:49.354Z"
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-11-22T21:48:57.645Z"
 last_activity: 2026-11-22
 last_activity_desc: Completed Phase 17 Plan 01; Plan 02 ready to execute.
-state_head: e2d695dc2a1d22241361859ba607bc519fda6ee1
+state_head: 182f4ca150394fcccc9b01966332a51140e96835
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 5
   percent: 25
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 17 — PSG Channels and Sequencer
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-11-22 — Phase 16 complete, transitioned to Phase 17
 Last activity description: Completed Phase 17 Plan 01; Plan 02 ready to execute.
@@ -195,6 +195,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 16 P02 | 34m | 3 tasks | 10 files |
 | Phase 16 P03 | 74 min | 3 tasks | 13 files |
 | Phase 17 P01 | 42 min | 2 tasks | 8 files |
+| Phase 17 P02 | 37min from first RED; setup not measured | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -529,6 +530,10 @@ Recent decisions affecting current work:
 - [Phase 17]: The shared sequencer is reset-anchored at cycle 32768; length clocks on steps 0/2/4/6 and envelope clocks on step 7.
 - [Phase 17]: At a shared cycle, device effects and PSG progression precede sampling, which precedes the completing sound-register write.
 - [Phase 17]: Keep capture PCM signed-zero and hardware qualification UNKNOWN; Wave, mixing, and playback remain later plan scope.
+- [Phase 17]: CH1 effective frequency and sweep controls are trigger-latched internal state; guest frequency readback remains programmed, with sweep clocks on sequencer steps 2 and 6.
+- [Phase 17]: CH4 follows the project-selected divider equation 32*r*2^(shift+1); with ratio-zero r=1/2, the minimum period is 32 master cycles.
+- [Phase 17]: Prohibited noise shifts 14 and 15 retain register controls and pause LFSR phase/output while shared length and envelope clocks continue.
+- [Phase 17]: The consulted AGB manual is third-party hosted and GBATEK is supplementary reverse-engineered evidence; hardware qualification remains UNKNOWN.
 
 ### Pending Todos
 
@@ -580,8 +585,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-22T20:54:22.644Z
-Stopped at: Completed 17-01-PLAN.md
+Last session: 2026-11-22T21:48:57.467Z
+Stopped at: Completed 17-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

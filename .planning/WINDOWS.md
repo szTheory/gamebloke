@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 8
 waived_count: 0
-fixed_count: 26
-total_count: 34
-last_updated: 2026-11-21T00:38:05.900Z
+fixed_count: 28
+total_count: 36
+last_updated: 2026-11-22T21:45:29.674Z
 ---
 
 # Broken Windows Ledger
@@ -49,6 +49,8 @@ last_updated: 2026-11-21T00:38:05.900Z
 | 32 | 11 | unrun-verify | tests/gates/profile_case.cmake |  | The broad legacy profile mutation selection was stopped after 8/32 tests at 211.98s; focused profile lint, clean-copy, PPU controls, and Phase 10 checks passed, with remaining legacy mutations deferred to Phase 11-05. | open |  | 2026-11-19T22:11:28.750Z |  |
 | 33 | 12 | unrun-verify | scripts/verify-phase12-fast.sh |  | Full Phase 12 fast helper was not rerun; its unchanged closure was reused from Plan 12-06 while focused Plan 12-07 profile and runner/result checks passed. | fixed |  | 2026-11-20T18:29:49.799Z | 2026-11-20T18:48:13.878Z |
 | 34 | 13 | deviation | tests/bus_test.c |  | Updated stale ppu.latch row-count expectation for valid backdrop capture. | open |  | 2026-11-21T00:38:05.900Z |  |
+| 35 | 17 | deviation | src/audio.c | 445 | An active channel with an exhausted length counter could pass validation if a preview prepared copy was forged consistently. | fixed |  | 2026-11-22T20:57:06.306Z | 2026-11-22T20:57:28.235Z |
+| 36 | 17 | deviation | .planning/phases/17-psg-channels-and-sequencer/17-02-PLAN.md |  | Corrected the stated shortest noise period from 16 to 32 master cycles to match the locked divider equation with ratio zero r=1/2; focused noise vectors pass. Source and hardware qualification caveats remain explicit. | fixed |  | 2026-11-22T21:45:27.311Z | 2026-11-22T21:45:29.674Z |
 
 ````json
 [
@@ -493,6 +495,32 @@ last_updated: 2026-11-21T00:38:05.900Z
     "recorded_at": "2026-11-21T00:38:05.900Z",
     "resolved_at": null,
     "milestone": "v3.0"
+  },
+  {
+    "id": 35,
+    "kind": "deviation",
+    "phase": "17",
+    "file": "src/audio.c",
+    "line": 445,
+    "description": "An active channel with an exhausted length counter could pass validation if a preview prepared copy was forged consistently.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-22T20:57:06.306Z",
+    "resolved_at": "2026-11-22T20:57:28.235Z",
+    "milestone": "v4.0"
+  },
+  {
+    "id": 36,
+    "kind": "deviation",
+    "phase": "17",
+    "file": ".planning/phases/17-psg-channels-and-sequencer/17-02-PLAN.md",
+    "line": null,
+    "description": "Corrected the stated shortest noise period from 16 to 32 master cycles to match the locked divider equation with ratio zero r=1/2; focused noise vectors pass. Source and hardware qualification caveats remain explicit.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-22T21:45:27.311Z",
+    "resolved_at": "2026-11-22T21:45:29.674Z",
+    "milestone": "v4.0"
   }
 ]
 ````
