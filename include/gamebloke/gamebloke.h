@@ -101,6 +101,14 @@ typedef struct gbl_audio_state {
     uint8_t envelope_period[4];
     uint8_t envelope_timer[4];
     bool envelope_increase[4];
+    /* CH1's programmed register stays guest-visible while sweep_frequency is
+     * the effective value used by the oscillator. Sweep controls latch on
+     * trigger and advance only on shared sequencer steps 2 and 6. */
+    uint16_t sweep_frequency;
+    uint8_t sweep_period;
+    uint8_t sweep_timer;
+    uint8_t sweep_shift;
+    bool sweep_decrease;
 } gbl_audio_state;
 
 typedef enum gbl_event_kind {

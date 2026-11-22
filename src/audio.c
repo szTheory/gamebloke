@@ -104,7 +104,10 @@ static uint32_t gbl_audio_square_period(const gbl_audio_state *state,
 {
     const size_t frequency_register = channel_index == 0u ? 2u : 6u;
     const uint32_t frequency =
-        (uint32_t)(state->registers[frequency_register] & UINT16_C(0x07FF));
+        channel_index == 0u
+            ? state->sweep_frequency
+            : (uint32_t)(state->registers[frequency_register] &
+                         UINT16_C(0x07FF));
 
     return UINT32_C(128) * (UINT32_C(2048) - frequency);
 }
@@ -161,12 +164,15 @@ static bool gbl_audio_channel_envelope_pending(
 
 static bool gbl_audio_has_pending_sequencer_clock(
     const gbl_audio_state *state, bool *length_pending,
-    bool *envelope_pending)
+    bool *envelope_pending, bool *sweep_pending)
 {
     unsigned channel_index;
 
     *length_pending = false;
     *envelope_pending = false;
+    *sweep_pending =
+        (state->active_channels & UINT8_C(0x01)) != 0u &&
+        state->sweep_period != 0u;
     for (channel_index = 0u; channel_index < 4u; ++channel_index) {
         *length_pending = *length_pending ||
                           gbl_audio_channel_length_pending(state,
@@ -175,7 +181,7 @@ static bool gbl_audio_has_pending_sequencer_clock(
                             gbl_audio_channel_envelope_pending(
                                 state, channel_index);
     }
-    return *length_pending || *envelope_pending;
+    return *length_pending || *envelope_pending || *sweep_pending;
 }
 
 static bool gbl_audio_next_sequencer_clock(
@@ -193,22 +199,26 @@ static bool gbl_audio_next_sequencer_clock(
             : (quotient + UINT64_C(1)) * GBL_AUDIO_SEQUENCER_CYCLES;
     bool length_pending;
     bool envelope_pending;
+    bool sweep_pending;
     uint8_t offset;
 
     if (clock_cycle == NULL || clock_step == NULL || first_cycle == 0u ||
         !gbl_audio_has_pending_sequencer_clock(state, &length_pending,
-                                               &envelope_pending)) {
+                                               &envelope_pending,
+                                               &sweep_pending)) {
         return false;
     }
     for (offset = 0u; offset < 8u; ++offset) {
         const uint8_t step = (uint8_t)((first_step + offset) & UINT8_C(7));
         const bool length_clock = length_pending && (step & UINT8_C(1)) == 0u;
         const bool envelope_clock = envelope_pending && step == UINT8_C(7);
+        const bool sweep_clock =
+            sweep_pending && (step == UINT8_C(2) || step == UINT8_C(6));
         const uint64_t cycle_delta =
             (uint64_t)offset * GBL_AUDIO_SEQUENCER_CYCLES;
         uint64_t cycle;
 
-        if (!length_clock && !envelope_clock) {
+        if (!length_clock && !envelope_clock && !sweep_clock) {
             continue;
         }
         if (first_cycle > UINT64_MAX - cycle_delta) {
@@ -238,6 +248,40 @@ static void gbl_audio_clock_lengths(gbl_audio_state *state)
             }
         }
     }
+}
+
+static void gbl_audio_clock_sweep(gbl_audio_state *state)
+{
+    int32_t next_frequency;
+    int32_t delta;
+
+    if ((state->active_channels & UINT8_C(0x01)) == 0u ||
+        state->sweep_period == 0u) {
+        return;
+    }
+    ++state->sweep_timer;
+    if (state->sweep_timer < state->sweep_period) {
+        return;
+    }
+    state->sweep_timer = 0u;
+    if (state->sweep_shift == 0u) {
+        return;
+    }
+
+    delta = (int32_t)(state->sweep_frequency >> state->sweep_shift);
+    next_frequency = (int32_t)state->sweep_frequency;
+    next_frequency += state->sweep_decrease ? -delta : delta;
+    if (next_frequency < 0) {
+        return;
+    }
+    if (next_frequency > INT32_C(2047)) {
+        state->active_channels &= (uint8_t)~UINT8_C(0x01);
+        return;
+    }
+
+    state->sweep_frequency = (uint16_t)next_frequency;
+    state->square_phase[0] %= gbl_audio_square_period(state, 0u);
+    gbl_audio_refresh_square_level(state, 0u);
 }
 
 static void gbl_audio_clock_envelopes(gbl_audio_state *state)
@@ -301,6 +345,9 @@ static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
         if ((clock_step & UINT8_C(1)) == 0u) {
             gbl_audio_clock_lengths(state);
         }
+        if (clock_step == UINT8_C(2) || clock_step == UINT8_C(6)) {
+            gbl_audio_clock_sweep(state);
+        }
         if (clock_step == UINT8_C(7)) {
             gbl_audio_clock_envelopes(state);
         }
@@ -323,6 +370,13 @@ static void gbl_audio_reset_channel(gbl_audio_state *state,
     state->envelope_period[channel_index] = 0u;
     state->envelope_timer[channel_index] = 0u;
     state->envelope_increase[channel_index] = false;
+    if (channel_index == 0u) {
+        state->sweep_frequency = 0u;
+        state->sweep_period = 0u;
+        state->sweep_timer = 0u;
+        state->sweep_shift = 0u;
+        state->sweep_decrease = false;
+    }
 }
 
 static void gbl_audio_trigger_channel(gbl_audio_state *state,
@@ -354,6 +408,17 @@ static void gbl_audio_trigger_channel(gbl_audio_state *state,
         state->envelope_timer[channel_index] = 0u;
         state->envelope_increase[channel_index] = false;
     }
+    if (channel_index == 0u) {
+        const uint16_t sweep = state->registers[0];
+
+        state->sweep_frequency =
+            (uint16_t)(state->registers[2] & UINT16_C(0x07FF));
+        state->sweep_period =
+            (uint8_t)((sweep >> 4u) & UINT16_C(0x0007));
+        state->sweep_timer = 0u;
+        state->sweep_shift = (uint8_t)(sweep & UINT16_C(0x0007));
+        state->sweep_decrease = (sweep & UINT16_C(0x0008)) != 0u;
+    }
     if (channel_index < 2u) {
         state->square_phase[channel_index] = 0u;
         gbl_audio_refresh_square_level(state, channel_index);
@@ -368,7 +433,12 @@ bool gbl_audio_state_equal(const gbl_audio_state *left,
     if (left == NULL || right == NULL ||
         left->cycle_anchor != right->cycle_anchor ||
         left->soundbias != right->soundbias ||
-        left->active_channels != right->active_channels) {
+        left->active_channels != right->active_channels ||
+        left->sweep_frequency != right->sweep_frequency ||
+        left->sweep_period != right->sweep_period ||
+        left->sweep_timer != right->sweep_timer ||
+        left->sweep_shift != right->sweep_shift ||
+        left->sweep_decrease != right->sweep_decrease) {
         return false;
     }
     for (index = 0u; index < GBL_AUDIO_REGISTER_COUNT; ++index) {
@@ -408,7 +478,16 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
         state->soundbias != (uint16_t)(state->soundbias & UINT16_C(0xC3FF)) ||
         (state->active_channels & UINT8_C(0xF0)) != 0u ||
         (state->registers[18] & (uint16_t)~UINT16_C(0x0080)) != 0u ||
-        (!master_enabled && state->active_channels != 0u) ||
+        state->sweep_frequency > UINT16_C(2047) ||
+        state->sweep_period > UINT8_C(7) ||
+        state->sweep_shift > UINT8_C(7) ||
+        (state->sweep_period == 0u && state->sweep_timer != 0u) ||
+        (state->sweep_period != 0u &&
+         state->sweep_timer >= state->sweep_period) ||
+        (!master_enabled &&
+         (state->active_channels != 0u || state->sweep_frequency != 0u ||
+          state->sweep_period != 0u || state->sweep_timer != 0u ||
+          state->sweep_shift != 0u || state->sweep_decrease)) ||
         ((state->active_channels & UINT8_C(0x01)) != 0u &&
          (state->registers[1] & UINT16_C(0xF800)) == 0u) ||
         ((state->active_channels & UINT8_C(0x02)) != 0u &&
@@ -579,6 +658,12 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
 
         if (index != gbl_audio_frequency_registers[channel_index]) {
             continue;
+        }
+        if (channel_index == 0u &&
+            ((action & UINT16_C(0x8000)) == 0u ||
+             (state->active_channels & channel_mask) == 0u)) {
+            state->sweep_frequency =
+                (uint16_t)(next & UINT16_C(0x07FF));
         }
         if ((action & UINT16_C(0x8000)) != 0u &&
             (state->active_channels & channel_mask) != 0u) {

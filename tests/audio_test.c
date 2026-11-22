@@ -520,7 +520,7 @@ static int run_psg_sweep(void)
 
         if (passed) {
             passed = configure_ch1(machine, 0u, 0u, 15u, false, 0u,
-                                   1u, false, 1u, UINT16_C(2040), false);
+                                   1u, false, 1u, UINT16_C(1024), false);
         }
         tap_check("CH1 sweep setup and trigger are accepted", passed);
         tap_check("CH1 SOUND1CNT_X preserves the declared read mask",
@@ -530,23 +530,25 @@ static int run_psg_sweep(void)
                   passed && gbl_machine_advance_to(
                                 machine, sweep_cycle - 1u) ==
                                 GBL_TIME_STATUS_OK &&
-                      (read16(machine, UINT32_C(0x04000084)).value & 1u) !=
+                      (gbl_audio_read_register(
+                           &machine->audio, UINT32_C(0x04000084)) & 1u) !=
                           0u);
         tap_check("step-2 sweep preserves the inclusive high edge minus one",
                   passed && gbl_machine_advance_to(
-                                machine, sweep_cycle + 67u) ==
+                                machine, sweep_cycle + 40963u) ==
                                 GBL_TIME_STATUS_OK &&
                       gbl_audio_psg_sample(&machine->audio, 0u) == 15u);
         tap_check("step-2 sweep applies addition at the new duty edge",
                   passed && gbl_machine_advance_to(
-                                machine, sweep_cycle + 68u) ==
+                                machine, sweep_cycle + 40964u) ==
                                 GBL_TIME_STATUS_OK &&
                       gbl_audio_psg_sample(&machine->audio, 0u) == 0u);
         tap_check("step-2 sweep keeps the source low after the edge",
                   passed && gbl_machine_advance_to(
-                                machine, sweep_cycle + 69u) ==
+                                machine, sweep_cycle + 40965u) ==
                                 GBL_TIME_STATUS_OK &&
-                      gbl_audio_psg_sample(&machine->audio, 0u) == 0u);
+                      gbl_audio_psg_sample(&machine->audio, 0u) == 0u &&
+                      machine->audio.sweep_frequency == UINT16_C(1536));
         free_machine(machine);
     }
 
@@ -639,15 +641,20 @@ static int run_psg_sweep(void)
                      gbl_machine_advance_to(over_limit,
                                             UINT64_C(98303)) ==
                          GBL_TIME_STATUS_OK &&
-                     (read16(over_limit, UINT32_C(0x04000084)).value & 1u) !=
-                         0u &&
+                     (gbl_audio_read_register(
+                          &over_limit->audio, UINT32_C(0x04000084)) &
+                      1u) != 0u &&
                      gbl_machine_advance_to(over_limit,
                                             UINT64_C(98304)) ==
                          GBL_TIME_STATUS_OK &&
-                     (read16(over_limit, UINT32_C(0x04000084)).value & 1u) ==
-                         0u &&
-                     (read16(at_limit, UINT32_C(0x04000084)).value & 1u) !=
-                         0u;
+                     (gbl_audio_read_register(
+                          &over_limit->audio, UINT32_C(0x04000084)) &
+                      1u) == 0u &&
+                     (gbl_audio_read_register(
+                          &at_limit->audio, UINT32_C(0x04000084)) &
+                      1u) != 0u &&
+                     at_limit->audio.sweep_frequency == UINT16_C(2047) &&
+                     over_limit->audio.sweep_frequency == UINT16_C(1639);
         }
         tap_check("addition at 2047 remains active and above it overflows only at step 2",
                   passed);
@@ -673,6 +680,7 @@ static int run_psg_sweep(void)
                                             UINT64_C(98324)) ==
                          GBL_TIME_STATUS_OK &&
                      gbl_audio_psg_sample(&zero_shift->audio, 0u) == 0u &&
+                     zero_shift->audio.sweep_frequency == UINT16_C(2047) &&
                      (read16(zero_shift, UINT32_C(0x04000084)).value & 1u) !=
                          0u;
         }
@@ -693,16 +701,150 @@ static int run_psg_sweep(void)
                                             UINT64_C(98304)) ==
                          GBL_TIME_STATUS_OK &&
                      gbl_machine_advance_to(machine,
-                                            UINT64_C(98308)) ==
+                                            UINT64_C(98435)) ==
                          GBL_TIME_STATUS_OK &&
-                     gbl_audio_psg_sample(&machine->audio, 0u) == 0u &&
+                     gbl_audio_psg_sample(&machine->audio, 0u) == 15u &&
                      gbl_machine_advance_to(machine,
-                                            UINT64_C(98820)) ==
+                                            UINT64_C(98436)) ==
                          GBL_TIME_STATUS_OK &&
-                     gbl_audio_psg_sample(&machine->audio, 0u) == 15u;
+                     gbl_audio_psg_sample(&machine->audio, 0u) == 15u &&
+                     machine->audio.sweep_frequency == UINT16_C(1020);
         }
         tap_check("subtract sweep applies on its eligible clock without underflow",
                   passed);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        bool passed = machine != NULL;
+
+        if (passed) {
+            passed = configure_ch1(machine, 0u, 0u, 15u, false, 0u,
+                                   2u, false, 1u, UINT16_C(1024), false) &&
+                     gbl_machine_advance_to(machine, UINT64_C(98303)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.sweep_timer == 0u &&
+                     machine->audio.sweep_frequency == UINT16_C(1024) &&
+                     gbl_machine_advance_to(machine, UINT64_C(98304)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.sweep_timer == 1u &&
+                     machine->audio.sweep_frequency == UINT16_C(1024) &&
+                     gbl_machine_advance_to(machine,
+                                            UINT64_C(229375)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.sweep_timer == 1u &&
+                     gbl_machine_advance_to(machine,
+                                            UINT64_C(229376)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.sweep_timer == 0u &&
+                     machine->audio.sweep_frequency == UINT16_C(1536);
+        }
+        tap_check("sweep interval two counts step 2 then updates at step 6",
+                  passed);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *whole = new_machine();
+        gbl_machine *split = new_machine();
+        bool passed = whole != NULL && split != NULL;
+
+        if (passed) {
+            passed = configure_ch1(whole, 0u, 2u, 13u, false, 2u,
+                                   2u, false, 1u, UINT16_C(1024), false) &&
+                     configure_ch1(split, 0u, 2u, 13u, false, 2u,
+                                   2u, false, 1u, UINT16_C(1024), false) &&
+                     gbl_machine_advance_to(whole, UINT64_C(300000)) ==
+                         GBL_TIME_STATUS_OK &&
+                     gbl_machine_advance_to(split, UINT64_C(98304)) ==
+                         GBL_TIME_STATUS_OK &&
+                     gbl_machine_advance_to(split, UINT64_C(229375)) ==
+                         GBL_TIME_STATUS_OK &&
+                     gbl_machine_advance_to(split, UINT64_C(300000)) ==
+                         GBL_TIME_STATUS_OK &&
+                     whole->master_cycles == split->master_cycles &&
+                     gbl_audio_state_equal(&whole->audio, &split->audio) &&
+                     gbl_audio_psg_sample(&whole->audio, 0u) ==
+                         gbl_audio_psg_sample(&split->audio, 0u);
+        }
+        tap_check("irregular replay preserves CH1 sweep and source state",
+                  passed);
+        free_machine(whole);
+        free_machine(split);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        gbl_machine *snapshot = NULL;
+        gbl_machine_time_preview preview = { 0 };
+        bool prepared = false;
+        bool fields_bound = false;
+        bool passed = machine != NULL;
+
+        if (passed) {
+            passed = configure_ch1(machine, 0u, 0u, 15u, false, 0u,
+                                   2u, false, 1u, UINT16_C(1024), false) &&
+                     gbl_machine_advance_to(machine,
+                                            UINT64_C(98304)) ==
+                         GBL_TIME_STATUS_OK &&
+                     snapshot_machine(machine, &snapshot);
+        }
+        prepared = passed &&
+                   gbl_machine_prepare_time(machine,
+                                            machine->master_cycles + 1u,
+                                            &preview) == GBL_TIME_STATUS_OK;
+        if (prepared) {
+            preview.audio.sweep_frequency ^= UINT16_C(1);
+            fields_bound = !gbl_audio_state_equal(
+                &preview.audio, &preview.audio_prepared);
+            preview.audio = preview.audio_prepared;
+            preview.audio.sweep_period ^= UINT8_C(1);
+            fields_bound = fields_bound && !gbl_audio_state_equal(
+                                               &preview.audio,
+                                               &preview.audio_prepared);
+            preview.audio = preview.audio_prepared;
+            preview.audio.sweep_timer ^= UINT8_C(1);
+            fields_bound = fields_bound && !gbl_audio_state_equal(
+                                               &preview.audio,
+                                               &preview.audio_prepared);
+            preview.audio = preview.audio_prepared;
+            preview.audio.sweep_shift ^= UINT8_C(1);
+            fields_bound = fields_bound && !gbl_audio_state_equal(
+                                               &preview.audio,
+                                               &preview.audio_prepared);
+            preview.audio = preview.audio_prepared;
+            preview.audio.sweep_decrease = !preview.audio.sweep_decrease;
+            fields_bound = fields_bound && !gbl_audio_state_equal(
+                                               &preview.audio,
+                                               &preview.audio_prepared);
+            preview.audio = preview.audio_prepared;
+            preview.audio.sweep_frequency ^= UINT16_C(1);
+            fields_bound = fields_bound &&
+                           !gbl_machine_commit_time_checked(machine, &preview) &&
+                           snapshot != NULL &&
+                           unchanged_machine(machine, snapshot);
+        }
+        tap_check("all sweep fields bind a prepared preview and mismatch refusal preserves state",
+                  prepared && fields_bound);
+
+        prepared = machine != NULL &&
+                   gbl_machine_prepare_time(
+                       machine, machine->master_cycles + 1u, &preview) ==
+                       GBL_TIME_STATUS_OK;
+        if (prepared) {
+            preview.audio.sweep_frequency = UINT16_C(2048);
+            preview.audio_prepared.sweep_frequency = UINT16_C(2048);
+        }
+        tap_check("out-of-range effective sweep frequency is rejected after matching prepared copies",
+                  prepared &&
+                      gbl_audio_state_equal(&preview.audio,
+                                            &preview.audio_prepared) &&
+                      !gbl_audio_state_valid(&preview.audio) &&
+                      !gbl_machine_commit_time_checked(machine, &preview) &&
+                      snapshot != NULL &&
+                      unchanged_machine(machine, snapshot));
+        free(snapshot);
         free_machine(machine);
     }
 
@@ -726,6 +868,46 @@ static int run_psg_sweep(void)
         }
         tap_check("single-clock length expires CH1 while trigger loads envelope",
                   passed);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        gbl_machine_time_preview span = { 0 };
+        size_t staged_bytes = 0u;
+        const uint64_t expiry_cycle = UINT64_C(4161536);
+        bool configured = machine != NULL;
+        bool before_expiry = false;
+        bool expired = false;
+
+        if (configured) {
+            configured = configure_ch1(machine, 0u, 0u, 15u, false, 0u,
+                                       0u, false, 0u, UINT16_C(2047), true);
+        }
+        tap_check("maximum CH1 length configuration is accepted", configured);
+        if (configured) {
+            span.audio = machine->audio;
+            before_expiry =
+                gbl_audio_advance_span(&span, expiry_cycle - 1u, NULL, 0u,
+                                       &staged_bytes, NULL, NULL) ==
+                    GBL_TIME_STATUS_OK &&
+                span.audio.length_remaining[0] == 1u &&
+                (gbl_audio_read_register(&span.audio,
+                                         UINT32_C(0x04000084)) & 1u) != 0u;
+        }
+        tap_check("maximum CH1 length remains active one cycle before tick 64",
+                  before_expiry);
+        if (before_expiry) {
+            expired = gbl_audio_advance_span(
+                          &span, expiry_cycle, NULL, 0u, &staged_bytes, NULL,
+                          NULL) == GBL_TIME_STATUS_OK &&
+                      span.audio.length_remaining[0] == 0u &&
+                      (gbl_audio_read_register(&span.audio,
+                                               UINT32_C(0x04000084)) &
+                       1u) == 0u;
+        }
+        tap_check("maximum CH1 length expires on its 64th eligible clock",
+                  expired);
         free_machine(machine);
     }
 
