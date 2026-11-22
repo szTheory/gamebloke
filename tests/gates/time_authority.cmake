@@ -277,8 +277,8 @@ file(MAKE_DIRECTORY "${input_root}/src" "${input_root}/runner"
   "${input_root}/generated/control" "${object_root}"
   "${common_object_root}" "${root}/test-work")
 
-foreach(source IN ITEMS version.c machine.c bus.c loader.c inspect.c cpu.c
-    logo_sha256.h cpu_helpers.h)
+foreach(source IN ITEMS version.c machine.c audio.c bus.c loader.c inspect.c
+    cpu.c logo_sha256.h cpu_helpers.h ppu_internal.h audio_internal.h)
   file(COPY_FILE "${SRC}/src/${source}" "${input_root}/src/${source}")
 endforeach()
 foreach(source IN ITEMS run.c run.h result.c sha256.c sha256.h)
@@ -304,6 +304,7 @@ set(include_flags
 set(common_sources
   "${input_root}/src/version.c"
   "${input_root}/src/machine.c"
+  "${input_root}/src/audio.c"
   "${input_root}/src/bus.c"
   "${input_root}/src/loader.c"
   "${input_root}/src/inspect.c"

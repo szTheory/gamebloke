@@ -359,7 +359,8 @@ file(WRITE "${CMAKE_BINARY_DIR}/identity.txt"
   "${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}\n")
 set(core_sources
   "${GBL_SRC}/src/version.c" "${GBL_SRC}/src/machine.c"
-  "${GBL_SRC}/src/bus.c" "${GBL_SRC}/src/loader.c"
+  "${GBL_SRC}/src/audio.c" "${GBL_SRC}/src/bus.c"
+  "${GBL_SRC}/src/loader.c"
   "${GBL_SRC}/src/cpu.c" "${GBL_SRC}/src/inspect.c")
 set(runner_sources
   "${GBL_SRC}/tests/determinism_test.c" "${GBL_SRC}/runner/run.c"
@@ -456,7 +457,8 @@ foreach(compiler_index RANGE 0 ${compiler_last})
   file(SHA256 "${matrix_project_file}" matrix_project_sha)
   set(build_signature_material "${MODE}|${compiler_label}|${compiler_id}|${compiler_version}|${compiler_real_path}|${logo_digest}|${build_type}|${global_c_flags}|${build_type_flags}|${generator}|-O0|-O2|C17|-Werror|${matrix_project_sha}")
   foreach(source IN ITEMS
-      src/version.c src/machine.c src/bus.c src/loader.c src/cpu.c src/inspect.c
+      src/version.c src/machine.c src/audio.c src/bus.c src/loader.c
+      src/cpu.c src/inspect.c
       runner/run.c runner/result.c runner/sha256.c tests/determinism_test.c)
     file(SHA256 "${SRC}/${source}" source_sha)
     string(APPEND build_signature_material "|${source}=${source_sha}")

@@ -51,13 +51,15 @@ endfunction()
 function(gbl__copy_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
+  foreach(source IN ITEMS version.c machine.c audio.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
   file(COPY_FILE "${SRC}/src/ppu_internal.h"
     "${sandbox}/src/ppu_internal.h")
+  file(COPY_FILE "${SRC}/src/audio_internal.h"
+    "${sandbox}/src/audio_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/bus_test.c" "${sandbox}/tests/bus_test.c")
@@ -99,7 +101,8 @@ function(gbl__compile_bus sandbox mutation output_executable)
       ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
-      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/audio.c" "${sandbox}/src/bus.c"
+      "${sandbox}/src/loader.c"
       "${sandbox}/src/cpu.c"
       "${sandbox}/tests/bus_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}
@@ -170,13 +173,15 @@ endfunction()
 function(gbl__copy_loader_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
+  foreach(source IN ITEMS version.c machine.c audio.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
   file(COPY_FILE "${SRC}/src/ppu_internal.h"
     "${sandbox}/src/ppu_internal.h")
+  file(COPY_FILE "${SRC}/src/audio_internal.h"
+    "${sandbox}/src/audio_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/loader_test.c" "${sandbox}/tests/loader_test.c")
@@ -294,13 +299,16 @@ endfunction()
 function(gbl__copy_cpu_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c inspect.c)
+  foreach(source IN ITEMS version.c machine.c audio.c bus.c loader.c cpu.c
+      inspect.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
   file(COPY_FILE "${SRC}/src/ppu_internal.h"
     "${sandbox}/src/ppu_internal.h")
+  file(COPY_FILE "${SRC}/src/audio_internal.h"
+    "${sandbox}/src/audio_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   foreach(test_header IN ITEMS check.h state_check.h)
@@ -361,7 +369,8 @@ function(gbl__compile_cpu sandbox mutation output_executable)
       ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
-      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/audio.c" "${sandbox}/src/bus.c"
+      "${sandbox}/src/loader.c"
       "${sandbox}/src/cpu.c" "${sandbox}/src/inspect.c"
       "${sandbox}/tests/cpu_test.c"
       -o "${executable}" ${link_flags} ${link_config_flags}
@@ -478,7 +487,8 @@ function(gbl__compile_cpu_reused_pair root mutation output_mutant
   # above covers every copied input except cpu.c, including all headers and the
   # real cpu_test.c. The two CPU objects and links remain independent.
   set(shared_objects "")
-  foreach(source IN ITEMS src/version.c src/machine.c src/bus.c src/loader.c)
+  foreach(source IN ITEMS src/version.c src/machine.c src/audio.c src/bus.c
+      src/loader.c)
     get_filename_component(object_name "${source}" NAME_WE)
     gbl__compile_cpu_object("${clean_sandbox}" "${source}"
       "${root}/objects/shared" "${object_name}" object)
@@ -516,7 +526,7 @@ function(gbl__compile_cpu_reused_pair root mutation output_mutant
       "mutation: reuse-control: mutant and clean executables are not isolated")
   endif()
   message(STATUS
-    "mutation: reuse-control passed for '${mutation}': six common objects shared; CPU objects and executables are separate")
+    "mutation: reuse-control passed for '${mutation}': seven common objects shared; CPU objects and executables are separate")
 
   set(${output_mutant} "${mutant_executable}" PARENT_SCOPE)
   set(${output_clean} "${clean_executable}" PARENT_SCOPE)
@@ -659,7 +669,8 @@ function(gbl__compile_loader sandbox mutation output_executable expectation_mode
       ${logo_flags}
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
-      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/audio.c" "${sandbox}/src/bus.c"
+      "${sandbox}/src/loader.c"
       "${sandbox}/src/cpu.c"
       "${sandbox}/tests/loader_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}
