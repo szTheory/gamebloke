@@ -60,10 +60,10 @@ v4.0. Hardware qualification remains UNKNOWN.
   3. A PCM serialization vector with distinct left/right samples verifies channel order and S16LE bytes. Muted capture is signed zero, and interval edges yield exact counts and bytes from the declared epoch.
   4. Bounded capture refusal preserves machine state and caller buffers. Sample and oscillator progression do not add an event per output frame or waveform edge, so a guest second does not exhaust the 4,096-event dispatch allowance.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 - [x] 16-01-PLAN.md — Wire timed SOUNDBIAS and the first sample through the canonical core
-- [ ] 16-02-PLAN.md — Complete audio registers, capture bounds, and semantic vectors
+- [x] 16-02-PLAN.md — Complete audio registers, capture bounds, and semantic vectors
 - [ ] 16-03-PLAN.md — Bind the audio profile contract and run canonical verification
 
 ### Phase 17: PSG Channels and Sequencer
@@ -109,7 +109,7 @@ v4.0. Hardware qualification remains UNKNOWN.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 16. Audio Registers and Capture Contract | 1/3 | In Progress | — |
+| 16. Audio Registers and Capture Contract | 2/3 | In Progress | — |
 | 17. PSG Channels and Sequencer | 0/TBD | Not started | — |
 | 18. Direct Sound and FIFO DMA | 0/TBD | Not started | — |
 | 19. Stereo Mixing and Runner Evidence | 0/TBD | Not started | — |

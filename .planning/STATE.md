@@ -5,16 +5,16 @@ milestone_name: Audio
 current_phase: 16
 current_phase_name: Audio Registers and Capture Contract
 status: executing
-stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-11-22T15:18:46.262Z"
+stopped_at: Completed 16-02-PLAN.md
+last_updated: "2026-11-22T15:58:29.813Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 16 execution started
-state_head: 8b77c4c3bcc63aeb39260c801f92da761c39dbf4
+state_head: 50aaaab8ad567ae45a00b920456b0156da76ad87
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 16 (Audio Registers and Capture Contract) — EXECUTING
-Plan: 2 of 3
-Status: Executing Phase 16
+Plan: 3 of 3
+Status: Ready to execute
 Last activity: 2026-11-22 — Phase 16 execution started
 Last activity description: Phase 16 execution started
 Progress: [░░░░░░░░░░] 0%
@@ -191,6 +191,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 13 P08 | 39min minimum | 2 tasks | 14 files |
 | Phase 15 P01 | not measured | 2 tasks | 1 files |
 | Phase 16 P01 | 35min | 3 tasks | 11 files |
+| Phase 16 P02 | 34m | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -515,6 +516,9 @@ Recent decisions affecting current work:
 - [Phase 16]: Keep capture at fixed 32,768 Hz stereo signed-16 little-endian with one frame per 512 machine cycles, starting at cycle 512.
 - [Phase 16]: Keep capture output caller-owned and staged privately; publish only after checked time commit succeeds.
 - [Phase 16]: Drain all ordered same-cycle device events before a sample edge, then apply its completing bus write.
+- [Phase 16]: Keep the 32768 Hz stereo S16LE grid fixed at one frame per 512 machine cycles, first at cycle 512.
+- [Phase 16]: Keep the 4096 per-operation dispatch limit separate from the one-second cumulative caller capture bound.
+- [Phase 16]: At a shared cycle, drain event effects, sample the old route, then apply the completing bus write.
 
 ### Pending Todos
 
@@ -566,8 +570,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-22T15:18:46.244Z
-Stopped at: Completed 16-01-PLAN.md
+Last session: 2026-11-22T15:58:29.787Z
+Stopped at: Completed 16-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
