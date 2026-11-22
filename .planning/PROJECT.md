@@ -51,6 +51,10 @@ and hardware qualification outside the claim.
 - Headless runner audio capture and semantic/repeatability evidence from
   original, rights-cleared diagnostic guests.
 
+The intended added value beside Playstead's managed mGBA route is a reproducible
+headless audio and semantic-evidence contract. This is not a fidelity comparison
+or an assumed replacement.
+
 ## Next Milestone Direction
 
 After v4.0, the rolling roadmap recommends Cartridge and Saves, then API,
@@ -90,8 +94,7 @@ These are hypotheses until shipped and verified. Formal REQ-IDs live in
 REQUIREMENTS.md.
 
 - [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
-- [ ] Audio event scheduling and PSG/Direct Sound FIFO behavior in guest-time units
-- [ ] Audio (PSG + Direct Sound FIFO) produced as raw machine samples, kept separate from host resampling and playback
+- [ ] v4.0 Audio capabilities and raw capture, tracked by the approved REQ-IDs in REQUIREMENTS.md
 - [ ] Explicitly modeled cartridge backup devices. Save type is never inferred from a filename or title.
 - [ ] Raw audio capture in the deterministic runner; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
 - [ ] A fixture manifest for every test ROM (source, revision, build recipe, digest, license, permitted use, BIOS mode, expected result)
@@ -186,6 +189,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Time and timer evidence boundary (Phase 7) | Keep one-cycle non-ROM costs and timer edge choices project-selected; separate semantic guest completion, IF request, and model cycles | Verified locally as model evidence; no GBA timing qualification is claimed |
 | IRQ/HALT and logical input boundary (Phase 8) | Keep device IF, CPU eligibility/entry, HALT wake, and timestamped host-neutral input distinct | Verified locally; no BIOS handler, hardware IRQ latency, or physical-controller behavior is claimed |
 | PPU and Playable 0 boundary (Phase 10) | Use explicit PPU events, complete supported mode-3 frame capture, semantic pixel checks, and a local host; preserve HBlank evidence and dispute labels | Verified locally; the owner accepted the original diagnostic demo only; no hardware, retail-game, audio/save, or redistribution claim is implied |
+| v4.0 Audio scope and raw capture policy (owner, 2026-11-22) | Add PSG 1–4 and Direct Sound FIFO A/B on guest time, with bounded runner capture at fixed 32,768 Hz stereo S16LE and explicit project-policy labels | ✓ Scope and output contract approved; no host playback or hardware qualification claim |
 | Local interactive host boundary (Phase 10) | Reuse the canonical machine through the official Libretro ABI; use a dependency-free terminal fallback after managed RetroArch launch denial | Verified locally; no policy bypass, second core, or runtime dependency was added |
 | v2.0 owner judgment (2026-11-19) | The owner ran the terminal demo and accepted the visible original BIOS-free diagnostic behavior | ✓ Accepted for scoped Playable 0 demo; broader compatibility, hardware, physical-controller, and rights decisions remain open |
 | v3.0 PPU scope (owner-prepared recommendation; 2026-11-19) | Extend the mode-3 path to functional modes 0–5 and common composition through raw video, preserving explicit project-model and hardware-evidence limits | ✓ Completed across Phases 11–15; deterministic model and local production-runner evidence only; hardware qualification remains UNKNOWN |

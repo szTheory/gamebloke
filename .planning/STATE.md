@@ -21,7 +21,7 @@ See: .planning/PROJECT.md (updated 2026-11-21)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v3.0 PPU Modes and Composition (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Planning the next milestone; Audio is recommended but not selected
+**Current focus:** v4.0 Audio scope and fixed raw-capture policy approved; requirements committed, roadmap pending
 
 ## Current Position
 
