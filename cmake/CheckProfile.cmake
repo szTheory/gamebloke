@@ -69,6 +69,9 @@
 #   irq-policy-source      Phase 8 policy source or cited hardware source row is stale
 #   irq-policy-value       Phase 8 policy value, source row set, or profile version is wrong
 #   irq-policy-doc         visible IRQ/input/power policy or source-fact table is stale
+#   audio-policy-missing   audio_policy is absent or not an object
+#   audio-policy-value     exact capture, register, SOUNDBIAS, or qualification contract differs
+#   audio-policy-doc       canonical audio policy/register tables are absent or stale
 # The json:, contract:, and registry: codes come from the loader and the vocabulary
 # and registry readers this file calls.
 
@@ -87,6 +90,50 @@ set(GBL_PROFILE_REQUIRED_UNMODELED
   sp-micro-differences prefetch waitcnt bus-costs timer-edge-qualification
   hblank-flag-edge ppu audio dma irq-controller backup-media bios-protection
   io-devices)
+set(GBL_PROFILE_AUDIO_POLICY_ROWS
+  "model|gamebloke-audio-model-1|STRING"
+  "classification|project-selected|STRING"
+  "hardware_qualification|UNKNOWN|STRING"
+  "tap|pre-pwm|STRING"
+  "encoding|signed-s16le|STRING"
+  "channel_layout|stereo-interleaved-left-first|STRING"
+  "sample_rate_hz|32768|NUMBER"
+  "bytes_per_frame|4|NUMBER"
+  "master_cycles_per_frame|512|NUMBER"
+  "reset_epoch_cycle|0|NUMBER"
+  "first_sample_cycle|512|NUMBER"
+  "interval|start-exclusive-end-inclusive|STRING"
+  "sample_value|signed-zero|STRING"
+  "modeled_sources|none|STRING"
+  "capture_bound_scope|caller-owned-session|STRING"
+  "capture_session_start|explicit-current-machine-cycle|STRING"
+  "capture_session_progress|accepted-contiguous-operations|STRING"
+  "capture_session_global_grid|unchanged|STRING"
+  "max_capture_cycles|16777216|NUMBER"
+  "max_capture_frames|32768|NUMBER"
+  "max_capture_bytes|131072|NUMBER"
+  "refusal_postcondition|machine-output-session-progress-unchanged|STRING"
+  "event_dispatch_limit_per_operation|4096|NUMBER"
+  "same_cycle_order|ordered-device-effects-including-timer-overflow-and-dma-readiness,then-sample-old-route,then-completing-bus-write-including-dma-data-write|STRING")
+set(GBL_PROFILE_AUDIO_SOUNDBIAS_JSON [=[{"address":"0x04000088-0x04000089","writable_mask":"0xC3FF","reset_value":"0x0200","master_off_access":"available","cadence_effect":"none","capture_quantization":"none"}]=])
+set(GBL_PROFILE_AUDIO_SOUNDBIAS_FIELDS
+  address writable_mask reset_value master_off_access cadence_effect
+  capture_quantization)
+set(GBL_PROFILE_AUDIO_REGISTERS_JSON [=[[
+  {"name":"SOUND1CNT_L","address":"0x04000060","retained_mask":"0x007F","read_mask":"0x007F","action_mask":"0x0000","effect":"retained-control-no-source"},
+  {"name":"SOUND1CNT_H","address":"0x04000062","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
+  {"name":"SOUND1CNT_X","address":"0x04000064","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+  {"name":"SOUND2CNT_L","address":"0x04000068","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
+  {"name":"SOUND2CNT_H","address":"0x0400006C","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+  {"name":"SOUND3CNT_L","address":"0x04000070","retained_mask":"0x00E0","read_mask":"0x00E0","action_mask":"0x0000","effect":"length-enable-control"},
+  {"name":"SOUND3CNT_H","address":"0x04000072","retained_mask":"0xE0FF","read_mask":"0xE000","action_mask":"0x0000","effect":"volume-and-bank-control"},
+  {"name":"SOUND3CNT_X","address":"0x04000074","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+  {"name":"SOUND4CNT_L","address":"0x04000078","retained_mask":"0xFF3F","read_mask":"0xFF00","action_mask":"0x0000","effect":"length-and-envelope-control"},
+  {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
+  {"name":"SOUNDCNT_L","address":"0x04000080","retained_mask":"0xFF77","read_mask":"0xFF77","action_mask":"0x0000","effect":"psg-routing-and-volume-state"},
+  {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-actions-unmodeled"},
+  {"name":"SOUNDCNT_X","address":"0x04000084","retained_mask":"0x0080","read_mask":"0x008F","action_mask":"0x8800","effect":"master-enable-dynamic-channel-status-disable-clears-channel-state"}
+]]=])
 set(GBL_PROFILE_HBLANK_DISPUTE disp-hblank-flag-edge)
 set(GBL_PROFILE_PPU_POLICY_ROWS
   "policy_classification|project-selected|STRING"
@@ -1396,6 +1443,123 @@ function(gbl__profile_ppu_policy doc)
   gbl__profile_ppu_video_memory_access("${doc}")
 endfunction()
 
+function(gbl__profile_audio_policy profile)
+  gbl_json_type(policy_type "${profile}" audio_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile audio-policy-missing
+      "audio_policy: missing or not an object")
+    return()
+  endif()
+
+  gbl_json_type(version_type "${profile}" profile_version)
+  if(NOT "${version_type}" STREQUAL "NUMBER")
+    gbl_finding(profile audio-policy-value
+      "profile_version: expected 16 or later for audio policy")
+  else()
+    string(JSON profile_version GET "${profile}" profile_version)
+    if(NOT profile_version MATCHES "^[1-9][0-9]*$" OR
+        profile_version LESS 16)
+      gbl_finding(profile audio-policy-value
+        "profile_version: expected 16 or later for audio policy")
+    endif()
+  endif()
+
+  list(LENGTH GBL_PROFILE_AUDIO_POLICY_ROWS scalar_count)
+  math(EXPR expected_field_count "${scalar_count}+2")
+  string(JSON actual_field_count LENGTH "${profile}" audio_policy)
+  if(NOT actual_field_count EQUAL expected_field_count)
+    gbl_finding(profile audio-policy-value
+      "audio_policy: expected ${expected_field_count} fields, found ${actual_field_count}")
+  endif()
+
+  foreach(pair IN LISTS GBL_PROFILE_AUDIO_POLICY_ROWS)
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    list(GET fields 1 expected_value)
+    list(GET fields 2 expected_type)
+    gbl_json_type(actual_type "${profile}" audio_policy "${key}")
+    if(NOT "${actual_type}" STREQUAL "${expected_type}")
+      gbl_finding(profile audio-policy-value
+        "audio_policy.${key}: expected ${expected_type}, found ${actual_type}")
+      continue()
+    endif()
+    string(JSON actual_value ERROR_VARIABLE value_error GET
+      "${profile}" audio_policy "${key}")
+    if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+        NOT "${value_error}" STREQUAL "")
+      gbl_finding(profile audio-policy-value
+        "audio_policy.${key}: unreadable value")
+    elseif(NOT "${actual_value}" STREQUAL "${expected_value}")
+      gbl_finding(profile audio-policy-value
+        "audio_policy.${key}: expected ${expected_value}")
+    endif()
+  endforeach()
+
+  gbl__profile_audio_policy_object("${profile}" soundbias
+    "${GBL_PROFILE_AUDIO_SOUNDBIAS_JSON}"
+    ${GBL_PROFILE_AUDIO_SOUNDBIAS_FIELDS})
+
+  gbl_json_type(registers_type "${profile}" audio_policy registers)
+  if(NOT "${registers_type}" STREQUAL "ARRAY")
+    gbl_finding(profile audio-policy-value
+      "audio_policy.registers: expected ARRAY, found ${registers_type}")
+  else()
+    string(JSON actual_registers ERROR_VARIABLE registers_error GET
+      "${profile}" audio_policy registers)
+    if(NOT "${registers_error}" STREQUAL "NOTFOUND" AND
+        NOT "${registers_error}" STREQUAL "")
+      gbl_finding(profile audio-policy-value
+        "audio_policy.registers: unreadable value")
+    else()
+      string(JSON registers_match EQUAL "${actual_registers}"
+        "${GBL_PROFILE_AUDIO_REGISTERS_JSON}")
+      if(NOT registers_match)
+        gbl_finding(profile audio-policy-value
+          "audio_policy.registers: exact register policy differs")
+      endif()
+    endif()
+  endif()
+endfunction()
+
+function(gbl__profile_audio_policy_object profile object_key expected_json)
+  set(path "audio_policy.${object_key}")
+  gbl_json_type(actual_type "${profile}" audio_policy "${object_key}")
+  if(NOT "${actual_type}" STREQUAL "OBJECT")
+    gbl_finding(profile audio-policy-value
+      "${path}: expected OBJECT, found ${actual_type}")
+    return()
+  endif()
+
+  string(JSON expected_count LENGTH "${expected_json}")
+  string(JSON actual_count LENGTH "${profile}" audio_policy "${object_key}")
+  if(NOT actual_count EQUAL expected_count)
+    gbl_finding(profile audio-policy-value
+      "${path}: expected ${expected_count} fields, found ${actual_count}")
+  endif()
+
+  foreach(field IN LISTS ARGN)
+    string(JSON expected_type TYPE "${expected_json}" "${field}")
+    gbl_json_type(actual_field_type "${profile}" audio_policy
+      "${object_key}" "${field}")
+    if(NOT "${actual_field_type}" STREQUAL "${expected_type}")
+      gbl_finding(profile audio-policy-value
+        "${path}.${field}: expected ${expected_type}, found ${actual_field_type}")
+      continue()
+    endif()
+    string(JSON expected_value GET "${expected_json}" "${field}")
+    string(JSON actual_value ERROR_VARIABLE value_error GET
+      "${profile}" audio_policy "${object_key}" "${field}")
+    if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+        NOT "${value_error}" STREQUAL "")
+      gbl_finding(profile audio-policy-value
+        "${path}.${field}: unreadable value")
+    elseif(NOT "${actual_value}" STREQUAL "${expected_value}")
+      gbl_finding(profile audio-policy-value
+        "${path}.${field}: expected ${expected_value}")
+    endif()
+  endforeach()
+endfunction()
+
 # Each nested policy is an exact, typed contract. Compare individual fields to
 # the canonical JSON so a bad value reports the causal path, while the count
 # rejects missing and unexpected fields.
@@ -2618,6 +2782,89 @@ function(gbl__profile_doc_ppu_sync normalized_text profile)
     ppu-access-policy-doc 9)
 endfunction()
 
+function(gbl__profile_doc_audio_sync normalized_text profile)
+  set(audio_rows)
+  foreach(pair IN LISTS GBL_PROFILE_AUDIO_POLICY_ROWS)
+    string(REPLACE "|" ";" fields "${pair}")
+    list(GET fields 0 key)
+    gbl_json_type(value_type "${profile}" audio_policy "${key}")
+    if("${value_type}" STREQUAL "MISSING")
+      set(value "<missing>")
+    else()
+      string(JSON value ERROR_VARIABLE value_error GET
+        "${profile}" audio_policy "${key}")
+      if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+          NOT "${value_error}" STREQUAL "")
+        set(value "<invalid>")
+      endif()
+    endif()
+    string(REPLACE ";" "\\;" value_cell "${value}")
+    list(APPEND audio_rows "| `audio_policy.${key}` | ${value_cell} |")
+  endforeach()
+  list(LENGTH audio_rows audio_count)
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## Audio behavior policy" audio_policy ${audio_count} audio_rows
+    "Setting;Value" audio-policy-doc 2)
+
+  set(soundbias_rows)
+  foreach(field IN LISTS GBL_PROFILE_AUDIO_SOUNDBIAS_FIELDS)
+    gbl_json_type(value_type "${profile}" audio_policy soundbias "${field}")
+    if("${value_type}" STREQUAL "MISSING")
+      set(value "<missing>")
+    else()
+      string(JSON value ERROR_VARIABLE value_error GET
+        "${profile}" audio_policy soundbias "${field}")
+      if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+          NOT "${value_error}" STREQUAL "")
+        set(value "<invalid>")
+      endif()
+    endif()
+    list(APPEND soundbias_rows
+      "| `audio_policy.soundbias.${field}` | ${value} |")
+  endforeach()
+  list(LENGTH soundbias_rows soundbias_count)
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## SOUNDBIAS policy" audio_policy.soundbias ${soundbias_count}
+    soundbias_rows "Setting;Value" audio-policy-doc 2)
+
+  set(register_rows)
+  gbl_json_type(registers_type "${profile}" audio_policy registers)
+  if("${registers_type}" STREQUAL "ARRAY")
+    string(JSON register_count LENGTH "${profile}" audio_policy registers)
+    set(register_fields name address retained_mask read_mask action_mask effect)
+    if(register_count GREATER 0)
+      math(EXPR last_register "${register_count}-1")
+      foreach(index RANGE 0 ${last_register})
+        set(values)
+        foreach(field IN LISTS register_fields)
+          string(JSON value ERROR_VARIABLE value_error GET
+            "${profile}" audio_policy registers "${index}" "${field}")
+          if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+              NOT "${value_error}" STREQUAL "")
+            set(value "<missing>")
+          endif()
+          list(APPEND values "${value}")
+        endforeach()
+        list(GET values 0 name)
+        list(GET values 1 address)
+        list(GET values 2 retained_mask)
+        list(GET values 3 read_mask)
+        list(GET values 4 action_mask)
+        list(GET values 5 effect)
+        list(APPEND register_rows
+          "| `audio_policy.registers.${name}` | `${name}` | `${address}` | `${retained_mask}` | `${read_mask}` | `${action_mask}` | ${effect} |")
+      endforeach()
+    endif()
+  else()
+    set(register_count 0)
+  endif()
+  gbl__profile_doc_policy_table("${normalized_text}"
+    "## Audio register policy" audio_policy.registers ${register_count}
+    register_rows
+    "Setting;Register;Address;Retained mask;Read mask;Action mask;Projected effect"
+    audio-policy-doc 7)
+endfunction()
+
 # gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the canonical
 # profile narrative must agree with the JSON. Normalize once before any
 # metadata, heading, section, or table lookup. <version-text> is empty when the
@@ -2830,6 +3077,7 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
 
   gbl__profile_doc_timing_sync("${normalized_text}" "${profile}")
   gbl__profile_doc_ppu_sync("${normalized_text}" "${profile}")
+  gbl__profile_doc_audio_sync("${normalized_text}" "${profile}")
 
   string(FIND "${normalized_text}" "\n## Unmodeled\n" at)
   set(doc_ids "")
@@ -2897,8 +3145,22 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   gbl_registry_read(R "${REGISTRY}" V)
   gbl_json_load(doc "${PROFILE}")
 
-  # Mutation controls target the production PPU policy validator directly.
+  # Focused mutation controls target the production policy validator directly.
   # The ordinary lint and clean-copy controls still exercise the full profile.
+  if(DEFINED GBL_PROFILE_AUDIO_ONLY AND GBL_PROFILE_AUDIO_ONLY)
+    gbl__profile_audio_policy("${doc}")
+    if(NOT EXISTS "${DOC}" OR IS_DIRECTORY "${DOC}")
+      gbl_finding(profile audio-policy-doc "${DOC}: unreadable")
+    else()
+      file(READ "${DOC}" audio_raw_text)
+      set(audio_raw_text "\n${audio_raw_text}")
+      gbl__profile_doc_normalize(audio_normalized_text "${audio_raw_text}")
+      gbl__profile_doc_audio_sync("${audio_normalized_text}" "${doc}")
+    endif()
+    gbl_findings_finish(profile "ok (agb audio policy)")
+    return()
+  endif()
+
   if(DEFINED GBL_PROFILE_PPU_ONLY AND GBL_PROFILE_PPU_ONLY)
     gbl__profile_ppu_policy("${doc}")
     if(NOT EXISTS "${DOC}" OR IS_DIRECTORY "${DOC}")
@@ -2993,6 +3255,7 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   endif()
 
   gbl__profile_ppu_policy("${doc}")
+  gbl__profile_audio_policy("${doc}")
   gbl__profile_bus_policy("${doc}")
   gbl__profile_waitcnt_policy("${doc}")
   gbl__profile_dma_policy("${doc}")

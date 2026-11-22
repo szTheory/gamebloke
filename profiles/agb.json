@@ -399,7 +399,7 @@
     "max_capture_bytes": 131072,
     "refusal_postcondition": "machine-output-session-progress-unchanged",
     "event_dispatch_limit_per_operation": 4096,
-    "same_cycle_order": "ordered-device-effects-including-timer-overflow-and-dma-readiness;sample-old-route;completing-bus-write-including-dma-data-write",
+    "same_cycle_order": "ordered-device-effects-including-timer-overflow-and-dma-readiness,then-sample-old-route,then-completing-bus-write-including-dma-data-write",
     "soundbias": {
       "address": "0x04000088-0x04000089",
       "writable_mask": "0xC3FF",

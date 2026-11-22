@@ -84,6 +84,16 @@ function(check_ppu_command out profile doc)
     PARENT_SCOPE)
 endfunction()
 
+# Audio mutation controls exercise the production audio policy validator and
+# its synchronized documentation tables without unrelated profile checks.
+function(check_audio_command out profile doc)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_AUDIO_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
 # expect_code(<code> <profile> [<doc>]): the validator fails with <code>. The
 # document defaults to an unmodified copy.
 function(expect_code code profile)
@@ -119,6 +129,16 @@ function(expect_ppu_detail code detail profile)
   gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
 endfunction()
 
+function(expect_audio_detail code detail profile)
+  if(ARGC GREATER 3)
+    set(doc "${ARGV3}")
+  else()
+    doc_copy(doc unchanged_audio_detail)
+  endif()
+  check_audio_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
 if(CASE STREQUAL "copy")
   profile_copy(p copy)
   doc_copy(d copy)
@@ -126,10 +146,77 @@ if(CASE STREQUAL "copy")
   gbl_expect_pass(COMMAND ${cmd}
     REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
 
+elseif(CASE STREQUAL "audio_policy")
+  profile_copy(p clean_audio_policy)
+  doc_copy(d clean_audio_policy)
+  check_audio_command(audio_cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${audio_cmd}
+    REGEX "profile: ok \\(agb audio policy\\)")
+
+  profile_copy(p wrong_audio_first_sample)
+  gbl_json_mutate_set("${p}" "513" audio_policy first_sample_cycle)
+  expect_audio_detail(audio-policy-value
+    "audio_policy\\.first_sample_cycle: expected 512" "${p}")
+
+  profile_copy(p per_operation_audio_scope)
+  gbl_json_mutate_set("${p}" [=["per-operation"]=]
+    audio_policy capture_bound_scope)
+  expect_audio_detail(audio-policy-value
+    "audio_policy\\.capture_bound_scope: expected caller-owned-session" "${p}")
+
+  profile_copy(p wrong_audio_byte_bound)
+  gbl_json_mutate_set("${p}" "131071" audio_policy max_capture_bytes)
+  expect_audio_detail(audio-policy-value
+    "audio_policy\\.max_capture_bytes: expected 131072" "${p}")
+
+  profile_copy(p wrong_audio_encoding)
+  gbl_json_mutate_set("${p}" [=["signed-s24le"]=]
+    audio_policy encoding)
+  expect_audio_detail(audio-policy-value
+    "audio_policy\\.encoding: expected signed-s16le" "${p}")
+
+  profile_copy(p missing_audio_policy)
+  gbl_json_mutate_remove("${p}" audio_policy)
+  expect_audio_detail(audio-policy-missing
+    "audio_policy: missing or not an object" "${p}")
+
+  profile_copy(p unsupported_audio_qualification)
+  gbl_json_mutate_set("${p}" [=["qualified"]=]
+    audio_policy hardware_qualification)
+  expect_audio_detail(audio-policy-value
+    "audio_policy\\.hardware_qualification: expected UNKNOWN" "${p}")
+
+  profile_copy(p documentation_audio_policy)
+  doc_copy(d audio_policy_doc_drift)
+  file(READ "${d}" audio_doc_before)
+  string(REPLACE
+    "| `audio_policy.first_sample_cycle` | 512 |"
+    "| `audio_policy.first_sample_cycle` | 513 |"
+    audio_doc_after "${audio_doc_before}")
+  if("${audio_doc_after}" STREQUAL "${audio_doc_before}")
+    message(FATAL_ERROR "mutate: no-match: audio policy documentation row")
+  endif()
+  file(WRITE "${d}" "${audio_doc_after}")
+  expect_audio_detail(audio-policy-doc
+    "audio_policy: missing or stale row" "${p}" "${d}")
+
+  doc_copy(d audio_register_doc_drift)
+  file(READ "${d}" audio_register_doc_before)
+  string(REPLACE
+    "| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |"
+    "| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x0000` | trigger-self-clears-status-dynamic |"
+    audio_register_doc_after "${audio_register_doc_before}")
+  if("${audio_register_doc_after}" STREQUAL "${audio_register_doc_before}")
+    message(FATAL_ERROR "mutate: no-match: audio register documentation row")
+  endif()
+  file(WRITE "${d}" "${audio_register_doc_after}")
+  expect_audio_detail(audio-policy-doc
+    "audio_policy.registers: missing or stale row" "${p}" "${d}")
+
 elseif(CASE STREQUAL "ppu_policy")
-  if(NOT "${PROFILE_VERSION}" STREQUAL "15")
+  if(NOT "${PROFILE_VERSION}" STREQUAL "16")
     message(FATAL_ERROR
-      "profile OBJ/composition capability assertion: expected version 15, found ${PROFILE_VERSION}")
+      "profile OBJ/composition capability assertion: expected version 16, found ${PROFILE_VERSION}")
   endif()
   string(JSON mode0_status GET "${base_profile}"
     ppu_policy display_capabilities modes 0 implementation_status)

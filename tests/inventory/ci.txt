@@ -1108,6 +1108,7 @@ ppu.tracer bus,core,integration,ppu
 ppu.window.obj bus,core,integration,ppu
 ppu.window.rect bus,core,integration,ppu
 profile.lint gate,profile
+profile.nc.audio_policy control,profile
 profile.nc.bad_bios_provider control,profile
 profile.nc.bad_boot control,profile
 profile.nc.bad_cart control,profile

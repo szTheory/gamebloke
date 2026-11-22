@@ -107,6 +107,7 @@ pins.nc.missing_file control,pins
 pins.nc.missing_header control,pins
 pins.pos.rows pins,positive
 profile.lint gate,profile
+profile.nc.audio_policy control,profile
 profile.nc.bad_bios_provider control,profile
 profile.nc.bad_boot control,profile
 profile.nc.bad_cart control,profile
