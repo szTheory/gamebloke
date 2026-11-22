@@ -554,7 +554,17 @@ static int run_psg_square(void)
                             probe, anchor + high_cycles[duty]) ==
                             GBL_TIME_STATUS_OK &&
                         gbl_audio_psg_sample(&probe->audio, 1u) == 0u &&
+                        gbl_machine_advance_to(
+                            probe, anchor + high_cycles[duty] + 1u) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_audio_psg_sample(&probe->audio, 1u) == 0u &&
+                        gbl_machine_advance_to(probe, anchor + 127u) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_audio_psg_sample(&probe->audio, 1u) == 0u &&
                         gbl_machine_advance_to(probe, anchor + 128u) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_audio_psg_sample(&probe->audio, 1u) == 15u &&
+                        gbl_machine_advance_to(probe, anchor + 129u) ==
                             GBL_TIME_STATUS_OK &&
                         gbl_audio_psg_sample(&probe->audio, 1u) == 15u;
             }
@@ -656,6 +666,12 @@ static int run_psg_noise(void)
                                 GBL_TIME_STATUS_OK &&
                       machine->audio.noise_lfsr == UINT16_C(0x2000) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
+        tap_check("15-bit noise state holds immediately after its first edge",
+                  passed && gbl_machine_advance_to(
+                                machine, trigger_cycle + 33u) ==
+                                GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x2000) &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
         tap_check("15-bit first feedback uses the selected right-shift mask",
                   passed && gbl_machine_advance_to(
                                 machine, trigger_cycle + 479u) ==
@@ -691,10 +707,27 @@ static int run_psg_noise(void)
                       (gbl_audio_read_register(
                            &machine->audio, UINT32_C(0x04000084)) & 8u) !=
                           0u);
+        tap_check("7-bit first noise edge is unchanged one cycle before",
+                  passed && gbl_machine_advance_to(
+                                machine, trigger_cycle + 31u) ==
+                                GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0040) &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
+        tap_check("7-bit first noise edge is applied at its divider period",
+                  passed && gbl_machine_advance_to(
+                                machine, trigger_cycle + 32u) ==
+                                GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0020) &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      gbl_machine_advance_to(
+                          machine, trigger_cycle + 33u) ==
+                          GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0020));
         tap_check("7-bit feedback edge has adjacent cycle expectations",
                   passed && gbl_machine_advance_to(
                                 machine, trigger_cycle + 191u) ==
                                 GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0002) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
                       gbl_machine_advance_to(
                           machine, trigger_cycle + 192u) ==
@@ -702,7 +735,17 @@ static int run_psg_noise(void)
                       machine->audio.noise_lfsr == UINT16_C(0x0001) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 0u &&
                       gbl_machine_advance_to(
+                          machine, trigger_cycle + 223u) ==
+                          GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0001) &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 0u &&
+                      gbl_machine_advance_to(
                           machine, trigger_cycle + 224u) ==
+                          GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0060) &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      gbl_machine_advance_to(
+                          machine, trigger_cycle + 225u) ==
                           GBL_TIME_STATUS_OK &&
                       machine->audio.noise_lfsr == UINT16_C(0x0060) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
@@ -1199,6 +1242,14 @@ static int run_psg_sweep(void)
                       (gbl_audio_read_register(
                            &machine->audio, UINT32_C(0x04000084)) & 1u) !=
                           0u);
+        tap_check("step-2 sweep changes the effective frequency at its exact clock",
+                  passed && gbl_machine_advance_to(machine, sweep_cycle) ==
+                                GBL_TIME_STATUS_OK &&
+                      machine->audio.sweep_frequency == UINT16_C(1536) &&
+                      machine->audio.sweep_timer == 0u &&
+                      (gbl_audio_read_register(
+                           &machine->audio, UINT32_C(0x04000084)) & 1u) !=
+                          0u);
         tap_check("step-2 sweep preserves the inclusive high edge minus one",
                   passed && gbl_machine_advance_to(
                                 machine, sweep_cycle + 40963u) ==
@@ -1256,6 +1307,10 @@ static int run_psg_sweep(void)
                      gbl_audio_psg_sample(&machine->audio, 0u) == 15u &&
                      gbl_machine_advance_to(
                          machine, trigger_cycle + period + edge) ==
+                         GBL_TIME_STATUS_OK &&
+                     gbl_audio_psg_sample(&machine->audio, 0u) == 0u &&
+                     gbl_machine_advance_to(
+                         machine, trigger_cycle + period + edge + 1u) ==
                          GBL_TIME_STATUS_OK &&
                      gbl_audio_psg_sample(&machine->audio, 0u) == 0u;
         }
@@ -1377,6 +1432,28 @@ static int run_psg_sweep(void)
                      machine->audio.sweep_frequency == UINT16_C(1020);
         }
         tap_check("subtract sweep applies on its eligible clock without underflow",
+                  passed);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        bool passed = machine != NULL;
+
+        if (passed) {
+            passed = configure_ch1(machine, 0u, 0u, 15u, false, 0u,
+                                   1u, true, 1u, 0u, false) &&
+                     gbl_machine_advance_to(machine, UINT64_C(98303)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.sweep_frequency == 0u &&
+                     gbl_machine_advance_to(machine, UINT64_C(98304)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.sweep_frequency == 0u &&
+                     (gbl_audio_read_register(
+                          &machine->audio, UINT32_C(0x04000084)) & 1u) !=
+                         0u;
+        }
+        tap_check("subtract sweep at frequency zero stays at the lower bound",
                   passed);
         free_machine(machine);
     }
@@ -1609,11 +1686,22 @@ static int run_psg_sweep(void)
                      gbl_machine_advance_to(machine, UINT64_C(98304)) ==
                          GBL_TIME_STATUS_OK &&
                      machine->audio.square_phase[0] < 1024u &&
+                     machine->audio.sweep_period == 0u &&
+                     machine->audio.sweep_shift == 0u &&
+                     write16(machine, UINT32_C(0x04000060),
+                             UINT16_C(0x0023)).status == GBL_BUS_STATUS_OK &&
+                     machine->audio.sweep_period == 0u &&
+                     machine->audio.sweep_shift == 0u &&
                      write16(machine, UINT32_C(0x04000064),
                              UINT16_C(0x87F8)).status == GBL_BUS_STATUS_OK &&
                      machine->audio.square_phase[0] == 0u &&
                      machine->audio.channel_volume[0] == 15u &&
-                     machine->audio.length_remaining[0] == 64u;
+                     machine->audio.length_remaining[0] == 64u &&
+                     machine->audio.sweep_period == 2u &&
+                     machine->audio.sweep_timer == 0u &&
+                     machine->audio.sweep_shift == 3u &&
+                     !machine->audio.sweep_decrease &&
+                     machine->audio.sweep_frequency == UINT16_C(2040);
         }
         tap_check("retrigger reloads CH1 oscillator, envelope, length, and sweep configuration",
                   passed);
@@ -1621,7 +1709,12 @@ static int run_psg_sweep(void)
             passed = write16(machine, UINT32_C(0x04000062), 0u).status ==
                          GBL_BUS_STATUS_OK &&
                      (read16(machine, UINT32_C(0x04000084)).value & 1u) ==
-                         0u;
+                         0u &&
+                     machine->audio.sweep_frequency == 0u &&
+                     machine->audio.sweep_period == 0u &&
+                     machine->audio.sweep_timer == 0u &&
+                     machine->audio.sweep_shift == 0u &&
+                     !machine->audio.sweep_decrease;
         }
         tap_check("disabling the CH1 DAC clears activity", passed);
         free_machine(machine);
@@ -1634,8 +1727,8 @@ static int run_psg_sweep(void)
         if (passed) {
             passed = configure_ch2(machine, 0u, 0u, 15u, false, 0u,
                                    UINT16_C(2047), false) &&
-                     write16(machine, UINT32_C(0x04000060), 0u).status ==
-                         GBL_BUS_STATUS_OK &&
+                     write16(machine, UINT32_C(0x04000060),
+                             UINT16_C(0x0023)).status == GBL_BUS_STATUS_OK &&
                      write16(machine, UINT32_C(0x04000062),
                              UINT16_C(0xF03F)).status == GBL_BUS_STATUS_OK &&
                      write16(machine, UINT32_C(0x04000064),
@@ -1643,13 +1736,21 @@ static int run_psg_sweep(void)
                      gbl_machine_advance_to(machine, UINT64_C(32768)) ==
                          GBL_TIME_STATUS_OK &&
                      (read16(machine, UINT32_C(0x04000084)).value & 3u) ==
-                         2u;
+                         2u &&
+                     machine->audio.sweep_frequency == UINT16_C(2047) &&
+                     machine->audio.sweep_period == 2u &&
+                     machine->audio.sweep_shift == 3u;
         }
         tap_check("CH1-only length expiry keeps CH2 running", passed);
         if (passed) {
             passed = write16(machine, UINT32_C(0x04000084), 0u).status ==
                          GBL_BUS_STATUS_OK &&
-                     read16(machine, UINT32_C(0x04000084)).value == 0u;
+                     read16(machine, UINT32_C(0x04000084)).value == 0u &&
+                     machine->audio.sweep_frequency == 0u &&
+                     machine->audio.sweep_period == 0u &&
+                     machine->audio.sweep_timer == 0u &&
+                     machine->audio.sweep_shift == 0u &&
+                     !machine->audio.sweep_decrease;
         }
         tap_check("master-off disables both active square channels", passed);
         free_machine(machine);
