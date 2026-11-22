@@ -135,12 +135,12 @@ set(GBL_PROFILE_AUDIO_POLICY_ROWS
   "psg_envelope_policy|channels-1-2-4,trigger-latches-volume-direction-period,step-7,period-zero-disabled,saturates-at-0-or-15|STRING"
   "psg_square_period_cycles|128*(2048-fdat)|STRING"
   "psg_square_duty_policy|duty-high-ratios-1-2-4-6-eighths|STRING"
-  "psg_ch1_sweep_policy|trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,underflow-keeps-frequency-active,overflow-above-2047-clears-active-status|STRING"
+  "psg_ch1_sweep_policy|trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,subtract-delta-bounded-by-current-frequency,zero-stays-zero,overflow-above-2047-clears-active-status|STRING"
   "psg_noise_divider_formula|32*r*2^(shift+1),ratio-zero-r=1/2|STRING"
   "psg_noise_width_bits|15-or-7|STRING"
   "psg_noise_seeds|15-bit=0x4000,7-bit=0x40|STRING"
   "psg_noise_feedback_masks|15-bit=0x6000,7-bit=0x60|STRING"
-  "psg_noise_lfsr_step|right-shift-xor-feedback-to-width-specific-high-bit|STRING"
+  "psg_noise_lfsr_step|right-shift-xor-feedback-using-width-specific-mask|STRING"
   "psg_noise_prohibited_shifts|14,15|STRING"
   "psg_noise_prohibited_behavior|holds-LFSR-phase-and-noise-bit,length-and-envelope-clocks-continue|STRING"
   "psg_wave_bank_count|2|NUMBER"
@@ -156,7 +156,7 @@ set(GBL_PROFILE_AUDIO_POLICY_ROWS
   "psg_wave_nibble_order|high-then-low|STRING"
   "psg_wave_nibble_period_cycles|4*(2048-fdat)|STRING"
   "psg_wave_volume_policy|field-0-mute-1-full-2-half-3-quarter,force-bit-three-quarter|STRING"
-  "psg_live_update_policy|CH1-frequency-and-sweep-controls-trigger-latched,CH2-frequency-keeps-square-phase-modulo-new-period,CH3-frequency-normalizes-nibble-cycle-remainder-and-pattern-write-normalizes-index,CH4-width-change-reseeds-and-frequency-write-normalizes-cycle-remainder|STRING"
+  "psg_live_update_policy|CH1-frequency-and-sweep-controls-trigger-latched,CH2-frequency-keeps-square-phase-modulo-new-period,CH3-frequency-normalizes-nibble-cycle-remainder-and-pattern-write-normalizes-index,CH4-width-change-reseeds,supported-divider-frequency-writes-normalize-noise-cycle-remainder,same-width-prohibited-divider-writes-preserve-noise-phase-and-remainder|STRING"
   "psg_ch3_rate_policy|manual-whole-pattern-derived-4*(2048-fdat)-cycles-per-nibble|STRING"
   "psg_ch3_rate_conflict|GBATEK-nibble-rate-interpretation-differs-by-factor-of-two|STRING"
   "psg_ch3_length_source_note|AGB-manual-CH3-expiration-paragraph-names-CH2-status-bit,model-uses-CH3-status|STRING"
@@ -168,12 +168,12 @@ set(GBL_PROFILE_AUDIO_SOUNDBIAS_FIELDS
 set(GBL_PROFILE_AUDIO_REGISTERS_JSON [=[[
   {"name":"SOUND1CNT_L","address":"0x04000060","retained_mask":"0x007F","read_mask":"0x007F","action_mask":"0x0000","effect":"sweep-control"},
   {"name":"SOUND1CNT_H","address":"0x04000062","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
-  {"name":"SOUND1CNT_X","address":"0x04000064","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
+  {"name":"SOUND1CNT_X","address":"0x04000064","retained_mask":"0x47FF","read_mask":"0x47FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
   {"name":"SOUND2CNT_L","address":"0x04000068","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
-  {"name":"SOUND2CNT_H","address":"0x0400006C","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
+  {"name":"SOUND2CNT_H","address":"0x0400006C","retained_mask":"0x47FF","read_mask":"0x47FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
   {"name":"SOUND3CNT_L","address":"0x04000070","retained_mask":"0x00E0","read_mask":"0x00E0","action_mask":"0x0000","effect":"DAC-bank-and-dimension-control"},
   {"name":"SOUND3CNT_H","address":"0x04000072","retained_mask":"0xE0FF","read_mask":"0xE000","action_mask":"0x0000","effect":"length-data-and-volume-control"},
-  {"name":"SOUND3CNT_X","address":"0x04000074","retained_mask":"0x47FF","read_mask":"0x4000","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
+  {"name":"SOUND3CNT_X","address":"0x04000074","retained_mask":"0x47FF","read_mask":"0x47FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
   {"name":"SOUND4CNT_L","address":"0x04000078","retained_mask":"0xFF3F","read_mask":"0xFF00","action_mask":"0x0000","effect":"length-and-envelope-control"},
   {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
   {"name":"SOUNDCNT_L","address":"0x04000080","retained_mask":"0xFF77","read_mask":"0xFF77","action_mask":"0x0000","effect":"psg-routing-and-volume-state"},

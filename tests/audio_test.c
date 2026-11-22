@@ -682,12 +682,12 @@ static int run_registers(void)
     } policies[] = {
         { UINT32_C(0x04000060), UINT16_C(0x007F), UINT16_C(0x007F) },
         { UINT32_C(0x04000062), UINT16_C(0xFFFF), UINT16_C(0xFFC0) },
-        { UINT32_C(0x04000064), UINT16_C(0x47FF), UINT16_C(0x4000) },
+        { UINT32_C(0x04000064), UINT16_C(0x47FF), UINT16_C(0x47FF) },
         { UINT32_C(0x04000068), UINT16_C(0xFFFF), UINT16_C(0xFFC0) },
-        { UINT32_C(0x0400006C), UINT16_C(0x47FF), UINT16_C(0x4000) },
+        { UINT32_C(0x0400006C), UINT16_C(0x47FF), UINT16_C(0x47FF) },
         { UINT32_C(0x04000070), UINT16_C(0x00E0), UINT16_C(0x00E0) },
         { UINT32_C(0x04000072), UINT16_C(0xE0FF), UINT16_C(0xE000) },
-        { UINT32_C(0x04000074), UINT16_C(0x47FF), UINT16_C(0x4000) },
+        { UINT32_C(0x04000074), UINT16_C(0x47FF), UINT16_C(0x47FF) },
         { UINT32_C(0x04000078), UINT16_C(0xFF3F), UINT16_C(0xFF00) },
         { UINT32_C(0x0400007C), UINT16_C(0x40FF), UINT16_C(0x40FF) },
         { UINT32_C(0x04000080), UINT16_C(0xFF77), UINT16_C(0xFF77) },
@@ -758,7 +758,7 @@ static int run_registers(void)
      * while SOUNDCNT_X reports the active channel separately. */
     result = write16(machine, UINT32_C(0x04000062), 0u);
     CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(read16(machine, UINT32_C(0x04000064)).value == UINT16_C(0x4000));
+    CHECK(read16(machine, UINT32_C(0x04000064)).value == UINT16_C(0x47FF));
     CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0001)) ==
           0u);
     result = write16(machine, UINT32_C(0x04000064), UINT16_C(0x4000));
@@ -1612,9 +1612,9 @@ static int run_psg_sweep(void)
                                    1u, false, 1u, UINT16_C(1024), false);
         }
         tap_check("CH1 sweep setup and trigger are accepted", passed);
-        tap_check("CH1 SOUND1CNT_X preserves the declared read mask",
+        tap_check("CH1 guest frequency readback starts at its programmed value",
                   passed && read16(machine, UINT32_C(0x04000064)).value ==
-                                0u);
+                                UINT16_C(1024));
         tap_check("CH1 is active before the first step-2 sweep clock",
                   passed && gbl_machine_advance_to(
                                 machine, sweep_cycle - 1u) ==
@@ -1627,6 +1627,8 @@ static int run_psg_sweep(void)
                                 GBL_TIME_STATUS_OK &&
                       machine->audio.sweep_frequency == UINT16_C(1536) &&
                       machine->audio.sweep_timer == 0u &&
+                      read16(machine, UINT32_C(0x04000064)).value ==
+                          UINT16_C(1024) &&
                       (gbl_audio_read_register(
                            &machine->audio, UINT32_C(0x04000084)) & 1u) !=
                           0u);

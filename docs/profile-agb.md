@@ -989,12 +989,12 @@ grid or quantize samples.
 | `audio_policy.psg_envelope_policy` | channels-1-2-4,trigger-latches-volume-direction-period,step-7,period-zero-disabled,saturates-at-0-or-15 |
 | `audio_policy.psg_square_period_cycles` | 128*(2048-fdat) |
 | `audio_policy.psg_square_duty_policy` | duty-high-ratios-1-2-4-6-eighths |
-| `audio_policy.psg_ch1_sweep_policy` | trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,underflow-keeps-frequency-active,overflow-above-2047-clears-active-status |
+| `audio_policy.psg_ch1_sweep_policy` | trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,subtract-delta-bounded-by-current-frequency,zero-stays-zero,overflow-above-2047-clears-active-status |
 | `audio_policy.psg_noise_divider_formula` | 32*r*2^(shift+1),ratio-zero-r=1/2 |
 | `audio_policy.psg_noise_width_bits` | 15-or-7 |
 | `audio_policy.psg_noise_seeds` | 15-bit=0x4000,7-bit=0x40 |
 | `audio_policy.psg_noise_feedback_masks` | 15-bit=0x6000,7-bit=0x60 |
-| `audio_policy.psg_noise_lfsr_step` | right-shift-xor-feedback-to-width-specific-high-bit |
+| `audio_policy.psg_noise_lfsr_step` | right-shift-xor-feedback-using-width-specific-mask |
 | `audio_policy.psg_noise_prohibited_shifts` | 14,15 |
 | `audio_policy.psg_noise_prohibited_behavior` | holds-LFSR-phase-and-noise-bit,length-and-envelope-clocks-continue |
 | `audio_policy.psg_wave_bank_count` | 2 |
@@ -1010,7 +1010,7 @@ grid or quantize samples.
 | `audio_policy.psg_wave_nibble_order` | high-then-low |
 | `audio_policy.psg_wave_nibble_period_cycles` | 4*(2048-fdat) |
 | `audio_policy.psg_wave_volume_policy` | field-0-mute-1-full-2-half-3-quarter,force-bit-three-quarter |
-| `audio_policy.psg_live_update_policy` | CH1-frequency-and-sweep-controls-trigger-latched,CH2-frequency-keeps-square-phase-modulo-new-period,CH3-frequency-normalizes-nibble-cycle-remainder-and-pattern-write-normalizes-index,CH4-width-change-reseeds-and-frequency-write-normalizes-cycle-remainder |
+| `audio_policy.psg_live_update_policy` | CH1-frequency-and-sweep-controls-trigger-latched,CH2-frequency-keeps-square-phase-modulo-new-period,CH3-frequency-normalizes-nibble-cycle-remainder-and-pattern-write-normalizes-index,CH4-width-change-reseeds,supported-divider-frequency-writes-normalize-noise-cycle-remainder,same-width-prohibited-divider-writes-preserve-noise-phase-and-remainder |
 | `audio_policy.psg_ch3_rate_policy` | manual-whole-pattern-derived-4*(2048-fdat)-cycles-per-nibble |
 | `audio_policy.psg_ch3_rate_conflict` | GBATEK-nibble-rate-interpretation-differs-by-factor-of-two |
 | `audio_policy.psg_ch3_length_source_note` | AGB-manual-CH3-expiration-paragraph-names-CH2-status-bit,model-uses-CH3-status |
@@ -1052,16 +1052,20 @@ The eight-part duty choices have 1/8, 2/8, 4/8, or 6/8 high time; trigger
 starts phase zero high, and live frequency writes retain elapsed phase modulo
 the new period. Channel 1 latches its sweep controls and effective frequency
 on trigger. Sweep clocks on steps 2 and 6; shift zero leaves frequency
-unchanged, time zero disables sweep, a negative result keeps the current
-frequency and activity, and a result above 2047 clears channel 1 activity. The
-effective frequency and sweep controls are trigger-latched; guest frequency
-readback continues to report the programmed value.
+unchanged and time zero disables sweep. For a valid 11-bit frequency and
+nonzero shift, the subtract delta is bounded by the current frequency, so zero
+stays zero; a result above 2047 clears channel 1 activity. The effective
+frequency and sweep controls are trigger-latched; guest frequency readback
+continues to report the programmed value.
 
 Channel 4 uses the selected divider equation `32 * r * 2^(shift + 1)`, where
 ratio zero selects `r = 1/2`. The 15-bit and 7-bit LFSRs seed to `0x4000` and
-`0x40`, use feedback masks `0x6000` and `0x60`, and shift right with feedback
-into the width-specific high bit. Shift codes 14 and 15 hold the LFSR phase
-and output bit; shared length and envelope clocks continue.
+`0x40`, use feedback masks `0x6000` and `0x60`, and shift right before XORing
+the width-specific mask when the feedback bit is set. Shift codes 14 and 15
+hold the LFSR phase and output bit; shared length and envelope clocks continue.
+Same-width writes with those prohibited divider shifts preserve the LFSR phase
+and noise cycle remainder; supported divider writes normalize the remainder
+to the new period. A width change reseeds the LFSR and clears the remainder.
 
 Channel 3 has two 16-byte banks, each storing 32 packed four-bit samples. Its
 16-byte guest window at `0x04000090–0x0400009F` supports byte, halfword, and
@@ -1088,12 +1092,12 @@ qualification; hardware qualification remains UNKNOWN.
 | --- | --- | --- | --- | --- | --- | --- |
 | `audio_policy.registers.SOUND1CNT_L` | `SOUND1CNT_L` | `0x04000060` | `0x007F` | `0x007F` | `0x0000` | sweep-control |
 | `audio_policy.registers.SOUND1CNT_H` | `SOUND1CNT_H` | `0x04000062` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
-| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
+| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x47FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND2CNT_L` | `SOUND2CNT_L` | `0x04000068` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
-| `audio_policy.registers.SOUND2CNT_H` | `SOUND2CNT_H` | `0x0400006C` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
+| `audio_policy.registers.SOUND2CNT_H` | `SOUND2CNT_H` | `0x0400006C` | `0x47FF` | `0x47FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND3CNT_L` | `SOUND3CNT_L` | `0x04000070` | `0x00E0` | `0x00E0` | `0x0000` | DAC-bank-and-dimension-control |
 | `audio_policy.registers.SOUND3CNT_H` | `SOUND3CNT_H` | `0x04000072` | `0xE0FF` | `0xE000` | `0x0000` | length-data-and-volume-control |
-| `audio_policy.registers.SOUND3CNT_X` | `SOUND3CNT_X` | `0x04000074` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
+| `audio_policy.registers.SOUND3CNT_X` | `SOUND3CNT_X` | `0x04000074` | `0x47FF` | `0x47FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND4CNT_L` | `SOUND4CNT_L` | `0x04000078` | `0xFF3F` | `0xFF00` | `0x0000` | length-and-envelope-control |
 | `audio_policy.registers.SOUND4CNT_H` | `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUNDCNT_L` | `SOUNDCNT_L` | `0x04000080` | `0xFF77` | `0xFF77` | `0x0000` | psg-routing-and-volume-state |

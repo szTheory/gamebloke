@@ -12,15 +12,15 @@ static const gbl_audio_register_policy gbl_audio_register_policies[
     GBL_AUDIO_REGISTER_COUNT] = {
         { UINT16_C(0x007F), UINT16_C(0x007F), UINT16_C(0x0000) },
         { UINT16_C(0xFFFF), UINT16_C(0xFFC0), UINT16_C(0x0000) },
-        { UINT16_C(0x47FF), UINT16_C(0x4000), UINT16_C(0x8000) },
+        { UINT16_C(0x47FF), UINT16_C(0x47FF), UINT16_C(0x8000) },
         { UINT16_C(0x0000), UINT16_C(0x0000), UINT16_C(0x0000) },
         { UINT16_C(0xFFFF), UINT16_C(0xFFC0), UINT16_C(0x0000) },
         { UINT16_C(0x0000), UINT16_C(0x0000), UINT16_C(0x0000) },
-        { UINT16_C(0x47FF), UINT16_C(0x4000), UINT16_C(0x8000) },
+        { UINT16_C(0x47FF), UINT16_C(0x47FF), UINT16_C(0x8000) },
         { UINT16_C(0x0000), UINT16_C(0x0000), UINT16_C(0x0000) },
         { UINT16_C(0x00E0), UINT16_C(0x00E0), UINT16_C(0x0000) },
         { UINT16_C(0xE0FF), UINT16_C(0xE000), UINT16_C(0x0000) },
-        { UINT16_C(0x47FF), UINT16_C(0x4000), UINT16_C(0x8000) },
+        { UINT16_C(0x47FF), UINT16_C(0x47FF), UINT16_C(0x8000) },
         { UINT16_C(0x0000), UINT16_C(0x0000), UINT16_C(0x0000) },
         { UINT16_C(0xFF3F), UINT16_C(0xFF00), UINT16_C(0x0000) },
         { UINT16_C(0x0000), UINT16_C(0x0000), UINT16_C(0x0000) },
@@ -440,9 +440,6 @@ static void gbl_audio_clock_sweep(gbl_audio_state *state)
     delta = (int32_t)(state->sweep_frequency >> state->sweep_shift);
     next_frequency = (int32_t)state->sweep_frequency;
     next_frequency += state->sweep_decrease ? -delta : delta;
-    if (next_frequency < 0) {
-        return;
-    }
     if (next_frequency > INT32_C(2047)) {
         state->active_channels &= (uint8_t)~UINT8_C(0x01);
         return;
