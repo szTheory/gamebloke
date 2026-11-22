@@ -1002,7 +1002,7 @@ data write.
 | `audio_policy.registers.SOUND4CNT_H` | `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | trigger-self-clears-status-dynamic |
 | `audio_policy.registers.SOUNDCNT_L` | `SOUNDCNT_L` | `0x04000080` | `0xFF77` | `0xFF77` | `0x0000` | psg-routing-and-volume-state |
 | `audio_policy.registers.SOUNDCNT_H` | `SOUNDCNT_H` | `0x04000082` | `0x770F` | `0x770F` | `0x8800` | direct-sound-routing-and-volume-state-fifo-actions-unmodeled |
-| `audio_policy.registers.SOUNDCNT_X` | `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x8800` | master-enable-dynamic-channel-status-disable-clears-channel-state |
+| `audio_policy.registers.SOUNDCNT_X` | `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x0000` | master-enable-dynamic-channel-status-disable-clears-channel-state |
 
 `SOUNDCNT_X` master enable gates channel-register writes; disabling it clears
 the channel register/activity state. SOUNDBIAS remains accessible while audio

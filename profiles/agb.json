@@ -421,7 +421,7 @@
       {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"trigger-self-clears-status-dynamic"},
       {"name":"SOUNDCNT_L","address":"0x04000080","retained_mask":"0xFF77","read_mask":"0xFF77","action_mask":"0x0000","effect":"psg-routing-and-volume-state"},
       {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-actions-unmodeled"},
-      {"name":"SOUNDCNT_X","address":"0x04000084","retained_mask":"0x0080","read_mask":"0x008F","action_mask":"0x8800","effect":"master-enable-dynamic-channel-status-disable-clears-channel-state"}
+      {"name":"SOUNDCNT_X","address":"0x04000084","retained_mask":"0x0080","read_mask":"0x008F","action_mask":"0x0000","effect":"master-enable-dynamic-channel-status-disable-clears-channel-state"}
     ]
   },
   "unmodeled": [

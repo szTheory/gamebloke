@@ -186,6 +186,12 @@ elseif(CASE STREQUAL "audio_policy")
   expect_audio_detail(audio-policy-value
     "audio_policy\\.hardware_qualification: expected UNKNOWN" "${p}")
 
+  profile_copy(p wrong_soundcntx_action_mask)
+  gbl_json_mutate_set("${p}" [=["0x8800"]=]
+    audio_policy registers 12 action_mask)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.registers: exact register policy differs" "${p}")
+
   profile_copy(p documentation_audio_policy)
   doc_copy(d audio_policy_doc_drift)
   file(READ "${d}" audio_doc_before)
@@ -210,6 +216,19 @@ elseif(CASE STREQUAL "audio_policy")
     message(FATAL_ERROR "mutate: no-match: audio register documentation row")
   endif()
   file(WRITE "${d}" "${audio_register_doc_after}")
+  expect_audio_detail(audio-policy-doc
+    "audio_policy.registers: missing or stale row" "${p}" "${d}")
+
+  doc_copy(d soundcntx_action_mask_doc_drift)
+  file(READ "${d}" audio_soundcntx_doc_before)
+  string(REPLACE
+    "| `audio_policy.registers.SOUNDCNT_X` | `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x0000` | master-enable-dynamic-channel-status-disable-clears-channel-state |"
+    "| `audio_policy.registers.SOUNDCNT_X` | `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x8800` | master-enable-dynamic-channel-status-disable-clears-channel-state |"
+    audio_soundcntx_doc_after "${audio_soundcntx_doc_before}")
+  if("${audio_soundcntx_doc_after}" STREQUAL "${audio_soundcntx_doc_before}")
+    message(FATAL_ERROR "mutate: no-match: SOUNDCNT_X action-mask documentation row")
+  endif()
+  file(WRITE "${d}" "${audio_soundcntx_doc_after}")
   expect_audio_detail(audio-policy-doc
     "audio_policy.registers: missing or stale row" "${p}" "${d}")
 
