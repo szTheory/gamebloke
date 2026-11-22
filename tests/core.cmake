@@ -70,11 +70,14 @@ gbl_add_test(
 add_executable(audio_test tests/audio_test.c)
 target_include_directories(audio_test PRIVATE src)
 target_link_libraries(audio_test PRIVATE gamebloke_core gbl_warnings)
-foreach(selector IN ITEMS tracer registers cadence boundaries refusal cpu)
+foreach(selector IN ITEMS tracer registers cadence boundaries refusal cpu
+    psg_square psg_sequencer psg_order psg_transaction psg_sweep psg_noise
+    psg_wave psg_wave_bus)
   if(selector STREQUAL "tracer" OR selector STREQUAL "registers" OR
-     selector STREQUAL "cpu")
+     selector STREQUAL "cpu" OR selector STREQUAL "psg_order" OR
+     selector STREQUAL "psg_wave_bus")
     set(audio_labels audio core integration)
-  elseif(selector STREQUAL "refusal")
+  elseif(selector STREQUAL "refusal" OR selector STREQUAL "psg_transaction")
     set(audio_labels audio control core)
   else()
     set(audio_labels audio core unit)

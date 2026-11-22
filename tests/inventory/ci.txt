@@ -2,6 +2,14 @@
 audio.boundaries audio,core,unit
 audio.cadence audio,core,unit
 audio.cpu audio,core,integration
+audio.psg_noise audio,core,unit
+audio.psg_order audio,core,integration
+audio.psg_sequencer audio,core,unit
+audio.psg_square audio,core,unit
+audio.psg_sweep audio,core,unit
+audio.psg_transaction audio,control,core
+audio.psg_wave audio,core,unit
+audio.psg_wave_bus audio,core,integration
 audio.refusal audio,control,core
 audio.registers audio,core,integration
 audio.tracer audio,core,integration
