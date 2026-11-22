@@ -1,5 +1,7 @@
 #include "audio_internal.h"
 
+#define GBL_AUDIO_NOISE_MAX_PERIOD UINT32_C(3670016)
+
 typedef struct gbl_audio_register_policy {
     uint16_t retain_mask;
     uint16_t read_mask;
@@ -110,6 +112,82 @@ static uint32_t gbl_audio_square_period(const gbl_audio_state *state,
                          UINT16_C(0x07FF));
 
     return UINT32_C(128) * (UINT32_C(2048) - frequency);
+}
+
+static bool gbl_audio_noise_period(const gbl_audio_state *state,
+                                   uint32_t *period)
+{
+    const uint16_t control = state->registers[14];
+    const uint32_t shift = (uint32_t)((control >> 4u) & UINT16_C(0x000F));
+    const uint32_t ratio = (uint32_t)(control & UINT16_C(0x0007));
+    const uint32_t ratio_scale =
+        ratio == 0u ? UINT32_C(32) : UINT32_C(64) * ratio;
+
+    if (period == NULL || shift >= 14u) {
+        return false;
+    }
+    *period = ratio_scale << shift;
+    return true;
+}
+
+static uint16_t gbl_audio_noise_seed(const gbl_audio_state *state)
+{
+    return (state->registers[14] & UINT16_C(0x0008)) != 0u
+               ? UINT16_C(0x0040)
+               : UINT16_C(0x4000);
+}
+
+static uint16_t gbl_audio_noise_step(uint16_t lfsr, bool width_7bit)
+{
+    const uint16_t feedback_mask =
+        width_7bit ? UINT16_C(0x0060) : UINT16_C(0x6000);
+    const uint16_t width_mask =
+        width_7bit ? UINT16_C(0x007F) : UINT16_C(0x7FFF);
+    const bool feedback = (lfsr & UINT16_C(0x0001)) != 0u;
+
+    lfsr >>= 1u;
+    if (feedback) {
+        lfsr ^= feedback_mask;
+    }
+    return (uint16_t)(lfsr & width_mask);
+}
+
+static void gbl_audio_advance_noise_steps(gbl_audio_state *state,
+                                          uint64_t steps, bool width_7bit)
+{
+    const uint32_t orbit_period = width_7bit ? UINT32_C(127)
+                                              : UINT32_C(32767);
+
+    steps %= orbit_period;
+    while (steps != 0u) {
+        state->noise_lfsr = gbl_audio_noise_step(state->noise_lfsr,
+                                                  width_7bit);
+        --steps;
+    }
+}
+
+static void gbl_audio_advance_noise_cycles(gbl_audio_state *state,
+                                            uint64_t elapsed)
+{
+    uint32_t period;
+    uint64_t steps;
+    uint32_t remainder;
+
+    if ((state->active_channels & UINT8_C(0x08)) == 0u ||
+        !gbl_audio_noise_period(state, &period)) {
+        return;
+    }
+    steps = elapsed / period;
+    remainder = (uint32_t)(elapsed % period) +
+                state->noise_cycle_remainder;
+    if (remainder >= period) {
+        remainder -= period;
+        ++steps;
+    }
+    state->noise_cycle_remainder = remainder;
+    gbl_audio_advance_noise_steps(
+        state, steps,
+        (state->registers[14] & UINT16_C(0x0008)) != 0u);
 }
 
 static bool gbl_audio_square_high_for_phase(const gbl_audio_state *state,
@@ -341,6 +419,7 @@ static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
         const uint64_t elapsed = clock_cycle - state->cycle_anchor;
 
         gbl_audio_advance_square_cycles(state, elapsed);
+        gbl_audio_advance_noise_cycles(state, elapsed);
         state->cycle_anchor = clock_cycle;
         if ((clock_step & UINT8_C(1)) == 0u) {
             gbl_audio_clock_lengths(state);
@@ -353,6 +432,7 @@ static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
         }
     }
     gbl_audio_advance_square_cycles(state, target - state->cycle_anchor);
+    gbl_audio_advance_noise_cycles(state, target - state->cycle_anchor);
     state->cycle_anchor = target;
 }
 
@@ -376,6 +456,9 @@ static void gbl_audio_reset_channel(gbl_audio_state *state,
         state->sweep_timer = 0u;
         state->sweep_shift = 0u;
         state->sweep_decrease = false;
+    } else if (channel_index == 3u) {
+        state->noise_lfsr = 0u;
+        state->noise_cycle_remainder = 0u;
     }
 }
 
@@ -418,6 +501,9 @@ static void gbl_audio_trigger_channel(gbl_audio_state *state,
         state->sweep_timer = 0u;
         state->sweep_shift = (uint8_t)(sweep & UINT16_C(0x0007));
         state->sweep_decrease = (sweep & UINT16_C(0x0008)) != 0u;
+    } else if (channel_index == 3u) {
+        state->noise_lfsr = gbl_audio_noise_seed(state);
+        state->noise_cycle_remainder = 0u;
     }
     if (channel_index < 2u) {
         state->square_phase[channel_index] = 0u;
@@ -438,7 +524,9 @@ bool gbl_audio_state_equal(const gbl_audio_state *left,
         left->sweep_period != right->sweep_period ||
         left->sweep_timer != right->sweep_timer ||
         left->sweep_shift != right->sweep_shift ||
-        left->sweep_decrease != right->sweep_decrease) {
+        left->sweep_decrease != right->sweep_decrease ||
+        left->noise_lfsr != right->noise_lfsr ||
+        left->noise_cycle_remainder != right->noise_cycle_remainder) {
         return false;
     }
     for (index = 0u; index < GBL_AUDIO_REGISTER_COUNT; ++index) {
@@ -473,6 +561,13 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
     size_t index;
     const bool master_enabled =
         state != NULL && (state->registers[18] & UINT16_C(0x0080)) != 0u;
+    const bool noise_width_7bit =
+        state != NULL && (state->registers[14] & UINT16_C(0x0008)) != 0u;
+    const uint16_t noise_width_mask =
+        noise_width_7bit ? UINT16_C(0x007F) : UINT16_C(0x7FFF);
+    uint32_t noise_period = 0u;
+    const bool noise_period_valid =
+        state != NULL && gbl_audio_noise_period(state, &noise_period);
 
     if (state == NULL ||
         state->soundbias != (uint16_t)(state->soundbias & UINT16_C(0xC3FF)) ||
@@ -484,10 +579,18 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
         (state->sweep_period == 0u && state->sweep_timer != 0u) ||
         (state->sweep_period != 0u &&
          state->sweep_timer >= state->sweep_period) ||
+        state->noise_lfsr > noise_width_mask ||
+        state->noise_cycle_remainder >= GBL_AUDIO_NOISE_MAX_PERIOD ||
+        (noise_period_valid &&
+         state->noise_cycle_remainder >= noise_period) ||
+        ((state->active_channels & UINT8_C(0x08)) != 0u &&
+         state->noise_lfsr == 0u) ||
         (!master_enabled &&
          (state->active_channels != 0u || state->sweep_frequency != 0u ||
           state->sweep_period != 0u || state->sweep_timer != 0u ||
-          state->sweep_shift != 0u || state->sweep_decrease)) ||
+          state->sweep_shift != 0u || state->sweep_decrease ||
+          state->noise_lfsr != 0u ||
+          state->noise_cycle_remainder != 0u)) ||
         ((state->active_channels & UINT8_C(0x01)) != 0u &&
          (state->registers[1] & UINT16_C(0xF800)) == 0u) ||
         ((state->active_channels & UINT8_C(0x02)) != 0u &&
@@ -610,6 +713,21 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
                         gbl_audio_register_policies[index].action_mask);
     state->registers[index] = next;
 
+    if (index == 14u) {
+        const bool previous_width_7bit =
+            (prior & UINT16_C(0x0008)) != 0u;
+        const bool next_width_7bit =
+            (next & UINT16_C(0x0008)) != 0u;
+        uint32_t noise_period;
+
+        if (previous_width_7bit != next_width_7bit) {
+            state->noise_lfsr = gbl_audio_noise_seed(state);
+            state->noise_cycle_remainder = 0u;
+        } else if (gbl_audio_noise_period(state, &noise_period)) {
+            state->noise_cycle_remainder %= noise_period;
+        }
+    }
+
     if (index == 2u && (action & UINT16_C(0x8000)) != 0u &&
         (state->registers[1] & UINT16_C(0xF800)) != 0u) {
         state->active_channels |= UINT8_C(0x01);
@@ -700,9 +818,17 @@ void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
 uint8_t gbl_audio_psg_sample(const gbl_audio_state *state,
                              unsigned channel_index)
 {
-    if (state == NULL || channel_index >= 4u || channel_index >= 2u ||
+    if (state == NULL || channel_index >= 4u ||
         (state->active_channels & (uint8_t)(UINT8_C(1) << channel_index)) ==
-            0u || !state->square_high[channel_index]) {
+            0u) {
+        return 0u;
+    }
+    if (channel_index == 3u) {
+        return (state->noise_lfsr & UINT16_C(0x0001)) == 0u
+                   ? state->channel_volume[channel_index]
+                   : 0u;
+    }
+    if (channel_index >= 2u || !state->square_high[channel_index]) {
         return 0u;
     }
     return state->channel_volume[channel_index];

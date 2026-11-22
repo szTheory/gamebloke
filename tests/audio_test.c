@@ -136,6 +136,98 @@ static bool configure_ch4_noise(gbl_machine *machine,
                GBL_BUS_STATUS_OK;
 }
 
+static bool advance_audio_without_capture(gbl_audio_state *audio,
+                                          uint64_t target)
+{
+    gbl_machine_time_preview preview = { 0 };
+    size_t staged_bytes = 0u;
+
+    if (audio == NULL) {
+        return false;
+    }
+    preview.audio = *audio;
+    if (gbl_audio_advance_span(&preview, target, NULL, 0u, &staged_bytes,
+                               NULL, NULL) != GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    *audio = preview.audio;
+    return true;
+}
+
+static uint16_t reference_noise_step(uint16_t lfsr, bool width_7bit)
+{
+    const uint16_t mask = width_7bit ? UINT16_C(0x0060) : UINT16_C(0x6000);
+    const uint16_t width_mask =
+        width_7bit ? UINT16_C(0x007F) : UINT16_C(0x7FFF);
+    const uint16_t feedback = (uint16_t)(lfsr & UINT16_C(0x0001));
+
+    lfsr = (uint16_t)(lfsr >> 1u);
+    return (uint16_t)((lfsr ^ (feedback != 0u ? mask : 0u)) & width_mask);
+}
+
+static bool reference_noise_advance(const gbl_audio_state *initial,
+                                   uint64_t target, uint32_t period,
+                                   bool width_7bit, uint16_t *lfsr,
+                                   uint32_t *remainder)
+{
+    uint64_t elapsed;
+    uint64_t steps;
+    uint32_t fraction;
+    uint32_t orbit_period;
+
+    if (initial == NULL || lfsr == NULL || remainder == NULL || period == 0u ||
+        target < initial->cycle_anchor) {
+        return false;
+    }
+    elapsed = target - initial->cycle_anchor;
+    steps = elapsed / period;
+    fraction = (uint32_t)(elapsed % period) +
+               initial->noise_cycle_remainder;
+    if (fraction >= period) {
+        fraction -= period;
+        ++steps;
+    }
+    orbit_period = width_7bit ? UINT32_C(127) : UINT32_C(32767);
+    steps %= orbit_period;
+    *lfsr = initial->noise_lfsr;
+    while (steps != 0u) {
+        *lfsr = reference_noise_step(*lfsr, width_7bit);
+        --steps;
+    }
+    *remainder = fraction;
+    return true;
+}
+
+static bool verify_noise_orbit(bool width_7bit)
+{
+    bool visited[32768] = { false };
+    const uint16_t seed = width_7bit ? UINT16_C(0x0040)
+                                      : UINT16_C(0x4000);
+    const uint32_t mask = width_7bit ? UINT32_C(0x007F)
+                                      : UINT32_C(0x7FFF);
+    const uint32_t period = width_7bit ? UINT32_C(127)
+                                        : UINT32_C(32767);
+    uint16_t lfsr = seed;
+    uint32_t index;
+
+    for (index = 0u; index < period; ++index) {
+        if (lfsr == 0u || visited[lfsr]) {
+            return false;
+        }
+        visited[lfsr] = true;
+        lfsr = reference_noise_step(lfsr, width_7bit);
+    }
+    if (lfsr != seed) {
+        return false;
+    }
+    for (index = 1u; index <= mask; ++index) {
+        if (!visited[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot);
 static bool unchanged_machine(const gbl_machine *machine,
                               const gbl_machine *snapshot);
@@ -549,30 +641,34 @@ static int run_psg_noise(void)
         tap_check("15-bit noise trigger configures CH4", passed);
         tap_check("15-bit seed projects high through complement of LFSR bit zero",
                   passed && gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      machine->audio.noise_lfsr == UINT16_C(0x4000) &&
                       (gbl_audio_read_register(
                            &machine->audio, UINT32_C(0x04000084)) & 8u) !=
                           0u);
         tap_check("first 15-bit noise edge is unchanged at edge minus one",
                   passed && gbl_machine_advance_to(
-                                machine, trigger_cycle + 15u) ==
+                                machine, trigger_cycle + 31u) ==
                                 GBL_TIME_STATUS_OK &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
         tap_check("first 15-bit noise edge is applied at the divider period",
                   passed && gbl_machine_advance_to(
-                                machine, trigger_cycle + 16u) ==
+                                machine, trigger_cycle + 32u) ==
                                 GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x2000) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
         tap_check("15-bit first feedback uses the selected right-shift mask",
                   passed && gbl_machine_advance_to(
-                                machine, trigger_cycle + 239u) ==
+                                machine, trigger_cycle + 479u) ==
                                 GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0001) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 0u &&
                       gbl_machine_advance_to(
-                          machine, trigger_cycle + 240u) ==
+                          machine, trigger_cycle + 480u) ==
                           GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x6000) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
                       gbl_machine_advance_to(
-                          machine, trigger_cycle + 241u) ==
+                          machine, trigger_cycle + 481u) ==
                           GBL_TIME_STATUS_OK &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
         free_machine(machine);
@@ -591,60 +687,483 @@ static int run_psg_noise(void)
         tap_check("7-bit noise trigger configures CH4", passed);
         tap_check("7-bit seed projects high through complement of bit zero",
                   passed && gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0040) &&
                       (gbl_audio_read_register(
                            &machine->audio, UINT32_C(0x04000084)) & 8u) !=
                           0u);
         tap_check("7-bit feedback edge has adjacent cycle expectations",
                   passed && gbl_machine_advance_to(
-                                machine, trigger_cycle + 95u) ==
+                                machine, trigger_cycle + 191u) ==
                                 GBL_TIME_STATUS_OK &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
                       gbl_machine_advance_to(
-                          machine, trigger_cycle + 96u) ==
+                          machine, trigger_cycle + 192u) ==
                           GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0001) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 0u &&
                       gbl_machine_advance_to(
-                          machine, trigger_cycle + 112u) ==
+                          machine, trigger_cycle + 224u) ==
                           GBL_TIME_STATUS_OK &&
+                      machine->audio.noise_lfsr == UINT16_C(0x0060) &&
                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
+        free_machine(machine);
+    }
+
+    tap_check("independent 7-bit LFSR orbit returns after 127 unique nonzero states",
+              verify_noise_orbit(true));
+    tap_check("independent 15-bit LFSR orbit returns after 32767 unique nonzero states",
+              verify_noise_orbit(false));
+
+    {
+        bool passed = true;
+        bool width_7bit;
+
+        for (width_7bit = false; ; width_7bit = true) {
+            gbl_machine *machine = new_machine();
+            gbl_audio_state state = { 0 };
+            const uint16_t expected =
+                width_7bit ? UINT16_C(0x0060) : UINT16_C(0x6000);
+            bool step_passed = machine != NULL;
+
+            if (step_passed) {
+                step_passed = configure_ch4_noise(
+                                  machine, 0u, 15u, false, 0u, 0u,
+                                  width_7bit, 0u, false);
+                state = machine->audio;
+                state.noise_lfsr = 1u;
+                state.noise_cycle_remainder = 31u;
+                step_passed = step_passed &&
+                              gbl_audio_state_valid(&state) &&
+                              advance_audio_without_capture(
+                                  &state, state.cycle_anchor + 1u) &&
+                              state.noise_lfsr == expected &&
+                              state.noise_cycle_remainder == 0u &&
+                              gbl_audio_psg_sample(&state, 3u) == 15u;
+            }
+            passed = passed && step_passed;
+            free_machine(machine);
+            if (width_7bit) {
+                break;
+            }
+        }
+        tap_check("feedback from state 0x01 applies 0x6000 and 0x60 width masks",
+                  passed);
+    }
+
+    {
+        gbl_machine *ratio = new_machine();
+        gbl_machine *maximum_shift = new_machine();
+        bool passed = ratio != NULL && maximum_shift != NULL;
+
+        if (passed) {
+            passed = configure_ch4_noise(ratio, 0u, 15u, false, 0u, 0u,
+                                         false, 3u, false) &&
+                     configure_ch4_noise(maximum_shift, 0u, 15u, false,
+                                         0u, 13u, false, 7u, false) &&
+                     advance_audio_without_capture(
+                         &ratio->audio,
+                         ratio->audio.cycle_anchor + UINT64_C(191)) &&
+                     ratio->audio.noise_lfsr == UINT16_C(0x4000) &&
+                     ratio->audio.noise_cycle_remainder == UINT32_C(191) &&
+                     advance_audio_without_capture(
+                         &ratio->audio,
+                         ratio->audio.cycle_anchor + UINT64_C(1)) &&
+                     ratio->audio.noise_lfsr == UINT16_C(0x2000) &&
+                     ratio->audio.noise_cycle_remainder == 0u &&
+                     advance_audio_without_capture(
+                         &maximum_shift->audio,
+                         maximum_shift->audio.cycle_anchor +
+                             UINT64_C(3670015)) &&
+                     maximum_shift->audio.noise_lfsr == UINT16_C(0x4000) &&
+                     maximum_shift->audio.noise_cycle_remainder ==
+                         UINT32_C(3670015) &&
+                     advance_audio_without_capture(
+                         &maximum_shift->audio,
+                         maximum_shift->audio.cycle_anchor + UINT64_C(1)) &&
+                     maximum_shift->audio.noise_lfsr == UINT16_C(0x2000) &&
+                     maximum_shift->audio.noise_cycle_remainder == 0u &&
+                     gbl_audio_state_valid(&maximum_shift->audio);
+        }
+        tap_check("ratio code 3 and maximum allowed shift 13 use source divider periods",
+                  passed);
+        free_machine(ratio);
+        free_machine(maximum_shift);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        bool passed = machine != NULL;
+
+        if (passed) {
+            passed = configure_ch4_noise(machine, 0u, 15u, false, 0u,
+                                         0u, false, 0u, false) &&
+                     advance_audio_without_capture(
+                         &machine->audio,
+                         machine->audio.cycle_anchor + UINT64_C(15)) &&
+                     machine->audio.noise_cycle_remainder == 15u;
+            gbl_audio_apply_register_write(&machine->audio,
+                                           UINT32_C(0x0400007C),
+                                           UINT16_C(0x0008), UINT8_C(3));
+            passed = passed &&
+                     machine->audio.noise_lfsr == UINT16_C(0x0040) &&
+                     machine->audio.noise_cycle_remainder == 0u &&
+                     advance_audio_without_capture(
+                         &machine->audio,
+                         machine->audio.cycle_anchor + UINT64_C(31)) &&
+                     machine->audio.noise_cycle_remainder == 31u;
+            gbl_audio_apply_register_write(&machine->audio,
+                                           UINT32_C(0x0400007C),
+                                           UINT16_C(0x0009), UINT8_C(3));
+            passed = passed &&
+                     machine->audio.noise_lfsr == UINT16_C(0x0040) &&
+                     machine->audio.noise_cycle_remainder == 31u &&
+                     advance_audio_without_capture(
+                         &machine->audio,
+                         machine->audio.cycle_anchor + UINT64_C(16)) &&
+                     machine->audio.noise_cycle_remainder == 47u;
+            gbl_audio_apply_register_write(&machine->audio,
+                                           UINT32_C(0x0400007C),
+                                           UINT16_C(0x0008), UINT8_C(3));
+            passed = passed &&
+                     machine->audio.noise_cycle_remainder == 15u &&
+                     machine->audio.noise_lfsr == UINT16_C(0x0040);
+            gbl_audio_apply_register_write(&machine->audio,
+                                           UINT32_C(0x0400007C),
+                                           UINT16_C(0x00E8), UINT8_C(3));
+            passed = passed &&
+                     machine->audio.noise_cycle_remainder == 15u &&
+                     advance_audio_without_capture(
+                         &machine->audio,
+                         machine->audio.cycle_anchor + UINT64_C(1000)) &&
+                     machine->audio.noise_cycle_remainder == 15u &&
+                     machine->audio.noise_lfsr == UINT16_C(0x0040) &&
+                     gbl_audio_state_valid(&machine->audio);
+            gbl_audio_apply_register_write(&machine->audio,
+                                           UINT32_C(0x0400007C),
+                                           UINT16_C(0x0008), UINT8_C(3));
+            passed = passed &&
+                     machine->audio.noise_cycle_remainder == 15u &&
+                     advance_audio_without_capture(
+                         &machine->audio,
+                         machine->audio.cycle_anchor + UINT64_C(16)) &&
+                     machine->audio.noise_lfsr == UINT16_C(0x0040) &&
+                     machine->audio.noise_cycle_remainder == 31u &&
+                     advance_audio_without_capture(
+                         &machine->audio,
+                         machine->audio.cycle_anchor + UINT64_C(1)) &&
+                     machine->audio.noise_lfsr == UINT16_C(0x0020) &&
+                     machine->audio.noise_cycle_remainder == 0u;
+            gbl_audio_apply_register_write(&machine->audio,
+                                           UINT32_C(0x0400007C), 0u,
+                                           UINT8_C(3));
+            passed = passed &&
+                     machine->audio.noise_lfsr == UINT16_C(0x4000) &&
+                     machine->audio.noise_cycle_remainder == 0u &&
+                     gbl_audio_state_valid(&machine->audio);
+        }
+        tap_check("width transitions reseed while allowed and stopped divider changes preserve then normalize phase",
+                  passed);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *rising = new_machine();
+        gbl_machine *falling = new_machine();
+        bool passed = rising != NULL && falling != NULL;
+
+        if (passed) {
+            passed = configure_ch4_noise(rising, 63u, 14u, true, 1u,
+                                         14u, false, 0u, false) &&
+                     configure_ch4_noise(falling, 63u, 1u, false, 1u,
+                                         15u, true, 0u, false) &&
+                     gbl_machine_advance_to(rising,
+                                            UINT64_C(262143)) ==
+                         GBL_TIME_STATUS_OK &&
+                     rising->audio.channel_volume[3] == 14u &&
+                     gbl_machine_advance_to(rising,
+                                            UINT64_C(262144)) ==
+                         GBL_TIME_STATUS_OK &&
+                     rising->audio.channel_volume[3] == 15u &&
+                     rising->audio.noise_lfsr == UINT16_C(0x4000) &&
+                     gbl_machine_advance_to(rising,
+                                            UINT64_C(524288)) ==
+                         GBL_TIME_STATUS_OK &&
+                     rising->audio.channel_volume[3] == 15u &&
+                     rising->audio.length_remaining[3] == 1u &&
+                     (gbl_audio_read_register(
+                          &rising->audio, UINT32_C(0x04000084)) & 8u) !=
+                         0u &&
+                     gbl_machine_advance_to(falling,
+                                            UINT64_C(262144)) ==
+                         GBL_TIME_STATUS_OK &&
+                     falling->audio.channel_volume[3] == 0u &&
+                     gbl_machine_advance_to(falling,
+                                            UINT64_C(524288)) ==
+                         GBL_TIME_STATUS_OK &&
+                     falling->audio.channel_volume[3] == 0u &&
+                     falling->audio.noise_lfsr == UINT16_C(0x0040);
+        }
+        tap_check("envelopes saturate both directions while prohibited noise holds and disabled length stays loaded",
+                  passed);
+        free_machine(rising);
+        free_machine(falling);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        bool passed = machine != NULL;
+
+        if (passed) {
+            passed = configure_ch4_noise(machine, 63u, 5u, false, 0u,
+                                         0u, false, 0u, true) &&
+                     gbl_machine_advance_to(machine,
+                                            UINT64_C(32767)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.length_remaining[3] == 1u &&
+                     (gbl_audio_read_register(
+                          &machine->audio, UINT32_C(0x04000084)) & 8u) !=
+                         0u &&
+                     gbl_machine_advance_to(machine, UINT64_C(32768)) ==
+                         GBL_TIME_STATUS_OK &&
+                     machine->audio.length_remaining[3] == 0u &&
+                     (gbl_audio_read_register(
+                          &machine->audio, UINT32_C(0x04000084)) & 8u) ==
+                         0u &&
+                     gbl_audio_psg_sample(&machine->audio, 3u) == 0u;
+        }
+        tap_check("enabled one-clock CH4 length expires activity and source output",
+                  passed);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        gbl_machine *near_limit = new_machine();
+        gbl_audio_state whole = { 0 };
+        gbl_audio_state split = { 0 };
+        gbl_audio_state near = { 0 };
+        const uint64_t long_target = UINT64_C(1000000000000);
+        uint16_t expected_lfsr = 0u;
+        uint32_t expected_remainder = 0u;
+        bool passed = machine != NULL && near_limit != NULL;
+
+        if (passed) {
+            passed = configure_ch4_noise(machine, 0u, 15u, false, 0u,
+                                         0u, false, 0u, false) &&
+                     configure_ch4_noise(near_limit, 0u, 15u, false,
+                                         0u, 0u, false, 0u, false);
+            whole = machine->audio;
+            split = machine->audio;
+            near = near_limit->audio;
+        }
+        passed = passed &&
+                 reference_noise_advance(&whole, long_target, 32u, false,
+                                         &expected_lfsr,
+                                         &expected_remainder) &&
+                 advance_audio_without_capture(&whole, long_target) &&
+                 whole.noise_lfsr == expected_lfsr &&
+                 whole.noise_cycle_remainder == expected_remainder &&
+                 advance_audio_without_capture(
+                     &split, split.cycle_anchor + UINT64_C(123456789)) &&
+                 advance_audio_without_capture(
+                     &split, split.cycle_anchor + UINT64_C(543210987654)) &&
+                 advance_audio_without_capture(&split, long_target) &&
+                 gbl_audio_state_equal(&whole, &split) &&
+                 gbl_audio_state_valid(&whole);
+        tap_check("long no-capture noise progression matches the independent orbit oracle across irregular partitions",
+                  passed);
+
+        expected_lfsr = 0u;
+        expected_remainder = 0u;
+        passed = near_limit != NULL &&
+                 reference_noise_advance(&near, UINT64_MAX, 32u, false,
+                                         &expected_lfsr,
+                                         &expected_remainder) &&
+                 advance_audio_without_capture(&near, UINT64_MAX) &&
+                 near.cycle_anchor == UINT64_MAX &&
+                 near.noise_lfsr == expected_lfsr &&
+                 near.noise_cycle_remainder == expected_remainder &&
+                 gbl_audio_state_valid(&near);
+        tap_check("noise arithmetic remains bounded and valid near UINT64_MAX",
+                  passed);
+        free_machine(machine);
+        free_machine(near_limit);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        gbl_machine *snapshot = NULL;
+        gbl_machine_time_preview preview = { 0 };
+        bool prepared = machine != NULL;
+        bool mismatch_refused = false;
+        bool out_of_width_refused = false;
+        bool invalid_remainder_refused = false;
+
+        if (prepared) {
+            prepared = configure_ch4_noise(machine, 0u, 15u, false, 0u,
+                                           0u, true, 0u, false) &&
+                       gbl_machine_advance_to(
+                           machine, machine->master_cycles + UINT64_C(15)) ==
+                           GBL_TIME_STATUS_OK &&
+                       snapshot_machine(machine, &snapshot) &&
+                       gbl_machine_prepare_time(
+                           machine, machine->master_cycles + UINT64_C(1),
+                           &preview) == GBL_TIME_STATUS_OK;
+        }
+        if (prepared) {
+            preview.audio.noise_lfsr ^= UINT16_C(1);
+            mismatch_refused =
+                !gbl_audio_state_equal(&preview.audio,
+                                       &preview.audio_prepared);
+            preview.audio = preview.audio_prepared;
+            preview.audio.noise_cycle_remainder ^= UINT32_C(1);
+            mismatch_refused = mismatch_refused &&
+                !gbl_audio_state_equal(&preview.audio,
+                                       &preview.audio_prepared);
+            mismatch_refused = mismatch_refused &&
+                !gbl_machine_commit_time_checked(machine, &preview) &&
+                snapshot != NULL && unchanged_machine(machine, snapshot);
+        }
+        tap_check("legal LFSR and divider-phase tampering cannot commit or change canonical state",
+                  prepared && mismatch_refused);
+
+        prepared = machine != NULL &&
+                   gbl_machine_prepare_time(
+                       machine, machine->master_cycles + UINT64_C(1),
+                       &preview) == GBL_TIME_STATUS_OK;
+        if (prepared) {
+            preview.audio.noise_lfsr = UINT16_C(0x0080);
+            preview.audio_prepared.noise_lfsr = UINT16_C(0x0080);
+            out_of_width_refused =
+                gbl_audio_state_equal(&preview.audio,
+                                      &preview.audio_prepared) &&
+                !gbl_audio_state_valid(&preview.audio) &&
+                !gbl_machine_commit_time_checked(machine, &preview) &&
+                snapshot != NULL && unchanged_machine(machine, snapshot);
+        }
+        tap_check("matching prepared copies with an out-of-width LFSR are refused",
+                  out_of_width_refused);
+
+        prepared = machine != NULL &&
+                   gbl_machine_prepare_time(
+                       machine, machine->master_cycles + UINT64_C(1),
+                       &preview) == GBL_TIME_STATUS_OK;
+        if (prepared) {
+            preview.audio.noise_cycle_remainder = UINT32_MAX;
+            preview.audio_prepared.noise_cycle_remainder = UINT32_MAX;
+            invalid_remainder_refused =
+                gbl_audio_state_equal(&preview.audio,
+                                      &preview.audio_prepared) &&
+                !gbl_audio_state_valid(&preview.audio) &&
+                !gbl_machine_commit_time_checked(machine, &preview) &&
+                snapshot != NULL && unchanged_machine(machine, snapshot);
+        }
+        tap_check("matching prepared copies with an out-of-range noise phase are refused",
+                  invalid_remainder_refused);
+        free(snapshot);
         free_machine(machine);
     }
 
     {
         unsigned shift;
-        bool all_stopped = true;
 
         for (shift = 14u; shift <= 15u; ++shift) {
             gbl_machine *machine = new_machine();
-            bool stopped = machine != NULL;
+            bool configured = machine != NULL;
+            bool held = false;
+            bool disabled = false;
+            bool resumed = false;
+            uint32_t paused_remainder = 0u;
 
-            if (stopped) {
+            if (configured) {
                 uint64_t trigger_cycle;
-                const uint16_t control =
-                    (uint16_t)((shift << 4u) | UINT16_C(0x8000));
-                const uint64_t would_be_period = UINT64_C(16) << shift;
+                const uint16_t control = (uint16_t)(shift << 4u);
+                const uint64_t would_be_period = UINT64_C(32) << shift;
 
-                stopped = configure_ch4_noise(machine, 0u, 15u, false, 0u,
-                                              shift, false, 0u, false);
+                configured = configure_ch4_noise(machine, 0u, 14u, true,
+                                                 1u, 0u, false, 0u, false) &&
+                             gbl_machine_advance_to(
+                                 machine, machine->master_cycles + 15u) ==
+                                 GBL_TIME_STATUS_OK;
+                configured = configured &&
+                             write16(machine, UINT32_C(0x0400007C), control)
+                                     .status == GBL_BUS_STATUS_OK;
                 trigger_cycle = machine->master_cycles;
-                stopped = stopped &&
-                          gbl_audio_read_register(
-                              &machine->audio, UINT32_C(0x0400007C)) ==
-                              (uint16_t)(control & UINT16_C(0x40FF)) &&
-                          gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
-                          gbl_machine_advance_to(
-                              machine, trigger_cycle + would_be_period) ==
-                              GBL_TIME_STATUS_OK &&
-                          gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
-                          (gbl_audio_read_register(
-                               &machine->audio, UINT32_C(0x04000084)) & 8u) !=
-                              0u;
+                if (configured) {
+                    paused_remainder =
+                        machine->audio.noise_cycle_remainder;
+                }
+                held = configured &&
+                       gbl_audio_read_register(
+                           &machine->audio, UINT32_C(0x0400007C)) == control &&
+                       paused_remainder != 0u && paused_remainder < 32u &&
+                       machine->audio.noise_cycle_remainder ==
+                           paused_remainder &&
+                       machine->audio.noise_lfsr == UINT16_C(0x4000) &&
+                       gbl_machine_advance_to(
+                           machine, trigger_cycle + would_be_period) ==
+                           GBL_TIME_STATUS_OK &&
+                       machine->audio.noise_cycle_remainder ==
+                           paused_remainder &&
+                       machine->audio.noise_lfsr == UINT16_C(0x4000) &&
+                       machine->audio.channel_volume[3] == 15u &&
+                       gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                       (gbl_audio_read_register(
+                            &machine->audio, UINT32_C(0x04000084)) & 8u) !=
+                           0u;
             }
-            all_stopped = all_stopped && stopped;
+            tap_check(shift == 14u
+                          ? "prohibited shift 14 retains state through its would-be clock"
+                          : "prohibited shift 15 retains state through its would-be clock",
+                      held);
+
+            if (configured) {
+                disabled = write16(machine, UINT32_C(0x04000078), 0u).status ==
+                               GBL_BUS_STATUS_OK &&
+                           (gbl_audio_read_register(
+                                &machine->audio, UINT32_C(0x04000084)) & 8u) ==
+                               0u &&
+                           machine->audio.noise_lfsr == 0u &&
+                           gbl_audio_psg_sample(&machine->audio, 3u) == 0u;
+                disabled = disabled &&
+                           write16(machine, UINT32_C(0x04000078),
+                                   UINT16_C(0xF000)).status ==
+                               GBL_BUS_STATUS_OK &&
+                           write16(machine, UINT32_C(0x0400007C),
+                                   UINT16_C(0x8000)).status ==
+                               GBL_BUS_STATUS_OK &&
+                           machine->audio.noise_lfsr == UINT16_C(0x4000) &&
+                           machine->audio.noise_cycle_remainder == 0u;
+                if (disabled) {
+                    const uint64_t first_edge =
+                        machine->master_cycles + UINT64_C(32);
+
+                    disabled = gbl_machine_advance_to(machine, first_edge) ==
+                                   GBL_TIME_STATUS_OK &&
+                               machine->audio.noise_lfsr ==
+                                   UINT16_C(0x2000);
+                }
+                if (disabled) {
+                    disabled = write16(machine, UINT32_C(0x0400007C),
+                                       UINT16_C(0x8000)).status ==
+                                   GBL_BUS_STATUS_OK &&
+                               machine->audio.noise_lfsr ==
+                                   UINT16_C(0x4000) &&
+                               gbl_machine_advance_to(
+                                   machine,
+                                   machine->master_cycles + UINT64_C(32)) ==
+                                   GBL_TIME_STATUS_OK &&
+                               machine->audio.noise_lfsr ==
+                                   UINT16_C(0x2000);
+                }
+                resumed = disabled;
+            }
+            tap_check("DAC disable clears noise state and source output",
+                      disabled);
+            tap_check("valid resume and retrigger replay the same 15-bit sequence",
+                      resumed);
             free_machine(machine);
         }
-        tap_check("prohibited shifts 14 and 15 retain controls and stop the source clock",
-                  all_stopped);
     }
 
     printf("1..%u\n", tap_test_number);

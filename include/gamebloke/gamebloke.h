@@ -109,6 +109,10 @@ typedef struct gbl_audio_state {
     uint8_t sweep_timer;
     uint8_t sweep_shift;
     bool sweep_decrease;
+    /* CH4's selected-width LFSR and partial divider interval. Prohibited
+     * shift codes pause these values without disabling length or envelope. */
+    uint16_t noise_lfsr;
+    uint32_t noise_cycle_remainder;
 } gbl_audio_state;
 
 typedef enum gbl_event_kind {
