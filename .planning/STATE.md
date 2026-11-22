@@ -4,17 +4,17 @@ milestone: v4.0
 milestone_name: Audio
 current_phase: 16
 current_phase_name: Audio Registers and Capture Contract
-status: executing
-stopped_at: Completed 16-02-PLAN.md
-last_updated: "2026-11-22T15:58:29.813Z"
+status: verifying
+stopped_at: Completed 16-03-PLAN.md
+last_updated: "2026-11-22T17:18:08.823Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 16 execution started
-state_head: 50aaaab8ad567ae45a00b920456b0156da76ad87
+state_head: 77c19addb06d3dbd7e6f4db761e4d021ee409ddd
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 
 Phase: 16 (Audio Registers and Capture Contract) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-22 — Phase 16 execution started
 Last activity description: Phase 16 execution started
 Progress: [░░░░░░░░░░] 0%
@@ -192,6 +192,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 15 P01 | not measured | 2 tasks | 1 files |
 | Phase 16 P01 | 35min | 3 tasks | 11 files |
 | Phase 16 P02 | 34m | 3 tasks | 10 files |
+| Phase 16 P03 | 74 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -519,6 +520,9 @@ Recent decisions affecting current work:
 - [Phase 16]: Keep the 32768 Hz stereo S16LE grid fixed at one frame per 512 machine cycles, first at cycle 512.
 - [Phase 16]: Keep the 4096 per-operation dispatch limit separate from the one-second cumulative caller capture bound.
 - [Phase 16]: At a shared cycle, drain event effects, sample the old route, then apply the completing bus write.
+- [Phase 16]: Keep profile v16 bound to the implemented fixed pre-PWM audio grid, signed-zero sources, and one-second capture bounds.
+- [Phase 16]: Keep SOUNDBIAS policy independent of cadence; sound sources and PWM/analog output remain unmodeled and hardware qualification UNKNOWN.
+- [Phase 16]: Allow later profile versions in the Phase 10 PPU gate while continuing to enforce the PPU policy.
 
 ### Pending Todos
 
@@ -570,8 +574,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-22T15:58:29.787Z
-Stopped at: Completed 16-02-PLAN.md
+Last session: 2026-11-22T17:18:08.804Z
+Stopped at: Completed 16-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
