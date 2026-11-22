@@ -97,6 +97,10 @@ typedef struct gbl_audio_state {
     uint32_t square_phase[2];
     uint8_t channel_volume[4];
     bool square_high[2];
+    uint16_t length_remaining[4];
+    uint8_t envelope_period[4];
+    uint8_t envelope_timer[4];
+    bool envelope_increase[4];
 } gbl_audio_state;
 
 typedef enum gbl_event_kind {

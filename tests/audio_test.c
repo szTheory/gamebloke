@@ -54,6 +54,31 @@ static void tap_check(const char *name, bool passed)
     }
 }
 
+static bool configure_ch2(gbl_machine *machine, uint8_t length_setting,
+                          unsigned duty, unsigned volume, bool increase,
+                          unsigned envelope_period, uint16_t frequency,
+                          bool length_enable)
+{
+    const uint16_t control =
+        (uint16_t)((uint16_t)(length_setting & UINT8_C(0x3F)) |
+                   (uint16_t)((duty & 3u) << 6u) |
+                   (uint16_t)((envelope_period & 7u) << 8u) |
+                   (increase ? UINT16_C(0x0800) : 0u) |
+                   (uint16_t)((volume & 15u) << 12u));
+    const uint16_t frequency_control =
+        (uint16_t)((frequency & UINT16_C(0x07FF)) |
+                   (length_enable ? UINT16_C(0x4000) : 0u) |
+                   UINT16_C(0x8000));
+
+    return machine != NULL &&
+           write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x04000068), control).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x0400006C), frequency_control).status ==
+               GBL_BUS_STATUS_OK;
+}
+
 static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot);
 static bool unchanged_machine(const gbl_machine *machine,
                               const gbl_machine *snapshot);
@@ -358,8 +383,487 @@ static int run_psg_square(void)
                   output[3] == 0u);
 
     free_machine(machine);
+
+    {
+        unsigned duty;
+        static const uint32_t high_cycles[4] = { 16u, 32u, 64u, 96u };
+
+        for (duty = 0u; duty < 4u; ++duty) {
+            gbl_machine *probe = new_machine();
+            bool valid = probe != NULL;
+
+            if (valid) {
+                const uint64_t anchor = probe->master_cycles + 3u;
+
+                valid = configure_ch2(probe, 0u, duty, 15u, false, 0u,
+                                      UINT16_C(2047), false) &&
+                        gbl_machine_advance_to(
+                            probe, anchor + high_cycles[duty] - 1u) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_audio_psg_sample(&probe->audio, 1u) == 15u &&
+                        gbl_machine_advance_to(
+                            probe, anchor + high_cycles[duty]) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_audio_psg_sample(&probe->audio, 1u) == 0u &&
+                        gbl_machine_advance_to(probe, anchor + 128u) ==
+                            GBL_TIME_STATUS_OK &&
+                        gbl_audio_psg_sample(&probe->audio, 1u) == 15u;
+            }
+            tap_check("each duty ratio has its inclusive edge and wrap",
+                      valid);
+            free_machine(probe);
+        }
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        bool valid = probe != NULL;
+
+        if (valid) {
+            const uint64_t anchor = probe->master_cycles + 3u;
+            const uint32_t high_cycles = UINT32_C(196608);
+
+            valid = configure_ch2(probe, 0u, 3u, 15u, false, 0u, 0u,
+                                  false) &&
+                    gbl_machine_advance_to(probe, anchor + high_cycles - 1u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 1u) == 15u &&
+                    gbl_machine_advance_to(probe, anchor + high_cycles) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 1u) == 0u &&
+                    gbl_machine_advance_to(probe, anchor + UINT32_C(262144)) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 1u) == 15u;
+        }
+        tap_check("frequency zero uses the maximum period and wraps", valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        bool valid = probe != NULL;
+
+        if (valid) {
+            const uint64_t anchor = probe->master_cycles + 3u;
+            gbl_bus_result result;
+
+            valid = configure_ch2(probe, 0u, 3u, 15u, false, 0u,
+                                  UINT16_C(2046), false) &&
+                    gbl_machine_advance_to(probe, anchor + 200u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 1u) == 0u;
+            result = write16(probe, UINT32_C(0x0400006C),
+                             UINT16_C(0x07FF));
+            valid = valid && result.status == GBL_BUS_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 1u) == 15u;
+        }
+        tap_check("live frequency changes preserve elapsed phase modulo period",
+                  valid);
+        free_machine(probe);
+    }
+    {
+        const gbl_audio_state inactive = { 0 };
+
+        tap_check("null and unsupported channel samples are zero",
+                  gbl_audio_psg_sample(NULL, 1u) == 0u &&
+                      gbl_audio_psg_sample(&inactive, 2u) == 0u &&
+                      gbl_audio_psg_sample(&inactive, 4u) == 0u);
+    }
     printf("1..%u\n", tap_test_number);
     return tap_failure_count == 0u ? 0 : 1;
+}
+
+static bool length_boundary_case(uint64_t setup_cycle,
+                                 uint64_t expiry_cycle)
+{
+    gbl_machine *machine = new_machine();
+    bool passed = machine != NULL;
+
+    if (passed) {
+        passed = gbl_machine_advance_to(machine, setup_cycle) ==
+                     GBL_TIME_STATUS_OK &&
+                 configure_ch2(machine, UINT8_C(63), 0u, 5u, false, 0u,
+                               UINT16_C(2047), true) &&
+                 machine->master_cycles == setup_cycle + 3u &&
+                 machine->audio.length_remaining[1] == 1u &&
+                 (machine->audio.active_channels & UINT8_C(0x02)) != 0u &&
+                 gbl_machine_advance_to(machine, expiry_cycle - 1u) ==
+                     GBL_TIME_STATUS_OK &&
+                 machine->audio.length_remaining[1] == 1u &&
+                 (machine->audio.active_channels & UINT8_C(0x02)) != 0u &&
+                 gbl_machine_advance_to(machine, expiry_cycle) ==
+                     GBL_TIME_STATUS_OK &&
+                 machine->audio.length_remaining[1] == 0u &&
+                 (machine->audio.active_channels & UINT8_C(0x02)) == 0u;
+    }
+    free_machine(machine);
+    return passed;
+}
+
+static int run_psg_sequencer(void)
+{
+    static const uint64_t step_cycles[8] = {
+        UINT64_C(32768), UINT64_C(65536), UINT64_C(98304), UINT64_C(131072),
+        UINT64_C(163840), UINT64_C(196608), UINT64_C(229376), UINT64_C(262144)
+    };
+    static const uint16_t expected_lengths[8] = {
+        63u, 63u, 62u, 62u, 61u, 61u, 60u, 60u
+    };
+    gbl_machine *machine = new_machine();
+    size_t step;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    tap_check("machine is initialized", machine != NULL);
+    if (machine == NULL) {
+        puts("1..1");
+        return 1;
+    }
+
+    tap_check("CH2 can be configured with length and envelope clocks",
+              configure_ch2(machine, 0u, 0u, 5u, true, 1u,
+                            UINT16_C(2047), true));
+    tap_check("zero length loads the full 64-clock duration",
+              machine->audio.length_remaining[1] == 64u);
+    tap_check("trigger latches a one-tick rising envelope",
+              machine->audio.envelope_period[1] == 1u &&
+                  machine->audio.envelope_timer[1] == 1u &&
+                  machine->audio.envelope_increase[1]);
+
+    for (step = 0u; step < 8u; ++step) {
+        tap_check("advance reaches the reset-anchored sequencer boundary",
+                  gbl_machine_advance_to(machine, step_cycles[step]) ==
+                      GBL_TIME_STATUS_OK);
+        tap_check("length clocks only on steps zero two four and six",
+                  machine->audio.length_remaining[1] ==
+                      expected_lengths[step]);
+        tap_check("envelope changes only on step seven",
+                  machine->audio.channel_volume[1] ==
+                      (step == 7u ? UINT8_C(6) : UINT8_C(5)));
+    }
+    tap_check("sequencer step wrap clocks length on the next step zero",
+              gbl_machine_advance_to(machine, UINT64_C(294912)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.length_remaining[1] == 59u &&
+                  machine->audio.channel_volume[1] == 6u);
+    tap_check("step seven after wrap clocks the next envelope period",
+              gbl_machine_advance_to(machine, UINT64_C(524288)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.channel_volume[1] == 7u);
+    free_machine(machine);
+
+    machine = new_machine();
+    tap_check("zero envelope period configures", machine != NULL &&
+              configure_ch2(machine, UINT8_C(63), 0u, 5u, true, 0u,
+                            UINT16_C(2047), false));
+    if (machine != NULL) {
+        tap_check("zero envelope period never changes volume",
+                  gbl_machine_advance_to(machine, UINT64_C(524288)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.channel_volume[1] == 5u &&
+                  machine->audio.envelope_timer[1] == 0u);
+    }
+    free_machine(machine);
+
+    machine = new_machine();
+    tap_check("multi-clock rising envelope configures", machine != NULL &&
+              configure_ch2(machine, UINT8_C(63), 0u, 14u, true, 2u,
+                            UINT16_C(2047), false));
+    if (machine != NULL) {
+        tap_check("rising envelope waits for its second step-seven tick",
+                  gbl_machine_advance_to(machine, UINT64_C(262144)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.channel_volume[1] == 14u);
+        tap_check("rising envelope saturates at volume fifteen",
+                  gbl_machine_advance_to(machine, UINT64_C(524288)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.channel_volume[1] == 15u &&
+                  gbl_machine_advance_to(machine, UINT64_C(786432)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.channel_volume[1] == 15u);
+    }
+    free_machine(machine);
+
+    machine = new_machine();
+    tap_check("multi-clock falling envelope configures", machine != NULL &&
+              configure_ch2(machine, UINT8_C(63), 0u, 1u, false, 2u,
+                            UINT16_C(2047), false));
+    if (machine != NULL) {
+        tap_check("falling envelope saturates at volume zero",
+                  gbl_machine_advance_to(machine, UINT64_C(524288)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.channel_volume[1] == 0u &&
+                  gbl_machine_advance_to(machine, UINT64_C(786432)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.channel_volume[1] == 0u);
+    }
+    free_machine(machine);
+
+    machine = new_machine();
+    tap_check("disabled length counter configures", machine != NULL &&
+              configure_ch2(machine, UINT8_C(63), 0u, 5u, false, 0u,
+                            UINT16_C(2047), false));
+    if (machine != NULL) {
+        tap_check("disabled length remains loaded across clock steps",
+                  gbl_machine_advance_to(machine, UINT64_C(262144)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.length_remaining[1] == 1u &&
+                  (machine->audio.active_channels & UINT8_C(0x02)) != 0u);
+    }
+    free_machine(machine);
+
+    machine = new_machine();
+    tap_check("live length-enable case configures", machine != NULL &&
+              configure_ch2(machine, UINT8_C(63), 0u, 5u, false, 0u,
+                            UINT16_C(2047), false));
+    if (machine != NULL) {
+        tap_check("length enable remains independently writable",
+                  write16(machine, UINT32_C(0x0400006C),
+                          UINT16_C(0x47FF)).status == GBL_BUS_STATUS_OK &&
+                      gbl_machine_advance_to(machine, UINT64_C(32768)) ==
+                          GBL_TIME_STATUS_OK &&
+                      machine->audio.length_remaining[1] == 0u &&
+                      (machine->audio.active_channels & UINT8_C(0x02)) == 0u);
+    }
+    free_machine(machine);
+
+    tap_check("trigger before the first eligible boundary expires there",
+              length_boundary_case(UINT64_C(32764), UINT64_C(32768)));
+    tap_check("trigger on a boundary loads after its completed clock",
+              length_boundary_case(UINT64_C(32765), UINT64_C(98304)));
+    tap_check("trigger after a boundary waits for the next eligible clock",
+              length_boundary_case(UINT64_C(32766), UINT64_C(98304)));
+
+    machine = new_machine();
+    tap_check("master-off elapsed cycles preserve the reset anchor",
+              machine != NULL &&
+                  gbl_machine_advance_to(machine, UINT64_C(32768)) ==
+                      GBL_TIME_STATUS_OK &&
+                  configure_ch2(machine, UINT8_C(63), 0u, 5u, false, 0u,
+                                UINT16_C(2047), true) &&
+                  gbl_machine_advance_to(machine, UINT64_C(98303)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.length_remaining[1] == 1u &&
+                  gbl_machine_advance_to(machine, UINT64_C(98304)) ==
+                      GBL_TIME_STATUS_OK &&
+                  machine->audio.length_remaining[1] == 0u &&
+                  machine->audio.active_channels == 0u);
+    free_machine(machine);
+
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
+typedef struct psg_order_observation {
+    size_t calls;
+    uint64_t cycle;
+    uint16_t interrupt_flags;
+    uint8_t source;
+    uint16_t control_before_write;
+    bool timer_reloaded;
+} psg_order_observation;
+
+static void psg_order_sample(const gbl_machine_time_preview *candidate,
+                             uint64_t cycle, void *context, int16_t *left,
+                             int16_t *right)
+{
+    psg_order_observation *observation = context;
+
+    observation->calls++;
+    observation->cycle = cycle;
+    observation->interrupt_flags = candidate->interrupt_flags;
+    observation->source = gbl_audio_psg_sample(&candidate->audio, 1u);
+    observation->control_before_write = candidate->audio.registers[4];
+    observation->timer_reloaded =
+        candidate->timers[0].counter == UINT16_C(0xFFFF);
+    *left = 0;
+    *right = 0;
+}
+
+static int run_psg_order(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine_time_preview preview;
+    gbl_time_operation operation;
+    gbl_cycle_cost write_cost = { 0 };
+    psg_order_observation observation = { 0 };
+    uint8_t staging[GBL_AUDIO_FRAME_BYTES] = {
+        UINT8_C(0xA5), UINT8_C(0xA5), UINT8_C(0xA5), UINT8_C(0xA5)
+    };
+    size_t staged_bytes = 0u;
+
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return CHECK_DONE();
+    }
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(493)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(configure_ch2(machine, 0u, 0u, 15u, false, 0u,
+                        UINT16_C(2047), false));
+    CHECK(machine->master_cycles == UINT64_C(496));
+    CHECK(gbl_machine_advance_to(machine, UINT64_C(509)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFF)).status ==
+          GBL_BUS_STATUS_OK);
+    CHECK(write16(machine, UINT32_C(0x04000102), UINT16_C(0x00C0)).status ==
+          GBL_BUS_STATUS_OK);
+    CHECK(machine->master_cycles == UINT64_C(511));
+    CHECK(machine->event_count != 0u);
+    CHECK(gbl_bus_quote(machine, UINT32_C(0x04000068),
+                        GBL_BUS_DIRECTION_WRITE, 2u,
+                        GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
+                        &write_cost));
+    operation = (gbl_time_operation){
+        .kind = GBL_TIME_OPERATION_BUS_WRITE,
+        .width = 2u,
+        .address = UINT32_C(0x04000068),
+        .value = UINT32_C(0xF0C0),
+        .cycles = write_cost.cycles
+    };
+    CHECK(gbl_machine_prepare_operations_audio_with_provider(
+              machine, &operation, 1u, &preview, staging, sizeof(staging),
+              &staged_bytes, psg_order_sample, &observation) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(observation.calls == 1u);
+    CHECK(observation.cycle == UINT64_C(512));
+    CHECK(observation.timer_reloaded);
+    CHECK((observation.interrupt_flags & UINT16_C(0x0008)) != 0u);
+    CHECK(observation.control_before_write == UINT16_C(0xF000));
+    CHECK(observation.source == 0u);
+    CHECK(staged_bytes == GBL_AUDIO_FRAME_BYTES);
+    CHECK(staging[0] == 0u && staging[1] == 0u && staging[2] == 0u &&
+          staging[3] == 0u);
+    CHECK(machine->master_cycles == UINT64_C(511));
+    CHECK(machine->audio.registers[4] == UINT16_C(0xF000));
+    CHECK(preview.audio.registers[4] == UINT16_C(0xF0C0));
+    CHECK(gbl_machine_commit_time_checked(machine, &preview));
+    CHECK(machine->master_cycles == UINT64_C(512));
+    CHECK(machine->audio.registers[4] == UINT16_C(0xF0C0));
+    CHECK(gbl_audio_psg_sample(&machine->audio, 1u) == UINT8_C(15));
+    free_machine(machine);
+    return CHECK_DONE();
+}
+
+static int run_psg_transaction(void)
+{
+    gbl_machine *whole = new_machine();
+    gbl_machine *split = new_machine();
+    gbl_machine *captured = new_machine();
+    gbl_machine *captured_split = new_machine();
+    gbl_machine *refused = new_machine();
+    gbl_machine *in_range_snapshot = NULL;
+    gbl_machine *invalid_snapshot = NULL;
+    gbl_machine *refusal_snapshot = NULL;
+    gbl_audio_capture capture;
+    gbl_audio_capture capture_before;
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview preview_before;
+    uint8_t whole_output[32];
+    uint8_t split_output[32];
+    uint8_t refusal_output[8];
+    uint8_t refusal_output_before[sizeof(refusal_output)];
+    size_t index;
+    const uint64_t target = UINT64_C(4099);
+
+    CHECK(whole != NULL && split != NULL && captured != NULL &&
+          captured_split != NULL && refused != NULL);
+    if (whole == NULL || split == NULL || captured == NULL ||
+        captured_split == NULL || refused == NULL) {
+        free_machine(whole);
+        free_machine(split);
+        free_machine(captured);
+        free_machine(captured_split);
+        free_machine(refused);
+        return CHECK_DONE();
+    }
+    CHECK(configure_ch2(whole, 0u, 0u, 15u, false, 0u,
+                        UINT16_C(2047), false));
+    CHECK(configure_ch2(split, 0u, 0u, 15u, false, 0u,
+                        UINT16_C(2047), false));
+    CHECK(configure_ch2(captured, 0u, 0u, 15u, false, 0u,
+                        UINT16_C(2047), false));
+    CHECK(configure_ch2(captured_split, 0u, 0u, 15u, false, 0u,
+                        UINT16_C(2047), false));
+    CHECK(configure_ch2(refused, 0u, 0u, 15u, false, 0u,
+                        UINT16_C(2047), false));
+    CHECK(gbl_machine_advance_to(whole, target) == GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(split, UINT64_C(127)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(split, UINT64_C(512)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(split, UINT64_C(1024)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to(split, target) == GBL_TIME_STATUS_OK);
+    memset(whole_output, UINT8_C(0xA5), sizeof(whole_output));
+    memset(split_output, UINT8_C(0xA5), sizeof(split_output));
+    CHECK(gbl_audio_capture_begin(captured, &capture, whole_output,
+                                  sizeof(whole_output)) == GBL_TIME_STATUS_OK);
+    CHECK(gbl_audio_capture_begin(captured_split, &capture_before,
+                                  split_output, sizeof(split_output)) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to_audio(captured, target, &capture) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to_audio(captured_split, UINT64_C(512),
+                                      &capture_before) == GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to_audio(captured_split, UINT64_C(2048),
+                                      &capture_before) == GBL_TIME_STATUS_OK);
+    CHECK(gbl_machine_advance_to_audio(captured_split, target,
+                                      &capture_before) == GBL_TIME_STATUS_OK);
+    CHECK(capture.bytes_written == 32u &&
+          capture_before.bytes_written == 32u);
+    CHECK(memcmp(whole_output, split_output, 32u) == 0);
+    for (index = 0u; index < 32u; ++index) {
+        CHECK(whole_output[index] == 0u);
+    }
+    CHECK(gbl_audio_state_equal(&whole->audio, &split->audio));
+    CHECK(gbl_audio_state_equal(&whole->audio, &captured->audio));
+    CHECK(gbl_audio_state_equal(&whole->audio, &captured_split->audio));
+
+    memset(refusal_output, UINT8_C(0xD7), sizeof(refusal_output));
+    memcpy(refusal_output_before, refusal_output, sizeof(refusal_output));
+    CHECK(gbl_audio_capture_begin(refused, &capture, refusal_output, 4u) ==
+          GBL_TIME_STATUS_OK);
+    CHECK(snapshot_machine(refused, &refusal_snapshot));
+    capture_before = capture;
+    CHECK(gbl_machine_advance_to_audio(refused, UINT64_C(1024), &capture) ==
+          GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT);
+    CHECK(unchanged_machine(refused, refusal_snapshot));
+    CHECK(memcmp(&capture, &capture_before, sizeof(capture)) == 0);
+    CHECK(memcmp(refusal_output, refusal_output_before,
+                 sizeof(refusal_output)) == 0);
+    memset(&preview, UINT8_C(0xC3), sizeof(preview));
+    preview_before = preview;
+    CHECK(gbl_machine_prepare_time(refused, refused->master_cycles - 1u,
+                                   &preview) == GBL_TIME_STATUS_BACKWARD);
+    CHECK(memcmp(&preview, &preview_before, sizeof(preview)) == 0);
+    CHECK(unchanged_machine(refused, refusal_snapshot));
+
+    CHECK(snapshot_machine(refused, &in_range_snapshot));
+    CHECK(gbl_machine_prepare_time(refused, refused->master_cycles + 16u,
+                                   &preview) == GBL_TIME_STATUS_OK);
+    preview.audio.length_remaining[1] = 63u;
+    CHECK(gbl_audio_state_valid(&preview.audio));
+    CHECK(!gbl_machine_commit_time_checked(refused, &preview));
+    CHECK(unchanged_machine(refused, in_range_snapshot));
+
+    CHECK(snapshot_machine(refused, &invalid_snapshot));
+    CHECK(gbl_machine_prepare_time(refused, refused->master_cycles + 16u,
+                                   &preview) == GBL_TIME_STATUS_OK);
+    preview.audio.length_remaining[1] = 65u;
+    CHECK(!gbl_audio_state_valid(&preview.audio));
+    CHECK(!gbl_machine_commit_time_checked(refused, &preview));
+    CHECK(unchanged_machine(refused, invalid_snapshot));
+
+    free(refusal_snapshot);
+    free(in_range_snapshot);
+    free(invalid_snapshot);
+    free_machine(whole);
+    free_machine(split);
+    free_machine(captured);
+    free_machine(captured_split);
+    free_machine(refused);
+    return CHECK_DONE();
 }
 
 typedef struct sample_observation {
@@ -614,6 +1118,7 @@ static int run_cpu(void)
     gbl_run_result run_result = { 0 };
     const uint32_t store_halfword = UINT32_C(0xE1C100B0);
     const uint32_t load_halfword = UINT32_C(0xE1D120B0);
+    uint64_t trigger_cycle;
     gbl_run_options options = {
         .cycle_budget = UINT64_C(64),
         .unit_limit = 1u,
@@ -653,6 +1158,10 @@ static int run_cpu(void)
     CHECK(run_result.termination == GBL_RUN_PROGRESS);
     CHECK(run_result.instructions == 1u);
     CHECK((machine->audio.registers[18] & UINT16_C(0x0080)) != 0u);
+    CHECK(configure_ch2(machine, 0u, 0u, 15u, false, 0u,
+                        UINT16_C(2047), false));
+    trigger_cycle = machine->master_cycles;
+    CHECK(gbl_audio_psg_sample(&machine->audio, 1u) == UINT8_C(15));
     machine->cpu.execution_address = UINT32_C(0x08000004);
     machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
         UINT32_C(0x08000004), load_halfword, 4u, true
@@ -666,8 +1175,13 @@ static int run_cpu(void)
     CHECK(gbl_cpu_run(machine, &options, &run_result) == GBL_RUN_STATUS_OK);
     CHECK(run_result.termination == GBL_RUN_PROGRESS);
     CHECK(run_result.instructions == 1u);
-    CHECK(machine->cpu.r0_7[2] == UINT32_C(0x0080));
-    CHECK(read16(machine, UINT32_C(0x04000084)).value == UINT16_C(0x0080));
+    CHECK(machine->cpu.r0_7[2] == UINT32_C(0x0082));
+    CHECK(machine->master_cycles > trigger_cycle);
+    CHECK(machine->audio.square_phase[1] ==
+          (uint32_t)((machine->master_cycles - trigger_cycle) % UINT64_C(128)));
+    CHECK(gbl_audio_psg_sample(&machine->audio, 1u) ==
+          (machine->audio.square_phase[1] < 16u ? UINT8_C(15) : 0u));
+    CHECK(read16(machine, UINT32_C(0x04000084)).value == UINT16_C(0x0082));
     free_machine(machine);
     return CHECK_DONE();
 }
@@ -972,6 +1486,15 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "psg_square") == 0) {
         return run_psg_square();
+    }
+    if (strcmp(argv[1], "psg_sequencer") == 0) {
+        return run_psg_sequencer();
+    }
+    if (strcmp(argv[1], "psg_order") == 0) {
+        return run_psg_order();
+    }
+    if (strcmp(argv[1], "psg_transaction") == 0) {
+        return run_psg_transaction();
     }
     if (strcmp(argv[1], "cadence") == 0) {
         return run_cadence();
