@@ -239,10 +239,14 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
     return()
   endif()
 
-  gbl_phase10_expect_value(reason "${profile_json}" profile-version NUMBER 15
-    profile_version)
-  if(NOT "${reason}" STREQUAL "")
-    set(${out_reason} "${reason}" PARENT_SCOPE)
+  # This gate asserts the Phase 15 PPU contract, which remains active when
+  # later profile versions add unrelated capabilities such as audio.
+  gbl_phase10_typed_value(profile_version_type profile_version_value
+    "${profile_json}" profile_version)
+  if(NOT "${profile_version_type}" STREQUAL "NUMBER" OR
+     NOT "${profile_version_value}" MATCHES "^[1-9][0-9]*$" OR
+     "${profile_version_value}" LESS 15)
+    set(${out_reason} "profile-version" PARENT_SCOPE)
     return()
   endif()
 
