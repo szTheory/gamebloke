@@ -1,5 +1,45 @@
 # Milestones
 
+## v3.0 PPU Modes and Composition (Completed: 2026-11-21)
+
+**Phases completed:** 5 phases, 40 plans, 76 tasks
+**Outcome:** Local milestone complete; no software release or hardware qualification is claimed.
+
+**Key accomplishments:**
+- The AGB profile now declares its six display-mode capabilities, canonical raw-video format and selected CPU/DMA access policy, with exact checks for profile and documentation drift.
+- Runner output now pairs model-2 frame observations with profile-bound display and video-memory capabilities.
+- Real CPU stores and scheduled DMA units preserve line-start row ordering, existing video-memory access rules, and atomic refusal.
+- Mode-0 and mode-1 text BGs now render through bounded canonical sampling, with semantic pixels and failure-atomic edge controls.
+- Profile version 11 and runner results now identify the supported mode 0/1 text backgrounds without claiming affine mode 1, composition, or hardware qualification.
+- The Phase 12 helper now runs six exact selectors on the configured tree, reuses the Phase 11 closure, and changes only the configured test hook.
+- Mode 1 BG2 and mode 2 BG2/BG3 affine rows now use captured signed 8.8 transforms and bounded sampled reads.
+- Modes 3–5 now sample direct and indexed BG2 bitmaps through captured affine state with checked extents, page rules, and format-specific transparency.
+- Profile and runner version 13 now publish bitmap modes 3–5 exactly, while frame validity and hardware qualification remain separate.
+- Plan 12-08's source-bound acceptance passed on revision `8754011`; a later independent review found and fixed four implementation issues. Post-review acceptance now passes on `6abaffc` and is recorded in `12-EVIDENCE.md`.
+- Regular OBJ shapes, mappings, clipping, and transparency now render through the captured 240x160 frame path with mode-bounded VRAM reads.
+- Per-row OBJ admission now selects eligible objects within 1226 abstract work units, exposes exact results, and preserves valid partial frames on overflow.
+- AGB profile v14 now publishes exact OBJ budget/composition policy, and the active runner accepts normal OBJ frames without weakening partial or UNKNOWN claims.
+- OBJ row-boundary and atomicity checks now bind the shared compositor to repeatable semantic output across independent machine runs.
+- Phase 13 OBJ and compositor evidence passed exact semantic selectors and canonical local CI with inventory agreement.
+- Sampled forced blank now commits exact white BGR555_LE rows and a valid 160-row frame through the shared PPU transaction.
+- Sampled rectangular and object windows now reveal eligible layers deterministically within the existing bounded OBJ scan.
+- The captured-row renderer now blends the immediate visible pair and applies bounded brighten/darken effects while binding raw effect controls to refusal checks.
+- BG text, affine, and bitmap sources sample top-left screen-grid anchors through the current row's capture while destination windows and effects remain per pixel.
+- Regular, affine and window OBJ mosaic now use bounded screen-grid anchors with current-row memory and unchanged admission costs.
+- Phase 14 control captures now have complete named transaction bindings and deterministic replay evidence, including the CPU preview consumer.
+- Profile 15 exposes the implemented window, color-effect, mosaic, and forced-blank policies with checked partial-capability claims.
+- The active runner emits profile-15 display capability metadata, proves forced blank as white raw output, and rejects stale feature tuples.
+- The Phase 14 display-effects manifest now checks 13 exact selectors, their commands and labels, and the separate inherited profile closure.
+- The exact 13-test display-effects suite now runs before one inherited closure, with bounded fixture edges and measured stage times.
+- Source-bound PPU composition evidence is complete, and the settled software model passed all 1,230 selected local CI cases with one authorized owner-local skip.
+- A generated BIOS-free ARM guest proves CPU/DMA mode-0 composition, mailbox completion, literal pixels, full-frame output, and unchanged runner metadata.
+- The CPU video-memory matrix and all line-start cases now execute real ARM instructions and assert independent memory and pixel expectations.
+- DMA now has independent transfer evidence for every selected video-memory access state, plus sampled-pixel checks around line start.
+
+**Known verification overrides:** 0 newly acknowledged; 1 carried forward from v1.0 ([Phase 6 verification](milestones/v1.0-phases/06-determinism-gates-and-third-party-cpu-fixtures/06-VERIFICATION.md), details in [STATE.md](STATE.md#deferred-items)).
+
+---
+
 ## v2.0 Time, Interrupts, DMA, First Pixels (Completed: 2026-11-19)
 
 **Phases completed:** 4 phases, 33 plans, 63 tasks

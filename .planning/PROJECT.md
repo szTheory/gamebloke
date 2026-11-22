@@ -18,46 +18,31 @@ behavior. That behavior covers guest progress, machine time, CPU/device
 effects, raw video, and raw audio, all observed separately, and every result
 says exactly what it proves and what it does not.
 
-## Most Recent Completed Milestone: v2.0 Time, Interrupts, DMA, First Pixels
+## Most Recent Completed Milestone: v3.0 PPU Modes and Composition
 
-v2.0 completed a shared deterministic event path for timers, IRQ/HALT/input,
-WAITCNT-aware bus access, DMA arbitration, PPU boundaries, and raw mode-3 video.
-An original BIOS-free diagnostic guest runs through the headless runner and a
-local Libretro terminal host. The owner accepted the visible demo for the
-scoped Playable 0 judgment (G6) after running it locally.
+v3.0 extended the canonical raw-video path into a deterministic software model
+for display modes 0–5: text, affine, and bitmap backgrounds; regular and affine
+objects; shared priorities; windows; color effects; mosaic; and forced blank.
+The `agb` profile and production runner expose the implemented capability and
+policy details. CPU and DMA accesses retain the existing bus behavior across
+drawing, HBlank, VBlank, and forced blank. Semantic pixel expectations and a
+bounded production-runner scene passed the local canonical verification path.
 
-This is a GSD milestone label, not a Gamebloke software release. Selected
-timing policies, prefetch, the DMA latch dispute, and the HBlank edge remain
-unqualified or unresolved; the terminal preview is downsampled and below real
-time. The generated guest remains local-only with redistribution rights
-unknown. BIOS-stub authoring remains behind G4, the mGBA deep lane remains
-behind G8 and fixture review, and v1.0 `DIAG-04`/`DET-02` remain open
-carryovers. None of these limits turns the scoped v2.0 result into a hardware,
-retail-compatibility, or publication claim.
+This is a GSD milestone label, not a Gamebloke software release. It does not
+claim cycle-accurate PPU behavior, hardware qualification, or broad retail
+compatibility. The selected 1006-cycle HBlank policy and HBlank-edge,
+DMA-latch, and within-line visibility disputes remain open; hardware
+qualification is UNKNOWN. The generated guest remains local-only with
+redistribution rights unknown, and v1.0 `DIAG-04`/`DET-02` remain open
+carryovers. Audio, cartridge saves, and the public API/consumer/package remain
+future work.
 
-## Current Milestone: v3.0 PPU Modes and Composition
+## Next Milestone Direction
 
-**Goal:** Extend Gamebloke's deterministic mode-3 path into functional display
-modes 0–5 and common layer/composition behavior through the canonical raw-video
-path for the `agb` profile. This is a deterministic software model, not a claim
-of cycle-perfect PPU timing, hardware qualification, or broad retail
-compatibility.
-
-**Target features:**
-- Text, affine, and bitmap backgrounds with mode-appropriate addressing,
-  palettes, scrolling/reference parameters, and defined bounds behavior.
-- Regular and affine OBJ rendering, shared layer priorities, transparency,
-  windows, color effects, mosaic, and forced blank.
-- Explicit line/blank access policies for canonical VRAM, palette RAM, and OAM,
-  integrated with the shared scheduler and DMA arbiter.
-- Semantic pixel and machine-boundary evidence through the existing raw-video
-  and runner paths, with fixture rights reviewed individually.
-
-Keep the selected 1006-cycle HBlank policy and the HBlank-edge, DMA-latch, and
-pixel-visibility disputes open unless new independent evidence resolves them.
-See the [scope recommendation](research/v3-ppu-milestone-recommendation.md) for
-provenance and detailed boundaries; formal requirements and phases are defined
-in REQUIREMENTS.md and ROADMAP.md.
+No next milestone has been formally selected. The rolling roadmap recommends
+Audio, then Cartridge and Saves, then API, Consumer, and Packaging; these remain
+horizon options until the next milestone boundary. See ROADMAP.md and the v3.0
+archive for current evidence, tradeoffs, and limits.
 
 ## Requirements
 
@@ -82,6 +67,8 @@ in REQUIREMENTS.md and ROADMAP.md.
 - ✓ Cheap event-boundary and exact test-selection checks run before dependent longer suites, with negative controls for missing or empty selection — Phase 7 and the current Phase 9/10 fast paths.
 - ✓ Text, affine, and bitmap backgrounds render semantic pixels across modes 0–5 through canonical video memory, with profile/runner capability agreement and bounded address behavior — Phase 12. The renderer remains a deterministic software model; layer composition and display effects are later phases.
 - ✓ Regular and affine OBJ rendering compose with backgrounds and backdrop through a shared priority policy, with bounded object work and semantic pixel evidence — Phase 13. Mode capabilities remain partial; priority and timing behavior are deterministic software policy, not hardware qualification.
+- ✓ Window masks, color effects, mosaic, and forced blank produce declared semantic raw pixels with deterministic region and boundary behavior — Phase 14. This remains a software model, not hardware qualification.
+- ✓ CPU/DMA video-memory accesses retain the selected existing bus behavior, while a bounded production-runner scene reports semantic pixels, machine time, guest progress, complete-frame status, and capability evidence — Phase 15. HBlank, DMA-latch, and within-line visibility disputes remain open.
 
 ### Active
 
@@ -90,7 +77,6 @@ REQUIREMENTS.md.
 
 - [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
 - [ ] Audio event scheduling and PSG/Direct Sound FIFO behavior in guest-time units
-- [ ] v3.0: Deterministic software-model raw output for display modes 0–5, common BG/OBJ layers, composition, windows, effects, mosaic, forced blank, and declared video-memory access policies for `agb`; no cycle-accuracy or broad compatibility claim
 - [ ] Audio (PSG + Direct Sound FIFO) produced as raw machine samples, kept separate from host resampling and playback
 - [ ] Explicitly modeled cartridge backup devices. Save type is never inferred from a filename or title.
 - [ ] Raw audio capture in the deterministic runner; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
@@ -123,7 +109,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
-- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, and dependency-free terminal frontend with PPU work through Phase 13. One machine-owned time path drives timers, CPU IRQ/HALT sampling, timestamped logical input, WAITCNT-aware CPU/DMA bus costs, DMA arbitration, PPU boundaries, and sampled raw video. Text, affine, and bitmap backgrounds in modes 0–5 and regular/affine OBJ now use canonical row capture and shared composition; capabilities remain partial while Phase 14 display effects and Phase 15 access/runner evidence remain. The owner accepted the local diagnostic demo for G6 only. The terminal preview is downsampled and below real time. Game Pak prefetch remains unmodeled; DMA latch and selected HBlank behavior remain disputed, with hardware qualification UNKNOWN. The generated guest is local-only and redistribution rights are unknown. Phase 6 `DIAG-04` and `DET-02` remain open; no hosted rerun or publication is authorized by this milestone.
+- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, and dependency-free terminal frontend with v3.0 PPU work complete. One machine-owned time path drives timers, CPU IRQ/HALT sampling, timestamped logical input, WAITCNT-aware CPU/DMA bus costs, DMA arbitration, PPU boundaries, and sampled raw video. Modes 0–5, regular/affine OBJ, shared composition, windows, effects, mosaic, forced blank, and the selected video-memory access policy are covered by semantic pixels and production-runner evidence. The model remains unqualified: Game Pak prefetch is unmodeled; DMA latch, selected HBlank, and within-line visibility remain disputed; hardware qualification is UNKNOWN. The generated guest is local-only and redistribution rights are unknown. Phase 6 `DIAG-04` and `DET-02` remain open; no hosted rerun or publication was authorized by v3.0.
 
 ## Constraints
 
@@ -188,9 +174,10 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | PPU and Playable 0 boundary (Phase 10) | Use explicit PPU events, complete supported mode-3 frame capture, semantic pixel checks, and a local host; preserve HBlank evidence and dispute labels | Verified locally; the owner accepted the original diagnostic demo only; no hardware, retail-game, audio/save, or redistribution claim is implied |
 | Local interactive host boundary (Phase 10) | Reuse the canonical machine through the official Libretro ABI; use a dependency-free terminal fallback after managed RetroArch launch denial | Verified locally; no policy bypass, second core, or runtime dependency was added |
 | v2.0 owner judgment (2026-11-19) | The owner ran the terminal demo and accepted the visible original BIOS-free diagnostic behavior | ✓ Accepted for scoped Playable 0 demo; broader compatibility, hardware, physical-controller, and rights decisions remain open |
-| v3.0 PPU scope (owner-prepared recommendation; 2026-11-19) | Extend the mode-3 path to functional modes 0–5 and common composition through raw video, preserving explicit project-model and hardware-evidence limits | In progress; Phases 12–13 verified backgrounds, OBJ, and shared composition. Windows/effects and production access remain in Phases 14–15; hardware qualification remains UNKNOWN |
+| v3.0 PPU scope (owner-prepared recommendation; 2026-11-19) | Extend the mode-3 path to functional modes 0–5 and common composition through raw video, preserving explicit project-model and hardware-evidence limits | ✓ Completed across Phases 11–15; deterministic model and local production-runner evidence only; hardware qualification remains UNKNOWN |
 | Background rendering and CI iteration (Phase 12) | Keep sampled-row rendering bounded, validate semantic colors and address edges, and run cheap exact-selection checks before longer suites | Verified locally; review fixes passed focused and full canonical checks. Retain two-worker CTest because this run did not support a safe faster setting |
 | OBJ composition and bounded work policy (Phase 13) | Preserve source identity and transparency through one shared comparator; use explicit within-class ties, document OBJ-over-BG equal-priority behavior as project policy, and bound each row to 1,226 abstract work units | Verified locally with semantic pixels and causal controls; deterministic software behavior only, hardware ordering and timing remain UNKNOWN |
+| Display effects and production access (Phases 14–15) | Compose windows/effects/mosaic/forced blank over sampled rows; keep current VRAM/palette/OAM bus access behavior and label unresolved timing disputes | Verified locally through semantic vectors and a bounded production runner scene; no access denial/stalls were introduced and no hardware qualification is claimed |
 | Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
 | Automation-first verification and CI efficiency (owner, 2026-11-16) | Shift repeatable verification left; minimize UAT through useful automated evidence; use CI for recurring value; preflight long work and inspect measured critical paths without weakening checks | ✓ Adopted as the default in Verification and Iteration Policy above |
 | Evidence-first milestone and phase discussions (owner, 2026-11-19) | Start from roadmap recommendations and options; use relevant parallel research, primary sources, an adversarial pass, provenance, and a diminishing-returns stop; apply the same approach to milestone and phase scope | ✓ Adopted in Milestone and Phase Scoping Policy above |
@@ -215,4 +202,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-21 after Phase 13*
+*Last updated: 2026-11-21 after v3.0 milestone closeout review*
