@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 8
 waived_count: 0
-fixed_count: 28
-total_count: 36
-last_updated: 2026-11-22T21:45:29.674Z
+fixed_count: 29
+total_count: 37
+last_updated: 2026-11-22T22:25:58.275Z
 ---
 
 # Broken Windows Ledger
@@ -51,6 +51,7 @@ last_updated: 2026-11-22T21:45:29.674Z
 | 34 | 13 | deviation | tests/bus_test.c |  | Updated stale ppu.latch row-count expectation for valid backdrop capture. | open |  | 2026-11-21T00:38:05.900Z |  |
 | 35 | 17 | deviation | src/audio.c | 445 | An active channel with an exhausted length counter could pass validation if a preview prepared copy was forged consistently. | fixed |  | 2026-11-22T20:57:06.306Z | 2026-11-22T20:57:28.235Z |
 | 36 | 17 | deviation | .planning/phases/17-psg-channels-and-sequencer/17-02-PLAN.md |  | Corrected the stated shortest noise period from 16 to 32 master cycles to match the locked divider equation with ratio zero r=1/2; focused noise vectors pass. Source and hardware qualification caveats remain explicit. | fixed |  | 2026-11-22T21:45:27.311Z | 2026-11-22T21:45:29.674Z |
+| 37 | 17 | deviation | src/audio.c |  | Updated stale source-projection comment to say PCM mixing remains deferred after CH3 was modeled. | fixed |  | 2026-11-22T22:25:55.121Z | 2026-11-22T22:25:58.275Z |
 
 ````json
 [
@@ -520,6 +521,19 @@ last_updated: 2026-11-22T21:45:29.674Z
     "reason": "",
     "recorded_at": "2026-11-22T21:45:27.311Z",
     "resolved_at": "2026-11-22T21:45:29.674Z",
+    "milestone": "v4.0"
+  },
+  {
+    "id": 37,
+    "kind": "deviation",
+    "phase": "17",
+    "file": "src/audio.c",
+    "line": null,
+    "description": "Updated stale source-projection comment to say PCM mixing remains deferred after CH3 was modeled.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-22T22:25:55.121Z",
+    "resolved_at": "2026-11-22T22:25:58.275Z",
     "milestone": "v4.0"
   }
 ]
