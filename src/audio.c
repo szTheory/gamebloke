@@ -81,6 +81,7 @@ uint16_t gbl_audio_read_register(const gbl_audio_state *state,
         return 0u;
     }
     index = gbl_audio_register_index(address & ~UINT32_C(1));
+    /* Length-enable bit 14 is register state; active status is in SOUNDCNT_X. */
     value = (uint16_t)(state->registers[index] &
                        gbl_audio_register_policies[index].read_mask);
     if ((address & ~UINT32_C(1)) == UINT32_C(0x04000084)) {

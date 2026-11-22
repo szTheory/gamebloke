@@ -192,6 +192,12 @@ elseif(CASE STREQUAL "audio_policy")
   expect_audio_detail(audio-policy-value
     "audio_policy.registers: exact register policy differs" "${p}")
 
+  profile_copy(p wrong_channel_length_enable_read_mask)
+  gbl_json_mutate_set("${p}" [=["0x0000"]=]
+    audio_policy registers 2 read_mask)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.registers: exact register policy differs" "${p}")
+
   profile_copy(p documentation_audio_policy)
   doc_copy(d audio_policy_doc_drift)
   file(READ "${d}" audio_doc_before)
@@ -209,8 +215,8 @@ elseif(CASE STREQUAL "audio_policy")
   doc_copy(d audio_register_doc_drift)
   file(READ "${d}" audio_register_doc_before)
   string(REPLACE
-    "| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |"
-    "| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x0000` | trigger-self-clears-status-dynamic |"
+    "| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |"
+    "| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x0000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |"
     audio_register_doc_after "${audio_register_doc_before}")
   if("${audio_register_doc_after}" STREQUAL "${audio_register_doc_before}")
     message(FATAL_ERROR "mutate: no-match: audio register documentation row")

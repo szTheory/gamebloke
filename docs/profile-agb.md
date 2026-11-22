@@ -992,17 +992,21 @@ data write.
 | --- | --- | --- | --- | --- | --- | --- |
 | `audio_policy.registers.SOUND1CNT_L` | `SOUND1CNT_L` | `0x04000060` | `0x007F` | `0x007F` | `0x0000` | retained-control-no-source |
 | `audio_policy.registers.SOUND1CNT_H` | `SOUND1CNT_H` | `0x04000062` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
-| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |
+| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND2CNT_L` | `SOUND2CNT_L` | `0x04000068` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
-| `audio_policy.registers.SOUND2CNT_H` | `SOUND2CNT_H` | `0x0400006C` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |
+| `audio_policy.registers.SOUND2CNT_H` | `SOUND2CNT_H` | `0x0400006C` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND3CNT_L` | `SOUND3CNT_L` | `0x04000070` | `0x00E0` | `0x00E0` | `0x0000` | length-enable-control |
 | `audio_policy.registers.SOUND3CNT_H` | `SOUND3CNT_H` | `0x04000072` | `0xE0FF` | `0xE000` | `0x0000` | volume-and-bank-control |
-| `audio_policy.registers.SOUND3CNT_X` | `SOUND3CNT_X` | `0x04000074` | `0x47FF` | `0x4000` | `0x8000` | trigger-self-clears-status-dynamic |
+| `audio_policy.registers.SOUND3CNT_X` | `SOUND3CNT_X` | `0x04000074` | `0x47FF` | `0x4000` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUND4CNT_L` | `SOUND4CNT_L` | `0x04000078` | `0xFF3F` | `0xFF00` | `0x0000` | length-and-envelope-control |
-| `audio_policy.registers.SOUND4CNT_H` | `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | trigger-self-clears-status-dynamic |
+| `audio_policy.registers.SOUND4CNT_H` | `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUNDCNT_L` | `SOUNDCNT_L` | `0x04000080` | `0xFF77` | `0xFF77` | `0x0000` | psg-routing-and-volume-state |
 | `audio_policy.registers.SOUNDCNT_H` | `SOUNDCNT_H` | `0x04000082` | `0x770F` | `0x770F` | `0x8800` | direct-sound-routing-and-volume-state-fifo-actions-unmodeled |
 | `audio_policy.registers.SOUNDCNT_X` | `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x0000` | master-enable-dynamic-channel-status-disable-clears-channel-state |
+
+Bit 14 in each channel frequency/noise control register is the retained sound
+length flag. Active channel status is reported separately in `SOUNDCNT_X`
+bits 0–3.
 
 `SOUNDCNT_X` master enable gates channel-register writes; disabling it clears
 the channel register/activity state. SOUNDBIAS remains accessible while audio
