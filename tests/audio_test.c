@@ -2884,6 +2884,270 @@ static bool unchanged_machine(const gbl_machine *machine,
     return memcmp(machine, snapshot, sizeof(*machine)) == 0;
 }
 
+typedef struct wave_bus_observation {
+    size_t calls;
+    uint64_t cycle;
+    uint8_t source;
+} wave_bus_observation;
+
+static void wave_bus_sample(const gbl_machine_time_preview *candidate,
+                            uint64_t cycle, void *context, int16_t *left,
+                            int16_t *right)
+{
+    wave_bus_observation *observation = context;
+
+    observation->calls++;
+    observation->cycle = cycle;
+    observation->source = gbl_audio_psg_sample(&candidate->audio, 2u);
+    *left = 0;
+    *right = 0;
+}
+
+static int run_psg_wave_bus(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *snapshot = NULL;
+    gbl_bus_result result;
+    bool passed = machine != NULL;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    tap_check("machine is initialized", passed);
+    if (!passed) {
+        puts("1..1");
+        return 1;
+    }
+    passed = write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
+                 GBL_BUS_STATUS_OK &&
+             write16(machine, UINT32_C(0x04000070), UINT16_C(0x00C0)).status ==
+                 GBL_BUS_STATUS_OK;
+    tap_check("master enables Wave RAM and selects bank zero for guest access",
+              passed);
+    result = gbl_bus_write(machine, UINT32_C(0x04000090), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xAB));
+    tap_check("guest byte write is reported as supported audio IO",
+              result.status == GBL_BUS_STATUS_OK &&
+                  result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET);
+    result = gbl_bus_read(machine, UINT32_C(0x04000090), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    tap_check("guest byte lane reads its packed Wave RAM value",
+              result.status == GBL_BUS_STATUS_OK &&
+                  result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+                  result.value == UINT32_C(0xAB));
+
+    {
+        const gbl_bus_result half_write = gbl_bus_write(
+            machine, UINT32_C(0x04000092), 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xBEEF));
+        const gbl_bus_result half_read = gbl_bus_read(
+            machine, UINT32_C(0x04000092), 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL);
+        const gbl_bus_result word_write = gbl_bus_write(
+            machine, UINT32_C(0x04000094), 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x76543210));
+        const gbl_bus_result word_read = gbl_bus_read(
+            machine, UINT32_C(0x04000094), 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL);
+        const gbl_bus_result edge_write = gbl_bus_write(
+            machine, UINT32_C(0x0400009E), 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x5A69));
+        const gbl_bus_result edge_read = gbl_bus_read(
+            machine, UINT32_C(0x0400009E), 2u,
+            GBL_BUS_CLASS_NONSEQUENTIAL);
+
+        tap_check("guest halfword and word lanes preserve little-endian order",
+                  half_write.status == GBL_BUS_STATUS_OK &&
+                      half_write.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+                      half_read.value == UINT32_C(0xBEEF) &&
+                      half_read.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+                      word_write.status == GBL_BUS_STATUS_OK &&
+                      word_write.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+                      word_read.value == UINT32_C(0x76543210) &&
+                      word_read.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+                      edge_write.status == GBL_BUS_STATUS_OK &&
+                      edge_read.value == UINT32_C(0x5A69));
+    }
+    result = gbl_bus_write(machine, UINT32_C(0x0400009F), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x37));
+    tap_check("final Wave RAM byte is addressable without wrapping",
+              result.status == GBL_BUS_STATUS_OK &&
+                  result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+                  gbl_bus_read(machine, UINT32_C(0x0400009F), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL).value ==
+                      UINT32_C(0x37));
+
+    passed = write16(machine, UINT32_C(0x04000070), UINT16_C(0x0080)).status ==
+                 GBL_BUS_STATUS_OK &&
+             gbl_bus_write(machine, UINT32_C(0x04000090), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0xCD)).outcome ==
+                 GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+             write16(machine, UINT32_C(0x04000070), UINT16_C(0x00C0)).status ==
+                 GBL_BUS_STATUS_OK &&
+             gbl_bus_read(machine, UINT32_C(0x04000090), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL).value ==
+                 UINT32_C(0xAB) &&
+             write16(machine, UINT32_C(0x04000070), UINT16_C(0x0080)).status ==
+                 GBL_BUS_STATUS_OK &&
+             gbl_bus_read(machine, UINT32_C(0x04000090), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL).value ==
+                 UINT32_C(0xCD);
+    tap_check("guest aperture follows selected front bank to expose the other bank",
+              passed);
+
+    tap_check("pre-access snapshot is available",
+              snapshot_machine(machine, &snapshot));
+    result = gbl_bus_write(machine, UINT32_C(0x0400008F), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFFFF));
+    tap_check("request crossing the aperture start is refused atomically",
+              result.status == GBL_BUS_STATUS_INVALID_ARGUMENT &&
+                  snapshot != NULL && unchanged_machine(machine, snapshot));
+    result = gbl_bus_write(machine, UINT32_C(0x0400009F), 2u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xFFFF));
+    tap_check("request crossing the aperture end is refused atomically",
+              result.status == GBL_BUS_STATUS_INVALID_ARGUMENT &&
+                  snapshot != NULL && unchanged_machine(machine, snapshot));
+    result = gbl_bus_read(machine, UINT32_C(0x0400008F), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    tap_check("mixed read is refused without advancing time or open bus",
+              result.status == GBL_BUS_STATUS_INVALID_ARGUMENT &&
+                  snapshot != NULL && unchanged_machine(machine, snapshot));
+    free(snapshot);
+    snapshot = NULL;
+
+    {
+        gbl_machine_time_preview preview;
+        gbl_machine_time_preview preview_before;
+        gbl_time_operation operation = {
+            .kind = GBL_TIME_OPERATION_BUS_WRITE,
+            .width = 2u,
+            .address = UINT32_C(0x0400009F),
+            .value = UINT32_C(0xFFFF),
+            .cycles = UINT64_C(1)
+        };
+        uint8_t staging[GBL_AUDIO_FRAME_BYTES] = {
+            UINT8_C(0xD7), UINT8_C(0xD7), UINT8_C(0xD7), UINT8_C(0xD7)
+        };
+        size_t staged_bytes = 77u;
+
+        memset(&preview, UINT8_C(0xC3), sizeof(preview));
+        preview_before = preview;
+        passed = gbl_machine_prepare_operations_audio_with_provider(
+                     machine, &operation, 1u, &preview, staging,
+                     sizeof(staging), &staged_bytes, NULL, NULL) ==
+                     GBL_TIME_STATUS_INVALID_ARGUMENT &&
+                 memcmp(&preview, &preview_before, sizeof(preview)) == 0 &&
+                 staged_bytes == 77u && staging[0] == UINT8_C(0xD7) &&
+                 staging[1] == UINT8_C(0xD7) &&
+                 staging[2] == UINT8_C(0xD7) &&
+                 staging[3] == UINT8_C(0xD7);
+        tap_check("timed raw prepare refuses mixed aperture before staging",
+                  passed);
+    }
+
+    result = gbl_bus_write(machine, UINT32_C(0x0400008F), 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xA5));
+    tap_check("ordinary unsupported IO immediately outside aperture is unchanged",
+              result.status == GBL_BUS_STATUS_OK &&
+                  result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED &&
+                  gbl_bus_read(machine, UINT32_C(0x0400008F), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL).outcome ==
+                      GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
+
+    passed = write16(machine, UINT32_C(0x04000084), 0u).status ==
+                 GBL_BUS_STATUS_OK &&
+             gbl_bus_read(machine, UINT32_C(0x04000090), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL).outcome ==
+                 GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+             gbl_bus_read(machine, UINT32_C(0x04000090), 1u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL).value ==
+                 UINT32_C(0xCD);
+    tap_check("Wave RAM persists and remains guest-accessible with master off",
+              passed);
+    free_machine(machine);
+
+    {
+        gbl_machine *integration = new_machine();
+        gbl_machine_time_preview preview = { 0 };
+        gbl_time_operation operation = {
+            .kind = GBL_TIME_OPERATION_BUS_WRITE,
+            .width = 1u,
+            .address = UINT32_C(0x04000090),
+            .value = UINT32_C(0xF2),
+            .cycles = UINT64_C(1)
+        };
+        uint8_t staging[GBL_AUDIO_FRAME_BYTES] = { 0u };
+        size_t staged_bytes = 0u;
+        wave_bus_observation observation = { 0 };
+        size_t offset;
+        bool integrated = integration != NULL;
+
+        if (integrated) {
+            integrated =
+                write16(integration, UINT32_C(0x04000084),
+                        UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK &&
+                write16(integration, UINT32_C(0x04000070),
+                        UINT16_C(0x00C0)).status == GBL_BUS_STATUS_OK;
+        }
+        for (offset = 0u; offset < 16u && integrated; offset += 4u) {
+            integrated = gbl_bus_write(
+                             integration,
+                             UINT32_C(0x04000090) + (uint32_t)offset, 4u,
+                             GBL_BUS_CLASS_NONSEQUENTIAL,
+                             UINT32_C(0x22222222)).status == GBL_BUS_STATUS_OK;
+        }
+        if (integrated) {
+            integrated =
+                write16(integration, UINT32_C(0x04000070),
+                        UINT16_C(0x00A0)).status == GBL_BUS_STATUS_OK;
+        }
+        for (offset = 0u; offset < 16u && integrated; offset += 4u) {
+            integrated = gbl_bus_write(
+                             integration,
+                             UINT32_C(0x04000090) + (uint32_t)offset, 4u,
+                             GBL_BUS_CLASS_NONSEQUENTIAL,
+                             UINT32_C(0x33333333)).status == GBL_BUS_STATUS_OK;
+        }
+        if (integrated) {
+            integrated =
+                write16(integration, UINT32_C(0x04000070),
+                        UINT16_C(0x00A0)).status == GBL_BUS_STATUS_OK &&
+                write16(integration, UINT32_C(0x04000072),
+                        UINT16_C(0x2000)).status == GBL_BUS_STATUS_OK &&
+                write16(integration, UINT32_C(0x04000074),
+                        UINT16_C(0x07FF)).status == GBL_BUS_STATUS_OK &&
+                gbl_machine_advance_to(integration, UINT64_C(383)) ==
+                    GBL_TIME_STATUS_OK &&
+                write16(integration, UINT32_C(0x04000074),
+                        UINT16_C(0x87FF)).status == GBL_BUS_STATUS_OK &&
+                integration->master_cycles == UINT64_C(384) &&
+                gbl_machine_advance_to(integration, UINT64_C(511)) ==
+                    GBL_TIME_STATUS_OK;
+        }
+        if (integrated) {
+            integrated = gbl_machine_prepare_operations_audio_with_provider(
+                             integration, &operation, 1u, &preview, staging,
+                             sizeof(staging), &staged_bytes, wave_bus_sample,
+                             &observation) == GBL_TIME_STATUS_OK;
+        }
+        integrated = integrated && observation.calls == 1u &&
+                     observation.cycle == UINT64_C(512) &&
+                     observation.source == 3u &&
+                     staged_bytes == GBL_AUDIO_FRAME_BYTES &&
+                     integration->audio.wave_ram[1][0] == UINT8_C(0x33) &&
+                     preview.audio.wave_ram[1][0] == UINT8_C(0xF2) &&
+                     gbl_machine_commit_time_checked(integration, &preview) &&
+                     gbl_audio_psg_sample(&integration->audio, 2u) == 15u;
+        tap_check("sample observes old selected-bank nibble before completing Wave write",
+                  integrated);
+        free_machine(integration);
+    }
+
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static int run_refusal(void)
 {
     gbl_machine *machine = new_machine();
@@ -3177,6 +3441,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "psg_wave") == 0) {
         return run_psg_wave();
+    }
+    if (strcmp(argv[1], "psg_wave_bus") == 0) {
+        return run_psg_wave_bus();
     }
     if (strcmp(argv[1], "psg_sequencer") == 0) {
         return run_psg_sequencer();
