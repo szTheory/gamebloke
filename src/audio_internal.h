@@ -64,6 +64,8 @@ void gbl_audio_write_soundbias(gbl_audio_state *state, uint32_t address,
                                uint8_t value);
 void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
                       int16_t *left, int16_t *right);
+uint8_t gbl_audio_psg_sample(const gbl_audio_state *state,
+                             unsigned channel_index);
 void gbl_audio_write_frame(const gbl_audio_state *state, uint64_t cycle,
                            uint8_t *destination);
 gbl_time_status gbl_audio_advance_span(

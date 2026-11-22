@@ -245,6 +245,16 @@ void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
     }
 }
 
+uint8_t gbl_audio_psg_sample(const gbl_audio_state *state,
+                             unsigned channel_index)
+{
+    /* The source projection seam is present before any PSG channel is
+     * modeled. Inactive and unsupported sources project to zero. */
+    (void)state;
+    (void)channel_index;
+    return 0u;
+}
+
 static void gbl_audio_write_s16le(uint8_t *destination, int16_t value)
 {
     const uint16_t bits = (uint16_t)value;

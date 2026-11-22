@@ -41,6 +41,19 @@ static gbl_bus_result read16(gbl_machine *machine, uint32_t address)
                         GBL_BUS_CLASS_NONSEQUENTIAL);
 }
 
+static unsigned tap_test_number;
+static unsigned tap_failure_count;
+
+static void tap_check(const char *name, bool passed)
+{
+    ++tap_test_number;
+    printf("%s %u - %s\n", passed ? "ok" : "not ok", tap_test_number,
+           name);
+    if (!passed) {
+        ++tap_failure_count;
+    }
+}
+
 static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot);
 static bool unchanged_machine(const gbl_machine *machine,
                               const gbl_machine *snapshot);
@@ -267,6 +280,86 @@ static int run_registers(void)
     free(snapshot);
     free_machine(machine);
     return CHECK_DONE();
+}
+
+static int run_psg_square(void)
+{
+    const uint32_t soundcnt_x = UINT32_C(0x04000084);
+    const uint32_t sound2cnt_l = UINT32_C(0x04000068);
+    const uint32_t sound2cnt_h = UINT32_C(0x0400006C);
+    gbl_machine *machine = new_machine();
+    gbl_audio_capture capture;
+    uint8_t output[GBL_AUDIO_FRAME_BYTES] = { UINT8_C(0xA5), UINT8_C(0xA5),
+                                               UINT8_C(0xA5), UINT8_C(0xA5) };
+    uint64_t trigger_cycle = 0u;
+    gbl_bus_result write_result;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    tap_check("machine is initialized", machine != NULL);
+    if (machine == NULL) {
+        puts("1..1");
+        return 1;
+    }
+
+    write_result = write16(machine, soundcnt_x, UINT16_C(0x0080));
+    tap_check("audio master enable is accepted",
+              write_result.status == GBL_BUS_STATUS_OK);
+    write_result = write16(machine, sound2cnt_l, UINT16_C(0xF000));
+    tap_check("CH2 DAC and one-eighth duty are configured",
+              write_result.status == GBL_BUS_STATUS_OK);
+    write_result = write16(machine, sound2cnt_h, UINT16_C(0x87FF));
+    tap_check("CH2 trigger is accepted at frequency 2047",
+              write_result.status == GBL_BUS_STATUS_OK);
+    trigger_cycle = machine->master_cycles;
+    tap_check("CH2 source is high at trigger phase zero",
+              gbl_audio_psg_sample(&machine->audio, 1u) == UINT8_C(15));
+    tap_check("CH2 alone is active and the trigger bit self-cleared",
+              (read16(machine, soundcnt_x).value & UINT32_C(0x000F)) ==
+                      UINT32_C(0x0002) &&
+                  (read16(machine, sound2cnt_h).value & UINT32_C(0x8000)) ==
+                      0u);
+
+    tap_check("advance reaches duty edge minus one",
+              gbl_machine_advance_to(machine, trigger_cycle + 15u) ==
+                  GBL_TIME_STATUS_OK);
+    tap_check("one-eighth duty remains high at offset 15",
+              gbl_audio_psg_sample(&machine->audio, 1u) == UINT8_C(15));
+    tap_check("advance reaches the duty edge",
+              gbl_machine_advance_to(machine, trigger_cycle + 16u) ==
+                  GBL_TIME_STATUS_OK);
+    tap_check("one-eighth duty is low at offset 16",
+              gbl_audio_psg_sample(&machine->audio, 1u) == 0u);
+    tap_check("advance reaches duty edge plus one",
+              gbl_machine_advance_to(machine, trigger_cycle + 17u) ==
+                  GBL_TIME_STATUS_OK);
+    tap_check("one-eighth duty remains low at offset 17",
+              gbl_audio_psg_sample(&machine->audio, 1u) == 0u);
+    tap_check("advance reaches the first square wrap",
+              gbl_machine_advance_to(machine, trigger_cycle + 128u) ==
+                  GBL_TIME_STATUS_OK);
+    tap_check("CH2 returns high at offset 128",
+              gbl_audio_psg_sample(&machine->audio, 1u) == UINT8_C(15));
+
+    memset(&capture, 0, sizeof(capture));
+    tap_check("fixed-grid capture begins after direct source checks",
+              gbl_audio_capture_begin(machine, &capture, output,
+                                     sizeof(output)) == GBL_TIME_STATUS_OK);
+    tap_check("capture advances to the next fixed-grid frame",
+              gbl_machine_advance_to_audio(
+                  machine,
+                  ((machine->master_cycles / GBL_AUDIO_SAMPLE_CYCLES) + 1u) *
+                      GBL_AUDIO_SAMPLE_CYCLES,
+                  &capture) == GBL_TIME_STATUS_OK);
+    tap_check("PCM frame remains separate signed-zero projection",
+              capture.bytes_written == GBL_AUDIO_FRAME_BYTES &&
+                  output[0] == 0u && output[1] == 0u && output[2] == 0u &&
+                  output[3] == 0u);
+
+    free_machine(machine);
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
 }
 
 typedef struct sample_observation {
@@ -876,6 +969,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "registers") == 0) {
         return run_registers();
+    }
+    if (strcmp(argv[1], "psg_square") == 0) {
+        return run_psg_square();
     }
     if (strcmp(argv[1], "cadence") == 0) {
         return run_cadence();
