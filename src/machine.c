@@ -3078,7 +3078,9 @@ gbl_time_status gbl_machine_prepare_time(
 static bool gbl_preview_bus_span_valid(uint32_t address, uint8_t width)
 {
     return (width == 1u || width == 2u || width == 4u) &&
-           address <= UINT32_MAX - ((uint32_t)width - 1u);
+           address <= UINT32_MAX - ((uint32_t)width - 1u) &&
+           (!gbl_audio_wave_span_overlaps(address, width) ||
+            gbl_audio_wave_span_valid(address, width));
 }
 
 static bool gbl_ppu_operation_touches_video(uint32_t address, uint8_t width)
@@ -3125,6 +3127,14 @@ static gbl_time_status gbl_preview_bus_write(
     uint8_t window_register_bytes[GBL_PPU_WINDOW_REGISTER_BYTES];
     gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
     uint32_t lane;
+
+    if (gbl_audio_wave_span_overlaps(address, width)) {
+        return gbl_audio_wave_span_valid(address, width) &&
+                       gbl_audio_wave_write(&preview->audio, address, width,
+                                            value)
+                   ? GBL_TIME_STATUS_OK
+                   : GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
 
     gbl_machine_copy_bytes(render_register_bytes,
                            preview->ppu.render_register_bytes,

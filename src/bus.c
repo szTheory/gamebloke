@@ -58,6 +58,10 @@ static gbl_bus_status gbl_bus_validate_request(
     if (address > UINT32_MAX - span) {
         return GBL_BUS_STATUS_INVALID_ARGUMENT;
     }
+    if (gbl_audio_wave_span_overlaps(address, width) &&
+        !gbl_audio_wave_span_valid(address, width)) {
+        return GBL_BUS_STATUS_INVALID_ARGUMENT;
+    }
     return GBL_BUS_STATUS_OK;
 }
 
@@ -605,6 +609,12 @@ static bool gbl_bus_read_lane(
                                ((address & UINT32_C(1)) * 8u));
             return true;
         }
+        if (address >= GBL_AUDIO_WAVE_FIRST &&
+            address <= GBL_AUDIO_WAVE_LAST) {
+            *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+            return gbl_audio_wave_read_byte(&time_preview->audio, address,
+                                            value);
+        }
         if (address == UINT32_C(0x04000088) ||
             address == UINT32_C(0x04000089)) {
             *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
@@ -787,6 +797,10 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
         return GBL_BUS_OUTCOME_BIOS_ABSENT;
     case GBL_BUS_REGION_IO:
         if (gbl_audio_register_address(address)) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
+        if (address >= GBL_AUDIO_WAVE_FIRST &&
+            address <= GBL_AUDIO_WAVE_LAST) {
             return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
         }
         if (address == UINT32_C(0x04000088) ||

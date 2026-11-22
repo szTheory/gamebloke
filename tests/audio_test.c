@@ -250,7 +250,7 @@ static int run_psg_wave(void)
     {
         static const uint16_t volume_controls[5] = {
             UINT16_C(0x0000), UINT16_C(0x2000), UINT16_C(0x4000),
-            UINT16_C(0x6000), UINT16_C(0x8000)
+            UINT16_C(0x6000), UINT16_C(0xE000)
         };
         static const uint8_t expected_levels[5] = { 0u, 3u, 1u, 0u, 2u };
         unsigned volume;
@@ -299,6 +299,9 @@ static int run_psg_wave(void)
                         GBL_TIME_STATUS_OK &&
                     gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
                     gbl_machine_advance_to(probe, anchor + 252u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
+                    gbl_machine_advance_to(probe, anchor + 255u) ==
                         GBL_TIME_STATUS_OK &&
                     gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
                     gbl_machine_advance_to(probe, anchor + 256u) ==
@@ -437,6 +440,75 @@ static int run_psg_wave(void)
                     (probe->audio.active_channels & 6u) == 2u;
         }
         tap_check("CH3 length expires its own status and preserves CH2", valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 0u, false, UINT16_C(0x2000), 0u,
+                                   UINT16_C(2047), true) &&
+                    probe->audio.length_remaining[2] == UINT16_C(256) &&
+                    gbl_machine_advance_to(probe, UINT64_C(32768)) ==
+                        GBL_TIME_STATUS_OK &&
+                    probe->audio.length_remaining[2] == UINT16_C(255) &&
+                    (probe->audio.active_channels & UINT8_C(0x04)) != 0u;
+        }
+        tap_check("CH3 zero length setting loads all 256 counts", valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 0u, false, UINT16_C(0x2000), 255u,
+                                   UINT16_C(2047), false) &&
+                    gbl_machine_advance_to(probe, UINT64_C(327680)) ==
+                        GBL_TIME_STATUS_OK &&
+                    probe->audio.length_remaining[2] == 1u &&
+                    (probe->audio.active_channels & UINT8_C(0x04)) != 0u;
+        }
+        tap_check("disabled CH3 length remains continuous across sequencer clocks",
+                  valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        uint8_t guest_byte = 0u;
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 0u, false, UINT16_C(0x2000), 0u,
+                                   UINT16_C(2047), false) &&
+                    gbl_machine_advance_to(probe,
+                                           probe->master_cycles + 12u) ==
+                        GBL_TIME_STATUS_OK &&
+                    write16(probe, UINT32_C(0x04000070),
+                            UINT16_C(0x0000)).status == GBL_BUS_STATUS_OK &&
+                    (probe->audio.active_channels & UINT8_C(0x04)) == 0u &&
+                    probe->audio.wave_phase == 0u &&
+                    gbl_audio_wave_read_byte(&probe->audio,
+                                             UINT32_C(0x04000090),
+                                             &guest_byte) &&
+                    guest_byte == UINT8_C(0x54) &&
+                    gbl_audio_wave_write(&probe->audio,
+                                         UINT32_C(0x04000090), 1u,
+                                         UINT32_C(0xA7)) &&
+                    probe->audio.wave_ram[1][0] == UINT8_C(0xA7);
+        }
+        tap_check("DAC-off clears CH3 while keeping opposite-bank Wave access",
+                  valid);
         free_machine(probe);
     }
 
@@ -2350,6 +2422,7 @@ static int run_psg_transaction(void)
     gbl_machine *in_range_snapshot = NULL;
     gbl_machine *invalid_snapshot = NULL;
     gbl_machine *active_empty_snapshot = NULL;
+    gbl_machine *wave_snapshot = NULL;
     gbl_machine *refusal_snapshot = NULL;
     gbl_audio_capture capture;
     gbl_audio_capture capture_before;
@@ -2461,6 +2534,32 @@ static int run_psg_transaction(void)
     CHECK(!gbl_machine_commit_time_checked(refused, &preview));
     CHECK(unchanged_machine(refused, active_empty_snapshot));
 
+    CHECK(load_wave_bank(refused, 0u, UINT8_C(0x32)));
+    CHECK(load_wave_bank(refused, 1u, UINT8_C(0x54)));
+    CHECK(configure_wave(refused, 0u, false, UINT16_C(0x2000), 0u,
+                         UINT16_C(2047), true));
+    CHECK(gbl_audio_state_valid(&refused->audio));
+    CHECK(snapshot_machine(refused, &wave_snapshot));
+    CHECK(gbl_machine_prepare_time(refused, refused->master_cycles + 16u,
+                                   &preview) == GBL_TIME_STATUS_OK);
+    preview.audio.wave_ram[1][0] ^= UINT8_C(0x01);
+    CHECK(gbl_audio_state_valid(&preview.audio));
+    CHECK(!gbl_audio_state_equal(&preview.audio, &preview.audio_prepared));
+    CHECK(!gbl_machine_commit_time_checked(refused, &preview));
+    CHECK(unchanged_machine(refused, wave_snapshot));
+    free(wave_snapshot);
+    wave_snapshot = NULL;
+
+    CHECK(snapshot_machine(refused, &wave_snapshot));
+    CHECK(gbl_machine_prepare_time(refused, refused->master_cycles + 16u,
+                                   &preview) == GBL_TIME_STATUS_OK);
+    preview.audio.wave_phase = UINT8_C(32);
+    preview.audio_prepared.wave_phase = UINT8_C(32);
+    CHECK(gbl_audio_state_equal(&preview.audio, &preview.audio_prepared));
+    CHECK(!gbl_audio_state_valid(&preview.audio));
+    CHECK(!gbl_machine_commit_time_checked(refused, &preview));
+    CHECK(unchanged_machine(refused, wave_snapshot));
+
     {
         gbl_machine *near_limit = new_machine();
         gbl_machine_time_preview far_preview = { 0 };
@@ -2497,6 +2596,7 @@ static int run_psg_transaction(void)
     free(in_range_snapshot);
     free(invalid_snapshot);
     free(active_empty_snapshot);
+    free(wave_snapshot);
     free_machine(whole);
     free_machine(split);
     free_machine(captured);

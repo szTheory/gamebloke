@@ -928,8 +928,7 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
 void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
                       int16_t *left, int16_t *right)
 {
-    /* This is the source-dependent PSG/Direct Sound projection seam. Until
-     * those sources are modeled, each fixed-grid pre-PWM sample is signed 0. */
+    /* PSG channel state is modeled separately; PCM mixing remains deferred. */
     (void)state;
     (void)cycle;
     if (left != NULL) {
