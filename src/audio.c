@@ -166,6 +166,19 @@ static uint32_t gbl_audio_square_period(const gbl_audio_state *state,
     return UINT32_C(128) * (UINT32_C(2048) - frequency);
 }
 
+static uint32_t gbl_audio_wave_nibble_period(const gbl_audio_state *state)
+{
+    const uint32_t frequency =
+        (uint32_t)(state->registers[10] & UINT16_C(0x07FF));
+
+    return UINT32_C(4) * (UINT32_C(2048) - frequency);
+}
+
+static uint8_t gbl_audio_wave_pattern_length(const gbl_audio_state *state)
+{
+    return (state->registers[8] & UINT16_C(0x0020)) != 0u ? 64u : 32u;
+}
+
 static bool gbl_audio_noise_period(const gbl_audio_state *state,
                                    uint32_t *period)
 {
@@ -240,6 +253,32 @@ static void gbl_audio_advance_noise_cycles(gbl_audio_state *state,
     gbl_audio_advance_noise_steps(
         state, steps,
         (state->registers[14] & UINT16_C(0x0008)) != 0u);
+}
+
+static void gbl_audio_advance_wave_cycles(gbl_audio_state *state,
+                                          uint64_t elapsed)
+{
+    uint64_t steps;
+    uint32_t period;
+    uint32_t remainder;
+    uint8_t pattern_length;
+
+    if ((state->active_channels & UINT8_C(0x04)) == 0u) {
+        return;
+    }
+    period = gbl_audio_wave_nibble_period(state);
+    pattern_length = gbl_audio_wave_pattern_length(state);
+    steps = elapsed / period;
+    remainder = (uint32_t)(elapsed % period) +
+                state->wave_cycle_remainder;
+    if (remainder >= period) {
+        remainder -= period;
+        ++steps;
+    }
+    state->wave_cycle_remainder = remainder;
+    state->wave_phase = (uint8_t)(
+        (state->wave_phase + (uint8_t)(steps % pattern_length)) %
+        pattern_length);
 }
 
 static bool gbl_audio_square_high_for_phase(const gbl_audio_state *state,
@@ -471,6 +510,7 @@ static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
         const uint64_t elapsed = clock_cycle - state->cycle_anchor;
 
         gbl_audio_advance_square_cycles(state, elapsed);
+        gbl_audio_advance_wave_cycles(state, elapsed);
         gbl_audio_advance_noise_cycles(state, elapsed);
         state->cycle_anchor = clock_cycle;
         if ((clock_step & UINT8_C(1)) == 0u) {
@@ -484,6 +524,7 @@ static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
         }
     }
     gbl_audio_advance_square_cycles(state, target - state->cycle_anchor);
+    gbl_audio_advance_wave_cycles(state, target - state->cycle_anchor);
     gbl_audio_advance_noise_cycles(state, target - state->cycle_anchor);
     state->cycle_anchor = target;
 }
@@ -496,6 +537,9 @@ static void gbl_audio_reset_channel(gbl_audio_state *state,
     if (channel_index < 2u) {
         state->square_phase[channel_index] = 0u;
         state->square_high[channel_index] = false;
+    } else if (channel_index == 2u) {
+        state->wave_phase = 0u;
+        state->wave_cycle_remainder = 0u;
     }
     state->channel_volume[channel_index] = 0u;
     state->length_remaining[channel_index] = 0u;
@@ -556,6 +600,9 @@ static void gbl_audio_trigger_channel(gbl_audio_state *state,
     } else if (channel_index == 3u) {
         state->noise_lfsr = gbl_audio_noise_seed(state);
         state->noise_cycle_remainder = 0u;
+    } else if (channel_index == 2u) {
+        state->wave_phase = 0u;
+        state->wave_cycle_remainder = 0u;
     }
     if (channel_index < 2u) {
         state->square_phase[channel_index] = 0u;
@@ -578,11 +625,19 @@ bool gbl_audio_state_equal(const gbl_audio_state *left,
         left->sweep_shift != right->sweep_shift ||
         left->sweep_decrease != right->sweep_decrease ||
         left->noise_lfsr != right->noise_lfsr ||
-        left->noise_cycle_remainder != right->noise_cycle_remainder) {
+        left->noise_cycle_remainder != right->noise_cycle_remainder ||
+        left->wave_phase != right->wave_phase ||
+        left->wave_cycle_remainder != right->wave_cycle_remainder) {
         return false;
     }
     for (index = 0u; index < GBL_AUDIO_REGISTER_COUNT; ++index) {
         if (left->registers[index] != right->registers[index]) {
+            return false;
+        }
+    }
+    for (index = 0u; index < sizeof(left->wave_ram); ++index) {
+        if (((const uint8_t *)left->wave_ram)[index] !=
+            ((const uint8_t *)right->wave_ram)[index]) {
             return false;
         }
     }
@@ -615,6 +670,10 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
         state != NULL && (state->registers[18] & UINT16_C(0x0080)) != 0u;
     const bool noise_width_7bit =
         state != NULL && (state->registers[14] & UINT16_C(0x0008)) != 0u;
+    const uint8_t wave_pattern_length =
+        state == NULL ? 0u : gbl_audio_wave_pattern_length(state);
+    const uint32_t wave_period =
+        state == NULL ? 0u : gbl_audio_wave_nibble_period(state);
     const uint16_t noise_width_mask =
         noise_width_7bit ? UINT16_C(0x007F) : UINT16_C(0x7FFF);
     uint32_t noise_period = 0u;
@@ -633,6 +692,9 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
          state->sweep_timer >= state->sweep_period) ||
         state->noise_lfsr > noise_width_mask ||
         state->noise_cycle_remainder >= GBL_AUDIO_NOISE_MAX_PERIOD ||
+        (state != NULL &&
+         (state->wave_phase >= wave_pattern_length ||
+          state->wave_cycle_remainder >= wave_period)) ||
         (noise_period_valid &&
          state->noise_cycle_remainder >= noise_period) ||
         ((state->active_channels & UINT8_C(0x08)) != 0u &&
@@ -642,7 +704,8 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
           state->sweep_period != 0u || state->sweep_timer != 0u ||
           state->sweep_shift != 0u || state->sweep_decrease ||
           state->noise_lfsr != 0u ||
-          state->noise_cycle_remainder != 0u)) ||
+          state->noise_cycle_remainder != 0u || state->wave_phase != 0u ||
+          state->wave_cycle_remainder != 0u)) ||
         ((state->active_channels & UINT8_C(0x01)) != 0u &&
          (state->registers[1] & UINT16_C(0xF800)) == 0u) ||
         ((state->active_channels & UINT8_C(0x02)) != 0u &&
@@ -765,6 +828,12 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
                         gbl_audio_register_policies[index].action_mask);
     state->registers[index] = next;
 
+    if (index == 8u &&
+        ((prior ^ next) & UINT16_C(0x0020)) != 0u) {
+        state->wave_phase = (uint8_t)(
+            state->wave_phase % gbl_audio_wave_pattern_length(state));
+    }
+
     if (index == 14u) {
         const bool previous_width_7bit =
             (prior & UINT16_C(0x0008)) != 0u;
@@ -848,6 +917,10 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
             if ((state->active_channels & channel_mask) != 0u) {
                 gbl_audio_refresh_square_level(state, channel_index);
             }
+        } else if (channel_index == 2u &&
+                   (action & UINT16_C(0x8000)) == 0u) {
+            state->wave_cycle_remainder %=
+                gbl_audio_wave_nibble_period(state);
         }
     }
 }
@@ -880,7 +953,39 @@ uint8_t gbl_audio_psg_sample(const gbl_audio_state *state,
                    ? state->channel_volume[channel_index]
                    : 0u;
     }
-    if (channel_index >= 2u || !state->square_high[channel_index]) {
+    if (channel_index == 2u) {
+        const uint16_t wave_control = state->registers[8];
+        const uint16_t level_control = state->registers[9];
+        const uint8_t phase = state->wave_phase;
+        const uint8_t pattern_length =
+            gbl_audio_wave_pattern_length(state);
+        unsigned front_bank;
+        unsigned bank;
+        unsigned nibble_index;
+        uint8_t packed;
+        uint8_t sample;
+        unsigned volume;
+
+        if (phase >= pattern_length) {
+            return 0u;
+        }
+        front_bank = (unsigned)((wave_control >> 6u) & UINT16_C(1));
+        bank = front_bank ^ (unsigned)(phase >> 5u);
+        nibble_index = (unsigned)(phase & UINT8_C(31));
+        packed = state->wave_ram[bank][nibble_index >> 1u];
+        sample = (nibble_index & 1u) == 0u
+                     ? (uint8_t)(packed >> 4u)
+                     : (uint8_t)(packed & UINT8_C(0x0F));
+        volume = (unsigned)((level_control >> 13u) & UINT16_C(3));
+        if ((level_control & UINT16_C(0x8000)) != 0u) {
+            return (uint8_t)(((unsigned)sample * 3u) / 4u);
+        }
+        if (volume == 0u) {
+            return 0u;
+        }
+        return (uint8_t)(sample >> (volume - 1u));
+    }
+    if (!state->square_high[channel_index]) {
         return 0u;
     }
     return state->channel_volume[channel_index];

@@ -198,6 +198,7 @@ static int run_psg_wave(void)
     gbl_machine *machine = new_machine();
     uint64_t trigger_cycle = 0u;
     uint8_t byte_value = 0u;
+    bool configured;
 
     tap_test_number = 0u;
     tap_failure_count = 0u;
@@ -220,12 +221,13 @@ static int run_psg_wave(void)
                                             UINT32_C(0x04000090),
                                             &byte_value) &&
                   byte_value == UINT8_C(0x32));
+    configured = configure_wave(machine, 0u, false, UINT16_C(0x2000), 0u,
+                                UINT16_C(2047), false);
+    trigger_cycle = machine->master_cycles;
     tap_check("selected 32-step front bank triggers at phase zero",
-              configure_wave(machine, 0u, false, UINT16_C(0x2000), 0u,
-                             UINT16_C(2047), false) &&
+              configured &&
                   (read16(machine, UINT32_C(0x04000084)).value & 7u) == 4u &&
                   gbl_audio_psg_sample(&machine->audio, 2u) == 3u);
-    trigger_cycle = machine->master_cycles;
     tap_check("manual whole-pattern rate uses a four-cycle nibble step",
               gbl_machine_advance_to(machine, trigger_cycle + 3u) ==
                       GBL_TIME_STATUS_OK &&
@@ -234,7 +236,13 @@ static int run_psg_wave(void)
                       GBL_TIME_STATUS_OK &&
                   gbl_audio_psg_sample(&machine->audio, 2u) == 2u);
     tap_check("32-step playback wraps to its selected front bank",
-              gbl_machine_advance_to(machine, trigger_cycle + 128u) ==
+              gbl_machine_advance_to(machine, trigger_cycle + 127u) ==
+                      GBL_TIME_STATUS_OK &&
+                  gbl_audio_psg_sample(&machine->audio, 2u) == 2u &&
+                  gbl_machine_advance_to(machine, trigger_cycle + 128u) ==
+                      GBL_TIME_STATUS_OK &&
+                  gbl_audio_psg_sample(&machine->audio, 2u) == 3u &&
+                  gbl_machine_advance_to(machine, trigger_cycle + 129u) ==
                       GBL_TIME_STATUS_OK &&
                   gbl_audio_psg_sample(&machine->audio, 2u) == 3u);
     free_machine(machine);
@@ -278,6 +286,9 @@ static int run_psg_wave(void)
                                    UINT16_C(2047), false);
             anchor = probe->master_cycles;
             valid = valid &&
+                    gbl_machine_advance_to(probe, anchor + 124u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 2u &&
                     gbl_machine_advance_to(probe, anchor + 127u) ==
                         GBL_TIME_STATUS_OK &&
                     gbl_audio_psg_sample(&probe->audio, 2u) == 2u &&
@@ -287,9 +298,15 @@ static int run_psg_wave(void)
                     gbl_machine_advance_to(probe, anchor + 132u) ==
                         GBL_TIME_STATUS_OK &&
                     gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
+                    gbl_machine_advance_to(probe, anchor + 252u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
                     gbl_machine_advance_to(probe, anchor + 256u) ==
                         GBL_TIME_STATUS_OK &&
-                    gbl_audio_psg_sample(&probe->audio, 2u) == 3u;
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 3u &&
+                    gbl_machine_advance_to(probe, anchor + 260u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 2u;
         }
         tap_check("64-step playback concatenates selected and other banks",
                   valid);
@@ -314,11 +331,87 @@ static int run_psg_wave(void)
                     gbl_machine_advance_to(probe, anchor + 8u) ==
                         GBL_TIME_STATUS_OK &&
                     gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
-                    gbl_machine_advance_to(probe, anchor + 256u) ==
+                    gbl_machine_advance_to(probe, anchor + 512u) ==
                         GBL_TIME_STATUS_OK &&
                     gbl_audio_psg_sample(&probe->audio, 2u) == 5u;
         }
         tap_check("CH3 uses eight-cycle steps at frequency 2046 and bank 1",
+                  valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        uint64_t anchor = 0u;
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 0u, false, UINT16_C(0x2000), 0u,
+                                   UINT16_C(2046), false);
+            anchor = probe->master_cycles;
+            valid = valid &&
+                    gbl_machine_advance_to(probe, anchor + 3u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 3u &&
+                    write16(probe, UINT32_C(0x04000074),
+                            UINT16_C(0x07FF)).status == GBL_BUS_STATUS_OK &&
+                    probe->audio.wave_cycle_remainder == 0u &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 3u &&
+                    gbl_machine_advance_to(probe, anchor + 7u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 3u &&
+                    gbl_machine_advance_to(probe, anchor + 8u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 2u;
+        }
+        tap_check("live frequency normalizes fractional nibble phase",
+                  valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        uint8_t bank1_first = 0u;
+        uint8_t bank0_first = 0u;
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 0u, false, UINT16_C(0x2000), 0u,
+                                   UINT16_C(2047), false) &&
+                    gbl_machine_advance_to(probe,
+                                           probe->master_cycles + 24u) ==
+                        GBL_TIME_STATUS_OK &&
+                    write16(probe, UINT32_C(0x04000074),
+                            UINT16_C(0xFFFF)).status == GBL_BUS_STATUS_OK &&
+                    probe->audio.wave_phase == 0u &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 3u &&
+                    gbl_audio_wave_read_byte(&probe->audio,
+                                             UINT32_C(0x04000090),
+                                             &bank1_first) &&
+                    bank1_first == UINT8_C(0x54) &&
+                    write16(probe, UINT32_C(0x04000070),
+                            UINT16_C(0x00C0)).status == GBL_BUS_STATUS_OK &&
+                    gbl_audio_wave_read_byte(&probe->audio,
+                                             UINT32_C(0x04000090),
+                                             &bank0_first) &&
+                    bank0_first == UINT8_C(0x32) &&
+                    write16(probe, UINT32_C(0x04000084), 0u).status ==
+                        GBL_BUS_STATUS_OK &&
+                    probe->audio.active_channels == 0u &&
+                    probe->audio.registers[8] == 0u &&
+                    probe->audio.wave_ram[0][0] == UINT8_C(0x32) &&
+                    probe->audio.wave_ram[1][0] == UINT8_C(0x54);
+            if (valid) {
+                gbl_machine_reset(probe);
+                valid = probe->audio.wave_ram[0][0] == 0u &&
+                        probe->audio.wave_ram[1][0] == 0u;
+            }
+        }
+        tap_check("retrigger and master-off preserve Wave RAM; reset clears it",
                   valid);
         free_machine(probe);
     }
