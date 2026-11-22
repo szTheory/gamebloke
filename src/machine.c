@@ -3506,7 +3506,6 @@ static bool gbl_audio_capture_consistent(
         capture->machine != machine ||
         (capture->destination == NULL && capture->capacity != 0u) ||
         capture->initial_cycle > capture->last_accepted_cycle ||
-        capture->last_accepted_cycle < capture->initial_cycle ||
         capture->last_accepted_cycle - capture->initial_cycle >
             GBL_AUDIO_MAX_CAPTURE_CYCLES ||
         !gbl_audio_capture_ranges_valid(machine, capture,

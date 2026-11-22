@@ -19,8 +19,9 @@ typedef struct gbl_audio_capture {
     size_t bytes_written;
 } gbl_audio_capture;
 
-/* Capture storage remains caller-owned. A new begin explicitly starts a new
- * bounded session; callers must end it before resetting the machine. */
+/* Capture storage remains caller-owned and must be writable for capacity
+ * bytes for the session lifetime. A new begin explicitly starts a new bounded
+ * session; callers must end it before resetting the machine. */
 gbl_time_status gbl_audio_capture_begin(gbl_machine *machine,
                                         gbl_audio_capture *capture,
                                         uint8_t *destination,
