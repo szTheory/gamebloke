@@ -4,17 +4,17 @@ milestone: v4.0
 milestone_name: Audio
 current_phase: 17
 current_phase_name: PSG Channels and Sequencer
-status: executing
-stopped_at: Completed 17-03-PLAN.md
-last_updated: "2026-11-22T22:24:20.902Z"
+status: blocked
+stopped_at: Halted 17-04-PLAN.md at pre-existing hygiene.tree failure
+last_updated: "2026-11-22T23:44:59.215Z"
 last_activity: 2026-11-22
-last_activity_desc: Completed Phase 17 Plan 01; Plan 02 ready to execute.
-state_head: e9fac199b74dffeb3f4c1b9d116d6887fab7a8b7
+last_activity_desc: Phase 17 Plan 04 halted at the pre-existing hygiene.tree blocker; canonical CI and the complete JUnit inventory remain unverified.
+state_head: 40417ed5e7d7e392007278835c259e6d08b7c1ef
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -32,9 +32,9 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 
 Phase: 17 — PSG Channels and Sequencer
 Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-11-22 — Phase 16 complete, transitioned to Phase 17
-Last activity description: Completed Phase 17 Plan 01; Plan 02 ready to execute.
+Status: Blocked
+Last activity: 2026-11-22 — Phase 17 Plan 04 halted at hygiene.tree
+Last activity description: The canonical CI workflow stopped on absolute GSD home-path references in committed phase plan files; see .planning/phases/17-psg-channels-and-sequencer/deferred-items.md.
 Progress: [███░░░░░░░] 25%
 
 
@@ -197,6 +197,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 17 P01 | 42 min | 2 tasks | 8 files |
 | Phase 17 P02 | 37min from first RED; setup not measured | 2 tasks | 8 files |
 | Phase 17 P03 | 27m13s | 2 tasks | 10 files |
+| Phase 17 P04 | 71m | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -538,6 +539,9 @@ Recent decisions affecting current work:
 - [Phase 17]: CH3 follows the selected manual whole-pattern rate: 4*(2048-fdat) master cycles per nibble in both 32- and 64-step modes; the competing source interpretation remains for profile documentation.
 - [Phase 17]: Guest Wave RAM accesses the bank opposite the selected front bank; 64-step playback appends the other bank after the selected pattern.
 - [Phase 17]: Undocumented retrigger corruption remains unmodeled, and PCM mixing stays deferred to Phase 19.
+- [Phase 17]: Scoped review corrected PSG frequency read masks, CH4 divider policy wording, the LFSR recurrence description, and the unreachable sweep-underflow branch; focused CI and ASan checks pass.
+- [Phase 17]: Keep hardware_qualification UNKNOWN and PCM output signed zero; this plan adds no fixture, hardware, hosted CI, or publication claim.
+- [Phase 17]: Preserve the CI preset worker count and checks; measured profile negative-control work dominates the local workflow critical path.
 
 ### Pending Todos
 
@@ -568,6 +572,7 @@ None yet.
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
 - Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
 - macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The owner ran the dependency-free terminal Libretro host and accepted the visible original demo; G6 is recorded as accepted for this scope. The terminal preview is downsampled and sub-real-time, and does not establish hardware qualification or broad compatibility.
+- Plan 17-04 is halted: hygiene.tree rejects pre-existing absolute GSD home-path references in committed 17-01 through 17-04 plan files. Canonical CTest stopped after 93 passes and one failure; ci-post confirmed the JUnit inventory is incomplete. The full integrated gate remains unverified until a portable-reference fix and canonical rerun.
 
 ## Deferred Items
 
@@ -589,9 +594,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-22T22:24:20.756Z
-Stopped at: Completed 17-03-PLAN.md
-Resume file: None
+Last session: 2026-11-22T23:44:59.104Z
+Stopped at: Halted 17-04-PLAN.md at pre-existing hygiene.tree failure
+Resume file: .planning/phases/17-psg-channels-and-sequencer/deferred-items.md
 
 ## Operator Next Steps
 

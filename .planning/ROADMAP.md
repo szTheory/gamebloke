@@ -77,12 +77,12 @@ v4.0. Hardware qualification remains UNKNOWN.
   3. Wave RAM writes obey declared bank/access bounds, and channel 3's playback phase, waveform, volume, length, and status match source-level vectors.
   4. Independent cycle-boundary vectors verify channel 4's noise sequence in both width modes and its frequency, envelope, length, and status behavior. Fixed-rate PCM is not the sole oracle for oscillator edges shorter than one capture interval.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 - [x] 17-01-PLAN.md — Run channel 2 and the shared PSG sequencer on canonical machine time
 - [x] 17-02-PLAN.md — Implement and verify channel 1 sweep and both channel 4 noise widths
 - [x] 17-03-PLAN.md — Implement bounded Wave RAM access and channel 3 playback
-- [ ] 17-04-PLAN.md — Synchronize the declared PSG policy and validate the integrated phase
+- [x] 17-04-PLAN.md — Synchronize the declared PSG policy and validate the integrated phase
 
 ### Phase 18: Direct Sound and FIFO DMA
 
@@ -115,7 +115,7 @@ v4.0. Hardware qualification remains UNKNOWN.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 16. Audio Registers and Capture Contract | 3/3 | Complete    | 2026-11-22 |
-| 17. PSG Channels and Sequencer | 3/4 | In Progress | — |
+| 17. PSG Channels and Sequencer | 4/4 | In Progress | — |
 | 18. Direct Sound and FIFO DMA | 0/TBD | Not started | — |
 | 19. Stereo Mixing and Runner Evidence | 0/TBD | Not started | — |
 
