@@ -52,6 +52,7 @@
     "tdd_mode": false,
     "ui_review": true,
     "use_worktrees": false,
+    "_auto_chain_active": false,
     "test_command": "sh scripts/verify-phase12-fast.sh"
   },
   "ship": {
@@ -94,7 +95,7 @@
   "resolve_model_ids": false,
   "model_profile_overrides": {
     "codex": {
-      "opus": "gpt-6.1-sol",
+      "opus": "gpt-6.2-sol",
       "sonnet": "gpt-6-luna",
       "haiku": "gpt-6-luna"
     },

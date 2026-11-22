@@ -44,6 +44,11 @@ question without materially new collision evidence.
 
 ## GSD discussion and project learning
 
+Use Codex for OpenGSD until the owner explicitly switches runtimes. The owner
+switches between Codex and Claude regularly; preserve both runtime model mappings
+in `.planning/config.json`, which is the source of truth for model and effort
+routing. Resolve each agent's model and effort together before dispatch.
+
 At each milestone discussion, read current project-owned state, roadmap,
 requirements, prior decisions, and lessons. Fan out around the actual open
 decision using relevant GBA hardware, CPU/bus, graphics, audio, cartridge,
@@ -69,6 +74,10 @@ approval requests.
 
 ## Verification, CI, and releases
 
+- When a required compiler, SDK, or verification tool is missing on the host,
+  check whether a pinned Docker lane can provide it before installing host
+  dependencies. Keep the container path easy to invoke and use it as a normal
+  developer workflow where practical.
 - Automate useful verification as early as it gives trustworthy feedback.
   Maintain one canonical local command aligned with the fast required CI path.
   Give important gates a meaningful negative control; missing and skipped
@@ -92,6 +101,12 @@ approval requests.
   time for duplicate setup/builds or other low-risk savings without weakening
   evidence. Benchmark emulator throughput separately from CI wait/build/test
   time; hold correct output constant while measuring.
+- For Docker-based CI/CD reproduction or release checks, give task-owned images,
+  containers, networks, and temporary volumes a clear `gamebloke-<task>-` name
+  (and project/task labels where supported). Avoid generic names. Afterward,
+  remove only resources created for that run, including disposable images and
+  volumes; inspect names/labels first and never use broad prune commands that
+  could delete shared caches or owner data. Record resources intentionally kept.
 - At milestone close, keep main green, triage open pull requests, update the
   rolling roadmap and lessons, and target a release of the exact tested
   artifact when its contents, rights, package readiness, qualification, and
@@ -109,3 +124,11 @@ before allocation or state mutation. Refused operations should have documented
 status and state/buffer postconditions. Never infer permission from a public
 download, a test-suite license, or a digest. Review source and license terms
 for each redistributed fixture or dependency.
+
+## Owner-authorized local content
+
+The owner authorized agent-managed local copies of the two supplied GBA files
+and agent-run logo-digest extraction/verification. Keep them under the existing
+ignored `/private/owner-roms/` directory. This local permission supersedes the
+earlier owner-must-run-the-helper procedure for these files; it grants no
+permission to commit or upload their bytes or use them in public CI.
