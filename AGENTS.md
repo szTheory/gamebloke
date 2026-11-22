@@ -82,6 +82,12 @@ approval requests.
   Maintain one canonical local command aligned with the fast required CI path.
   Give important gates a meaningful negative control; missing and skipped
   checks must be visible.
+- Before waiting on a long or costly hosted CI/CD run, run the canonical local
+  workflow and cheap deterministic consistency/selection checks first. Use
+  `act` as a best-effort local GitHub Actions replay when it supports the
+  relevant workflow path and materially shortens feedback; record unsupported
+  runner, event, service, and secret differences. Local emulation does not
+  replace host-specific or hosted qualification.
 - Put cheap, deterministic consistency and dependency checks before long suites
   when they can reject a known failure early. Check final-scale bottlenecks,
   shared policy fields, evidence bindings and actual changed inputs before
@@ -97,16 +103,19 @@ approval requests.
   boundaries when each exists. A virtual host or adapter check does not claim
   physical-controller behavior.
 - Add CI work only for a distinct recurring failure class at useful
-  runtime/maintenance cost. After every CI run, inspect measured critical-path
-  time for duplicate setup/builds or other low-risk savings without weakening
-  evidence. Benchmark emulator throughput separately from CI wait/build/test
-  time; hold correct output constant while measuring.
-- For Docker-based CI/CD reproduction or release checks, give task-owned images,
-  containers, networks, and temporary volumes a clear `gamebloke-<task>-` name
-  (and project/task labels where supported). Avoid generic names. Afterward,
-  remove only resources created for that run, including disposable images and
-  volumes; inspect names/labels first and never use broad prune commands that
-  could delete shared caches or owner data. Record resources intentionally kept.
+  runtime/maintenance cost. After every CI or release (CD) run, inspect
+  measured critical-path time across setup, configure, build, test, packaging,
+  and artifact steps. Look for duplicate work and low-risk savings without
+  weakening evidence, and record useful lessons. Benchmark emulator throughput
+  separately from CI/CD wait and processing time; hold correct output constant
+  while measuring.
+- For Docker- or `act`-based CI/CD reproduction or release checks, give
+  task-owned images, containers, networks, and temporary volumes a clear
+  `gamebloke-<task>-` name (and project/task labels where supported). Avoid
+  generic names. Afterwards, inspect and remove only resources created for
+  that run, including disposable images and volumes; never use broad prune
+  commands that could delete shared caches or owner data. Record resources
+  intentionally kept.
 - At milestone close, keep main green, triage open pull requests, update the
   rolling roadmap and lessons, and target a release of the exact tested
   artifact when its contents, rights, package readiness, qualification, and
