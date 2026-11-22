@@ -4,17 +4,17 @@ milestone: v4.0
 milestone_name: Audio
 current_phase: 17
 current_phase_name: PSG Channels and Sequencer
-status: planning
-stopped_at: Phase 16 complete, ready to plan Phase 17
-last_updated: "2026-11-22T19:03:09.800Z"
+status: executing
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-11-22T20:55:49.164Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 16 complete, transitioned to Phase 17
-state_head: c04ef2122d597c0ea2fb63f6ee1031708e9f3ef0
+state_head: d9e4fdc423ef862cabe06ed2b6f18324bd66dfde
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 7
+  completed_plans: 4
   percent: 25
 ---
 
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 17 — PSG Channels and Sequencer
-Plan: Not started
-Status: Ready to plan
+Plan: 2 of 4
+Status: Ready to execute
 Last activity: 2026-11-22 — Phase 16 complete, transitioned to Phase 17
 Last activity description: Phase 16 complete, transitioned to Phase 17
 Progress: [███░░░░░░░] 25%
@@ -194,6 +194,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 16 P01 | 35min | 3 tasks | 11 files |
 | Phase 16 P02 | 34m | 3 tasks | 10 files |
 | Phase 16 P03 | 74 min | 3 tasks | 13 files |
+| Phase 17 P01 | 42 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -524,6 +525,10 @@ Recent decisions affecting current work:
 - [Phase 16]: Keep profile v16 bound to the implemented fixed pre-PWM audio grid, signed-zero sources, and one-second capture bounds.
 - [Phase 16]: Keep SOUNDBIAS policy independent of cadence; sound sources and PWM/analog output remain unmodeled and hardware qualification UNKNOWN.
 - [Phase 16]: Allow later profile versions in the Phase 10 PPU gate while continuing to enforce the PPU policy.
+- [Phase 17]: CH2 uses period 128 * (2048 - fdat), phase zero starts high, and live frequency writes retain elapsed phase modulo the new period.
+- [Phase 17]: The shared sequencer is reset-anchored at cycle 32768; length clocks on steps 0/2/4/6 and envelope clocks on step 7.
+- [Phase 17]: At a shared cycle, device effects and PSG progression precede sampling, which precedes the completing sound-register write.
+- [Phase 17]: Keep capture PCM signed-zero and hardware qualification UNKNOWN; Wave, mixing, and playback remain later plan scope.
 
 ### Pending Todos
 
@@ -575,8 +580,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-22T17:18:08.804Z
-Stopped at: Phase 16 complete, ready to plan Phase 17
+Last session: 2026-11-22T20:54:22.644Z
+Stopped at: Completed 17-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

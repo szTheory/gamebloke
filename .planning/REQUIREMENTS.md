@@ -11,7 +11,7 @@ This is the committed scope for GSD milestone v4.0; it is not a software release
 
 - [x] **AUD-01**: A guest can access the supported GBA sound registers through the canonical bus, with declared access masks, readback, trigger/status, reset, and master-enable effects.
 - [ ] **PSG-01**: A guest can configure and trigger PSG channel 1's square-wave and sweep behavior, including its declared frequency, duty, length, envelope, and status behavior on guest time.
-- [ ] **PSG-02**: A guest can configure and trigger PSG channel 2's square-wave behavior, including its declared frequency, duty, length, envelope, and status behavior on guest time.
+- [x] **PSG-02**: A guest can configure and trigger PSG channel 2's square-wave behavior, including its declared frequency, duty, length, envelope, and status behavior on guest time.
 - [ ] **PSG-03**: A guest can configure and trigger PSG channel 3's wave playback, including bounded Wave RAM access and its declared bank, frequency, volume, length, and status behavior on guest time.
 - [ ] **PSG-04**: A guest can configure and trigger PSG channel 4's noise behavior, including its declared frequency, width, length, envelope, and status behavior on guest time.
 
@@ -54,7 +54,7 @@ Deferred audio capabilities that are not part of v4.0:
 |-------------|-------|--------|
 | AUD-01 | Phase 16 | Complete |
 | PSG-01 | Phase 17 | Pending |
-| PSG-02 | Phase 17 | Pending |
+| PSG-02 | Phase 17 | Complete |
 | PSG-03 | Phase 17 | Pending |
 | PSG-04 | Phase 17 | Pending |
 | DS-01 | Phase 18 | Pending |
