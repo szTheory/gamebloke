@@ -130,17 +130,29 @@ bool gbl_audio_state_equal(const gbl_audio_state *left,
 bool gbl_audio_state_valid(const gbl_audio_state *state)
 {
     size_t index;
+    const bool master_enabled =
+        state != NULL && (state->registers[18] & UINT16_C(0x0080)) != 0u;
 
     if (state == NULL ||
         state->soundbias != (uint16_t)(state->soundbias & UINT16_C(0xC3FF)) ||
         (state->active_channels & UINT8_C(0xF0)) != 0u ||
-        (state->registers[18] & (uint16_t)~UINT16_C(0x0080)) != 0u) {
+        (state->registers[18] & (uint16_t)~UINT16_C(0x0080)) != 0u ||
+        (!master_enabled && state->active_channels != 0u) ||
+        ((state->active_channels & UINT8_C(0x01)) != 0u &&
+         (state->registers[1] & UINT16_C(0xF800)) == 0u) ||
+        ((state->active_channels & UINT8_C(0x02)) != 0u &&
+         (state->registers[4] & UINT16_C(0xF800)) == 0u) ||
+        ((state->active_channels & UINT8_C(0x08)) != 0u &&
+         (state->registers[12] & UINT16_C(0xF800)) == 0u)) {
         return false;
     }
     for (index = 0u; index < GBL_AUDIO_REGISTER_COUNT - 1u; ++index) {
         if ((state->registers[index] &
              (uint16_t)~gbl_audio_register_policies[index].retain_mask) !=
-            0u) {
+                0u ||
+            ((index == 2u || index == 6u || index == 10u || index == 14u) &&
+             (state->registers[index] & UINT16_C(0x4000)) != 0u) ||
+            (!master_enabled && state->registers[index] != 0u)) {
             return false;
         }
     }

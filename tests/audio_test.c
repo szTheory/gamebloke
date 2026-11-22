@@ -41,6 +41,10 @@ static gbl_bus_result read16(gbl_machine *machine, uint32_t address)
                         GBL_BUS_CLASS_NONSEQUENTIAL);
 }
 
+static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot);
+static bool unchanged_machine(const gbl_machine *machine,
+                              const gbl_machine *snapshot);
+
 static int run_tracer(void)
 {
     const uint32_t soundbias_address = UINT32_C(0x04000088);
@@ -124,6 +128,7 @@ static int run_registers(void)
     };
     gbl_machine *machine = new_machine();
     gbl_machine *snapshot = NULL;
+    gbl_machine_time_preview forged_preview;
     gbl_bus_result result;
     size_t index;
 
@@ -214,6 +219,14 @@ static int run_registers(void)
     gbl_machine_reset(machine);
     CHECK(machine->audio.soundbias == UINT16_C(0x0200));
     CHECK(read16(machine, UINT32_C(0x04000084)).value == 0u);
+    CHECK(snapshot_machine(machine, &snapshot));
+    CHECK(gbl_machine_prepare_time(machine, machine->master_cycles,
+                                   &forged_preview) == GBL_TIME_STATUS_OK);
+    forged_preview.audio.registers[2] = UINT16_C(0x4000);
+    forged_preview.audio_prepared = forged_preview.audio;
+    CHECK(!gbl_machine_commit_time_checked(machine, &forged_preview));
+    CHECK(unchanged_machine(machine, snapshot));
+    free(snapshot);
     free_machine(machine);
     return CHECK_DONE();
 }
@@ -252,10 +265,6 @@ static void boundary_sample(const gbl_machine_time_preview *candidate,
         *right = -INT16_C(0x1111);
     }
 }
-
-static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot);
-static bool unchanged_machine(const gbl_machine *machine,
-                              const gbl_machine *snapshot);
 
 static int run_cadence(void)
 {
