@@ -80,6 +80,58 @@ bool gbl_audio_register_address(uint32_t address)
            gbl_audio_register_policies[index].action_mask != 0u;
 }
 
+bool gbl_audio_wave_span_overlaps(uint32_t address, uint8_t width)
+{
+    uint32_t last;
+
+    if ((width != 1u && width != 2u && width != 4u) ||
+        address > UINT32_MAX - ((uint32_t)width - 1u)) {
+        return false;
+    }
+    last = address + (uint32_t)width - 1u;
+    return address <= GBL_AUDIO_WAVE_LAST && last >= GBL_AUDIO_WAVE_FIRST;
+}
+
+bool gbl_audio_wave_span_valid(uint32_t address, uint8_t width)
+{
+    return gbl_audio_wave_span_overlaps(address, width) &&
+           address >= GBL_AUDIO_WAVE_FIRST &&
+           address <= GBL_AUDIO_WAVE_LAST - ((uint32_t)width - 1u);
+}
+
+bool gbl_audio_wave_read_byte(const gbl_audio_state *state,
+                              uint32_t address, uint8_t *value)
+{
+    const unsigned selected_bank =
+        state == NULL ? 0u : (unsigned)((state->registers[8] >> 6u) & 1u);
+
+    if (state == NULL || value == NULL ||
+        address < GBL_AUDIO_WAVE_FIRST || address > GBL_AUDIO_WAVE_LAST) {
+        return false;
+    }
+    *value = state->wave_ram[selected_bank ^ 1u]
+                           [address - GBL_AUDIO_WAVE_FIRST];
+    return true;
+}
+
+bool gbl_audio_wave_write(gbl_audio_state *state, uint32_t address,
+                          uint8_t width, uint32_t value)
+{
+    const unsigned selected_bank =
+        state == NULL ? 0u : (unsigned)((state->registers[8] >> 6u) & 1u);
+    unsigned lane;
+
+    if (state == NULL || !gbl_audio_wave_span_valid(address, width)) {
+        return false;
+    }
+    for (lane = 0u; lane < width; ++lane) {
+        state->wave_ram[selected_bank ^ 1u]
+                        [address - GBL_AUDIO_WAVE_FIRST + lane] =
+            (uint8_t)(value >> (lane * 8u));
+    }
+    return true;
+}
+
 uint16_t gbl_audio_read_register(const gbl_audio_state *state,
                                  uint32_t address)
 {

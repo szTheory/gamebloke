@@ -136,6 +136,221 @@ static bool configure_ch4_noise(gbl_machine *machine,
                GBL_BUS_STATUS_OK;
 }
 
+static bool load_wave_bank(gbl_machine *machine, unsigned bank,
+                           uint8_t packed_byte)
+{
+    const uint16_t selected_front = (uint16_t)(UINT16_C(0x0080) |
+                                               (bank == 0u
+                                                    ? UINT16_C(0x0040)
+                                                    : 0u));
+    unsigned offset;
+
+    if (machine == NULL || bank > 1u ||
+        write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000070), selected_front).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    for (offset = 0u; offset < 16u; offset += 4u) {
+        const uint32_t packed = (uint32_t)packed_byte |
+                                ((uint32_t)packed_byte << 8u) |
+                                ((uint32_t)packed_byte << 16u) |
+                                ((uint32_t)packed_byte << 24u);
+
+        if (!gbl_audio_wave_write(&machine->audio,
+                                  UINT32_C(0x04000090) + offset, 4u,
+                                  packed)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool configure_wave(gbl_machine *machine, unsigned front_bank,
+                           bool dual_bank, uint16_t volume_control,
+                           uint8_t length, uint16_t frequency,
+                           bool length_enable)
+{
+    const uint16_t wave_control =
+        (uint16_t)(UINT16_C(0x0080) |
+                   (front_bank != 0u ? UINT16_C(0x0040) : 0u) |
+                   (dual_bank ? UINT16_C(0x0020) : 0u));
+    const uint16_t wave_length_volume =
+        (uint16_t)((uint16_t)length | volume_control);
+    const uint16_t wave_frequency =
+        (uint16_t)(frequency | (length_enable ? UINT16_C(0x4000) : 0u) |
+                   UINT16_C(0x8000));
+
+    return machine != NULL &&
+           write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x04000070), wave_control).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x04000072), wave_length_volume).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x04000074), wave_frequency).status ==
+               GBL_BUS_STATUS_OK;
+}
+
+static int run_psg_wave(void)
+{
+    gbl_machine *machine = new_machine();
+    uint64_t trigger_cycle = 0u;
+    uint8_t byte_value = 0u;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    tap_check("machine is initialized", machine != NULL);
+    if (machine == NULL) {
+        puts("1..1");
+        return 1;
+    }
+    tap_check("both packed Wave RAM banks accept bounded private loads",
+              load_wave_bank(machine, 0u, UINT8_C(0x32)) &&
+                  load_wave_bank(machine, 1u, UINT8_C(0x54)) &&
+                  gbl_audio_wave_read_byte(&machine->audio,
+                                            UINT32_C(0x04000090),
+                                            &byte_value) &&
+                  byte_value == UINT8_C(0x54) &&
+                  write16(machine, UINT32_C(0x04000070),
+                          UINT16_C(0x00C0)).status == GBL_BUS_STATUS_OK &&
+                  gbl_audio_wave_read_byte(&machine->audio,
+                                            UINT32_C(0x04000090),
+                                            &byte_value) &&
+                  byte_value == UINT8_C(0x32));
+    tap_check("selected 32-step front bank triggers at phase zero",
+              configure_wave(machine, 0u, false, UINT16_C(0x2000), 0u,
+                             UINT16_C(2047), false) &&
+                  (read16(machine, UINT32_C(0x04000084)).value & 7u) == 4u &&
+                  gbl_audio_psg_sample(&machine->audio, 2u) == 3u);
+    trigger_cycle = machine->master_cycles;
+    tap_check("manual whole-pattern rate uses a four-cycle nibble step",
+              gbl_machine_advance_to(machine, trigger_cycle + 3u) ==
+                      GBL_TIME_STATUS_OK &&
+                  gbl_audio_psg_sample(&machine->audio, 2u) == 3u &&
+                  gbl_machine_advance_to(machine, trigger_cycle + 4u) ==
+                      GBL_TIME_STATUS_OK &&
+                  gbl_audio_psg_sample(&machine->audio, 2u) == 2u);
+    tap_check("32-step playback wraps to its selected front bank",
+              gbl_machine_advance_to(machine, trigger_cycle + 128u) ==
+                      GBL_TIME_STATUS_OK &&
+                  gbl_audio_psg_sample(&machine->audio, 2u) == 3u);
+    free_machine(machine);
+
+    {
+        static const uint16_t volume_controls[5] = {
+            UINT16_C(0x0000), UINT16_C(0x2000), UINT16_C(0x4000),
+            UINT16_C(0x6000), UINT16_C(0x8000)
+        };
+        static const uint8_t expected_levels[5] = { 0u, 3u, 1u, 0u, 2u };
+        unsigned volume;
+
+        for (volume = 0u; volume < 5u; ++volume) {
+            gbl_machine *probe = new_machine();
+            bool valid = probe != NULL;
+
+            if (valid) {
+                valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                        load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                        configure_wave(probe, 0u, false,
+                                       volume_controls[volume], 0u,
+                                       UINT16_C(2047), false) &&
+                        gbl_audio_psg_sample(&probe->audio, 2u) ==
+                            expected_levels[volume];
+            }
+            tap_check("CH3 applies mute/full/half/quarter/forced volume",
+                      valid);
+            free_machine(probe);
+        }
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        uint64_t anchor = 0u;
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 0u, true, UINT16_C(0x2000), 0u,
+                                   UINT16_C(2047), false);
+            anchor = probe->master_cycles;
+            valid = valid &&
+                    gbl_machine_advance_to(probe, anchor + 127u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 2u &&
+                    gbl_machine_advance_to(probe, anchor + 128u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 5u &&
+                    gbl_machine_advance_to(probe, anchor + 132u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
+                    gbl_machine_advance_to(probe, anchor + 256u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 3u;
+        }
+        tap_check("64-step playback concatenates selected and other banks",
+                  valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        uint64_t anchor = 0u;
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 1u, true, UINT16_C(0x2000), 0u,
+                                   UINT16_C(2046), false);
+            anchor = probe->master_cycles;
+            valid = valid &&
+                    gbl_machine_advance_to(probe, anchor + 7u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 5u &&
+                    gbl_machine_advance_to(probe, anchor + 8u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 4u &&
+                    gbl_machine_advance_to(probe, anchor + 256u) ==
+                        GBL_TIME_STATUS_OK &&
+                    gbl_audio_psg_sample(&probe->audio, 2u) == 5u;
+        }
+        tap_check("CH3 uses eight-cycle steps at frequency 2046 and bank 1",
+                  valid);
+        free_machine(probe);
+    }
+
+    {
+        gbl_machine *probe = new_machine();
+        bool valid = probe != NULL;
+
+        if (valid) {
+            valid = load_wave_bank(probe, 0u, UINT8_C(0x32)) &&
+                    load_wave_bank(probe, 1u, UINT8_C(0x54)) &&
+                    configure_wave(probe, 0u, false, UINT16_C(0x2000), 255u,
+                                   UINT16_C(2047), true) &&
+                    configure_ch2(probe, 0u, 0u, 15u, false, 0u,
+                                  UINT16_C(2047), false);
+            valid = valid && probe->audio.length_remaining[2] == 1u &&
+                    gbl_machine_advance_to(probe, UINT64_C(32767)) ==
+                        GBL_TIME_STATUS_OK &&
+                    (probe->audio.active_channels & 6u) == 6u &&
+                    gbl_machine_advance_to(probe, UINT64_C(32768)) ==
+                        GBL_TIME_STATUS_OK &&
+                    probe->audio.length_remaining[2] == 0u &&
+                    (probe->audio.active_channels & 6u) == 2u;
+        }
+        tap_check("CH3 length expires its own status and preserves CH2", valid);
+        free_machine(probe);
+    }
+
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static bool advance_audio_without_capture(gbl_audio_state *audio,
                                           uint64_t target)
 {
@@ -2866,6 +3081,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "psg_noise") == 0) {
         return run_psg_noise();
+    }
+    if (strcmp(argv[1], "psg_wave") == 0) {
+        return run_psg_wave();
     }
     if (strcmp(argv[1], "psg_sequencer") == 0) {
         return run_psg_sequencer();

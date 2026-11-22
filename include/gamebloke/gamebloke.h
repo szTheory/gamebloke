@@ -113,6 +113,11 @@ typedef struct gbl_audio_state {
      * shift codes pause these values without disabling length or envelope. */
     uint16_t noise_lfsr;
     uint32_t noise_cycle_remainder;
+    /* CH3 Wave RAM is two fixed 16-byte banks. Playback phase is a nibble
+     * index; the remainder is elapsed master cycles within one nibble. */
+    uint8_t wave_ram[2][16];
+    uint8_t wave_phase;
+    uint32_t wave_cycle_remainder;
 } gbl_audio_state;
 
 typedef enum gbl_event_kind {

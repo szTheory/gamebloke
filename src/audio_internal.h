@@ -13,6 +13,8 @@
 #define GBL_AUDIO_REGISTER_FIRST UINT32_C(0x04000060)
 #define GBL_AUDIO_REGISTER_LAST UINT32_C(0x04000085)
 #define GBL_AUDIO_REGISTER_COUNT 19u
+#define GBL_AUDIO_WAVE_FIRST UINT32_C(0x04000090)
+#define GBL_AUDIO_WAVE_LAST UINT32_C(0x0400009F)
 
 typedef void (*gbl_audio_sample_provider)(
     const gbl_machine_time_preview *candidate, uint64_t cycle,
@@ -53,6 +55,12 @@ bool gbl_machine_commit_time_checked(
 
 uint16_t gbl_audio_read_soundbias(const gbl_audio_state *state);
 bool gbl_audio_register_address(uint32_t address);
+bool gbl_audio_wave_span_overlaps(uint32_t address, uint8_t width);
+bool gbl_audio_wave_span_valid(uint32_t address, uint8_t width);
+bool gbl_audio_wave_read_byte(const gbl_audio_state *state,
+                              uint32_t address, uint8_t *value);
+bool gbl_audio_wave_write(gbl_audio_state *state, uint32_t address,
+                          uint8_t width, uint32_t value);
 uint16_t gbl_audio_read_register(const gbl_audio_state *state,
                                  uint32_t address);
 bool gbl_audio_state_equal(const gbl_audio_state *left,
