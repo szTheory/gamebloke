@@ -29,6 +29,13 @@ static const gbl_audio_register_policy gbl_audio_register_policies[
         { UINT16_C(0x0080), UINT16_C(0x008F), UINT16_C(0x0000) }
     };
 
+static const size_t gbl_audio_frequency_registers[4] = { 2u, 6u, 10u, 14u };
+static const size_t gbl_audio_length_registers[4] = { 1u, 4u, 9u, 12u };
+static const uint16_t gbl_audio_length_maxima[4] = { 64u, 64u, 256u, 64u };
+static const uint16_t gbl_audio_length_masks[4] = {
+    UINT16_C(0x003F), UINT16_C(0x003F), UINT16_C(0x00FF), UINT16_C(0x003F)
+};
+
 static size_t gbl_audio_register_index(uint32_t address)
 {
     return (size_t)((address - GBL_AUDIO_REGISTER_FIRST) / 2u);
@@ -107,8 +114,7 @@ static bool gbl_audio_square_high_for_phase(const gbl_audio_state *state,
 {
     static const uint8_t duty_numerators[4] = { 1u, 2u, 4u, 6u };
     const size_t duty_register = channel_index == 0u ? 1u : 4u;
-    const uint32_t period =
-        gbl_audio_square_period(state, channel_index);
+    const uint32_t period = gbl_audio_square_period(state, channel_index);
     const uint32_t duty =
         (uint32_t)((state->registers[duty_register] >> 6u) & UINT16_C(0x0003));
     const uint32_t high_cycles =
@@ -124,9 +130,146 @@ static void gbl_audio_refresh_square_level(gbl_audio_state *state,
         gbl_audio_square_high_for_phase(state, channel_index);
 }
 
-static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
+static bool gbl_audio_channel_length_pending(const gbl_audio_state *state,
+                                             unsigned channel_index)
 {
-    const uint64_t elapsed = target - state->cycle_anchor;
+    const uint16_t length_enable =
+        (uint16_t)(state->registers[
+                       gbl_audio_frequency_registers[channel_index]] &
+                   UINT16_C(0x4000));
+
+    return (state->active_channels &
+            (uint8_t)(UINT8_C(1) << channel_index)) != 0u &&
+           state->length_remaining[channel_index] != 0u &&
+           length_enable != 0u;
+}
+
+static bool gbl_audio_channel_envelope_pending(
+    const gbl_audio_state *state, unsigned channel_index)
+{
+    const bool active =
+        (state->active_channels &
+         (uint8_t)(UINT8_C(1) << channel_index)) != 0u;
+    const bool at_endpoint = state->envelope_increase[channel_index]
+                                 ? state->channel_volume[channel_index] >= 15u
+                                 : state->channel_volume[channel_index] == 0u;
+
+    return active && channel_index != 2u &&
+           state->envelope_period[channel_index] != 0u &&
+           state->envelope_timer[channel_index] != 0u && !at_endpoint;
+}
+
+static bool gbl_audio_has_pending_sequencer_clock(
+    const gbl_audio_state *state, bool *length_pending,
+    bool *envelope_pending)
+{
+    unsigned channel_index;
+
+    *length_pending = false;
+    *envelope_pending = false;
+    for (channel_index = 0u; channel_index < 4u; ++channel_index) {
+        *length_pending = *length_pending ||
+                          gbl_audio_channel_length_pending(state,
+                                                           channel_index);
+        *envelope_pending = *envelope_pending ||
+                            gbl_audio_channel_envelope_pending(
+                                state, channel_index);
+    }
+    return *length_pending || *envelope_pending;
+}
+
+static bool gbl_audio_next_sequencer_clock(
+    const gbl_audio_state *state, uint64_t target, uint64_t *clock_cycle,
+    uint8_t *clock_step)
+{
+    const uint64_t quotient =
+        state->cycle_anchor / GBL_AUDIO_SEQUENCER_CYCLES;
+    const uint64_t last_quotient =
+        UINT64_MAX / GBL_AUDIO_SEQUENCER_CYCLES;
+    const uint8_t first_step = (uint8_t)(quotient & UINT64_C(7));
+    const uint64_t first_cycle =
+        quotient >= last_quotient
+            ? 0u
+            : (quotient + UINT64_C(1)) * GBL_AUDIO_SEQUENCER_CYCLES;
+    bool length_pending;
+    bool envelope_pending;
+    uint8_t offset;
+
+    if (clock_cycle == NULL || clock_step == NULL || first_cycle == 0u ||
+        !gbl_audio_has_pending_sequencer_clock(state, &length_pending,
+                                               &envelope_pending)) {
+        return false;
+    }
+    for (offset = 0u; offset < 8u; ++offset) {
+        const uint8_t step = (uint8_t)((first_step + offset) & UINT8_C(7));
+        const bool length_clock = length_pending && (step & UINT8_C(1)) == 0u;
+        const bool envelope_clock = envelope_pending && step == UINT8_C(7);
+        const uint64_t cycle_delta =
+            (uint64_t)offset * GBL_AUDIO_SEQUENCER_CYCLES;
+        uint64_t cycle;
+
+        if (!length_clock && !envelope_clock) {
+            continue;
+        }
+        if (first_cycle > UINT64_MAX - cycle_delta) {
+            return false;
+        }
+        cycle = first_cycle + cycle_delta;
+        if (cycle > target) {
+            return false;
+        }
+        *clock_cycle = cycle;
+        *clock_step = step;
+        return true;
+    }
+    return false;
+}
+
+static void gbl_audio_clock_lengths(gbl_audio_state *state)
+{
+    unsigned channel_index;
+
+    for (channel_index = 0u; channel_index < 4u; ++channel_index) {
+        if (gbl_audio_channel_length_pending(state, channel_index)) {
+            --state->length_remaining[channel_index];
+            if (state->length_remaining[channel_index] == 0u) {
+                state->active_channels &=
+                    (uint8_t)~(UINT8_C(1) << channel_index);
+            }
+        }
+    }
+}
+
+static void gbl_audio_clock_envelopes(gbl_audio_state *state)
+{
+    unsigned channel_index;
+
+    for (channel_index = 0u; channel_index < 4u; ++channel_index) {
+        if (!gbl_audio_channel_envelope_pending(state, channel_index)) {
+            continue;
+        }
+        --state->envelope_timer[channel_index];
+        if (state->envelope_timer[channel_index] != 0u) {
+            continue;
+        }
+        if (state->envelope_increase[channel_index]) {
+            ++state->channel_volume[channel_index];
+        } else {
+            --state->channel_volume[channel_index];
+        }
+        if (state->channel_volume[channel_index] == 0u ||
+            state->channel_volume[channel_index] == UINT8_C(15)) {
+            state->envelope_timer[channel_index] = 0u;
+        } else {
+            state->envelope_timer[channel_index] =
+                state->envelope_period[channel_index];
+        }
+    }
+}
+
+static void gbl_audio_advance_square_cycles(gbl_audio_state *state,
+                                            uint64_t elapsed)
+{
     unsigned channel_index;
 
     for (channel_index = 0u; channel_index < 2u; ++channel_index) {
@@ -142,15 +285,79 @@ static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
             gbl_audio_refresh_square_level(state, channel_index);
         }
     }
+}
+
+static void gbl_audio_advance_to(gbl_audio_state *state, uint64_t target)
+{
+    uint64_t clock_cycle;
+    uint8_t clock_step;
+
+    while (gbl_audio_next_sequencer_clock(state, target, &clock_cycle,
+                                          &clock_step)) {
+        const uint64_t elapsed = clock_cycle - state->cycle_anchor;
+
+        gbl_audio_advance_square_cycles(state, elapsed);
+        state->cycle_anchor = clock_cycle;
+        if ((clock_step & UINT8_C(1)) == 0u) {
+            gbl_audio_clock_lengths(state);
+        }
+        if (clock_step == UINT8_C(7)) {
+            gbl_audio_clock_envelopes(state);
+        }
+    }
+    gbl_audio_advance_square_cycles(state, target - state->cycle_anchor);
     state->cycle_anchor = target;
 }
 
-static void gbl_audio_reset_square(gbl_audio_state *state,
+static void gbl_audio_reset_channel(gbl_audio_state *state,
                                     unsigned channel_index)
 {
-    state->square_phase[channel_index] = 0u;
+    state->active_channels &=
+        (uint8_t)~(UINT8_C(1) << channel_index);
+    if (channel_index < 2u) {
+        state->square_phase[channel_index] = 0u;
+        state->square_high[channel_index] = false;
+    }
     state->channel_volume[channel_index] = 0u;
-    state->square_high[channel_index] = false;
+    state->length_remaining[channel_index] = 0u;
+    state->envelope_period[channel_index] = 0u;
+    state->envelope_timer[channel_index] = 0u;
+    state->envelope_increase[channel_index] = false;
+}
+
+static void gbl_audio_trigger_channel(gbl_audio_state *state,
+                                      unsigned channel_index)
+{
+    const size_t length_register =
+        gbl_audio_length_registers[channel_index];
+    const uint16_t length_setting =
+        (uint16_t)(state->registers[length_register] &
+                   gbl_audio_length_masks[channel_index]);
+
+    state->length_remaining[channel_index] =
+        (uint16_t)(gbl_audio_length_maxima[channel_index] - length_setting);
+    if (channel_index != 2u) {
+        const size_t envelope_register = length_register;
+        const uint16_t control = state->registers[envelope_register];
+
+        state->channel_volume[channel_index] =
+            (uint8_t)((control >> 12u) & UINT16_C(0x000F));
+        state->envelope_period[channel_index] =
+            (uint8_t)((control >> 8u) & UINT16_C(0x0007));
+        state->envelope_timer[channel_index] =
+            state->envelope_period[channel_index];
+        state->envelope_increase[channel_index] =
+            (control & UINT16_C(0x0800)) != 0u;
+    } else {
+        state->channel_volume[channel_index] = 0u;
+        state->envelope_period[channel_index] = 0u;
+        state->envelope_timer[channel_index] = 0u;
+        state->envelope_increase[channel_index] = false;
+    }
+    if (channel_index < 2u) {
+        state->square_phase[channel_index] = 0u;
+        gbl_audio_refresh_square_level(state, channel_index);
+    }
 }
 
 bool gbl_audio_state_equal(const gbl_audio_state *left,
@@ -177,6 +384,14 @@ bool gbl_audio_state_equal(const gbl_audio_state *left,
     }
     for (index = 0u; index < 4u; ++index) {
         if (left->channel_volume[index] != right->channel_volume[index]) {
+            return false;
+        }
+        if (left->length_remaining[index] !=
+                right->length_remaining[index] ||
+            left->envelope_period[index] != right->envelope_period[index] ||
+            left->envelope_timer[index] != right->envelope_timer[index] ||
+            left->envelope_increase[index] !=
+                right->envelope_increase[index]) {
             return false;
         }
     }
@@ -214,8 +429,8 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
     }
     for (index = 0u; index < 2u; ++index) {
         const uint8_t channel_mask = (uint8_t)(UINT8_C(1) << index);
-        const uint32_t period = gbl_audio_square_period(state,
-                                                        (unsigned)index);
+        const uint32_t period =
+            gbl_audio_square_period(state, (unsigned)index);
 
         if (state->square_phase[index] >= period ||
             (!master_enabled &&
@@ -229,7 +444,18 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
     }
     for (index = 0u; index < 4u; ++index) {
         if (state->channel_volume[index] > UINT8_C(15) ||
-            (!master_enabled && state->channel_volume[index] != 0u)) {
+            state->length_remaining[index] >
+                gbl_audio_length_maxima[index] ||
+            state->envelope_period[index] > UINT8_C(7) ||
+            state->envelope_timer[index] > state->envelope_period[index] ||
+            (state->envelope_period[index] == 0u &&
+             state->envelope_timer[index] != 0u) ||
+            (!master_enabled &&
+             (state->channel_volume[index] != 0u ||
+              state->length_remaining[index] != 0u ||
+              state->envelope_period[index] != 0u ||
+              state->envelope_timer[index] != 0u ||
+              state->envelope_increase[index]))) {
             return false;
         }
     }
@@ -244,11 +470,8 @@ static void gbl_audio_clear_channels(gbl_audio_state *state)
         state->registers[index] = 0u;
     }
     state->active_channels = 0u;
-    for (index = 0u; index < 2u; ++index) {
-        gbl_audio_reset_square(state, (unsigned)index);
-    }
     for (index = 0u; index < 4u; ++index) {
-        state->channel_volume[index] = 0u;
+        gbl_audio_reset_channel(state, (unsigned)index);
     }
 }
 
@@ -264,6 +487,7 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
     uint16_t next;
     uint16_t action;
     bool master_enabled;
+    unsigned channel_index;
 
     if (state == NULL || !gbl_audio_register_address(register_address) ||
         lane_mask == 0u) {
@@ -329,9 +553,14 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
     }
 
     if (index == 1u && (next & UINT16_C(0xF800)) == 0u) {
-        gbl_audio_reset_square(state, 0u);
+        gbl_audio_reset_channel(state, 0u);
     } else if (index == 4u && (next & UINT16_C(0xF800)) == 0u) {
-        gbl_audio_reset_square(state, 1u);
+        gbl_audio_reset_channel(state, 1u);
+    } else if (index == 8u && (lane_mask & UINT8_C(1)) != 0u &&
+               (merged & UINT16_C(0x0080)) == 0u) {
+        gbl_audio_reset_channel(state, 2u);
+    } else if (index == 12u && (next & UINT16_C(0xF800)) == 0u) {
+        gbl_audio_reset_channel(state, 3u);
     } else if (index == 1u &&
                (state->active_channels & UINT8_C(0x01)) != 0u) {
         gbl_audio_refresh_square_level(state, 0u);
@@ -340,29 +569,26 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
         gbl_audio_refresh_square_level(state, 1u);
     }
 
-    if (index == 2u) {
+    for (channel_index = 0u; channel_index < 4u; ++channel_index) {
+        const uint8_t channel_mask =
+            (uint8_t)(UINT8_C(1) << channel_index);
+
+        if (index != gbl_audio_frequency_registers[channel_index]) {
+            continue;
+        }
         if ((action & UINT16_C(0x8000)) != 0u &&
-            (state->registers[1] & UINT16_C(0xF800)) != 0u) {
-            state->square_phase[0] = 0u;
-            state->channel_volume[0] =
-                (uint8_t)((state->registers[1] >> 12u) & UINT16_C(0x000F));
-        } else {
-            state->square_phase[0] %= gbl_audio_square_period(state, 0u);
+            (state->active_channels & channel_mask) != 0u) {
+            gbl_audio_trigger_channel(state, channel_index);
         }
-        if ((state->active_channels & UINT8_C(0x01)) != 0u) {
-            gbl_audio_refresh_square_level(state, 0u);
-        }
-    } else if (index == 6u) {
-        if ((action & UINT16_C(0x8000)) != 0u &&
-            (state->registers[4] & UINT16_C(0xF800)) != 0u) {
-            state->square_phase[1] = 0u;
-            state->channel_volume[1] =
-                (uint8_t)((state->registers[4] >> 12u) & UINT16_C(0x000F));
-        } else {
-            state->square_phase[1] %= gbl_audio_square_period(state, 1u);
-        }
-        if ((state->active_channels & UINT8_C(0x02)) != 0u) {
-            gbl_audio_refresh_square_level(state, 1u);
+        if (channel_index < 2u) {
+            if ((action & UINT16_C(0x8000)) == 0u ||
+                (state->active_channels & channel_mask) == 0u) {
+                state->square_phase[channel_index] %=
+                    gbl_audio_square_period(state, channel_index);
+            }
+            if ((state->active_channels & channel_mask) != 0u) {
+                gbl_audio_refresh_square_level(state, channel_index);
+            }
         }
     }
 }

@@ -855,6 +855,38 @@ static int run_psg_transaction(void)
     CHECK(!gbl_machine_commit_time_checked(refused, &preview));
     CHECK(unchanged_machine(refused, invalid_snapshot));
 
+    {
+        gbl_machine *near_limit = new_machine();
+        gbl_machine_time_preview far_preview = { 0 };
+        size_t far_staged_bytes = 0u;
+
+        CHECK(near_limit != NULL);
+        if (near_limit != NULL) {
+            CHECK(configure_ch2(near_limit, UINT8_C(63), 0u, 5u, false, 0u,
+                                UINT16_C(2047), true));
+            far_preview.audio = near_limit->audio;
+            far_preview.audio.cycle_anchor = UINT64_MAX - UINT64_C(1);
+            CHECK(gbl_audio_advance_span(
+                      &far_preview, UINT64_MAX, NULL, 0u, &far_staged_bytes,
+                      NULL, NULL) == GBL_TIME_STATUS_OK);
+            CHECK(far_preview.audio.cycle_anchor == UINT64_MAX);
+            CHECK(far_preview.audio.length_remaining[1] == 1u);
+            CHECK(far_preview.audio.square_phase[1] == 1u);
+            CHECK(gbl_audio_state_valid(&far_preview.audio));
+
+            far_preview.audio = near_limit->audio;
+            far_staged_bytes = 0u;
+            CHECK(gbl_audio_advance_span(
+                      &far_preview, UINT64_MAX, NULL, 0u, &far_staged_bytes,
+                      NULL, NULL) == GBL_TIME_STATUS_OK);
+            CHECK(far_preview.audio.cycle_anchor == UINT64_MAX);
+            CHECK(far_preview.audio.length_remaining[1] == 0u);
+            CHECK(far_preview.audio.active_channels == 0u);
+            CHECK(gbl_audio_state_valid(&far_preview.audio));
+        }
+        free_machine(near_limit);
+    }
+
     free(refusal_snapshot);
     free(in_range_snapshot);
     free(invalid_snapshot);
