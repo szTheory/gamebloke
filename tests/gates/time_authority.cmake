@@ -371,6 +371,8 @@ foreach(label IN ITEMS midpath final)
   file(COPY_FILE "${input_root}/src/cpu.c" "${mutant_cpu_source}")
   file(COPY_FILE "${input_root}/src/cpu_helpers.h"
     "${mutant_root}/src/cpu_helpers.h")
+  file(COPY_FILE "${input_root}/src/audio_internal.h"
+    "${mutant_root}/src/audio_internal.h")
   if(label STREQUAL "midpath")
     set(target_opcode "0xE3A00403")
     set(observation_mode full)
