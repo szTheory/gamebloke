@@ -1,38 +1,12 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v3.0 — PPU Modes and Composition",
-  "phases": [
-    {
-      "number": "11",
-      "name": "Sampled Rows and Transactional Visibility",
-      "status": "complete"
-    },
-    {
-      "number": "12",
-      "name": "Background Modes 0–5",
-      "status": "complete"
-    },
-    {
-      "number": "13",
-      "name": "Objects and Layer Priorities",
-      "status": "in_progress"
-    },
-    {
-      "number": "14",
-      "name": "Windows and Display Effects",
-      "status": "pending"
-    },
-    {
-      "number": "15",
-      "name": "Production Access and Runner Evidence",
-      "status": "pending"
-    }
-  ],
+  "milestone": "v4.0",
+  "phases": [],
   "next": {
-    "command": "$gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 3 of 5 · 40% · executing"
+    "command": "$gsd-discuss-phase",
+    "label": "Discuss the first phase",
+    "reason": "Project initialized — plan your first phase"
   },
-  "updated_at": "2026-11-20T22:09:31.152Z"
+  "updated_at": "2026-11-22T02:17:08.090Z"
 }

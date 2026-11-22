@@ -37,12 +37,26 @@ redistribution rights unknown, and v1.0 `DIAG-04`/`DET-02` remain open
 carryovers. Audio, cartridge saves, and the public API/consumer/package remain
 future work.
 
+## Current Milestone: v4.0 Audio
+
+**Goal:** Extend the canonical machine and deterministic runner with guest-time
+GBA sound behavior and inspectable raw audio output, while keeping host playback
+and hardware qualification outside the claim.
+
+**Target features:**
+- GBA PSG channels and Direct Sound FIFO playback integrated with the existing
+  machine clock, timers, and DMA boundaries.
+- A declared raw sample format and cadence with deterministic mixing/output
+  semantics.
+- Headless runner audio capture and semantic/repeatability evidence from
+  original, rights-cleared diagnostic guests.
+
 ## Next Milestone Direction
 
-No next milestone has been formally selected. The rolling roadmap recommends
-Audio, then Cartridge and Saves, then API, Consumer, and Packaging; these remain
-horizon options until the next milestone boundary. See ROADMAP.md and the v3.0
-archive for current evidence, tradeoffs, and limits.
+After v4.0, the rolling roadmap recommends Cartridge and Saves, then API,
+Consumer, and Packaging. These remain horizon options until the next milestone
+boundary. See ROADMAP.md and the milestone archives for current evidence,
+tradeoffs, and limits.
 
 ## Requirements
 
@@ -202,4 +216,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-21 after v3.0 milestone closeout review*
+*Last updated: 2026-11-21 after starting v4.0 Audio*

@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v3.0
-milestone_name: PPU Modes and Composition
-status: Awaiting next milestone
-stopped_at: Phase 15 complete — all phases complete
-last_updated: "2026-11-22T00:24:38.196Z"
+milestone: v4.0
+milestone_name: Audio
+status: planning
+last_updated: "2026-11-22T02:17:08.088Z"
 last_activity: 2026-11-21
-last_activity_desc: Milestone v3.0 completed and archived
-state_head: 3c429385aae5a92cf73eb6304fef8d583269089e
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 40
-  completed_plans: 40
-  percent: 100
-current_phase: 15
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-11-21)
 
 ## Current Position
 
-Phase: Milestone v3.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-21 — v3.0 archived locally; no software release or hardware qualification claimed
+Status: Defining requirements
+Last activity: 2026-11-21 — Milestone v4.0 started
 
 
 ## Performance Metrics
