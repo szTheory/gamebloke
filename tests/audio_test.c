@@ -754,6 +754,7 @@ static int run_psg_transaction(void)
     gbl_machine *refused = new_machine();
     gbl_machine *in_range_snapshot = NULL;
     gbl_machine *invalid_snapshot = NULL;
+    gbl_machine *active_empty_snapshot = NULL;
     gbl_machine *refusal_snapshot = NULL;
     gbl_audio_capture capture;
     gbl_audio_capture capture_before;
@@ -855,6 +856,16 @@ static int run_psg_transaction(void)
     CHECK(!gbl_machine_commit_time_checked(refused, &preview));
     CHECK(unchanged_machine(refused, invalid_snapshot));
 
+    CHECK(snapshot_machine(refused, &active_empty_snapshot));
+    CHECK(gbl_machine_prepare_time(refused, refused->master_cycles + 16u,
+                                   &preview) == GBL_TIME_STATUS_OK);
+    preview.audio.length_remaining[1] = 0u;
+    preview.audio_prepared.length_remaining[1] = 0u;
+    CHECK(gbl_audio_state_equal(&preview.audio, &preview.audio_prepared));
+    CHECK(!gbl_audio_state_valid(&preview.audio));
+    CHECK(!gbl_machine_commit_time_checked(refused, &preview));
+    CHECK(unchanged_machine(refused, active_empty_snapshot));
+
     {
         gbl_machine *near_limit = new_machine();
         gbl_machine_time_preview far_preview = { 0 };
@@ -890,12 +901,56 @@ static int run_psg_transaction(void)
     free(refusal_snapshot);
     free(in_range_snapshot);
     free(invalid_snapshot);
+    free(active_empty_snapshot);
     free_machine(whole);
     free_machine(split);
     free_machine(captured);
     free_machine(captured_split);
     free_machine(refused);
     return CHECK_DONE();
+}
+
+static int run_psg_validation(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *snapshot = NULL;
+    gbl_machine_time_preview preview = { 0 };
+    bool prepared = false;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    tap_check("machine is initialized", machine != NULL);
+    if (machine == NULL) {
+        puts("1..1");
+        return 1;
+    }
+    tap_check("active CH2 is configured with a positive length",
+              configure_ch2(machine, 0u, 0u, 5u, false, 0u,
+                            UINT16_C(2047), true) &&
+                  machine->audio.length_remaining[1] == 64u);
+    tap_check("machine snapshot is available",
+              snapshot_machine(machine, &snapshot));
+    prepared = gbl_machine_prepare_time(machine, machine->master_cycles + 16u,
+                                        &preview) == GBL_TIME_STATUS_OK;
+    tap_check("valid time preview is prepared", prepared);
+    if (prepared) {
+        preview.audio.length_remaining[1] = 0u;
+        preview.audio_prepared.length_remaining[1] = 0u;
+        tap_check("forged candidate still matches its prepared copy",
+                  gbl_audio_state_equal(&preview.audio,
+                                        &preview.audio_prepared));
+        tap_check("active channel with empty length is invalid",
+                  !gbl_audio_state_valid(&preview.audio));
+        tap_check("checked commit refuses the impossible state",
+                  !gbl_machine_commit_time_checked(machine, &preview));
+        tap_check("refused commit preserves the machine exactly",
+                  snapshot != NULL && unchanged_machine(machine, snapshot));
+    }
+    free(snapshot);
+    free_machine(machine);
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
 }
 
 typedef struct sample_observation {
@@ -1527,6 +1582,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "psg_transaction") == 0) {
         return run_psg_transaction();
+    }
+    if (strcmp(argv[1], "psg_validation") == 0) {
+        return run_psg_validation();
     }
     if (strcmp(argv[1], "cadence") == 0) {
         return run_cadence();
