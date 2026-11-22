@@ -83,24 +83,7 @@ uint16_t gbl_audio_read_register(const gbl_audio_state *state,
     index = gbl_audio_register_index(address & ~UINT32_C(1));
     value = (uint16_t)(state->registers[index] &
                        gbl_audio_register_policies[index].read_mask);
-    if ((address & ~UINT32_C(1)) == UINT32_C(0x04000064) ||
-        (address & ~UINT32_C(1)) == UINT32_C(0x0400006C) ||
-        (address & ~UINT32_C(1)) == UINT32_C(0x04000074) ||
-        (address & ~UINT32_C(1)) == UINT32_C(0x0400007C)) {
-        const uint32_t register_address = address & ~UINT32_C(1);
-        const uint8_t channel = register_address == UINT32_C(0x04000064)
-                                    ? 0u
-                                    : register_address == UINT32_C(0x0400006C)
-                                          ? 1u
-                                          : register_address ==
-                                                    UINT32_C(0x04000074)
-                                                ? 2u
-                                                : 3u;
-
-        if ((state->active_channels & (uint8_t)(1u << channel)) != 0u) {
-            value |= UINT16_C(0x4000);
-        }
-    } else if ((address & ~UINT32_C(1)) == UINT32_C(0x04000084)) {
+    if ((address & ~UINT32_C(1)) == UINT32_C(0x04000084)) {
         value = (uint16_t)((state->registers[index] & UINT16_C(0x0080)) |
                            (uint16_t)(state->active_channels &
                                       UINT8_C(0x0F)));
@@ -142,6 +125,8 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
          (state->registers[1] & UINT16_C(0xF800)) == 0u) ||
         ((state->active_channels & UINT8_C(0x02)) != 0u &&
          (state->registers[4] & UINT16_C(0xF800)) == 0u) ||
+        ((state->active_channels & UINT8_C(0x04)) != 0u &&
+         (state->registers[8] & UINT16_C(0x0080)) == 0u) ||
         ((state->active_channels & UINT8_C(0x08)) != 0u &&
          (state->registers[12] & UINT16_C(0xF800)) == 0u)) {
         return false;
@@ -150,8 +135,6 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
         if ((state->registers[index] &
              (uint16_t)~gbl_audio_register_policies[index].retain_mask) !=
                 0u ||
-            ((index == 2u || index == 6u || index == 10u || index == 14u) &&
-             (state->registers[index] & UINT16_C(0x4000)) != 0u) ||
             (!master_enabled && state->registers[index] != 0u)) {
             return false;
         }
@@ -214,9 +197,6 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
     }
 
     writable_mask = gbl_audio_register_policies[index].retain_mask;
-    if (index == 2u || index == 6u || index == 10u || index == 14u) {
-        writable_mask &= (uint16_t)~UINT16_C(0x4000);
-    }
     next = (uint16_t)((prior & (uint16_t)~writable_mask) |
                       (merged & writable_mask));
     action = (uint16_t)(merged &

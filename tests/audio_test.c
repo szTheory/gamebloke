@@ -126,6 +126,10 @@ static int run_registers(void)
         { UINT32_C(0x04000080), UINT16_C(0xFF77), UINT16_C(0xFF77) },
         { UINT32_C(0x04000082), UINT16_C(0x770F), UINT16_C(0x770F) }
     };
+    static const uint32_t length_registers[] = {
+        UINT32_C(0x04000064), UINT32_C(0x0400006C),
+        UINT32_C(0x04000074), UINT32_C(0x0400007C)
+    };
     gbl_machine *machine = new_machine();
     gbl_machine *snapshot = NULL;
     gbl_machine_time_preview forged_preview;
@@ -151,21 +155,27 @@ static int run_registers(void)
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0004)) == 0u);
 
-    for (index = 0u; index < sizeof(policies) / sizeof(policies[0]); ++index) {
-        const uint16_t expected =
-            policies[index].address == UINT32_C(0x04000064) ||
-                    policies[index].address == UINT32_C(0x0400006C) ||
-                    policies[index].address == UINT32_C(0x04000074)
-                ? UINT16_C(0x4000)
-                : policies[index].read_mask;
+    /* Bit 14 is each channel's retained length-enable flag. It must not
+     * mirror the separate active-channel bits in SOUNDCNT_X. */
+    for (index = 0u;
+         index < sizeof(length_registers) / sizeof(length_registers[0]);
+         ++index) {
+        result = write16(machine, length_registers[index], UINT16_C(0x4000));
+        CHECK(result.status == GBL_BUS_STATUS_OK);
+        CHECK(read16(machine, length_registers[index]).value ==
+              UINT16_C(0x4000));
+        CHECK((read16(machine, UINT32_C(0x04000084)).value &
+               UINT32_C(0x000F)) == 0u);
+    }
 
+    for (index = 0u; index < sizeof(policies) / sizeof(policies[0]); ++index) {
         result = write16(machine, policies[index].address, UINT16_MAX);
         CHECK(result.status == GBL_BUS_STATUS_OK);
         CHECK(result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET);
         result = read16(machine, policies[index].address);
         CHECK(result.status == GBL_BUS_STATUS_OK);
         CHECK(result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET);
-        CHECK(result.value == expected);
+        CHECK(result.value == policies[index].read_mask);
     }
     CHECK(read16(machine, UINT32_C(0x04000084)).value == UINT32_C(0x008F));
     result = gbl_bus_read(machine, UINT32_C(0x04000066), 2u,
@@ -176,16 +186,31 @@ static int run_registers(void)
     CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED);
 
-    /* A single word write updates the envelope before applying its adjacent
-     * trigger action. The trigger is self-clearing and the status is read-only. */
-    result = gbl_bus_write(machine, UINT32_C(0x04000062), 4u,
-                           GBL_BUS_CLASS_NONSEQUENTIAL,
-                           UINT32_C(0x8000F800));
+    /* Clearing the DAC clears only channel status; the retained length flag
+     * remains independent. Re-enabling and triggering preserves that flag,
+     * while SOUNDCNT_X reports the active channel separately. */
+    result = write16(machine, UINT32_C(0x04000062), 0u);
     CHECK(result.status == GBL_BUS_STATUS_OK);
-    CHECK(read16(machine, UINT32_C(0x04000064)).value == UINT32_C(0x4000));
+    CHECK(read16(machine, UINT32_C(0x04000064)).value == UINT16_C(0x4000));
+    CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0001)) ==
+          0u);
     result = write16(machine, UINT32_C(0x04000064), UINT16_C(0x4000));
     CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(read16(machine, UINT32_C(0x04000064)).value == UINT16_C(0x4000));
+    CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0001)) ==
+          0u);
+    result = gbl_bus_write(machine, UINT32_C(0x04000062), 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0xC000F800));
+    CHECK(result.status == GBL_BUS_STATUS_OK);
     CHECK(read16(machine, UINT32_C(0x04000064)).value == UINT32_C(0x4000));
+    CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0001)) !=
+          0u);
+    result = write16(machine, UINT32_C(0x04000062), 0u);
+    CHECK(result.status == GBL_BUS_STATUS_OK);
+    CHECK(read16(machine, UINT32_C(0x04000064)).value == UINT32_C(0x4000));
+    CHECK((read16(machine, UINT32_C(0x04000084)).value & UINT32_C(0x0001)) ==
+          0u);
     result = gbl_bus_write(machine, UINT32_C(0x04000060), 4u,
                            GBL_BUS_CLASS_NONSEQUENTIAL,
                            UINT32_C(0xFFFF0005));
@@ -234,7 +259,8 @@ static int run_registers(void)
     CHECK(snapshot_machine(machine, &snapshot));
     CHECK(gbl_machine_prepare_time(machine, machine->master_cycles,
                                    &forged_preview) == GBL_TIME_STATUS_OK);
-    forged_preview.audio.registers[2] = UINT16_C(0x4000);
+    forged_preview.audio.registers[18] = UINT16_C(0x0080);
+    forged_preview.audio.active_channels = UINT8_C(0x04);
     forged_preview.audio_prepared = forged_preview.audio;
     CHECK(!gbl_machine_commit_time_checked(machine, &forged_preview));
     CHECK(unchanged_machine(machine, snapshot));
