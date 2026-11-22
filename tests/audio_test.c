@@ -110,6 +110,32 @@ static bool configure_ch1(gbl_machine *machine, uint8_t length_setting,
                GBL_BUS_STATUS_OK;
 }
 
+static bool configure_ch4_noise(gbl_machine *machine,
+                                uint8_t length_setting, unsigned volume,
+                                bool increase, unsigned envelope_period,
+                                unsigned shift, bool width_7bit,
+                                unsigned ratio, bool length_enable)
+{
+    const uint16_t control =
+        (uint16_t)(length_setting & UINT8_C(0x3F)) |
+        (uint16_t)((envelope_period & 7u) << 8u) |
+        (increase ? UINT16_C(0x0800) : 0u) |
+        (uint16_t)((volume & 15u) << 12u);
+    const uint16_t noise_control =
+        (uint16_t)(ratio & 7u) |
+        (width_7bit ? UINT16_C(0x0008) : 0u) |
+        (uint16_t)((shift & 15u) << 4u) |
+        (length_enable ? UINT16_C(0x4000) : 0u) | UINT16_C(0x8000);
+
+    return machine != NULL &&
+           write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x04000078), control).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x0400007C), noise_control).status ==
+               GBL_BUS_STATUS_OK;
+}
+
 static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot);
 static bool unchanged_machine(const gbl_machine *machine,
                               const gbl_machine *snapshot);
@@ -500,6 +526,127 @@ static int run_psg_square(void)
                       gbl_audio_psg_sample(&inactive, 2u) == 0u &&
                       gbl_audio_psg_sample(&inactive, 4u) == 0u);
     }
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
+static int run_psg_noise(void)
+{
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+
+    {
+        gbl_machine *machine = new_machine();
+        bool passed = machine != NULL;
+        uint64_t trigger_cycle = 0u;
+
+        if (passed) {
+            passed = configure_ch4_noise(machine, 0u, 15u, false, 0u,
+                                         0u, false, 0u, false);
+            trigger_cycle = machine->master_cycles;
+        }
+        tap_check("15-bit noise trigger configures CH4", passed);
+        tap_check("15-bit seed projects high through complement of LFSR bit zero",
+                  passed && gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      (gbl_audio_read_register(
+                           &machine->audio, UINT32_C(0x04000084)) & 8u) !=
+                          0u);
+        tap_check("first 15-bit noise edge is unchanged at edge minus one",
+                  passed && gbl_machine_advance_to(
+                                machine, trigger_cycle + 15u) ==
+                                GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
+        tap_check("first 15-bit noise edge is applied at the divider period",
+                  passed && gbl_machine_advance_to(
+                                machine, trigger_cycle + 16u) ==
+                                GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
+        tap_check("15-bit first feedback uses the selected right-shift mask",
+                  passed && gbl_machine_advance_to(
+                                machine, trigger_cycle + 239u) ==
+                                GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 0u &&
+                      gbl_machine_advance_to(
+                          machine, trigger_cycle + 240u) ==
+                          GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      gbl_machine_advance_to(
+                          machine, trigger_cycle + 241u) ==
+                          GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
+        free_machine(machine);
+    }
+
+    {
+        gbl_machine *machine = new_machine();
+        bool passed = machine != NULL;
+        uint64_t trigger_cycle = 0u;
+
+        if (passed) {
+            passed = configure_ch4_noise(machine, 0u, 15u, false, 0u,
+                                         0u, true, 0u, false);
+            trigger_cycle = machine->master_cycles;
+        }
+        tap_check("7-bit noise trigger configures CH4", passed);
+        tap_check("7-bit seed projects high through complement of bit zero",
+                  passed && gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      (gbl_audio_read_register(
+                           &machine->audio, UINT32_C(0x04000084)) & 8u) !=
+                          0u);
+        tap_check("7-bit feedback edge has adjacent cycle expectations",
+                  passed && gbl_machine_advance_to(
+                                machine, trigger_cycle + 95u) ==
+                                GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                      gbl_machine_advance_to(
+                          machine, trigger_cycle + 96u) ==
+                          GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 0u &&
+                      gbl_machine_advance_to(
+                          machine, trigger_cycle + 112u) ==
+                          GBL_TIME_STATUS_OK &&
+                      gbl_audio_psg_sample(&machine->audio, 3u) == 15u);
+        free_machine(machine);
+    }
+
+    {
+        unsigned shift;
+        bool all_stopped = true;
+
+        for (shift = 14u; shift <= 15u; ++shift) {
+            gbl_machine *machine = new_machine();
+            bool stopped = machine != NULL;
+
+            if (stopped) {
+                uint64_t trigger_cycle;
+                const uint16_t control =
+                    (uint16_t)((shift << 4u) | UINT16_C(0x8000));
+                const uint64_t would_be_period = UINT64_C(16) << shift;
+
+                stopped = configure_ch4_noise(machine, 0u, 15u, false, 0u,
+                                              shift, false, 0u, false);
+                trigger_cycle = machine->master_cycles;
+                stopped = stopped &&
+                          gbl_audio_read_register(
+                              &machine->audio, UINT32_C(0x0400007C)) ==
+                              (uint16_t)(control & UINT16_C(0x40FF)) &&
+                          gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                          gbl_machine_advance_to(
+                              machine, trigger_cycle + would_be_period) ==
+                              GBL_TIME_STATUS_OK &&
+                          gbl_audio_psg_sample(&machine->audio, 3u) == 15u &&
+                          (gbl_audio_read_register(
+                               &machine->audio, UINT32_C(0x04000084)) & 8u) !=
+                              0u;
+            }
+            all_stopped = all_stopped && stopped;
+            free_machine(machine);
+        }
+        tap_check("prohibited shifts 14 and 15 retain controls and stop the source clock",
+                  all_stopped);
+    }
+
     printf("1..%u\n", tap_test_number);
     return tap_failure_count == 0u ? 0 : 1;
 }
@@ -2096,6 +2243,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "psg_sweep") == 0) {
         return run_psg_sweep();
+    }
+    if (strcmp(argv[1], "psg_noise") == 0) {
+        return run_psg_noise();
     }
     if (strcmp(argv[1], "psg_sequencer") == 0) {
         return run_psg_sequencer();
