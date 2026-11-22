@@ -443,9 +443,13 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
         }
     }
     for (index = 0u; index < 4u; ++index) {
+        const uint8_t channel_mask = (uint8_t)(UINT8_C(1) << index);
+
         if (state->channel_volume[index] > UINT8_C(15) ||
             state->length_remaining[index] >
                 gbl_audio_length_maxima[index] ||
+            ((state->active_channels & channel_mask) != 0u &&
+             state->length_remaining[index] == 0u) ||
             state->envelope_period[index] > UINT8_C(7) ||
             state->envelope_timer[index] > state->envelope_period[index] ||
             (state->envelope_period[index] == 0u &&
