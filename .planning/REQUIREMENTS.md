@@ -19,7 +19,7 @@ This is the committed scope for GSD milestone v4.0; it is not a software release
 
 - [x] **DS-01**: Direct Sound FIFO A and B each maintain a bounded 32-byte queue and consume one signed 8-bit sample on each selected Timer 0 or Timer 1 overflow, with empty-FIFO behavior named as model policy.
 - [x] **DS-02**: FIFO A requests DMA1 and FIFO B requests DMA2 after a timer pop leaves four 32-bit words (16 bytes); each request transfers four 32-bit words to its fixed FIFO destination through shared machine arbitration, regardless of programmed DMA word count; refused bounded work leaves machine state unchanged.
-- [ ] **MIX-01**: Guest routing, gain, ratio, and master-enable controls produce deterministic pre-PWM stereo PCM using declared integer arithmetic, rounding, and clipping. SOUNDBIAS access/effects follow an explicit profile policy and cannot retime or quantize the fixed PCM stream.
+- [x] **MIX-01**: Guest routing, gain, ratio, and master-enable controls produce deterministic pre-PWM stereo PCM using declared integer arithmetic, rounding, and clipping. SOUNDBIAS access/effects follow an explicit profile policy and cannot retime or quantize the fixed PCM stream.
 
 ### Raw Capture and Evidence
 
@@ -59,7 +59,7 @@ Deferred audio capabilities that are not part of v4.0:
 | PSG-04 | Phase 17 | Complete |
 | DS-01 | Phase 18 | Complete |
 | DS-02 | Phase 18 | Complete |
-| MIX-01 | Phase 19 | Pending |
+| MIX-01 | Phase 19 | Complete |
 | CAP-01 | Phase 16 | Complete |
 | CAP-02 | Phase 19 | Complete |
 | CAP-03 | Phase 19 | Complete |
