@@ -217,6 +217,58 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   set(GBL_PRODUCTION_INDEX "${GBL_PRODUCTION_INDEX_DIR}/fixture_index.h")
   set(GBL_CONTROL_INDEX "${GBL_CONTROL_INDEX_DIR}/fixture_index.h")
   set(GBL_CONTROL_MANIFEST "${GBL_CONTROL_INDEX_DIR}/manifest.json")
+  set(GBL_MANIFEST_INPUT "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json")
+  set(GBL_FIXTURE_INDEX_EXTRA_DEPENDS "")
+  if(GBL_LANE STREQUAL "local-audio")
+    set(GBL_AUDIO_MANIFEST
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/audio-manifest.json")
+    set(GBL_AUDIO_NOTICE "${CMAKE_SOURCE_DIR}/tests/fixtures/audio-NOTICE.md")
+    set(GBL_AUDIO_MERGED_MANIFEST
+      "${GBL_PRODUCTION_INDEX_DIR}/audio-manifest.json")
+    file(READ "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      GBL_STANDARD_MANIFEST_TEXT)
+    file(READ "${GBL_AUDIO_MANIFEST}" GBL_AUDIO_MANIFEST_TEXT)
+    string(JSON GBL_AUDIO_SCHEMA ERROR_VARIABLE GBL_AUDIO_SCHEMA_ERROR
+      GET "${GBL_AUDIO_MANIFEST_TEXT}" schema)
+    string(JSON GBL_AUDIO_ROW_COUNT ERROR_VARIABLE GBL_AUDIO_ROWS_ERROR
+      LENGTH "${GBL_AUDIO_MANIFEST_TEXT}" fixtures)
+    if(NOT "${GBL_AUDIO_SCHEMA_ERROR}" STREQUAL "NOTFOUND" OR
+        NOT GBL_AUDIO_SCHEMA STREQUAL "gamebloke.manifest/1" OR
+        NOT "${GBL_AUDIO_ROWS_ERROR}" STREQUAL "NOTFOUND" OR
+        NOT GBL_AUDIO_ROW_COUNT EQUAL 1)
+      message(FATAL_ERROR "gamebloke: audio-manifest: invalid local row shape")
+    endif()
+    string(JSON GBL_AUDIO_ROW GET "${GBL_AUDIO_MANIFEST_TEXT}" fixtures 0)
+    string(JSON GBL_AUDIO_ID GET "${GBL_AUDIO_ROW}" id)
+    string(JSON GBL_STANDARD_ROW_COUNT LENGTH
+      "${GBL_STANDARD_MANIFEST_TEXT}" fixtures)
+    if(GBL_STANDARD_ROW_COUNT GREATER 0)
+      math(EXPR GBL_STANDARD_ROW_LAST "${GBL_STANDARD_ROW_COUNT}-1")
+      foreach(index RANGE 0 ${GBL_STANDARD_ROW_LAST})
+        string(JSON GBL_STANDARD_ID GET
+          "${GBL_STANDARD_MANIFEST_TEXT}" fixtures ${index} id)
+        if(GBL_STANDARD_ID STREQUAL GBL_AUDIO_ID)
+          message(FATAL_ERROR
+            "gamebloke: audio-manifest: duplicate id ${GBL_AUDIO_ID}")
+        endif()
+      endforeach()
+    endif()
+    string(JSON GBL_AUDIO_MERGED_TEXT SET "${GBL_STANDARD_MANIFEST_TEXT}"
+      fixtures ${GBL_STANDARD_ROW_COUNT} "${GBL_AUDIO_ROW}")
+    file(WRITE "${GBL_AUDIO_MERGED_MANIFEST}" "${GBL_AUDIO_MERGED_TEXT}\n")
+    set(GBL_MANIFEST_INPUT "${GBL_AUDIO_MERGED_MANIFEST}")
+    set(GBL_AUDIO_TOOLCHAIN_IDENTITY
+      "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}; CMake ${CMAKE_VERSION}; C${CMAKE_C_STANDARD} host generator")
+    file(WRITE "${GBL_GENERATED_ROOT}/local-audio-toolchain.txt"
+      "${GBL_AUDIO_TOOLCHAIN_IDENTITY}\n")
+    list(APPEND GBL_FIXTURE_INDEX_EXTRA_DEPENDS
+      "${GBL_AUDIO_MANIFEST}" "${GBL_AUDIO_NOTICE}"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/audio_image.c"
+      "${GBL_LOCAL_AUDIO_IMAGE}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+      "${GBL_AUDIO_MANIFEST}" "${GBL_AUDIO_NOTICE}"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/audio_image.c")
+  endif()
 
   add_executable(gbl_instruction_image tests/fixtures/instruction_image.c)
   target_link_libraries(gbl_instruction_image PRIVATE gbl_warnings)
@@ -415,7 +467,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "-DGBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-zero.gba"
       "-DGBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-fail.gba"
       "-DGBL_CONTROL_MANIFEST_OUTPUT=${GBL_CONTROL_MANIFEST}"
-      "-DGBL_MANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      "-DGBL_MANIFEST=${GBL_MANIFEST_INPUT}"
       "-DGBL_REGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
       "-DGBL_VOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
       "-DGBL_OUT_PRODUCTION=${GBL_PRODUCTION_INDEX}"
@@ -434,6 +486,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "${GBL_CONTROL_MANIFEST}" ${GBL_DIAGNOSTIC_INDEX_EXTRA_OUTPUTS}
     COMMAND ${GBL_FIXTURE_INDEX_COMMAND}
     DEPENDS ${GBL_OWNED_FIXTURE_FILES} ${GBL_DIAGNOSTIC_INDEX_DEPENDS}
+      ${GBL_FIXTURE_INDEX_EXTRA_DEPENDS}
       "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       "${CMAKE_SOURCE_DIR}/tests/fixtures/timer0-NOTICE.md"
       "${CMAKE_SOURCE_DIR}/tests/fixtures/playable0-NOTICE.md"
