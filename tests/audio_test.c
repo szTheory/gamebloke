@@ -4776,6 +4776,78 @@ static int run_capture_cpu_wait(void)
     return tap_failure_count == 0u ? 0 : 1;
 }
 
+static int run_capture_dma(void)
+{
+    uint8_t image[UINT32_C(0x100)] = { 0u };
+    uint8_t output[16];
+    uint8_t *staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
+    gbl_machine *machine = new_machine();
+    gbl_audio_capture capture = { 0 };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(32),
+        .unit_limit = 1u,
+        .category_mask = 0u,
+        .trace_buffer = NULL
+    };
+    gbl_run_result result = { 0 };
+    bool setup = machine != NULL && staging != NULL;
+    bool ran = false;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    memset(output, UINT8_C(0xA5), sizeof(output));
+    if (setup) {
+        setup = configure_ch2(machine, 0u, 3u, 15u, false, 0u,
+                              UINT16_C(2043), false) &&
+                write16(machine, UINT32_C(0x04000080),
+                        UINT16_C(0x2070)).status == GBL_BUS_STATUS_OK;
+    }
+    if (setup) {
+        machine->ewram[UINT32_C(0x100)] = UINT8_C(0x5A);
+        machine->ewram[UINT32_C(0x101)] = UINT8_C(0xA5);
+        setup = gbl_bus_write(machine, UINT32_C(0x040000B0), 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(0x02000100)).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_bus_write(machine, UINT32_C(0x040000B4), 4u,
+                              GBL_BUS_CLASS_NONSEQUENTIAL,
+                              UINT32_C(0x03000100)).status ==
+                    GBL_BUS_STATUS_OK &&
+                write16(machine, UINT32_C(0x040000B8), 1u).status ==
+                    GBL_BUS_STATUS_OK &&
+                write16(machine, UINT32_C(0x040000BA),
+                        UINT16_C(0x8000)).status == GBL_BUS_STATUS_OK;
+    }
+    if (setup) {
+        setup = gbl_machine_advance_to(machine, UINT64_C(508)) ==
+                    GBL_TIME_STATUS_OK &&
+                prepare_capture_cpu(machine, image, sizeof(image),
+                                    UINT32_C(0xE1A00000)) &&
+                gbl_audio_capture_begin(machine, &capture, output,
+                                        sizeof(output)) ==
+                    GBL_TIME_STATUS_OK;
+    }
+    tap_check("DMA capture setup includes a sample-edge crossing ordinary transfer",
+              setup && machine->dma_channels[0].pending &&
+                  machine->master_cycles == UINT64_C(508));
+    if (setup) {
+        ran = gbl_cpu_run_audio(machine, &options, &result, &capture,
+                                staging, GBL_AUDIO_MAX_CAPTURE_BYTES,
+                                UINT64_C(520)) == GBL_RUN_STATUS_OK;
+    }
+    tap_check("accepted ordinary DMA contributes its timed sample frame",
+              ran && machine->dma_channels[0].completed_units == 1u &&
+                  capture.bytes_written == GBL_AUDIO_FRAME_BYTES &&
+                  capture.last_accepted_cycle == UINT64_C(520) &&
+                  (output[0] != 0u || output[1] != 0u) &&
+                  output[4] == UINT8_C(0xA5));
+    printf("1..%u\n", tap_test_number);
+    free(staging);
+    free_machine(machine);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot)
 {
     *snapshot = malloc(sizeof(**snapshot));
@@ -5394,6 +5466,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "capture_cpu_wait") == 0) {
         return run_capture_cpu_wait();
+    }
+    if (strcmp(argv[1], "capture_dma") == 0) {
+        return run_capture_dma();
     }
     if (strcmp(argv[1], "refusal") == 0) {
         return run_refusal();
