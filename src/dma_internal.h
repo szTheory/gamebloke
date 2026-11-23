@@ -12,6 +12,9 @@ bool gbl_bus_dma_read_word_checked(
 
 /* CPU-run transaction seam. Observations are published only if the complete
  * sound request candidate commits and the caller has room for every record. */
+/* Stage at most GBL_DMA_OBSERVATION_CAPACITY records using the machine's
+ * optional allocator. Missing or failed scratch allocation returns
+ * UNIT_REFUSAL before machine/result/output mutation. */
 gbl_dma_status gbl_machine_dma_step_observed(
     gbl_machine *machine, uint64_t cycle_budget, gbl_dma_step_result *result,
     gbl_dma_step_result *observations, size_t observation_capacity,

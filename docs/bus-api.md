@@ -39,6 +39,26 @@ violations.
 Distinct machine instances have independent backing arrays and clocks. The
 host is responsible for synchronizing all access to a single instance.
 
+## Short-lived DMA scratch
+
+The same optional allocator callbacks also provide private DMA scratch storage:
+the sound-refill candidate machine and staged DMA observations. Each request
+uses the exact byte size, and the matching release callback runs before the DMA
+call returns. These blocks must be fresh, suitably aligned, disjoint from the
+machine and its ROM, and must not be retained or used to reenter the machine.
+The core never falls back to a default heap. If a DMA operation needs scratch
+and the allocator is absent or allocation fails, it returns the existing
+`UNIT_REFUSAL` status with machine state, result, and caller observations
+unchanged. Ordinary non-sound DMA without an observation buffer needs no
+scratch and remains available without an allocator.
+
+One observed DMA service accepts at most `GBL_DMA_OBSERVATION_CAPACITY` (4096)
+records. A larger requested capacity returns `OUTPUT_REFUSAL` before allocation
+or mutation. CPU DMA tracing limits staging to caller trace capacity, available
+sequence values, and this bound; converted records are copied to caller-owned
+slots only after the full DMA service succeeds. Capacity or sequence exhaustion
+therefore leaves that service and all prior trace slots unchanged.
+
 ## Bus requests and results
 
 `gbl_bus_read`, `gbl_bus_write`, and `gbl_bus_internal` are the only ordinary

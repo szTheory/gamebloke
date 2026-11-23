@@ -3,8 +3,6 @@
 #include "dma_internal.h"
 #include "ppu_internal.h"
 
-#include <stdlib.h>
-
 #define GBL_KEYPAD_INPUT_MASK UINT16_C(0x03FF)
 #define GBL_KEYPAD_CONTROL_MASK UINT16_C(0xC3FF)
 #define GBL_KEYPAD_IRQ_BIT UINT16_C(0x1000)
@@ -80,6 +78,27 @@ static void gbl_machine_clear_bytes(void *destination, size_t length)
 
     for (index = 0u; index < length; ++index) {
         destination_bytes[index] = 0u;
+    }
+}
+
+static void *gbl_machine_allocate_scratch(gbl_machine *machine,
+                                          size_t size)
+{
+    if (machine == NULL || size == 0u ||
+        machine->allocator.allocate == NULL ||
+        machine->allocator.release == NULL) {
+        return NULL;
+    }
+    return machine->allocator.allocate(machine->allocator.context, size);
+}
+
+static void gbl_machine_release_scratch(gbl_machine *machine,
+                                        void *pointer, size_t size)
+{
+    if (machine != NULL && pointer != NULL &&
+        machine->allocator.release != NULL) {
+        machine->allocator.release(machine->allocator.context, pointer,
+                                   size);
     }
 }
 
@@ -2682,18 +2701,16 @@ static gbl_time_status gbl_preview_increment_cascade(
                 preview->interrupt_flags |
                 (uint16_t)(UINT16_C(1) << (3u + index)));
         }
-        {
+        if (index <= 1u) {
             const uint8_t refill_mask =
                 gbl_audio_fifo_clock_timer(&preview->audio, index);
 
-            if (index <= 1u) {
-                const gbl_time_status status =
-                    gbl_preview_queue_sound_dma(preview, index, cycle,
-                                                refill_mask);
+            const gbl_time_status status =
+                gbl_preview_queue_sound_dma(preview, index, cycle,
+                                            refill_mask);
 
-                if (status != GBL_TIME_STATUS_OK) {
-                    return status;
-                }
+            if (status != GBL_TIME_STATUS_OK) {
+                return status;
             }
         }
         /* A cascade overflow is delivered synchronously as the same carry
@@ -2802,7 +2819,7 @@ static gbl_time_status gbl_preview_dispatch_event(
             preview->interrupt_flags |
             (uint16_t)(UINT16_C(1) << (3u + event->timer_index)));
     }
-    {
+    if (event->timer_index <= 1u) {
         const uint8_t refill_mask = gbl_audio_fifo_clock_timer(
             &preview->audio, event->timer_index);
 
@@ -5017,7 +5034,9 @@ gbl_dma_status gbl_machine_dma_step_observed(
 {
     gbl_dma_step_result step = { 0 };
     gbl_dma_step_result *staged_observations = NULL;
+    gbl_machine *candidate;
     size_t staged_count = 0u;
+    size_t staged_observation_bytes = 0u;
     uint8_t channel_index;
     gbl_dma_status status;
 
@@ -5032,13 +5051,20 @@ gbl_dma_status gbl_machine_dma_step_observed(
             break;
         }
     }
+    if (channel_index == GBL_DMA_CHANNEL_COUNT) {
+        return gbl_machine_dma_step_single(machine, cycle_budget, result);
+    }
     if (observations != NULL) {
         if (observation_capacity == 0u ||
+            observation_capacity > GBL_DMA_OBSERVATION_CAPACITY ||
             observation_capacity > SIZE_MAX / sizeof(*staged_observations)) {
             return GBL_DMA_STATUS_OUTPUT_REFUSAL;
         }
+        staged_observation_bytes =
+            observation_capacity * sizeof(*staged_observations);
         staged_observations =
-            malloc(observation_capacity * sizeof(*staged_observations));
+            gbl_machine_allocate_scratch(machine,
+                                         staged_observation_bytes);
         if (staged_observations == NULL) {
             return GBL_DMA_STATUS_UNIT_REFUSAL;
         }
@@ -5048,10 +5074,11 @@ gbl_dma_status gbl_machine_dma_step_observed(
              GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A ||
          machine->dma_channels[channel_index].trigger_origin ==
              GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B)) {
-        gbl_machine *candidate = malloc(sizeof(*candidate));
+        candidate = gbl_machine_allocate_scratch(machine, sizeof(*candidate));
 
         if (candidate == NULL) {
-            free(staged_observations);
+            gbl_machine_release_scratch(machine, staged_observations,
+                                        staged_observation_bytes);
             return GBL_DMA_STATUS_UNIT_REFUSAL;
         }
         gbl_machine_copy_bytes((uint8_t *)candidate, (const uint8_t *)machine,
@@ -5084,8 +5111,9 @@ gbl_dma_status gbl_machine_dma_step_observed(
                 *observation_count = staged_count;
             }
         }
-        free(candidate);
-        free(staged_observations);
+        gbl_machine_release_scratch(machine, candidate, sizeof(*candidate));
+        gbl_machine_release_scratch(machine, staged_observations,
+                                    staged_observation_bytes);
         return status;
     }
 
@@ -5099,7 +5127,8 @@ gbl_dma_status gbl_machine_dma_step_observed(
         *observation_count = staged_count;
     }
     *result = step;
-    free(staged_observations);
+    gbl_machine_release_scratch(machine, staged_observations,
+                                staged_observation_bytes);
     return status;
 }
 

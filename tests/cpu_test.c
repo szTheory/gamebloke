@@ -16561,9 +16561,90 @@ static void test_dma_tracer(void)
     gbl_machine_dispose(&machine);
 }
 
-static void test_sound_dma_tracer(void)
+static bool prepare_sound_dma_trace_machine(
+    gbl_machine *machine, const uint32_t source_words[4])
 {
     uint8_t image[TEST_IMAGE_SIZE];
+    gbl_bus_result bus_result;
+    size_t index;
+    bool valid;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE3A07042));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    valid = machine_load(machine, image);
+    for (index = 0u; valid && index < 4u; ++index) {
+        const size_t offset = 0x100u + index * 4u;
+        const uint32_t word = source_words[index];
+
+        machine->ewram[offset] = (uint8_t)word;
+        machine->ewram[offset + 1u] = (uint8_t)(word >> 8u);
+        machine->ewram[offset + 2u] = (uint8_t)(word >> 16u);
+        machine->ewram[offset + 3u] = (uint8_t)(word >> 24u);
+    }
+    for (index = 0u; valid && index < 4u; ++index) {
+        bus_result = gbl_bus_write(
+            machine, UINT32_C(0x040000A0), 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL,
+            UINT32_C(0x01020304) + (uint32_t)index * UINT32_C(0x10101010));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x040000A0), 1u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x7E));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x040000BC), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x02000100));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x040000C0), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x03000100));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x040000C4), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x040000C6), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0xB000));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0xFFFC));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x0080));
+        valid = bus_result.status == GBL_BUS_STATUS_OK &&
+                gbl_machine_advance_to(
+                    machine, machine->master_cycles + UINT64_C(16)) ==
+                    GBL_TIME_STATUS_OK &&
+                machine->audio.fifo[0].count == 16u &&
+                machine->dma_channels[1].pending;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    return valid;
+}
+
+static void test_sound_dma_tracer(void)
+{
     static const uint32_t source_words[4] = {
         UINT32_C(0xA1A2A3A4), UINT32_C(0xB1B2B3B4),
         UINT32_C(0xC1C2C3C4), UINT32_C(0xD1D2D3D4)
@@ -16573,83 +16654,12 @@ static void test_sound_dma_tracer(void)
     gbl_run_result result = { 0 };
     gbl_trace_record records[5] = { { 0 } };
     gbl_trace_buffer trace = { records, 5u, 0u, 0u };
-    gbl_bus_result bus_result;
     uint64_t source_cycles = 0u;
     uint64_t destination_cycles = 0u;
     size_t index;
     bool valid;
 
-    make_empty_image(image);
-    write_word(image, 0u, UINT32_C(0xE3A07042));
-    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
-    valid = machine_load(&machine, image);
-    for (index = 0u; valid && index < 4u; ++index) {
-        const size_t offset = 0x100u + index * 4u;
-        const uint32_t word = source_words[index];
-
-        machine.ewram[offset] = (uint8_t)word;
-        machine.ewram[offset + 1u] = (uint8_t)(word >> 8u);
-        machine.ewram[offset + 2u] = (uint8_t)(word >> 16u);
-        machine.ewram[offset + 3u] = (uint8_t)(word >> 24u);
-    }
-    for (index = 0u; valid && index < 4u; ++index) {
-        bus_result = gbl_bus_write(
-            &machine, UINT32_C(0x040000A0), 4u,
-            GBL_BUS_CLASS_NONSEQUENTIAL,
-            UINT32_C(0x01020304) + (uint32_t)index * UINT32_C(0x10101010));
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000A0), 1u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT32_C(0x7E));
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000BC), 4u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT32_C(0x02000100));
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000C0), 4u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT32_C(0x03000100));
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000C4), 2u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000C6), 2u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT16_C(0xB000));
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x04000100), 2u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT16_C(0xFFFC));
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x04000102), 2u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL,
-                                   UINT16_C(0x0080));
-        valid = bus_result.status == GBL_BUS_STATUS_OK &&
-                gbl_machine_advance_to(
-                    &machine, machine.master_cycles + UINT64_C(16)) ==
-                    GBL_TIME_STATUS_OK &&
-                machine.audio.fifo[0].count == 16u &&
-                machine.dma_channels[1].pending;
-    }
-    if (valid) {
-        bus_result = gbl_bus_write(&machine, UINT32_C(0x04000102), 2u,
-                                   GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
-        valid = bus_result.status == GBL_BUS_STATUS_OK;
-    }
+    valid = prepare_sound_dma_trace_machine(&machine, source_words);
     options.cycle_budget = UINT64_C(128);
     options.unit_limit = UINT64_C(2);
     options.category_mask = (uint32_t)GBL_TRACE_DMA;
@@ -16688,6 +16698,82 @@ static void test_sound_dma_tracer(void)
     test_case(valid,
               "CPU scheduling accounts and traces sound startup and all four ordered FIFO words");
     gbl_machine_dispose(&machine);
+
+    {
+        gbl_machine limited_machine = { 0 };
+        gbl_run_options limited_options = { 0 };
+        gbl_run_result limited_result = { 0 };
+        gbl_trace_record limited_records[4] = {
+            { .sequence = 91u, .guest_cycle = 92u },
+            { .sequence = 93u, .guest_cycle = 94u },
+            { .sequence = 95u, .guest_cycle = 96u },
+            { .sequence = 97u, .guest_cycle = 98u }
+        };
+        gbl_trace_record limited_before[4];
+        gbl_trace_buffer limited_trace = { limited_records, 4u, 0u, 7u };
+        const bool prepared = prepare_sound_dma_trace_machine(
+            &limited_machine, source_words);
+        const uint64_t snapshot = gbl_test_canonical_digest(&limited_machine);
+        bool refused;
+
+        memcpy(limited_before, limited_records, sizeof(limited_before));
+        limited_options.cycle_budget = UINT64_C(128);
+        limited_options.unit_limit = UINT64_C(2);
+        limited_options.category_mask = (uint32_t)GBL_TRACE_DMA;
+        limited_options.trace_buffer = &limited_trace;
+        refused = prepared &&
+                  gbl_cpu_run(&limited_machine, &limited_options,
+                              &limited_result) == GBL_RUN_STATUS_OK &&
+                  limited_result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                  limited_result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                  limited_result.cycles == 0u && limited_trace.count == 0u &&
+                  limited_trace.next_sequence == 7u &&
+                  gbl_test_trace_equal(limited_records, limited_before, 4u) &&
+                  gbl_test_canonical_digest(&limited_machine) == snapshot;
+        test_case(refused,
+                  "sound DMA trace-capacity preflight preserves machine and caller slots");
+        gbl_machine_dispose(&limited_machine);
+    }
+
+    {
+        gbl_machine limited_machine = { 0 };
+        gbl_run_options limited_options = { 0 };
+        gbl_run_result limited_result = { 0 };
+        gbl_trace_record limited_records[5] = {
+            { .sequence = 101u, .guest_cycle = 102u },
+            { .sequence = 103u, .guest_cycle = 104u },
+            { .sequence = 105u, .guest_cycle = 106u },
+            { .sequence = 107u, .guest_cycle = 108u },
+            { .sequence = 109u, .guest_cycle = 110u }
+        };
+        gbl_trace_record limited_before[5];
+        gbl_trace_buffer limited_trace = {
+            limited_records, 5u, 0u, UINT64_MAX - UINT64_C(4)
+        };
+        const bool prepared = prepare_sound_dma_trace_machine(
+            &limited_machine, source_words);
+        const uint64_t snapshot = gbl_test_canonical_digest(&limited_machine);
+        bool refused;
+
+        memcpy(limited_before, limited_records, sizeof(limited_before));
+        limited_options.cycle_budget = UINT64_C(128);
+        limited_options.unit_limit = UINT64_C(2);
+        limited_options.category_mask = (uint32_t)GBL_TRACE_DMA;
+        limited_options.trace_buffer = &limited_trace;
+        refused = prepared &&
+                  gbl_cpu_run(&limited_machine, &limited_options,
+                              &limited_result) == GBL_RUN_STATUS_OK &&
+                  limited_result.termination == GBL_RUN_TRACE_OUTPUT_FULL &&
+                  limited_result.reason == GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                  limited_result.cycles == 0u && limited_trace.count == 0u &&
+                  limited_trace.next_sequence ==
+                      UINT64_MAX - UINT64_C(4) &&
+                  gbl_test_trace_equal(limited_records, limited_before, 5u) &&
+                  gbl_test_canonical_digest(&limited_machine) == snapshot;
+        test_case(refused,
+                  "sound DMA trace-sequence preflight preserves machine and caller slots");
+        gbl_machine_dispose(&limited_machine);
+    }
 }
 
 static void test_nested_sound_dma_tracer(void)
@@ -18119,7 +18205,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
-    CPU_TEST_GROUP("dma.tracer", 3u, dma_tracer_functions),
+    CPU_TEST_GROUP("dma.tracer", 5u, dma_tracer_functions),
     CPU_TEST_GROUP("dma.cpu", 1u, dma_cpu_functions),
     CPU_TEST_GROUP("dma.refusal", 15u, dma_refusal_functions),
     CPU_TEST_GROUP("waitcnt.cpu", 12u, waitcnt_cpu_functions),

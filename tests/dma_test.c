@@ -13,6 +13,45 @@
 static unsigned int check_count;
 static unsigned int failure_count;
 
+typedef struct dma_test_allocator_state {
+    size_t allocation_calls;
+    size_t release_calls;
+    size_t live_allocations;
+    size_t live_bytes;
+    size_t fail_on_call;
+} dma_test_allocator_state;
+
+static void *dma_test_allocate(void *context, size_t size)
+{
+    dma_test_allocator_state *state = context;
+    void *pointer;
+
+    if (state != NULL) {
+        ++state->allocation_calls;
+        if (state->fail_on_call == state->allocation_calls) {
+            return NULL;
+        }
+    }
+    pointer = malloc(size);
+    if (pointer != NULL && state != NULL) {
+        ++state->live_allocations;
+        state->live_bytes += size;
+    }
+    return pointer;
+}
+
+static void dma_test_release(void *context, void *pointer, size_t size)
+{
+    dma_test_allocator_state *state = context;
+
+    if (pointer != NULL && state != NULL) {
+        ++state->release_calls;
+        --state->live_allocations;
+        state->live_bytes -= size;
+    }
+    free(pointer);
+}
+
 static void test_case(bool passed, const char *description)
 {
     ++check_count;
@@ -24,7 +63,28 @@ static void test_case(bool passed, const char *description)
     }
 }
 
+static gbl_machine *new_machine_with_allocator(
+    dma_test_allocator_state *allocator_state)
+{
+    gbl_machine *machine = calloc(1u, sizeof(*machine));
+    const gbl_allocator allocator = {
+        allocator_state, dma_test_allocate, dma_test_release
+    };
+
+    if (machine == NULL ||
+        gbl_machine_init(machine, &allocator) != GBL_BUS_STATUS_OK) {
+        free(machine);
+        return NULL;
+    }
+    return machine;
+}
+
 static gbl_machine *new_machine(void)
+{
+    return new_machine_with_allocator(NULL);
+}
+
+static gbl_machine *new_machine_without_allocator(void)
 {
     gbl_machine *machine = calloc(1u, sizeof(*machine));
 
@@ -570,8 +630,18 @@ static bool sound_refusal_setup(gbl_machine *machine, uint32_t source_address,
     bool valid;
 
     if (source_address >= UINT32_C(0x08000000) && machine->rom == NULL) {
-        machine->rom = synthetic_rom;
-        machine->rom_length = sizeof(synthetic_rom);
+        if (machine->allocator.allocate != NULL &&
+            machine->allocator.release != NULL) {
+            const gbl_load_result loaded = gbl_load_rom(
+                machine, synthetic_rom, sizeof(synthetic_rom));
+
+            if (loaded.status != GBL_LOAD_STATUS_OK) {
+                return false;
+            }
+        } else {
+            machine->rom = synthetic_rom;
+            machine->rom_length = sizeof(synthetic_rom);
+        }
     }
     for (address = 0u; address < 16u; address += 4u) {
         const uint64_t destination = (uint64_t)source_address + address;
@@ -807,6 +877,184 @@ static bool sound_refusal_state_equal(const gbl_machine *before,
     return gbl_test_canonical_equal(before, after) &&
            gbl_audio_state_equal(&before->audio, &after->audio) &&
            gbl_test_same_instance_identity_equal(before, after);
+}
+
+static bool observed_sound_refusal_unchanged(bool without_allocator,
+                                             size_t fail_on_call)
+{
+    dma_test_allocator_state allocator_state = { 0 };
+    gbl_machine *machine;
+    gbl_machine *before = NULL;
+    gbl_dma_step_result result;
+    gbl_dma_step_result observations[8];
+    gbl_dma_step_result result_before;
+    gbl_dma_step_result observations_before[8];
+    size_t observation_count = (size_t)0x1234u;
+    const size_t observation_count_before = observation_count;
+    bool valid;
+
+    allocator_state.fail_on_call = fail_on_call;
+    machine = without_allocator
+                  ? new_machine_without_allocator()
+                  : new_machine_with_allocator(&allocator_state);
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    valid = before != NULL &&
+            sound_refusal_setup(machine, UINT32_C(0x02000100), false);
+    memset(&result, 0xA5, sizeof(result));
+    memset(observations, 0x5A, sizeof(observations));
+    memcpy(&result_before, &result, sizeof(result));
+    memcpy(observations_before, observations, sizeof(observations));
+    if (valid) {
+        *before = *machine;
+        valid = gbl_machine_dma_step_observed(
+                    machine, UINT64_C(1024), &result, observations,
+                    sizeof(observations) / sizeof(observations[0]),
+                    &observation_count) == GBL_DMA_STATUS_UNIT_REFUSAL &&
+                memcmp(&result, &result_before, sizeof(result)) == 0 &&
+                memcmp(observations, observations_before,
+                       sizeof(observations)) == 0 &&
+                observation_count == observation_count_before &&
+                sound_refusal_state_equal(before, machine);
+    }
+    if (without_allocator) {
+        valid = valid && allocator_state.allocation_calls == 0u &&
+                allocator_state.release_calls == 0u &&
+                allocator_state.live_allocations == 0u;
+    } else if (fail_on_call == 1u) {
+        valid = valid && allocator_state.allocation_calls == 1u &&
+                allocator_state.release_calls == 0u &&
+                allocator_state.live_allocations == 0u;
+    } else if (fail_on_call == 2u) {
+        valid = valid && allocator_state.allocation_calls == 2u &&
+                allocator_state.release_calls == 1u &&
+                allocator_state.live_allocations == 0u &&
+                allocator_state.live_bytes == 0u;
+    }
+    free_machine(machine);
+    free(before);
+    return valid;
+}
+
+static void test_dma_scratch_allocator_success(void)
+{
+    dma_test_allocator_state allocator_state = { 0 };
+    gbl_machine *machine = new_machine_with_allocator(&allocator_state);
+    gbl_dma_step_result result = { 0 };
+    gbl_dma_step_result observations[8] = { { 0 } };
+    size_t observation_count = 0u;
+    bool valid = machine != NULL;
+
+    if (machine != NULL) {
+        valid = sound_refusal_setup(machine, UINT32_C(0x02000100), false) &&
+                gbl_machine_dma_step_observed(
+                    machine, UINT64_C(1024), &result, observations,
+                    sizeof(observations) / sizeof(observations[0]),
+                    &observation_count) == GBL_DMA_STATUS_OK &&
+                result.accepted_units == UINT64_C(4) &&
+                observation_count == 5u &&
+                observations[0].startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+                observations[1].unit_completed &&
+                observations[4].unit_completed &&
+                allocator_state.allocation_calls == 2u &&
+                allocator_state.release_calls == 2u &&
+                allocator_state.live_allocations == 0u &&
+                allocator_state.live_bytes == 0u;
+        free_machine(machine);
+    }
+    test_case(valid,
+              "sound DMA candidate and observations use paired host allocator scratch and release it before return");
+
+    {
+        dma_test_allocator_state ordinary_allocator = { 0 };
+        gbl_machine *ordinary =
+            new_machine_with_allocator(&ordinary_allocator);
+        gbl_dma_step_result ordinary_result = { 0 };
+        gbl_dma_step_result ordinary_observation[1] = { { 0 } };
+        size_t ordinary_count = 0u;
+        bool started = false;
+
+        valid = ordinary != NULL;
+        if (ordinary != NULL) {
+            ordinary->ewram[0x100u] = UINT8_C(0x5A);
+            ordinary->ewram[0x101u] = UINT8_C(0xC3);
+            valid = write_register(ordinary, 0u, 0u, 4u,
+                                   UINT32_C(0x02000100)) &&
+                    write_register(ordinary, 0u, 4u, 4u,
+                                   UINT32_C(0x03000100)) &&
+                    write_register(ordinary, 0u, 8u, 2u, 1u) &&
+                    write_register(ordinary, 0u, 10u, 2u,
+                                   UINT16_C(0x8000)) &&
+                    gbl_machine_dma_step_observed(
+                        ordinary, UINT64_C(8), &ordinary_result,
+                        ordinary_observation, 1u,
+                        &ordinary_count) == GBL_DMA_STATUS_OK &&
+                    ordinary_count == 1u &&
+                    ordinary_observation[0].startup_cycles ==
+                        GBL_DMA_STARTUP_CYCLES &&
+                    !ordinary_observation[0].unit_completed;
+            started = valid;
+            if (valid) {
+                ordinary_count = 0u;
+                valid = gbl_machine_dma_step_observed(
+                            ordinary, UINT64_C(8), &ordinary_result,
+                            ordinary_observation, 1u,
+                            &ordinary_count) == GBL_DMA_STATUS_OK &&
+                    ordinary_count == 1u &&
+                    ordinary_observation[0].unit_completed &&
+                    ordinary_result.unit_completed &&
+                    ordinary->iwram[0x100u] == UINT8_C(0x5A) &&
+                    ordinary->iwram[0x101u] == UINT8_C(0xC3) &&
+                    ordinary_allocator.allocation_calls == 2u &&
+                    ordinary_allocator.release_calls == 2u &&
+                    ordinary_allocator.live_allocations == 0u;
+            }
+            valid = valid && started;
+            free_machine(ordinary);
+        }
+        test_case(valid,
+                  "ordinary observed DMA uses one host scratch record without a sound candidate copy");
+    }
+
+    {
+        gbl_machine *ordinary = new_machine_without_allocator();
+        gbl_dma_step_result unobserved_result = { 0 };
+
+        valid = ordinary != NULL;
+        if (ordinary != NULL) {
+            ordinary->ewram[0x100u] = UINT8_C(0x69);
+            valid = write_register(ordinary, 0u, 0u, 4u,
+                                   UINT32_C(0x02000100)) &&
+                    write_register(ordinary, 0u, 4u, 4u,
+                                   UINT32_C(0x03000100)) &&
+                    write_register(ordinary, 0u, 8u, 2u, 1u) &&
+                    write_register(ordinary, 0u, 10u, 2u,
+                                   UINT16_C(0x8000)) &&
+                    gbl_machine_dma_step(ordinary, UINT64_C(8),
+                                         &unobserved_result) ==
+                        GBL_DMA_STATUS_OK &&
+                    gbl_machine_dma_step(ordinary, UINT64_C(8),
+                                         &unobserved_result) ==
+                        GBL_DMA_STATUS_OK &&
+                    unobserved_result.unit_completed &&
+                    ordinary->iwram[0x100u] == UINT8_C(0x69);
+            free_machine(ordinary);
+        }
+        test_case(valid,
+                  "ordinary unobserved DMA remains usable without a default heap");
+    }
+}
+
+static void test_dma_scratch_allocator_refusals(void)
+{
+    test_case(observed_sound_refusal_unchanged(true, 0u),
+              "missing allocator refuses observed sound DMA before machine and caller outputs change");
+    test_case(observed_sound_refusal_unchanged(false, 1u),
+              "failed observation allocation refuses sound DMA without mutation");
+    test_case(observed_sound_refusal_unchanged(false, 2u),
+              "failed candidate allocation releases staged observations and refuses sound DMA atomically");
 }
 
 static bool test_sound_refusal_budget_and_source_extents(void)
@@ -1275,9 +1523,11 @@ static bool run_sound_refusal(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..14\n");
+    printf("TAP version 13\n1..20\n");
     (void)test_sound_refusal_budget_and_source_extents();
     (void)test_sound_refusal_after_interleave_and_output_limit();
+    test_dma_scratch_allocator_success();
+    test_dma_scratch_allocator_refusals();
     (void)test_sound_preview_identity_refusal();
     (void)test_sound_ready_capacity_refuses_timer_candidate();
     (void)test_sound_reset_at_same_cycle_as_threshold();

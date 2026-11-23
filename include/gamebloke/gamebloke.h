@@ -39,6 +39,8 @@ typedef enum gbl_bus_status {
 #define GBL_TIMER_COUNT 4u
 #define GBL_DMA_CHANNEL_COUNT 4u
 #define GBL_DMA_STARTUP_CYCLES UINT64_C(2)
+/* Maximum staged observations accepted by one bounded DMA service. */
+#define GBL_DMA_OBSERVATION_CAPACITY 4096u
 #define GBL_EVENT_CAPACITY 16u
 #define GBL_INPUT_EVENT_CAPACITY 256u
 #define GBL_MACHINE_MAX_EVENT_DISPATCH 4096u
@@ -942,7 +944,9 @@ bool gbl_bus_quote_observed(
     gbl_bus_access_class sequence, gbl_bus_access_role role,
     gbl_cycle_cost *cost_out, gbl_phase9_bus_observation *observation_out);
 
-/* Internal scheduler/bus seam: bounded startup or one atomic transfer unit. */
+/* Internal scheduler/bus seam: bounded startup or one atomic transfer unit.
+ * Sound FIFO service uses the machine allocator for its private candidate;
+ * without callbacks it refuses before changing machine state. */
 gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
                                    uint64_t cycle_budget,
                                    gbl_dma_step_result *result);
