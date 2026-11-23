@@ -126,6 +126,23 @@ these fields:
   A bounded run may stop short when its next whole instruction or refill unit cannot fit;
   equality with the budget is not required for TIMEOUT, and exact-boundary mailbox completion
   is valid.
+- `audio`: an optional additive observation in `gamebloke.result/1`. Historical receipts may
+  omit it. Current producer validation opts into requiring it with
+  `-DGBL_RESULT_REQUIRE_AUDIO=ON`; a present object is always checked against the AGB
+  profile. Its model, profile revision, project-selected classification, `UNKNOWN`
+  qualification, PCM format, fixed cadence, implemented sources, unsupported edges, and
+  evidence limits are closed and profile-bound. Requested and actual intervals use canonical
+  decimal cycle strings, start at reset cycle zero, and are bounded by the run budget and the
+  profile's one-second capture limit. Numeric frame and byte counts must match the interval
+  grid and four-byte stereo frame size.
+  `capture_state` describes PCM capture (`not-requested`, `unavailable`, `incomplete`,
+  `complete`, or `failed`); `artifact.state` separately describes file publication
+  (`not-requested`, `not-written`, `failed`, or `emitted`). An emitted file requires a
+  complete interval, matching byte count, and lowercase SHA-256. A complete request shorter
+  than one sample may emit an exact empty file; a non-frame-aligned end emits only complete
+  S16LE stereo frames on the fixed 512-cycle grid, without padding. The digest identifies
+  bytes only: it does not prove semantic correctness, rights, hardware behavior, or broad
+  game compatibility.
 - `phase9`: the complete additive DMA observation. A present extension identifies model
   `gamebloke-dma-observation-1`, reports whether a machine snapshot was observed, and when
   observed carries WAITCNT, bus owner, CPU paused state, machine cycles, and four channels in
@@ -374,7 +391,8 @@ The installed `gamebloke-run` interface is:
 ```text
 gamebloke-run --rom PATH (--cycles DECIMAL | --frames DECIMAL) \
   [--fixture ID] [--trace-mask INTEGER] [--trace-capacity INTEGER] \
-  [--trace-output PATH] [--video-output PATH]
+  [--trace-output PATH] [--video-output PATH] \
+  [--audio-output PATH [--audio-cycles N]]
 ```
 
 `--rom` supplies one bounded input file. Exactly one of `--cycles` or `--frames` is
@@ -388,6 +406,17 @@ providing it without a path is rejected before execution, as are aliases to the 
 trace, or JSON result destination. Output is created exclusively. Usage errors exit 2, PASS exits 0, and valid
 non-PASS results exit 1. The executable does not accept a runtime CMake, manifest, or
 fixture-index path and does not need the source tree after it is built.
+
+`--audio-output PATH` requests bounded signed 16-bit little-endian stereo PCM. Its optional
+`--audio-cycles N` end cycle requires `--audio-output`; when omitted, the cycle budget is the
+requested end. The positive end must fit both the run budget and profile's 16,777,216-cycle
+capture limit. Output creation is exclusive. The writer publishes only after the complete
+requested interval is captured; an incomplete interval has no PCM artifact. A complete
+interval emits all grid samples in `(0, end]`, so a short request may produce an exact empty
+file and a non-aligned end produces the corresponding complete-frame prefix. JSON reports
+capture and artifact status independently of process exit, guest mailbox status, and overall
+result status. The result validator checks the emitted byte count and digest shape; consumers
+that need artifact integrity must hash the file bytes themselves.
 
 For example, `gamebloke-run --rom PATH --cycles 280896 --video-output frame.raw` requests a
 single bounded frame's raw bytes. The selected guest must reach a complete supported frame;
@@ -432,8 +461,13 @@ and the current Phase 5 final-check record for their exact status. Unpredictable
 stops, recognized later extensions, reserved UND and absent-coprocessor UND have
 separate causes. Explicit executing project policies and static target refusals
 are listed in the profile. Public unsupported values remain compatible without
-inventing a legal unimplemented instruction. There is no BIOS execution/HLE, audio,
-physical-controller discovery or host presentation. DMA, WAITCNT timing, and the
+inventing a legal unimplemented instruction. There is no BIOS execution/HLE,
+physical-controller discovery or host presentation. Audio has a fixed-grid software PCM
+model for four PSG channels and two Direct Sound latches, with source routing and gains
+recorded in the profile. PWM carrier behavior, SOUNDBIAS quantization, analog output, host
+resampling, and playback are unsupported. PCM modeling and independent semantic tests do not
+qualify hardware behavior or broad compatibility; hardware qualification remains `UNKNOWN`.
+DMA, WAITCNT timing, and the
 partial Mode 0–5 background display paths and OBJ/composition features have
 deterministic project-selected software behavior. The profile records selected
 window, effect, mosaic, and forced-blank policies; their hardware qualification is

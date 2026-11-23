@@ -53,6 +53,22 @@ function(expect_json_type json expected)
   endif()
 endfunction()
 
+function(expect_audio_result_valid label json)
+  set(result_path "${audio_scratch}/${label}.json")
+  file(WRITE "${result_path}" "${json}\n")
+  execute_process(COMMAND "${CMAKE_COMMAND}"
+    "-DRESULT=${result_path}" "-DMANIFEST=${SRC}/tests/fixtures/manifest.json"
+    "-DREGISTRY=${SRC}/registry/disputes.json"
+    "-DVOCAB=${SRC}/contracts/evidence.json" -DGBL_RESULT_REQUIRE_AUDIO=ON
+    -P "${SRC}/cmake/CheckResult.cmake"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT "${result}" STREQUAL "0" OR
+      NOT "${output}${error}" MATCHES "result: ok \\(")
+    message(FATAL_ERROR
+      "runner-case: ${label} producer audio receipt failed validation: ${output}${error}")
+  endif()
+endfunction()
+
 if(DEFINED CASE AND CASE STREQUAL "audio_cli")
   set(audio_rom "${BIN}/generated/diagnostics/armv4t/arm/roms/arm-268640271.gba")
   if(NOT EXISTS "${production}" OR NOT EXISTS "${audio_rom}" OR
@@ -72,6 +88,7 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
     message(FATAL_ERROR
       "runner-case: production audio CLI failed (${audio_rc}): ${audio_error}; ${audio_json}")
   endif()
+  expect_audio_result_valid("empty-audio" "${audio_json}")
   expect_json_field("${audio_json}" PASS status)
   expect_json_field("${audio_json}" mailbox-complete termination)
   expect_json_field("${audio_json}" gamebloke-audio-model-4 audio model)
@@ -115,6 +132,7 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
     message(FATAL_ERROR
       "runner-case: PASS guest with refused artifact must return nonzero: ${existing_error}")
   endif()
+  expect_audio_result_valid("failed-artifact-audio" "${existing_json}")
   expect_json_field("${existing_json}" PASS status)
   expect_json_field("${existing_json}" mailbox-complete termination)
   expect_json_field("${existing_json}" complete audio capture_state)
@@ -780,7 +798,7 @@ set(request_file "${scratch}/result-requests.json")
 file(WRITE "${request_file}" "${requests}\n")
 set(batch "${SRC}/tests/gates/runner_result_batch.cmake")
 execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
-  "-DREQUESTS=${request_file}" -P "${batch}"
+  "-DREQUESTS=${request_file}" -DGBL_RESULT_REQUIRE_AUDIO=ON -P "${batch}"
   RESULT_VARIABLE batch_rc OUTPUT_VARIABLE batch_output ERROR_VARIABLE batch_error)
 if(NOT batch_rc STREQUAL "0")
   message(FATAL_ERROR "runner-case: result batch failed: ${batch_output}${batch_error}")

@@ -67,10 +67,44 @@ endfunction()
 
 # result_command(<out-var> <result> <manifest>): the validator command line.
 function(result_command out result manifest)
-  set(${out}
+  set(command
     "${CMAKE_COMMAND}" "-DRESULT=${result}" "-DMANIFEST=${manifest}"
-    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}" -P "${CHECK}"
-    PARENT_SCOPE)
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}")
+  if(GBL_RESULT_REQUIRE_AUDIO)
+    list(APPEND command -DGBL_RESULT_REQUIRE_AUDIO=ON)
+  endif()
+  list(APPEND command -P "${CHECK}")
+  set(${out} "${command}" PARENT_SCOPE)
+endfunction()
+
+function(result_add_audio path)
+  gbl_json_mutate_set("${path}" [=[{
+    "model":"gamebloke-audio-model-4",
+    "profile":{"id":"agb","version":16},
+    "policy_classification":"project-selected",
+    "hardware_qualification":"UNKNOWN",
+    "policy":{
+      "tap":"pre-pwm",
+      "tap_policy":"fixed-reset-anchored-grid",
+      "encoding":"signed-s16le",
+      "channel_layout":"stereo-interleaved-left-first",
+      "sample_rate_hz":32768,
+      "sample_cycles":"512",
+      "interval_policy":"start-exclusive-end-inclusive",
+      "implemented_sources":["psg-channel-1","psg-channel-2","psg-channel-3","psg-channel-4","direct-sound-fifo-a-signed-latch","direct-sound-fifo-b-signed-latch"],
+      "unsupported":["pwm-carrier","bias-quantization","analog-output","host-resampling","host-playback"],
+      "evidence_limits":["software-model-output-only","no-physical-hardware-qualification","no-broad-game-compatibility-claim","sha256-proves-byte-identity-not-semantic-correctness-or-rights"]
+    },
+    "requested":true,
+    "requested_interval":{"start_cycle":"0","end_cycle":"1"},
+    "actual_interval":{"start_cycle":"0","end_cycle":"1"},
+    "cadence":{"sample_cycles":"512","format":"s16le-stereo"},
+    "capture_state":"complete",
+    "interval_complete":true,
+    "frame_count":0,
+    "byte_count":0,
+    "artifact":{"state":"emitted","byte_count":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","error":null}
+  }]=] audio)
 endfunction()
 
 # expect_code(<code> <result> [<manifest>]): the validator fails with <code>.
@@ -773,6 +807,77 @@ elseif(CASE STREQUAL "phase9_negative")
   endforeach()
   gbl_json_mutate_set("${r}" "\"0\"" time dma_startup_cycles)
   expect_detail(partial-phase9-extension "time DMA fields require phase9" "${r}")
+
+elseif(CASE STREQUAL "audio_policy")
+  # A historical result/1 receipt without audio remains valid by default.
+  expect_ok(PASS "${dir}/result.json")
+  set(GBL_RESULT_REQUIRE_AUDIO ON)
+  expect_code(bad-audio "${dir}/result.json")
+
+  result_copy(r current_audio_policy)
+  result_add_audio("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r incomplete_audio_capture)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"30\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"25\"" audio requested_interval end_cycle)
+  gbl_json_mutate_set("${r}" "\"24\"" audio actual_interval end_cycle)
+  gbl_json_mutate_set("${r}" "\"incomplete\"" audio capture_state)
+  gbl_json_mutate_set("${r}" "false" audio interval_complete)
+  gbl_json_mutate_set("${r}" "\"not-written\"" audio artifact state)
+  gbl_json_mutate_set("${r}" "null" audio artifact byte_count)
+  gbl_json_mutate_set("${r}" "null" audio artifact sha256)
+  expect_ok(PASS "${r}")
+
+  result_copy(r failed_audio_setup)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"30\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"25\"" audio requested_interval end_cycle)
+  gbl_json_mutate_set("${r}" "null" audio actual_interval)
+  gbl_json_mutate_set("${r}" "\"failed\"" audio capture_state)
+  gbl_json_mutate_set("${r}" "null" audio interval_complete)
+  gbl_json_mutate_set("${r}" "null" audio frame_count)
+  gbl_json_mutate_set("${r}" "null" audio byte_count)
+  gbl_json_mutate_set("${r}" "\"not-written\"" audio artifact state)
+  gbl_json_mutate_set("${r}" "null" audio artifact byte_count)
+  gbl_json_mutate_set("${r}" "null" audio artifact sha256)
+  expect_ok(PASS "${r}")
+
+  result_copy(r wrong_audio_profile)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "15" audio profile version)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r qualified_audio_claim)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\"" audio hardware_qualification)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_interval_over_budget)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"25\"" audio requested_interval end_cycle)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_frame_count_mismatch)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "1" audio frame_count)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_bad_digest)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"not-a-sha256\"" audio artifact sha256)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_wrong_artifact_state)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"not-written\"" audio artifact state)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_wrong_empty_digest)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"" audio artifact sha256)
+  expect_detail(bad-audio "empty artifact" "${r}")
 
 elseif(CASE STREQUAL "phase10")
   phase10_expect_ok("${dir}/result.json")

@@ -5,6 +5,7 @@
 #
 # Script mode:   cmake -DRESULT=<result.json> -DMANIFEST=<manifest.json> \
 #                      -DREGISTRY=<registry/disputes.json> -DVOCAB=<contracts/evidence.json> \
+#                      [-DGBL_RESULT_REQUIRE_AUDIO=ON] \
 #                      -P cmake/CheckResult.cmake
 #
 # A result says what one fixture run proved and under which claim tuple. The document is
@@ -13,6 +14,8 @@
 #   status    one of the states in the vocabulary file
 #   reason    text; required by the state rows that say so
 #   refusal   {code, postcondition}; required by the state rows that say so
+#   audio     optional fixed-grid PCM and artifact observation; current producers can
+#             require it with GBL_RESULT_REQUIRE_AUDIO while historical result/1 remains valid
 #   claim     the six claim fields: machine, boot, bios_provider, cart, input_timeline,
 #             evidence
 #   disputes  registry ids; labels  result labels; limits  what the result does not prove
@@ -79,6 +82,8 @@
 #   bad-phase10-*           PPU/video model, profile-bound capability tuple, frame validity,
 #                          policy provenance, output state, digest, or HBlank-dependent
 #                          dispute disclosure is inconsistent
+#   bad-audio             malformed audio profile/capability tuple, interval, count,
+#                         capture/artifact state, or digest; current producers can require it
 #   bad-timer0-request    Timer 0 IF observation has an invalid type or run-state
 #   cycles-exceed-budget  reported cycles are greater than budget_cycles
 #   bad-termination       termination is missing, unnamed, or inconsistent with status
@@ -1491,6 +1496,386 @@ function(gbl__result_phase10_check doc time_cycles result_status result_ran
   endif()
 endfunction()
 
+# Audio is an additive result/1 extension. Historical receipts without `audio`
+# keep their original validation path unless the current-producer caller opts in.
+function(gbl__result_audio_string doc label expected)
+  gbl_json_type(actual_type "${doc}" ${ARGN})
+  if(NOT "${actual_type}" STREQUAL "STRING")
+    gbl_finding(result bad-audio "${label} must be a string")
+    return()
+  endif()
+  string(JSON actual GET "${doc}" ${ARGN})
+  if(NOT "${actual}" STREQUAL "${expected}")
+    gbl_finding(result bad-audio "${label} differs from the selected profile")
+  endif()
+endfunction()
+
+function(gbl__result_audio_exact_object doc label expected_count)
+  gbl_json_type(actual_type "${doc}" ${ARGN})
+  if(NOT "${actual_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-audio "${label} must be an object")
+    return()
+  endif()
+  string(JSON actual_count LENGTH "${doc}" ${ARGN})
+  if(NOT actual_count EQUAL expected_count)
+    gbl_finding(result bad-audio "${label} has an unexpected key set")
+  endif()
+endfunction()
+
+function(gbl__result_audio_array doc label expected_json)
+  gbl_json_type(actual_type "${doc}" ${ARGN})
+  if(NOT "${actual_type}" STREQUAL "ARRAY")
+    gbl_finding(result bad-audio "${label} must be an array")
+    return()
+  endif()
+  string(JSON actual_array GET "${doc}" ${ARGN})
+  string(JSON same ERROR_VARIABLE compare_error EQUAL "${actual_array}"
+    "${expected_json}")
+  if((NOT "${compare_error}" STREQUAL "NOTFOUND" AND
+      NOT "${compare_error}" STREQUAL "") OR NOT same)
+    gbl_finding(result bad-audio "${label} differs from the current capability")
+  endif()
+endfunction()
+
+function(gbl__result_audio_null doc label)
+  gbl_json_type(actual_type "${doc}" ${ARGN})
+  if(NOT "${actual_type}" STREQUAL "NULL")
+    gbl_finding(result bad-audio "${label} must be null")
+  endif()
+endfunction()
+
+function(gbl__result_audio_interval doc label allow_null maximum)
+  gbl_json_type(interval_type "${doc}" ${ARGN})
+  if("${interval_type}" STREQUAL "NULL" AND allow_null)
+    set(${label}_present FALSE PARENT_SCOPE)
+    set(${label}_valid TRUE PARENT_SCOPE)
+    return()
+  endif()
+  if(NOT "${interval_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-audio "${label} must be an interval object")
+    set(${label}_present FALSE PARENT_SCOPE)
+    set(${label}_valid FALSE PARENT_SCOPE)
+    return()
+  endif()
+  gbl__result_audio_exact_object("${doc}" "${label}" 2 ${ARGN})
+  gbl__result_uint64(start_valid start_value "${doc}" ${ARGN} start_cycle)
+  gbl__result_uint64(end_valid end_value "${doc}" ${ARGN} end_cycle)
+  set(interval_valid TRUE)
+  if(NOT start_valid OR NOT end_valid OR NOT "${start_value}" STREQUAL "0")
+    gbl_finding(result bad-audio "${label} needs canonical cycles starting at zero")
+    set(interval_valid FALSE)
+  elseif(NOT "${end_value}" STREQUAL "0")
+    gbl__result_decimal_le(end_within_maximum "${end_value}" "${maximum}")
+    if(NOT end_within_maximum)
+      gbl_finding(result bad-audio "${label}.end_cycle exceeds the profile bound")
+      set(interval_valid FALSE)
+    endif()
+  endif()
+  set(${label}_present TRUE PARENT_SCOPE)
+  set(${label}_valid "${interval_valid}" PARENT_SCOPE)
+  set(${label}_start "${start_value}" PARENT_SCOPE)
+  set(${label}_end "${end_value}" PARENT_SCOPE)
+endfunction()
+
+function(gbl__result_audio_check doc time_valid time_cycles time_budget)
+  gbl_json_type(audio_type "${doc}" audio)
+  if("${audio_type}" STREQUAL "MISSING")
+    if(GBL_RESULT_REQUIRE_AUDIO)
+      gbl_finding(result bad-audio
+        "current producer result is missing the audio observation")
+    endif()
+    return()
+  endif()
+  if(NOT "${audio_type}" STREQUAL "OBJECT")
+    gbl_finding(result bad-audio "audio must be an object")
+    return()
+  endif()
+  gbl__result_audio_exact_object("${doc}" "audio" 14 audio)
+
+  file(READ "${GBL_RESULT_AGB_PROFILE_PATH}" audio_profile)
+  string(JSON profile_id GET "${audio_profile}" id)
+  string(JSON profile_version GET "${audio_profile}" profile_version)
+  string(JSON policy_model GET "${audio_profile}" audio_policy model)
+  string(JSON policy_classification GET "${audio_profile}" audio_policy classification)
+  string(JSON policy_qualification GET "${audio_profile}" audio_policy hardware_qualification)
+  string(JSON policy_tap GET "${audio_profile}" audio_policy tap)
+  string(JSON policy_encoding GET "${audio_profile}" audio_policy encoding)
+  string(JSON policy_layout GET "${audio_profile}" audio_policy channel_layout)
+  string(JSON policy_rate GET "${audio_profile}" audio_policy sample_rate_hz)
+  string(JSON policy_cycles GET "${audio_profile}" audio_policy master_cycles_per_frame)
+  string(JSON policy_interval GET "${audio_profile}" audio_policy interval)
+  string(JSON policy_bytes_per_frame GET "${audio_profile}" audio_policy bytes_per_frame)
+  string(JSON psg_channel_count GET "${audio_profile}" audio_policy psg_channel_count)
+  string(JSON direct_sound_channel_count GET "${audio_profile}"
+    audio_policy direct_sound_channel_count)
+  string(JSON modeled_sources GET "${audio_profile}" audio_policy modeled_sources)
+  string(JSON max_cycles GET "${audio_profile}" audio_policy max_capture_cycles)
+  string(JSON max_frames GET "${audio_profile}" audio_policy max_capture_frames)
+  string(JSON max_bytes GET "${audio_profile}" audio_policy max_capture_bytes)
+  if(NOT "${psg_channel_count}" STREQUAL "4" OR
+      NOT "${direct_sound_channel_count}" STREQUAL "2" OR
+      NOT "${modeled_sources}" STREQUAL
+        "psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples")
+    gbl_finding(result bad-audio "profile mixer source declaration is inconsistent")
+  endif()
+
+  gbl__result_audio_exact_object("${doc}" "audio.profile" 2 audio profile)
+  gbl__result_audio_string("${doc}" "audio.model" "${policy_model}" audio model)
+  gbl__result_audio_string("${doc}" "audio.policy_classification"
+    "${policy_classification}" audio policy_classification)
+  gbl__result_audio_string("${doc}" "audio.hardware_qualification"
+    "${policy_qualification}" audio hardware_qualification)
+  gbl__result_audio_string("${doc}" "audio.profile.id" "${profile_id}" audio profile id)
+  gbl_json_type(audio_profile_version_type "${doc}" audio profile version)
+  if(NOT "${audio_profile_version_type}" STREQUAL "NUMBER")
+    gbl_finding(result bad-audio "audio.profile.version must be the profile integer")
+  else()
+    string(JSON actual_profile_version GET "${doc}" audio profile version)
+    if(NOT "${actual_profile_version}" MATCHES "^(0|[1-9][0-9]*)$" OR
+        NOT "${actual_profile_version}" STREQUAL "${profile_version}")
+      gbl_finding(result bad-audio "audio.profile.version differs from the selected profile")
+    endif()
+  endif()
+
+  gbl__result_audio_exact_object("${doc}" "audio.policy" 10 audio policy)
+  gbl__result_audio_string("${doc}" "audio.policy.tap" "${policy_tap}" audio policy tap)
+  gbl__result_audio_string("${doc}" "audio.policy.tap_policy"
+    "fixed-reset-anchored-grid" audio policy tap_policy)
+  gbl__result_audio_string("${doc}" "audio.policy.encoding"
+    "${policy_encoding}" audio policy encoding)
+  gbl__result_audio_string("${doc}" "audio.policy.channel_layout"
+    "${policy_layout}" audio policy channel_layout)
+  gbl_json_type(audio_rate_type "${doc}" audio policy sample_rate_hz)
+  if(NOT "${audio_rate_type}" STREQUAL "NUMBER")
+    gbl_finding(result bad-audio "audio.policy.sample_rate_hz must be an integer")
+  else()
+    string(JSON actual_rate GET "${doc}" audio policy sample_rate_hz)
+    if(NOT "${actual_rate}" MATCHES "^(0|[1-9][0-9]*)$" OR
+        NOT "${actual_rate}" STREQUAL "${policy_rate}")
+      gbl_finding(result bad-audio "audio.policy.sample_rate_hz differs from profile")
+    endif()
+  endif()
+  gbl__result_audio_string("${doc}" "audio.policy.sample_cycles"
+    "${policy_cycles}" audio policy sample_cycles)
+  gbl__result_audio_string("${doc}" "audio.policy.interval_policy"
+    "${policy_interval}" audio policy interval_policy)
+  gbl__result_audio_array("${doc}" "audio.policy.implemented_sources"
+    "[\"psg-channel-1\",\"psg-channel-2\",\"psg-channel-3\",\"psg-channel-4\",\"direct-sound-fifo-a-signed-latch\",\"direct-sound-fifo-b-signed-latch\"]"
+    audio policy implemented_sources)
+  gbl__result_audio_array("${doc}" "audio.policy.unsupported"
+    "[\"pwm-carrier\",\"bias-quantization\",\"analog-output\",\"host-resampling\",\"host-playback\"]"
+    audio policy unsupported)
+  gbl__result_audio_array("${doc}" "audio.policy.evidence_limits"
+    "[\"software-model-output-only\",\"no-physical-hardware-qualification\",\"no-broad-game-compatibility-claim\",\"sha256-proves-byte-identity-not-semantic-correctness-or-rights\"]"
+    audio policy evidence_limits)
+  gbl__result_audio_exact_object("${doc}" "audio.cadence" 2 audio cadence)
+  gbl__result_audio_string("${doc}" "audio.cadence.sample_cycles"
+    "${policy_cycles}" audio cadence sample_cycles)
+  gbl__result_audio_string("${doc}" "audio.cadence.format"
+    "s16le-stereo" audio cadence format)
+
+  gbl_json_type(requested_type "${doc}" audio requested)
+  if(NOT "${requested_type}" STREQUAL "BOOLEAN")
+    gbl_finding(result bad-audio "audio.requested must be a boolean")
+    set(requested FALSE)
+  else()
+    string(JSON requested GET "${doc}" audio requested)
+  endif()
+  gbl_json_type(capture_type "${doc}" audio capture_state)
+  if(NOT "${capture_type}" STREQUAL "STRING")
+    gbl_finding(result bad-audio "audio.capture_state must be a string")
+    set(capture_state "")
+  else()
+    string(JSON capture_state GET "${doc}" audio capture_state)
+  endif()
+  if(NOT "${capture_state}" MATCHES "^(not-requested|unavailable|incomplete|complete|failed)$")
+    gbl_finding(result bad-audio "audio.capture_state is unknown")
+  endif()
+
+  gbl__result_audio_interval("${doc}" "audio.requested_interval" TRUE
+    "${max_cycles}" audio requested_interval)
+  set(requested_start "${audio.requested_interval_start}")
+  set(requested_end "${audio.requested_interval_end}")
+  gbl__result_audio_interval("${doc}" "audio.actual_interval" TRUE
+    "${max_cycles}" audio actual_interval)
+  set(actual_present "${audio.actual_interval_present}")
+  set(actual_end "${audio.actual_interval_end}")
+  set(actual_valid "${audio.actual_interval_valid}")
+
+  gbl__result_audio_exact_object("${doc}" "audio.artifact" 4 audio artifact)
+  gbl_json_type(complete_type "${doc}" audio interval_complete)
+  gbl_json_type(frame_count_type "${doc}" audio frame_count)
+  gbl_json_type(byte_count_type "${doc}" audio byte_count)
+  gbl_json_type(artifact_state_type "${doc}" audio artifact state)
+  gbl_json_type(artifact_count_type "${doc}" audio artifact byte_count)
+  gbl_json_type(artifact_digest_type "${doc}" audio artifact sha256)
+  gbl_json_type(artifact_error_type "${doc}" audio artifact error)
+  if(NOT "${artifact_state_type}" STREQUAL "STRING")
+    gbl_finding(result bad-audio "audio.artifact.state must be a string")
+    set(artifact_state "")
+  else()
+    string(JSON artifact_state GET "${doc}" audio artifact state)
+  endif()
+  if(NOT "${artifact_state}" MATCHES "^(not-requested|not-written|failed|emitted)$")
+    gbl_finding(result bad-audio "audio.artifact.state is unknown")
+  endif()
+
+  if(NOT requested)
+    foreach(path IN ITEMS requested_interval actual_interval)
+      gbl__result_audio_null("${doc}" "audio.${path}" audio ${path})
+    endforeach()
+    gbl__result_audio_null("${doc}" "audio.interval_complete" audio interval_complete)
+    gbl__result_audio_null("${doc}" "audio.frame_count" audio frame_count)
+    gbl__result_audio_null("${doc}" "audio.byte_count" audio byte_count)
+    if(NOT "${capture_state}" STREQUAL "not-requested" OR
+        NOT "${artifact_state}" STREQUAL "not-requested")
+      gbl_finding(result bad-audio "unrequested capture must be not-requested")
+    endif()
+    gbl__result_audio_null("${doc}" "audio.artifact.byte_count" audio artifact byte_count)
+    gbl__result_audio_null("${doc}" "audio.artifact.sha256" audio artifact sha256)
+    gbl__result_audio_null("${doc}" "audio.artifact.error" audio artifact error)
+    return()
+  endif()
+
+  if(NOT time_valid)
+    gbl_finding(result bad-audio "requested capture needs valid accepted run timing")
+  endif()
+  if(NOT audio.requested_interval_present)
+    gbl_finding(result bad-audio "requested capture needs a requested interval")
+  endif()
+  if(NOT "${requested_start}" STREQUAL "0" OR "${requested_end}" STREQUAL "0")
+    gbl_finding(result bad-audio "requested interval must have a positive end and start at zero")
+  endif()
+  if(time_valid)
+    gbl__result_decimal_le(request_within_budget "${requested_end}" "${time_budget}")
+    if(NOT request_within_budget)
+      gbl_finding(result bad-audio "requested interval exceeds the accepted run budget")
+    endif()
+  endif()
+
+  if("${complete_type}" STREQUAL "BOOLEAN")
+    string(JSON interval_complete GET "${doc}" audio interval_complete)
+  else()
+    set(interval_complete "")
+  endif()
+  if(NOT actual_present)
+    if(NOT "${complete_type}" STREQUAL "NULL" OR
+        NOT "${frame_count_type}" STREQUAL "NULL" OR
+        NOT "${byte_count_type}" STREQUAL "NULL" OR
+        NOT "${capture_state}" MATCHES "^(unavailable|failed)$" OR
+        NOT "${artifact_state}" STREQUAL "not-written")
+      gbl_finding(result bad-audio "capture without an actual interval has inconsistent state")
+    endif()
+  else()
+    if(NOT time_valid)
+      gbl_finding(result bad-audio "actual interval has no valid accepted run time")
+    else()
+      gbl__result_decimal_le(actual_within_time "${actual_end}" "${time_cycles}")
+      gbl__result_decimal_le(actual_within_request "${actual_end}" "${requested_end}")
+      if(NOT actual_within_time OR NOT actual_within_request)
+        gbl_finding(result bad-audio "actual interval exceeds accepted time or request")
+      else()
+        gbl__result_decimal_le(run_before_request "${time_cycles}"
+          "${requested_end}")
+        if(run_before_request)
+          set(expected_actual_end "${time_cycles}")
+        else()
+          set(expected_actual_end "${requested_end}")
+        endif()
+        if(NOT "${actual_end}" STREQUAL "${expected_actual_end}")
+          gbl_finding(result bad-audio "actual interval does not match accepted progress")
+        endif()
+      endif()
+    endif()
+    if(NOT "${complete_type}" STREQUAL "BOOLEAN" OR
+        NOT "${frame_count_type}" STREQUAL "NUMBER" OR
+        NOT "${byte_count_type}" STREQUAL "NUMBER")
+      gbl_finding(result bad-audio "actual capture needs boolean completeness and numeric counts")
+    else()
+      string(JSON actual_frame_count GET "${doc}" audio frame_count)
+      string(JSON actual_byte_count GET "${doc}" audio byte_count)
+      gbl__result_uint32(frame_count_valid actual_frame_count "${doc}" 32768
+        audio frame_count)
+      gbl__result_uint32(byte_count_valid actual_byte_count "${doc}" 131072
+        audio byte_count)
+      gbl__result_decimal_le(actual_end_in_range "${actual_end}" "${max_cycles}")
+      if(NOT frame_count_valid OR NOT byte_count_valid OR
+          NOT actual_end_in_range OR
+          NOT "${actual_end}" MATCHES "^(0|[1-9][0-9]*)$")
+        gbl_finding(result bad-audio "audio counts must be canonical integers")
+      else()
+        math(EXPR expected_frames "${actual_end}/${policy_cycles}")
+        math(EXPR expected_bytes "${actual_frame_count}*${policy_bytes_per_frame}")
+        if(NOT actual_frame_count EQUAL expected_frames OR
+            NOT actual_byte_count EQUAL expected_bytes OR
+            actual_frame_count GREATER max_frames OR actual_byte_count GREATER max_bytes)
+          gbl_finding(result bad-audio "frame and byte counts do not match the bounded interval")
+        endif()
+      endif()
+    endif()
+    if(NOT "${capture_state}" MATCHES "^(incomplete|complete|failed)$")
+      gbl_finding(result bad-audio "actual interval has an invalid capture state")
+    endif()
+    if("${capture_state}" STREQUAL "complete")
+      if(NOT interval_complete OR NOT "${actual_end}" STREQUAL "${requested_end}")
+        gbl_finding(result bad-audio "complete capture must reach its requested end")
+      endif()
+    elseif("${capture_state}" STREQUAL "incomplete")
+      gbl__result_decimal_le(actual_is_short "${actual_end}" "${requested_end}")
+      if(NOT actual_is_short OR "${actual_end}" STREQUAL "${requested_end}" OR
+          interval_complete)
+        gbl_finding(result bad-audio "incomplete capture must stop before its requested end")
+      endif()
+    elseif(interval_complete)
+      gbl_finding(result bad-audio "only a complete capture may mark its interval complete")
+    endif()
+  endif()
+
+  if("${artifact_state}" STREQUAL "emitted")
+    if(NOT requested OR NOT "${capture_state}" STREQUAL "complete" OR
+        NOT interval_complete OR NOT "${artifact_count_type}" STREQUAL "NUMBER" OR
+        NOT "${artifact_digest_type}" STREQUAL "STRING" OR
+        NOT "${artifact_error_type}" STREQUAL "NULL")
+      gbl_finding(result bad-audio "emitted artifact needs a complete capture, count, digest, and no error")
+    else()
+      string(JSON artifact_count GET "${doc}" audio artifact byte_count)
+      string(JSON artifact_digest GET "${doc}" audio artifact sha256)
+      string(JSON output_byte_count GET "${doc}" audio byte_count)
+      gbl__result_uint32(artifact_count_valid artifact_count "${doc}" 131072
+        audio artifact byte_count)
+      gbl__manifest_is_hex(digest_valid "${artifact_digest}" 64)
+      if(NOT artifact_count_valid OR NOT artifact_count EQUAL output_byte_count OR
+          NOT digest_valid)
+        gbl_finding(result bad-audio "emitted artifact count or SHA-256 is invalid")
+      elseif(artifact_count EQUAL 0 AND
+          NOT "${artifact_digest}" STREQUAL "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        gbl_finding(result bad-audio "empty artifact must use the SHA-256 of exact empty bytes")
+      endif()
+    endif()
+  elseif("${artifact_state}" STREQUAL "failed")
+    if(NOT "${capture_state}" STREQUAL "complete" OR
+        NOT "${artifact_count_type}" STREQUAL "NULL" OR
+        NOT "${artifact_digest_type}" STREQUAL "NULL" OR
+        NOT "${artifact_error_type}" STREQUAL "STRING")
+      gbl_finding(result bad-audio "failed artifact needs a complete capture, an error, and no artifact claim")
+    else()
+      string(JSON artifact_error GET "${doc}" audio artifact error)
+      if("${artifact_error}" STREQUAL "")
+        gbl_finding(result bad-audio "failed artifact needs a non-empty error")
+      endif()
+    endif()
+  elseif("${artifact_state}" STREQUAL "not-written")
+    if("${capture_state}" STREQUAL "complete" OR
+        NOT "${artifact_count_type}" STREQUAL "NULL" OR
+        NOT "${artifact_digest_type}" STREQUAL "NULL" OR
+        NOT "${artifact_error_type}" STREQUAL "NULL")
+      gbl_finding(result bad-audio "unwritten artifact cannot claim bytes, digest, or completed publication")
+    endif()
+  elseif(NOT "${artifact_state}" STREQUAL "not-requested")
+    gbl_finding(result bad-audio "requested capture has an invalid artifact state")
+  endif()
+endfunction()
+
 function(gbl_result_check file manifest registry vocab)
   gbl_json_load(doc "${file}")
   set(m_ids "${${manifest}_IDS}")
@@ -2799,6 +3184,8 @@ function(gbl_result_check file manifest registry vocab)
 
   gbl__result_phase10_check("${doc}" "${time_cycles}" "${status}" "${ran}"
     "${result_reason}")
+  gbl__result_audio_check("${doc}" "${time_valid}" "${time_cycles}"
+    "${time_budget}")
 
   set(GBL_RESULT_STATUS "${status}" PARENT_SCOPE)
 endfunction()
@@ -2813,6 +3200,11 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   gbl_contract_read(V "${VOCAB}")
   gbl_registry_read(R "${REGISTRY}" V)
   gbl_manifest_read(M "${MANIFEST}" R V)
+  if(DEFINED GBL_RESULT_REQUIRE_AUDIO AND GBL_RESULT_REQUIRE_AUDIO)
+    set(GBL_RESULT_REQUIRE_AUDIO TRUE)
+  else()
+    set(GBL_RESULT_REQUIRE_AUDIO FALSE)
+  endif()
   gbl_result_check("${RESULT}" M R V)
   gbl_findings_finish(result "ok (${GBL_RESULT_STATUS})")
 endif()
