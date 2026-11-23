@@ -1,21 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v4.0
-milestone_name: Audio
-status: Awaiting next milestone
-stopped_at: v4.0 milestone archived locally
-last_updated: "2026-11-23T19:52:29.219Z"
+milestone: v5.0
+milestone_name: Deterministic Core API and Installed Consumer Proof
+status: planning
+last_updated: "2026-11-23T22:06:36.618Z"
 last_activity: 2026-11-23
-last_activity_desc: Milestone v4.0 completed and archived
-state_head: e0513a96168955ce3fc4eaf9a9b91ba1c93ceb59
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
-current_phase: 19
-current_phase_name: Stereo Mixing and Runner Evidence
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -26,14 +21,15 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
-**Current focus:** v4.0 is complete and archived; the next milestone has not started.
+**Current focus:** Owner-approved v5.0 scope; formal requirements and execution roadmap are being established.
 
 ## Current Position
 
-Phase: Milestone v4.0 complete and archived
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-23 — Milestone v4.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-11-23 — Milestone v5.0 started
+
 
 ## Performance Metrics
 
@@ -633,12 +629,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T19:52:29.219Z
-Stopped at: v4.0 milestone archived locally; no next milestone started
+Last session: 2026-11-23T22:06:36.618Z
+Stopped at: v5.0 milestone started; defining requirements and roadmap
 Resume file: None
 
 ## Operator Next Steps
 
 
 
-- Start the next milestone with $gsd-new-milestone
+- Complete v5.0 requirements and roadmap setup, then run `$gsd-autonomous` to execute the milestone phases end to end.

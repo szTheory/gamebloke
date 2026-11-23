@@ -35,6 +35,24 @@ remains UNKNOWN. The original diagnostic is permitted for local verification;
 redistribution remains unknown. No hosted run, publication, release package,
 or replacement of Playstead's managed mGBA route is claimed or authorized.
 
+## Current Milestone: v5.0 Deterministic Core API and Installed Consumer Proof
+
+**Goal:** Prove that developers and integrators can use Gamebloke's canonical
+GBA machine through a stable, portable, bounded API and obtain reproducible
+guest and raw A/V evidence from an installed consumer.
+
+**Target features:**
+- Versioned opaque per-instance C API for the existing `agb`, direct-start,
+  ROM-only profile.
+- Relocated installed C consumer using only public artifacts.
+- Rights-reviewed BIOS-free diagnostic with semantic guest assertions,
+  literal output expectations, and documented refusal postconditions.
+- Evidence-based LibFuturo fit evaluation without default adoption.
+
+**Status:** Owner-approved scope; formal requirements and phase roadmap are
+being established. This does not authorize a public release, hardware
+qualification, or a Playstead route change.
+
 <details>
 <summary>Previous completed milestone: v3.0 PPU Modes and Composition</summary>
 
@@ -50,12 +68,16 @@ carryovers.
 
 </details>
 
-## Next Milestone Direction
+## Rolling Milestone Direction
 
-After v4.0, the rolling roadmap recommends Cartridge and Saves, then API,
-Consumer, and Packaging. These remain horizon options until the next milestone
-boundary. See ROADMAP.md and the milestone archives for current evidence,
-tradeoffs, and limits.
+The active v5.0 scope tests Gamebloke's proposed developer/integrator value
+beside Playstead's managed mGBA route. After that, use actual consumer evidence
+to select a narrowly scoped cartridge/save capability; then consider a
+side-by-side Playstead route, targeted compatibility and portability evidence,
+and package/release readiness. This is a rolling horizon, not a commitment to
+specific future milestone numbers. See ROADMAP.md and
+research/V5.0-MILESTONE-SUMMARY.md for evidence, provenance, tradeoffs, and
+promotion criteria.
 
 ## Requirements
 
@@ -91,12 +113,15 @@ These are hypotheses until shipped and verified. Formal REQ-IDs live in
 requirements are archived in `.planning/milestones/v4.0-REQUIREMENTS.md`; the
 next milestone will define its own requirements.
 
-- [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
-- [ ] Explicitly modeled cartridge backup devices. Save type is never inferred from a filename or title.
+- [ ] A versioned, opaque, per-instance core API for the currently supported `agb` behavior, with explicit lifecycle, bounded advancement, caller-owned outputs, result claims, and refusal postconditions
+- [ ] A relocated installed consumer proving the public API without source-tree or private-structure access
 - [ ] A fixture manifest for every test ROM (source, revision, build recipe, digest, license, permitted use, BIOS mode, expected result)
+
+### Future
+
+- [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
+- [ ] Explicitly modeled cartridge backup devices, selected from a real consumer need. Save type is never inferred from a filename or title.
 - [ ] Complete per-fixture rights review for any scenario intended for redistribution; the current generated guest remains local-only
-- [ ] A defined public API boundary (lifecycle, load/unload, input timing, bounded advancement, buffer ownership, reset, errors, refusal postconditions) before it is exposed
-- [ ] An installed, relocatable external consumer once packaging exists
 - [ ] Named benchmark workloads measured only after a correctness baseline exists
 
 ### Out of Scope
@@ -152,10 +177,10 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 
 ## Milestone and Phase Scoping Policy
 
-- At each new-milestone boundary, start from the current rolling roadmap and a concrete recommended next scope with alternatives. Do not restart with an open-ended “what next?” question when the roadmap and current evidence already support a recommendation. Surface a material choice only when it changes product direction, rights, authority, risk, cost, or an irreversible action.
+- At each new-milestone boundary, refresh the rolling roadmap across near-, mid-, and long-term horizons, then start from a concrete recommended next scope with alternatives. Do not restart with an open-ended “what next?” question when the roadmap and current evidence already support a recommendation. Surface a material choice only when it changes product direction, rights, authority, risk, cost, or an irreversible action.
 - Apply the same evidence-first discovery to phase discussions. Identify the actual decision, then use only the relevant technical, product, QA, security, performance, design, and operations lenses for it. Fan out read-only research with subagents when independent work saves time or context; include an adversarial review and stop when another pass is unlikely to change the recommendation, material risk, or evidence plan.
 - Prefer primary and authoritative sources, and inspect current repository evidence. Keep owner decisions, source facts, project observations, measured results, inferences, recommendations, and unknowns distinct. Capture provenance and the practical limit of each source; agreement with another emulator or repeatable output alone is not hardware truth.
-- Return one recommended path, the scope and exclusions, main tradeoffs, a verification direction, and a small set of roadmap alternatives. Update the rolling roadmap and retain high-signal lessons in `.planning/` so future discussions can start from them without repeating settled discovery.
+- Return one recommended path, the scope and exclusions, main tradeoffs, a verification direction, and near-/mid-/long-term roadmap alternatives. Update the rolling roadmap and retain high-signal lessons in `.planning/` with provenance so future discussions can start from them without repeating settled discovery. Once the owner confirms a scope, carry it through formal requirements and roadmap creation; leave per-phase discussion, planning, execution, and verification to their OpenGSD workflows.
 - This upstream scoping supports OpenGSD; it does not replace its formal requirements, roadmap validation, phase planning, execution, or verification workflows.
 
 ## Key Decisions
@@ -166,7 +191,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Build a new GBA emulator (owner) | Broad console coverage with an owner-controlled core | ✓ Settled |
 | Autonomous OpenGSD with a rolling roadmap (owner) | Routine reversible work proceeds; material choices are surfaced | ✓ Settled |
 | Gamebloke does not assume it replaces Playstead's mGBA route (owner) | Value beside mGBA must be identified and measured | ✓ Settled |
-| Differentiator beside managed mGBA | Research → requirements | — Pending (research) |
+| Differentiator beside managed mGBA (owner, 2026-11-23) | Prove a deterministic, inspectable, embeddable core through a real installed consumer; do not claim a compatibility advantage or replace the route | ✓ Accepted as v5.0 scope |
 | First machine profile (model/region/BIOS mode) | Phase 3 established `agb`, direct-start/no-BIOS, and ROM-only scope; later profiles require separate evidence | ✓ Initial profile established; no broad compatibility claim |
 | BIOS and boot policy | Phase 3/4 selected direct-start with no bundled BIOS; G4 still gates any authored stub | ✓ No-BIOS policy is explicit; other boot modes remain future scope |
 | CPU/system timing architecture | Phases 7–10 use one machine-owned event/time path and shared bus accounting | ✓ Architecture established; exact hardware timing and prefetch remain incomplete or unqualified |

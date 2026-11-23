@@ -49,15 +49,25 @@ switches between Codex and Claude regularly; preserve both runtime model mapping
 in `.planning/config.json`, which is the source of truth for model and effort
 routing. Resolve each agent's model and effort together before dispatch.
 
-At each milestone discussion, read current project-owned state, roadmap,
-requirements, prior decisions, and lessons. Fan out around the actual open
-decision using relevant GBA hardware, CPU/bus, graphics, audio, cartridge,
-security/rights, API/host, product, QA, performance, and DevOps lenses. Use
-subagents for independent questions when parallel work saves time or context.
-Prefer primary and authoritative sources, compare options and failure modes,
-include an adversarial pass, then synthesize one recommended path. Stop when
-further passes no longer change the recommendation, material risk, or evidence
-plan.
+At each new-milestone boundary, first refresh the rolling roadmap across near-,
+mid-, and long-term horizons, with concrete next-scope alternatives and the
+evidence that could promote or defer them. Read current project-owned state,
+requirements, prior decisions, and lessons. Fan out around the actual decision
+using the relevant stakeholder and technical lenses (for this project as
+applicable: GBA hardware, CPU/bus, graphics, audio, cartridge, security/rights,
+API/host, product, QA, performance, design, and DevOps). Use subagents for
+independent questions when that saves time or context. Prefer primary and
+authoritative sources, compare options and failure modes, include an adversarial
+pass, then synthesize one recommended path. Stop when another pass is unlikely
+to change the recommendation, material risk, or evidence plan.
+
+After the owner selects or confirms a direction, carry the accepted scope into
+formal OpenGSD requirements and roadmap work; do not repeat settled research or
+take over downstream phase execution. Update the rolling roadmap and retain
+only high-signal takeaways in `.planning/`, with provenance and clear labels
+for owner decisions, source observations, measurements, inferences,
+recommendations, and unknowns. Keep these durable instructions aligned with
+the owner's corrections and standing preferences.
 
 Keep accepted owner decisions, source observations, measured results,
 historical reports, inferences, recommendations, and unknowns distinct. Refresh

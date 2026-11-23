@@ -1,33 +1,12 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v4.0 — Audio",
-  "phases": [
-    {
-      "number": "16",
-      "name": "Audio Registers and Capture Contract",
-      "status": "complete"
-    },
-    {
-      "number": "17",
-      "name": "PSG Channels and Sequencer",
-      "status": "complete"
-    },
-    {
-      "number": "18",
-      "name": "Direct Sound and FIFO DMA",
-      "status": "complete"
-    },
-    {
-      "number": "19",
-      "name": "Stereo Mixing and Runner Evidence",
-      "status": "complete"
-    }
-  ],
+  "milestone": "v5.0 — Deterministic Core API and Installed Consumer Proof",
+  "phases": [],
   "next": {
-    "command": "$gsd-progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "$gsd-discuss-phase",
+    "label": "Discuss the first phase",
+    "reason": "Project initialized — plan your first phase"
   },
-  "updated_at": "2026-11-23T19:52:29.239Z"
+  "updated_at": "2026-11-23T22:06:36.621Z"
 }
