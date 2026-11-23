@@ -57,7 +57,7 @@ function(expect_audio_result_valid label json)
   set(result_path "${audio_scratch}/${label}.json")
   file(WRITE "${result_path}" "${json}\n")
   execute_process(COMMAND "${CMAKE_COMMAND}"
-    "-DRESULT=${result_path}" "-DMANIFEST=${SRC}/tests/fixtures/manifest.json"
+    "-DRESULT=${result_path}" "-DMANIFEST=${audio_manifest}"
     "-DREGISTRY=${SRC}/registry/disputes.json"
     "-DVOCAB=${SRC}/contracts/evidence.json" -DGBL_RESULT_REQUIRE_AUDIO=ON
     -P "${SRC}/cmake/CheckResult.cmake"
@@ -70,10 +70,21 @@ function(expect_audio_result_valid label json)
 endfunction()
 
 if(DEFINED CASE AND CASE STREQUAL "audio_cli")
+  set(audio_runner "${production}")
+  set(audio_runner_label production)
   set(audio_rom "${BIN}/generated/diagnostics/armv4t/arm/roms/arm-268640271.gba")
-  if(NOT EXISTS "${production}" OR NOT EXISTS "${audio_rom}" OR
-      NOT EXISTS "${unit_test}")
-    message(FATAL_ERROR "runner-case: audio_cli production inputs are missing")
+  set(audio_fixture_id arm-268640271)
+  set(audio_manifest "${SRC}/tests/fixtures/manifest.json")
+  if(CONTROL_INDEX)
+    set(audio_runner "${control}")
+    set(audio_runner_label synthetic-control)
+    set(audio_rom "${fixtures}/owned-arm-pass.gba")
+    set(audio_fixture_id synthetic-control-pass)
+    set(audio_manifest "${BIN}/generated/control/manifest.json")
+  endif()
+  if(NOT EXISTS "${audio_runner}" OR NOT EXISTS "${audio_rom}" OR
+      NOT EXISTS "${unit_test}" OR NOT EXISTS "${audio_manifest}")
+    message(FATAL_ERROR "runner-case: ${audio_runner_label} audio_cli inputs are missing")
   endif()
   set(audio_scratch "${scratch}/audio-cli")
   file(MAKE_DIRECTORY "${audio_scratch}")
@@ -81,12 +92,12 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
   file(REMOVE "${audio_output}")
 
   execute_process(
-    COMMAND "${production}" --rom "${audio_rom}" --fixture arm-268640271
+    COMMAND "${audio_runner}" --rom "${audio_rom}" --fixture "${audio_fixture_id}"
       --cycles 1000 --audio-output "${audio_output}" --audio-cycles 1
     RESULT_VARIABLE audio_rc OUTPUT_VARIABLE audio_json ERROR_VARIABLE audio_error)
   if(NOT "${audio_rc}" STREQUAL "0")
     message(FATAL_ERROR
-      "runner-case: production audio CLI failed (${audio_rc}): ${audio_error}; ${audio_json}")
+      "runner-case: ${audio_runner_label} audio CLI failed (${audio_rc}): ${audio_error}; ${audio_json}")
   endif()
   expect_audio_result_valid("empty-audio" "${audio_json}")
   expect_json_field("${audio_json}" PASS status)
@@ -124,7 +135,7 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
   set(existing_audio_output "${audio_scratch}/existing.raw")
   file(WRITE "${existing_audio_output}" "preserve-this-audio")
   execute_process(
-    COMMAND "${production}" --rom "${audio_rom}" --fixture arm-268640271
+    COMMAND "${audio_runner}" --rom "${audio_rom}" --fixture "${audio_fixture_id}"
       --cycles 1000 --audio-output "${existing_audio_output}" --audio-cycles 1
     RESULT_VARIABLE existing_rc OUTPUT_VARIABLE existing_json
     ERROR_VARIABLE existing_error)
@@ -147,12 +158,18 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
   endif()
 
   function(expect_audio_usage name)
-    execute_process(COMMAND "${production}" ${ARGN}
+    execute_process(COMMAND "${audio_runner}" ${ARGN}
       RESULT_VARIABLE usage_rc OUTPUT_VARIABLE usage_stdout ERROR_VARIABLE usage_stderr)
     if(NOT "${usage_rc}" STREQUAL "2" OR NOT "${usage_stdout}" STREQUAL "" OR
         NOT "${usage_stderr}" MATCHES "^usage: gamebloke-run")
       message(FATAL_ERROR
         "runner-case: audio ${name} was not refused before execution (${usage_rc}): ${usage_stdout}${usage_stderr}")
+    endif()
+    if(name MATCHES "alias" AND
+        NOT "${usage_stderr}" MATCHES
+          "gamebloke-run: audio-output-path-conflict")
+      message(FATAL_ERROR
+        "runner-case: audio ${name} did not report the stable path-conflict reason: ${usage_stderr}")
     endif()
   endfunction()
 
@@ -214,7 +231,7 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
   set(missing_script "${audio_scratch}/missing.script")
   file(REMOVE "${missing_script}")
   execute_process(
-    COMMAND "${production}" --rom "${audio_rom}" --cycles 1000
+    COMMAND "${audio_runner}" --rom "${audio_rom}" --cycles 1000
       --input-script "${missing_script}" --audio-output "${audio_scratch}/missing-script.raw"
       --audio-cycles 1
     RESULT_VARIABLE missing_rc OUTPUT_VARIABLE missing_json ERROR_VARIABLE missing_error)
@@ -237,7 +254,7 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
     "${audio_scratch}/default-large.raw" "${audio_scratch}/trace.jsonl"
     "${audio_scratch}/video.raw" "${audio_scratch}/missing-script.raw"
     "${audio_scratch}/empty-cycles.raw")
-  message(STATUS "runner-case: production audio CLI controls passed")
+  message(STATUS "runner-case: ${audio_runner_label} audio CLI controls passed")
   return()
 endif()
 foreach(path IN ITEMS "${control}" "${production}" "${unit_test}"

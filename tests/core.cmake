@@ -45,12 +45,19 @@ gbl_add_test(
   LABELS integration runner
   COMMAND $<TARGET_FILE:runner_test> audio.controls
     "${CMAKE_BINARY_DIR}/runner-audio-controls")
+set(runner_audio_cli_index_option "")
+if(GBL_LANE STREQUAL "asan")
+  # The sanitizer lane deliberately has no ARM diagnostic toolchain. Its
+  # generated synthetic control fixture exercises the same instrumented CLI.
+  set(runner_audio_cli_index_option -DCONTROL_INDEX=ON)
+endif()
 gbl_add_test(
   NAME runner.audio.cli
   LABELS gate integration runner
   COMMAND "${CMAKE_COMMAND}"
     "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
     -DCASE=audio_cli -DVALIDATE_PRODUCER=ON
+    ${runner_audio_cli_index_option}
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
 gbl_add_test(
   NAME runner.relocation

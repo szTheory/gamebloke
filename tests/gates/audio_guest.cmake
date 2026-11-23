@@ -17,6 +17,139 @@ set(merged_manifest_file "${BIN}/generated/production/audio-manifest.json")
 set(toolchain_receipt "${BIN}/generated/local-audio-toolchain.txt")
 set(scratch "${BIN}/nc/audio_guest")
 set(expected_pcm_hex "db660000db66007fdb66007fdb660080")
+
+if(DEFINED CASE AND CASE STREQUAL "public_exclusion")
+  string(RANDOM LENGTH 12 ALPHABET 0123456789abcdef probe_id)
+  set(probe_root "${BIN}/nc/audio-public-exclusion-${probe_id}")
+  set(default_root "${probe_root}/default")
+  set(rejected_root "${probe_root}/ci-local-audio")
+  file(MAKE_DIRECTORY "${probe_root}")
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -S "${SRC}" -B "${default_root}"
+    RESULT_VARIABLE default_configure OUTPUT_VARIABLE default_output
+    ERROR_VARIABLE default_error TIMEOUT 120)
+  if(NOT "${default_configure}" STREQUAL "0")
+    message(FATAL_ERROR
+      "audio-guest: default exclusion configure failed: ${default_error}${default_output}")
+  endif()
+
+  set(default_cache "${default_root}/CMakeCache.txt")
+  if(NOT EXISTS "${default_cache}")
+    message(FATAL_ERROR "audio-guest: default configure did not write a cache")
+  endif()
+  file(STRINGS "${default_cache}" lane_cache REGEX "^GBL_LANE:STRING=")
+  if(NOT "${lane_cache}" STREQUAL "GBL_LANE:STRING=ci")
+    message(FATAL_ERROR
+      "audio-guest: default lane is not CI: '${lane_cache}'")
+  endif()
+
+  find_program(audio_ctest NAMES ctest)
+  if(NOT audio_ctest)
+    message(FATAL_ERROR "audio-guest: CTest is unavailable for the exclusion probe")
+  endif()
+  execute_process(
+    COMMAND "${audio_ctest}" --test-dir "${default_root}" --show-only=json-v1
+    RESULT_VARIABLE discovery_result OUTPUT_VARIABLE discovery_json
+    ERROR_VARIABLE discovery_error TIMEOUT 30)
+  if(NOT "${discovery_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "audio-guest: default CTest discovery failed: ${discovery_error}")
+  endif()
+  string(JSON discovered_count ERROR_VARIABLE discovery_json_error
+    LENGTH "${discovery_json}" tests)
+  if(NOT "${discovery_json_error}" STREQUAL "NOTFOUND")
+    message(FATAL_ERROR "audio-guest: default CTest JSON is invalid")
+  endif()
+  foreach(index RANGE 0 ${discovered_count})
+    if(index LESS discovered_count)
+      string(JSON discovered_name GET "${discovery_json}" tests ${index} name)
+      if(discovered_name STREQUAL "audio.guest.local")
+        message(FATAL_ERROR
+          "audio-guest: local-only guest leaked into default CTest selection")
+      endif()
+    endif()
+  endforeach()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${default_root}" --target help
+    RESULT_VARIABLE targets_result OUTPUT_VARIABLE target_help
+    ERROR_VARIABLE targets_error TIMEOUT 30)
+  if(NOT "${targets_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "audio-guest: default target discovery failed: ${targets_error}")
+  endif()
+  foreach(local_target IN ITEMS gbl_audio_guest_image gbl_local_audio_image)
+    string(FIND "${target_help}" "${local_target}" local_target_position)
+    if(NOT local_target_position EQUAL -1)
+      message(FATAL_ERROR
+        "audio-guest: local-only generator target leaked into CI: ${local_target}")
+    endif()
+  endforeach()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${default_root}"
+      --target gbl_fixture_indexes
+    RESULT_VARIABLE index_build_result OUTPUT_VARIABLE index_build_output
+    ERROR_VARIABLE index_build_error TIMEOUT 120)
+  if(NOT "${index_build_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "audio-guest: default production index build failed: ${index_build_error}${index_build_output}")
+  endif()
+
+  set(standard_manifest "${SRC}/tests/fixtures/manifest.json")
+  set(default_index "${default_root}/generated/production/fixture_index.h")
+  if(NOT EXISTS "${standard_manifest}" OR NOT EXISTS "${default_index}")
+    message(FATAL_ERROR
+      "audio-guest: default production manifest/index is missing")
+  endif()
+  file(READ "${standard_manifest}" standard_manifest_text)
+  file(READ "${default_index}" default_index_text)
+  string(FIND "${standard_manifest_text}" "owned-audio-mix" manifest_row_position)
+  string(FIND "${default_index_text}" "owned-audio-mix" default_index_row_position)
+  if(NOT manifest_row_position EQUAL -1 OR
+      NOT default_index_row_position EQUAL -1)
+    message(FATAL_ERROR
+      "audio-guest: local-only audio row leaked into standard manifest/index")
+  endif()
+  if(EXISTS "${default_root}/generated/production/audio-manifest.json" OR
+      EXISTS "${default_root}/generated/fixtures/owned-audio-mix.gba")
+    message(FATAL_ERROR
+      "audio-guest: default CI configured or generated local-only audio content")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "CI=true" "${CMAKE_COMMAND}"
+      -S "${SRC}" -B "${rejected_root}" -DGBL_LANE=local-audio
+    RESULT_VARIABLE rejected_configure OUTPUT_VARIABLE rejected_output
+    ERROR_VARIABLE rejected_error TIMEOUT 120)
+  if("${rejected_configure}" STREQUAL "0")
+    message(FATAL_ERROR
+      "audio-guest: local-audio configure unexpectedly passed under CI=true")
+  endif()
+  string(FIND "${rejected_output}\n${rejected_error}"
+    "gamebloke: local-audio lane is prohibited when CI=true"
+    rejection_position)
+  if(rejection_position EQUAL -1)
+    message(FATAL_ERROR
+      "audio-guest: local-audio rejection was not the expected CI=true policy: ${rejected_error}${rejected_output}")
+  endif()
+  foreach(forbidden_output IN ITEMS
+      "${rejected_root}/build.ninja"
+      "${rejected_root}/generated/production/fixture_index.h"
+      "${rejected_root}/generated/production/audio-manifest.json"
+      "${rejected_root}/generated/fixtures/owned-audio-mix.gba")
+    if(EXISTS "${forbidden_output}")
+      message(FATAL_ERROR
+        "audio-guest: rejected local lane generated/admitted ${forbidden_output}")
+    endif()
+  endforeach()
+  file(REMOVE_RECURSE "${probe_root}")
+  message(STATUS
+    "audio-guest: default CI excludes local guest, generator, and index row; CI=true rejects local-audio before admission")
+  return()
+endif()
+
 file(MAKE_DIRECTORY "${scratch}")
 
 foreach(path IN ITEMS "${runner}" "${audio_image}")

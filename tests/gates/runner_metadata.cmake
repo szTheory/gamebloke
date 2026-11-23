@@ -169,8 +169,8 @@ if(NOT "${wiring}" MATCHES "production.SOURCES=${expected_runner_sources}" OR
     NOT "${wiring}" MATCHES "control.SOURCES=${expected_runner_sources}" OR
     NOT "${wiring}" MATCHES "production.LINK_LIBRARIES=gamebloke_core;gbl_warnings" OR
     NOT "${wiring}" MATCHES "control.LINK_LIBRARIES=gamebloke_core;gbl_warnings" OR
-    NOT "${wiring}" MATCHES "production.INCLUDE_DIRECTORIES=${generated}/production" OR
-    NOT "${wiring}" MATCHES "control.INCLUDE_DIRECTORIES=${generated}/control" OR
+    NOT "${wiring}" MATCHES "production.INCLUDE_DIRECTORIES=${SRC}/src;${generated}/production" OR
+    NOT "${wiring}" MATCHES "control.INCLUDE_DIRECTORIES=${SRC}/src;${generated}/control" OR
     NOT "${wiring}" MATCHES "common.c_standard=17")
   message(FATAL_ERROR "runner-metadata: runner-source-or-index-wiring-diverged")
 endif()
@@ -317,7 +317,7 @@ file(WRITE "${legacy_runner_source}/CMakeLists.txt"
   "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n"
   "project(gbl_legacy_runner LANGUAGES C)\n"
   "add_executable(legacy-runner \"${SRC}/runner/main.c\" \"${SRC}/runner/run.c\" \"${SRC}/runner/result.c\" \"${SRC}/runner/sha256.c\")\n"
-  "target_include_directories(legacy-runner PRIVATE \"${legacy_index_dir}\" \"${SRC}/runner\" \"${SRC}/include\")\n"
+  "target_include_directories(legacy-runner PRIVATE \"${legacy_index_dir}\" \"${SRC}/runner\" \"${SRC}/src\" \"${SRC}/include\")\n"
   "get_target_property(legacy_standard legacy-runner C_STANDARD)\n"
   "get_target_property(legacy_standard_required legacy-runner C_STANDARD_REQUIRED)\n"
   "get_target_property(legacy_extensions legacy-runner C_EXTENSIONS)\n"

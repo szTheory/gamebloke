@@ -5,7 +5,6 @@
 #include "dma_internal.h"
 
 #include <limits.h>
-#include <string.h>
 
 #define GBL_CPU_WORD_WIDTH 4u
 #define GBL_CPU_HALF_WIDTH 2u
@@ -43,6 +42,16 @@ static bool gbl_cpu_bytes_equal(const uint8_t *left, const uint8_t *right,
         }
     }
     return true;
+}
+
+static void gbl_cpu_copy_bytes(uint8_t *destination, const uint8_t *source,
+                               size_t length)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        destination[index] = source[index];
+    }
 }
 
 /* DDI0029G §6.5–6.6: register-specified Operand2 shifts add one internal
@@ -3869,8 +3878,8 @@ static void gbl_cpu_publish_audio_capture(
         final_cycle = capture_end_cycle;
     }
     if (staged_bytes != 0u) {
-        memcpy(capture->destination + capture->bytes_written, staging,
-               staged_bytes);
+        gbl_cpu_copy_bytes(capture->destination + capture->bytes_written,
+                           staging, staged_bytes);
     }
     capture->bytes_written += staged_bytes;
     capture->last_accepted_cycle = final_cycle;

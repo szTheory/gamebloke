@@ -3,7 +3,7 @@
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/determinism-test")
 add_executable(determinism_test tests/determinism_test.c runner/run.c
   runner/result.c runner/sha256.c)
-target_include_directories(determinism_test PRIVATE runner
+target_include_directories(determinism_test PRIVATE runner src
   "${GBL_CONTROL_INDEX_DIR}")
 target_compile_definitions(determinism_test PRIVATE
   "GBL_DETERMINISM_FIXTURE_DIR=\"${GBL_FIXTURE_DIR}\""

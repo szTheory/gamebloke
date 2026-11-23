@@ -225,6 +225,8 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     set(GBL_AUDIO_NOTICE "${CMAKE_SOURCE_DIR}/tests/fixtures/audio-NOTICE.md")
     set(GBL_AUDIO_MERGED_MANIFEST
       "${GBL_PRODUCTION_INDEX_DIR}/audio-manifest.json")
+    set(GBL_LOCAL_AUDIO_IMAGE
+      "${GBL_FIXTURE_DIR}/owned-audio-mix.gba")
     file(READ "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
       GBL_STANDARD_MANIFEST_TEXT)
     file(READ "${GBL_AUDIO_MANIFEST}" GBL_AUDIO_MANIFEST_TEXT)
@@ -278,8 +280,6 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     target_link_libraries(gbl_audio_guest_image PRIVATE gbl_warnings)
     target_compile_definitions(gbl_audio_guest_image PRIVATE
       "GBL_AUDIO_GUEST_OUTPUT_DIR=\"${GBL_FIXTURE_DIR}\"")
-    set(GBL_LOCAL_AUDIO_IMAGE
-      "${GBL_FIXTURE_DIR}/owned-audio-mix.gba")
     add_custom_command(
       OUTPUT "${GBL_LOCAL_AUDIO_IMAGE}"
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${GBL_FIXTURE_DIR}"

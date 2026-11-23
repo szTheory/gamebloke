@@ -817,10 +817,14 @@ int main(int argc, char **argv)
         print_usage(stderr);
         return GBL_RUN_USAGE_ERROR;
     }
-    if (!gbl_runner_video_path_is_safe(&options, input_script_path) ||
-        !gbl_runner_audio_path_is_safe(&options, input_script_path)) {
+    if (!gbl_runner_video_path_is_safe(&options, input_script_path)) {
         print_usage(stderr);
-        fputs("gamebloke-run: output-path-conflict\n", stderr);
+        fputs("gamebloke-run: video-output-path-conflict\n", stderr);
+        return GBL_RUN_USAGE_ERROR;
+    }
+    if (!gbl_runner_audio_path_is_safe(&options, input_script_path)) {
+        print_usage(stderr);
+        fputs("gamebloke-run: audio-output-path-conflict\n", stderr);
         return GBL_RUN_USAGE_ERROR;
     }
     if (input_script_path != NULL) {
