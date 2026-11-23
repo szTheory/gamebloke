@@ -241,4 +241,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-23 after completing local verification of v4.0 Audio*
+*Last updated: 2026-11-23 after starting the owner-approved v5.0 milestone*
