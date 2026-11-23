@@ -1090,17 +1090,99 @@ uint8_t gbl_audio_apply_register_write(gbl_audio_state *state,
     return fifo_reset_mask;
 }
 
+static int16_t gbl_audio_mix_s16(int64_t numerator)
+{
+    const int64_t denominator = INT64_C(28);
+    int64_t rounded = numerator / denominator;
+    const int64_t remainder = numerator % denominator;
+
+    if (remainder >= INT64_C(14)) {
+        ++rounded;
+    } else if (remainder <= -INT64_C(14)) {
+        --rounded;
+    }
+    if (rounded > INT16_MAX) {
+        return INT16_MAX;
+    }
+    if (rounded < INT16_MIN) {
+        return INT16_MIN;
+    }
+    return (int16_t)rounded;
+}
+
 void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,
                       int16_t *left, int16_t *right)
 {
-    /* PSG channel state is modeled separately; PCM mixing remains deferred. */
-    (void)state;
+    int64_t side_numerators[2] = { INT64_C(0), INT64_C(0) };
+    int16_t projected[2] = { 0, 0 };
+
     (void)cycle;
+    if (state != NULL &&
+        (state->registers[18] & UINT16_C(0x0080)) != 0u) {
+        const uint16_t soundcnt_l = state->registers[16];
+        const uint16_t soundcnt_h = state->registers[17];
+        const unsigned ratio_code = (unsigned)(soundcnt_h & UINT16_C(3));
+        const unsigned psg_ratio_weight =
+            ratio_code == 0u ? 1u : ratio_code == 1u ? 2u
+                                     : ratio_code == 2u ? 4u : 0u;
+        unsigned side;
+
+        for (side = 0u; side < 2u; ++side) {
+            const unsigned route_shift = side == 0u ? 12u : 8u;
+            const unsigned level_shift = side == 0u ? 4u : 0u;
+            const unsigned side_level =
+                (unsigned)((soundcnt_l >> level_shift) & UINT16_C(7));
+            unsigned channel;
+
+            for (channel = 0u; channel < 4u; ++channel) {
+                const uint16_t route_mask = (uint16_t)(
+                    UINT16_C(1) << (route_shift + channel));
+
+                if ((soundcnt_l & route_mask) != 0u) {
+                    const int64_t source =
+                        (int64_t)gbl_audio_psg_sample(state, channel);
+                    const int64_t centered =
+                        (INT64_C(2) * source - INT64_C(15)) * INT64_C(2048);
+
+                    side_numerators[side] +=
+                        centered * (int64_t)side_level *
+                        (int64_t)psg_ratio_weight;
+                }
+            }
+
+            {
+                unsigned fifo_index;
+
+                for (fifo_index = 0u; fifo_index < 2u; ++fifo_index) {
+                    const unsigned route_bit =
+                        8u + fifo_index * 4u + (side == 0u ? 1u : 0u);
+                    const uint16_t route_mask =
+                        (uint16_t)(UINT16_C(1) << route_bit);
+
+                    if ((soundcnt_h & route_mask) != 0u) {
+                        const unsigned gain_bit = 2u + fifo_index;
+                        const int64_t gain_weight =
+                            (soundcnt_h &
+                             (uint16_t)(UINT16_C(1) << gain_bit)) != 0u
+                                ? INT64_C(28)
+                                : INT64_C(14);
+
+                        side_numerators[side] +=
+                            (int64_t)state->fifo[fifo_index].sample *
+                            INT64_C(256) * gain_weight;
+                    }
+                }
+            }
+        }
+
+        projected[0] = gbl_audio_mix_s16(side_numerators[0]);
+        projected[1] = gbl_audio_mix_s16(side_numerators[1]);
+    }
     if (left != NULL) {
-        *left = 0;
+        *left = projected[0];
     }
     if (right != NULL) {
-        *right = 0;
+        *right = projected[1];
     }
 }
 
