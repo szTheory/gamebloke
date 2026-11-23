@@ -70,15 +70,39 @@ static bool read_register(gbl_machine *machine, uint8_t channel,
            result.value == expected;
 }
 
-static bool write_sound_fifo(gbl_machine *machine, uint8_t width,
-                             uint32_t value)
+static bool write_sound_fifo(gbl_machine *machine, uint8_t fifo_index,
+                             uint8_t width, uint32_t value)
 {
     const gbl_bus_result result = gbl_bus_write(
-        machine, UINT32_C(0x040000A0), width,
+        machine, UINT32_C(0x040000A0) + (uint32_t)fifo_index * 4u, width,
         GBL_BUS_CLASS_NONSEQUENTIAL, value);
 
     return result.status == GBL_BUS_STATUS_OK &&
            result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+}
+
+static bool prime_sound_fifo(gbl_machine *machine, uint8_t fifo_index)
+{
+    return write_sound_fifo(machine, fifo_index, 4u,
+                            UINT32_C(0x01020304)) &&
+           write_sound_fifo(machine, fifo_index, 4u,
+                            UINT32_C(0x11121314)) &&
+           write_sound_fifo(machine, fifo_index, 4u,
+                            UINT32_C(0x21222324)) &&
+           write_sound_fifo(machine, fifo_index, 4u,
+                            UINT32_C(0x31323334)) &&
+           write_sound_fifo(machine, fifo_index, 1u, UINT32_C(0x7E));
+}
+
+static void write_ewram_word(gbl_machine *machine, uint32_t address,
+                             uint32_t value)
+{
+    const size_t offset = (size_t)(address - UINT32_C(0x02000000));
+
+    machine->ewram[offset] = (uint8_t)value;
+    machine->ewram[offset + 1u] = (uint8_t)(value >> 8u);
+    machine->ewram[offset + 2u] = (uint8_t)(value >> 16u);
+    machine->ewram[offset + 3u] = (uint8_t)(value >> 24u);
 }
 
 static uint64_t next_timer_overflow(const gbl_machine *machine,
@@ -123,19 +147,15 @@ static bool test_sound_refill_from_timer_threshold(void)
     machine->iwram[UINT32_C(0x100)] = UINT8_C(0x6A);
     for (lane = 0u; lane < 4u; ++lane) {
         const uint32_t value = source_words[lane];
-        const size_t offset = (size_t)UINT32_C(0x100) +
-                              (size_t)lane * 4u;
 
-        machine->ewram[offset] = (uint8_t)value;
-        machine->ewram[offset + 1u] = (uint8_t)(value >> 8u);
-        machine->ewram[offset + 2u] = (uint8_t)(value >> 16u);
-        machine->ewram[offset + 3u] = (uint8_t)(value >> 24u);
+        write_ewram_word(machine, UINT32_C(0x02000100) + lane * 4u,
+                         value);
     }
-    setup = write_sound_fifo(machine, 4u, initial_words[0]) &&
-            write_sound_fifo(machine, 4u, initial_words[1]) &&
-            write_sound_fifo(machine, 4u, initial_words[2]) &&
-            write_sound_fifo(machine, 4u, initial_words[3]) &&
-            write_sound_fifo(machine, 1u, UINT32_C(0x7E)) &&
+    setup = write_sound_fifo(machine, 0u, 4u, initial_words[0]) &&
+            write_sound_fifo(machine, 0u, 4u, initial_words[1]) &&
+            write_sound_fifo(machine, 0u, 4u, initial_words[2]) &&
+            write_sound_fifo(machine, 0u, 4u, initial_words[3]) &&
+            write_sound_fifo(machine, 0u, 1u, UINT32_C(0x7E)) &&
             write_register(machine, 1u, 0u, 4u,
                            UINT32_C(0x02000100)) &&
             write_register(machine, 1u, 4u, 4u,
@@ -192,6 +212,93 @@ static bool test_sound_refill_from_timer_threshold(void)
                     expected;
         }
     }
+    free_machine(machine);
+    return valid;
+}
+
+static bool test_sound_dma_preemption_reads_staged_dma0_write(void)
+{
+    static const uint32_t source_words[4] = {
+        UINT32_C(0xA1A2A3A4), UINT32_C(0x01010101),
+        UINT32_C(0xC1C2C3C4), UINT32_C(0xD1D2D3D4)
+    };
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    uint64_t deadline;
+    uint32_t lane;
+    bool valid;
+
+    if (machine == NULL) {
+        return false;
+    }
+    for (lane = 0u; lane < 4u; ++lane) {
+        write_ewram_word(machine, UINT32_C(0x02000100) + lane * 4u,
+                         source_words[lane]);
+    }
+    write_ewram_word(machine, UINT32_C(0x02000200),
+                     UINT32_C(0xDEADBEEF));
+    machine->iwram[UINT32_C(0x100)] = UINT8_C(0x6A);
+    valid = prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT32_C(0xB000)) &&
+            write_register(machine, 0u, 0u, 4u,
+                           UINT32_C(0x02000200)) &&
+            write_register(machine, 0u, 4u, 4u,
+                           UINT32_C(0x02000104)) &&
+            write_register(machine, 0u, 8u, 2u, 1u) &&
+            write_register(machine, 0u, 10u, 2u, UINT32_C(0x9400)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    deadline = valid ? next_timer_overflow(machine, 0u) : UINT64_MAX;
+    valid = valid && deadline != UINT64_MAX &&
+            deadline <= UINT64_MAX - 12u &&
+            gbl_machine_advance_to(machine, deadline + 12u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->dma_channels[1].pending &&
+            machine->dma_channels[0].armed &&
+            gbl_machine_dma_request(
+                machine, 0u, machine->master_cycles + 4u,
+                machine->dma_channels[0].generation) == GBL_TIME_STATUS_OK &&
+            gbl_machine_dma_step(machine, UINT64_C(1024), &step) ==
+                GBL_DMA_STATUS_OK;
+    if (valid) {
+        valid = step.channel == 1u && step.completed == 4u &&
+                machine->dma_channels[0].completed_units == 1u &&
+                !machine->dma_channels[0].pending &&
+                machine->ewram[UINT32_C(0x104)] == UINT8_C(0xEF) &&
+                machine->ewram[UINT32_C(0x105)] == UINT8_C(0xBE) &&
+                machine->ewram[UINT32_C(0x106)] == UINT8_C(0xAD) &&
+                machine->ewram[UINT32_C(0x107)] == UINT8_C(0xDE) &&
+                machine->audio.fifo[0].bytes[24] == UINT8_C(0xEF) &&
+                machine->audio.fifo[0].bytes[25] == UINT8_C(0xBE) &&
+                machine->audio.fifo[0].bytes[26] == UINT8_C(0xAD) &&
+                machine->audio.fifo[0].bytes[27] == UINT8_C(0xDE) &&
+                machine->audio.fifo[0].bytes[28] == UINT8_C(0xC4) &&
+                machine->audio.fifo[0].bytes[29] == UINT8_C(0xC3) &&
+                machine->audio.fifo[0].bytes[30] == UINT8_C(0xC2) &&
+                machine->audio.fifo[0].bytes[31] == UINT8_C(0xC1) &&
+                machine->audio.fifo[0].bytes[0] == UINT8_C(0xD4) &&
+                machine->audio.fifo[0].bytes[1] == UINT8_C(0xD3) &&
+                machine->audio.fifo[0].bytes[2] == UINT8_C(0xD2) &&
+                machine->audio.fifo[0].bytes[3] == UINT8_C(0xD1) &&
+                machine->iwram[UINT32_C(0x100)] == UINT8_C(0x6A);
+    }
+    printf("# DMA0 preemption step_status=%u completed=%llu "
+           "dma0_completed=%llu source2=%08X\n",
+           (unsigned int)step.status, (unsigned long long)step.completed,
+           (unsigned long long)machine->dma_channels[0].completed_units,
+           (unsigned int)(machine->ewram[UINT32_C(0x104)] |
+                          ((uint32_t)machine->ewram[UINT32_C(0x105)] << 8u) |
+                          ((uint32_t)machine->ewram[UINT32_C(0x106)] << 16u) |
+                          ((uint32_t)machine->ewram[UINT32_C(0x107)] << 24u)));
     free_machine(machine);
     return valid;
 }
@@ -2992,10 +3099,23 @@ static bool run_sound_refill(void)
     return failure_count == 0u ? 0 : 1;
 }
 
+static bool run_sound_arbitration(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..1\n");
+    test_case(test_sound_dma_preemption_reads_staged_dma0_write(),
+              "DMA0 preempts DMA1 sound between words and its ordered EWRAM write feeds sound word 2 before the full candidate commits");
+    return failure_count == 0u ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "sound_refill") == 0) {
         return run_sound_refill();
+    }
+    if (argc == 2 && strcmp(argv[1], "sound_arbitration") == 0) {
+        return run_sound_arbitration();
     }
     if (argc == 2 && strcmp(argv[1], "ppu.access") == 0) {
         return run_ppu_access();
