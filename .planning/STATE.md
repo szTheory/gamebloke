@@ -4,18 +4,18 @@ milestone: v4.0
 milestone_name: Audio
 current_phase: 18
 current_phase_name: Direct Sound and FIFO DMA
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 18-01-PLAN.md
-last_updated: "2026-11-23T02:43:29.906Z"
+stopped_at: Completed 18-02-PLAN.md
+last_updated: "2026-11-23T04:29:28.622Z"
 last_activity: 2026-11-22
 last_activity_desc: Completed Phase 18 Plan 01; Plan 18-02 is next
-state_head: b7e4aba4db60eb76659925ee33bbbe9bad154530
+state_head: 09ac2626f6794431d1c7f635ffa8e0af67c64e31
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 50
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 18 — Direct Sound and FIFO DMA
-Current Plan: 2
+Current Plan: 3
 Total Plans in Phase: 4
 Status: Ready to execute
 Last activity: 2026-11-22 — Completed Phase 18 Plan 01
@@ -202,6 +202,7 @@ Progress: [█████░░░░░] 50%
 | Phase 17 P03 | 27m13s | 2 tasks | 10 files |
 | Phase 17 P04 | 120m | 3 tasks | 21 files |
 | Phase 18 P01 | 49min from first RED; setup before first task commit unmeasured | 3 tasks | 14 files |
+| Phase 18 P02 | 95min | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -549,6 +550,8 @@ Recent decisions affecting current work:
 - [Phase 18]: Narrow FIFO writes merge selected byte lanes into the next backing ring word, preserve untouched lanes, and advance one word cursor.
 - [Phase 18]: Only actual Timer 0/1 overflows, including a real Timer 1 cascade wrap, pop the selected FIFOs; an empty FIFO keeps its last signed sample.
 - [Phase 18]: Post-pop readiness at 16 bytes and transaction reset masks are exposed for Plan 18-02 DMA arbitration and cancellation.
+- [Phase 18]: Direct Sound refills reselect shared DMA priority after startup and each completed sound word, including nested sound preemption.
+- [Phase 18]: The private machine snapshot is the whole-service publication boundary for interleaved sound DMA and success-only result and trace output.
 
 ### Pending Todos
 
@@ -600,8 +603,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T02:43:29.740Z
-Stopped at: Completed 18-01-PLAN.md
+Last session: 2026-11-23T04:29:28.453Z
+Stopped at: Completed 18-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
