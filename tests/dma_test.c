@@ -218,6 +218,57 @@ static bool test_sound_refill_from_timer_threshold(void)
     return valid;
 }
 
+static bool test_sound_threshold_exact_crossing_and_duplicate_guard(void)
+{
+    gbl_machine *machine = new_machine();
+    uint64_t deadline;
+    uint64_t request_cycle;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    valid = prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT16_C(0xB000)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0xFFFE)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    deadline = valid ? next_timer_overflow(machine, 0u) : UINT64_MAX;
+    valid = valid && deadline != UINT64_MAX &&
+            deadline <= UINT64_MAX - 8u &&
+            gbl_machine_advance_to(machine, deadline + 2u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->audio.fifo[0].count == 18u &&
+            !machine->dma_channels[1].pending &&
+            gbl_machine_advance_to(machine, deadline + 4u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->audio.fifo[0].count == 17u &&
+            !machine->dma_channels[1].pending &&
+            gbl_machine_advance_to(machine, deadline + 6u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->audio.fifo[0].count == 16u &&
+            machine->dma_channels[1].pending;
+    request_cycle = deadline <= UINT64_MAX - 6u ? deadline + 6u : 0u;
+    valid = valid && machine->dma_channels[1].trigger_cycle == request_cycle &&
+            gbl_machine_advance_to(machine, deadline + 8u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->audio.fifo[0].count == 15u &&
+            machine->dma_channels[1].pending &&
+            machine->dma_channels[1].trigger_cycle == request_cycle;
+    test_case(valid,
+              "Timer 0 requests exactly on 17-to-16, not on adjacent pops, and a pending request suppresses duplicate threshold edges");
+    free_machine(machine);
+    return valid;
+}
+
 static bool test_sound_dma_preemption_reads_staged_dma0_write(void)
 {
     static const uint32_t source_words[4] = {
@@ -3818,9 +3869,10 @@ static bool run_sound_refill(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..1\n");
+    printf("TAP version 13\n1..2\n");
     test_case(test_sound_refill_from_timer_threshold(),
               "Timer 0 post-pop threshold refills FIFO A through four forced DMA words while preserving programmed registers");
+    (void)test_sound_threshold_exact_crossing_and_duplicate_guard();
     return failure_count == 0u ? 0 : 1;
 }
 
