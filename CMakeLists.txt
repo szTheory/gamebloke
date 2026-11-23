@@ -461,6 +461,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     add_dependencies(runner_test gamebloke-run)
   endif()
   target_compile_definitions(runner_test PRIVATE
+    GBL_RUNNER_TESTING=1
     "GBL_RUNNER_TEST_FIXTURE_DIR=\"${GBL_FIXTURE_DIR}\""
     "GBL_RUNNER_TEST_SCRATCH_DIR=\"${CMAKE_BINARY_DIR}/runner-test\""
     "GBL_RUNNER_TEST_CLI=\"$<TARGET_FILE:gamebloke-run-control>\"")

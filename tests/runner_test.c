@@ -620,6 +620,33 @@ static bool gbl_test_write_audio_guest(const char *path)
     return okay;
 }
 
+static bool gbl_test_write_audio_halt_guest(const char *path)
+{
+    enum { IMAGE_BYTES = 0x800u, LITERAL_OFFSET = 0x200u };
+    uint8_t image[IMAGE_BYTES] = { 0u };
+    size_t offset = 0u;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, LITERAL_OFFSET);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3A01000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5C01000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    if (offset > LITERAL_OFFSET) {
+        return false;
+    }
+    gbl_test_write_le32(image, LITERAL_OFFSET, UINT32_C(0x04000301));
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
 static bool gbl_test_audio_file_matches(const char *path,
                                         const uint8_t *expected,
                                         size_t expected_length)
@@ -631,17 +658,19 @@ static bool gbl_test_audio_file_matches(const char *path,
     bool okay;
 
     if (path == NULL || expected == NULL ||
-        expected_length != sizeof actual) {
+        expected_length > sizeof actual) {
         return false;
     }
     file = fopen(path, "rb");
     if (file == NULL) {
         return false;
     }
-    length = fread(actual, 1u, sizeof actual, file);
+    length = fread(actual, 1u, expected_length, file);
     extra = fgetc(file);
-    okay = length == sizeof actual && extra == EOF &&
-           ferror(file) == 0 && memcmp(actual, expected, sizeof actual) == 0;
+    okay = length == expected_length && extra == EOF &&
+           ferror(file) == 0 &&
+           (expected_length == 0u ||
+            memcmp(actual, expected, expected_length) == 0);
     if (fclose(file) != 0) {
         okay = false;
     }
@@ -723,7 +752,8 @@ static bool gbl_test_runner_audio_output(const char *scratch_directory)
                     gbl_test_serialize_result(&complete, json,
                                               sizeof json) &&
                     strstr(json,
-                           "\"audio\":{\"requested\":true,") != NULL &&
+                           "\"audio\":{\"model\":\"gamebloke-audio-model-4\"") != NULL &&
+                    strstr(json, "\"requested\":true") != NULL &&
                     strstr(json, "\"capture_state\":\"complete\"") !=
                         NULL &&
                     strstr(json, complete.audio.sha256) != NULL;
@@ -765,6 +795,683 @@ static bool gbl_test_runner_audio_output(const char *scratch_directory)
                   "runner-audio-output: early stop leaves capture incomplete and creates no artifact");
     return guest_okay && artifact_okay && early_guest_okay &&
            early_artifact_okay;
+}
+
+static bool gbl_test_audio_json_contract(
+    const gbl_runner_result *result, bool requested,
+    const char *capture_state, const char *artifact_state,
+    bool requested_interval, bool actual_interval, bool counts, bool emitted)
+{
+    char json[16384];
+    char expected[160];
+    const char *audio_json;
+    const char *artifact_json;
+    const char *top_byte_count;
+    const char *artifact_byte_count;
+    const char *interval_complete;
+
+    if (!gbl_test_serialize_result(result, json, sizeof json) ||
+        (audio_json = strstr(json, "\"audio\":{")) == NULL) {
+        return false;
+    }
+    (void)snprintf(expected, sizeof expected, "\"requested\":%s",
+                   requested ? "true" : "false");
+    if (strstr(audio_json, expected) == NULL) return false;
+    (void)snprintf(expected, sizeof expected, "\"capture_state\":\"%s\"",
+                   capture_state);
+    if (strstr(audio_json, expected) == NULL) return false;
+    (void)snprintf(expected, sizeof expected, "\"state\":\"%s\"",
+                   artifact_state);
+    if (strstr(audio_json, expected) == NULL) return false;
+    if ((strstr(audio_json, "\"requested_interval\":null") == NULL) !=
+        requested_interval) return false;
+    if ((strstr(audio_json, "\"actual_interval\":null") == NULL) !=
+        actual_interval) return false;
+    artifact_json = strstr(audio_json, "\"artifact\":{");
+    top_byte_count = strstr(audio_json, "\"byte_count\":");
+    if (artifact_json == NULL || top_byte_count == NULL ||
+        top_byte_count >= artifact_json ||
+        (strncmp(strstr(audio_json, "\"frame_count\":"),
+                 "\"frame_count\":null",
+                 strlen("\"frame_count\":null")) == 0) == counts ||
+        (strncmp(top_byte_count, "\"byte_count\":null",
+                 strlen("\"byte_count\":null")) == 0) == counts) {
+        return false;
+    }
+    artifact_byte_count = strstr(artifact_json, "\"byte_count\":");
+    if (artifact_byte_count == NULL ||
+        (strncmp(artifact_byte_count, "\"byte_count\":null",
+                 strlen("\"byte_count\":null")) == 0) == emitted) {
+        return false;
+    }
+    interval_complete = strstr(audio_json, "\"interval_complete\":");
+    if (interval_complete == NULL) return false;
+    if (actual_interval) {
+        const bool expected_complete = strcmp(capture_state, "complete") == 0;
+        const char *expected_interval = expected_complete
+                                           ? "\"interval_complete\":true"
+                                           : "\"interval_complete\":false";
+
+        if (strncmp(interval_complete, expected_interval,
+                    strlen(expected_interval)) != 0) {
+            return false;
+        }
+    } else if (strncmp(interval_complete, "\"interval_complete\":null",
+                       strlen("\"interval_complete\":null")) != 0) {
+        return false;
+    }
+    if (emitted) {
+        if (strstr(artifact_json, "\"sha256\":null") != NULL) return false;
+    } else if (strstr(artifact_json, "\"sha256\":null") == NULL) {
+        return false;
+    }
+    if (strcmp(artifact_state, "failed") == 0 &&
+        result->audio.artifact_error[0] != '\0') {
+        (void)snprintf(expected, sizeof expected, "\"error\":\"%s\"",
+                       result->audio.artifact_error);
+        if (strstr(audio_json, expected) == NULL) return false;
+    }
+    return true;
+}
+
+static void gbl_test_audio_options_init(gbl_runner_options *options,
+                                        const char *rom_path,
+                                        const char *output_path,
+                                        uint64_t budget, uint64_t end_cycle)
+{
+    memset(options, 0, sizeof *options);
+    options->rom_path = rom_path;
+    options->cycle_budget = budget;
+    options->audio_output_path = output_path;
+    options->audio_end_cycles = end_cycle;
+}
+
+static bool gbl_test_read_exact_file(const char *path, uint8_t *bytes,
+                                     size_t capacity, size_t expected_length)
+{
+    FILE *file;
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (path == NULL || expected_length > capacity ||
+        (expected_length != 0u && bytes == NULL)) {
+        return false;
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) return false;
+    length = fread(bytes, 1u, expected_length, file);
+    extra = fgetc(file);
+    okay = length == expected_length && extra == EOF && ferror(file) == 0;
+    if (fclose(file) != 0) okay = false;
+    return okay;
+}
+
+typedef struct gbl_test_audio_allocator_state {
+    size_t calls;
+    size_t successes;
+    size_t releases;
+    size_t bounded_buffer_calls;
+    size_t bounded_buffer_successes;
+    size_t bounded_buffer_releases;
+    size_t fail_bounded_buffer_call;
+    void *bounded_buffers[2];
+    bool bad_bounded_buffer_release_size;
+} gbl_test_audio_allocator_state;
+
+static void *gbl_test_audio_allocate(void *context, size_t size)
+{
+    gbl_test_audio_allocator_state *state = context;
+
+    state->calls++;
+    if (size == GBL_RUNNER_AUDIO_MAX_BYTES) {
+        state->bounded_buffer_calls++;
+        if (state->fail_bounded_buffer_call != 0u &&
+            state->bounded_buffer_calls == state->fail_bounded_buffer_call) {
+            return NULL;
+        }
+    }
+    {
+        void *pointer = malloc(size);
+
+        if (pointer != NULL) {
+            state->successes++;
+            if (size == GBL_RUNNER_AUDIO_MAX_BYTES &&
+                state->bounded_buffer_successes <
+                    sizeof state->bounded_buffers /
+                        sizeof state->bounded_buffers[0]) {
+                state->bounded_buffers[state->bounded_buffer_successes++] =
+                    pointer;
+            }
+        }
+        return pointer;
+    }
+}
+
+static void gbl_test_audio_release(void *context, void *pointer, size_t size)
+{
+    gbl_test_audio_allocator_state *state = context;
+
+    if (pointer != NULL) {
+        size_t index;
+
+        state->releases++;
+        for (index = 0u; index <
+             sizeof state->bounded_buffers / sizeof state->bounded_buffers[0];
+             ++index) {
+            if (pointer == state->bounded_buffers[index]) {
+                if (size != GBL_RUNNER_AUDIO_MAX_BYTES) {
+                    state->bad_bounded_buffer_release_size = true;
+                }
+                state->bounded_buffers[index] = NULL;
+                state->bounded_buffer_releases++;
+                break;
+            }
+        }
+        free(pointer);
+    }
+}
+
+static bool gbl_test_runner_audio_controls(const char *scratch_directory)
+{
+    static const uint8_t expected_frame[4] = {
+        UINT8_C(0x00), UINT8_C(0x78), UINT8_C(0x00), UINT8_C(0x00)
+    };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char halt_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char pass_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char fail_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char missing_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char existing_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char missing_parent_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char fault_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_options options = { 0 };
+    gbl_runner_result result = { 0 };
+    gbl_runner_result other = { 0 };
+    uint8_t existing[32];
+    size_t saved_audio_capacity;
+    bool okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "audio-controls.gba") ||
+        !gbl_test_path(halt_rom_path, sizeof halt_rom_path, scratch_directory,
+                       "audio-controls-halt.gba") ||
+        !gbl_test_path(pass_rom_path, sizeof pass_rom_path,
+                       GBL_RUNNER_TEST_FIXTURE_DIR, "owned-arm-pass.gba") ||
+        !gbl_test_path(fail_rom_path, sizeof fail_rom_path,
+                       GBL_RUNNER_TEST_FIXTURE_DIR, "owned-arm-fail.gba") ||
+        !gbl_test_path(missing_rom_path, sizeof missing_rom_path,
+                       scratch_directory, "audio-controls-missing.gba") ||
+        !gbl_test_path(output_path, sizeof output_path, scratch_directory,
+                       "audio-controls.raw") ||
+        !gbl_test_path(existing_path, sizeof existing_path, scratch_directory,
+                       "audio-controls-existing.raw") ||
+        !gbl_test_path(missing_parent_path, sizeof missing_parent_path,
+                       scratch_directory,
+                       "audio-controls-no-parent/audio.raw") ||
+        !gbl_test_path(fault_path, sizeof fault_path, scratch_directory,
+                       "audio-controls-fault.raw") ||
+        !gbl_test_write_audio_guest(rom_path) ||
+        !gbl_test_write_audio_halt_guest(halt_rom_path)) {
+        return false;
+    }
+    (void)remove(output_path);
+    (void)remove(missing_rom_path);
+
+    gbl_test_audio_options_init(&options, rom_path, NULL, UINT64_C(4096), 0u);
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           !result.audio.requested &&
+           result.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED &&
+           result.audio.artifact_state ==
+               GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED &&
+           result.audio.pcm_bytes == NULL &&
+           gbl_test_audio_json_contract(&result, false, "not-requested",
+                                        "not-requested", false, false, false,
+                                        false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: unrequested result has explicit null capture and artifact evidence");
+
+    {
+        gbl_test_allocator_state allocator_state = { 0 };
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    GBL_RUNNER_AUDIO_MAX_CYCLES + 1u,
+                                    GBL_RUNNER_AUDIO_MAX_CYCLES + 1u);
+        options.allocator = (gbl_runner_allocator){
+            &allocator_state, gbl_test_allocate, gbl_test_release
+        };
+        okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_REFUSED &&
+               result.status == GBL_RUNNER_REFUSED && !result.ran &&
+               result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_FAILED &&
+               !result.audio.has_requested_interval &&
+               allocator_state.calls == 0u && access(output_path, F_OK) != 0 &&
+               errno == ENOENT &&
+               gbl_test_audio_json_contract(&result, true, "failed",
+                                            "not-written", false, false,
+                                            false, false);
+        gbl_runner_result_dispose(&result);
+    }
+    gbl_test_case(okay,
+                  "audio controls: beyond-bound request refuses before allocation or output creation");
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                GBL_RUNNER_AUDIO_MAX_CYCLES,
+                                GBL_RUNNER_AUDIO_MAX_CYCLES);
+    options.fixture_id = "synthetic-control-pass";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_PASS &&
+           result.audio.requested_end_cycle == GBL_RUNNER_AUDIO_MAX_CYCLES &&
+           result.audio.pcm_capacity == GBL_RUNNER_AUDIO_MAX_BYTES &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           result.audio.has_actual_interval &&
+           result.audio.actual_end_cycle < GBL_RUNNER_AUDIO_MAX_CYCLES &&
+           result.audio.has_frame_count && result.audio.frame_count == 0u &&
+           result.audio.has_byte_count && result.audio.byte_count == 0u &&
+           !result.audio.artifact_emitted && access(output_path, F_OK) != 0 &&
+           errno == ENOENT;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: maximum request derives bounded storage and exits on the early guest terminal");
+
+    gbl_test_audio_options_init(&options, missing_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_MISSING &&
+           result.status == GBL_RUNNER_MISSING && !result.ran &&
+           result.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE &&
+           !result.audio.has_actual_interval && !result.audio.has_frame_count &&
+           !result.audio.has_byte_count && !result.audio.artifact_emitted &&
+           gbl_test_audio_json_contract(&result, true, "unavailable",
+                                        "not-written", true, false, false,
+                                        false);
+    gbl_runner_result_dispose(&result);
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.fixture_id = "synthetic-control-bios-required";
+    okay = okay &&
+           gbl_runner_execute(&options, &other) == GBL_RUNNER_SKIPPED &&
+           other.status == GBL_RUNNER_SKIPPED && !other.ran &&
+           other.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE &&
+           !other.audio.has_actual_interval && !other.audio.artifact_emitted &&
+           gbl_test_audio_json_contract(&other, true, "unavailable",
+                                        "not-written", true, false, false,
+                                        false);
+    gbl_runner_result_dispose(&other);
+    gbl_test_case(okay,
+                  "audio controls: missing and skipped runs retain unavailable capture without artifact evidence");
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.fixture_id = "synthetic-control-pass";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_PASS &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.cycles < options.audio_end_cycles &&
+           result.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           result.audio.has_actual_interval &&
+           result.audio.actual_end_cycle == result.cycles &&
+           result.audio.has_frame_count && result.audio.frame_count == 0u &&
+           !result.audio.interval_complete &&
+           result.audio.artifact_state ==
+               GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN &&
+           !result.audio.artifact_emitted && access(output_path, F_OK) != 0 &&
+           errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "incomplete",
+                                        "not-written", true, true, true,
+                                        false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: early guest PASS cannot publish the longer requested interval");
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(1));
+    options.fixture_id = "synthetic-control-pass";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_PASS &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.actual_end_cycle == UINT64_C(1) &&
+           result.audio.interval_complete && result.audio.frame_count == 0u &&
+           result.audio.byte_count == 0u && result.audio.artifact_emitted &&
+           result.audio.artifact_byte_count == 0u && result.audio.has_sha256 &&
+           strcmp(result.audio.sha256,
+                  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") == 0 &&
+           gbl_test_audio_file_matches(output_path, expected_frame, 0u) &&
+           gbl_test_audio_json_contract(&result, true, "complete", "emitted",
+                                        true, true, true, true);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: late guest PASS retains a complete exact empty artifact");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete && result.audio.artifact_emitted &&
+           result.audio.has_frame_count && result.audio.frame_count == 1u &&
+           result.audio.byte_count == sizeof expected_frame &&
+           memcmp(result.audio.pcm_bytes, expected_frame,
+                  sizeof expected_frame) == 0 &&
+           result.audio.has_sha256 &&
+           gbl_test_audio_file_matches(output_path, expected_frame,
+                                       sizeof expected_frame) &&
+           gbl_test_audio_json_contract(&result, true, "complete", "emitted",
+                                        true, true, true, true);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: guest stop after the horizon retains literal PCM and exact file evidence");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.byte_count == sizeof expected_frame &&
+           gbl_test_audio_file_matches(output_path, expected_frame,
+                                       sizeof expected_frame);
+    (void)remove(output_path);
+    saved_audio_capacity = result.audio.pcm_capacity;
+    result.audio.pcm_capacity = sizeof expected_frame - 1u;
+    okay = okay && !gbl_runner_write_audio(output_path, &result) &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-capture-unavailable") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           access(output_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    result.audio.pcm_capacity = saved_audio_capacity;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: reduced destination capacity cannot publish a previously captured prefix");
+
+    gbl_test_audio_options_init(&options, fail_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.fixture_id = "synthetic-control-fail";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_FAIL &&
+           result.semantic.status == GBL_MAILBOX_FAIL &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           !result.audio.interval_complete && !result.audio.artifact_emitted &&
+           access(output_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "incomplete",
+                                        "not-written", true, true, true,
+                                        false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: early guest failure stays distinct from incomplete capture");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(700), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete && result.audio.artifact_emitted &&
+           result.audio.byte_count == sizeof expected_frame &&
+           gbl_test_audio_file_matches(output_path, expected_frame,
+                                       sizeof expected_frame);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: timeout after the horizon preserves valid complete PCM evidence");
+
+    gbl_test_audio_options_init(&options, halt_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           result.semantic.status != GBL_MAILBOX_PASS &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete && result.audio.artifact_emitted &&
+           result.audio.byte_count == sizeof expected_frame &&
+           memcmp(result.audio.pcm_bytes, (uint8_t[4]){ 0u, 0u, 0u, 0u },
+                  sizeof expected_frame) == 0 &&
+           gbl_test_audio_file_matches(output_path,
+                                       (uint8_t[4]){ 0u, 0u, 0u, 0u },
+                                       sizeof expected_frame);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: HALT wait cycles advance capture without a guest terminal");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path, UINT64_C(4),
+                                UINT64_C(4));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT && result.cycles < 4u &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           result.audio.has_actual_interval &&
+           result.audio.actual_end_cycle < UINT64_C(4) &&
+           result.audio.has_frame_count && result.audio.frame_count == 0u &&
+           !result.audio.artifact_emitted && access(output_path, F_OK) != 0 &&
+           errno == ENOENT;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: whole-unit budget underfill reports only the accepted prefix");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.trace_mask = GBL_TRACE_INSTRUCTION;
+    options.trace_capacity = 1u;
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(result.reason, "trace-output-full") == 0 &&
+           result.trace_count == 1u && !result.trace_complete &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           !result.audio.interval_complete && !result.audio.artifact_emitted &&
+           access(output_path, F_OK) != 0 && errno == ENOENT;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: trace exhaustion preserves only an incomplete accepted prefix");
+
+    {
+        gbl_test_cancel_state cancel_before = { 0u, 1u };
+        gbl_test_cancel_state cancel_after = { 0u, 2u };
+        gbl_test_cancel_state cancel_late = { 0u, 0u };
+        size_t late_cancel_call = 0u;
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(4096), UINT64_C(512));
+        options.cancelled = gbl_test_cancel_at_boundary;
+        options.cancel_context = &cancel_before;
+        okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_CANCELLED &&
+               result.status == GBL_RUNNER_CANCELLED && result.ran &&
+               result.cycles == 0u &&
+               result.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+               result.audio.actual_end_cycle == 0u &&
+               !result.audio.artifact_emitted;
+        gbl_runner_result_dispose(&result);
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(4096), UINT64_C(512));
+        options.cancelled = gbl_test_cancel_at_boundary;
+        options.cancel_context = &cancel_after;
+        okay = okay &&
+               gbl_runner_execute(&options, &other) == GBL_RUNNER_CANCELLED &&
+               other.status == GBL_RUNNER_CANCELLED && other.ran &&
+               other.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+               other.audio.actual_end_cycle < UINT64_C(512) &&
+               !other.audio.artifact_emitted;
+        gbl_runner_result_dispose(&other);
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(700), UINT64_C(512));
+        okay = okay &&
+               gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+               result.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+               result.instructions <= (uint64_t)(SIZE_MAX / 2u) &&
+               result.instructions > 0u && result.cycles > UINT64_C(512) &&
+               result.cycles < UINT64_C(1024);
+        if (okay) {
+            late_cancel_call = (size_t)(result.instructions * UINT64_C(2));
+        }
+        gbl_runner_result_dispose(&result);
+        (void)remove(output_path);
+
+        cancel_late.cancel_at = late_cancel_call;
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(4096), UINT64_C(1024));
+        options.cancelled = gbl_test_cancel_at_boundary;
+        options.cancel_context = &cancel_late;
+        okay = okay && late_cancel_call != 0u &&
+               gbl_runner_execute(&options, &result) == GBL_RUNNER_CANCELLED &&
+               result.status == GBL_RUNNER_CANCELLED &&
+               result.cycles > UINT64_C(512) &&
+               result.cycles < UINT64_C(1024) &&
+               result.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+               result.audio.actual_end_cycle > UINT64_C(512) &&
+               result.audio.actual_end_cycle < UINT64_C(1024) &&
+               result.audio.has_frame_count && result.audio.frame_count == 1u &&
+               result.audio.has_byte_count &&
+               result.audio.byte_count == sizeof expected_frame &&
+               memcmp(result.audio.pcm_bytes, expected_frame,
+                      sizeof expected_frame) == 0 &&
+               !result.audio.interval_complete &&
+               !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+               access(output_path, F_OK) != 0 && errno == ENOENT;
+        gbl_runner_result_dispose(&result);
+    }
+    gbl_test_case(okay,
+                  "audio controls: early and post-sample cancellation retain distinct prefixes and never publish incomplete bytes");
+
+    {
+        gbl_test_audio_allocator_state allocator_state = { 0 };
+        const gbl_runner_allocator allocator = {
+            &allocator_state, gbl_test_audio_allocate, gbl_test_audio_release
+        };
+        size_t fail_at;
+        bool allocations_okay = true;
+
+        for (fail_at = 1u; fail_at <= 2u; ++fail_at) {
+            allocator_state = (gbl_test_audio_allocator_state){ 0 };
+            allocator_state.fail_bounded_buffer_call = fail_at;
+            gbl_test_audio_options_init(&options, rom_path, output_path,
+                                        UINT64_C(4096), UINT64_C(512));
+            options.allocator = allocator;
+            allocations_okay =
+                gbl_runner_execute(&options, &result) ==
+                    GBL_RUNNER_HARNESS_FAIL &&
+                result.audio.capture_state ==
+                    GBL_RUNNER_AUDIO_CAPTURE_FAILED &&
+                result.audio.artifact_state ==
+                    GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN &&
+                !result.audio.artifact_emitted &&
+                allocator_state.bounded_buffer_calls == fail_at;
+            gbl_runner_result_dispose(&result);
+            allocations_okay = allocations_okay &&
+                                allocator_state.successes ==
+                                    allocator_state.releases &&
+                                allocator_state.bounded_buffer_releases ==
+                                    fail_at - 1u &&
+                                !allocator_state.bad_bounded_buffer_release_size;
+            if (!allocations_okay) break;
+        }
+        okay = allocations_okay;
+    }
+    gbl_test_case(okay,
+                  "audio controls: destination and scratch allocation failures release all owned buffers");
+
+    okay = gbl_test_write_file(existing_path, 8u, (unsigned char)'K') &&
+           gbl_test_read_exact_file(existing_path, existing,
+                                    sizeof existing, 8u) &&
+           memcmp(existing, "KKKKKKKK", 8u) == 0;
+    gbl_test_audio_options_init(&options, rom_path, existing_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = okay &&
+           gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-already-exists") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           gbl_test_read_exact_file(existing_path, existing,
+                                    sizeof existing, 8u) &&
+           memcmp(existing, "KKKKKKKK", 8u) == 0 &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: exclusive existing output leaves prior bytes unchanged");
+
+    gbl_test_audio_options_init(&options, rom_path, missing_parent_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-open-failed") == 0 &&
+           !result.audio.has_sha256 && !result.audio.has_artifact_byte_count &&
+           access(missing_parent_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: missing output parent preserves capture but has no artifact evidence");
+
+    {
+        static const gbl_runner_audio_writer_test_fault faults[] = {
+            GBL_RUNNER_AUDIO_WRITER_TEST_SHORT_WRITE,
+            GBL_RUNNER_AUDIO_WRITER_TEST_FLUSH_FAILURE,
+            GBL_RUNNER_AUDIO_WRITER_TEST_CLOSE_FAILURE
+        };
+        static const char *const errors[] = {
+            "audio-output-write-failed", "audio-output-flush-failed",
+            "audio-output-close-failed"
+        };
+        size_t index;
+        bool faults_okay = true;
+
+        for (index = 0u; index < sizeof faults / sizeof faults[0]; ++index) {
+            (void)remove(fault_path);
+            gbl_runner_test_set_audio_writer_fault(faults[index]);
+            gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                        UINT64_C(4096), UINT64_C(512));
+            faults_okay =
+                gbl_runner_execute(&options, &result) ==
+                    GBL_RUNNER_GUEST_STOP &&
+                result.audio.capture_state ==
+                    GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+                result.audio.interval_complete &&
+                result.audio.artifact_state ==
+                    GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+                strcmp(result.audio.artifact_error, errors[index]) == 0 &&
+                !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+                !result.audio.has_artifact_byte_count &&
+                access(fault_path, F_OK) != 0 && errno == ENOENT &&
+                gbl_test_audio_json_contract(&result, true, "complete",
+                                             "failed", true, true, true,
+                                             false);
+            gbl_runner_result_dispose(&result);
+            if (!faults_okay) break;
+        }
+        gbl_runner_test_set_audio_writer_fault(
+            GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+        okay = faults_okay;
+    }
+    gbl_test_case(okay,
+                  "audio controls: short write, flush, and close failure remove only attempt-owned files");
+
+    (void)remove(rom_path);
+    (void)remove(halt_rom_path);
+    (void)remove(missing_rom_path);
+    (void)remove(output_path);
+    (void)remove(existing_path);
+    (void)remove(missing_parent_path);
+    (void)remove(fault_path);
+
+    return true;
 }
 
 enum {
@@ -5043,6 +5750,21 @@ int main(int argc, char **argv)
         }
         return gbl_test_failures == 0u && gbl_test_number == 4u ? 0 : 1;
     }
+    if (argc == 3 && strcmp(argv[1], "audio.controls") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: audio controls scratch setup failed\n", stderr);
+            return 2;
+        }
+        gbl_test_number = 0u;
+        gbl_test_failures = 0u;
+        printf("1..18\n");
+        if (!gbl_test_runner_audio_controls(argv[2])) {
+            fputs("runner_test: audio controls setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 18u ? 0 : 1;
+    }
     if (argc == 3 && strcmp(argv[1], "ppu.output-controls") == 0 &&
         argv[2][0] != '\0') {
         if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
@@ -5091,6 +5813,8 @@ int main(int argc, char **argv)
               "runner_test playable0 {verify|control} SCRATCH_DIR | "
               "runner_test ppu.observation SCRATCH_DIR | "
               "runner_test ppu.output SCRATCH_DIR | "
+              "runner_test audio.output SCRATCH_DIR | "
+              "runner_test audio.controls SCRATCH_DIR | "
               "runner_test ppu.output-controls SCRATCH_DIR | "
               "runner_test ppu.production SCRATCH_DIR | "
               "runner_test ppu.production-controls SCRATCH_DIR\n",

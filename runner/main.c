@@ -322,7 +322,7 @@ static bool gbl_runner_audio_path_is_safe(
 {
     struct stat audio_stat;
     struct stat result_stat;
-    const char *conflicts[5];
+    const char *conflicts[4];
     size_t index;
 
     if (options->audio_output_path == NULL) {
@@ -332,9 +332,9 @@ static bool gbl_runner_audio_path_is_safe(
     conflicts[1] = input_script_path;
     conflicts[2] = options->video_output_path;
     conflicts[3] = options->trace_output_path;
-    conflicts[4] = NULL;
     for (index = 0u; index < sizeof conflicts / sizeof conflicts[0]; ++index) {
-        if (gbl_runner_paths_alias(options->audio_output_path, conflicts[index])) {
+        if (gbl_runner_paths_alias(options->audio_output_path,
+                                   conflicts[index])) {
             return false;
         }
     }

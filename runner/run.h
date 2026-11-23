@@ -259,6 +259,18 @@ bool gbl_runner_write_video(const char *path,
 bool gbl_runner_write_audio(const char *path,
                             gbl_runner_result *result);
 
+#if defined(GBL_RUNNER_TESTING)
+typedef enum gbl_runner_audio_writer_test_fault {
+    GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT = 0,
+    GBL_RUNNER_AUDIO_WRITER_TEST_SHORT_WRITE,
+    GBL_RUNNER_AUDIO_WRITER_TEST_FLUSH_FAILURE,
+    GBL_RUNNER_AUDIO_WRITER_TEST_CLOSE_FAILURE
+} gbl_runner_audio_writer_test_fault;
+
+void gbl_runner_test_set_audio_writer_fault(
+    gbl_runner_audio_writer_test_fault fault);
+#endif
+
 void gbl_runner_result_dispose(gbl_runner_result *result);
 
 #endif /* GAMEBLOKE_RUNNER_RUN_H */

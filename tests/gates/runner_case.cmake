@@ -104,6 +104,30 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
     message(FATAL_ERROR "runner-case: audio implementation source inventory is incomplete")
   endif()
 
+  set(existing_audio_output "${audio_scratch}/existing.raw")
+  file(WRITE "${existing_audio_output}" "preserve-this-audio")
+  execute_process(
+    COMMAND "${production}" --rom "${audio_rom}" --fixture arm-268640271
+      --cycles 1000 --audio-output "${existing_audio_output}" --audio-cycles 1
+    RESULT_VARIABLE existing_rc OUTPUT_VARIABLE existing_json
+    ERROR_VARIABLE existing_error)
+  if(NOT "${existing_rc}" STREQUAL "1")
+    message(FATAL_ERROR
+      "runner-case: PASS guest with refused artifact must return nonzero: ${existing_error}")
+  endif()
+  expect_json_field("${existing_json}" PASS status)
+  expect_json_field("${existing_json}" mailbox-complete termination)
+  expect_json_field("${existing_json}" complete audio capture_state)
+  expect_json_boolean("${existing_json}" true audio interval_complete)
+  expect_json_field("${existing_json}" failed audio artifact state)
+  expect_json_field("${existing_json}" audio-output-already-exists audio artifact error)
+  expect_json_type("${existing_json}" NULL audio artifact byte_count)
+  expect_json_type("${existing_json}" NULL audio artifact sha256)
+  file(READ "${existing_audio_output}" existing_audio_bytes)
+  if(NOT existing_audio_bytes STREQUAL "preserve-this-audio")
+    message(FATAL_ERROR "runner-case: exclusive output failure changed existing bytes")
+  endif()
+
   function(expect_audio_usage name)
     execute_process(COMMAND "${production}" ${ARGN}
       RESULT_VARIABLE usage_rc OUTPUT_VARIABLE usage_stdout ERROR_VARIABLE usage_stderr)
@@ -185,6 +209,16 @@ if(DEFINED CASE AND CASE STREQUAL "audio_cli")
   expect_json_field("${missing_json}" not-written audio artifact state)
   expect_json_field("${missing_json}" 1 audio requested_interval end_cycle)
 
+  file(REMOVE "${audio_output}" "${existing_audio_output}" "${audio_script}"
+    "${audio_hardlink}" "${audio_symlink}" "${missing_script}"
+    "${audio_scratch}/a.raw" "${audio_scratch}/b.raw"
+    "${audio_scratch}/dup.raw" "${audio_scratch}/overflow.raw"
+    "${audio_scratch}/signed.raw" "${audio_scratch}/negative.raw"
+    "${audio_scratch}/malformed.raw" "${audio_scratch}/zero.raw"
+    "${audio_scratch}/large.raw" "${audio_scratch}/outside.raw"
+    "${audio_scratch}/default-large.raw" "${audio_scratch}/trace.jsonl"
+    "${audio_scratch}/video.raw" "${audio_scratch}/missing-script.raw"
+    "${audio_scratch}/empty-cycles.raw")
   message(STATUS "runner-case: production audio CLI controls passed")
   return()
 endif()

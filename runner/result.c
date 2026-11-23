@@ -4,6 +4,16 @@
 #include <inttypes.h>
 #include <string.h>
 
+#if defined(GBL_RUNNER_TESTING)
+static gbl_runner_audio_writer_test_fault gbl_runner_audio_writer_fault;
+
+void gbl_runner_test_set_audio_writer_fault(
+    gbl_runner_audio_writer_test_fault fault)
+{
+    gbl_runner_audio_writer_fault = fault;
+}
+#endif
+
 static const char *gbl_runner_status_name(gbl_runner_status status)
 {
     switch (status) {
@@ -594,8 +604,13 @@ bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
     uint64_t expected_frames;
     size_t expected_bytes;
     bool write_okay;
+    bool flush_okay;
     bool close_okay;
     const char *failure;
+#if defined(GBL_RUNNER_TESTING)
+    gbl_runner_audio_writer_test_fault test_fault =
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT;
+#endif
 
     if (result == NULL) {
         return false;
@@ -667,17 +682,39 @@ bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
                                     : "audio-output-open-failed");
         return false;
     }
-    write_okay = fwrite(observation->pcm_bytes, 1u,
-                        observation->byte_count, output) ==
-                     observation->byte_count &&
-                 ferror(output) == 0;
-    if (write_okay && fflush(output) != 0) {
-        write_okay = false;
+#if defined(GBL_RUNNER_TESTING)
+    test_fault = gbl_runner_audio_writer_fault;
+    gbl_runner_audio_writer_fault = GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT;
+#endif
+    {
+        size_t write_length = observation->byte_count;
+
+#if defined(GBL_RUNNER_TESTING)
+        if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_SHORT_WRITE &&
+            write_length != 0u) {
+            write_length--;
+        }
+#endif
+        write_okay = fwrite(observation->pcm_bytes, 1u, write_length,
+                            output) == observation->byte_count &&
+                     ferror(output) == 0;
     }
+    flush_okay = fflush(output) == 0;
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_FLUSH_FAILURE) {
+        flush_okay = false;
+    }
+#endif
     close_okay = fclose(output) == 0;
-    if (!write_okay || !close_okay) {
-        failure = write_okay ? "audio-output-close-failed"
-                             : "audio-output-write-failed";
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_CLOSE_FAILURE) {
+        close_okay = false;
+    }
+#endif
+    if (!write_okay || !flush_okay || !close_okay) {
+        failure = !write_okay ? "audio-output-write-failed"
+                              : (!flush_okay ? "audio-output-flush-failed"
+                                             : "audio-output-close-failed");
         if (remove(path) != 0) {
             gbl_runner_set_audio_artifact_error(
                 result, "audio-output-cleanup-failed");
