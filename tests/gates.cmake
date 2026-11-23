@@ -23,6 +23,14 @@ set(GBL_HYGIENE_DRIVER
   "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}")
 set(GBL_HYGIENE_CASE "${CMAKE_SOURCE_DIR}/tests/gates/hygiene_case.cmake")
 
+gbl_add_test(
+  NAME audio.guest.local-exclusion
+  LABELS audio control
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=public_exclusion
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/audio_guest.cmake")
+
 # ---- hygiene (VERIF-07) ---------------------------------------------------
 # The real tree must be clean. Runs from the source root because --tree lists
 # files with git.
@@ -246,7 +254,7 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckProfile.cmake")
 
 foreach(case IN ITEMS
-    audio_policy bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
+    audio_mix audio_policy bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
     bus_policy_doc bus_policy_missing bus_policy_source bus_policy_value
     cpu_policy_doc cpu_policy_value
     dispute_unknown dma_sound_trigger doc_extra_id doc_missing_id doc_no_section doc_version_mismatch
@@ -384,7 +392,7 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckResult.cmake")
 
 foreach(case IN ITEMS
-    bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_label
+    audio_policy bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_label
     bad_machine bad_schema claim_mismatch empty_limits label_without_dispute manifest_digest
     missing_digest missing_field missing_reason missing_refusal pass_without_digest pass_without_run
     ran_state_mismatch semantic_time undisclosed_dispute unknown_dispute unknown_fixture

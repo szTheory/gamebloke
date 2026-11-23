@@ -1,10 +1,17 @@
 # Literal sorted snapshot of actual top-directory CTest registration.
 audio.boundaries audio,core,unit
 audio.cadence audio,core,unit
+audio.capture_cpu_wait audio,core,integration
+audio.capture_dma audio,core,integration
+audio.capture_replay audio,core,integration
 audio.cpu audio,core,integration
 audio.ds_fifo audio,core,integration
 audio.ds_timer audio,core,integration
 audio.ds_transaction audio,control,core
+audio.guest.local-exclusion audio,control
+audio.mix_bias audio,core,unit
+audio.mix_tracer audio,core,integration
+audio.mix_vectors audio,core,unit
 audio.psg_noise audio,core,unit
 audio.psg_order audio,core,integration
 audio.psg_sequencer audio,core,unit
@@ -1122,6 +1129,7 @@ ppu.tracer bus,core,integration,ppu
 ppu.window.obj bus,core,integration,ppu
 ppu.window.rect bus,core,integration,ppu
 profile.lint gate,profile
+profile.nc.audio_mix control,profile
 profile.nc.audio_policy control,profile
 profile.nc.bad_bios_provider control,profile
 profile.nc.bad_boot control,profile
@@ -1168,6 +1176,7 @@ registry.nc.usage control,registry
 registry.pos.copy positive,registry
 registry.pos.extra_entry positive,registry
 result.example gate,result
+result.nc.audio_policy control,result
 result.nc.bad_bios_provider control,result
 result.nc.bad_boot control,result
 result.nc.bad_cart control,result
@@ -1203,6 +1212,9 @@ result.pos.instruction_reasons positive,result
 result.pos.phase10 positive,result
 result.pos.phase8 positive,result
 result.pos.phase9 positive,result
+runner.audio.cli gate,integration,runner
+runner.audio.controls integration,runner
+runner.audio.output integration,runner
 runner.hash runner,unit
 runner.help runner,unit
 runner.input.cli gate,integration,runner

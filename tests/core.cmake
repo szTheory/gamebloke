@@ -36,6 +36,23 @@ gbl_add_test(
     -DVALIDATE_PRODUCER=ON
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
 gbl_add_test(
+  NAME runner.audio.output
+  LABELS integration runner
+  COMMAND $<TARGET_FILE:runner_test> audio.output
+    "${CMAKE_BINARY_DIR}/runner-audio-output")
+gbl_add_test(
+  NAME runner.audio.controls
+  LABELS integration runner
+  COMMAND $<TARGET_FILE:runner_test> audio.controls
+    "${CMAKE_BINARY_DIR}/runner-audio-controls")
+gbl_add_test(
+  NAME runner.audio.cli
+  LABELS gate integration runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=audio_cli -DVALIDATE_PRODUCER=ON
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
+gbl_add_test(
   NAME runner.relocation
   LABELS gate integration runner
   COMMAND "${CMAKE_COMMAND}"
@@ -72,11 +89,14 @@ target_include_directories(audio_test PRIVATE src)
 target_link_libraries(audio_test PRIVATE gamebloke_core gbl_warnings)
 foreach(selector IN ITEMS tracer registers cadence boundaries refusal cpu
     psg_square psg_sequencer psg_order psg_transaction psg_sweep psg_noise
-    psg_wave psg_wave_bus ds_fifo ds_timer ds_transaction)
+    psg_wave psg_wave_bus ds_fifo ds_timer ds_transaction
+    mix_tracer mix_vectors mix_bias capture_cpu_wait capture_dma capture_replay)
   if(selector STREQUAL "tracer" OR selector STREQUAL "registers" OR
      selector STREQUAL "cpu" OR selector STREQUAL "psg_order" OR
      selector STREQUAL "psg_wave_bus" OR selector STREQUAL "ds_fifo" OR
-     selector STREQUAL "ds_timer")
+     selector STREQUAL "ds_timer" OR selector STREQUAL "mix_tracer" OR
+     selector STREQUAL "capture_cpu_wait" OR selector STREQUAL "capture_dma" OR
+     selector STREQUAL "capture_replay")
     set(audio_labels audio core integration)
   elseif(selector STREQUAL "refusal" OR selector STREQUAL "psg_transaction" OR
      selector STREQUAL "ds_transaction")

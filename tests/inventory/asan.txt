@@ -1,10 +1,16 @@
 # Literal sorted snapshot of actual top-directory CTest registration.
 audio.boundaries audio,core,unit
 audio.cadence audio,core,unit
+audio.capture_cpu_wait audio,core,integration
+audio.capture_dma audio,core,integration
+audio.capture_replay audio,core,integration
 audio.cpu audio,core,integration
 audio.ds_fifo audio,core,integration
 audio.ds_timer audio,core,integration
 audio.ds_transaction audio,control,core
+audio.mix_bias audio,core,unit
+audio.mix_tracer audio,core,integration
+audio.mix_vectors audio,core,unit
 audio.psg_noise audio,core,unit
 audio.psg_order audio,core,integration
 audio.psg_sequencer audio,core,unit
@@ -961,6 +967,9 @@ ppu.registers bus,core,ppu,unit
 ppu.tracer bus,core,integration,ppu
 ppu.window.obj bus,core,integration,ppu
 ppu.window.rect bus,core,integration,ppu
+runner.audio.cli gate,integration,runner
+runner.audio.controls integration,runner
+runner.audio.output integration,runner
 runner.hash runner,unit
 runner.help runner,unit
 runner.input.cli gate,integration,runner
