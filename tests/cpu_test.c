@@ -16690,6 +16690,128 @@ static void test_sound_dma_tracer(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_nested_sound_dma_tracer(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_trace_record records[10] = { { 0 } };
+    gbl_trace_buffer trace = { records, 10u, 0u, 0u };
+    gbl_bus_result bus_result;
+    static const uint8_t channels[10] = {
+        2u, 1u, 1u, 1u, 1u, 1u, 2u, 2u, 2u, 2u
+    };
+    size_t index;
+    bool valid;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE3A07042));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    valid = machine_load(&machine, image);
+    for (index = 0u; valid && index < 8u; ++index) {
+        const uint32_t address = UINT32_C(0x02000100) +
+                                 (uint32_t)index * 4u;
+        const uint32_t word = UINT32_C(0x10111213) +
+                              (uint32_t)index * UINT32_C(0x10101010);
+        const size_t offset = (size_t)(address - UINT32_C(0x02000000));
+
+        machine.ewram[offset] = (uint8_t)word;
+        machine.ewram[offset + 1u] = (uint8_t)(word >> 8u);
+        machine.ewram[offset + 2u] = (uint8_t)(word >> 16u);
+        machine.ewram[offset + 3u] = (uint8_t)(word >> 24u);
+    }
+    for (index = 0u; valid && index < 2u; ++index) {
+        size_t lane;
+
+        for (lane = 0u; valid && lane < 5u; ++lane) {
+            const uint32_t address = UINT32_C(0x040000A0) +
+                                     (uint32_t)index * 4u;
+            const uint32_t value = UINT32_C(0x01020304) +
+                                   (uint32_t)lane * UINT32_C(0x10101010);
+
+            bus_result = gbl_bus_write(
+                &machine, address, lane == 4u ? 1u : 4u,
+                GBL_BUS_CLASS_NONSEQUENTIAL,
+                lane == 4u ? UINT32_C(0x7E) : value);
+            valid = bus_result.status == GBL_BUS_STATUS_OK;
+        }
+    }
+    for (index = 1u; valid && index <= 2u; ++index) {
+        const uint32_t base = UINT32_C(0x040000B0) +
+                              (uint32_t)index * UINT32_C(12);
+
+        bus_result = gbl_bus_write(
+            &machine, base, 4u, GBL_BUS_CLASS_NONSEQUENTIAL,
+            UINT32_C(0x02000100) + (uint32_t)(index - 1u) * 0x100u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+        if (valid) {
+            bus_result = gbl_bus_write(
+                &machine, base + 4u, 4u, GBL_BUS_CLASS_NONSEQUENTIAL,
+                UINT32_C(0x03000100) + (uint32_t)(index - 1u) * 0x20u);
+            valid = bus_result.status == GBL_BUS_STATUS_OK;
+        }
+        if (valid) {
+            bus_result = gbl_bus_write(&machine, base + 8u, 2u,
+                                       GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+            valid = bus_result.status == GBL_BUS_STATUS_OK;
+        }
+        if (valid) {
+            bus_result = gbl_bus_write(&machine, base + 10u, 2u,
+                                       GBL_BUS_CLASS_NONSEQUENTIAL,
+                                       UINT16_C(0xB000));
+            valid = bus_result.status == GBL_BUS_STATUS_OK;
+        }
+    }
+    if (valid) {
+        gbl_dma_channel_state *channel = &machine.dma_channels[2];
+
+        channel->pending = true;
+        channel->armed = false;
+        channel->active = false;
+        channel->startup_complete = false;
+        channel->remaining = 0u;
+        channel->trigger_origin = GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B;
+        channel->trigger_cycle = machine.master_cycles;
+        valid = gbl_machine_dma_request(
+                    &machine, 1u, machine.master_cycles + 1u,
+                    machine.dma_channels[1].generation) ==
+                GBL_TIME_STATUS_OK;
+        machine.dma_channels[1].trigger_origin =
+            GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A;
+    }
+    options.cycle_budget = UINT64_C(256);
+    options.unit_limit = UINT64_C(2);
+    options.category_mask = (uint32_t)GBL_TRACE_DMA;
+    options.trace_buffer = &trace;
+    if (valid) {
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_OK &&
+                result.termination == GBL_RUN_PROGRESS &&
+                result.instructions == UINT64_C(1) &&
+                result.dma_completed_units == UINT64_C(8) &&
+                result.dma_startup_cycles == UINT64_C(4) &&
+                trace.count == 10u && trace.next_sequence == UINT64_C(10);
+    }
+    for (index = 0u; valid && index < 10u; ++index) {
+        const bool startup = index < 2u;
+        const unsigned word_index = index < 2u ? 0u
+                                    : index < 6u ? (unsigned)(index - 2u) + 1u
+                                                 : (unsigned)(index - 6u) + 1u;
+
+        valid = records[index].category == GBL_TRACE_DMA &&
+                records[index].dma_channel == channels[index] &&
+                records[index].dma_width == (startup ? 0u : 4u) &&
+                (startup
+                     ? records[index].dma_startup_cycles ==
+                           GBL_DMA_STARTUP_CYCLES
+                     : records[index].dma_completed == word_index);
+    }
+    test_case(valid,
+              "CPU tracing retains startup and all four words for both sound channels when DMA1 preempts DMA2");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_dma_cpu_pause_resume(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -17709,7 +17831,8 @@ static const cpu_test_function psr_functions[] = {
 static const cpu_test_function tracer_functions[] = { test_tracer };
 static const cpu_test_function dma_tracer_functions[] = {
     test_dma_tracer,
-    test_sound_dma_tracer
+    test_sound_dma_tracer,
+    test_nested_sound_dma_tracer
 };
 static const cpu_test_function dma_cpu_functions[] = {
     test_dma_cpu_pause_resume
@@ -17996,7 +18119,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
-    CPU_TEST_GROUP("dma.tracer", 2u, dma_tracer_functions),
+    CPU_TEST_GROUP("dma.tracer", 3u, dma_tracer_functions),
     CPU_TEST_GROUP("dma.cpu", 1u, dma_cpu_functions),
     CPU_TEST_GROUP("dma.refusal", 15u, dma_refusal_functions),
     CPU_TEST_GROUP("waitcnt.cpu", 12u, waitcnt_cpu_functions),

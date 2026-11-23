@@ -620,6 +620,187 @@ static bool sound_refusal_setup(gbl_machine *machine, uint32_t source_address,
     return valid;
 }
 
+static bool move_dma_ready_event(gbl_machine *machine, uint8_t channel_index,
+                                 uint64_t cycle,
+                                 uint32_t destination_override)
+{
+    size_t event_index;
+
+    if (machine == NULL || channel_index >= GBL_DMA_CHANNEL_COUNT ||
+        cycle < machine->master_cycles) {
+        return false;
+    }
+    for (event_index = 0u; event_index < machine->event_count;
+         ++event_index) {
+        gbl_event *event = &machine->events[event_index];
+
+        if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+            event->dma_channel == channel_index &&
+            event->generation == machine->dma_channels[channel_index].generation) {
+            event->cycle = cycle;
+            machine->dma_channels[channel_index].trigger_cycle = cycle;
+            if (destination_override != 0u) {
+                machine->dma_channels[channel_index].current_destination =
+                    destination_override;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool test_sound_startup_reselects_dma0_before_word_one(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result result = { 0 };
+    gbl_dma_step_result observations[8] = { { 0 } };
+    size_t observation_count = 0u;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    valid = sound_refusal_setup(machine, UINT32_C(0x02000100), true) &&
+            move_dma_ready_event(
+                machine, 0u, machine->master_cycles + 1u,
+                UINT32_C(0x02000100)) &&
+            gbl_machine_dma_step_observed(
+                machine, UINT64_C(1024), &result, observations,
+                sizeof(observations) / sizeof(observations[0]),
+                &observation_count) == GBL_DMA_STATUS_OK &&
+            result.channel == 1u && result.accepted_units == 5u &&
+            observation_count == 7u &&
+            observations[0].channel == 1u &&
+            observations[0].startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+            observations[1].channel == 0u &&
+            observations[1].startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+            observations[2].channel == 0u &&
+            observations[2].unit_completed &&
+            observations[3].channel == 1u &&
+            observations[3].unit_completed &&
+            observations[3].value == UINT32_C(0xDEADBEEF);
+    test_case(valid,
+              "DMA0 ready during sound startup runs before sound word 1 and its write is visible to that source read");
+    free_machine(machine);
+    return valid;
+}
+
+static bool test_nested_sound_preemption_keeps_all_observations(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result result = { 0 };
+    gbl_dma_step_result observations[12] = { { 0 } };
+    size_t observation_count = 0u;
+    size_t index;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    write_ewram_word(machine, UINT32_C(0x02000100),
+                     UINT32_C(0x11121314));
+    write_ewram_word(machine, UINT32_C(0x02000200),
+                     UINT32_C(0x21222324));
+    valid = prime_sound_fifo(machine, 0u) &&
+            prime_sound_fifo(machine, 1u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT16_C(0xB000)) &&
+            write_register(machine, 2u, 0u, 4u,
+                           UINT32_C(0x02000200)) &&
+            write_register(machine, 2u, 4u, 4u,
+                           UINT32_C(0x03000120)) &&
+            write_register(machine, 2u, 8u, 2u, 1u) &&
+            write_register(machine, 2u, 10u, 2u, UINT16_C(0xB000));
+    if (valid) {
+        gbl_dma_channel_state *channel = &machine->dma_channels[2];
+
+        channel->pending = true;
+        channel->armed = false;
+        channel->active = false;
+        channel->startup_complete = false;
+        channel->remaining = 0u;
+        channel->trigger_origin = GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B;
+        channel->trigger_cycle = machine->master_cycles;
+        valid = gbl_machine_dma_request(
+                    machine, 1u, machine->master_cycles + 1u,
+                    machine->dma_channels[1].generation) ==
+                GBL_TIME_STATUS_OK;
+        machine->dma_channels[1].trigger_origin =
+            GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A;
+    }
+    valid = valid &&
+            gbl_machine_dma_step_observed(
+                machine, UINT64_C(1024), &result, observations,
+                sizeof(observations) / sizeof(observations[0]),
+                &observation_count) == GBL_DMA_STATUS_OK &&
+            result.channel == 2u && result.accepted_units == 8u &&
+            observation_count == 10u &&
+            observations[0].channel == 2u &&
+            observations[0].startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+            observations[1].channel == 1u &&
+            observations[1].startup_cycles == GBL_DMA_STARTUP_CYCLES;
+    for (index = 0u; valid && index < 4u; ++index) {
+        valid = observations[index + 2u].channel == 1u &&
+                observations[index + 2u].unit_completed &&
+                observations[index + 6u].channel == 2u &&
+                observations[index + 6u].unit_completed;
+    }
+    test_case(valid,
+              "higher-priority sound DMA preempts without recursion and retains startup plus four ordered word observations for both channels");
+    free_machine(machine);
+    return valid;
+}
+
+static bool test_sound_word_four_preemption_preserves_last_bus_value(void)
+{
+    gbl_machine *baseline = new_machine();
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result baseline_result = { 0 };
+    gbl_dma_step_result result = { 0 };
+    gbl_dma_step_result observations[8] = { { 0 } };
+    size_t observation_count = 0u;
+    uint64_t service_cycles = 0u;
+    bool valid = baseline != NULL && machine != NULL;
+
+    if (!valid) {
+        free_machine(baseline);
+        free_machine(machine);
+        return false;
+    }
+    valid = sound_refusal_setup(baseline, UINT32_C(0x02000100), false) &&
+            sound_refusal_setup(machine, UINT32_C(0x02000100), true) &&
+            gbl_machine_dma_step(baseline, UINT64_C(1024),
+                                 &baseline_result) == GBL_DMA_STATUS_OK;
+    service_cycles = baseline_result.startup_cycles +
+                     baseline_result.source_cycles +
+                     baseline_result.destination_cycles;
+    valid = valid && service_cycles != 0u &&
+            service_cycles <= UINT64_MAX - machine->master_cycles &&
+            move_dma_ready_event(machine, 0u,
+                                 machine->master_cycles + service_cycles, 0u) &&
+            gbl_machine_dma_step_observed(
+                machine, UINT64_C(1024), &result, observations,
+                sizeof(observations) / sizeof(observations[0]),
+                &observation_count) == GBL_DMA_STATUS_OK &&
+            result.accepted_units == 5u && observation_count == 7u &&
+            observations[4].channel == 1u &&
+            observations[5].channel == 0u &&
+            observations[5].startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+            observations[6].channel == 0u &&
+            observations[6].unit_completed &&
+            observations[6].value == UINT32_C(0xDEADBEEF) &&
+            machine->open_bus == UINT32_C(0xDEADBEEF);
+    test_case(valid,
+              "DMA0 preemption at the word-four boundary leaves its completed source value in open bus");
+    free_machine(baseline);
+    free_machine(machine);
+    return valid;
+}
+
 static bool sound_refusal_state_equal(const gbl_machine *before,
                                       const gbl_machine *after)
 {
@@ -3880,12 +4061,15 @@ static bool run_sound_arbitration(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..4\n");
+    printf("TAP version 13\n1..7\n");
     test_case(test_sound_dma_preemption_reads_staged_dma0_write(),
               "DMA0 preempts DMA1 sound between words and its ordered EWRAM write feeds sound word 2 before the full candidate commits");
     test_sound_fifo_b_fixed_destination_and_decrement_source();
     test_sound_reset_cancels_only_matching_pending_channel();
     test_sound_fixed_source_mode_repeats_word();
+    (void)test_sound_startup_reselects_dma0_before_word_one();
+    (void)test_nested_sound_preemption_keeps_all_observations();
+    (void)test_sound_word_four_preemption_preserves_last_bus_value();
     return failure_count == 0u ? 0 : 1;
 }
 
