@@ -661,6 +661,7 @@ static bool gbl_test_runner_audio_output(const char *scratch_directory)
     char early_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char json[16384];
     char digest[GBL_SHA256_HEX_CAPACITY];
+    gbl_test_cancel_state early_cancel = { 0u, 2u };
     bool guest_okay;
     bool artifact_okay;
     bool early_guest_okay;
@@ -734,12 +735,14 @@ static bool gbl_test_runner_audio_output(const char *scratch_directory)
 
     memset(&options, 0, sizeof options);
     options.rom_path = rom_path;
-    options.cycle_budget = UINT64_C(300);
+    options.cycle_budget = UINT64_C(4096);
     options.audio_output_path = early_path;
     options.audio_end_cycles = UINT64_C(512);
+    options.cancelled = gbl_test_cancel_at_boundary;
+    options.cancel_context = &early_cancel;
     early_guest_okay =
-        gbl_runner_execute(&options, &early) == GBL_RUNNER_TIMEOUT &&
-        early.status == GBL_RUNNER_TIMEOUT &&
+        gbl_runner_execute(&options, &early) == GBL_RUNNER_CANCELLED &&
+        early.status == GBL_RUNNER_CANCELLED &&
         early.cycles < options.audio_end_cycles &&
         early.semantic.status != GBL_MAILBOX_PASS;
     early_artifact_okay = early.audio.requested &&
@@ -757,7 +760,7 @@ static bool gbl_test_runner_audio_output(const char *scratch_directory)
     gbl_test_case(artifact_okay,
                   "runner-audio-output: complete window writes exact literal PCM and digest");
     gbl_test_case(early_guest_okay,
-                  "runner-audio-output: shorter cycle budget stops before the guest mailbox marker");
+                  "runner-audio-output: cancellation stops before the guest mailbox marker");
     gbl_test_case(early_artifact_okay,
                   "runner-audio-output: early stop leaves capture incomplete and creates no artifact");
     return guest_okay && artifact_okay && early_guest_okay &&

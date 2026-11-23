@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "sha256.h"
+#include "audio_internal.h"
 
 enum {
     GBL_RUNNER_MIN_ROM_BYTES = 0xC0u,
@@ -30,6 +31,11 @@ typedef enum gbl_runner_read_status {
     GBL_RUNNER_READ_REFUSED,
     GBL_RUNNER_READ_FAILED
 } gbl_runner_read_status;
+
+_Static_assert(GBL_RUNNER_AUDIO_MAX_BYTES == GBL_AUDIO_MAX_CAPTURE_BYTES,
+               "runner and core audio capture bounds must match");
+_Static_assert(GBL_RUNNER_AUDIO_SAMPLE_CYCLES == GBL_AUDIO_SAMPLE_CYCLES,
+               "runner and core audio sample grids must match");
 
 static void *gbl_runner_default_allocate(void *context, size_t size)
 {
@@ -221,6 +227,189 @@ static void gbl_runner_set_refusal(gbl_runner_result *result,
                               postcondition)) {
         result->refusal_postcondition[0] = '\0';
     }
+}
+
+static void gbl_runner_set_audio_error(gbl_runner_result *result,
+                                       const char *error)
+{
+    if (result == NULL || error == NULL ||
+        !gbl_runner_copy_text(result->audio.artifact_error,
+                              sizeof result->audio.artifact_error, error)) {
+        return;
+    }
+}
+
+static bool gbl_runner_audio_options_valid(
+    const gbl_runner_options *options, gbl_runner_result *result,
+    uint64_t *end_cycle_out)
+{
+    gbl_runner_audio_observation *observation;
+    uint64_t end_cycle;
+
+    if (options == NULL || result == NULL || end_cycle_out == NULL) {
+        return false;
+    }
+    observation = &result->audio;
+    *end_cycle_out = 0u;
+    observation->requested = options->audio_output_path != NULL;
+    observation->capture_state =
+        observation->requested
+            ? GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE
+            : GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED;
+    observation->artifact_state =
+        observation->requested
+            ? GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN
+            : GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED;
+
+    if (!observation->requested) {
+        if (options->audio_end_cycles != 0u) {
+            observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+            gbl_runner_set_audio_error(result,
+                                       "audio-cycles-require-output");
+            return false;
+        }
+        return true;
+    }
+    if (options->audio_output_path[0] == '\0') {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        gbl_runner_set_audio_error(result, "audio-output-path-empty");
+        return false;
+    }
+    end_cycle = options->audio_end_cycles == 0u
+                    ? options->cycle_budget
+                    : options->audio_end_cycles;
+    if (end_cycle == 0u || end_cycle > GBL_RUNNER_AUDIO_MAX_CYCLES ||
+        end_cycle > options->cycle_budget) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        gbl_runner_set_audio_error(result, "audio-cycle-range-invalid");
+        return false;
+    }
+    *end_cycle_out = end_cycle;
+    observation->has_requested_interval = true;
+    observation->requested_start_cycle = 0u;
+    observation->requested_end_cycle = end_cycle;
+    return true;
+}
+
+static bool gbl_runner_audio_buffers_allocate(
+    gbl_runner_result *result, const gbl_runner_options *options,
+    const uint8_t *rom_bytes, size_t rom_length,
+    const gbl_machine *machine)
+{
+    gbl_runner_audio_observation *observation;
+    uint8_t *pcm_bytes;
+    uint8_t *scratch_bytes;
+
+    if (result == NULL || options == NULL || rom_bytes == NULL ||
+        !result->audio.requested || result->allocator.allocate == NULL ||
+        result->allocator.release == NULL) {
+        return false;
+    }
+    observation = &result->audio;
+    pcm_bytes = result->allocator.allocate(result->allocator.context,
+                                            GBL_RUNNER_AUDIO_MAX_BYTES);
+    if (pcm_bytes == NULL) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        gbl_runner_set_audio_error(result, "audio-buffer-allocation-failed");
+        return false;
+    }
+    if (gbl_runner_spans_overlap(pcm_bytes, GBL_RUNNER_AUDIO_MAX_BYTES,
+                                 result, sizeof *result) ||
+        gbl_runner_spans_overlap(pcm_bytes, GBL_RUNNER_AUDIO_MAX_BYTES,
+                                 options, sizeof *options) ||
+        gbl_runner_spans_overlap(pcm_bytes, GBL_RUNNER_AUDIO_MAX_BYTES,
+                                 rom_bytes, rom_length) ||
+        (machine != NULL &&
+         gbl_runner_spans_overlap(pcm_bytes, GBL_RUNNER_AUDIO_MAX_BYTES,
+                                  machine, sizeof *machine))) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        gbl_runner_set_audio_error(result, "audio-buffer-alias-refused");
+        return false;
+    }
+    observation->pcm_bytes = pcm_bytes;
+    observation->pcm_capacity = GBL_RUNNER_AUDIO_MAX_BYTES;
+
+    scratch_bytes = result->allocator.allocate(result->allocator.context,
+                                                GBL_RUNNER_AUDIO_MAX_BYTES);
+    if (scratch_bytes == NULL) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        gbl_runner_set_audio_error(result,
+                                   "audio-scratch-allocation-failed");
+        return false;
+    }
+    if (gbl_runner_spans_overlap(scratch_bytes,
+                                 GBL_RUNNER_AUDIO_MAX_BYTES, result,
+                                 sizeof *result) ||
+        gbl_runner_spans_overlap(scratch_bytes,
+                                 GBL_RUNNER_AUDIO_MAX_BYTES, options,
+                                 sizeof *options) ||
+        gbl_runner_spans_overlap(scratch_bytes,
+                                 GBL_RUNNER_AUDIO_MAX_BYTES, rom_bytes,
+                                 rom_length) ||
+        (machine != NULL &&
+         gbl_runner_spans_overlap(scratch_bytes,
+                                  GBL_RUNNER_AUDIO_MAX_BYTES, machine,
+                                  sizeof *machine)) ||
+        gbl_runner_spans_overlap(scratch_bytes,
+                                 GBL_RUNNER_AUDIO_MAX_BYTES, pcm_bytes,
+                                 GBL_RUNNER_AUDIO_MAX_BYTES)) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        gbl_runner_set_audio_error(result, "audio-scratch-alias-refused");
+        return false;
+    }
+    observation->scratch_bytes = scratch_bytes;
+    observation->scratch_capacity = GBL_RUNNER_AUDIO_MAX_BYTES;
+    return true;
+}
+
+static void gbl_runner_audio_finalize(
+    const gbl_runner_options *options, gbl_runner_result *result,
+    const gbl_machine *machine, const gbl_audio_capture *capture,
+    uint64_t requested_end_cycle, bool capture_started)
+{
+    gbl_runner_audio_observation *observation;
+    uint64_t expected_frames;
+
+    if (options == NULL || result == NULL || machine == NULL || capture == NULL ||
+        !result->audio.requested || !capture_started) {
+        return;
+    }
+    observation = &result->audio;
+    observation->has_actual_interval = true;
+    observation->actual_start_cycle = capture->initial_cycle;
+    observation->actual_end_cycle =
+        machine->master_cycles < requested_end_cycle
+            ? machine->master_cycles
+            : requested_end_cycle;
+    observation->has_byte_count = true;
+    observation->byte_count = capture->bytes_written;
+    observation->has_frame_count = true;
+    observation->frame_count =
+        (uint64_t)(capture->bytes_written / GBL_RUNNER_AUDIO_FRAME_BYTES);
+    if (capture->bytes_written > observation->pcm_capacity ||
+        capture->bytes_written % GBL_RUNNER_AUDIO_FRAME_BYTES != 0u ||
+        observation->actual_start_cycle != 0u) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        observation->interval_complete = false;
+        gbl_runner_set_audio_error(result, "audio-capture-count-invalid");
+        return;
+    }
+    observation->interval_complete =
+        observation->actual_end_cycle == requested_end_cycle;
+    if (!observation->interval_complete) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE;
+        return;
+    }
+    expected_frames = requested_end_cycle / GBL_RUNNER_AUDIO_SAMPLE_CYCLES;
+    if (observation->frame_count != expected_frames ||
+        expected_frames > GBL_AUDIO_MAX_CAPTURE_FRAMES) {
+        observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+        observation->interval_complete = false;
+        gbl_runner_set_audio_error(result, "audio-capture-count-invalid");
+        return;
+    }
+    observation->capture_state = GBL_RUNNER_AUDIO_CAPTURE_COMPLETE;
+    (void)gbl_runner_write_audio(options->audio_output_path, result);
 }
 
 static bool gbl_runner_copy_fixture_id(gbl_runner_result *result,
@@ -908,6 +1097,10 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     char copied_digest[GBL_SHA256_HEX_CAPACITY];
     gbl_runner_read_status read_status;
     bool has_committed_unit = false;
+    bool audio_options_valid = false;
+    bool audio_capture_started = false;
+    gbl_audio_capture audio_capture = { 0 };
+    uint64_t audio_end_cycle = 0u;
 
     if (result == NULL) {
         return GBL_RUNNER_HARNESS_FAIL;
@@ -926,6 +1119,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     result->semantic.status = GBL_MAILBOX_ABSENT;
     result->phase10.profile_version = GBL_RUNNER_PROFILE_VERSION;
     result->trace_complete = true;
+    result->audio.capture_state = GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED;
+    result->audio.artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED;
     gbl_runner_set_reason(result, "runner-failed");
     gbl_runner_set_termination(result, "not-started");
 
@@ -942,6 +1137,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
     result->trace_mask = options->trace_mask;
     result->trace_capacity = options->trace_capacity;
     result->phase10.video_requested = options->video_output_path != NULL;
+    audio_options_valid =
+        gbl_runner_audio_options_valid(options, result, &audio_end_cycle);
     has_fixture_argument = options->fixture_id != NULL;
     if ((has_fixture_argument &&
          !gbl_runner_copy_text(requested_fixture_id,
@@ -951,6 +1148,7 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
          options->trace_output_path[0] == '\0') ||
         (options->video_output_path != NULL &&
          options->video_output_path[0] == '\0') ||
+        !audio_options_valid ||
         !gbl_runner_trace_options_valid(options)) {
         if (options->video_output_path != NULL &&
             options->video_output_path[0] == '\0') {
@@ -1245,6 +1443,41 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                                       (size_t)GBL_RUNNER_ROM_SENTINEL_BYTES);
         return result->status;
     }
+    if (result->audio.requested) {
+        if (!gbl_runner_audio_buffers_allocate(result, options, rom_bytes,
+                                               rom_length, machine)) {
+            result->status = GBL_RUNNER_HARNESS_FAIL;
+            gbl_runner_set_reason(result, "audio-capture-allocation-failed");
+            gbl_runner_set_termination(result, "not-started");
+            gbl_machine_dispose(machine);
+            result->allocator.release(result->allocator.context, machine,
+                                      sizeof *machine);
+            result->allocator.release(result->allocator.context, rom_bytes,
+                                      GBL_RUNNER_MAX_ROM_BYTES +
+                                          (size_t)GBL_RUNNER_ROM_SENTINEL_BYTES);
+            return result->status;
+        }
+        if (gbl_audio_capture_begin(machine, &audio_capture,
+                                    result->audio.pcm_bytes,
+                                    result->audio.pcm_capacity) !=
+            GBL_TIME_STATUS_OK) {
+            result->audio.capture_state = GBL_RUNNER_AUDIO_CAPTURE_FAILED;
+            gbl_runner_set_audio_error(result,
+                                       "audio-capture-start-refused");
+            result->status = GBL_RUNNER_HARNESS_FAIL;
+            gbl_runner_set_reason(result, "audio-capture-start-refused");
+            gbl_runner_set_termination(result, "not-started");
+            gbl_machine_dispose(machine);
+            result->allocator.release(result->allocator.context, machine,
+                                      sizeof *machine);
+            result->allocator.release(result->allocator.context, rom_bytes,
+                                      GBL_RUNNER_MAX_ROM_BYTES +
+                                          (size_t)GBL_RUNNER_ROM_SENTINEL_BYTES);
+            return result->status;
+        }
+        audio_capture_started = true;
+        result->audio.capture_state = GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE;
+    }
     result->ran = true;
     result->status = GBL_RUNNER_TIMEOUT;
     gbl_runner_set_reason(result, "cycle-budget");
@@ -1297,7 +1530,14 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
                                        ? NULL
                                        : &trace_buffer;
         run_result = (gbl_run_result){ 0 };
-        run_status = gbl_cpu_run(machine, &run_options, &run_result);
+        if (audio_capture_started && machine->master_cycles < audio_end_cycle) {
+            run_status = gbl_cpu_run_audio(
+                machine, &run_options, &run_result, &audio_capture,
+                result->audio.scratch_bytes,
+                result->audio.scratch_capacity, audio_end_cycle);
+        } else {
+            run_status = gbl_cpu_run(machine, &run_options, &run_result);
+        }
         if (run_status != GBL_RUN_STATUS_OK ||
             run_result.cycles > remaining ||
             run_result.cycles > UINT64_MAX - result->cycles ||
@@ -1418,6 +1658,8 @@ gbl_runner_status gbl_runner_execute(const gbl_runner_options *options,
         result->ran) {
         gbl_runner_video_output_failed(result);
     }
+    gbl_runner_audio_finalize(options, result, machine, &audio_capture,
+                              audio_end_cycle, audio_capture_started);
     if (has_committed_unit) {
         result->has_timer0_if_request = true;
         result->timer0_if_request =

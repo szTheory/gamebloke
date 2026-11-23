@@ -571,6 +571,130 @@ bool gbl_runner_write_video(const char *path, gbl_runner_result *result)
     return true;
 }
 
+static void gbl_runner_set_audio_artifact_error(gbl_runner_result *result,
+                                                const char *error)
+{
+    size_t length;
+
+    if (result == NULL || error == NULL) {
+        return;
+    }
+    length = strlen(error);
+    if (length >= sizeof result->audio.artifact_error) {
+        return;
+    }
+    memcpy(result->audio.artifact_error, error, length + 1u);
+}
+
+bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
+{
+    gbl_runner_audio_observation *observation;
+    FILE *output;
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    uint64_t expected_frames;
+    size_t expected_bytes;
+    bool write_okay;
+    bool close_okay;
+    const char *failure;
+
+    if (result == NULL) {
+        return false;
+    }
+    observation = &result->audio;
+    observation->artifact_emitted = false;
+    observation->has_artifact_byte_count = false;
+    observation->artifact_byte_count = 0u;
+    observation->has_sha256 = false;
+    observation->sha256[0] = '\0';
+    observation->artifact_error[0] = '\0';
+    if (!observation->requested) {
+        observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED;
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-output-not-requested");
+        return false;
+    }
+    observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_FAILED;
+    if (path == NULL) {
+        gbl_runner_set_audio_artifact_error(result, "audio-output-path-null");
+        return false;
+    }
+    if (path[0] == '\0') {
+        gbl_runner_set_audio_artifact_error(result, "audio-output-path-empty");
+        return false;
+    }
+    if (observation->capture_state != GBL_RUNNER_AUDIO_CAPTURE_COMPLETE ||
+        !observation->interval_complete ||
+        !observation->has_requested_interval ||
+        !observation->has_actual_interval ||
+        !observation->has_frame_count || !observation->has_byte_count ||
+        observation->actual_start_cycle != observation->requested_start_cycle ||
+        observation->actual_end_cycle != observation->requested_end_cycle ||
+        observation->requested_start_cycle != 0u ||
+        observation->requested_end_cycle > GBL_RUNNER_AUDIO_MAX_CYCLES ||
+        observation->pcm_capacity > GBL_RUNNER_AUDIO_MAX_BYTES ||
+        observation->byte_count > observation->pcm_capacity ||
+        observation->byte_count > GBL_RUNNER_AUDIO_MAX_BYTES ||
+        observation->byte_count % GBL_RUNNER_AUDIO_FRAME_BYTES != 0u) {
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-capture-unavailable");
+        return false;
+    }
+    expected_frames = observation->requested_end_cycle /
+                      GBL_RUNNER_AUDIO_SAMPLE_CYCLES;
+    if (expected_frames > SIZE_MAX / GBL_RUNNER_AUDIO_FRAME_BYTES) {
+        gbl_runner_set_audio_artifact_error(result, "audio-count-overflow");
+        return false;
+    }
+    expected_bytes = (size_t)expected_frames * GBL_RUNNER_AUDIO_FRAME_BYTES;
+    if (observation->frame_count != expected_frames ||
+        observation->byte_count != expected_bytes ||
+        (expected_bytes != 0u && observation->pcm_bytes == NULL)) {
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-capture-count-invalid");
+        return false;
+    }
+    if (!gbl_sha256_span(observation->pcm_bytes, observation->byte_count,
+                         digest)) {
+        gbl_runner_set_audio_artifact_error(result, "audio-digest-failed");
+        return false;
+    }
+
+    errno = 0;
+    output = fopen(path, "wbx");
+    if (output == NULL) {
+        gbl_runner_set_audio_artifact_error(
+            result, errno == EEXIST ? "audio-output-already-exists"
+                                    : "audio-output-open-failed");
+        return false;
+    }
+    write_okay = fwrite(observation->pcm_bytes, 1u,
+                        observation->byte_count, output) ==
+                     observation->byte_count &&
+                 ferror(output) == 0;
+    if (write_okay && fflush(output) != 0) {
+        write_okay = false;
+    }
+    close_okay = fclose(output) == 0;
+    if (!write_okay || !close_okay) {
+        failure = write_okay ? "audio-output-close-failed"
+                             : "audio-output-write-failed";
+        if (remove(path) != 0) {
+            gbl_runner_set_audio_artifact_error(
+                result, "audio-output-cleanup-failed");
+        } else {
+            gbl_runner_set_audio_artifact_error(result, failure);
+        }
+        return false;
+    }
+    observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_EMITTED;
+    observation->artifact_emitted = true;
+    observation->has_artifact_byte_count = true;
+    observation->artifact_byte_count = observation->byte_count;
+    observation->has_sha256 = true;
+    memcpy(observation->sha256, digest, sizeof observation->sha256);
+    return true;
+}
+
 static bool gbl_runner_write_evidence(FILE *output,
                                      const gbl_runner_result *result)
 {
@@ -1064,6 +1188,110 @@ static bool gbl_runner_write_raw_video(FILE *output,
     return fputs(",\"format\":\"bgr555-le\"}", output) != EOF;
 }
 
+static const char *gbl_runner_audio_capture_name(
+    gbl_runner_audio_capture_state state)
+{
+    switch (state) {
+    case GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED: return "not-requested";
+    case GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE: return "unavailable";
+    case GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE: return "incomplete";
+    case GBL_RUNNER_AUDIO_CAPTURE_COMPLETE: return "complete";
+    case GBL_RUNNER_AUDIO_CAPTURE_FAILED: return "failed";
+    default: return "failed";
+    }
+}
+
+static const char *gbl_runner_audio_artifact_name(
+    gbl_runner_audio_artifact_state state)
+{
+    switch (state) {
+    case GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED: return "not-requested";
+    case GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN: return "not-written";
+    case GBL_RUNNER_AUDIO_ARTIFACT_FAILED: return "failed";
+    case GBL_RUNNER_AUDIO_ARTIFACT_EMITTED: return "emitted";
+    default: return "failed";
+    }
+}
+
+static bool gbl_runner_write_audio_interval(
+    FILE *output, bool present, uint64_t start_cycle, uint64_t end_cycle)
+{
+    if (!present) {
+        return fputs("null", output) != EOF;
+    }
+    return fprintf(output,
+                   "{\"start_cycle\":\"%" PRIu64
+                   "\",\"end_cycle\":\"%" PRIu64 "\"}",
+                   start_cycle, end_cycle) >= 0;
+}
+
+static bool gbl_runner_write_audio_observation(
+    FILE *output, const gbl_runner_audio_observation *obs)
+{
+    if (fputs("{\"requested\":", output) == EOF ||
+        fputs(obs->requested ? "true" : "false", output) == EOF ||
+        fputs(",\"requested_interval\":", output) == EOF ||
+        !gbl_runner_write_audio_interval(output, obs->has_requested_interval,
+                                         obs->requested_start_cycle,
+                                         obs->requested_end_cycle) ||
+        fputs(",\"actual_interval\":", output) == EOF ||
+        !gbl_runner_write_audio_interval(output, obs->has_actual_interval,
+                                         obs->actual_start_cycle,
+                                         obs->actual_end_cycle) ||
+        fprintf(output,
+                ",\"cadence\":{\"sample_cycles\":\"%" PRIu64
+                "\",\"format\":\"s16le-stereo\"},\"capture_state\":",
+                GBL_RUNNER_AUDIO_SAMPLE_CYCLES) < 0 ||
+        !gbl_runner_json_string(
+            output, gbl_runner_audio_capture_name(obs->capture_state)) ||
+        fputs(",\"interval_complete\":", output) == EOF) {
+        return false;
+    }
+    if (obs->has_actual_interval) {
+        if (fputs(obs->interval_complete ? "true" : "false", output) == EOF) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"frame_count\":", output) == EOF) return false;
+    if (obs->has_frame_count) {
+        if (fprintf(output, "%" PRIu64, obs->frame_count) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"byte_count\":", output) == EOF) return false;
+    if (obs->has_byte_count) {
+        if (fprintf(output, "%zu", obs->byte_count) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"artifact\":{\"state\":", output) == EOF ||
+        !gbl_runner_json_string(
+            output, gbl_runner_audio_artifact_name(obs->artifact_state)) ||
+        fputs(",\"byte_count\":", output) == EOF) {
+        return false;
+    }
+    if (obs->artifact_emitted && obs->has_artifact_byte_count) {
+        if (fprintf(output, "%zu", obs->artifact_byte_count) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"sha256\":", output) == EOF) return false;
+    if (obs->artifact_emitted && obs->has_sha256) {
+        if (!gbl_runner_json_string(output, obs->sha256)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"error\":", output) == EOF) return false;
+    if (obs->artifact_error[0] != '\0') {
+        if (!gbl_runner_json_string(output, obs->artifact_error)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    return fputs("}}", output) != EOF;
+}
+
 bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
 {
     const char *reason;
@@ -1258,6 +1486,8 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
         !gbl_runner_write_phase10(output, result) ||
         fputs(",\"raw_video\":", output) == EOF ||
         !gbl_runner_write_raw_video(output, result) ||
+        fputs(",\"audio\":", output) == EOF ||
+        !gbl_runner_write_audio_observation(output, &result->audio) ||
         fputs(",\"termination\":", output) == EOF ||
         !gbl_runner_json_string(output, result->termination)) {
         return false;
@@ -1301,6 +1531,18 @@ void gbl_runner_result_dispose(gbl_runner_result *result)
         result->allocator.release(result->allocator.context,
                                   result->phase10.video_bytes,
                                   result->phase10.video_length);
+    }
+    if (result->audio.pcm_bytes != NULL &&
+        result->allocator.release != NULL) {
+        result->allocator.release(result->allocator.context,
+                                  result->audio.pcm_bytes,
+                                  result->audio.pcm_capacity);
+    }
+    if (result->audio.scratch_bytes != NULL &&
+        result->allocator.release != NULL) {
+        result->allocator.release(result->allocator.context,
+                                  result->audio.scratch_bytes,
+                                  result->audio.scratch_capacity);
     }
     memset(result, 0, sizeof *result);
 }

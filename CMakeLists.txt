@@ -436,13 +436,13 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "${GBL_CONTROL_MANIFEST}")
 
   add_executable(gamebloke-run ${GBL_RUNNER_SOURCES})
-  target_include_directories(gamebloke-run PRIVATE "${GBL_PRODUCTION_INDEX_DIR}")
+  target_include_directories(gamebloke-run PRIVATE src "${GBL_PRODUCTION_INDEX_DIR}")
   target_link_libraries(gamebloke-run PRIVATE gamebloke_core gbl_warnings)
   add_dependencies(gamebloke-run gbl_fixture_indexes)
   install(TARGETS gamebloke-run RUNTIME DESTINATION bin)
 
   add_executable(gamebloke-run-control ${GBL_RUNNER_SOURCES})
-  target_include_directories(gamebloke-run-control PRIVATE "${GBL_CONTROL_INDEX_DIR}")
+  target_include_directories(gamebloke-run-control PRIVATE src "${GBL_CONTROL_INDEX_DIR}")
   target_link_libraries(gamebloke-run-control PRIVATE gamebloke_core gbl_warnings)
   add_dependencies(gamebloke-run-control gbl_fixture_indexes)
 
@@ -450,7 +450,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   # index, except for the separately selected local Playable 0 CLI mode.
   add_executable(runner_test tests/runner_test.c runner/run.c runner/result.c
     runner/sha256.c)
-  target_include_directories(runner_test PRIVATE runner
+  target_include_directories(runner_test PRIVATE runner src
     "${GBL_CONTROL_INDEX_DIR}")
   if(GBL_LANE STREQUAL "local-playable0")
     # Keep ordinary runner_test on its synthetic index. The explicit local
