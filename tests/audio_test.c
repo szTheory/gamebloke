@@ -4699,6 +4699,7 @@ static bool prepare_capture_cpu_owned_rom(gbl_machine *machine,
 
 static bool prepare_capture_sound_dma(gbl_machine *machine, uint8_t *image,
                                       size_t image_size,
+                                      uint32_t source_address,
                                       uint64_t expected_threshold_cycle,
                                       uint64_t *threshold_cycle_out)
 {
@@ -4739,7 +4740,7 @@ static bool prepare_capture_sound_dma(gbl_machine *machine, uint8_t *image,
     ready = ready &&
             gbl_bus_write(machine, UINT32_C(0x040000BC), 4u,
                           GBL_BUS_CLASS_NONSEQUENTIAL,
-                          UINT32_C(0x02000100)).status == GBL_BUS_STATUS_OK &&
+                          source_address).status == GBL_BUS_STATUS_OK &&
             gbl_bus_write(machine, UINT32_C(0x040000C0), 4u,
                           GBL_BUS_CLASS_NONSEQUENTIAL,
                           UINT32_C(0x03000100)).status == GBL_BUS_STATUS_OK &&
@@ -5025,16 +5026,19 @@ static int run_capture_dma(void)
     if (sound_setup) {
         sound_setup = prepare_capture_sound_dma(
                           sound_machine, sound_image, sizeof(sound_image),
+                          UINT32_C(0x02000100),
                           UINT64_C(506),
                           &sound_threshold) &&
                       prepare_capture_interleaved_dma(interleaved_machine) &&
                       prepare_capture_sound_dma(
                           interleaved_machine, interleaved_image,
-                          sizeof(interleaved_image), UINT64_C(4600),
+                          sizeof(interleaved_image), UINT32_C(0x08000020),
+                          UINT64_C(4600),
                           &interleaved_threshold) &&
                       prepare_capture_sound_dma(
                           refused_machine, refused_image,
-                          sizeof(refused_image), UINT64_C(508),
+                          sizeof(refused_image), UINT32_C(0x02000100),
+                          UINT64_C(508),
                           &refused_threshold) &&
                       sound_threshold == UINT64_C(506) &&
                       interleaved_threshold == UINT64_C(4600) &&
@@ -5047,10 +5051,6 @@ static int run_capture_dma(void)
                           sizeof(refused_output)) == GBL_TIME_STATUS_OK;
     }
     if (sound_setup) {
-        interleaved_machine->dma_channels[1].source_address =
-            UINT32_C(0x08000020);
-        interleaved_machine->dma_channels[1].current_source =
-            UINT32_C(0x08000020);
         sound_setup =
             gbl_audio_capture_begin(interleaved_machine,
                                    &interleaved_capture,
