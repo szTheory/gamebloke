@@ -299,7 +299,9 @@ typedef enum gbl_dma_trigger_origin {
     GBL_DMA_TRIGGER_ORIGIN_NONE = 0,
     GBL_DMA_TRIGGER_ORIGIN_EXPLICIT_REQUEST = 1,
     GBL_DMA_TRIGGER_ORIGIN_VBLANK = 2,
-    GBL_DMA_TRIGGER_ORIGIN_HBLANK = 3
+    GBL_DMA_TRIGGER_ORIGIN_HBLANK = 3,
+    GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A = 4,
+    GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B = 5
 } gbl_dma_trigger_origin;
 
 typedef enum gbl_hardware_qualification {

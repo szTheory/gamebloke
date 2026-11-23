@@ -1,5 +1,6 @@
 #include "gamebloke/gamebloke.h"
 #include "audio_internal.h"
+#include "dma_internal.h"
 #include "ppu_internal.h"
 
 #define GBL_EWRAM_MASK 0x3FFFFu
@@ -713,6 +714,45 @@ static bool gbl_bus_read_lane(
     *value = 0u;
     *outcome = GBL_BUS_OUTCOME_UNMAPPED;
     return false;
+}
+
+bool gbl_bus_dma_read_word_checked(
+    const gbl_machine *machine, const gbl_machine_time_preview *time_preview,
+    uint32_t address, gbl_bus_access_class sequence, uint32_t *value_out)
+{
+    const gbl_bus_region region = gbl_bus_region_for_address(address);
+    gbl_cycle_cost cost;
+    uint32_t value = 0u;
+    uint32_t lane;
+
+    if (machine == NULL || !machine->initialized || time_preview == NULL ||
+        value_out == NULL || (address & UINT32_C(3)) != 0u ||
+        address > UINT32_MAX - UINT32_C(3) ||
+        gbl_bus_region_for_address(address + UINT32_C(3)) != region ||
+        region == GBL_BUS_REGION_BIOS ||
+        region == GBL_BUS_REGION_UNMAPPED ||
+        region == GBL_BUS_REGION_COUNT ||
+        gbl_bus_validate_request(machine, address, 4u, sequence) !=
+            GBL_BUS_STATUS_OK ||
+        !gbl_bus_quote_waitcnt(time_preview->waitcnt, address,
+                               GBL_BUS_DIRECTION_READ, 4u, sequence,
+                               GBL_BUS_ROLE_DATA, &cost)) {
+        return false;
+    }
+    (void)cost;
+    for (lane = 0u; lane < 4u; ++lane) {
+        uint8_t byte_value;
+        gbl_bus_outcome outcome;
+
+        if (gbl_bus_region_for_address(address + lane) != region ||
+            !gbl_bus_read_lane(machine, time_preview, address + lane,
+                               &byte_value, &outcome)) {
+            return false;
+        }
+        value |= (uint32_t)byte_value << (lane * 8u);
+    }
+    *value_out = value;
+    return true;
 }
 
 bool gbl_bus_project_read(

@@ -170,10 +170,10 @@ static bool test_sound_refill_from_timer_threshold(void)
     if (valid) {
         valid = step.channel == 1u && step.completed == 4u &&
                 step.unit_completed &&
-                machine->audio.fifo[0].count == 32u &&
-                machine->audio.fifo[0].read_cursor == 4u &&
+                machine->audio.fifo[0].count == 30u &&
+                machine->audio.fifo[0].read_cursor == 6u &&
                 machine->audio.fifo[0].write_cursor == 4u &&
-                machine->audio.fifo[0].sample == 1 &&
+                machine->audio.fifo[0].sample == UINT8_C(0x13) &&
                 machine->dma_channels[1].source_address ==
                     UINT32_C(0x02000100) &&
                 machine->dma_channels[1].destination_address ==

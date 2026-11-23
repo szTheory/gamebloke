@@ -1,5 +1,6 @@
 #include "gamebloke/gamebloke.h"
 #include "audio_internal.h"
+#include "dma_internal.h"
 #include "ppu_internal.h"
 
 #define GBL_KEYPAD_INPUT_MASK UINT16_C(0x03FF)
@@ -155,6 +156,49 @@ static void gbl_preview_remove_dma_events(
     }
 }
 
+static void gbl_preview_cancel_sound_dma(
+    gbl_machine_time_preview *preview, uint8_t fifo_reset_mask)
+{
+    unsigned fifo_index;
+
+    for (fifo_index = 0u; fifo_index < GBL_AUDIO_FIFO_COUNT; ++fifo_index) {
+        const uint8_t channel_index = (uint8_t)(fifo_index + 1u);
+        const gbl_dma_trigger_origin origin =
+            fifo_index == 0u ? GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A
+                             : GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B;
+        gbl_dma_channel_state *channel;
+        size_t event_index = 0u;
+
+        if ((fifo_reset_mask & (uint8_t)(UINT8_C(1) << fifo_index)) == 0u) {
+            continue;
+        }
+        channel = &preview->dma_channels[channel_index];
+        if (channel->trigger_origin != origin) {
+            continue;
+        }
+        while (event_index < preview->event_count) {
+            const gbl_event *event = &preview->events[event_index];
+
+            if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+                event->dma_channel == channel_index &&
+                event->generation == channel->generation) {
+                gbl_preview_remove_event(preview, event_index);
+            } else {
+                ++event_index;
+            }
+        }
+        channel->pending = false;
+        channel->active = false;
+        channel->startup_complete = false;
+        channel->remaining = 0u;
+        channel->armed = (channel->control & UINT16_C(0x8000)) != 0u &&
+                         ((channel->control >> 12u) & 3u) == 3u;
+        channel->trigger_origin = GBL_DMA_TRIGGER_ORIGIN_NONE;
+        channel->trigger_cycle = 0u;
+        channel->trigger_dispute = GBL_DMA_DISPUTE_NONE;
+    }
+}
+
 static gbl_time_status gbl_preview_insert_timer_event(
     gbl_machine_time_preview *preview, uint8_t timer_index, uint64_t cycle)
 {
@@ -304,6 +348,59 @@ static gbl_time_status gbl_preview_queue_ppu_dma(
         status = gbl_preview_insert_dma_event(
             preview, channel_index, cycle, channel->generation, origin,
             dispute);
+        if (status != GBL_TIME_STATUS_OK) {
+            return status;
+        }
+    }
+    return GBL_TIME_STATUS_OK;
+}
+
+static gbl_time_status gbl_preview_queue_sound_dma(
+    gbl_machine_time_preview *preview, uint8_t timer_index,
+    uint64_t cycle, uint8_t refill_mask)
+{
+    unsigned fifo_index;
+
+    if (preview == NULL || timer_index > 1u ||
+        (refill_mask & (uint8_t)~UINT8_C(0x03)) != 0u) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    for (fifo_index = 0u; fifo_index < GBL_AUDIO_FIFO_COUNT; ++fifo_index) {
+        const uint8_t channel_index = (uint8_t)(fifo_index + 1u);
+        const gbl_dma_trigger_origin origin =
+            fifo_index == 0u ? GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A
+                             : GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B;
+        gbl_dma_channel_state *channel;
+        size_t event_index;
+        bool duplicate = false;
+        gbl_time_status status;
+
+        if ((refill_mask & (uint8_t)(UINT8_C(1) << fifo_index)) == 0u) {
+            continue;
+        }
+        channel = &preview->dma_channels[channel_index];
+        if (!channel->armed || channel->pending || channel->active ||
+            (channel->control & UINT16_C(0x8000)) == 0u ||
+            ((channel->control >> 12u) & 3u) != 3u) {
+            continue;
+        }
+        for (event_index = 0u; event_index < preview->event_count;
+             ++event_index) {
+            const gbl_event *event = &preview->events[event_index];
+
+            if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+                event->dma_channel == channel_index &&
+                event->generation == channel->generation) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+        status = gbl_preview_insert_dma_event(
+            preview, channel_index, cycle, channel->generation, origin,
+            GBL_DMA_DISPUTE_NONE);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
@@ -2583,7 +2680,20 @@ static gbl_time_status gbl_preview_increment_cascade(
                 preview->interrupt_flags |
                 (uint16_t)(UINT16_C(1) << (3u + index)));
         }
-        (void)gbl_audio_fifo_clock_timer(&preview->audio, index);
+        {
+            const uint8_t refill_mask =
+                gbl_audio_fifo_clock_timer(&preview->audio, index);
+
+            if (index <= 1u) {
+                const gbl_time_status status =
+                    gbl_preview_queue_sound_dma(preview, index, cycle,
+                                                refill_mask);
+
+                if (status != GBL_TIME_STATUS_OK) {
+                    return status;
+                }
+            }
+        }
         /* A cascade overflow is delivered synchronously as the same carry
          * continues into the next enabled cascade timer. It is not a queued
          * prescaler event and consumes no event sequence number. */
@@ -2639,6 +2749,17 @@ static gbl_time_status gbl_preview_dispatch_event(
             (channel->control & UINT16_C(0x8000)) == 0u) {
             return GBL_TIME_STATUS_OK;
         }
+        if (channel->trigger_cycle != event->cycle ||
+            (channel->trigger_origin ==
+                 GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A &&
+             (event->dma_channel != 1u ||
+              ((channel->control >> 12u) & 3u) != 3u)) ||
+            (channel->trigger_origin ==
+                 GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B &&
+             (event->dma_channel != 2u ||
+              ((channel->control >> 12u) & 3u) != 3u))) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
         channel->armed = false;
         channel->pending = true;
         return GBL_TIME_STATUS_OK;
@@ -2679,7 +2800,16 @@ static gbl_time_status gbl_preview_dispatch_event(
             preview->interrupt_flags |
             (uint16_t)(UINT16_C(1) << (3u + event->timer_index)));
     }
-    (void)gbl_audio_fifo_clock_timer(&preview->audio, event->timer_index);
+    {
+        const uint8_t refill_mask = gbl_audio_fifo_clock_timer(
+            &preview->audio, event->timer_index);
+
+        status = gbl_preview_queue_sound_dma(
+            preview, event->timer_index, event->cycle, refill_mask);
+        if (status != GBL_TIME_STATUS_OK) {
+            return status;
+        }
+    }
     status = gbl_preview_increment_cascade(preview, event->timer_index,
                                            event->cycle);
     if (status != GBL_TIME_STATUS_OK) {
@@ -3327,11 +3457,13 @@ static gbl_time_status gbl_preview_bus_write(
                 const uint32_t register_address =
                     GBL_AUDIO_REGISTER_FIRST +
                     (uint32_t)(audio_index * 2u);
-
-                audio_fifo_reset_mask |= gbl_audio_apply_register_write(
+                const uint8_t reset_mask = gbl_audio_apply_register_write(
                     &preview->audio, register_address,
                     audio_lane_values[audio_index],
                     audio_lane_masks[audio_index]);
+
+                audio_fifo_reset_mask |= reset_mask;
+                gbl_preview_cancel_sound_dma(preview, reset_mask);
             }
         }
     }
@@ -3953,6 +4085,272 @@ gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
     return GBL_TIME_STATUS_OK;
 }
 
+static bool gbl_dma_preview_other_ready(
+    const gbl_machine_time_preview *preview, uint8_t excluded_channel)
+{
+    uint8_t channel_index;
+
+    for (channel_index = 0u; channel_index < GBL_DMA_CHANNEL_COUNT;
+         ++channel_index) {
+        if (channel_index != excluded_channel &&
+            (preview->dma_channels[channel_index].pending ||
+             preview->dma_channels[channel_index].active)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static gbl_bus_access_class gbl_dma_sound_sequence(
+    const gbl_machine_time_preview *preview, uint8_t channel_index,
+    uint32_t last_address, uint32_t address)
+{
+    if (preview->dma_stream_valid &&
+        preview->dma_last_channel == channel_index &&
+        preview->dma_last_width == 4u &&
+        last_address <= UINT32_MAX - UINT32_C(4) &&
+        last_address + UINT32_C(4) == address) {
+        return GBL_BUS_CLASS_SEQUENTIAL;
+    }
+    return GBL_BUS_CLASS_NONSEQUENTIAL;
+}
+
+static gbl_dma_status gbl_dma_sound_advance(
+    const gbl_machine *machine, gbl_machine_time_preview *preview,
+    uint64_t cycles, uint64_t initial_cycle, uint64_t cycle_budget,
+    size_t *dispatched, size_t *staged_bytes)
+{
+    uint64_t elapsed;
+    uint64_t target;
+    gbl_time_status status;
+
+    if (preview == NULL || dispatched == NULL || staged_bytes == NULL ||
+        preview->master_cycles < initial_cycle) {
+        return GBL_DMA_STATUS_UNIT_REFUSAL;
+    }
+    elapsed = preview->master_cycles - initial_cycle;
+    if (elapsed > cycle_budget || cycles > cycle_budget - elapsed) {
+        return GBL_DMA_STATUS_BUDGET_REFUSAL;
+    }
+    if (cycles > UINT64_MAX - preview->master_cycles) {
+        return GBL_DMA_STATUS_TIME_OVERFLOW;
+    }
+    target = preview->master_cycles + cycles;
+    status = gbl_preview_advance_to(machine, preview, target, dispatched,
+                                    NULL, 0u, staged_bytes, NULL, NULL);
+    if (status != GBL_TIME_STATUS_OK) {
+        return gbl_dma_status_from_time(status);
+    }
+    return GBL_DMA_STATUS_OK;
+}
+
+static gbl_dma_status gbl_machine_dma_sound_burst(
+    gbl_machine *machine, uint8_t channel_index, uint64_t cycle_budget,
+    gbl_dma_step_result *result)
+{
+    gbl_machine_time_preview candidate;
+    gbl_dma_step_result step = { 0 };
+    gbl_dma_channel_state *channel;
+    const gbl_dma_channel_state *initial_channel;
+    const uint64_t initial_cycle = machine->master_cycles;
+    uint32_t fifo_address;
+    uint32_t first_source = 0u;
+    uint32_t last_value = 0u;
+    uint64_t source_cycles = 0u;
+    uint64_t destination_cycles = 0u;
+    size_t dispatched = 0u;
+    size_t staged_bytes = 0u;
+    uint8_t fifo_index;
+    uint8_t source_mode;
+    unsigned word_index;
+
+    if (machine == NULL || result == NULL ||
+        channel_index < 1u || channel_index > 2u ||
+        machine->event_count > GBL_EVENT_CAPACITY ||
+        machine->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
+        machine->input_event_cursor > machine->input_event_count) {
+        return GBL_DMA_STATUS_INVALID_ARGUMENT;
+    }
+    initial_channel = &machine->dma_channels[channel_index];
+    fifo_index = (uint8_t)(channel_index - 1u);
+    if (initial_channel->trigger_origin !=
+            (fifo_index == 0u ? GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A
+                              : GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B) ||
+        !initial_channel->pending || initial_channel->active ||
+        (initial_channel->control & UINT16_C(0x8000)) == 0u ||
+        ((initial_channel->control >> 12u) & 3u) != 3u ||
+        !gbl_dma_control_valid(channel_index, initial_channel->control)) {
+        return GBL_DMA_STATUS_UNSUPPORTED;
+    }
+    if (cycle_budget < GBL_DMA_STARTUP_CYCLES) {
+        return GBL_DMA_STATUS_BUDGET_REFUSAL;
+    }
+    fifo_address = UINT32_C(0x040000A0) + (uint32_t)fifo_index * 4u;
+    source_mode = (uint8_t)((initial_channel->control >> 7u) & 3u);
+    if (source_mode > 2u) {
+        return GBL_DMA_STATUS_UNSUPPORTED;
+    }
+    gbl_machine_time_copy_preview(machine, &candidate);
+    channel = &candidate.dma_channels[channel_index];
+    step.channel = channel_index;
+    step.trigger_origin = channel->trigger_origin;
+    step.trigger_cycle = channel->trigger_cycle;
+    step.trigger_dispute = channel->trigger_dispute;
+    channel->remaining = 4u;
+    channel->completed_units = 0u;
+    channel->current_source =
+        (channel->source_address & gbl_dma_source_mask(channel_index)) &
+        ~UINT32_C(3);
+    channel->current_destination = fifo_address;
+    channel->pending = false;
+    channel->active = true;
+    channel->armed = false;
+    channel->startup_complete = false;
+    if (candidate.bus_owner != GBL_MACHINE_BUS_OWNER_DMA) {
+        candidate.dma_stream_valid = false;
+    }
+    candidate.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    {
+        const gbl_dma_status advance_status = gbl_dma_sound_advance(
+            machine, &candidate, GBL_DMA_STARTUP_CYCLES, initial_cycle,
+            cycle_budget, &dispatched, &staged_bytes);
+
+        if (advance_status != GBL_DMA_STATUS_OK) {
+            return advance_status;
+        }
+    }
+    step.startup_cycles = GBL_DMA_STARTUP_CYCLES;
+    channel->startup_complete = true;
+
+    for (word_index = 0u; word_index < 4u; ++word_index) {
+        const uint32_t source_address = channel->current_source;
+        const gbl_bus_access_class source_sequence =
+            gbl_dma_sound_sequence(&candidate, channel_index,
+                                   candidate.dma_last_source,
+                                   source_address);
+        const gbl_bus_access_class destination_sequence =
+            gbl_dma_sound_sequence(&candidate, channel_index,
+                                   candidate.dma_last_destination,
+                                   fifo_address);
+        gbl_cycle_cost source_cost;
+        gbl_cycle_cost destination_cost;
+        uint32_t value;
+        gbl_time_status write_status;
+        gbl_dma_status advance_status;
+
+        if (channel->remaining == 0u ||
+            channel->completed_units == UINT64_MAX ||
+            !gbl_bus_quote_waitcnt(candidate.waitcnt, source_address,
+                                   GBL_BUS_DIRECTION_READ, 4u,
+                                   source_sequence, GBL_BUS_ROLE_DATA,
+                                   &source_cost) ||
+            !gbl_bus_quote_waitcnt(candidate.waitcnt, fifo_address,
+                                   GBL_BUS_DIRECTION_WRITE, 4u,
+                                   destination_sequence,
+                                   GBL_BUS_ROLE_DATA,
+                                   &destination_cost) ||
+            source_cost.cycles > UINT64_MAX - destination_cost.cycles ||
+            source_cost.cycles > UINT64_MAX - source_cycles ||
+            destination_cost.cycles > UINT64_MAX - destination_cycles) {
+            return GBL_DMA_STATUS_UNIT_REFUSAL;
+        }
+        advance_status = gbl_dma_sound_advance(
+            machine, &candidate, source_cost.cycles, initial_cycle,
+            cycle_budget, &dispatched, &staged_bytes);
+        if (advance_status != GBL_DMA_STATUS_OK) {
+            return advance_status;
+        }
+        if (!gbl_bus_dma_read_word_checked(
+                machine, &candidate, source_address, source_sequence,
+                &value)) {
+            return GBL_DMA_STATUS_UNIT_REFUSAL;
+        }
+        advance_status = gbl_dma_sound_advance(
+            machine, &candidate, destination_cost.cycles, initial_cycle,
+            cycle_budget, &dispatched, &staged_bytes);
+        if (advance_status != GBL_DMA_STATUS_OK) {
+            return advance_status;
+        }
+        write_status = gbl_preview_bus_write(&candidate, fifo_address, 4u,
+                                             value);
+        if (write_status != GBL_TIME_STATUS_OK) {
+            return gbl_dma_status_from_time(write_status);
+        }
+        if (word_index == 0u) {
+            first_source = source_address;
+            step.source_sequence = source_sequence;
+            step.destination_sequence = destination_sequence;
+        }
+        step.source_cycles += source_cost.cycles;
+        step.destination_cycles += destination_cost.cycles;
+        source_cycles += source_cost.cycles;
+        destination_cycles += destination_cost.cycles;
+        last_value = value;
+        channel->read_latch = value;
+        candidate.dma_last_channel = channel_index;
+        candidate.dma_last_width = 4u;
+        candidate.dma_last_source = source_address;
+        candidate.dma_last_destination = fifo_address;
+        candidate.dma_stream_valid = true;
+        if (source_mode == 0u) {
+            channel->current_source =
+                (channel->current_source + 4u) &
+                gbl_dma_source_mask(channel_index);
+        } else if (source_mode == 1u) {
+            channel->current_source =
+                (channel->current_source - 4u) &
+                gbl_dma_source_mask(channel_index);
+        }
+        channel->current_destination = fifo_address;
+        --channel->remaining;
+        ++channel->completed_units;
+    }
+
+    channel->active = false;
+    channel->pending = false;
+    channel->startup_complete = false;
+    channel->remaining = 0u;
+    channel->armed = true;
+    channel->trigger_origin = GBL_DMA_TRIGGER_ORIGIN_NONE;
+    channel->trigger_cycle = 0u;
+    channel->trigger_dispute = GBL_DMA_DISPUTE_NONE;
+    if ((channel->control & UINT16_C(0x4000)) != 0u) {
+        candidate.interrupt_flags = (uint16_t)(
+            candidate.interrupt_flags |
+            (uint16_t)(UINT16_C(0x0100) << channel_index));
+    }
+    if (!gbl_dma_preview_other_ready(&candidate, channel_index)) {
+        candidate.bus_owner = GBL_MACHINE_BUS_OWNER_CPU;
+        candidate.dma_stream_valid = false;
+    }
+    gbl_machine_copy_bytes(candidate.ppu_affine_prepared,
+                           candidate.ppu.affine,
+                           sizeof(candidate.ppu_affine_prepared));
+    gbl_ppu_bind_prepared_registers(&candidate);
+    candidate.audio_prepared = candidate.audio;
+    candidate.audio_fifo_reset_mask_prepared =
+        candidate.audio_fifo_reset_mask;
+    if (!gbl_machine_commit_time_checked(machine, &candidate)) {
+        return GBL_DMA_STATUS_UNIT_REFUSAL;
+    }
+    machine->open_bus = last_value;
+    if (machine->bus_owner == GBL_MACHINE_BUS_OWNER_CPU) {
+        machine->cpu.force_nonsequential_fetch = true;
+    }
+    step.status = GBL_DMA_STATUS_OK;
+    step.owner = GBL_MACHINE_BUS_OWNER_DMA;
+    step.source_address = first_source;
+    step.destination_address = fifo_address;
+    step.value = last_value;
+    step.width = 4u;
+    step.unit_completed = true;
+    step.remaining = 0u;
+    step.completed = 4u;
+    step.completion_cycle = machine->master_cycles;
+    *result = step;
+    return step.status;
+}
+
 gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
                                    uint64_t cycle_budget,
                                    gbl_dma_step_result *result)
@@ -3987,6 +4385,13 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
         return step.status;
     }
     channel = &machine->dma_channels[channel_index];
+    if (channel->trigger_origin ==
+            GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A ||
+        channel->trigger_origin ==
+            GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B) {
+        return gbl_machine_dma_sound_burst(machine, channel_index,
+                                           cycle_budget, result);
+    }
     step.channel = channel_index;
     step.remaining = channel->remaining;
     step.completed = channel->completed_units;
