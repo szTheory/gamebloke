@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 milestone: v5.0
 milestone_name: Deterministic Core API and Installed Consumer Proof
 status: planning
-last_updated: "2026-11-23T22:06:36.618Z"
+last_updated: "2026-11-23T22:10:44Z"
 last_activity: 2026-11-23
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,15 +21,16 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Owner-approved v5.0 scope; formal requirements and execution roadmap are being established.
+**Current focus:** Phase 20, Bounded Core API. The v5.0 roadmap and requirement mapping are ready for review.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 20 (Bounded Core API), first of 2 in v5.0
 Plan: —
-Status: Defining requirements
-Last activity: 2026-11-23 — Milestone v5.0 started
+Status: Ready to plan
+Last activity: 2026-11-23 — Mapped the v5.0 requirements to Phases 20 and 21
 
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -209,6 +210,8 @@ Last activity: 2026-11-23 — Milestone v5.0 started
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v5.0 Roadmap] Phase 20 proves the versioned, opaque Core API for the existing `agb` direct-start, ROM-only profile, including bounded advancement, A/V observations, and refusal postconditions. Phase 21 proves the same public boundary from a relocated C consumer with a rights-reviewed diagnostic and uses its results to assess LibFuturo fit. All nine requirements map to one phase each. Dependency adoption, Playstead changes, backup devices, compatibility-superiority claims, hardware qualification, and public release are outside this milestone.
 
 - [v3.0 Roadmap]: Phase 11 owns the mode/output contract, sampled rows, and transactional visibility; Phase 12 delivers all text/affine/bitmap BG families; Phase 13 owns OBJ and shared priority; Phase 14 owns windows/effects/mosaic/blank; Phase 15 owns CPU/DMA video-memory policy enforcement and complete semantic/runner/replay evidence. All 18 current requirements have one owner phase; tests accompany each feature, with full coverage accepted in Phase 15.
 - [v3.0 Limits]: Preserve the selected 1006-cycle HBlank and line-sampling policy, open HBlank/DMA-latch/within-line disputes, UNKNOWN hardware qualification, fixture-rights limits, and every existing hosted/budget/no-retry stop. No new BIOS, third-party fixture, hosted rerun, publication, or implementation authority follows from roadmap creation. See ROADMAP.md and PROJECT.md for scope and horizon alternatives.
@@ -629,12 +632,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T22:06:36.618Z
-Stopped at: v5.0 milestone started; defining requirements and roadmap
+Last session: 2026-11-23T22:10:44Z
+Stopped at: v5.0 roadmap and requirement mapping created. Phase 20 is next.
 Resume file: None
 
 ## Operator Next Steps
 
 
 
-- Complete v5.0 requirements and roadmap setup, then run `$gsd-autonomous` to execute the milestone phases end to end.
+- After roadmap review, begin Phase 20 with `$gsd-discuss-phase 20` or `$gsd-plan-phase 20`.

@@ -6,13 +6,11 @@
 - ✅ **v2.0 Time, Interrupts, DMA, First Pixels** — Completed locally 2026-11-19; scoped Playable 0 demo accepted. No software release or hardware qualification claimed. See [archive](milestones/v2.0-ROADMAP.md).
 - ✅ **v3.0 PPU Modes and Composition** — Completed locally 2026-11-21; deterministic modes 0–5 and composition model verified. No software release or hardware qualification claimed. See [archive](milestones/v3.0-ROADMAP.md) and [audit](milestones/v3.0-MILESTONE-AUDIT.md).
 - ✅ **v4.0 Audio** — Completed locally 2026-11-23; 13/13 requirements, four phases, and five integration flows verified. Audit verdict: documented tech debt only; no software release or hardware qualification claimed. See [archive](milestones/v4.0-ROADMAP.md) and [audit](milestones/v4.0-MILESTONE-AUDIT.md).
+- 🚧 **v5.0 Deterministic Core API and Installed Consumer Proof** — Phases 20–21.
 
-## Current Milestone
+## v5.0 — Deterministic Core API and Installed Consumer Proof
 
-### v5.0 — Deterministic Core API and Installed Consumer Proof
-
-**Status:** Owner-approved direction; formal milestone requirements and phase
-roadmap are being established.
+**Status:** Owner-approved scope. Phase 20 is next for discussion and planning.
 
 **Goal:** Prove that a developer or integrator can use Gamebloke's canonical
 GBA machine through a stable, portable API and obtain bounded, reproducible,
@@ -87,6 +85,9 @@ software versions.
 
 ## Phases
 
+- [ ] **Phase 20: Bounded Core API** - C callers can run independent machines, observe raw outputs, and handle refusals through the versioned public API.
+- [ ] **Phase 21: Installed Consumer Proof and LibFuturo Fit** - A relocated C consumer reproduces guest and raw A/V evidence and provides a concrete basis for evaluating LibFuturo.
+
 <details>
 <summary>✅ Completed v4.0 Audio phases — 2026-11-23</summary>
 
@@ -107,6 +108,44 @@ software versions.
 - [x] Phase 15: Production Access and Runner Evidence — 5/5 plans
 
 </details>
+
+## Phase Details
+
+### Phase 20: Bounded Core API
+
+**Goal**: A C caller can run and observe isolated instances of the canonical `agb` machine through a versioned, opaque API with bounded work and failure-atomic refusals.
+**Depends on**: Phase 19 (completed canonical machine and raw A/V baseline)
+**Requirements**: API-01, API-02, API-03, API-04, API-05
+**Success Criteria** (what must be TRUE):
+
+  1. A C caller can create and destroy independent instances using public types, select the `agb` direct-start, ROM-only profile, and load, reset, and unload content. Interleaved operations on two instances yield each instance’s isolated result.
+  2. A caller can submit timestamped logical input and advance within a caller-specified work bound. Results separately report logical input observations, guest progress, machine time, and the outcome of the advance.
+  3. A caller can obtain raw video and audio in caller-owned buffers and read structured metadata identifying the machine profile, observations, supported behavior, and limits of the model evidence.
+  4. Invalid arguments, rejected profiles or content, unsupported requests, insufficient output capacity, and exhausted work bounds return their documented statuses. A caller can verify the documented machine and buffer postconditions and retry a valid request with the same result as an equivalent run without the refusal.
+
+**Plans**: TBD
+
+### Phase 21: Installed Consumer Proof and LibFuturo Fit
+
+**Goal**: A developer can reproduce machine-level evidence through a relocated, public-only C consumer and assess LibFuturo with results from that consumer.
+**Depends on**: Phase 20
+**Requirements**: CONS-01, EVID-01, EVID-02, INT-01
+**Success Criteria** (what must be TRUE):
+
+  1. A developer can build and run the standalone C consumer outside the source and build trees against only the public headers and libraries from a relocated install prefix, using documented dependencies and platform assumptions.
+  2. The installed consumer runs a rights-reviewed, original BIOS-free diagnostic under its permitted use. Its manifest identifies the source, revision, build recipe, digest, license and notices, BIOS mode, expected results, and permitted use.
+  3. Fresh runs with the same timed input and work bound reproduce the expected guest result, literal raw video values, and literal raw audio samples. The checks detect deviations from those expectations independently of hashes. Hashes record identity and repeatability.
+  4. Through the installed API, a developer can reproduce the documented refusal statuses and compare the machine observations and buffer contents before and after invalid size, capacity, and budget requests.
+  5. The LibFuturo fit report cites observations from the actual API and relocated consumer, identifies fits and gaps in input timing, work bounds, output ownership, and evidence semantics, and gives the evidence needed for a separate dependency or contract decision.
+
+**Plans**: TBD
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 20. Bounded Core API | 0/TBD | Not started | - |
+| 21. Installed Consumer Proof and LibFuturo Fit | 0/TBD | Not started | - |
 
 ## Open Carryovers and Evidence Limits
 

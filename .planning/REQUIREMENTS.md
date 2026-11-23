@@ -55,16 +55,23 @@ Deferred until a real consumer or separate owner decision promotes them:
 
 ## Traceability
 
-The roadmapper will map every v1 requirement to exactly one phase.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| API-01 | Phase 20 | Pending |
+| API-02 | Phase 20 | Pending |
+| API-03 | Phase 20 | Pending |
+| API-04 | Phase 20 | Pending |
+| API-05 | Phase 20 | Pending |
+| CONS-01 | Phase 21 | Pending |
+| EVID-01 | Phase 21 | Pending |
+| EVID-02 | Phase 21 | Pending |
+| INT-01 | Phase 21 | Pending |
 
 **Coverage:**
 - v1 requirements: 9 total
-- Mapped to phases: 0
-- Unmapped: 9 ⚠️
+- Mapped to phases: 9
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-11-23*
-*Last updated: 2026-11-23 after defining the owner-approved v5.0 scope*
+*Last updated: 2026-11-23 after mapping the owner-approved v5.0 scope to Phases 20 and 21*
