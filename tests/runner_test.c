@@ -555,6 +555,215 @@ static bool gbl_test_write_ppu_guest(const char *path)
     return gbl_test_write_ppu_guest_with_dispcnt(path, UINT32_C(0x0403));
 }
 
+static bool gbl_test_write_audio_guest(const char *path)
+{
+    enum {
+        IMAGE_BYTES = 0x800u,
+        LITERAL_OFFSET = 0x600u,
+        NOP_COUNT = 160u
+    };
+    static const uint32_t literals[] = {
+        UINT32_C(0x04000084), UINT32_C(0x0080),
+        UINT32_C(0x04000080), UINT32_C(0x00022070),
+        UINT32_C(0x04000068), UINT32_C(0xF0C0),
+        UINT32_C(0x0400006C), UINT32_C(0x87F8),
+        0u,
+        UINT32_C(0x03007FC0), UINT32_C(0x47424C4B), UINT32_C(1),
+        UINT32_C(2), UINT32_C(9), UINT32_C(0x434F4D50)
+    };
+    uint8_t image[IMAGE_BYTES] = { 0u };
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, LITERAL_OFFSET);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  LITERAL_OFFSET + 8u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  LITERAL_OFFSET + 16u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 20u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  LITERAL_OFFSET + 24u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 28u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    for (index = 0u; index < NOP_COUNT; ++index) {
+        gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1A00000));
+    }
+    gbl_test_emit_mailbox(image, &offset, LITERAL_OFFSET, 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    if (offset > LITERAL_OFFSET) {
+        return false;
+    }
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, LITERAL_OFFSET + index * 4u,
+                            literals[index]);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_audio_file_matches(const char *path,
+                                        const uint8_t *expected,
+                                        size_t expected_length)
+{
+    FILE *file;
+    uint8_t actual[4];
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (path == NULL || expected == NULL ||
+        expected_length != sizeof actual) {
+        return false;
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) {
+        return false;
+    }
+    length = fread(actual, 1u, sizeof actual, file);
+    extra = fgetc(file);
+    okay = length == sizeof actual && extra == EOF &&
+           ferror(file) == 0 && memcmp(actual, expected, sizeof actual) == 0;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_runner_audio_output(const char *scratch_directory)
+{
+    static const uint8_t expected_frame[4] = {
+        UINT8_C(0x00), UINT8_C(0x78), UINT8_C(0x00), UINT8_C(0x00)
+    };
+    gbl_runner_options options = { 0 };
+    gbl_runner_result complete = { 0 };
+    gbl_runner_result early = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char early_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[16384];
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    bool guest_okay;
+    bool artifact_okay;
+    bool early_guest_okay;
+    bool early_artifact_okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "audio-output.gba") ||
+        !gbl_test_path(output_path, sizeof output_path, scratch_directory,
+                       "audio-output.raw") ||
+        !gbl_test_path(early_path, sizeof early_path, scratch_directory,
+                       "audio-output-early.raw") ||
+        !gbl_test_write_audio_guest(rom_path)) {
+        return false;
+    }
+    (void)remove(output_path);
+    (void)remove(early_path);
+
+    options.rom_path = rom_path;
+    options.cycle_budget = UINT64_C(4096);
+    options.audio_output_path = output_path;
+    options.audio_end_cycles = UINT64_C(512);
+    guest_okay =
+        gbl_runner_execute(&options, &complete) == complete.status &&
+        complete.ran && complete.status == GBL_RUNNER_GUEST_STOP &&
+        complete.semantic.status == GBL_MAILBOX_PASS &&
+        complete.cycles > options.audio_end_cycles;
+    artifact_okay = complete.audio.requested &&
+                    complete.audio.capture_state ==
+                        GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+                    complete.audio.has_requested_interval &&
+                    complete.audio.requested_start_cycle == 0u &&
+                    complete.audio.requested_end_cycle ==
+                        options.audio_end_cycles &&
+                    complete.audio.has_actual_interval &&
+                    complete.audio.actual_start_cycle == 0u &&
+                    complete.audio.actual_end_cycle ==
+                        options.audio_end_cycles &&
+                    complete.audio.interval_complete &&
+                    complete.audio.has_frame_count &&
+                    complete.audio.frame_count == 1u &&
+                    complete.audio.has_byte_count &&
+                    complete.audio.byte_count == sizeof expected_frame &&
+                    complete.audio.pcm_bytes != NULL &&
+                    complete.audio.pcm_capacity >= sizeof expected_frame &&
+                    memcmp(complete.audio.pcm_bytes, expected_frame,
+                           sizeof expected_frame) == 0 &&
+                    complete.audio.artifact_state ==
+                        GBL_RUNNER_AUDIO_ARTIFACT_EMITTED &&
+                    complete.audio.artifact_emitted &&
+                    complete.audio.has_artifact_byte_count &&
+                    complete.audio.artifact_byte_count ==
+                        sizeof expected_frame &&
+                    complete.audio.has_sha256 &&
+                    gbl_sha256_span(expected_frame, sizeof expected_frame,
+                                    digest) &&
+                    strcmp(digest, complete.audio.sha256) == 0 &&
+                    gbl_test_audio_file_matches(output_path, expected_frame,
+                                                sizeof expected_frame) &&
+                    gbl_test_serialize_result(&complete, json,
+                                              sizeof json) &&
+                    strstr(json,
+                           "\"audio\":{\"requested\":true,") != NULL &&
+                    strstr(json, "\"capture_state\":\"complete\"") !=
+                        NULL &&
+                    strstr(json, complete.audio.sha256) != NULL;
+
+    gbl_runner_result_dispose(&complete);
+    artifact_okay = artifact_okay &&
+                    gbl_test_audio_file_matches(output_path, expected_frame,
+                                                sizeof expected_frame);
+
+    memset(&options, 0, sizeof options);
+    options.rom_path = rom_path;
+    options.cycle_budget = UINT64_C(300);
+    options.audio_output_path = early_path;
+    options.audio_end_cycles = UINT64_C(512);
+    early_guest_okay =
+        gbl_runner_execute(&options, &early) == GBL_RUNNER_TIMEOUT &&
+        early.status == GBL_RUNNER_TIMEOUT &&
+        early.cycles < options.audio_end_cycles &&
+        early.semantic.status != GBL_MAILBOX_PASS;
+    early_artifact_okay = early.audio.requested &&
+                          early.audio.capture_state ==
+                              GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+                          !early.audio.interval_complete &&
+                          !early.audio.artifact_emitted &&
+                          early.audio.artifact_state ==
+                              GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN &&
+                          access(early_path, F_OK) != 0 && errno == ENOENT;
+
+    gbl_runner_result_dispose(&early);
+    gbl_test_case(guest_okay,
+                  "runner-audio-output: guest advances beyond the requested capture window and reaches its mailbox marker");
+    gbl_test_case(artifact_okay,
+                  "runner-audio-output: complete window writes exact literal PCM and digest");
+    gbl_test_case(early_guest_okay,
+                  "runner-audio-output: shorter cycle budget stops before the guest mailbox marker");
+    gbl_test_case(early_artifact_okay,
+                  "runner-audio-output: early stop leaves capture incomplete and creates no artifact");
+    return guest_okay && artifact_okay && early_guest_okay &&
+           early_artifact_okay;
+}
+
 enum {
     GBL_PRODUCTION_IMAGE_BYTES = 0xC00u,
     GBL_PRODUCTION_LITERAL_OFFSET = 0x600u,
@@ -4814,6 +5023,22 @@ int main(int argc, char **argv)
         gbl_test_case(gbl_test_runner_ppu_output(argv[2]),
                       "runner-ppu-output: exact frame bytes persist after disposal, repeat identically, and respond to input");
         return gbl_test_failures == 0u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "audio.output") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: audio output scratch setup failed\n", stderr);
+            return 2;
+        }
+        gbl_test_number = 0u;
+        gbl_test_failures = 0u;
+        printf("1..4\n");
+        (void)gbl_test_runner_audio_output(argv[2]);
+        if (gbl_test_number != 4u) {
+            fputs("runner_test: audio output setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 4u ? 0 : 1;
     }
     if (argc == 3 && strcmp(argv[1], "ppu.output-controls") == 0 &&
         argv[2][0] != '\0') {

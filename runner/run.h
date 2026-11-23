@@ -17,6 +17,7 @@
 #define GBL_RUNNER_PROFILE_VERSION UINT32_C(16)
 #define GBL_RUNNER_FRAME_CYCLES UINT64_C(280896)
 #define GBL_RUNNER_VIDEO_BYTES ((size_t)GBL_PPU_VIDEO_BYTES)
+#define GBL_RUNNER_AUDIO_MAX_BYTES ((size_t)UINT32_C(131072))
 
 typedef void *(*gbl_runner_allocate_fn)(void *context, size_t size);
 typedef void (*gbl_runner_release_fn)(void *context, void *pointer,
@@ -45,6 +46,10 @@ typedef struct gbl_runner_options {
     size_t input_event_count;
     /* A non-NULL path requests one valid raw mode-3 frame. */
     const char *video_output_path;
+    /* A non-NULL path requests a bounded reset-anchored PCM interval. */
+    const char *audio_output_path;
+    /* Zero selects the validated cycle budget when audio output is requested. */
+    uint64_t audio_end_cycles;
     /* Both callbacks must be supplied together. Both NULL selects malloc/free. */
     gbl_runner_allocator allocator;
 } gbl_runner_options;
@@ -118,6 +123,48 @@ typedef struct gbl_runner_phase10_observation {
     size_t video_length;
 } gbl_runner_phase10_observation;
 
+typedef enum gbl_runner_audio_capture_state {
+    GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED = 0,
+    GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE,
+    GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE,
+    GBL_RUNNER_AUDIO_CAPTURE_COMPLETE,
+    GBL_RUNNER_AUDIO_CAPTURE_FAILED
+} gbl_runner_audio_capture_state;
+
+typedef enum gbl_runner_audio_artifact_state {
+    GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED = 0,
+    GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN,
+    GBL_RUNNER_AUDIO_ARTIFACT_FAILED,
+    GBL_RUNNER_AUDIO_ARTIFACT_EMITTED
+} gbl_runner_audio_artifact_state;
+
+typedef struct gbl_runner_audio_observation {
+    bool requested;
+    gbl_runner_audio_capture_state capture_state;
+    bool has_requested_interval;
+    uint64_t requested_start_cycle;
+    uint64_t requested_end_cycle;
+    bool has_actual_interval;
+    uint64_t actual_start_cycle;
+    uint64_t actual_end_cycle;
+    bool interval_complete;
+    bool has_frame_count;
+    uint64_t frame_count;
+    bool has_byte_count;
+    size_t byte_count;
+    uint8_t *pcm_bytes;
+    size_t pcm_capacity;
+    uint8_t *scratch_bytes;
+    size_t scratch_capacity;
+    gbl_runner_audio_artifact_state artifact_state;
+    bool artifact_emitted;
+    bool has_artifact_byte_count;
+    size_t artifact_byte_count;
+    bool has_sha256;
+    char sha256[GBL_SHA256_HEX_CAPACITY];
+    char artifact_error[64];
+} gbl_runner_audio_observation;
+
 typedef enum gbl_runner_status {
     GBL_RUNNER_PASS = 0,
     GBL_RUNNER_GUEST_FAIL,
@@ -165,6 +212,7 @@ typedef struct gbl_runner_result {
     gbl_runner_phase8_observation phase8;
     gbl_runner_phase9_observation phase9;
     gbl_runner_phase10_observation phase10;
+    gbl_runner_audio_observation audio;
     bool has_timer0_if_request;
     bool timer0_if_request;
     char termination[64];
@@ -202,6 +250,10 @@ bool gbl_runner_write_trace(const char *path,
 
 /* Writes one exact valid raw BGR555 frame to a newly created explicit path. */
 bool gbl_runner_write_video(const char *path,
+                            gbl_runner_result *result);
+
+/* Writes one exact complete stereo S16LE capture to a new explicit path. */
+bool gbl_runner_write_audio(const char *path,
                             gbl_runner_result *result);
 
 void gbl_runner_result_dispose(gbl_runner_result *result);
