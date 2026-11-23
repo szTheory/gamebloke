@@ -20,6 +20,34 @@ static gbl_machine *new_machine(void)
     return machine;
 }
 
+static void *audio_test_allocate(void *context, size_t size)
+{
+    (void)context;
+    return malloc(size);
+}
+
+static void audio_test_release(void *context, void *pointer, size_t size)
+{
+    (void)context;
+    (void)size;
+    free(pointer);
+}
+
+static gbl_machine *new_machine_with_scratch_allocator(void)
+{
+    const gbl_allocator allocator = {
+        NULL, audio_test_allocate, audio_test_release
+    };
+    gbl_machine *machine = calloc(1u, sizeof(*machine));
+
+    if (machine == NULL ||
+        gbl_machine_init(machine, &allocator) != GBL_BUS_STATUS_OK) {
+        free(machine);
+        return NULL;
+    }
+    return machine;
+}
+
 static void free_machine(gbl_machine *machine)
 {
     if (machine != NULL) {
@@ -4647,6 +4675,104 @@ static bool prepare_capture_cpu(gbl_machine *machine, uint8_t *image,
     return true;
 }
 
+static bool prepare_capture_cpu_owned_rom(gbl_machine *machine,
+                                          uint8_t *image,
+                                          size_t image_size,
+                                          uint32_t first_opcode)
+{
+    uint8_t *owned_rom;
+
+    if (!prepare_capture_cpu(machine, image, image_size, first_opcode)) {
+        return false;
+    }
+    owned_rom = malloc(image_size);
+    if (owned_rom == NULL) {
+        machine->rom = NULL;
+        machine->rom_length = 0u;
+        return false;
+    }
+    memcpy(owned_rom, image, image_size);
+    machine->rom = owned_rom;
+    machine->rom_length = image_size;
+    return true;
+}
+
+static bool prepare_capture_sound_dma(gbl_machine *machine, uint8_t *image,
+                                      size_t image_size,
+                                      uint64_t expected_threshold_cycle,
+                                      uint64_t *threshold_cycle_out)
+{
+    static const uint32_t dma_words[4] = {
+        UINT32_C(0xF1E2D3C4), UINT32_C(0xB5A69788),
+        UINT32_C(0x796A5B4C), UINT32_C(0x3D2E1F10)
+    };
+    uint64_t first_overflow;
+    uint64_t threshold_cycle;
+    unsigned index;
+    bool ready;
+
+    if (machine == NULL || image == NULL || threshold_cycle_out == NULL ||
+        image_size < 8u) {
+        return false;
+    }
+    ready = write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000082), UINT16_C(0x0206)).status ==
+                GBL_BUS_STATUS_OK;
+    for (index = 0u; ready && index < 5u; ++index) {
+        const gbl_bus_result fifo = gbl_bus_write(
+            machine, UINT32_C(0x040000A0), 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x7F7F7F7F));
+
+        ready = fifo.status == GBL_BUS_STATUS_OK &&
+                fifo.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+    }
+    for (index = 0u; ready && index < 4u; ++index) {
+        const size_t offset = UINT32_C(0x100) + (size_t)index * 4u;
+        const uint32_t word = dma_words[index];
+
+        machine->ewram[offset] = (uint8_t)word;
+        machine->ewram[offset + 1u] = (uint8_t)(word >> 8u);
+        machine->ewram[offset + 2u] = (uint8_t)(word >> 16u);
+        machine->ewram[offset + 3u] = (uint8_t)(word >> 24u);
+    }
+    ready = ready &&
+            gbl_bus_write(machine, UINT32_C(0x040000BC), 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x02000100)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x040000C0), 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x03000100)).status == GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x040000C4), 1u).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x040000C6), UINT16_C(0xB000)).status ==
+                GBL_BUS_STATUS_OK &&
+            expected_threshold_cycle >= UINT64_C(18) &&
+            gbl_machine_advance_to(
+                machine, expected_threshold_cycle - UINT64_C(18)) ==
+                GBL_TIME_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFC)).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status ==
+                GBL_BUS_STATUS_OK &&
+            prepare_capture_cpu_owned_rom(
+                machine, image, image_size, UINT32_C(0xE1A00000));
+    if (!ready) {
+        return false;
+    }
+    first_overflow = timer_next_overflow_cycle(&machine->timers[0]);
+    if (first_overflow == UINT64_MAX || first_overflow > UINT64_MAX - 12u) {
+        return false;
+    }
+    threshold_cycle = first_overflow + 12u;
+    ready = gbl_machine_advance_to(machine, threshold_cycle) ==
+                GBL_TIME_STATUS_OK &&
+            machine->audio.fifo[0].count == 16u &&
+            machine->dma_channels[1].pending;
+    *threshold_cycle_out = threshold_cycle;
+    return ready;
+}
+
 static int run_capture_cpu_wait(void)
 {
     uint8_t cpu_image[UINT32_C(0x100)] = { 0u };
@@ -4779,10 +4905,21 @@ static int run_capture_cpu_wait(void)
 static int run_capture_dma(void)
 {
     uint8_t image[UINT32_C(0x100)] = { 0u };
+    uint8_t sound_image[UINT32_C(0x100)] = { 0u };
+    uint8_t refused_image[UINT32_C(0x100)] = { 0u };
     uint8_t output[16];
+    uint8_t sound_output[8];
+    uint8_t refused_output[8];
     uint8_t *staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
+    uint8_t *sound_staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
+    uint8_t *refused_staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
     gbl_machine *machine = new_machine();
+    gbl_machine *sound_machine = new_machine_with_scratch_allocator();
+    gbl_machine *refused_machine = new_machine_with_scratch_allocator();
+    gbl_machine *refused_before = NULL;
     gbl_audio_capture capture = { 0 };
+    gbl_audio_capture sound_capture = { 0 };
+    gbl_audio_capture refused_capture = { 0 };
     gbl_run_options options = {
         .cycle_budget = UINT64_C(32),
         .unit_limit = 1u,
@@ -4790,13 +4927,26 @@ static int run_capture_dma(void)
         .trace_buffer = NULL
     };
     gbl_run_result result = { 0 };
+    gbl_run_result sound_result = { 0 };
+    gbl_run_result refused_result = { 0 };
+    gbl_trace_record trace_record = { 0 };
+    gbl_trace_record trace_record_before = { 0 };
+    gbl_trace_buffer trace = { &trace_record, 1u, 0u, 0u };
+    uint64_t sound_threshold = 0u;
+    uint64_t refused_threshold = 0u;
     bool setup = machine != NULL && staging != NULL;
     bool ran = false;
+    bool sound_setup = sound_machine != NULL && refused_machine != NULL &&
+                       sound_staging != NULL && refused_staging != NULL;
+    bool sound_ran = false;
+    bool refused = false;
 
     tap_test_number = 0u;
     tap_failure_count = 0u;
     puts("TAP version 13");
     memset(output, UINT8_C(0xA5), sizeof(output));
+    memset(sound_output, UINT8_C(0xA5), sizeof(sound_output));
+    memset(refused_output, UINT8_C(0xA5), sizeof(refused_output));
     if (setup) {
         setup = configure_ch2(machine, 0u, 3u, 15u, false, 0u,
                               UINT16_C(2043), false) &&
@@ -4842,9 +4992,86 @@ static int run_capture_dma(void)
                   capture.last_accepted_cycle == UINT64_C(520) &&
                   (output[0] != 0u || output[1] != 0u) &&
                   output[4] == UINT8_C(0xA5));
+
+    if (sound_setup) {
+        sound_setup = prepare_capture_sound_dma(
+                          sound_machine, sound_image, sizeof(sound_image),
+                          UINT64_C(506),
+                          &sound_threshold) &&
+                      prepare_capture_sound_dma(
+                          refused_machine, refused_image,
+                          sizeof(refused_image), UINT64_C(508),
+                          &refused_threshold) &&
+                      sound_threshold == UINT64_C(506) &&
+                      refused_threshold == UINT64_C(508) &&
+                      gbl_audio_capture_begin(
+                          sound_machine, &sound_capture, sound_output,
+                          sizeof(sound_output)) == GBL_TIME_STATUS_OK &&
+                      gbl_audio_capture_begin(
+                          refused_machine, &refused_capture, refused_output,
+                          sizeof(refused_output)) == GBL_TIME_STATUS_OK;
+    }
+    tap_check("timer threshold creates real FIFO-A sound DMA at the planned edge",
+              sound_setup && sound_machine->master_cycles == UINT64_C(506) &&
+                  sound_machine->dma_channels[1].pending &&
+                  sound_machine->audio.fifo[0].count == 16u);
+    if (sound_setup) {
+        sound_ran = gbl_cpu_run_audio(
+                        sound_machine, &options, &sound_result, &sound_capture,
+                        sound_staging, GBL_AUDIO_MAX_CAPTURE_BYTES,
+                        UINT64_C(530)) == GBL_RUN_STATUS_OK;
+    }
+    tap_check("complete sound-DMA burst publishes its literal on-edge PCM",
+              sound_ran &&
+                  sound_machine->dma_channels[1].completed_units == 4u &&
+                  sound_capture.bytes_written == GBL_AUDIO_FRAME_BYTES &&
+                  sound_capture.last_accepted_cycle ==
+                      sound_machine->master_cycles &&
+                  sound_output[0] == 0u && sound_output[1] == UINT8_C(0x7F) &&
+                  sound_output[2] == 0u && sound_output[3] == 0u &&
+                  sound_output[4] == UINT8_C(0xA5));
+
+    if (sound_setup) {
+        refused_before = malloc(sizeof(*refused_before));
+        if (refused_before != NULL) {
+            memcpy(refused_before, refused_machine, sizeof(*refused_before));
+            memset(&trace_record, UINT8_C(0xA5), sizeof(trace_record));
+            trace_record_before = trace_record;
+            options.category_mask = (uint32_t)GBL_TRACE_DMA;
+            options.trace_buffer = &trace;
+            refused = gbl_cpu_run_audio(
+                          refused_machine, &options, &refused_result,
+                          &refused_capture, refused_staging,
+                          GBL_AUDIO_MAX_CAPTURE_BYTES,
+                          UINT64_C(530)) == GBL_RUN_STATUS_OK &&
+                      refused_result.termination ==
+                          GBL_RUN_TRACE_OUTPUT_FULL &&
+                      refused_result.reason ==
+                          GBL_RUN_REASON_TRACE_OUTPUT_FULL &&
+                      memcmp(refused_before, refused_machine,
+                             sizeof(*refused_before)) == 0 &&
+                      refused_capture.bytes_written == 0u &&
+                      refused_capture.last_accepted_cycle ==
+                          refused_threshold &&
+                      refused_output[0] == UINT8_C(0xA5) &&
+                      refused_output[1] == UINT8_C(0xA5) &&
+                      trace.count == 0u && trace.next_sequence == 0u &&
+                      memcmp(&trace_record, &trace_record_before,
+                             sizeof(trace_record)) == 0;
+            options.category_mask = 0u;
+            options.trace_buffer = NULL;
+        }
+    }
+    tap_check("late sound-DMA trace-slot refusal discards machine and PCM candidate",
+              refused);
     printf("1..%u\n", tap_test_number);
     free(staging);
+    free(sound_staging);
+    free(refused_staging);
+    free(refused_before);
     free_machine(machine);
+    free_machine(sound_machine);
+    free_machine(refused_machine);
     return tap_failure_count == 0u ? 0 : 1;
 }
 

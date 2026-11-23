@@ -52,6 +52,11 @@ gbl_run_status gbl_cpu_run_audio(gbl_machine *machine,
                                  uint8_t *staging,
                                  size_t staging_capacity,
                                  uint64_t capture_end_cycle);
+gbl_dma_status gbl_machine_dma_step_observed_audio(
+    gbl_machine *machine, uint64_t cycle_budget, gbl_dma_step_result *result,
+    gbl_dma_step_result *observations, size_t observation_capacity,
+    size_t *observation_count, gbl_audio_capture *capture,
+    uint8_t *staging, size_t staging_capacity, uint64_t capture_end_cycle);
 
 /* Optional staging seam shared by capture and later CPU/DMA operations. */
 gbl_time_status gbl_machine_prepare_operations_audio(

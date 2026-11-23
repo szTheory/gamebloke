@@ -4953,12 +4953,28 @@ gbl_run_status gbl_cpu_run_audio(gbl_machine *machine,
                         run_result.reason = GBL_RUN_REASON_TIME_REFUSAL;
                         break;
                     }
-                    dma_status = gbl_machine_dma_step_observed(
+                    if (capture == NULL) {
+                        dma_status = gbl_machine_dma_step_observed(
+                            machine,
+                            run_options.cycle_budget - run_result.cycles,
+                            &dma_step, dma_observations,
+                            dma_observation_capacity,
+                            &dma_observation_count);
+                    } else {
+                        dma_status = gbl_machine_dma_step_observed_audio(
+                            machine,
+                            run_options.cycle_budget - run_result.cycles,
+                            &dma_step, dma_observations,
+                            dma_observation_capacity,
+                            &dma_observation_count, capture, staging,
+                            staging_capacity, capture_end_cycle);
+                    }
+                } else if (capture != NULL) {
+                    dma_status = gbl_machine_dma_step_observed_audio(
                         machine,
                         run_options.cycle_budget - run_result.cycles,
-                        &dma_step, dma_observations,
-                        dma_observation_capacity,
-                        &dma_observation_count);
+                        &dma_step, NULL, 0u, NULL, capture, staging,
+                        staging_capacity, capture_end_cycle);
                 } else {
                     dma_status = gbl_machine_dma_step(
                         machine,

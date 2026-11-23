@@ -4346,7 +4346,8 @@ static gbl_bus_access_class gbl_dma_sound_sequence(
 static gbl_dma_status gbl_dma_sound_advance(
     const gbl_machine *machine, gbl_machine_time_preview *preview,
     uint64_t cycles, uint64_t initial_cycle, uint64_t cycle_budget,
-    size_t *dispatched, size_t *staged_bytes)
+    size_t *dispatched, size_t *staged_bytes, uint8_t *audio_staging,
+    size_t audio_staging_capacity, uint64_t capture_end_cycle)
 {
     uint64_t elapsed;
     uint64_t target;
@@ -4364,9 +4365,10 @@ static gbl_dma_status gbl_dma_sound_advance(
         return GBL_DMA_STATUS_TIME_OVERFLOW;
     }
     target = preview->master_cycles + cycles;
-    status = gbl_preview_advance_to(machine, preview, target, dispatched,
-                                    NULL, 0u, staged_bytes, NULL, NULL,
-                                    UINT64_MAX);
+    status = gbl_preview_advance_to(
+        machine, preview, target, dispatched, audio_staging,
+        audio_staging_capacity, staged_bytes, NULL, NULL,
+        capture_end_cycle);
     if (status != GBL_TIME_STATUS_OK) {
         return gbl_dma_status_from_time(status);
     }
@@ -4454,7 +4456,9 @@ static bool gbl_dma_sound_accumulate(
 static gbl_dma_status gbl_dma_sound_startup(
     gbl_machine *machine, gbl_dma_sound_frame *frame,
     uint64_t initial_cycle, uint64_t cycle_budget, size_t *dispatched,
-    size_t *staged_bytes, gbl_dma_step_result *observation)
+    size_t *staged_bytes, uint8_t *audio_staging,
+    size_t audio_staging_capacity, uint64_t capture_end_cycle,
+    gbl_dma_step_result *observation)
 {
     gbl_machine_time_preview candidate;
     gbl_dma_channel_state *channel;
@@ -4504,7 +4508,8 @@ static gbl_dma_status gbl_dma_sound_startup(
 
     advance_status = gbl_dma_sound_advance(
         machine, &candidate, GBL_DMA_STARTUP_CYCLES, initial_cycle,
-        cycle_budget, dispatched, staged_bytes);
+        cycle_budget, dispatched, staged_bytes, audio_staging,
+        audio_staging_capacity, capture_end_cycle);
     if (advance_status != GBL_DMA_STATUS_OK) {
         return advance_status;
     }
@@ -4531,7 +4536,9 @@ static gbl_dma_status gbl_dma_sound_startup(
 static gbl_dma_status gbl_dma_sound_word(
     gbl_machine *machine, gbl_dma_sound_frame *frame,
     uint64_t initial_cycle, uint64_t cycle_budget, size_t *dispatched,
-    size_t *staged_bytes, gbl_dma_step_result *observation)
+    size_t *staged_bytes, uint8_t *audio_staging,
+    size_t audio_staging_capacity, uint64_t capture_end_cycle,
+    gbl_dma_step_result *observation)
 {
     gbl_machine_time_preview candidate;
     gbl_dma_channel_state *channel;
@@ -4585,7 +4592,8 @@ static gbl_dma_status gbl_dma_sound_word(
 
     advance_status = gbl_dma_sound_advance(
         machine, &candidate, source_cost.cycles, initial_cycle, cycle_budget,
-        dispatched, staged_bytes);
+        dispatched, staged_bytes, audio_staging, audio_staging_capacity,
+        capture_end_cycle);
     if (advance_status != GBL_DMA_STATUS_OK) {
         return advance_status;
     }
@@ -4595,7 +4603,8 @@ static gbl_dma_status gbl_dma_sound_word(
     }
     advance_status = gbl_dma_sound_advance(
         machine, &candidate, destination_cost.cycles, initial_cycle,
-        cycle_budget, dispatched, staged_bytes);
+        cycle_budget, dispatched, staged_bytes, audio_staging,
+        audio_staging_capacity, capture_end_cycle);
     if (advance_status != GBL_DMA_STATUS_OK) {
         return advance_status;
     }
@@ -4704,12 +4713,66 @@ static gbl_dma_status gbl_dma_sound_finish(
 
 static gbl_dma_status gbl_machine_dma_step_single(
     gbl_machine *machine, uint64_t cycle_budget,
-    gbl_dma_step_result *result);
+    gbl_dma_step_result *result, gbl_audio_capture *capture,
+    uint8_t *audio_staging, size_t audio_staging_capacity,
+    size_t *staged_audio_bytes, uint64_t capture_end_cycle);
+
+static gbl_dma_status gbl_machine_dma_stage_internal_audio(
+    const gbl_machine *machine, uint64_t cycles, gbl_audio_capture *capture,
+    uint8_t *audio_staging, size_t audio_staging_capacity,
+    size_t *staged_audio_bytes, uint64_t capture_end_cycle)
+{
+    const gbl_time_operation operation = {
+        GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, cycles
+    };
+    gbl_machine_time_preview preview;
+    gbl_time_status time_status;
+    uint64_t final_cycle;
+    uint64_t expected_frames;
+
+    if (capture == NULL) {
+        return GBL_DMA_STATUS_OK;
+    }
+    if (machine == NULL || staged_audio_bytes == NULL ||
+        audio_staging == NULL ||
+        audio_staging_capacity > GBL_AUDIO_MAX_CAPTURE_BYTES ||
+        capture->bytes_written > capture->capacity ||
+        capture->bytes_written > GBL_AUDIO_MAX_CAPTURE_BYTES) {
+        return GBL_DMA_STATUS_INVALID_ARGUMENT;
+    }
+    time_status = gbl_machine_prepare_operations_audio_until(
+        machine, &operation, 1u, &preview, audio_staging,
+        audio_staging_capacity, staged_audio_bytes, capture_end_cycle);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        return gbl_dma_status_from_time(time_status);
+    }
+    final_cycle = preview.master_cycles < capture_end_cycle
+                      ? preview.master_cycles
+                      : capture_end_cycle;
+    if (final_cycle < capture->last_accepted_cycle) {
+        return GBL_DMA_STATUS_UNIT_REFUSAL;
+    }
+    expected_frames = final_cycle / GBL_AUDIO_SAMPLE_CYCLES -
+                      capture->last_accepted_cycle /
+                          GBL_AUDIO_SAMPLE_CYCLES;
+    if (*staged_audio_bytes > capture->capacity - capture->bytes_written ||
+        *staged_audio_bytes > GBL_AUDIO_MAX_CAPTURE_BYTES -
+                                  capture->bytes_written ||
+        expected_frames > (uint64_t)(SIZE_MAX / GBL_AUDIO_FRAME_BYTES) ||
+        *staged_audio_bytes !=
+            (size_t)expected_frames * GBL_AUDIO_FRAME_BYTES) {
+        return GBL_DMA_STATUS_UNIT_REFUSAL;
+    }
+    return GBL_DMA_STATUS_OK;
+}
 
 static gbl_dma_status gbl_machine_dma_sound_burst(
     gbl_machine *machine, uint8_t channel_index, uint64_t cycle_budget,
     gbl_dma_step_result *result, gbl_dma_step_result *observations,
-    size_t observation_capacity, size_t *observation_count)
+    size_t observation_capacity, size_t *observation_count,
+    gbl_audio_capture *capture, uint8_t *audio_staging,
+    size_t audio_staging_capacity, uint64_t capture_end_cycle,
+    size_t *staged_bytes_out)
 {
     gbl_dma_sound_frame frames[2] = { { 0 } };
     gbl_dma_step_result step = { 0 };
@@ -4742,7 +4805,8 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
             gbl_dma_step_result startup = { 0 };
             gbl_dma_status status = gbl_dma_sound_startup(
                 machine, frame, initial_cycle, cycle_budget, &dispatched,
-                &staged_bytes, &startup);
+                &staged_bytes, audio_staging, audio_staging_capacity,
+                capture_end_cycle, &startup);
 
             if (status != GBL_DMA_STATUS_OK) {
                 return status;
@@ -4798,7 +4862,9 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
                         return GBL_DMA_STATUS_BUDGET_REFUSAL;
                     }
                     status = gbl_machine_dma_step_single(
-                        machine, cycle_budget - elapsed, &interleaved);
+                        machine, cycle_budget - elapsed, &interleaved,
+                        capture, audio_staging, audio_staging_capacity,
+                        &staged_bytes, capture_end_cycle);
                     if (status != GBL_DMA_STATUS_OK) {
                         return status;
                     }
@@ -4830,7 +4896,8 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
             gbl_dma_step_result word = { 0 };
             const gbl_dma_status status = gbl_dma_sound_word(
                 machine, frame, initial_cycle, cycle_budget, &dispatched,
-                &staged_bytes, &word);
+                &staged_bytes, audio_staging, audio_staging_capacity,
+                capture_end_cycle, &word);
 
             if (status != GBL_DMA_STATUS_OK) {
                 return status;
@@ -4861,17 +4928,32 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
     step.destination_sequence = frames[0].first_destination_sequence;
     step.completion_cycle = machine->master_cycles;
     *result = step;
+    if (staged_bytes_out != NULL) {
+        *staged_bytes_out = staged_bytes;
+    }
     return GBL_DMA_STATUS_OK;
 }
 
 static gbl_dma_status gbl_machine_dma_step_single(gbl_machine *machine,
                                                   uint64_t cycle_budget,
-                                                  gbl_dma_step_result *result)
+                                                  gbl_dma_step_result *result,
+                                                  gbl_audio_capture *capture,
+                                                  uint8_t *audio_staging,
+                                                  size_t audio_staging_capacity,
+                                                  size_t *staged_audio_bytes,
+                                                  uint64_t capture_end_cycle)
 {
     uint8_t channel_index;
     gbl_dma_channel_state *channel;
     gbl_dma_step_result step = { 0 };
     gbl_time_status time_status;
+    gbl_cycle_cost audio_source_cost;
+    gbl_cycle_cost audio_destination_cost;
+    gbl_bus_access_class audio_source_sequence =
+        GBL_BUS_CLASS_NONSEQUENTIAL;
+    gbl_bus_access_class audio_destination_sequence =
+        GBL_BUS_CLASS_NONSEQUENTIAL;
+    uint64_t audio_cycles = 0u;
 
     if (machine == NULL || result == NULL || !machine->initialized ||
         machine->event_count > GBL_EVENT_CAPACITY ||
@@ -4933,6 +5015,13 @@ static gbl_dma_status gbl_machine_dma_step_single(gbl_machine *machine,
             *result = step;
             return step.status;
         }
+        step.status = gbl_machine_dma_stage_internal_audio(
+            machine, GBL_DMA_STARTUP_CYCLES, capture, audio_staging,
+            audio_staging_capacity, staged_audio_bytes, capture_end_cycle);
+        if (step.status != GBL_DMA_STATUS_OK) {
+            *result = step;
+            return step.status;
+        }
         time_status = gbl_machine_prepare_operations(
             machine, &startup, 1u, &preview);
         if (time_status != GBL_TIME_STATUS_OK) {
@@ -4962,10 +5051,6 @@ static gbl_dma_status gbl_machine_dma_step_single(gbl_machine *machine,
         *result = step;
         return step.status;
     }
-    if (machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA) {
-        machine->bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
-        machine->dma_stream_valid = false;
-    }
     if (channel->remaining == 0u ||
         channel->completed_units == UINT64_MAX ||
         (channel->remaining == 1u &&
@@ -4975,6 +5060,57 @@ static gbl_dma_status gbl_machine_dma_step_single(gbl_machine *machine,
         step.status = GBL_DMA_STATUS_UNIT_REFUSAL;
         *result = step;
         return step.status;
+    }
+    if (capture != NULL) {
+        const uint8_t width =
+            (channel->control & UINT16_C(0x0400)) != 0u ? 4u : 2u;
+
+        if (machine->bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+            machine->dma_stream_valid &&
+            machine->dma_last_channel == channel_index &&
+            machine->dma_last_width == width) {
+            if (machine->dma_last_source <= UINT32_MAX - width &&
+                machine->dma_last_source + width == channel->current_source) {
+                audio_source_sequence = GBL_BUS_CLASS_SEQUENTIAL;
+            }
+            if (machine->dma_last_destination <= UINT32_MAX - width &&
+                machine->dma_last_destination + width ==
+                    channel->current_destination) {
+                audio_destination_sequence = GBL_BUS_CLASS_SEQUENTIAL;
+            }
+        }
+        if (!gbl_bus_quote(machine, channel->current_source,
+                           GBL_BUS_DIRECTION_READ, width,
+                           audio_source_sequence, GBL_BUS_ROLE_DATA,
+                           &audio_source_cost) ||
+            !gbl_bus_quote(machine, channel->current_destination,
+                           GBL_BUS_DIRECTION_WRITE, width,
+                           audio_destination_sequence, GBL_BUS_ROLE_DATA,
+                           &audio_destination_cost) ||
+            audio_source_cost.cycles >
+                UINT64_MAX - audio_destination_cost.cycles) {
+            step.status = GBL_DMA_STATUS_UNIT_REFUSAL;
+            *result = step;
+            return step.status;
+        }
+        audio_cycles = audio_source_cost.cycles +
+                       audio_destination_cost.cycles;
+        if (audio_cycles > cycle_budget) {
+            step.status = GBL_DMA_STATUS_BUDGET_REFUSAL;
+            *result = step;
+            return step.status;
+        }
+        step.status = gbl_machine_dma_stage_internal_audio(
+            machine, audio_cycles, capture, audio_staging,
+            audio_staging_capacity, staged_audio_bytes, capture_end_cycle);
+        if (step.status != GBL_DMA_STATUS_OK) {
+            *result = step;
+            return step.status;
+        }
+    }
+    if (machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA) {
+        machine->bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+        machine->dma_stream_valid = false;
     }
     step.status = gbl_bus_dma_transfer_unit(machine, channel_index,
                                              cycle_budget, &step);
@@ -5056,21 +5192,86 @@ static gbl_dma_status gbl_machine_dma_step_single(gbl_machine *machine,
     return step.status;
 }
 
-gbl_dma_status gbl_machine_dma_step_observed(
+static bool gbl_machine_dma_audio_publishable(
+    const gbl_audio_capture *capture, size_t staged_bytes,
+    uint64_t accepted_cycle, uint64_t capture_end_cycle)
+{
+    uint64_t final_cycle;
+    uint64_t frames;
+
+    if (capture == NULL) {
+        return staged_bytes == 0u;
+    }
+    if (capture->bytes_written > GBL_AUDIO_MAX_CAPTURE_BYTES) {
+        return false;
+    }
+    final_cycle = accepted_cycle < capture_end_cycle
+                      ? accepted_cycle
+                      : capture_end_cycle;
+    if (final_cycle < capture->last_accepted_cycle) {
+        return false;
+    }
+    frames = final_cycle / GBL_AUDIO_SAMPLE_CYCLES -
+             capture->last_accepted_cycle / GBL_AUDIO_SAMPLE_CYCLES;
+    return frames <= (uint64_t)(SIZE_MAX / GBL_AUDIO_FRAME_BYTES) &&
+           staged_bytes == (size_t)frames * GBL_AUDIO_FRAME_BYTES &&
+           capture->bytes_written <= capture->capacity &&
+           staged_bytes <= capture->capacity - capture->bytes_written &&
+           staged_bytes <= GBL_AUDIO_MAX_CAPTURE_BYTES -
+                               capture->bytes_written;
+}
+
+static void gbl_machine_dma_audio_publish(
+    gbl_audio_capture *capture, const uint8_t *staging, size_t staged_bytes,
+    uint64_t accepted_cycle, uint64_t capture_end_cycle)
+{
+    uint64_t final_cycle;
+
+    if (capture == NULL) {
+        return;
+    }
+    if (staged_bytes != 0u) {
+        gbl_machine_copy_bytes(capture->destination + capture->bytes_written,
+                               staging, staged_bytes);
+    }
+    capture->bytes_written += staged_bytes;
+    final_cycle = accepted_cycle < capture_end_cycle
+                      ? accepted_cycle
+                      : capture_end_cycle;
+    capture->last_accepted_cycle = final_cycle;
+}
+
+gbl_dma_status gbl_machine_dma_step_observed_audio(
     gbl_machine *machine, uint64_t cycle_budget, gbl_dma_step_result *result,
     gbl_dma_step_result *observations, size_t observation_capacity,
-    size_t *observation_count)
+    size_t *observation_count, gbl_audio_capture *capture,
+    uint8_t *audio_staging, size_t audio_staging_capacity,
+    uint64_t capture_end_cycle)
 {
     gbl_dma_step_result step = { 0 };
     gbl_dma_step_result *staged_observations = NULL;
     gbl_machine *candidate;
     size_t staged_count = 0u;
     size_t staged_observation_bytes = 0u;
+    size_t staged_audio_bytes = 0u;
     uint8_t channel_index;
     gbl_dma_status status;
 
     if (machine == NULL || result == NULL || !machine->initialized ||
-        (observations != NULL && observation_count == NULL)) {
+        (observations != NULL && observation_count == NULL) ||
+        (capture == NULL &&
+         (audio_staging != NULL || audio_staging_capacity != 0u)) ||
+        (capture != NULL &&
+         (audio_staging == NULL || audio_staging_capacity == 0u ||
+          audio_staging_capacity > GBL_AUDIO_MAX_CAPTURE_BYTES ||
+          !gbl_audio_capture_validate(machine, capture) ||
+          capture_end_cycle < capture->initial_cycle ||
+          capture_end_cycle - capture->initial_cycle >
+              GBL_AUDIO_MAX_CAPTURE_CYCLES ||
+          capture->last_accepted_cycle !=
+              (machine->master_cycles < capture_end_cycle
+                   ? machine->master_cycles
+                   : capture_end_cycle)))) {
         return GBL_DMA_STATUS_INVALID_ARGUMENT;
     }
     for (channel_index = 0u; channel_index < GBL_DMA_CHANNEL_COUNT;
@@ -5081,7 +5282,9 @@ gbl_dma_status gbl_machine_dma_step_observed(
         }
     }
     if (channel_index == GBL_DMA_CHANNEL_COUNT) {
-        return gbl_machine_dma_step_single(machine, cycle_budget, result);
+        return gbl_machine_dma_step_single(
+            machine, cycle_budget, result, capture, audio_staging,
+            audio_staging_capacity, &staged_audio_bytes, capture_end_cycle);
     }
     if (observations != NULL) {
         if (observation_capacity == 0u ||
@@ -5120,7 +5323,16 @@ gbl_dma_status gbl_machine_dma_step_observed(
         }
         status = gbl_machine_dma_sound_burst(
             candidate, channel_index, cycle_budget, &step,
-            staged_observations, observation_capacity, &staged_count);
+            staged_observations, observation_capacity, &staged_count,
+            capture, audio_staging, audio_staging_capacity,
+            capture_end_cycle, &staged_audio_bytes);
+        if (status == GBL_DMA_STATUS_OK) {
+            if (!gbl_machine_dma_audio_publishable(
+                    capture, staged_audio_bytes, candidate->master_cycles,
+                    capture_end_cycle)) {
+                status = GBL_DMA_STATUS_UNIT_REFUSAL;
+            }
+        }
         if (status == GBL_DMA_STATUS_OK) {
             if (owns_transaction) {
                 candidate->dma_transaction_active = false;
@@ -5132,6 +5344,9 @@ gbl_dma_status gbl_machine_dma_step_observed(
             gbl_machine_copy_bytes((uint8_t *)machine,
                                    (const uint8_t *)candidate,
                                    sizeof(*machine));
+            gbl_machine_dma_audio_publish(
+                capture, audio_staging, staged_audio_bytes,
+                machine->master_cycles, capture_end_cycle);
             *result = step;
             if (observations != NULL) {
                 gbl_machine_copy_bytes((uint8_t *)observations,
@@ -5146,7 +5361,20 @@ gbl_dma_status gbl_machine_dma_step_observed(
         return status;
     }
 
-    status = gbl_machine_dma_step_single(machine, cycle_budget, &step);
+    status = gbl_machine_dma_step_single(
+        machine, cycle_budget, &step, capture, audio_staging,
+        audio_staging_capacity, &staged_audio_bytes, capture_end_cycle);
+    if (status == GBL_DMA_STATUS_OK && capture != NULL) {
+        if (!gbl_machine_dma_audio_publishable(
+                capture, staged_audio_bytes, machine->master_cycles,
+                capture_end_cycle)) {
+            status = GBL_DMA_STATUS_UNIT_REFUSAL;
+        } else {
+            gbl_machine_dma_audio_publish(
+                capture, audio_staging, staged_audio_bytes,
+                machine->master_cycles, capture_end_cycle);
+        }
+    }
     if (status == GBL_DMA_STATUS_OK && observations != NULL) {
         step.accepted_units = step.unit_completed ? UINT64_C(1) : 0u;
         staged_observations[staged_count++] = step;
@@ -5159,6 +5387,16 @@ gbl_dma_status gbl_machine_dma_step_observed(
     gbl_machine_release_scratch(machine, staged_observations,
                                 staged_observation_bytes);
     return status;
+}
+
+gbl_dma_status gbl_machine_dma_step_observed(
+    gbl_machine *machine, uint64_t cycle_budget, gbl_dma_step_result *result,
+    gbl_dma_step_result *observations, size_t observation_capacity,
+    size_t *observation_count)
+{
+    return gbl_machine_dma_step_observed_audio(
+        machine, cycle_budget, result, observations, observation_capacity,
+        observation_count, NULL, NULL, 0u, UINT64_MAX);
 }
 
 gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
