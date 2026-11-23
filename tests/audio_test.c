@@ -1265,6 +1265,400 @@ static int run_ds_transaction(void)
     return tap_failure_count == 0u ? 0 : 1;
 }
 
+static uint64_t timer_next_overflow_cycle(const gbl_timer_state *timer)
+{
+    const uint64_t remaining =
+        timer == NULL ? 0u : UINT64_C(0x10000) - timer->counter;
+    uint64_t delta;
+
+    if (timer == NULL || !timer->enabled || timer->cascade ||
+        timer->divisor == 0u || timer->phase >= timer->divisor) {
+        return UINT64_MAX;
+    }
+    delta = remaining * timer->divisor;
+    if (delta <= timer->phase || delta - timer->phase >
+                                     UINT64_MAX - timer->anchor_cycle) {
+        return UINT64_MAX;
+    }
+    return timer->anchor_cycle + delta - timer->phase;
+}
+
+static bool write_fifo_word(gbl_machine *machine, unsigned fifo_index,
+                            uint32_t value)
+{
+    uint32_t address;
+    gbl_bus_result result;
+
+    if (machine == NULL || fifo_index >= GBL_AUDIO_FIFO_COUNT) {
+        return false;
+    }
+    address = GBL_AUDIO_FIFO_FIRST + (uint32_t)(fifo_index * 4u);
+    result = gbl_bus_write(machine, address, 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, value);
+    return result.status == GBL_BUS_STATUS_OK &&
+           result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+}
+
+static bool fifo_timer_cascade_vector(gbl_machine *machine)
+{
+    uint64_t first_overflow;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        gbl_bus_write(machine, UINT32_C(0x04000083), 1u,
+                      GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x04)).status !=
+            GBL_BUS_STATUS_OK ||
+        !write_fifo_word(machine, 0u, UINT32_C(0x807F01FE)) ||
+        !write_fifo_word(machine, 1u, UINT32_C(0x807F01FE)) ||
+        write16(machine, UINT32_C(0x04000104), UINT16_C(0xFFFE)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000106), UINT16_C(0x0084)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFE)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    first_overflow = timer_next_overflow_cycle(&machine->timers[0]);
+    if (first_overflow == UINT64_MAX ||
+        gbl_machine_advance_to(machine, first_overflow - 1u) !=
+            GBL_TIME_STATUS_OK ||
+        machine->audio.fifo[0].count != 4u ||
+        machine->audio.fifo[1].count != 4u) {
+        return false;
+    }
+    if (gbl_machine_advance_to(machine, first_overflow) !=
+            GBL_TIME_STATUS_OK ||
+        machine->audio.fifo[0].count != 4u ||
+        machine->audio.fifo[1].count != 3u ||
+        machine->audio.fifo[1].sample != -2 ||
+        machine->timers[1].counter != UINT16_MAX) {
+        return false;
+    }
+    if (gbl_machine_advance_to(machine, first_overflow + 1u) !=
+            GBL_TIME_STATUS_OK ||
+        machine->audio.fifo[0].count != 4u ||
+        machine->audio.fifo[1].count != 3u) {
+        return false;
+    }
+    return gbl_machine_advance_to(machine, first_overflow + 2u) ==
+               GBL_TIME_STATUS_OK &&
+           machine->audio.fifo[0].count == 3u &&
+           machine->audio.fifo[0].sample == -2 &&
+           machine->audio.fifo[1].count == 2u &&
+           machine->audio.fifo[1].sample == 1 &&
+           machine->timers[1].counter == UINT16_C(0xFFFE) &&
+           gbl_audio_state_valid(&machine->audio);
+}
+
+static bool fifo_same_timer_vector(gbl_machine *machine)
+{
+    uint64_t deadline;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        !write_fifo_word(machine, 0u, UINT32_C(0x807F01FE)) ||
+        !write_fifo_word(machine, 1u, UINT32_C(0x807F01FE)) ||
+        write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFE)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    deadline = timer_next_overflow_cycle(&machine->timers[0]);
+    return deadline != UINT64_MAX &&
+           gbl_machine_advance_to(machine, deadline) == GBL_TIME_STATUS_OK &&
+           machine->audio.fifo[0].count == 3u &&
+           machine->audio.fifo[0].sample == -2 &&
+           machine->audio.fifo[1].count == 3u &&
+           machine->audio.fifo[1].sample == -2;
+}
+
+static bool fifo_coincident_timer_vector(gbl_machine *machine)
+{
+    uint64_t timer0_deadline;
+    uint64_t timer1_deadline;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        gbl_bus_write(machine, UINT32_C(0x04000083), 1u,
+                      GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0x40)).status !=
+            GBL_BUS_STATUS_OK ||
+        !write_fifo_word(machine, 0u, UINT32_C(0x807F01FE)) ||
+        !write_fifo_word(machine, 1u, UINT32_C(0x807F01FE)) ||
+        write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFC)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000104), UINT16_C(0xFFFE)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000106), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    timer0_deadline = timer_next_overflow_cycle(&machine->timers[0]);
+    timer1_deadline = timer_next_overflow_cycle(&machine->timers[1]);
+    return timer0_deadline != UINT64_MAX &&
+           timer0_deadline == timer1_deadline &&
+           gbl_machine_advance_to(machine, timer0_deadline - 1u) ==
+               GBL_TIME_STATUS_OK &&
+           machine->audio.fifo[0].count == 4u &&
+           machine->audio.fifo[1].count == 4u &&
+           gbl_machine_advance_to(machine, timer0_deadline) ==
+               GBL_TIME_STATUS_OK &&
+           machine->audio.fifo[0].count == 3u &&
+           machine->audio.fifo[0].sample == -2 &&
+           machine->audio.fifo[1].count == 3u &&
+           machine->audio.fifo[1].sample == -2;
+}
+
+static bool fifo_empty_latch_vector(gbl_machine *machine)
+{
+    uint64_t deadline;
+    unsigned pop;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        !write_fifo_word(machine, 0u, UINT32_C(0x807F01FE)) ||
+        write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFC)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    deadline = timer_next_overflow_cycle(&machine->timers[0]);
+    if (deadline == UINT64_MAX) {
+        return false;
+    }
+    for (pop = 0u; pop < 4u; ++pop) {
+        if (gbl_machine_advance_to(machine, deadline + pop * 4u) !=
+            GBL_TIME_STATUS_OK) {
+            return false;
+        }
+    }
+    return machine->audio.fifo[0].count == 0u &&
+           machine->audio.fifo[0].sample == -128 &&
+           gbl_machine_advance_to(machine, deadline + 16u) ==
+               GBL_TIME_STATUS_OK &&
+           machine->audio.fifo[0].count == 0u &&
+           machine->audio.fifo[0].sample == -128;
+}
+
+static bool fifo_reset_before_overflow_vector(gbl_machine *machine)
+{
+    uint64_t deadline;
+    gbl_bus_result reset_result;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        !write_fifo_word(machine, 0u, UINT32_C(0x807F01FE)) ||
+        write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFE)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    deadline = timer_next_overflow_cycle(&machine->timers[0]);
+    reset_result = gbl_bus_write(machine, UINT32_C(0x04000083), 1u,
+                                 GBL_BUS_CLASS_NONSEQUENTIAL,
+                                 UINT32_C(0x08));
+    return deadline != UINT64_MAX && reset_result.status == GBL_BUS_STATUS_OK &&
+           machine->timers[0].enabled &&
+           gbl_machine_advance_to(machine, deadline) == GBL_TIME_STATUS_OK &&
+           machine->audio.fifo[0].count == 0u &&
+           machine->audio.fifo[0].sample == 0 &&
+           machine->timers[0].enabled;
+}
+
+static bool fifo_stale_timer_vector(gbl_machine *machine)
+{
+    uint64_t deadline;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        !write_fifo_word(machine, 0u, UINT32_C(0x807F01FE)) ||
+        write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFC)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    deadline = timer_next_overflow_cycle(&machine->timers[0]);
+    if (deadline == UINT64_MAX ||
+        write16(machine, UINT32_C(0x04000102), 0u).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    return gbl_machine_advance_to(machine, deadline) == GBL_TIME_STATUS_OK &&
+           machine->audio.fifo[0].count == 4u &&
+           machine->audio.fifo[0].sample == 0 &&
+           !machine->timers[0].enabled;
+}
+
+typedef struct fifo_sample_observation {
+    unsigned calls;
+    uint64_t cycle;
+    uint8_t fifo_count;
+    int8_t fifo_sample;
+    uint16_t soundcnt_h;
+} fifo_sample_observation;
+
+static void observe_fifo_sample(
+    const gbl_machine_time_preview *candidate, uint64_t cycle,
+    void *context, int16_t *left, int16_t *right)
+{
+    fifo_sample_observation *observation = context;
+
+    if (candidate != NULL && observation != NULL) {
+        ++observation->calls;
+        observation->cycle = cycle;
+        observation->fifo_count = candidate->audio.fifo[0].count;
+        observation->fifo_sample = candidate->audio.fifo[0].sample;
+        observation->soundcnt_h = candidate->audio.registers[17];
+    }
+    if (left != NULL) {
+        *left = 0;
+    }
+    if (right != NULL) {
+        *right = 0;
+    }
+}
+
+static bool fifo_capture_edge_order_vector(gbl_machine *machine)
+{
+    gbl_machine_time_preview preview;
+    gbl_time_operation operation;
+    fifo_sample_observation observation = { 0 };
+    uint8_t staging[GBL_AUDIO_FRAME_BYTES] = { 0u };
+    size_t staged_bytes = 0u;
+    uint64_t deadline;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        !write_fifo_word(machine, 0u, UINT32_C(0x807F01FE)) ||
+        write16(machine, UINT32_C(0x04000100), UINT16_C(0xFE04)).status !=
+            GBL_BUS_STATUS_OK ||
+        write16(machine, UINT32_C(0x04000102), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    deadline = timer_next_overflow_cycle(&machine->timers[0]);
+    if (deadline != UINT64_C(512) ||
+        gbl_machine_advance_to(machine, deadline - 1u) !=
+            GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    operation = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x04000082),
+        UINT32_C(0x4000), 1u
+    };
+    return gbl_machine_prepare_operations_audio_with_provider(
+               machine, &operation, 1u, &preview, staging, sizeof(staging),
+               &staged_bytes, observe_fifo_sample, &observation) ==
+               GBL_TIME_STATUS_OK &&
+           observation.calls == 1u && observation.cycle == deadline &&
+           observation.fifo_count == 3u && observation.fifo_sample == -2 &&
+           observation.soundcnt_h == 0u && staged_bytes == sizeof(staging) &&
+           preview.audio.registers[17] == UINT16_C(0x4000) &&
+           preview.audio.fifo[0].count == 3u &&
+           preview.audio.fifo[0].sample == -2 &&
+           gbl_machine_commit_time_checked(machine, &preview) &&
+           machine->master_cycles == deadline &&
+           machine->audio.fifo[0].count == 3u;
+}
+
+static bool fifo_refill_threshold_vector(gbl_machine *machine)
+{
+    uint8_t readiness;
+    unsigned index;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+        GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    for (index = 0u; index < 5u; ++index) {
+        if (!write_fifo_word(machine, 0u, UINT32_C(0x01020304) + index)) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 3u; ++index) {
+        if (gbl_audio_fifo_clock_timer(&machine->audio, 0u) != 0u) {
+            return false;
+        }
+    }
+    if (machine->audio.fifo[0].count != 17u) {
+        return false;
+    }
+    readiness = gbl_audio_fifo_clock_timer(&machine->audio, 0u);
+    if (readiness != UINT8_C(0x01) ||
+        machine->audio.fifo[0].count != 16u) {
+        return false;
+    }
+    readiness = gbl_audio_fifo_clock_timer(&machine->audio, 0u);
+    return readiness == 0u && machine->audio.fifo[0].count == 15u;
+}
+
+static int run_ds_timer(void)
+{
+    gbl_machine *machine = new_machine();
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    tap_check("fresh machine is available", machine != NULL);
+    tap_check("Timer 1 cascade carry pops only on actual wrap",
+              fifo_timer_cascade_vector(machine));
+    tap_check("A and B each pop on one shared Timer 0 edge",
+              fifo_same_timer_vector(machine));
+    tap_check("coincident direct Timer 0 and Timer 1 edges both pop",
+              fifo_coincident_timer_vector(machine));
+    tap_check("empty FIFO retains its final signed sample",
+              fifo_empty_latch_vector(machine));
+    tap_check("FIFO reset before an edge leaves the timer running",
+              fifo_reset_before_overflow_vector(machine));
+    tap_check("disabled timer's stale deadline cannot consume a sample",
+              fifo_stale_timer_vector(machine));
+    tap_check("sample provider observes post-pop state before the write",
+              fifo_capture_edge_order_vector(machine));
+    tap_check("readiness is emitted only at the post-pop 16-byte edge",
+              fifo_refill_threshold_vector(machine));
+    free_machine(machine);
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static int run_registers(void)
 {
     static const struct {
@@ -4126,6 +4520,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ds_transaction") == 0) {
         return run_ds_transaction();
+    }
+    if (strcmp(argv[1], "ds_timer") == 0) {
+        return run_ds_timer();
     }
     if (strcmp(argv[1], "registers") == 0) {
         return run_registers();
