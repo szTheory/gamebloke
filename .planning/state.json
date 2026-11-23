@@ -16,7 +16,7 @@
     {
       "number": "18",
       "name": "Direct Sound and FIFO DMA",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "19",
@@ -26,8 +26,8 @@
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step (plan phase 18)",
-    "reason": "Phase 3 of 4 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 3 of 4 · 50% · executing"
   },
-  "updated_at": "2026-11-23T00:41:47.070Z"
+  "updated_at": "2026-11-23T02:41:47.438Z"
 }

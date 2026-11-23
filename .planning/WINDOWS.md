@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 8
 waived_count: 0
-fixed_count: 29
-total_count: 37
-last_updated: 2026-11-22T22:25:58.275Z
+fixed_count: 31
+total_count: 39
+last_updated: 2026-11-23T02:39:47.156Z
 ---
 
 # Broken Windows Ledger
@@ -52,6 +52,8 @@ last_updated: 2026-11-22T22:25:58.275Z
 | 35 | 17 | deviation | src/audio.c | 445 | An active channel with an exhausted length counter could pass validation if a preview prepared copy was forged consistently. | fixed |  | 2026-11-22T20:57:06.306Z | 2026-11-22T20:57:28.235Z |
 | 36 | 17 | deviation | .planning/phases/17-psg-channels-and-sequencer/17-02-PLAN.md |  | Corrected the stated shortest noise period from 16 to 32 master cycles to match the locked divider equation with ratio zero r=1/2; focused noise vectors pass. Source and hardware qualification caveats remain explicit. | fixed |  | 2026-11-22T21:45:27.311Z | 2026-11-22T21:45:29.674Z |
 | 37 | 17 | deviation | src/audio.c |  | Updated stale source-projection comment to say PCM mixing remains deferred after CH3 was modeled. | fixed |  | 2026-11-22T22:25:55.121Z | 2026-11-22T22:25:58.275Z |
+| 38 | 17 | deviation | .planning/phases/17-psg-channels-and-sequencer/17-01-PLAN.md | 43 | Canonical ci workflow fails hygiene.tree on pre-existing absolute GSD home-path references in phase 17-01 through 17-04 plans; main CTest stops before full inventory and JUnit postcheck. | fixed |  | 2026-11-22T23:38:11.263Z | 2026-11-22T23:49:41.320Z |
+| 39 | 18 | deviation | src/machine.c |  | Task 3 timer and cascade behavior was already implemented through Task 1's shared actual-overflow transition, so Task 3 added direct semantic vectors without a separate RED implementation cycle. | fixed |  | 2026-11-23T02:38:04.692Z | 2026-11-23T02:39:47.156Z |
 
 ````json
 [
@@ -534,6 +536,32 @@ last_updated: 2026-11-22T22:25:58.275Z
     "reason": "",
     "recorded_at": "2026-11-22T22:25:55.121Z",
     "resolved_at": "2026-11-22T22:25:58.275Z",
+    "milestone": "v4.0"
+  },
+  {
+    "id": 38,
+    "kind": "deviation",
+    "phase": "17",
+    "file": ".planning/phases/17-psg-channels-and-sequencer/17-01-PLAN.md",
+    "line": 43,
+    "description": "Canonical ci workflow fails hygiene.tree on pre-existing absolute GSD home-path references in phase 17-01 through 17-04 plans; main CTest stops before full inventory and JUnit postcheck.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-22T23:38:11.263Z",
+    "resolved_at": "2026-11-22T23:49:41.320Z",
+    "milestone": "v4.0"
+  },
+  {
+    "id": 39,
+    "kind": "deviation",
+    "phase": "18",
+    "file": "src/machine.c",
+    "line": null,
+    "description": "Task 3 timer and cascade behavior was already implemented through Task 1's shared actual-overflow transition, so Task 3 added direct semantic vectors without a separate RED implementation cycle.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-23T02:38:04.692Z",
+    "resolved_at": "2026-11-23T02:39:47.156Z",
     "milestone": "v4.0"
   }
 ]

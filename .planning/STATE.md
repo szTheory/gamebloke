@@ -4,17 +4,18 @@ milestone: v4.0
 milestone_name: Audio
 current_phase: 18
 current_phase_name: Direct Sound and FIFO DMA
-status: planning
-stopped_at: Phase 17 complete, ready to plan Phase 18
-last_updated: "2026-11-23T00:41:47.058Z"
+current_plan: 2
+status: executing
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-11-23T02:43:29.906Z"
 last_activity: 2026-11-22
-last_activity_desc: Phase 17 complete, transitioned to Phase 18
-state_head: 26c292358e077618829c96026f462ee1030d439b
+last_activity_desc: Completed Phase 18 Plan 01; Plan 18-02 is next
+state_head: b7e4aba4db60eb76659925ee33bbbe9bad154530
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 11
+  completed_plans: 8
   percent: 50
 ---
 
@@ -31,10 +32,11 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 18 — Direct Sound and FIFO DMA
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-22 — Phase 17 complete, transitioned to Phase 18
-Last activity description: Phase 17 complete, transitioned to Phase 18
+Current Plan: 2
+Total Plans in Phase: 4
+Status: Ready to execute
+Last activity: 2026-11-22 — Completed Phase 18 Plan 01
+Last activity description: Plan 18-02 is next in the approved Phase 18 sequence
 Progress: [█████░░░░░] 50%
 
 
@@ -199,6 +201,7 @@ Progress: [█████░░░░░] 50%
 | Phase 17 P02 | 37min from first RED; setup not measured | 2 tasks | 8 files |
 | Phase 17 P03 | 27m13s | 2 tasks | 10 files |
 | Phase 17 P04 | 120m | 3 tasks | 21 files |
+| Phase 18 P01 | 49min from first RED; setup before first task commit unmeasured | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -543,6 +546,9 @@ Recent decisions affecting current work:
 - [Phase 17]: Scoped review corrected PSG frequency read masks, CH4 divider policy wording, the LFSR recurrence description, and the unreachable sweep-underflow branch; focused CI and ASan checks pass.
 - [Phase 17]: Keep hardware_qualification UNKNOWN and PCM output signed zero; this plan adds no fixture, hardware, hosted CI, or publication claim.
 - [Phase 17]: Preserve the CI preset worker count and checks; measured profile negative-control work dominates the local workflow critical path.
+- [Phase 18]: Narrow FIFO writes merge selected byte lanes into the next backing ring word, preserve untouched lanes, and advance one word cursor.
+- [Phase 18]: Only actual Timer 0/1 overflows, including a real Timer 1 cascade wrap, pop the selected FIFOs; an empty FIFO keeps its last signed sample.
+- [Phase 18]: Post-pop readiness at 16 bytes and transaction reset masks are exposed for Plan 18-02 DMA arbitration and cancellation.
 
 ### Pending Todos
 
@@ -594,11 +600,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T00:31:28.012Z
-Stopped at: Phase 17 complete, ready to plan Phase 18
+Last session: 2026-11-23T02:43:29.740Z
+Stopped at: Completed 18-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
 
-- Phase 17 is complete with hardware qualification still UNKNOWN. To continue the approved v4.0 roadmap, begin Phase 18 planning with `$gsd-discuss-phase 18`.
+- Phase 18 Plan 01 is complete; continue with Plan 18-02 for shared FIFO DMA refill. Phase 19 remains after Phase 18, and hardware qualification remains UNKNOWN.
