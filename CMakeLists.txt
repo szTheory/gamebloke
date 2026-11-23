@@ -176,6 +176,18 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   target_sources(gamebloke_core PRIVATE src/api_v1.c)
   add_library(gamebloke::api ALIAS gamebloke_core)
   set_target_properties(gamebloke_core PROPERTIES EXPORT_NAME api)
+  set(GBL_AGB_PROFILE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/profiles/agb.json")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${GBL_AGB_PROFILE_PATH}")
+  file(READ "${GBL_AGB_PROFILE_PATH}" GBL_AGB_PROFILE_JSON)
+  string(JSON GBL_AGB_PROFILE_VERSION ERROR_VARIABLE GBL_AGB_PROFILE_VERSION_ERROR
+    GET "${GBL_AGB_PROFILE_JSON}" profile_version)
+  if(NOT "${GBL_AGB_PROFILE_VERSION_ERROR}" STREQUAL "NOTFOUND" OR
+     NOT GBL_AGB_PROFILE_VERSION MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "gamebloke: invalid-agb-profile-version")
+  endif()
+  target_compile_definitions(gamebloke_core PRIVATE
+    "GBL_AGB_PROFILE_VERSION=${GBL_AGB_PROFILE_VERSION}")
   if(NOT GBL_LANE STREQUAL "asan")
     install(TARGETS gamebloke_core EXPORT GameblokeCoreApiTargets
       ARCHIVE DESTINATION lib COMPONENT GameblokeCoreApi)
