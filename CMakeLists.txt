@@ -160,17 +160,37 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     src/loader.c src/cpu.c src/inspect.c)
   function(gbl__add_core_target target expected_digest)
     add_library(${target} STATIC ${GBL_CORE_SOURCES})
-    target_include_directories(${target} PUBLIC include)
+    target_include_directories(${target} PUBLIC
+      "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+      "$<INSTALL_INTERFACE:include>")
     target_compile_definitions(${target} PRIVATE
       "GBL_VERSION_STRING=\"${PROJECT_VERSION}\"")
     target_compile_definitions(${target} PRIVATE
       "GBL_LOGO_EXPECTED_SHA256=\"${expected_digest}\"")
     target_compile_options(${target} PRIVATE
       "$<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-fno-stack-protector;-U_FORTIFY_SOURCE>")
-    target_link_libraries(${target} PRIVATE gbl_warnings)
+    target_link_libraries(${target} PRIVATE "$<BUILD_INTERFACE:gbl_warnings>")
   endfunction()
 
   gbl__add_core_target(gamebloke_core "${GBL_LOGO_EXPECTED_SHA256}")
+  target_sources(gamebloke_core PRIVATE src/api_v1.c)
+  add_library(gamebloke::api ALIAS gamebloke_core)
+  set_target_properties(gamebloke_core PROPERTIES EXPORT_NAME api)
+  if(NOT GBL_LANE STREQUAL "asan")
+    install(TARGETS gamebloke_core EXPORT GameblokeCoreApiTargets
+      ARCHIVE DESTINATION lib COMPONENT GameblokeCoreApi)
+    install(FILES include/gamebloke/gamebloke_v1.h
+      DESTINATION include/gamebloke COMPONENT GameblokeCoreApi)
+    install(EXPORT GameblokeCoreApiTargets
+      FILE gameblokeTargets.cmake
+      NAMESPACE gamebloke::
+      DESTINATION lib/cmake/gamebloke
+      COMPONENT GameblokeCoreApi)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gameblokeConfig.cmake"
+      "include(\"\${CMAKE_CURRENT_LIST_DIR}/gameblokeTargets.cmake\")\n")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/gameblokeConfig.cmake"
+      DESTINATION lib/cmake/gamebloke COMPONENT GameblokeCoreApi)
+  endif()
   gbl__add_core_target(gamebloke_core_logo_synthetic
     "${GBL_LOGO_SYNTHETIC_SHA256}")
 
@@ -198,6 +218,11 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   add_executable(gamebloke-terminal frontends/terminal/main.c)
   target_include_directories(gamebloke-terminal PRIVATE third_party/libretro)
   target_link_libraries(gamebloke-terminal PRIVATE gbl_warnings ${CMAKE_DL_LIBS})
+
+  if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+    add_executable(api_v1_test tests/api_v1_test.c)
+    target_link_libraries(api_v1_test PRIVATE gamebloke::api gbl_warnings)
+  endif()
 
   if(GBL_LOGO_EXPECTED_SHA256 STREQUAL "")
     set(GBL_PRODUCTION_LOGO_TEST_MODE 0)
