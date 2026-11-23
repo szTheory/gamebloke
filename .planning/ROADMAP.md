@@ -94,12 +94,12 @@ v4.0. Hardware qualification remains UNKNOWN.
   2. When a pop leaves four words (16 bytes), FIFO A requests DMA1 and FIFO B requests DMA2; each sound-DMA request transfers four 32-bit words to its fixed FIFO destination through shared arbitration, regardless of programmed count/width.
   3. Empty and full FIFOs, unsupported DMA setups, and coincident consumption and refill follow the declared model policy. A refusal caused by bounded work leaves machine state unchanged.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 - [x] 18-01-PLAN.md — Clock bounded FIFO A/B source samples through the canonical guest bus and timers
 - [x] 18-02-PLAN.md — Refill through per-word shared DMA arbitration with whole-candidate refusal
 - [x] 18-03-PLAN.md — Declare FIFO and sound DMA behavior in the profile and reject policy drift
-- [ ] 18-04-PLAN.md — Register exact Direct Sound checks and obtain measured local CI evidence
+- [x] 18-04-PLAN.md — Register exact Direct Sound checks and obtain measured local CI evidence
 
 ### Phase 19: Stereo Mixing and Runner Evidence
 
@@ -121,7 +121,7 @@ v4.0. Hardware qualification remains UNKNOWN.
 |-------|----------------|--------|-----------|
 | 16. Audio Registers and Capture Contract | 3/3 | Complete    | 2026-11-22 |
 | 17. PSG Channels and Sequencer | 4/4 | Complete    | 2026-11-22 |
-| 18. Direct Sound and FIFO DMA | 3/4 | In Progress | — |
+| 18. Direct Sound and FIFO DMA | 4/4 | In Progress | — |
 | 19. Stereo Mixing and Runner Evidence | 0/TBD | Not started | — |
 
 ## Open Carryovers and Evidence Limits

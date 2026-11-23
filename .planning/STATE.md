@@ -5,17 +5,17 @@ milestone_name: Audio
 current_phase: 18
 current_phase_name: Direct Sound and FIFO DMA
 current_plan: 4
-status: executing
-stopped_at: Completed 18-03-PLAN.md
-last_updated: "2026-11-23T04:53:24.916Z"
+status: verifying
+stopped_at: Completed 18-04-PLAN.md
+last_updated: "2026-11-23T08:46:40.911Z"
 last_activity: 2026-11-23
-last_activity_desc: Completed Phase 18 Plan 03; Plan 18-04 is next
-state_head: 28fed59b274d3ad0e654326d6accf636e4b235b6
+last_activity_desc: Completed Phase 18 Plan 04; Phase 18 is ready for verification
+state_head: 88f740a8f7c99fbbcd13b23a4f7fc2efe963cb4c
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 50
 ---
 
@@ -34,9 +34,9 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 Phase: 18 — Direct Sound and FIFO DMA
 Current Plan: 4
 Total Plans in Phase: 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-23 — Completed Phase 18 Plan 03
-Last activity description: Plan 18-04 owns integrated verification and the canonical workflow
+Last activity description: Plan 18-04 completed; Phase 18 is ready for verification
 Progress: [█████░░░░░] 50%
 
 
@@ -204,6 +204,7 @@ Progress: [█████░░░░░] 50%
 | Phase 18 P01 | 49min from first RED; setup before first task commit unmeasured | 3 tasks | 14 files |
 | Phase 18 P02 | 95min | 3 tasks | 19 files |
 | Phase 18 P03 | 19 min | 2 tasks | 5 files |
+| Phase 18 P04 | 3h33m20s | 2 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -556,6 +557,9 @@ Recent decisions affecting current work:
 - [Phase 18]: Audio model v3 describes Direct Sound FIFO source and refill state while PCM remains signed zero and hardware qualification remains UNKNOWN.
 - [Phase 18]: Direct Sound FIFO A/B use DMA1/DMA2; existing specialized VBlank/HBlank PPU routes remain, while DRQ and other producers stay deferred.
 - [Phase 18]: Manual facts, supplementary sources, secondary reports, and project-selected Direct Sound edge policies remain distinguished.
+- [Phase 18]: DMA scratch uses the existing machine allocator with exact-size release, preserving the no-default-heap core boundary.
+- [Phase 18]: CPU DMA trace slots are published only after complete service success and capacity/sequence preflight.
+- [Phase 18]: Keep the established two-worker CTest preset; no controlled evidence supports changing parallelism or weakening distinct profile mutation controls.
 
 ### Pending Todos
 
@@ -607,8 +611,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T04:53:24.744Z
-Stopped at: Completed 18-03-PLAN.md
+Last session: 2026-11-23T08:46:40.702Z
+Stopped at: Completed 18-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
