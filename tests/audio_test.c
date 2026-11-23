@@ -4614,6 +4614,159 @@ static int run_cpu(void)
     return CHECK_DONE();
 }
 
+static bool prepare_capture_cpu(gbl_machine *machine, uint8_t *image,
+                                size_t image_size, uint32_t first_opcode)
+{
+    size_t offset;
+
+    if (machine == NULL || image == NULL || image_size < 8u ||
+        image_size % 4u != 0u) {
+        return false;
+    }
+    for (offset = 0u; offset < image_size; offset += 4u) {
+        image[offset] = 0u;
+        image[offset + 1u] = 0u;
+        image[offset + 2u] = UINT8_C(0xA0);
+        image[offset + 3u] = UINT8_C(0xE1);
+    }
+    image[0] = (uint8_t)first_opcode;
+    image[1] = (uint8_t)(first_opcode >> 8u);
+    image[2] = (uint8_t)(first_opcode >> 16u);
+    image[3] = (uint8_t)(first_opcode >> 24u);
+    machine->rom = image;
+    machine->rom_length = image_size;
+    machine->cpu.execution_address = UINT32_C(0x08000000);
+    machine->cpu.cpsr = UINT32_C(0x0000001F);
+    machine->cpu.pipeline[0] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000000), first_opcode, 4u, true
+    };
+    machine->cpu.pipeline[1] = (gbl_cpu_pipeline_entry){
+        UINT32_C(0x08000004), UINT32_C(0xE1A00000), 4u, true
+    };
+    machine->cpu.next_fetch_sequential = true;
+    return true;
+}
+
+static int run_capture_cpu_wait(void)
+{
+    uint8_t cpu_image[UINT32_C(0x100)] = { 0u };
+    uint8_t wait_image[UINT32_C(0x100)] = { 0u };
+    uint8_t output[16];
+    uint8_t wait_output[16];
+    uint8_t *staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
+    uint8_t *wait_staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
+    gbl_machine *cpu_machine = new_machine();
+    gbl_machine *wait_machine = new_machine();
+    gbl_audio_capture capture = { 0 };
+    gbl_audio_capture wait_capture = { 0 };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(600),
+        .unit_limit = 0u,
+        .category_mask = 0u,
+        .trace_buffer = NULL
+    };
+    gbl_run_result result = { 0 };
+    uint64_t capture_end = 0u;
+    bool setup = staging != NULL && wait_staging != NULL &&
+                 cpu_machine != NULL && wait_machine != NULL;
+    bool cpu_run_ok = false;
+    bool wait_run_ok = false;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    memset(output, UINT8_C(0xA5), sizeof(output));
+    memset(wait_output, UINT8_C(0xA5), sizeof(wait_output));
+    if (setup) {
+        setup = configure_ch2(cpu_machine, 0u, 3u, 15u, false, 0u,
+                              UINT16_C(2043), false) &&
+                prepare_capture_cpu(cpu_machine, cpu_image,
+                                    sizeof(cpu_image),
+                                    UINT32_C(0xE1C100B0));
+        cpu_machine->cpu.r0_7[0] = UINT32_C(0x2070);
+        cpu_machine->cpu.r0_7[1] = UINT32_C(0x04000080);
+    }
+    if (setup) {
+        setup = gbl_audio_capture_begin(cpu_machine, &capture, output,
+                                        sizeof(output)) ==
+                    GBL_TIME_STATUS_OK;
+        capture_end = capture.initial_cycle + UINT64_C(512);
+    }
+    tap_check("capture tracer setup creates a real CPU audio write path", setup);
+    if (setup) {
+        cpu_run_ok = gbl_cpu_run_audio(
+                         cpu_machine, &options, &result, &capture, staging,
+                         GBL_AUDIO_MAX_CAPTURE_BYTES, capture_end) ==
+                     GBL_RUN_STATUS_OK;
+    }
+    tap_check("CPU capture run accepts the preflighted instruction stream",
+              cpu_run_ok);
+    tap_check("CPU sample-edge write emits exactly the bounded nonzero stereo frame",
+              cpu_run_ok && cpu_machine->master_cycles > capture_end &&
+                  capture.bytes_written == GBL_AUDIO_FRAME_BYTES &&
+                  capture.last_accepted_cycle == capture_end &&
+                  (output[0] != 0u || output[1] != 0u) &&
+                  output[2] == 0u && output[3] == 0u &&
+                  output[4] == UINT8_C(0xA5) &&
+                  output[5] == UINT8_C(0xA5));
+
+    if (setup) {
+        setup = configure_ch2(wait_machine, 0u, 3u, 15u, false, 0u,
+                              UINT16_C(2043), false) &&
+                prepare_capture_cpu(wait_machine, wait_image,
+                                    sizeof(wait_image),
+                                    UINT32_C(0xE1A00000));
+    }
+    if (setup) {
+        const gbl_bus_result timer = gbl_bus_write(
+            wait_machine, UINT32_C(0x04000100), 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, UINT32_C(0xC0FC00));
+
+        setup = timer.status == GBL_BUS_STATUS_OK &&
+                timer.cycles == 1u &&
+                gbl_machine_set_power_state(
+                    wait_machine, GBL_MACHINE_POWER_HALTED) ==
+                    GBL_TIME_STATUS_OK;
+        wait_machine->interrupt_enable = UINT16_C(0x0008);
+        wait_machine->interrupt_master_enable = 0u;
+    }
+    if (setup) {
+        setup = gbl_audio_capture_begin(
+                    wait_machine, &wait_capture, wait_output,
+                    sizeof(wait_output)) == GBL_TIME_STATUS_OK;
+        capture_end = wait_capture.initial_cycle + UINT64_C(1024);
+        options.cycle_budget = UINT64_C(1200);
+        options.unit_limit = 1u;
+    }
+    tap_check("HALT tracer schedules a real timer wake after the capture start",
+              setup);
+    if (setup) {
+        wait_run_ok = gbl_cpu_run_audio(
+                          wait_machine, &options, &result, &wait_capture,
+                          wait_staging, GBL_AUDIO_MAX_CAPTURE_BYTES,
+                          capture_end) == GBL_RUN_STATUS_OK;
+    }
+    tap_check("HALT wait captures committed timer event time and then resumes one CPU unit",
+              wait_run_ok && result.wait_cycles == UINT64_C(1024) &&
+                  result.instructions == 1u);
+    tap_check("HALT capture publishes only its two on-grid nonzero frames",
+              wait_run_ok &&
+                  wait_capture.bytes_written ==
+                      2u * GBL_AUDIO_FRAME_BYTES &&
+                  wait_capture.last_accepted_cycle == capture_end &&
+                  (wait_output[0] != 0u || wait_output[1] != 0u) &&
+                  wait_output[2] == 0u && wait_output[3] == 0u &&
+                  wait_output[8] == UINT8_C(0xA5) &&
+                  wait_output[9] == UINT8_C(0xA5));
+
+    printf("1..%u\n", tap_test_number);
+    free(staging);
+    free(wait_staging);
+    free_machine(cpu_machine);
+    free_machine(wait_machine);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot)
 {
     *snapshot = malloc(sizeof(**snapshot));
@@ -5229,6 +5382,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "cpu") == 0) {
         return run_cpu();
+    }
+    if (strcmp(argv[1], "capture_cpu_wait") == 0) {
+        return run_capture_cpu_wait();
     }
     if (strcmp(argv[1], "refusal") == 0) {
         return run_refusal();

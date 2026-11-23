@@ -43,6 +43,15 @@ gbl_time_status gbl_audio_capture_begin(gbl_machine *machine,
 gbl_time_status gbl_machine_advance_to_audio(gbl_machine *machine,
                                               uint64_t target,
                                               gbl_audio_capture *capture);
+bool gbl_audio_capture_validate(const gbl_machine *machine,
+                                const gbl_audio_capture *capture);
+gbl_run_status gbl_cpu_run_audio(gbl_machine *machine,
+                                 const gbl_run_options *options,
+                                 gbl_run_result *result,
+                                 gbl_audio_capture *capture,
+                                 uint8_t *staging,
+                                 size_t staging_capacity,
+                                 uint64_t capture_end_cycle);
 
 /* Optional staging seam shared by capture and later CPU/DMA operations. */
 gbl_time_status gbl_machine_prepare_operations_audio(

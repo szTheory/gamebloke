@@ -5228,3 +5228,21 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
     *result = run_result;
     return GBL_RUN_STATUS_OK;
 }
+
+/* Contract scaffold for the capture-aware runner; the capture path is added in
+ * the following implementation change. Keeping the seam executable lets the
+ * guest tracer assert the missing caller-visible PCM behavior. */
+gbl_run_status gbl_cpu_run_audio(gbl_machine *machine,
+                                 const gbl_run_options *options,
+                                 gbl_run_result *result,
+                                 gbl_audio_capture *capture,
+                                 uint8_t *staging,
+                                 size_t staging_capacity,
+                                 uint64_t capture_end_cycle)
+{
+    (void)capture;
+    (void)staging;
+    (void)staging_capacity;
+    (void)capture_end_cycle;
+    return gbl_cpu_run(machine, options, result);
+}
