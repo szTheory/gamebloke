@@ -624,8 +624,6 @@ bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
     observation->artifact_error[0] = '\0';
     if (!observation->requested) {
         observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED;
-        gbl_runner_set_audio_artifact_error(result,
-                                             "audio-output-not-requested");
         return false;
     }
     observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_FAILED;

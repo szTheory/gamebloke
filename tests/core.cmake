@@ -43,8 +43,10 @@ gbl_add_test(
 gbl_add_test(
   NAME runner.audio.controls
   LABELS integration runner
-  COMMAND $<TARGET_FILE:runner_test> audio.controls
-    "${CMAKE_BINARY_DIR}/runner-audio-controls")
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=audio_controls -DVALIDATE_PRODUCER=ON
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
 set(runner_audio_cli_index_option "")
 if(GBL_LANE STREQUAL "asan")
   # The sanitizer lane deliberately has no ARM diagnostic toolchain. Its

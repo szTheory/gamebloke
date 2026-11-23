@@ -137,8 +137,11 @@ these fields:
   grid and four-byte stereo frame size.
   `capture_state` describes PCM capture (`not-requested`, `unavailable`, `incomplete`,
   `complete`, or `failed`); `artifact.state` separately describes file publication
-  (`not-requested`, `not-written`, `failed`, or `emitted`). An emitted file requires a
-  complete interval, matching byte count, and lowercase SHA-256. A complete request shorter
+  (`not-requested`, `not-written`, `failed`, or `emitted`). Setup or capture failure is
+  reported by `capture_state=failed` with `artifact.state=not-written` and
+  `artifact.error=null`; `artifact.error` is reserved for a file-publication failure after
+  complete capture. An emitted file requires a complete interval, matching byte count, and
+  lowercase SHA-256. A complete request shorter
   than one sample may emit an exact empty file; a non-frame-aligned end emits only complete
   S16LE stereo frames on the fixed 512-cycle grid, without padding. The digest identifies
   bytes only: it does not prove semantic correctness, rights, hardware behavior, or broad

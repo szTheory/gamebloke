@@ -69,6 +69,45 @@ function(expect_audio_result_valid label json)
   endif()
 endfunction()
 
+if(DEFINED CASE AND CASE STREQUAL "audio_controls")
+  set(audio_scratch "${BIN}/runner-audio-controls")
+  set(audio_manifest "${BIN}/generated/control/manifest.json")
+  set(failure_receipt
+    "${audio_scratch}/audio-capture-allocation-failure.json")
+  if(NOT EXISTS "${unit_test}" OR NOT EXISTS "${audio_manifest}")
+    message(FATAL_ERROR "runner-case: audio controls validation inputs are missing")
+  endif()
+  file(MAKE_DIRECTORY "${audio_scratch}")
+  file(REMOVE "${failure_receipt}")
+  execute_process(
+    COMMAND "${unit_test}" audio.controls "${audio_scratch}"
+    RESULT_VARIABLE controls_result
+    OUTPUT_VARIABLE controls_stdout
+    ERROR_VARIABLE controls_stderr)
+  if(NOT "${controls_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "runner-case: runner_test audio.controls failed: ${controls_stdout}${controls_stderr}")
+  endif()
+  if(NOT EXISTS "${failure_receipt}")
+    message(FATAL_ERROR
+      "runner-case: allocation-failure producer receipt was not written")
+  endif()
+  file(READ "${failure_receipt}" failure_json)
+  expect_audio_result_valid("failed-capture-setup" "${failure_json}")
+  expect_json_field("${failure_json}" HARNESS_FAIL status)
+  expect_json_field("${failure_json}" audio-capture-allocation-failed reason)
+  expect_json_boolean("${failure_json}" false fixture ran)
+  expect_json_boolean("${failure_json}" true audio requested)
+  expect_json_field("${failure_json}" failed audio capture_state)
+  expect_json_field("${failure_json}" not-written audio artifact state)
+  expect_json_type("${failure_json}" NULL audio artifact error)
+  file(REMOVE "${failure_receipt}"
+    "${audio_scratch}/failed-capture-setup.json")
+  message(STATUS
+    "runner-case: capture-allocation failure receipt passed strict audio validation")
+  return()
+endif()
+
 if(DEFINED CASE AND CASE STREQUAL "audio_cli")
   set(audio_runner "${production}")
   set(audio_runner_label production)

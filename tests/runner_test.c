@@ -380,6 +380,26 @@ static bool gbl_test_serialize_result(const gbl_runner_result *result,
 static bool gbl_test_read_file(const char *path, char *output,
                                size_t capacity);
 
+static bool gbl_test_write_runner_json(const char *path,
+                                       const gbl_runner_result *result)
+{
+    FILE *output;
+    bool okay;
+
+    if (path == NULL || result == NULL) {
+        return false;
+    }
+    output = fopen(path, "wb");
+    if (output == NULL) {
+        return false;
+    }
+    okay = gbl_runner_write_json(output, result) && fputc('\n', output) != EOF;
+    if (fclose(output) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
 static void gbl_test_emit_arm_word(uint8_t *image, size_t *offset,
                                    uint32_t opcode)
 {
@@ -865,11 +885,13 @@ static bool gbl_test_audio_json_contract(
     } else if (strstr(artifact_json, "\"sha256\":null") == NULL) {
         return false;
     }
-    if (strcmp(artifact_state, "failed") == 0 &&
-        result->audio.artifact_error[0] != '\0') {
+    if (strcmp(artifact_state, "failed") == 0) {
+        if (result->audio.artifact_error[0] == '\0') return false;
         (void)snprintf(expected, sizeof expected, "\"error\":\"%s\"",
                        result->audio.artifact_error);
         if (strstr(audio_json, expected) == NULL) return false;
+    } else if (strstr(artifact_json, "\"error\":null") == NULL) {
+        return false;
     }
     return true;
 }
@@ -986,6 +1008,7 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
     char existing_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char missing_parent_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char fault_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char failure_json_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     gbl_runner_options options = { 0 };
     gbl_runner_result result = { 0 };
     gbl_runner_result other = { 0 };
@@ -1012,12 +1035,16 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
                        "audio-controls-no-parent/audio.raw") ||
         !gbl_test_path(fault_path, sizeof fault_path, scratch_directory,
                        "audio-controls-fault.raw") ||
+        !gbl_test_path(failure_json_path, sizeof failure_json_path,
+                       scratch_directory,
+                       "audio-capture-allocation-failure.json") ||
         !gbl_test_write_audio_guest(rom_path) ||
         !gbl_test_write_audio_halt_guest(halt_rom_path)) {
         return false;
     }
     (void)remove(output_path);
     (void)remove(missing_rom_path);
+    (void)remove(failure_json_path);
 
     gbl_test_audio_options_init(&options, rom_path, NULL, UINT64_C(4096), 0u);
     okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
@@ -1350,12 +1377,14 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
         };
         size_t fail_at;
         bool allocations_okay = true;
+        bool failure_receipt_written = false;
 
         for (fail_at = 1u; fail_at <= 2u; ++fail_at) {
             allocator_state = (gbl_test_audio_allocator_state){ 0 };
             allocator_state.fail_bounded_buffer_call = fail_at;
-            gbl_test_audio_options_init(&options, rom_path, output_path,
+            gbl_test_audio_options_init(&options, pass_rom_path, output_path,
                                         UINT64_C(4096), UINT64_C(512));
+            options.fixture_id = "synthetic-control-pass";
             options.allocator = allocator;
             allocations_okay =
                 gbl_runner_execute(&options, &result) ==
@@ -1365,7 +1394,16 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
                 result.audio.artifact_state ==
                     GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN &&
                 !result.audio.artifact_emitted &&
+                result.audio.artifact_error[0] == '\0' &&
+                gbl_test_audio_json_contract(&result, true, "failed",
+                                             "not-written", true, false,
+                                             false, false) &&
                 allocator_state.bounded_buffer_calls == fail_at;
+            if (allocations_okay && fail_at == 1u) {
+                failure_receipt_written =
+                    gbl_test_write_runner_json(failure_json_path, &result);
+                allocations_okay = failure_receipt_written;
+            }
             gbl_runner_result_dispose(&result);
             allocations_okay = allocations_okay &&
                                 allocator_state.successes ==
@@ -1375,10 +1413,10 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
                                 !allocator_state.bad_bounded_buffer_release_size;
             if (!allocations_okay) break;
         }
-        okay = allocations_okay;
+        okay = allocations_okay && failure_receipt_written;
     }
     gbl_test_case(okay,
-                  "audio controls: destination and scratch allocation failures release all owned buffers");
+                  "audio controls: allocation failures keep artifact errors null and release owned buffers");
 
     okay = gbl_test_write_file(existing_path, 8u, (unsigned char)'K') &&
            gbl_test_read_exact_file(existing_path, existing,
