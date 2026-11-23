@@ -4,18 +4,18 @@ milestone: v4.0
 milestone_name: Audio
 current_phase: 19
 current_phase_name: Stereo Mixing and Runner Evidence
-current_plan: 5
+current_plan: 6
 status: executing
-stopped_at: Completed 19-04-PLAN.md
-last_updated: "2026-11-23T13:53:27.636Z"
+stopped_at: Completed 19-05-PLAN.md
+last_updated: "2026-11-23T14:39:06.763Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 19 execution started
-state_head: 6473837f5677aa4b5f8713968b9e719478be5a46
+state_head: 35a2ca49fd7cdbe01775ca3c9880e73d3874552d
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
   percent: 50
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 19 (Stereo Mixing and Runner Evidence) — EXECUTING
-Current Plan: 5
+Current Plan: 6
 Total Plans in Phase: 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 19 execution started
@@ -209,6 +209,7 @@ Progress: [█████░░░░░] 50%
 | Phase 19 P2 | 53m | 3 tasks | 5 files |
 | Phase 19 P03 | 49min | 3 tasks | 7 files |
 | Phase 19 P04 | 27min | 2 tasks | 8 files |
+| Phase 19 P05 | 37min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -574,6 +575,9 @@ Recent decisions affecting current work:
 - [Phase 19]: Keep historical gamebloke.result/1 documents valid when audio is absent; current producers opt into requiring it.
 - [Phase 19]: Bind reported audio identity, format, cadence, sources, intervals, counts, and artifact state to the AGB profile and accepted run time.
 - [Phase 19]: Keep audio output software-only and hardware qualification UNKNOWN; a digest establishes byte identity, not correctness or rights.
+- [Phase 19]: Use a source-bound BIOS-free guest with PSG channel 2 left and signed FIFO A right for independent stereo observations.
+- [Phase 19]: Keep the original audio fixture local-only with redistribution unknown; do not select it in standard CI.
+- [Phase 19]: Stop Timer 0 and DMA before the completion marker so the final producer result has no pending refill request.
 
 ### Pending Todos
 
@@ -625,8 +629,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T13:53:27.357Z
-Stopped at: Completed 19-04-PLAN.md
+Last session: 2026-11-23T14:39:06.495Z
+Stopped at: Completed 19-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
