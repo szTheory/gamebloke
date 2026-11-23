@@ -82,6 +82,14 @@ typedef enum gbl_time_status {
     GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT = 11
 } gbl_time_status;
 
+typedef struct gbl_audio_fifo_state {
+    uint8_t bytes[32];
+    uint8_t read_cursor;
+    uint8_t write_cursor;
+    uint8_t count;
+    int8_t sample;
+} gbl_audio_fifo_state;
+
 /* Deterministic, value-only audio device state. Output storage and capture
  * sessions are caller-owned and never retained by the machine. */
 typedef struct gbl_audio_state {
@@ -118,6 +126,7 @@ typedef struct gbl_audio_state {
     uint8_t wave_ram[2][16];
     uint8_t wave_phase;
     uint32_t wave_cycle_remainder;
+    gbl_audio_fifo_state fifo[2];
 } gbl_audio_state;
 
 typedef enum gbl_event_kind {

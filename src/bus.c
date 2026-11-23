@@ -796,6 +796,9 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
     case GBL_BUS_REGION_BIOS:
         return GBL_BUS_OUTCOME_BIOS_ABSENT;
     case GBL_BUS_REGION_IO:
+        if (gbl_audio_fifo_address(address)) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
         if (gbl_audio_register_address(address)) {
             return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
         }

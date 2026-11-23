@@ -675,14 +675,25 @@ static int run_tracer(void)
 
 static int run_ds_fifo(void)
 {
+    uint64_t first_overflow = 0u;
     gbl_machine *machine = new_machine();
     gbl_bus_result result;
+    gbl_bus_result timer_read;
+    gbl_machine_time_preview preview;
+    gbl_time_operation operation;
+    gbl_audio_state audio_before;
+    uint64_t cycles_before;
 
     tap_test_number = 0u;
     tap_failure_count = 0u;
-    tap_check("FIFO A writes report the modeled audio subset",
-              machine != NULL);
+    tap_check("fresh machine is available", machine != NULL);
     if (machine != NULL) {
+        tap_check("sound master can be enabled",
+                  write16(machine, UINT32_C(0x04000084),
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK);
+        tap_check("Timer 0 reload is programmed before enable",
+                  write16(machine, UINT32_C(0x04000100),
+                          UINT16_C(0xFFFC)).status == GBL_BUS_STATUS_OK);
         result = gbl_bus_write(machine, UINT32_C(0x040000A0), 4u,
                                GBL_BUS_CLASS_NONSEQUENTIAL,
                                UINT32_C(0x807F01FE));
@@ -694,9 +705,72 @@ static int run_ds_fifo(void)
             printf("# observed bus outcome: %u\n",
                    (unsigned)result.outcome);
         }
+        tap_check("Timer 0 is enabled after the FIFO write",
+                  write16(machine, UINT32_C(0x04000102),
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK);
+        first_overflow = machine->timers[0].anchor_cycle +
+                         (UINT64_C(0x10000) -
+                          machine->timers[0].counter) *
+                             machine->timers[0].divisor -
+                         machine->timers[0].phase;
+        tap_check("word lanes reach FIFO A in increasing address order",
+                  machine->audio.fifo[0].bytes[0] == UINT8_C(0xFE) &&
+                      machine->audio.fifo[0].bytes[1] == UINT8_C(0x01) &&
+                      machine->audio.fifo[0].bytes[2] == UINT8_C(0x7F) &&
+                      machine->audio.fifo[0].bytes[3] == UINT8_C(0x80) &&
+                      machine->audio.fifo[0].count == 4u &&
+                      machine->audio.fifo[0].sample == 0);
+        timer_read = read16(machine, UINT32_C(0x04000100));
+        tap_check("Timer 0 read before its edge leaves the FIFO unchanged",
+                  timer_read.status == GBL_BUS_STATUS_OK &&
+                      machine->master_cycles < first_overflow &&
+                      machine->audio.fifo[0].count == 4u &&
+                      machine->audio.fifo[0].sample == 0);
+        tap_check("advance immediately before overflow preserves FIFO state",
+                  gbl_machine_advance_to(machine, first_overflow - 1u) ==
+                          GBL_TIME_STATUS_OK &&
+                      machine->audio.fifo[0].count == 4u &&
+                      machine->audio.fifo[0].sample == 0);
+        tap_check("Timer 0 overflow consumes and sign extends one byte",
+                  gbl_machine_advance_to(machine, first_overflow) ==
+                          GBL_TIME_STATUS_OK &&
+                      machine->audio.fifo[0].count == 3u &&
+                      machine->audio.fifo[0].sample == -2 &&
+                      machine->audio.fifo[1].count == 0u);
+        tap_check("FIFO state remains valid after its first sample edge",
+                  gbl_audio_state_valid(&machine->audio));
+
+        audio_before = machine->audio;
+        cycles_before = machine->master_cycles;
+        operation = (gbl_time_operation){
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, 1u
+        };
+        tap_check("prepare one cycle for the forged-state refusal vector",
+                  gbl_machine_prepare_operations(machine, &operation, 1u,
+                                                 &preview) ==
+                      GBL_TIME_STATUS_OK);
+        preview.audio.fifo[0].bytes[1] ^= UINT8_C(0x01);
+        tap_check("altered prepared FIFO backing byte is refused",
+                  !gbl_machine_commit_time_checked(machine, &preview));
+        tap_check("refused prepared FIFO state leaves machine unchanged",
+                  machine->master_cycles == cycles_before &&
+                      gbl_audio_state_equal(&machine->audio, &audio_before));
     } else {
         tap_check("FIFO A guest word write is accepted", false);
         tap_check("FIFO A write is classified as modeled audio I/O", false);
+        tap_check("sound master can be enabled", false);
+        tap_check("Timer 0 reload is programmed before enable", false);
+        tap_check("Timer 0 is enabled after the FIFO write", false);
+        tap_check("word lanes reach FIFO A in increasing address order", false);
+        tap_check("Timer 0 read before its edge leaves the FIFO unchanged",
+                  false);
+        tap_check("advance immediately before overflow preserves FIFO state",
+                  false);
+        tap_check("Timer 0 overflow consumes and sign extends one byte", false);
+        tap_check("FIFO state remains valid after its first sample edge", false);
+        tap_check("prepare one cycle for the forged-state refusal vector", false);
+        tap_check("altered prepared FIFO backing byte is refused", false);
+        tap_check("refused prepared FIFO state leaves machine unchanged", false);
     }
     free_machine(machine);
     printf("1..%u\n", tap_test_number);

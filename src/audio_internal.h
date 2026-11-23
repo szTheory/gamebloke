@@ -15,6 +15,10 @@
 #define GBL_AUDIO_REGISTER_COUNT 19u
 #define GBL_AUDIO_WAVE_FIRST UINT32_C(0x04000090)
 #define GBL_AUDIO_WAVE_LAST UINT32_C(0x0400009F)
+#define GBL_AUDIO_FIFO_FIRST UINT32_C(0x040000A0)
+#define GBL_AUDIO_FIFO_LAST UINT32_C(0x040000A7)
+#define GBL_AUDIO_FIFO_CAPACITY 32u
+#define GBL_AUDIO_FIFO_COUNT 2u
 
 typedef void (*gbl_audio_sample_provider)(
     const gbl_machine_time_preview *candidate, uint64_t cycle,
@@ -61,6 +65,13 @@ bool gbl_audio_wave_read_byte(const gbl_audio_state *state,
                               uint32_t address, uint8_t *value);
 bool gbl_audio_wave_write(gbl_audio_state *state, uint32_t address,
                           uint8_t width, uint32_t value);
+bool gbl_audio_fifo_address(uint32_t address);
+bool gbl_audio_fifo_span_overlaps(uint32_t address, uint8_t width);
+bool gbl_audio_fifo_span_valid(uint32_t address, uint8_t width);
+bool gbl_audio_fifo_write(gbl_audio_state *state, uint32_t address,
+                          uint8_t width, uint32_t value);
+uint8_t gbl_audio_fifo_clock_timer(gbl_audio_state *state,
+                                   uint8_t timer_index);
 uint16_t gbl_audio_read_register(const gbl_audio_state *state,
                                  uint32_t address);
 bool gbl_audio_state_equal(const gbl_audio_state *left,

@@ -2583,6 +2583,7 @@ static gbl_time_status gbl_preview_increment_cascade(
                 preview->interrupt_flags |
                 (uint16_t)(UINT16_C(1) << (3u + index)));
         }
+        (void)gbl_audio_fifo_clock_timer(&preview->audio, index);
         /* A cascade overflow is delivered synchronously as the same carry
          * continues into the next enabled cascade timer. It is not a queued
          * prescaler event and consumes no event sequence number. */
@@ -2678,6 +2679,7 @@ static gbl_time_status gbl_preview_dispatch_event(
             preview->interrupt_flags |
             (uint16_t)(UINT16_C(1) << (3u + event->timer_index)));
     }
+    (void)gbl_audio_fifo_clock_timer(&preview->audio, event->timer_index);
     status = gbl_preview_increment_cascade(preview, event->timer_index,
                                            event->cycle);
     if (status != GBL_TIME_STATUS_OK) {
@@ -3127,6 +3129,14 @@ static gbl_time_status gbl_preview_bus_write(
     uint8_t window_register_bytes[GBL_PPU_WINDOW_REGISTER_BYTES];
     gbl_ppu_affine_state affine[GBL_PPU_AFFINE_BACKGROUND_COUNT];
     uint32_t lane;
+
+    if (gbl_audio_fifo_span_overlaps(address, width)) {
+        if (!gbl_audio_fifo_span_valid(address, width) ||
+            !gbl_audio_fifo_write(&preview->audio, address, width, value)) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
+        return GBL_TIME_STATUS_OK;
+    }
 
     if (gbl_audio_wave_span_overlaps(address, width)) {
         return gbl_audio_wave_span_valid(address, width) &&

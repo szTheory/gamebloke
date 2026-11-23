@@ -38,6 +38,16 @@ static const uint16_t gbl_audio_length_masks[4] = {
     UINT16_C(0x003F), UINT16_C(0x003F), UINT16_C(0x00FF), UINT16_C(0x003F)
 };
 
+static bool gbl_audio_fifo_state_valid(const gbl_audio_fifo_state *fifo)
+{
+    return fifo != NULL && fifo->read_cursor < GBL_AUDIO_FIFO_CAPACITY &&
+           fifo->write_cursor < GBL_AUDIO_FIFO_CAPACITY &&
+           (fifo->write_cursor & UINT8_C(3)) == 0u &&
+           fifo->count <= GBL_AUDIO_FIFO_CAPACITY &&
+           (uint8_t)((fifo->read_cursor + fifo->count) &
+                     (GBL_AUDIO_FIFO_CAPACITY - 1u)) == fifo->write_cursor;
+}
+
 static size_t gbl_audio_register_index(uint32_t address)
 {
     return (size_t)((address - GBL_AUDIO_REGISTER_FIRST) / 2u);
@@ -130,6 +140,108 @@ bool gbl_audio_wave_write(gbl_audio_state *state, uint32_t address,
             (uint8_t)(value >> (lane * 8u));
     }
     return true;
+}
+
+bool gbl_audio_fifo_address(uint32_t address)
+{
+    return address >= GBL_AUDIO_FIFO_FIRST && address <= GBL_AUDIO_FIFO_LAST;
+}
+
+bool gbl_audio_fifo_span_overlaps(uint32_t address, uint8_t width)
+{
+    const uint64_t span_begin = address;
+    const uint64_t span_end = span_begin + width;
+
+    return width != 0u && span_begin <= GBL_AUDIO_FIFO_LAST &&
+           span_end > GBL_AUDIO_FIFO_FIRST;
+}
+
+bool gbl_audio_fifo_span_valid(uint32_t address, uint8_t width)
+{
+    uint32_t fifo_offset;
+    uint32_t last_address;
+
+    if ((width != 1u && width != 2u && width != 4u) ||
+        !gbl_audio_fifo_span_overlaps(address, width) ||
+        address < GBL_AUDIO_FIFO_FIRST ||
+        address > GBL_AUDIO_FIFO_LAST - ((uint32_t)width - 1u)) {
+        return false;
+    }
+    last_address = address + (uint32_t)width - 1u;
+    fifo_offset = address - GBL_AUDIO_FIFO_FIRST;
+    return fifo_offset / 4u == (last_address - GBL_AUDIO_FIFO_FIRST) / 4u;
+}
+
+bool gbl_audio_fifo_write(gbl_audio_state *state, uint32_t address,
+                          uint8_t width, uint32_t value)
+{
+    uint32_t port_offset;
+    uint32_t write_cursor;
+    unsigned fifo_index;
+    unsigned lane;
+    gbl_audio_fifo_state *fifo;
+
+    if (state == NULL || !gbl_audio_state_valid(state) ||
+        !gbl_audio_fifo_span_valid(address, width)) {
+        return false;
+    }
+    port_offset = address - GBL_AUDIO_FIFO_FIRST;
+    fifo_index = (unsigned)(port_offset / 4u);
+    port_offset %= 4u;
+    fifo = &state->fifo[fifo_index];
+    if ((GBL_AUDIO_FIFO_CAPACITY - fifo->count) < 4u) {
+        fifo->read_cursor = 0u;
+        fifo->write_cursor = 0u;
+        fifo->count = 0u;
+    }
+    write_cursor = fifo->write_cursor;
+    for (lane = 0u; lane < width; ++lane) {
+        const unsigned ring_index =
+            (unsigned)((write_cursor + port_offset + lane) &
+                       (GBL_AUDIO_FIFO_CAPACITY - 1u));
+
+        fifo->bytes[ring_index] = (uint8_t)(value >> (lane * 8u));
+    }
+    fifo->count = (uint8_t)(fifo->count + 4u);
+    fifo->write_cursor = (uint8_t)(
+        (fifo->write_cursor + 4u) & (GBL_AUDIO_FIFO_CAPACITY - 1u));
+    return gbl_audio_fifo_state_valid(fifo);
+}
+
+uint8_t gbl_audio_fifo_clock_timer(gbl_audio_state *state,
+                                   uint8_t timer_index)
+{
+    uint8_t refill_mask = 0u;
+    unsigned fifo_index;
+
+    if (state == NULL || !gbl_audio_state_valid(state) || timer_index > 1u) {
+        return 0u;
+    }
+    for (fifo_index = 0u; fifo_index < GBL_AUDIO_FIFO_COUNT; ++fifo_index) {
+        gbl_audio_fifo_state *fifo = &state->fifo[fifo_index];
+        const unsigned timer_bit = fifo_index == 0u ? 10u : 14u;
+        const uint8_t selected_timer =
+            (uint8_t)((state->registers[17] >> timer_bit) & 1u);
+
+        if (selected_timer != timer_index || fifo->count == 0u) {
+            continue;
+        }
+        {
+            const uint8_t sample_bits = fifo->bytes[fifo->read_cursor];
+            const int16_t signed_sample = sample_bits < UINT8_C(0x80)
+                                              ? (int16_t)sample_bits
+                                              : (int16_t)sample_bits - 256;
+
+            fifo->sample = (int8_t)signed_sample;
+        }
+        fifo->read_cursor = (uint8_t)(
+            (fifo->read_cursor + 1u) & (GBL_AUDIO_FIFO_CAPACITY - 1u));
+        --fifo->count;
+        if (fifo->count == 16u) {
+            refill_mask |= (uint8_t)(UINT8_C(1) << fifo_index);
+        }
+    }
+    return refill_mask;
 }
 
 uint16_t gbl_audio_read_register(const gbl_audio_state *state,
@@ -638,6 +750,25 @@ bool gbl_audio_state_equal(const gbl_audio_state *left,
             return false;
         }
     }
+    for (index = 0u; index < GBL_AUDIO_FIFO_COUNT; ++index) {
+        size_t byte_index;
+        const gbl_audio_fifo_state *left_fifo = &left->fifo[index];
+        const gbl_audio_fifo_state *right_fifo = &right->fifo[index];
+
+        if (left_fifo->read_cursor != right_fifo->read_cursor ||
+            left_fifo->write_cursor != right_fifo->write_cursor ||
+            left_fifo->count != right_fifo->count ||
+            left_fifo->sample != right_fifo->sample) {
+            return false;
+        }
+        for (byte_index = 0u; byte_index < GBL_AUDIO_FIFO_CAPACITY;
+             ++byte_index) {
+            if (left_fifo->bytes[byte_index] !=
+                right_fifo->bytes[byte_index]) {
+                return false;
+            }
+        }
+    }
     for (index = 0u; index < 2u; ++index) {
         if (left->square_phase[index] != right->square_phase[index] ||
             left->square_high[index] != right->square_high[index]) {
@@ -712,6 +843,11 @@ bool gbl_audio_state_valid(const gbl_audio_state *state)
         ((state->active_channels & UINT8_C(0x08)) != 0u &&
          (state->registers[12] & UINT16_C(0xF800)) == 0u)) {
         return false;
+    }
+    for (index = 0u; index < GBL_AUDIO_FIFO_COUNT; ++index) {
+        if (!gbl_audio_fifo_state_valid(&state->fifo[index])) {
+            return false;
+        }
     }
     for (index = 0u; index < GBL_AUDIO_REGISTER_COUNT - 1u; ++index) {
         if ((state->registers[index] &
