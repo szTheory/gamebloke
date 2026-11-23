@@ -3214,7 +3214,8 @@ static gbl_time_status gbl_preview_advance_to(
     const gbl_machine *machine, gbl_machine_time_preview *preview,
     uint64_t target, size_t *dispatched, uint8_t *staging,
     size_t staging_capacity, size_t *staged_bytes,
-    gbl_audio_sample_provider provider, void *provider_context)
+    gbl_audio_sample_provider provider, void *provider_context,
+    uint64_t capture_end_cycle)
 {
     gbl_machine_time_preview candidate;
     size_t index;
@@ -3248,9 +3249,9 @@ static gbl_time_status gbl_preview_advance_to(
         event_cycle = candidate.events[next_index].cycle;
         if (event_cycle > candidate.master_cycles) {
             const uint64_t before_event = event_cycle - 1u;
-            gbl_time_status status = gbl_audio_advance_span(
+            gbl_time_status status = gbl_audio_advance_span_until(
                 &candidate, before_event, staging, staging_capacity,
-                staged_bytes, provider, provider_context);
+                staged_bytes, provider, provider_context, capture_end_cycle);
 
             if (status != GBL_TIME_STATUS_OK) {
                 return status;
@@ -3323,9 +3324,9 @@ static gbl_time_status gbl_preview_advance_to(
             const uint64_t audio_target = candidate.master_cycles > event_cycle
                                               ? candidate.master_cycles
                                               : event_cycle;
-            gbl_time_status status = gbl_audio_advance_span(
+            gbl_time_status status = gbl_audio_advance_span_until(
                 &candidate, audio_target, staging, staging_capacity,
-                staged_bytes, provider, provider_context);
+                staged_bytes, provider, provider_context, capture_end_cycle);
 
             if (status != GBL_TIME_STATUS_OK) {
                 return status;
@@ -3333,9 +3334,9 @@ static gbl_time_status gbl_preview_advance_to(
         }
     }
     {
-        gbl_time_status status = gbl_audio_advance_span(
+        gbl_time_status status = gbl_audio_advance_span_until(
             &candidate, target, staging, staging_capacity, staged_bytes,
-            provider, provider_context);
+            provider, provider_context, capture_end_cycle);
 
         if (status != GBL_TIME_STATUS_OK) {
             return status;
@@ -3373,7 +3374,8 @@ gbl_time_status gbl_machine_prepare_time(
     }
     gbl_machine_time_copy_preview(machine, &candidate);
     status = gbl_preview_advance_to(machine, &candidate, target, &dispatched,
-                                    NULL, 0u, &staged_bytes, NULL, NULL);
+                                    NULL, 0u, &staged_bytes, NULL, NULL,
+                                    UINT64_MAX);
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
@@ -3710,12 +3712,13 @@ static gbl_time_status gbl_preview_bus_write(
     return GBL_TIME_STATUS_OK;
 }
 
-gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
+static gbl_time_status gbl_machine_prepare_operations_audio_internal(
     const gbl_machine *machine,
     const gbl_time_operation *operations,
     size_t operation_count, gbl_machine_time_preview *preview,
     uint8_t *staging, size_t staging_capacity, size_t *staged_bytes_out,
-    gbl_audio_sample_provider provider, void *provider_context)
+    gbl_audio_sample_provider provider, void *provider_context,
+    uint64_t capture_end_cycle)
 {
     gbl_machine_time_preview candidate;
     size_t dispatched = machine != NULL && machine->dma_transaction_active
@@ -3767,7 +3770,8 @@ gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
         status = gbl_preview_advance_to(machine, &candidate, target,
                                         &dispatched, staging,
                                         staging_capacity, &staged_bytes,
-                                        provider, provider_context);
+                                        provider, provider_context,
+                                        capture_end_cycle);
         if (status != GBL_TIME_STATUS_OK) {
             return status;
         }
@@ -3809,6 +3813,30 @@ gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
         *staged_bytes_out = staged_bytes;
     }
     return GBL_TIME_STATUS_OK;
+}
+
+gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
+    const gbl_machine *machine,
+    const gbl_time_operation *operations,
+    size_t operation_count, gbl_machine_time_preview *preview,
+    uint8_t *staging, size_t staging_capacity, size_t *staged_bytes_out,
+    gbl_audio_sample_provider provider, void *provider_context)
+{
+    return gbl_machine_prepare_operations_audio_internal(
+        machine, operations, operation_count, preview, staging,
+        staging_capacity, staged_bytes_out, provider, provider_context,
+        UINT64_MAX);
+}
+
+gbl_time_status gbl_machine_prepare_operations_audio_until(
+    const gbl_machine *machine, const gbl_time_operation *operations,
+    size_t operation_count, gbl_machine_time_preview *preview,
+    uint8_t *staging, size_t staging_capacity, size_t *staged_bytes_out,
+    uint64_t capture_end_cycle)
+{
+    return gbl_machine_prepare_operations_audio_internal(
+        machine, operations, operation_count, preview, staging,
+        staging_capacity, staged_bytes_out, NULL, NULL, capture_end_cycle);
 }
 
 gbl_time_status gbl_machine_prepare_operations_audio(
@@ -3896,7 +3924,7 @@ static bool gbl_audio_capture_ranges_valid(
     return true;
 }
 
-static bool gbl_audio_capture_consistent(
+bool gbl_audio_capture_validate(
     const gbl_machine *machine, const gbl_audio_capture *capture)
 {
     uint64_t frame_count;
@@ -3973,7 +4001,7 @@ gbl_time_status gbl_machine_advance_to_audio(gbl_machine *machine,
     if (target < machine->master_cycles) {
         return GBL_TIME_STATUS_BACKWARD;
     }
-    if (!gbl_audio_capture_consistent(machine, capture) ||
+    if (!gbl_audio_capture_validate(machine, capture) ||
         capture->last_accepted_cycle != machine->master_cycles ||
         machine->audio.cycle_anchor != machine->master_cycles) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
@@ -4337,7 +4365,8 @@ static gbl_dma_status gbl_dma_sound_advance(
     }
     target = preview->master_cycles + cycles;
     status = gbl_preview_advance_to(machine, preview, target, dispatched,
-                                    NULL, 0u, staged_bytes, NULL, NULL);
+                                    NULL, 0u, staged_bytes, NULL, NULL,
+                                    UINT64_MAX);
     if (status != GBL_TIME_STATUS_OK) {
         return gbl_dma_status_from_time(status);
     }

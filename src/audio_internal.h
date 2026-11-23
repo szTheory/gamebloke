@@ -58,6 +58,11 @@ gbl_time_status gbl_machine_prepare_operations_audio(
     const gbl_machine *machine, const gbl_time_operation *operations,
     size_t operation_count, gbl_machine_time_preview *preview,
     uint8_t *staging, size_t staging_capacity, size_t *staged_bytes);
+gbl_time_status gbl_machine_prepare_operations_audio_until(
+    const gbl_machine *machine, const gbl_time_operation *operations,
+    size_t operation_count, gbl_machine_time_preview *preview,
+    uint8_t *staging, size_t staging_capacity, size_t *staged_bytes,
+    uint64_t capture_end_cycle);
 gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
     const gbl_machine *machine, const gbl_time_operation *operations,
     size_t operation_count, gbl_machine_time_preview *preview,
@@ -101,5 +106,10 @@ gbl_time_status gbl_audio_advance_span(
     gbl_machine_time_preview *candidate, uint64_t target, uint8_t *staging,
     size_t staging_capacity, size_t *staged_bytes,
     gbl_audio_sample_provider provider, void *provider_context);
+gbl_time_status gbl_audio_advance_span_until(
+    gbl_machine_time_preview *candidate, uint64_t target, uint8_t *staging,
+    size_t staging_capacity, size_t *staged_bytes,
+    gbl_audio_sample_provider provider, void *provider_context,
+    uint64_t capture_end_cycle);
 
 #endif

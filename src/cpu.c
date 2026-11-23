@@ -5,6 +5,7 @@
 #include "dma_internal.h"
 
 #include <limits.h>
+#include <string.h>
 
 #define GBL_CPU_WORD_WIDTH 4u
 #define GBL_CPU_HALF_WIDTH 2u
@@ -3739,6 +3740,142 @@ static bool gbl_cpu_trace_preflight(const gbl_run_options *options,
     return true;
 }
 
+static bool gbl_cpu_audio_capture_arguments_valid(
+    const gbl_machine *machine, const gbl_run_options *options,
+    const gbl_run_result *result, const gbl_audio_capture *capture,
+    const uint8_t *staging, size_t staging_capacity,
+    uint64_t capture_end_cycle)
+{
+    const gbl_trace_buffer *trace = options->trace_buffer;
+
+    if (capture == NULL) {
+        return staging == NULL && staging_capacity == 0u;
+    }
+    if (staging == NULL || staging_capacity == 0u ||
+        staging_capacity > GBL_AUDIO_MAX_CAPTURE_BYTES ||
+        !gbl_audio_capture_validate(machine, capture) ||
+        capture_end_cycle < capture->initial_cycle ||
+        capture_end_cycle - capture->initial_cycle >
+            GBL_AUDIO_MAX_CAPTURE_CYCLES ||
+        capture->last_accepted_cycle !=
+            (machine->master_cycles < capture_end_cycle
+                 ? machine->master_cycles
+                 : capture_end_cycle) ||
+        gbl_cpu_ranges_overlap(capture, sizeof(*capture), machine,
+                               sizeof(*machine)) ||
+        gbl_cpu_ranges_overlap(capture, sizeof(*capture), options,
+                               sizeof(*options)) ||
+        gbl_cpu_ranges_overlap(capture, sizeof(*capture), result,
+                               sizeof(*result)) ||
+        gbl_cpu_ranges_overlap(capture, sizeof(*capture), machine->rom,
+                               machine->rom_length) ||
+        gbl_cpu_ranges_overlap(staging, staging_capacity, machine,
+                               sizeof(*machine)) ||
+        gbl_cpu_ranges_overlap(staging, staging_capacity, machine->rom,
+                               machine->rom_length) ||
+        gbl_cpu_ranges_overlap(staging, staging_capacity, capture,
+                               sizeof(*capture)) ||
+        gbl_cpu_ranges_overlap(staging, staging_capacity,
+                               capture->destination, capture->capacity) ||
+        gbl_cpu_ranges_overlap(staging, staging_capacity, options,
+                               sizeof(*options)) ||
+        gbl_cpu_ranges_overlap(staging, staging_capacity, result,
+                               sizeof(*result)) ||
+        gbl_cpu_ranges_overlap(capture->destination, capture->capacity,
+                               options, sizeof(*options)) ||
+        gbl_cpu_ranges_overlap(capture->destination, capture->capacity,
+                               result, sizeof(*result))) {
+        return false;
+    }
+    if (options->category_mask != 0u && trace != NULL) {
+        const size_t records_size =
+            trace->capacity * sizeof(*trace->records);
+
+        if (gbl_cpu_ranges_overlap(capture, sizeof(*capture), trace,
+                                   sizeof(*trace)) ||
+            gbl_cpu_ranges_overlap(staging, staging_capacity, trace,
+                                   sizeof(*trace)) ||
+            gbl_cpu_ranges_overlap(capture->destination,
+                                   capture->capacity, trace,
+                                   sizeof(*trace)) ||
+            (records_size != 0u &&
+             (gbl_cpu_ranges_overlap(capture, sizeof(*capture),
+                                     trace->records, records_size) ||
+              gbl_cpu_ranges_overlap(staging, staging_capacity,
+                                     trace->records, records_size) ||
+              gbl_cpu_ranges_overlap(capture->destination,
+                                     capture->capacity, trace->records,
+                                     records_size)))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static gbl_time_status gbl_cpu_prepare_audio_capture_operations(
+    const gbl_machine *machine, const gbl_time_operation *operations,
+    size_t operation_count, gbl_machine_time_preview *preview,
+    gbl_audio_capture *capture, uint8_t *staging,
+    size_t staging_capacity, uint64_t capture_end_cycle,
+    size_t *staged_bytes)
+{
+    uint64_t target_cycle;
+    uint64_t expected_frames;
+    size_t expected_bytes;
+    gbl_time_status status;
+
+    if (capture == NULL || preview == NULL || staged_bytes == NULL) {
+        return GBL_TIME_STATUS_INVALID_ARGUMENT;
+    }
+    *staged_bytes = 0u;
+    if (machine->master_cycles >= capture_end_cycle) {
+        status = gbl_machine_prepare_operations(machine, operations,
+                                                operation_count, preview);
+        return status;
+    }
+    status = gbl_machine_prepare_operations_audio_until(
+        machine, operations, operation_count, preview, staging,
+        staging_capacity, staged_bytes, capture_end_cycle);
+    if (status != GBL_TIME_STATUS_OK) {
+        return status;
+    }
+    target_cycle = preview->master_cycles < capture_end_cycle
+                       ? preview->master_cycles
+                       : capture_end_cycle;
+    expected_frames = target_cycle / GBL_AUDIO_SAMPLE_CYCLES -
+                      capture->last_accepted_cycle /
+                          GBL_AUDIO_SAMPLE_CYCLES;
+    if (expected_frames > (uint64_t)(SIZE_MAX / GBL_AUDIO_FRAME_BYTES)) {
+        return GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT;
+    }
+    expected_bytes = (size_t)expected_frames * GBL_AUDIO_FRAME_BYTES;
+    if (*staged_bytes != expected_bytes ||
+        *staged_bytes > capture->capacity - capture->bytes_written ||
+        capture->bytes_written > GBL_AUDIO_MAX_CAPTURE_BYTES -
+                                     *staged_bytes) {
+        return GBL_TIME_STATUS_AUDIO_CAPTURE_LIMIT;
+    }
+    return GBL_TIME_STATUS_OK;
+}
+
+static void gbl_cpu_publish_audio_capture(
+    gbl_audio_capture *capture, const uint8_t *staging,
+    size_t staged_bytes, uint64_t accepted_cycle,
+    uint64_t capture_end_cycle)
+{
+    uint64_t final_cycle = accepted_cycle;
+
+    if (final_cycle > capture_end_cycle) {
+        final_cycle = capture_end_cycle;
+    }
+    if (staged_bytes != 0u) {
+        memcpy(capture->destination + capture->bytes_written, staging,
+               staged_bytes);
+    }
+    capture->bytes_written += staged_bytes;
+    capture->last_accepted_cycle = final_cycle;
+}
+
 static bool gbl_cpu_test_build_maximum_unit(gbl_cpu_unit *unit)
 {
     uint8_t index;
@@ -4532,7 +4669,11 @@ static uint64_t gbl_cpu_wait_dispatch_count(const gbl_machine *machine,
  * or the remaining budget horizon. True means return to the CPU loop. */
 static bool gbl_cpu_wait_halted(gbl_machine *machine, uint64_t remaining,
                                 uint64_t *event_work,
-                                gbl_run_result *run_result)
+                                gbl_run_result *run_result,
+                                gbl_audio_capture *capture,
+                                uint8_t *staging,
+                                size_t staging_capacity,
+                                uint64_t capture_end_cycle)
 {
     const uint16_t pending = (uint16_t)(machine->interrupt_flags &
                                         machine->interrupt_enable &
@@ -4542,6 +4683,7 @@ static bool gbl_cpu_wait_halted(gbl_machine *machine, uint64_t remaining,
     uint64_t target;
     uint64_t dispatches;
     uint64_t elapsed;
+    size_t staged_audio_bytes = 0u;
     gbl_machine_time_preview preview = { 0 };
     gbl_time_status time_status;
 
@@ -4579,14 +4721,33 @@ static bool gbl_cpu_wait_halted(gbl_machine *machine, uint64_t remaining,
         run_result->reason = GBL_RUN_REASON_TIME_REFUSAL;
         return false;
     }
-    time_status = gbl_machine_prepare_time(machine, target, &preview);
+    if (capture == NULL) {
+        time_status = gbl_machine_prepare_time(machine, target, &preview);
+    } else {
+        const gbl_time_operation operation = {
+            .kind = GBL_TIME_OPERATION_INTERNAL,
+            .cycles = target - machine->master_cycles
+        };
+
+        time_status = gbl_cpu_prepare_audio_capture_operations(
+            machine, &operation, 1u, &preview, capture, staging,
+            staging_capacity, capture_end_cycle, &staged_audio_bytes);
+    }
     if (time_status != GBL_TIME_STATUS_OK) {
         run_result->termination = GBL_RUN_STOPPED;
         run_result->reason = gbl_cpu_time_refusal_reason(time_status);
         return false;
     }
     elapsed = target - machine->master_cycles;
-    gbl_machine_commit_time(machine, &preview);
+    if (!gbl_machine_commit_time_checked(machine, &preview)) {
+        run_result->termination = GBL_RUN_STOPPED;
+        run_result->reason = GBL_RUN_REASON_INVALID_CPU_STATE;
+        return false;
+    }
+    if (capture != NULL) {
+        gbl_cpu_publish_audio_capture(capture, staging, staged_audio_bytes,
+                                      target, capture_end_cycle);
+    }
     *event_work += dispatches;
     run_result->cycles += elapsed;
     run_result->wait_cycles += elapsed;
@@ -4613,9 +4774,13 @@ static bool gbl_cpu_wait_halted(gbl_machine *machine, uint64_t remaining,
     return true;
 }
 
-gbl_run_status gbl_cpu_run(gbl_machine *machine,
-                           const gbl_run_options *options,
-                           gbl_run_result *result)
+gbl_run_status gbl_cpu_run_audio(gbl_machine *machine,
+                                 const gbl_run_options *options,
+                                 gbl_run_result *result,
+                                 gbl_audio_capture *capture,
+                                 uint8_t *staging,
+                                 size_t staging_capacity,
+                                 uint64_t capture_end_cycle)
 {
     gbl_run_options run_options;
     gbl_run_result run_result = {
@@ -4643,6 +4808,11 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
     if (!gbl_cpu_trace_options_valid(machine, options, result)) {
         return GBL_RUN_STATUS_INVALID_ARGUMENT;
     }
+    if (!gbl_cpu_audio_capture_arguments_valid(
+            machine, options, result, capture, staging, staging_capacity,
+            capture_end_cycle)) {
+        return GBL_RUN_STATUS_INVALID_ARGUMENT;
+    }
     run_options = *options;
 
     for (;;) {
@@ -4657,6 +4827,7 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
         gbl_machine_time_preview prepared_time = { 0 };
         size_t time_operation_count = 0u;
         size_t trace_record_count = 0u;
+        size_t staged_audio_bytes = 0u;
         uint64_t unit_start_cycle;
         gbl_cpu_irq_observation boundary_irq = { 0 };
         bool asynchronous_irq = false;
@@ -4863,8 +5034,10 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             const uint64_t remaining =
                 run_options.cycle_budget - run_result.cycles;
 
-            if (gbl_cpu_wait_halted(machine, remaining, &wait_event_work,
-                                    &run_result)) {
+            if (gbl_cpu_wait_halted(
+                    machine, remaining, &wait_event_work, &run_result,
+                    capture, staging, staging_capacity,
+                    capture_end_cycle)) {
                 continue;
             }
             break;
@@ -4967,6 +5140,18 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = preflight_reason;
             break;
         }
+        if (capture != NULL) {
+            time_status = gbl_cpu_prepare_audio_capture_operations(
+                machine, time_operations, time_operation_count,
+                &prepared_time, capture, staging, staging_capacity,
+                capture_end_cycle, &staged_audio_bytes);
+            if (time_status != GBL_TIME_STATUS_OK) {
+                run_result.termination = GBL_RUN_STOPPED;
+                run_result.reason =
+                    gbl_cpu_time_refusal_reason(time_status);
+                break;
+            }
+        }
         if (unit.kind != GBL_CPU_UNIT_REFILL && !unit.asynchronous) {
             gbl_trace_record record = { 0 };
 
@@ -5045,6 +5230,11 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                 run_result.termination = GBL_RUN_STOPPED;
                 run_result.reason = GBL_RUN_REASON_INTERNAL_ERROR;
                 break;
+            }
+            if (capture != NULL) {
+                gbl_cpu_publish_audio_capture(
+                    capture, staging, staged_audio_bytes,
+                    machine->master_cycles, capture_end_cycle);
             }
             if (boundary_irq.sampled) {
                 if (unit.asynchronous) {
@@ -5214,6 +5404,11 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             run_result.reason = GBL_RUN_REASON_INTERNAL_ERROR;
             break;
         }
+        if (capture != NULL) {
+            gbl_cpu_publish_audio_capture(
+                capture, staging, staged_audio_bytes, machine->master_cycles,
+                capture_end_cycle);
+        }
         if (boundary_irq.sampled) {
             machine->cpu.irq_observation = boundary_irq;
         }
@@ -5229,20 +5424,9 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
     return GBL_RUN_STATUS_OK;
 }
 
-/* Contract scaffold for the capture-aware runner; the capture path is added in
- * the following implementation change. Keeping the seam executable lets the
- * guest tracer assert the missing caller-visible PCM behavior. */
-gbl_run_status gbl_cpu_run_audio(gbl_machine *machine,
-                                 const gbl_run_options *options,
-                                 gbl_run_result *result,
-                                 gbl_audio_capture *capture,
-                                 uint8_t *staging,
-                                 size_t staging_capacity,
-                                 uint64_t capture_end_cycle)
+gbl_run_status gbl_cpu_run(gbl_machine *machine,
+                           const gbl_run_options *options,
+                           gbl_run_result *result)
 {
-    (void)capture;
-    (void)staging;
-    (void)staging_capacity;
-    (void)capture_end_cycle;
-    return gbl_cpu_run(machine, options, result);
+    return gbl_cpu_run_audio(machine, options, result, NULL, NULL, 0u, 0u);
 }

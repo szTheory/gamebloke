@@ -4713,6 +4713,8 @@ static int run_capture_cpu_wait(void)
     if (setup) {
         setup = configure_ch2(wait_machine, 0u, 3u, 15u, false, 0u,
                               UINT16_C(2043), false) &&
+                write16(wait_machine, UINT32_C(0x04000080),
+                        UINT16_C(0x2070)).status == GBL_BUS_STATUS_OK &&
                 prepare_capture_cpu(wait_machine, wait_image,
                                     sizeof(wait_image),
                                     UINT32_C(0xE1A00000));
@@ -4746,6 +4748,13 @@ static int run_capture_cpu_wait(void)
                           wait_staging, GBL_AUDIO_MAX_CAPTURE_BYTES,
                           capture_end) == GBL_RUN_STATUS_OK;
     }
+    printf("# HALT cycles=%llu wait=%llu bytes=%zu last=%llu end=%llu PCM=%02X%02X%02X%02X %02X%02X%02X%02X\n",
+           (unsigned long long)wait_machine->master_cycles,
+           (unsigned long long)result.wait_cycles, wait_capture.bytes_written,
+           (unsigned long long)wait_capture.last_accepted_cycle,
+           (unsigned long long)capture_end, wait_output[0], wait_output[1],
+           wait_output[2], wait_output[3], wait_output[4], wait_output[5],
+           wait_output[6], wait_output[7]);
     tap_check("HALT wait captures committed timer event time and then resumes one CPU unit",
               wait_run_ok && result.wait_cycles == UINT64_C(1024) &&
                   result.instructions == 1u);

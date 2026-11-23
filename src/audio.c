@@ -1276,16 +1276,15 @@ static void gbl_audio_write_frame_candidate(
     gbl_audio_write_s16le(destination + 2u, right);
 }
 
-gbl_time_status gbl_audio_advance_span(
+gbl_time_status gbl_audio_advance_span_until(
     gbl_machine_time_preview *candidate, uint64_t target, uint8_t *staging,
     size_t staging_capacity, size_t *staged_bytes,
-    gbl_audio_sample_provider provider, void *provider_context)
+    gbl_audio_sample_provider provider, void *provider_context,
+    uint64_t capture_end_cycle)
 {
     gbl_audio_state *state = candidate == NULL ? NULL : &candidate->audio;
-    const uint64_t first_frame = state == NULL
-                                     ? 0u
-                                     : state->cycle_anchor /
-                                           GBL_AUDIO_SAMPLE_CYCLES;
+    uint64_t first_frame;
+    uint64_t sample_target;
     uint64_t final_frame;
     uint64_t frame_count;
     size_t byte_count;
@@ -1298,7 +1297,12 @@ gbl_time_status gbl_audio_advance_span(
     if (target < state->cycle_anchor) {
         return GBL_TIME_STATUS_INVALID_ARGUMENT;
     }
-    final_frame = target / GBL_AUDIO_SAMPLE_CYCLES;
+    first_frame = state->cycle_anchor / GBL_AUDIO_SAMPLE_CYCLES;
+    sample_target = target < capture_end_cycle ? target : capture_end_cycle;
+    if (sample_target < state->cycle_anchor) {
+        sample_target = state->cycle_anchor;
+    }
+    final_frame = sample_target / GBL_AUDIO_SAMPLE_CYCLES;
     frame_count = final_frame - first_frame;
     if (staging == NULL) {
         gbl_audio_advance_to(state, target);
@@ -1323,4 +1327,14 @@ gbl_time_status gbl_audio_advance_span(
     }
     gbl_audio_advance_to(state, target);
     return GBL_TIME_STATUS_OK;
+}
+
+gbl_time_status gbl_audio_advance_span(
+    gbl_machine_time_preview *candidate, uint64_t target, uint8_t *staging,
+    size_t staging_capacity, size_t *staged_bytes,
+    gbl_audio_sample_provider provider, void *provider_context)
+{
+    return gbl_audio_advance_span_until(
+        candidate, target, staging, staging_capacity, staged_bytes, provider,
+        provider_context, UINT64_MAX);
 }
