@@ -77,9 +77,9 @@ uint16_t gbl_audio_read_register(const gbl_audio_state *state,
 bool gbl_audio_state_equal(const gbl_audio_state *left,
                            const gbl_audio_state *right);
 bool gbl_audio_state_valid(const gbl_audio_state *state);
-void gbl_audio_apply_register_write(gbl_audio_state *state,
-                                    uint32_t address, uint16_t value,
-                                    uint8_t lane_mask);
+uint8_t gbl_audio_apply_register_write(gbl_audio_state *state,
+                                       uint32_t address, uint16_t value,
+                                       uint8_t lane_mask);
 void gbl_audio_write_soundbias(gbl_audio_state *state, uint32_t address,
                                uint8_t value);
 void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,

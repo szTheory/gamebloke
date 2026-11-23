@@ -673,8 +673,266 @@ static int run_tracer(void)
     return CHECK_DONE();
 }
 
+static bool fifo_lane_vector(gbl_machine *machine, unsigned fifo_index,
+                             uint8_t width, uint8_t lane_offset,
+                             uint32_t value)
+{
+    uint8_t expected[4] = {
+        UINT8_C(0x10), UINT8_C(0x20), UINT8_C(0x30), UINT8_C(0x40)
+    };
+    const uint32_t port = GBL_AUDIO_FIFO_FIRST +
+                          (uint32_t)(fifo_index * 4u);
+    gbl_audio_fifo_state *fifo;
+    gbl_bus_result result;
+    unsigned lane;
+
+    if (machine == NULL || fifo_index >= GBL_AUDIO_FIFO_COUNT) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+        GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    fifo = &machine->audio.fifo[fifo_index];
+    for (lane = 0u; lane < sizeof(expected); ++lane) {
+        fifo->bytes[lane] = expected[lane];
+    }
+    if (!gbl_audio_state_valid(&machine->audio)) {
+        return false;
+    }
+    for (lane = 0u; lane < width; ++lane) {
+        expected[lane_offset + lane] =
+            (uint8_t)(value >> (lane * 8u));
+    }
+    result = gbl_bus_write(machine, port + lane_offset, width,
+                           GBL_BUS_CLASS_NONSEQUENTIAL, value);
+    if (result.status != GBL_BUS_STATUS_OK ||
+        result.outcome != GBL_BUS_OUTCOME_IO_AUDIO_SUBSET ||
+        fifo->count != 4u || fifo->read_cursor != 0u ||
+        fifo->write_cursor != 4u) {
+        return false;
+    }
+    for (lane = 0u; lane < sizeof(expected); ++lane) {
+        if (fifo->bytes[lane] != expected[lane]) {
+            return false;
+        }
+    }
+    return gbl_audio_state_valid(&machine->audio);
+}
+
+static bool fifo_fill_full_queue(gbl_machine *machine)
+{
+    unsigned index;
+
+    if (machine == NULL ||
+        write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    for (index = 0u; index < 8u; ++index) {
+        const uint32_t value = index == 0u
+                                   ? UINT32_C(0x807F01FE)
+                                   : UINT32_C(0x10203040) + index;
+        const gbl_bus_result result = gbl_bus_write(
+            machine, GBL_AUDIO_FIFO_FIRST, 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, value);
+
+        if (result.status != GBL_BUS_STATUS_OK ||
+            result.outcome != GBL_BUS_OUTCOME_IO_AUDIO_SUBSET) {
+            return false;
+        }
+    }
+    return machine->audio.fifo[0].count == GBL_AUDIO_FIFO_CAPACITY &&
+           machine->audio.fifo[0].read_cursor == 0u &&
+           machine->audio.fifo[0].write_cursor == 0u;
+}
+
+static bool fifo_full_overflow_vector(gbl_machine *machine, bool pop_odd)
+{
+    gbl_audio_fifo_state *fifo;
+    gbl_bus_result result;
+    int8_t held_sample;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (!fifo_fill_full_queue(machine)) {
+        return false;
+    }
+    fifo = &machine->audio.fifo[0];
+    if (pop_odd) {
+        (void)gbl_audio_fifo_clock_timer(&machine->audio, 0u);
+        if (fifo->count != 31u || fifo->read_cursor != 1u ||
+            fifo->sample != -2) {
+            return false;
+        }
+    } else {
+        fifo->sample = -37;
+    }
+    held_sample = fifo->sample;
+    result = gbl_bus_write(machine, GBL_AUDIO_FIFO_FIRST, 4u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0x44332211));
+    return result.status == GBL_BUS_STATUS_OK &&
+           result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET &&
+           fifo->count == 4u && fifo->read_cursor == 0u &&
+           fifo->write_cursor == 4u && fifo->sample == held_sample &&
+           fifo->bytes[0] == UINT8_C(0x11) &&
+           fifo->bytes[1] == UINT8_C(0x22) &&
+           fifo->bytes[2] == UINT8_C(0x33) &&
+           fifo->bytes[3] == UINT8_C(0x44) &&
+           gbl_audio_state_valid(&machine->audio);
+}
+
+static bool fifo_wrap_narrow_write_vector(gbl_machine *machine)
+{
+    gbl_audio_fifo_state *fifo;
+    unsigned index;
+    gbl_bus_result result;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (!fifo_fill_full_queue(machine)) {
+        return false;
+    }
+    for (index = 0u; index < 4u; ++index) {
+        (void)gbl_audio_fifo_clock_timer(&machine->audio, 0u);
+    }
+    fifo = &machine->audio.fifo[0];
+    if (fifo->count != 28u || fifo->read_cursor != 4u ||
+        fifo->write_cursor != 0u || fifo->sample != -128) {
+        return false;
+    }
+    result = gbl_bus_write(machine, GBL_AUDIO_FIFO_FIRST + 1u, 1u,
+                           GBL_BUS_CLASS_NONSEQUENTIAL,
+                           UINT32_C(0xEE));
+    return result.status == GBL_BUS_STATUS_OK &&
+           fifo->count == 32u && fifo->read_cursor == 4u &&
+           fifo->write_cursor == 4u && fifo->bytes[0] == UINT8_C(0xFE) &&
+           fifo->bytes[1] == UINT8_C(0xEE) &&
+           fifo->bytes[2] == UINT8_C(0x7F) &&
+           fifo->bytes[3] == UINT8_C(0x80) &&
+           gbl_audio_state_valid(&machine->audio);
+}
+
+static bool fifo_read_port_is_unimplemented(gbl_machine *machine)
+{
+    gbl_audio_fifo_state before;
+    const gbl_audio_fifo_state *after;
+    gbl_bus_result result;
+
+    if (machine == NULL) {
+        return false;
+    }
+    gbl_machine_reset(machine);
+    if (write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status !=
+            GBL_BUS_STATUS_OK ||
+        gbl_bus_write(machine, GBL_AUDIO_FIFO_FIRST, 4u,
+                      GBL_BUS_CLASS_NONSEQUENTIAL,
+                      UINT32_C(0x44332211)).status != GBL_BUS_STATUS_OK) {
+        return false;
+    }
+    before = machine->audio.fifo[0];
+    result = gbl_bus_read(machine, GBL_AUDIO_FIFO_FIRST, 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL);
+    after = &machine->audio.fifo[0];
+    return result.status == GBL_BUS_STATUS_OK &&
+           result.outcome == GBL_BUS_OUTCOME_IO_UNIMPLEMENTED &&
+           memcmp(before.bytes, after->bytes, sizeof(before.bytes)) == 0 &&
+           before.read_cursor == after->read_cursor &&
+           before.write_cursor == after->write_cursor &&
+           before.count == after->count && before.sample == after->sample;
+}
+
+static bool fifo_is_reset(const gbl_audio_fifo_state *fifo)
+{
+    size_t index;
+
+    if (fifo == NULL || fifo->read_cursor != 0u ||
+        fifo->write_cursor != 0u || fifo->count != 0u || fifo->sample != 0) {
+        return false;
+    }
+    for (index = 0u; index < GBL_AUDIO_FIFO_CAPACITY; ++index) {
+        if (fifo->bytes[index] != 0u) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool audio_fifo_equality_vector(const gbl_audio_state *state)
+{
+    gbl_audio_state candidate;
+    unsigned fifo_index;
+    size_t index;
+
+    if (state == NULL) {
+        return false;
+    }
+    for (fifo_index = 0u; fifo_index < GBL_AUDIO_FIFO_COUNT; ++fifo_index) {
+        for (index = 0u; index < GBL_AUDIO_FIFO_CAPACITY; ++index) {
+            candidate = *state;
+            candidate.fifo[fifo_index].bytes[index] ^= UINT8_C(0x01);
+            if (gbl_audio_state_equal(state, &candidate)) {
+                return false;
+            }
+        }
+        candidate = *state;
+        candidate.fifo[fifo_index].read_cursor ^= UINT8_C(0x01);
+        if (gbl_audio_state_equal(state, &candidate)) {
+            return false;
+        }
+        candidate = *state;
+        candidate.fifo[fifo_index].write_cursor ^= UINT8_C(0x04);
+        if (gbl_audio_state_equal(state, &candidate)) {
+            return false;
+        }
+        candidate = *state;
+        candidate.fifo[fifo_index].count ^= UINT8_C(0x01);
+        if (gbl_audio_state_equal(state, &candidate)) {
+            return false;
+        }
+        candidate = *state;
+        candidate.fifo[fifo_index].sample =
+            candidate.fifo[fifo_index].sample == INT8_MAX
+                ? INT8_MIN
+                : (int8_t)(candidate.fifo[fifo_index].sample + 1);
+        if (gbl_audio_state_equal(state, &candidate)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int run_ds_fifo(void)
 {
+    static const struct {
+        unsigned fifo_index;
+        uint8_t width;
+        uint8_t lane_offset;
+        uint32_t value;
+    } lane_cases[] = {
+        { 0u, 1u, 0u, UINT32_C(0xA1) },
+        { 0u, 1u, 1u, UINT32_C(0xB2) },
+        { 0u, 1u, 2u, UINT32_C(0xC3) },
+        { 0u, 1u, 3u, UINT32_C(0xD4) },
+        { 0u, 2u, 0u, UINT32_C(0xA1B2) },
+        { 0u, 2u, 1u, UINT32_C(0xB2C3) },
+        { 0u, 2u, 2u, UINT32_C(0xC3D4) },
+        { 0u, 4u, 0u, UINT32_C(0x44332211) },
+        { 1u, 1u, 0u, UINT32_C(0xA1) },
+        { 1u, 1u, 1u, UINT32_C(0xB2) },
+        { 1u, 1u, 2u, UINT32_C(0xC3) },
+        { 1u, 1u, 3u, UINT32_C(0xD4) },
+        { 1u, 2u, 0u, UINT32_C(0xA1B2) },
+        { 1u, 2u, 1u, UINT32_C(0xB2C3) },
+        { 1u, 2u, 2u, UINT32_C(0xC3D4) },
+        { 1u, 4u, 0u, UINT32_C(0x88776655) }
+    };
     uint64_t first_overflow = 0u;
     gbl_machine *machine = new_machine();
     gbl_bus_result result;
@@ -683,6 +941,8 @@ static int run_ds_fifo(void)
     gbl_time_operation operation;
     gbl_audio_state audio_before;
     uint64_t cycles_before;
+    size_t lane_case_index;
+    char lane_name[112];
 
     tap_test_number = 0u;
     tap_failure_count = 0u;
@@ -772,6 +1032,31 @@ static int run_ds_fifo(void)
         tap_check("altered prepared FIFO backing byte is refused", false);
         tap_check("refused prepared FIFO state leaves machine unchanged", false);
     }
+    for (lane_case_index = 0u;
+         lane_case_index < sizeof(lane_cases) / sizeof(lane_cases[0]);
+         ++lane_case_index) {
+        const unsigned fifo_index = lane_cases[lane_case_index].fifo_index;
+
+        (void)snprintf(lane_name, sizeof(lane_name),
+                       "FIFO %c width %u lane %u merges addressed lanes",
+                       fifo_index == 0u ? 'A' : 'B',
+                       (unsigned)lane_cases[lane_case_index].width,
+                       (unsigned)lane_cases[lane_case_index].lane_offset);
+        tap_check(lane_name,
+                  machine != NULL && fifo_lane_vector(
+                                         machine, fifo_index,
+                                         lane_cases[lane_case_index].width,
+                                         lane_cases[lane_case_index].lane_offset,
+                                         lane_cases[lane_case_index].value));
+    }
+    tap_check("full FIFO write flushes and accepts one complete word",
+              fifo_full_overflow_vector(machine, false));
+    tap_check("overflow after an odd pop resets cursors atomically",
+              fifo_full_overflow_vector(machine, true));
+    tap_check("wrapped narrow write preserves reused backing lanes",
+              fifo_wrap_narrow_write_vector(machine));
+    tap_check("FIFO reads keep unsupported-I/O behavior without mutation",
+              fifo_read_port_is_unimplemented(machine));
     free_machine(machine);
     printf("1..%u\n", tap_test_number);
     return tap_failure_count == 0u ? 0 : 1;
@@ -780,7 +1065,17 @@ static int run_ds_fifo(void)
 static int run_ds_transaction(void)
 {
     gbl_machine *machine = new_machine();
+    gbl_machine *snapshot = NULL;
+    gbl_machine_time_preview preview;
+    gbl_machine_time_preview preview_before;
+    gbl_time_operation operation;
+    gbl_audio_state audio_before;
     gbl_bus_result result;
+    gbl_bus_result readback;
+    uint8_t staging[4];
+    uint8_t staging_before[sizeof(staging)];
+    size_t staged_bytes;
+    uint64_t cycles_before;
 
     tap_test_number = 0u;
     tap_failure_count = 0u;
@@ -789,6 +1084,9 @@ static int run_ds_transaction(void)
         tap_check("sound master can be enabled",
                   write16(machine, UINT32_C(0x04000084),
                           UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK);
+        tap_check("SOUNDCNT_H low policy bits can be programmed",
+                  write16(machine, UINT32_C(0x04000082),
+                          UINT16_C(0x0005)).status == GBL_BUS_STATUS_OK);
         tap_check("FIFO A accepts its initial word",
                   gbl_bus_write(machine, UINT32_C(0x040000A0), 4u,
                                 GBL_BUS_CLASS_NONSEQUENTIAL,
@@ -802,6 +1100,26 @@ static int run_ds_transaction(void)
         tap_check("both FIFOs contain four queued bytes",
                   machine->audio.fifo[0].count == 4u &&
                       machine->audio.fifo[1].count == 4u);
+        tap_check("audio equality binds every FIFO byte and field",
+                  audio_fifo_equality_vector(&machine->audio));
+        (void)gbl_audio_fifo_clock_timer(&machine->audio, 0u);
+        tap_check("both FIFOs retain their current signed sample",
+                  machine->audio.fifo[0].count == 3u &&
+                      machine->audio.fifo[0].sample == 0x11 &&
+                      machine->audio.fifo[1].count == 3u &&
+                      machine->audio.fifo[1].sample == 0x55);
+        tap_check("Timer 0 can run while FIFO controls change",
+                  write16(machine, UINT32_C(0x04000100),
+                          UINT16_C(0xFFF0)).status == GBL_BUS_STATUS_OK &&
+                      write16(machine, UINT32_C(0x04000102),
+                              UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK);
+        result = gbl_bus_write(machine, UINT32_C(0x04000082), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x0D));
+        tap_check("SOUNDCNT_H low-lane bits do not pulse FIFO reset",
+                  result.status == GBL_BUS_STATUS_OK &&
+                      machine->audio.fifo[0].count == 3u &&
+                      machine->audio.fifo[1].count == 3u);
         result = gbl_bus_write(machine, UINT32_C(0x04000083), 1u,
                                GBL_BUS_CLASS_NONSEQUENTIAL,
                                UINT32_C(0x08));
@@ -810,19 +1128,135 @@ static int run_ds_transaction(void)
                       machine->audio.fifo[0].count == 0u &&
                       machine->audio.fifo[0].read_cursor == 0u &&
                       machine->audio.fifo[0].write_cursor == 0u &&
-                      machine->audio.fifo[0].sample == 0);
-        if (machine->audio.fifo[0].count != 0u) {
-            printf("# FIFO A count after reset pulse: %u\n",
-                   (unsigned)machine->audio.fifo[0].count);
-        }
+                      machine->audio.fifo[0].sample == 0 &&
+                      fifo_is_reset(&machine->audio.fifo[0]));
         tap_check("FIFO B is unchanged by FIFO A reset",
-                  machine->audio.fifo[1].count == 4u &&
-                      machine->audio.fifo[1].bytes[0] == UINT8_C(0x55));
+                  machine->audio.fifo[1].count == 3u &&
+                      machine->audio.fifo[1].bytes[0] == UINT8_C(0x55) &&
+                      machine->audio.fifo[1].sample == 0x55);
+
+        operation = (gbl_time_operation){
+            GBL_TIME_OPERATION_BUS_WRITE, 1u, UINT32_C(0x04000083),
+            UINT32_C(0x80), 1u
+        };
+        tap_check("prepared FIFO B reset records its transaction mask",
+                  gbl_machine_prepare_operations(machine, &operation, 1u,
+                                                 &preview) ==
+                          GBL_TIME_STATUS_OK &&
+                      preview.audio_fifo_reset_mask == UINT8_C(0x02) &&
+                      preview.audio_fifo_reset_mask_prepared ==
+                          UINT8_C(0x02) &&
+                      fifo_is_reset(&preview.audio.fifo[1]) &&
+                      fifo_is_reset(&preview.audio.fifo[0]));
+        {
+            gbl_machine_time_preview forged = preview;
+
+            forged.audio_fifo_reset_mask ^= UINT8_C(0x01);
+            tap_check("altered prepared reset mask is refused",
+                      !gbl_machine_commit_time_checked(machine, &forged) &&
+                          machine->audio.fifo[1].count == 3u);
+        }
+        tap_check("prepared FIFO B reset commits through checked state",
+                  gbl_machine_commit_time_checked(machine, &preview) &&
+                      fifo_is_reset(&machine->audio.fifo[1]) &&
+                      fifo_is_reset(&machine->audio.fifo[0]));
+        readback = read16(machine, UINT32_C(0x04000082));
+        tap_check("SOUNDCNT_H action bits stay out of readback",
+                  readback.status == GBL_BUS_STATUS_OK &&
+                      (readback.value & UINT32_C(0x8800)) == 0u &&
+                      (readback.value & UINT32_C(0x000F)) ==
+                          UINT32_C(0x000D));
+        tap_check("explicit FIFO resets leave Timer 0 running",
+                  machine->timers[0].enabled);
+
+        tap_check("both FIFOs can be refilled before master disable",
+                  gbl_bus_write(machine, UINT32_C(0x040000A0), 4u,
+                                GBL_BUS_CLASS_NONSEQUENTIAL,
+                                UINT32_C(0x807F01FE)).status ==
+                          GBL_BUS_STATUS_OK &&
+                      gbl_bus_write(machine, UINT32_C(0x040000A4), 4u,
+                                    GBL_BUS_CLASS_NONSEQUENTIAL,
+                                    UINT32_C(0x88776655)).status ==
+                          GBL_BUS_STATUS_OK);
+        (void)gbl_audio_fifo_clock_timer(&machine->audio, 0u);
+        result = write16(machine, UINT32_C(0x04000084), 0u);
+        tap_check("master disable clears both complete FIFO states",
+                  result.status == GBL_BUS_STATUS_OK &&
+                      fifo_is_reset(&machine->audio.fifo[0]) &&
+                      fifo_is_reset(&machine->audio.fifo[1]) &&
+                      machine->timers[0].enabled &&
+                      gbl_audio_state_valid(&machine->audio));
+
+        tap_check("snapshot supports FIFO crossing refusal checks",
+                  snapshot_machine(machine, &snapshot));
+        result = gbl_bus_write(machine, UINT32_C(0x040000A3), 2u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0xBBAA));
+        tap_check("direct FIFO A-to-B crossing span is refused atomically",
+                  result.status == GBL_BUS_STATUS_TIME_REFUSAL &&
+                      snapshot != NULL && unchanged_machine(machine, snapshot));
+
+        memset(&preview, 0x5A, sizeof(preview));
+        preview_before = preview;
+        memset(staging, 0xA5, sizeof(staging));
+        memcpy(staging_before, staging, sizeof(staging));
+        staged_bytes = 77u;
+        operation = (gbl_time_operation){
+            GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x040000A3),
+            UINT32_C(0xBBAA), GBL_AUDIO_SAMPLE_CYCLES
+        };
+        tap_check("prepared FIFO crossing rejects before time or output staging",
+                  gbl_machine_prepare_operations_audio(
+                      machine, &operation, 1u, &preview, staging,
+                      sizeof(staging), &staged_bytes) ==
+                          GBL_TIME_STATUS_INVALID_ARGUMENT &&
+                      memcmp(&preview, &preview_before, sizeof(preview)) ==
+                          0 &&
+                      memcmp(staging, staging_before, sizeof(staging)) == 0 &&
+                      staged_bytes == 77u && snapshot != NULL &&
+                      unchanged_machine(machine, snapshot));
+        free(snapshot);
+        snapshot = NULL;
+
+        machine->audio.fifo[0].write_cursor = 1u;
+        audio_before = machine->audio;
+        tap_check("malformed FIFO cursor fails validation and write",
+                  !gbl_audio_state_valid(&machine->audio) &&
+                      !gbl_audio_fifo_write(&machine->audio,
+                                            UINT32_C(0x040000A0), 4u,
+                                            UINT32_C(0x44332211)) &&
+                      gbl_audio_state_equal(&machine->audio, &audio_before));
+        machine->audio.fifo[0].write_cursor = 0u;
+
+        gbl_machine_reset(machine);
+        (void)write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080));
+        (void)gbl_bus_write(machine, UINT32_C(0x040000A0), 4u,
+                            GBL_BUS_CLASS_NONSEQUENTIAL,
+                            UINT32_C(0x44332211));
+        audio_before = machine->audio;
+        cycles_before = machine->master_cycles;
+        operation = (gbl_time_operation){
+            GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, 1u
+        };
+        tap_check("prepare one cycle for the forged-latch refusal vector",
+                  gbl_machine_prepare_operations(machine, &operation, 1u,
+                                                 &preview) ==
+                      GBL_TIME_STATUS_OK);
+        preview.audio.fifo[0].sample = 1;
+        tap_check("altered prepared FIFO latch is refused",
+                  !gbl_machine_commit_time_checked(machine, &preview));
+        tap_check("forged latch refusal leaves machine time and queue intact",
+                  machine->master_cycles == cycles_before &&
+                      gbl_audio_state_equal(&machine->audio, &audio_before));
     } else {
         tap_check("sound master can be enabled", false);
+        tap_check("SOUNDCNT_H low policy bits can be programmed", false);
         tap_check("FIFO A accepts its initial word", false);
         tap_check("FIFO B accepts its initial word", false);
         tap_check("both FIFOs contain four queued bytes", false);
+        tap_check("both FIFOs retain their current signed sample", false);
+        tap_check("Timer 0 can run while FIFO controls change", false);
+        tap_check("SOUNDCNT_H low-lane bits do not pulse FIFO reset", false);
         tap_check("SOUNDCNT_H FIFO A action resets only FIFO A", false);
         tap_check("FIFO B is unchanged by FIFO A reset", false);
     }

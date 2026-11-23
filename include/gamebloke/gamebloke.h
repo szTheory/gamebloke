@@ -351,6 +351,10 @@ typedef struct gbl_machine_time_preview {
     uint16_t waitcnt;
     gbl_audio_state audio;
     gbl_audio_state audio_prepared;
+    /* Transaction-local sound reset actions are exposed to the machine
+     * scheduler for matching Direct Sound DMA cancellation. */
+    uint8_t audio_fifo_reset_mask;
+    uint8_t audio_fifo_reset_mask_prepared;
     gbl_ppu_timing_state ppu;
     /* Bind the final affine transition result produced by preparation. Commit
      * refuses a preview whose candidate affine state was altered. */

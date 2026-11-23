@@ -909,9 +909,25 @@ static void gbl_audio_clear_channels(gbl_audio_state *state)
     }
 }
 
-void gbl_audio_apply_register_write(gbl_audio_state *state,
-                                    uint32_t address, uint16_t value,
-                                    uint8_t lane_mask)
+static void gbl_audio_reset_fifo(gbl_audio_fifo_state *fifo)
+{
+    size_t index;
+
+    if (fifo == NULL) {
+        return;
+    }
+    for (index = 0u; index < GBL_AUDIO_FIFO_CAPACITY; ++index) {
+        fifo->bytes[index] = 0u;
+    }
+    fifo->read_cursor = 0u;
+    fifo->write_cursor = 0u;
+    fifo->count = 0u;
+    fifo->sample = 0;
+}
+
+uint8_t gbl_audio_apply_register_write(gbl_audio_state *state,
+                                       uint32_t address, uint16_t value,
+                                       uint8_t lane_mask)
 {
     const uint32_t register_address = address & ~UINT32_C(1);
     size_t index;
@@ -922,10 +938,11 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
     uint16_t action;
     bool master_enabled;
     unsigned channel_index;
+    uint8_t fifo_reset_mask = 0u;
 
     if (state == NULL || !gbl_audio_register_address(register_address) ||
         lane_mask == 0u) {
-        return;
+        return 0u;
     }
     index = gbl_audio_register_index(register_address);
     prior = state->registers[index];
@@ -947,11 +964,14 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
         state->registers[18] = next_enabled ? UINT16_C(0x0080) : 0u;
         if (was_enabled && !next_enabled) {
             gbl_audio_clear_channels(state);
+            gbl_audio_reset_fifo(&state->fifo[0]);
+            gbl_audio_reset_fifo(&state->fifo[1]);
+            fifo_reset_mask = UINT8_C(0x03);
         }
-        return;
+        return fifo_reset_mask;
     }
     if (!master_enabled) {
-        return;
+        return 0u;
     }
 
     writable_mask = gbl_audio_register_policies[index].retain_mask;
@@ -960,6 +980,17 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
     action = (uint16_t)(merged &
                         gbl_audio_register_policies[index].action_mask);
     state->registers[index] = next;
+
+    if (index == 17u) {
+        if ((action & UINT16_C(0x0800)) != 0u) {
+            gbl_audio_reset_fifo(&state->fifo[0]);
+            fifo_reset_mask |= UINT8_C(0x01);
+        }
+        if ((action & UINT16_C(0x8000)) != 0u) {
+            gbl_audio_reset_fifo(&state->fifo[1]);
+            fifo_reset_mask |= UINT8_C(0x02);
+        }
+    }
 
     if (index == 8u &&
         ((prior ^ next) & UINT16_C(0x0020)) != 0u) {
@@ -1056,6 +1087,7 @@ void gbl_audio_apply_register_write(gbl_audio_state *state,
                 gbl_audio_wave_nibble_period(state);
         }
     }
+    return fifo_reset_mask;
 }
 
 void gbl_audio_sample(const gbl_audio_state *state, uint64_t cycle,

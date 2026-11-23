@@ -3073,6 +3073,8 @@ gbl_time_status gbl_machine_prepare_time(
                            sizeof(candidate.ppu_affine_prepared));
     gbl_ppu_bind_prepared_registers(&candidate);
     candidate.audio_prepared = candidate.audio;
+    candidate.audio_fifo_reset_mask_prepared =
+        candidate.audio_fifo_reset_mask;
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -3110,6 +3112,7 @@ static gbl_time_status gbl_preview_bus_write(
     uint32_t timer_values[GBL_TIMER_COUNT] = { 0u };
     uint8_t audio_lane_masks[GBL_AUDIO_REGISTER_COUNT] = { 0u };
     uint16_t audio_lane_values[GBL_AUDIO_REGISTER_COUNT] = { 0u };
+    uint8_t audio_fifo_reset_mask = 0u;
     uint16_t if_clear_mask = 0u;
     uint16_t interrupt_enable = preview->interrupt_enable;
     uint16_t interrupt_master_enable = preview->interrupt_master_enable;
@@ -3325,13 +3328,14 @@ static gbl_time_status gbl_preview_bus_write(
                     GBL_AUDIO_REGISTER_FIRST +
                     (uint32_t)(audio_index * 2u);
 
-                gbl_audio_apply_register_write(
+                audio_fifo_reset_mask |= gbl_audio_apply_register_write(
                     &preview->audio, register_address,
                     audio_lane_values[audio_index],
                     audio_lane_masks[audio_index]);
             }
         }
     }
+    preview->audio_fifo_reset_mask |= audio_fifo_reset_mask;
     for (lane = 0u; lane < GBL_TIMER_COUNT; ++lane) {
         if (timer_lane_masks[lane] != 0u) {
             const gbl_time_status status = gbl_timer_write(
@@ -3428,6 +3432,13 @@ gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
         } else {
             return GBL_TIME_STATUS_INVALID_ARGUMENT;
         }
+        if (operation->kind == GBL_TIME_OPERATION_BUS_WRITE &&
+            gbl_audio_fifo_span_overlaps(operation->address,
+                                         operation->width) &&
+            !gbl_audio_fifo_span_valid(operation->address,
+                                       operation->width)) {
+            return GBL_TIME_STATUS_INVALID_ARGUMENT;
+        }
         if (operation->cycles > UINT64_MAX - candidate.master_cycles) {
             return GBL_TIME_STATUS_CYCLE_OVERFLOW;
         }
@@ -3469,6 +3480,8 @@ gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
                            sizeof(candidate.ppu_affine_prepared));
     gbl_ppu_bind_prepared_registers(&candidate);
     candidate.audio_prepared = candidate.audio;
+    candidate.audio_fifo_reset_mask_prepared =
+        candidate.audio_fifo_reset_mask;
     *preview = candidate;
     if (staged_bytes_out != NULL) {
         *staged_bytes_out = staged_bytes;
@@ -3722,6 +3735,9 @@ static bool gbl_ppu_commit_preview_valid(
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
         preview->audio.cycle_anchor != preview->master_cycles ||
+        (preview->audio_fifo_reset_mask & (uint8_t)~UINT8_C(0x03)) != 0u ||
+        preview->audio_fifo_reset_mask !=
+            preview->audio_fifo_reset_mask_prepared ||
         !gbl_audio_state_valid(&preview->audio) ||
         !gbl_audio_state_equal(&preview->audio, &preview->audio_prepared) ||
         !gbl_ppu_prepared_registers_valid(preview) ||

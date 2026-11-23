@@ -967,7 +967,9 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
         return gbl_bus_error(gbl_bus_status_from_time(time_status),
                              access_class);
     }
-    gbl_machine_commit_time(machine, &time_preview);
+    if (!gbl_machine_commit_time_checked(machine, &time_preview)) {
+        return gbl_bus_error(GBL_BUS_STATUS_TIME_REFUSAL, access_class);
+    }
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         gbl_bus_outcome lane_outcome = gbl_bus_write_lane(
