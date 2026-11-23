@@ -16,32 +16,6 @@ set(production "${BIN}/gamebloke-run")
 set(unit_test "${BIN}/runner_test")
 set(fixtures "${BIN}/generated/fixtures")
 set(scratch "${BIN}/runner-cases")
-foreach(path IN ITEMS "${control}" "${production}" "${unit_test}"
-    "${fixtures}/owned-arm-pass.gba" "${fixtures}/owned-arm-fail.gba"
-    "${fixtures}/owned-arm-pass-zero-case.gba"
-    "${fixtures}/owned-arm-partial.gba" "${fixtures}/owned-arm-pass-mutated.gba"
-    "${fixtures}/owned-arm-loop.gba" "${fixtures}/owned-arm-swi.gba"
-    "${fixtures}/owned-arm-undefined.gba"
-    "${fixtures}/owned-arm-coprocessor.gba")
-  if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
-    message(FATAL_ERROR "runner-case: required generated input is missing")
-  endif()
-endforeach()
-
-file(MAKE_DIRECTORY "${scratch}")
-execute_process(
-  COMMAND "${unit_test}" prepare "${scratch}/refusals"
-  RESULT_VARIABLE prepare_result
-  OUTPUT_VARIABLE prepare_stdout
-  ERROR_VARIABLE prepare_stderr)
-if(NOT "${prepare_result}" STREQUAL "0" OR
-    NOT EXISTS "${scratch}/refusals/empty.gba" OR
-    NOT EXISTS "${scratch}/refusals/short.gba" OR
-    NOT EXISTS "${scratch}/refusals/odd.gba" OR
-    NOT EXISTS "${scratch}/refusals/oversized.gba")
-  message(FATAL_ERROR "runner-case: refusal-input-generation-failed")
-endif()
-
 function(expect_json_field json expected)
   string(JSON actual ERROR_VARIABLE json_error GET "${json}" ${ARGN})
   if(NOT "${json_error}" STREQUAL "NOTFOUND" OR
@@ -78,6 +52,167 @@ function(expect_json_type json expected)
       "runner-case: expected JSON type ${ARGN}=${expected}; got ${actual}; ${json_error}")
   endif()
 endfunction()
+
+if(DEFINED CASE AND CASE STREQUAL "audio_cli")
+  set(audio_rom "${BIN}/generated/diagnostics/armv4t/arm/roms/arm-268640271.gba")
+  if(NOT EXISTS "${production}" OR NOT EXISTS "${audio_rom}" OR
+      NOT EXISTS "${unit_test}")
+    message(FATAL_ERROR "runner-case: audio_cli production inputs are missing")
+  endif()
+  set(audio_scratch "${scratch}/audio-cli")
+  file(MAKE_DIRECTORY "${audio_scratch}")
+  set(audio_output "${audio_scratch}/empty.raw")
+  file(REMOVE "${audio_output}")
+
+  execute_process(
+    COMMAND "${production}" --rom "${audio_rom}" --fixture arm-268640271
+      --cycles 1000 --audio-output "${audio_output}" --audio-cycles 1
+    RESULT_VARIABLE audio_rc OUTPUT_VARIABLE audio_json ERROR_VARIABLE audio_error)
+  if(NOT "${audio_rc}" STREQUAL "0")
+    message(FATAL_ERROR
+      "runner-case: production audio CLI failed (${audio_rc}): ${audio_error}; ${audio_json}")
+  endif()
+  expect_json_field("${audio_json}" PASS status)
+  expect_json_field("${audio_json}" mailbox-complete termination)
+  expect_json_field("${audio_json}" gamebloke-audio-model-4 audio model)
+  expect_json_field("${audio_json}" agb audio profile id)
+  expect_json_field("${audio_json}" 16 audio profile version)
+  expect_json_field("${audio_json}" project-selected audio policy_classification)
+  expect_json_field("${audio_json}" UNKNOWN audio hardware_qualification)
+  expect_json_field("${audio_json}" pre-pwm audio policy tap)
+  expect_json_field("${audio_json}" fixed-reset-anchored-grid audio policy tap_policy)
+  expect_json_field("${audio_json}" signed-s16le audio policy encoding)
+  expect_json_field("${audio_json}" 32768 audio policy sample_rate_hz)
+  expect_json_field("${audio_json}" 512 audio policy sample_cycles)
+  expect_json_boolean("${audio_json}" true audio requested)
+  expect_json_field("${audio_json}" 1 audio requested_interval end_cycle)
+  expect_json_field("${audio_json}" 1 audio actual_interval end_cycle)
+  expect_json_field("${audio_json}" complete audio capture_state)
+  expect_json_boolean("${audio_json}" true audio interval_complete)
+  expect_json_field("${audio_json}" 0 audio frame_count)
+  expect_json_field("${audio_json}" 0 audio byte_count)
+  expect_json_field("${audio_json}" emitted audio artifact state)
+  expect_json_field("${audio_json}" e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 audio artifact sha256)
+  file(SIZE "${audio_output}" audio_size)
+  file(SHA256 "${audio_output}" audio_digest)
+  if(NOT audio_size EQUAL 0 OR
+      NOT audio_digest STREQUAL "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    message(FATAL_ERROR "runner-case: exact empty audio file evidence differs")
+  endif()
+  string(JSON source_count LENGTH "${audio_json}" audio policy implemented_sources)
+  if(NOT source_count EQUAL 6)
+    message(FATAL_ERROR "runner-case: audio implementation source inventory is incomplete")
+  endif()
+
+  function(expect_audio_usage name)
+    execute_process(COMMAND "${production}" ${ARGN}
+      RESULT_VARIABLE usage_rc OUTPUT_VARIABLE usage_stdout ERROR_VARIABLE usage_stderr)
+    if(NOT "${usage_rc}" STREQUAL "2" OR NOT "${usage_stdout}" STREQUAL "" OR
+        NOT "${usage_stderr}" MATCHES "^usage: gamebloke-run")
+      message(FATAL_ERROR
+        "runner-case: audio ${name} was not refused before execution (${usage_rc}): ${usage_stdout}${usage_stderr}")
+    endif()
+  endfunction()
+
+  expect_audio_usage(duplicate-output --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/a.raw" --audio-output "${audio_scratch}/b.raw")
+  expect_audio_usage(empty-output --rom "${audio_rom}" --cycles 1000 --audio-output "")
+  expect_audio_usage(cycles-require-output --rom "${audio_rom}" --cycles 1000
+    --audio-cycles 1)
+  expect_audio_usage(empty-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/empty-cycles.raw" --audio-cycles "")
+  expect_audio_usage(duplicate-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/dup.raw" --audio-cycles 1 --audio-cycles 2)
+  expect_audio_usage(overflow-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/overflow.raw" --audio-cycles 18446744073709551616)
+  expect_audio_usage(signed-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/signed.raw" --audio-cycles +1)
+  expect_audio_usage(negative-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/negative.raw" --audio-cycles -1)
+  expect_audio_usage(malformed-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/malformed.raw" --audio-cycles 1x)
+  expect_audio_usage(zero-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/zero.raw" --audio-cycles 0)
+  expect_audio_usage(oversized-cycles --rom "${audio_rom}" --cycles 20000000
+    --audio-output "${audio_scratch}/large.raw" --audio-cycles 16777217)
+  expect_audio_usage(outside-run-budget --rom "${audio_rom}" --cycles 10
+    --audio-output "${audio_scratch}/outside.raw" --audio-cycles 11)
+  expect_audio_usage(default-outside-bound --rom "${audio_rom}" --cycles 16777217
+    --audio-output "${audio_scratch}/default-large.raw")
+  expect_audio_usage(duplicate-rom-alias --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_rom}" --audio-cycles 1)
+  expect_audio_usage(stdout-alias --rom "${audio_rom}" --cycles 1000
+    --audio-output /dev/stdout --audio-cycles 1)
+
+  set(audio_script "${audio_scratch}/input.script")
+  file(WRITE "${audio_script}" "not-loaded-before-alias-check")
+  expect_audio_usage(input-alias --rom "${audio_rom}" --cycles 1000
+    --input-script "${audio_script}" --audio-output "${audio_script}" --audio-cycles 1)
+  expect_audio_usage(trace-alias --rom "${audio_rom}" --cycles 1000
+    --trace-output "${audio_scratch}/trace.jsonl"
+    --audio-output "${audio_scratch}/trace.jsonl" --audio-cycles 1)
+  expect_audio_usage(video-alias --rom "${audio_rom}" --cycles 1000
+    --video-output "${audio_scratch}/video.raw"
+    --audio-output "${audio_scratch}/video.raw" --audio-cycles 1)
+
+  set(audio_hardlink "${audio_scratch}/rom-hardlink.gba")
+  set(audio_symlink "${audio_scratch}/rom-symlink.gba")
+  file(REMOVE "${audio_hardlink}" "${audio_symlink}")
+  file(CREATE_LINK "${audio_rom}" "${audio_hardlink}" RESULT hardlink_result)
+  file(CREATE_LINK "${audio_rom}" "${audio_symlink}" SYMBOLIC RESULT symlink_result)
+  if(hardlink_result STREQUAL "0")
+    expect_audio_usage(hardlink-alias --rom "${audio_rom}" --cycles 1000
+      --audio-output "${audio_hardlink}" --audio-cycles 1)
+  endif()
+  if(symlink_result STREQUAL "0")
+    expect_audio_usage(symlink-alias --rom "${audio_rom}" --cycles 1000
+      --audio-output "${audio_symlink}" --audio-cycles 1)
+  endif()
+
+  set(missing_script "${audio_scratch}/missing.script")
+  file(REMOVE "${missing_script}")
+  execute_process(
+    COMMAND "${production}" --rom "${audio_rom}" --cycles 1000
+      --input-script "${missing_script}" --audio-output "${audio_scratch}/missing-script.raw"
+      --audio-cycles 1
+    RESULT_VARIABLE missing_rc OUTPUT_VARIABLE missing_json ERROR_VARIABLE missing_error)
+  if(NOT "${missing_rc}" STREQUAL "1")
+    message(FATAL_ERROR "runner-case: missing script did not return its structured failure")
+  endif()
+  expect_json_field("${missing_json}" MISSING status)
+  expect_json_boolean("${missing_json}" true audio requested)
+  expect_json_field("${missing_json}" unavailable audio capture_state)
+  expect_json_field("${missing_json}" not-written audio artifact state)
+  expect_json_field("${missing_json}" 1 audio requested_interval end_cycle)
+
+  message(STATUS "runner-case: production audio CLI controls passed")
+  return()
+endif()
+foreach(path IN ITEMS "${control}" "${production}" "${unit_test}"
+    "${fixtures}/owned-arm-pass.gba" "${fixtures}/owned-arm-fail.gba"
+    "${fixtures}/owned-arm-pass-zero-case.gba"
+    "${fixtures}/owned-arm-partial.gba" "${fixtures}/owned-arm-pass-mutated.gba"
+    "${fixtures}/owned-arm-loop.gba" "${fixtures}/owned-arm-swi.gba"
+    "${fixtures}/owned-arm-undefined.gba"
+    "${fixtures}/owned-arm-coprocessor.gba")
+  if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+    message(FATAL_ERROR "runner-case: required generated input is missing")
+  endif()
+endforeach()
+
+file(MAKE_DIRECTORY "${scratch}")
+execute_process(
+  COMMAND "${unit_test}" prepare "${scratch}/refusals"
+  RESULT_VARIABLE prepare_result
+  OUTPUT_VARIABLE prepare_stdout
+  ERROR_VARIABLE prepare_stderr)
+if(NOT "${prepare_result}" STREQUAL "0" OR
+    NOT EXISTS "${scratch}/refusals/empty.gba" OR
+    NOT EXISTS "${scratch}/refusals/short.gba" OR
+    NOT EXISTS "${scratch}/refusals/odd.gba" OR
+    NOT EXISTS "${scratch}/refusals/oversized.gba")
+  message(FATAL_ERROR "runner-case: refusal-input-generation-failed")
+endif()
 
 function(expect_active_result_extension json)
   expect_json_type("${json}" OBJECT timer0)

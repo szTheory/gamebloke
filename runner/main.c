@@ -59,7 +59,36 @@ static bool gbl_runner_install_sigint(void)
     return sigaction(SIGINT, &action, NULL) == 0;
 }
 
-static int gbl_runner_signal_setup_failure(void)
+static void gbl_runner_set_pre_run_audio_metadata(
+    gbl_runner_result *result, const gbl_runner_options *options)
+{
+    uint64_t end_cycle;
+
+    if (result == NULL || options == NULL) {
+        return;
+    }
+    result->audio.requested = options->audio_output_path != NULL;
+    result->audio.capture_state =
+        result->audio.requested ? GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE
+                                : GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED;
+    result->audio.artifact_state =
+        result->audio.requested ? GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN
+                                : GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED;
+    if (!result->audio.requested || options->audio_output_path[0] == '\0') {
+        return;
+    }
+    end_cycle = options->audio_end_cycles == 0u
+                    ? options->cycle_budget
+                    : options->audio_end_cycles;
+    if (end_cycle != 0u && end_cycle <= GBL_RUNNER_AUDIO_MAX_CYCLES &&
+        end_cycle <= options->cycle_budget) {
+        result->audio.has_requested_interval = true;
+        result->audio.requested_start_cycle = 0u;
+        result->audio.requested_end_cycle = end_cycle;
+    }
+}
+
+static int gbl_runner_signal_setup_failure(const gbl_runner_options *options)
 {
     gbl_runner_result result;
     bool written;
@@ -68,6 +97,7 @@ static int gbl_runner_signal_setup_failure(void)
     result.status = GBL_RUNNER_HARNESS_FAIL;
     result.semantic.status = GBL_MAILBOX_ABSENT;
     result.trace_complete = true;
+    gbl_runner_set_pre_run_audio_metadata(&result, options);
     (void)snprintf(result.reason, sizeof result.reason,
                    "sigint-handler-install-failed");
     (void)snprintf(result.termination, sizeof result.termination,
@@ -97,7 +127,7 @@ static void print_usage(FILE *out)
     fputs("usage: gamebloke-run --rom PATH (--cycles DECIMAL | --frames DECIMAL) "
           "[--fixture ID] [--input-script PATH] [--trace-mask INTEGER] "
           "[--trace-capacity INTEGER] [--trace-output PATH] "
-          "[--video-output PATH]\n",
+          "[--video-output PATH] [--audio-output PATH [--audio-cycles N]]\n",
           out);
 }
 
@@ -282,6 +312,42 @@ static bool gbl_runner_video_path_is_safe(
         fstat(STDOUT_FILENO, &result_stat) == 0 &&
         video_stat.st_dev == result_stat.st_dev &&
         video_stat.st_ino == result_stat.st_ino) {
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_runner_audio_path_is_safe(
+    const gbl_runner_options *options, const char *input_script_path)
+{
+    struct stat audio_stat;
+    struct stat result_stat;
+    const char *conflicts[5];
+    size_t index;
+
+    if (options->audio_output_path == NULL) {
+        return true;
+    }
+    conflicts[0] = options->rom_path;
+    conflicts[1] = input_script_path;
+    conflicts[2] = options->video_output_path;
+    conflicts[3] = options->trace_output_path;
+    conflicts[4] = NULL;
+    for (index = 0u; index < sizeof conflicts / sizeof conflicts[0]; ++index) {
+        if (gbl_runner_paths_alias(options->audio_output_path, conflicts[index])) {
+            return false;
+        }
+    }
+    if (gbl_runner_paths_alias(options->audio_output_path, "/dev/stdout") ||
+        gbl_runner_paths_alias(options->audio_output_path, "/dev/fd/1") ||
+        gbl_runner_paths_alias(options->audio_output_path,
+                                "/proc/self/fd/1")) {
+        return false;
+    }
+    if (stat(options->audio_output_path, &audio_stat) == 0 &&
+        fstat(STDOUT_FILENO, &result_stat) == 0 &&
+        audio_stat.st_dev == result_stat.st_dev &&
+        audio_stat.st_ino == result_stat.st_ino) {
         return false;
     }
     return true;
@@ -484,7 +550,8 @@ static gbl_runner_script_load_status gbl_runner_load_input_script(
 }
 
 static int gbl_runner_script_io_result(gbl_runner_status status,
-                                       const char *reason)
+                                       const char *reason,
+                                       const gbl_runner_options *options)
 {
     gbl_runner_result result;
 
@@ -492,6 +559,7 @@ static int gbl_runner_script_io_result(gbl_runner_status status,
     result.status = status;
     result.semantic.status = GBL_MAILBOX_ABSENT;
     result.trace_complete = true;
+    gbl_runner_set_pre_run_audio_metadata(&result, options);
     (void)snprintf(result.reason, sizeof result.reason, "%s", reason);
     (void)snprintf(result.termination, sizeof result.termination,
                    "not-started");
@@ -588,6 +656,8 @@ static bool parse_options(int argc, char **argv, gbl_runner_options *options,
     bool seen_trace_capacity = false;
     bool seen_trace_output = false;
     bool seen_video_output = false;
+    bool seen_audio_output = false;
+    bool seen_audio_cycles = false;
     bool seen_input_script = false;
     uint64_t bound = 0u;
     int index = 1;
@@ -660,6 +730,19 @@ static bool parse_options(int argc, char **argv, gbl_runner_options *options,
             if (value[0] == '\0') return false;
             options->video_output_path = value;
             seen_video_output = true;
+        } else if (strcmp(flag, "--audio-output") == 0) {
+            if (seen_audio_output || index + 1 >= argc) return false;
+            value = argv[++index];
+            if (value[0] == '\0') return false;
+            options->audio_output_path = value;
+            seen_audio_output = true;
+        } else if (strcmp(flag, "--audio-cycles") == 0) {
+            if (seen_audio_cycles || index + 1 >= argc ||
+                !parse_decimal_u64(argv[++index],
+                                   &options->audio_end_cycles)) {
+                return false;
+            }
+            seen_audio_cycles = true;
         } else if (strcmp(flag, "--input-script") == 0) {
             if (seen_input_script || index + 1 >= argc) return false;
             value = argv[++index];
@@ -671,7 +754,25 @@ static bool parse_options(int argc, char **argv, gbl_runner_options *options,
         }
         index++;
     }
-    return seen_rom && (seen_cycles || seen_frames);
+    if (!seen_rom || (!seen_cycles && !seen_frames) ||
+        (seen_audio_cycles && !seen_audio_output)) {
+        return false;
+    }
+    if (seen_audio_cycles && options->audio_end_cycles == 0u) {
+        return false;
+    }
+    if (seen_audio_output) {
+        const uint64_t effective_audio_end =
+            options->audio_end_cycles == 0u ? options->cycle_budget
+                                            : options->audio_end_cycles;
+
+        if (effective_audio_end == 0u ||
+            effective_audio_end > GBL_RUNNER_AUDIO_MAX_CYCLES ||
+            effective_audio_end > options->cycle_budget) {
+            return false;
+        }
+    }
+    return true;
 }
 
 int main(int argc, char **argv)
@@ -684,6 +785,7 @@ int main(int argc, char **argv)
     const char *input_script_path = NULL;
     const char *input_script_reason = NULL;
     gbl_runner_script_load_status script_status;
+    bool audio_artifact_satisfied;
 
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
         printf("gamebloke-run %s\n", gbl_version());
@@ -701,6 +803,8 @@ int main(int argc, char **argv)
               "  --trace-capacity N     bound selected trace records (maximum 65536)\n"
               "  --trace-output PATH    write selected trace as JSON Lines\n"
               "  --video-output PATH    write one complete raw 240x160 BGR555 frame\n"
+              "  --audio-output PATH    write bounded reset-anchored S16LE stereo PCM\n"
+              "  --audio-cycles N       capture through cycle N (requires audio output)\n"
               "  --version              print the gamebloke-run version\n"
               "  --help                 print this help\n"
               "\n"
@@ -713,9 +817,10 @@ int main(int argc, char **argv)
         print_usage(stderr);
         return GBL_RUN_USAGE_ERROR;
     }
-    if (!gbl_runner_video_path_is_safe(&options, input_script_path)) {
+    if (!gbl_runner_video_path_is_safe(&options, input_script_path) ||
+        !gbl_runner_audio_path_is_safe(&options, input_script_path)) {
         print_usage(stderr);
-        fputs("gamebloke-run: video-output-path-conflict\n", stderr);
+        fputs("gamebloke-run: output-path-conflict\n", stderr);
         return GBL_RUN_USAGE_ERROR;
     }
     if (input_script_path != NULL) {
@@ -729,18 +834,18 @@ int main(int argc, char **argv)
         }
         if (script_status == GBL_RUNNER_SCRIPT_MISSING) {
             return gbl_runner_script_io_result(GBL_RUNNER_MISSING,
-                                               input_script_reason);
+                                               input_script_reason, &options);
         }
         if (script_status == GBL_RUNNER_SCRIPT_IO_ERROR) {
             return gbl_runner_script_io_result(GBL_RUNNER_HARNESS_FAIL,
-                                               input_script_reason);
+                                               input_script_reason, &options);
         }
         options.input_timeline_present = true;
         options.input_events = input_event_count == 0u ? NULL : input_events;
         options.input_event_count = input_event_count;
     }
     if (!gbl_runner_install_sigint()) {
-        return gbl_runner_signal_setup_failure();
+        return gbl_runner_signal_setup_failure(&options);
     }
     options.cancelled = gbl_runner_cancelled;
     options.cancel_context = NULL;
@@ -751,6 +856,8 @@ int main(int argc, char **argv)
         gbl_runner_result_dispose(&result);
         return 1;
     }
+    audio_artifact_satisfied =
+        !result.audio.requested || result.audio.artifact_emitted;
     gbl_runner_result_dispose(&result);
-    return status == GBL_RUNNER_PASS ? 0 : 1;
+    return status == GBL_RUNNER_PASS && audio_artifact_satisfied ? 0 : 1;
 }

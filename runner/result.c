@@ -722,7 +722,7 @@ static bool gbl_runner_write_limits(FILE *output,
         "ARM7TDMI ARMv4T instruction families implemented with explicit project policies; full original diagnostics pending",
         "bus costs and Timer 0 behavior use project-selected model policy, not hardware-qualified timing",
         "Timer 0 IF is a device request; CPU IRQ samples and entry are project-model observations, while BIOS handlers and exact GBA IRQ latency are unqualified",
-        "BIOS provider none; DMA is limited to the selected immediate model, while PPU/display, audio, physical input, and host presentation are not modeled",
+        "BIOS provider none; DMA, PPU/display, and audio are selected partial software models, while physical input and host presentation are not modeled",
         "WAITCNT Game Pak rules are manual-backed; other region costs are project-selected, the 128 KiB boundary is community-sourced, and hardware qualification is UNKNOWN",
         "Immediate DMA is modeled; PPU/audio trigger producers and Prefetch are unmodeled, while startup conversion and retained-channel-latch behavior remain project-selected",
         "result does not establish hardware accuracy or broad game compatibility",
@@ -1228,7 +1228,27 @@ static bool gbl_runner_write_audio_interval(
 static bool gbl_runner_write_audio_observation(
     FILE *output, const gbl_runner_audio_observation *obs)
 {
-    if (fputs("{\"requested\":", output) == EOF ||
+    if (fputs("{\"model\":\"gamebloke-audio-model-4\","
+              "\"profile\":{\"id\":\"agb\",\"version\":16},"
+              "\"policy_classification\":\"project-selected\","
+              "\"hardware_qualification\":\"UNKNOWN\","
+              "\"policy\":{\"tap\":\"pre-pwm\","
+              "\"tap_policy\":\"fixed-reset-anchored-grid\","
+              "\"encoding\":\"signed-s16le\","
+              "\"channel_layout\":\"stereo-interleaved-left-first\","
+              "\"sample_rate_hz\":32768,\"sample_cycles\":\"512\","
+              "\"interval_policy\":\"start-exclusive-end-inclusive\","
+              "\"implemented_sources\":[\"psg-channel-1\","
+              "\"psg-channel-2\",\"psg-channel-3\",\"psg-channel-4\","
+              "\"direct-sound-fifo-a-signed-latch\","
+              "\"direct-sound-fifo-b-signed-latch\"],"
+              "\"unsupported\":[\"pwm-carrier\",\"bias-quantization\","
+              "\"analog-output\",\"host-resampling\",\"host-playback\"],"
+              "\"evidence_limits\":[\"software-model-output-only\","
+              "\"no-physical-hardware-qualification\","
+              "\"no-broad-game-compatibility-claim\","
+              "\"sha256-proves-byte-identity-not-semantic-correctness-or-rights\"]},"
+              "\"requested\":", output) == EOF ||
         fputs(obs->requested ? "true" : "false", output) == EOF ||
         fputs(",\"requested_interval\":", output) == EOF ||
         !gbl_runner_write_audio_interval(output, obs->has_requested_interval,
