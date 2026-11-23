@@ -5366,6 +5366,8 @@ static void gbl_machine_clear_mutable_state(gbl_machine *machine)
     machine->dma_last_source = 0u;
     machine->dma_last_destination = 0u;
     machine->dma_stream_valid = false;
+    machine->dma_transaction_active = false;
+    machine->dma_transaction_dispatched = 0u;
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         machine->dma_channels[index] = (gbl_dma_channel_state){ 0 };
     }

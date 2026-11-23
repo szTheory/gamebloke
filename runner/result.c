@@ -92,6 +92,7 @@ static const char *gbl_runner_dma_status_name(gbl_dma_status status)
     case GBL_DMA_STATUS_TIME_OVERFLOW: return "time_overflow";
     case GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT: return "event_dispatch_limit";
     case GBL_DMA_STATUS_UNIT_REFUSAL: return "unit_refusal";
+    case GBL_DMA_STATUS_OUTPUT_REFUSAL: return "output_refusal";
     }
     return NULL;
 }

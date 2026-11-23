@@ -1246,17 +1246,43 @@ static bool test_sound_wrong_timing_ignores_threshold(void)
     return valid;
 }
 
+static bool test_dma_transaction_state_reset(void)
+{
+    gbl_machine machine = { 0 };
+    bool valid;
+
+    machine.dma_transaction_active = true;
+    machine.dma_transaction_dispatched = 2u;
+    valid = gbl_machine_init(&machine, NULL) == GBL_BUS_STATUS_OK &&
+            !machine.dma_transaction_active &&
+            machine.dma_transaction_dispatched == 0u;
+    if (valid) {
+        machine.dma_transaction_active = true;
+        machine.dma_transaction_dispatched = 3u;
+        gbl_machine_reset(&machine);
+        valid = !machine.dma_transaction_active &&
+                machine.dma_transaction_dispatched == 0u;
+    }
+    test_case(valid,
+              "machine init and reset clear the in-flight DMA transaction state");
+    if (machine.initialized) {
+        gbl_machine_dispose(&machine);
+    }
+    return valid;
+}
+
 static bool run_sound_refusal(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..13\n");
+    printf("TAP version 13\n1..14\n");
     (void)test_sound_refusal_budget_and_source_extents();
     (void)test_sound_refusal_after_interleave_and_output_limit();
     (void)test_sound_preview_identity_refusal();
     (void)test_sound_ready_capacity_refuses_timer_candidate();
     (void)test_sound_reset_at_same_cycle_as_threshold();
     (void)test_sound_wrong_timing_ignores_threshold();
+    (void)test_dma_transaction_state_reset();
     return failure_count == 0u ? 0 : 1;
 }
 

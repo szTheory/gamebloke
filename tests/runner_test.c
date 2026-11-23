@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 enum {
-    GBL_RUNNER_TEST_COUNT = 40u,
+    GBL_RUNNER_TEST_COUNT = 41u,
     GBL_RUNNER_TEST_PATH_CAPACITY = 1024u,
     GBL_RUNNER_TEST_WATCHDOG_TICKS = 300u
 };
@@ -4232,6 +4232,38 @@ static bool gbl_test_registered_result(const char *path, const char *fixture,
     return okay;
 }
 
+static bool gbl_test_runner_dma_output_refusal_status(
+    const char *scratch_directory)
+{
+    char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char trace[512];
+    gbl_trace_record record = { 0 };
+    gbl_runner_result result = { 0 };
+
+    if (!gbl_test_path(trace_path, sizeof trace_path, scratch_directory,
+                       "runner-dma-output-refusal.jsonl")) {
+        return false;
+    }
+    (void)remove(trace_path);
+    record.category = GBL_TRACE_DMA;
+    record.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    record.dma_status = GBL_DMA_STATUS_OUTPUT_REFUSAL;
+    record.dma_channel = 1u;
+    result.trace_records = &record;
+    result.trace_count = 1u;
+    result.trace_capacity = 1u;
+
+    if (!gbl_runner_write_trace(trace_path, &result)) {
+        (void)remove(trace_path);
+        return false;
+    }
+    const bool okay = gbl_test_read_file(trace_path, trace, sizeof trace) &&
+                      strstr(trace, "\"status\":\"output_refusal\"") !=
+                          NULL;
+    (void)remove(trace_path);
+    return okay;
+}
+
 static bool gbl_test_execute_all(const char *fixture_directory,
                                  const char *scratch_directory,
                                  const char *runner_path)
@@ -4295,6 +4327,9 @@ static bool gbl_test_execute_all(const char *fixture_directory,
 
     gbl_test_case(gbl_test_runner_dma_observation(scratch_directory),
                   "runner-dma-production: guest mailbox follows a real DMA transfer and result exposes phase9");
+    gbl_test_case(gbl_test_runner_dma_output_refusal_status(
+                      scratch_directory),
+                  "runner DMA trace serializes output refusal status");
 
     if (!gbl_test_path(path, sizeof path, fixture_directory,
                        "owned-arm-pass.gba")) {
