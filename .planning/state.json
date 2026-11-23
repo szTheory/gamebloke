@@ -11,7 +11,7 @@
     {
       "number": "17",
       "name": "PSG Channels and Sequencer",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "18",
@@ -26,8 +26,8 @@
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 2 of 4 · 25% · executing"
+    "label": "Advance to the next step (plan phase 18)",
+    "reason": "Phase 3 of 4 — needs a plan"
   },
-  "updated_at": "2026-11-22T22:24:19.451Z"
+  "updated_at": "2026-11-23T00:41:47.070Z"
 }

@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v4.0
 milestone_name: Audio
-current_phase: 17
-current_phase_name: PSG Channels and Sequencer
-status: blocked
-stopped_at: Halted 17-04-PLAN.md at pre-existing hygiene.tree failure
-last_updated: "2026-11-22T23:44:59.215Z"
+current_phase: 18
+current_phase_name: Direct Sound and FIFO DMA
+status: planning
+stopped_at: Phase 17 complete, ready to plan Phase 18
+last_updated: "2026-11-23T00:41:47.058Z"
 last_activity: 2026-11-22
-last_activity_desc: Phase 17 Plan 04 halted at the pre-existing hygiene.tree blocker; canonical CI and the complete JUnit inventory remain unverified.
-state_head: 40417ed5e7d7e392007278835c259e6d08b7c1ef
+last_activity_desc: Phase 17 complete, transitioned to Phase 18
+state_head: 26c292358e077618829c96026f462ee1030d439b
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
   completed_plans: 7
-  percent: 25
+  percent: 50
 ---
 
 # Project State
@@ -26,22 +26,22 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v3.0 PPU Modes and Composition (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Phase 17 — PSG Channels and Sequencer
+**Current focus:** Phase 18 — Direct Sound and FIFO DMA
 
 ## Current Position
 
-Phase: 17 — PSG Channels and Sequencer
-Plan: 4 of 4
-Status: Blocked
-Last activity: 2026-11-22 — Phase 17 Plan 04 halted at hygiene.tree
-Last activity description: The canonical CI workflow stopped on absolute GSD home-path references in committed phase plan files; see .planning/phases/17-psg-channels-and-sequencer/deferred-items.md.
-Progress: [███░░░░░░░] 25%
+Phase: 18 — Direct Sound and FIFO DMA
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-22 — Phase 17 complete, transitioned to Phase 18
+Last activity description: Phase 17 complete, transitioned to Phase 18
+Progress: [█████░░░░░] 50%
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 120
+- Total plans completed: 124
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -62,6 +62,7 @@ Progress: [███░░░░░░░] 25%
 | 13 | 8 | - | - |
 | 15 | 5 | - | - |
 | 16 | 3 | - | - |
+| 17 | 4 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -197,7 +198,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 17 P01 | 42 min | 2 tasks | 8 files |
 | Phase 17 P02 | 37min from first RED; setup not measured | 2 tasks | 8 files |
 | Phase 17 P03 | 27m13s | 2 tasks | 10 files |
-| Phase 17 P04 | 71m | 3 tasks | 14 files |
+| Phase 17 P04 | 120m | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -572,7 +573,6 @@ None yet.
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
 - Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
 - macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The owner ran the dependency-free terminal Libretro host and accepted the visible original demo; G6 is recorded as accepted for this scope. The terminal preview is downsampled and sub-real-time, and does not establish hardware qualification or broad compatibility.
-- Plan 17-04 is halted: hygiene.tree rejects pre-existing absolute GSD home-path references in committed 17-01 through 17-04 plan files. Canonical CTest stopped after 93 passes and one failure; ci-post confirmed the JUnit inventory is incomplete. The full integrated gate remains unverified until a portable-reference fix and canonical rerun.
 
 ## Deferred Items
 
@@ -594,11 +594,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-22T23:44:59.104Z
-Stopped at: Halted 17-04-PLAN.md at pre-existing hygiene.tree failure
-Resume file: .planning/phases/17-psg-channels-and-sequencer/deferred-items.md
+Last session: 2026-11-23T00:31:28.012Z
+Stopped at: Phase 17 complete, ready to plan Phase 18
+Resume file: None
 
 ## Operator Next Steps
 
 
-- Review the v4.0 Audio roadmap. After approval, start Phase 16 with `$gsd-discuss-phase 16`.
+- Phase 17 is complete with hardware qualification still UNKNOWN. To continue the approved v4.0 roadmap, begin Phase 18 planning with `$gsd-discuss-phase 18`.
