@@ -70,7 +70,8 @@
 #   irq-policy-value       Phase 8 policy value, source row set, or profile version is wrong
 #   irq-policy-doc         visible IRQ/input/power policy or source-fact table is stale
 #   audio-policy-missing   audio_policy is absent or not an object
-#   audio-policy-value     exact capture, register, SOUNDBIAS, or qualification contract differs
+#   audio-policy-value     exact capture, register, Direct Sound FIFO/DMA,
+#                          SOUNDBIAS, or qualification contract differs
 #   audio-policy-doc       canonical audio policy/register tables are absent or stale
 # The json:, contract:, and registry: codes come from the loader and the vocabulary
 # and registry readers this file calls.
@@ -91,7 +92,7 @@ set(GBL_PROFILE_REQUIRED_UNMODELED
   hblank-flag-edge ppu audio dma irq-controller backup-media bios-protection
   io-devices)
 set(GBL_PROFILE_AUDIO_POLICY_ROWS
-  "model|gamebloke-audio-model-2|STRING"
+  "model|gamebloke-audio-model-3|STRING"
   "classification|project-selected|STRING"
   "hardware_qualification|UNKNOWN|STRING"
   "tap|pre-pwm|STRING"
@@ -104,7 +105,33 @@ set(GBL_PROFILE_AUDIO_POLICY_ROWS
   "first_sample_cycle|512|NUMBER"
   "interval|start-exclusive-end-inclusive|STRING"
   "sample_value|signed-zero|STRING"
-  "modeled_sources|psg-channel-sources-1-2-3-4|STRING"
+  "modeled_sources|psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples|STRING"
+  "direct_sound_fifo_ports|A=0x040000A0,B=0x040000A4|STRING"
+  "direct_sound_fifo_capacity_bytes|32|NUMBER"
+  "direct_sound_sample_encoding|signed-s8|STRING"
+  "direct_sound_write_policy|widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-advancing-one-word|STRING"
+  "direct_sound_overflow_policy|flush-queue-and-cursors-then-accept-whole-current-write|STRING"
+  "direct_sound_underflow_policy|hold-last-signed-sample,reset-latch-zero|STRING"
+  "direct_sound_fifo_reset_policy|selected-queue-cursors-latch-and-pending-request-only,timers-unaffected|STRING"
+  "direct_sound_master_disable_policy|both-queues-cursors-latches-and-pending-requests,timers-continue|STRING"
+  "direct_sound_timer_policy|actual-selected-timer-overflow-only,timer1-cascade-pops-only-on-real-wrap,each-matching-fifo-pops-once|STRING"
+  "direct_sound_same_cycle_order|timer-pop-and-readiness,PSG-progression,sample-old-route,completing-bus-write|STRING"
+  "direct_sound_fifo_request_threshold_bytes|16|NUMBER"
+  "direct_sound_fifo_request_policy|post-pop-exactly-16,no-duplicate-pending-or-active-request|STRING"
+  "direct_sound_dma_channel_map|fifo-a-dma1,fifo-b-dma2|STRING"
+  "direct_sound_dma_transfer_policy|four-32-bit-words,fixed-mapped-fifo-destination,ignore-programmed-count-width-and-destination-mode|STRING"
+  "direct_sound_dma_source_policy|align-programmed-source-to-word,increment-decrement-or-fixed-in-4-byte-units,validate-all-four-lanes-in-one-modeled-region|STRING"
+  "direct_sound_dma_supported_setup|enabled-special-audio-timing-only|STRING"
+  "direct_sound_dma_unsupported_policy|consume-sample-ignore-refill,no-programmed-destination-fallback|STRING"
+  "direct_sound_dma_rearm_policy|later-threshold-independent-of-repeat-bit,preserve-source-progression|STRING"
+  "direct_sound_dma_irq_policy|set-matching-channel-if-on-completion-only-when-control-irq-enabled|STRING"
+  "direct_sound_dma_priority_policy|reselect-after-startup-and-each-sound-word,higher-priority-runs-at-next-boundary-before-resume|STRING"
+  "direct_sound_dma_publication_policy|whole-private-machine-candidate,all-interleaved-effects-and-sound-words-commit-or-refuse|STRING"
+  "direct_sound_primary_source|AGB Programming Manual v1.1 §§10.2, 10.3, 10.7 and 12.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)|STRING"
+  "direct_sound_supplemental_source|GBATEK Sound and DMA (community reverse-engineered supplement, https://mgba-emu.github.io/gbatek/)|STRING"
+  "direct_sound_secondary_report|mGBA issue #1847, maintainer report with hedged empty and overflow observations (https://github.com/mgba-emu/mgba/issues/1847)|STRING"
+  "direct_sound_policy_classification|project-selected|STRING"
+  "direct_sound_hardware_qualification|UNKNOWN|STRING"
   "capture_bound_scope|caller-owned-session|STRING"
   "capture_session_start|explicit-current-machine-cycle|STRING"
   "capture_session_progress|accepted-contiguous-operations|STRING"
@@ -177,7 +204,7 @@ set(GBL_PROFILE_AUDIO_REGISTERS_JSON [=[[
   {"name":"SOUND4CNT_L","address":"0x04000078","retained_mask":"0xFF3F","read_mask":"0xFF00","action_mask":"0x0000","effect":"length-and-envelope-control"},
   {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
   {"name":"SOUNDCNT_L","address":"0x04000080","retained_mask":"0xFF77","read_mask":"0xFF77","action_mask":"0x0000","effect":"psg-routing-and-volume-state"},
-  {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-actions-unmodeled"},
+  {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-reset-actions"},
   {"name":"SOUNDCNT_X","address":"0x04000084","retained_mask":"0x0080","read_mask":"0x008F","action_mask":"0x0000","effect":"master-enable-dynamic-channel-status-disable-clears-channel-state"}
 ]]=])
 set(GBL_PROFILE_HBLANK_DISPUTE disp-hblank-flag-edge)
@@ -290,7 +317,9 @@ set(GBL_PROFILE_WAITCNT_BOUNDARY_PROVENANCE
 set(GBL_PROFILE_DMA_CITE
   "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)")
 set(GBL_PROFILE_DMA_TRIGGER_CITE
-  "Gamebloke DMA model in src/machine.c; PPU/audio/DRQ trigger producers remain deferred.")
+  "Gamebloke DMA model in src/machine.c; Direct Sound FIFO and the existing specialized VBlank/HBlank PPU routes are implemented; DRQ and other trigger producers remain deferred.")
+set(GBL_PROFILE_DMA_TRIGGER_DEFERRED
+  "Direct Sound FIFO A/B uses DMA1/DMA2 special timing; VBlank/HBlank retain their specialized PPU routes; DRQ and other trigger producers remain deferred")
 set(GBL_PROFILE_DMA_STARTUP_CITE
   "Gamebloke project mapping in include/gamebloke/gamebloke.h; manual activation wording does not qualify a master-cycle conversion.")
 set(GBL_PROFILE_DMA_ARBITRATION_CITE
@@ -642,7 +671,7 @@ function(gbl__profile_dma_policy doc)
   if(NOT "${trigger_class}" STREQUAL "project-selected" OR
      NOT "${trigger_cite}" STREQUAL "${GBL_PROFILE_DMA_TRIGGER_CITE}" OR
      NOT "${trigger_refusal}" STREQUAL "refused" OR
-     NOT "${trigger_deferred}" MATCHES "remain armed;.*trigger producers are deferred")
+     NOT "${trigger_deferred}" STREQUAL "${GBL_PROFILE_DMA_TRIGGER_DEFERRED}")
     gbl_finding(profile dma-policy "trigger producer and refusal policy is missing or stale")
   endif()
   gbl_json_type(startup_cycles_type "${doc}" dma_policy startup_policy master_cycles)
@@ -2600,6 +2629,16 @@ function(gbl__profile_doc_timing_sync normalized_text profile)
   string(FIND "${normalized_text}" "| dma_policy.hardware_qualification | UNKNOWN | unmodeled |" dma_qualification)
   if(waitcnt_qualification EQUAL -1 OR dma_qualification EQUAL -1)
     gbl_finding(profile timing-model-doc "WAITCNT and DMA hardware qualification must remain UNKNOWN in the document")
+  endif()
+
+  gbl_json_string(trigger_deferred "${profile}" dma_policy trigger_policy deferred_behavior)
+  gbl_json_string(trigger_cite "${profile}" dma_policy trigger_policy cite)
+  set(expected_trigger_row
+    "| dma_policy.trigger_policy | enable bit 15; immediate mode 0 starts on rising enable edge and is one-shot; delayed modes [1,2,3] remain armed; ${trigger_deferred}; channel 0 mode 3 is refused | project-selected | ${trigger_cite} |")
+  string(FIND "${normalized_text}" "\n${expected_trigger_row}\n" trigger_row_at)
+  if(trigger_row_at EQUAL -1)
+    gbl_finding(profile dma-policy-doc
+      "dma_policy.trigger_policy: linked producer declaration or citation row is stale")
   endif()
 
   gbl_json_length(cpu_count "${profile}" timing_model cpu_composition)

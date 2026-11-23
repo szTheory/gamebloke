@@ -606,7 +606,7 @@ The register fields and source-backed hardware rules are separated from Gameblok
 | --- | --- | --- | --- |
 | dma_policy.registers | 0x040000B0–0x040000DF; 4 channels; stride 12 bytes; control mask 0xFFE0 | source-backed | Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
 | dma_policy.source_facts | source masks ["0x07FFFFFF","0x0FFFFFFF","0x0FFFFFFF","0x0FFFFFFF"]; destination masks ["0x07FFFFFF","0x07FFFFFF","0x07FFFFFF","0x0FFFFFFF"]; count masks ["0x3FFF","0x3FFF","0x3FFF","0xFFFF"]; zero-count expansions [16384,16384,16384,65536]; width bit 10 and widths [2,4]; source modes ["increment","decrement","fixed","unsupported"]; destination modes ["increment","decrement","fixed","increment-and-reload-channel-3-only"]; completion IF bits [8,9,10,11] | source-backed | Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
-| dma_policy.trigger_policy | enable bit 15; immediate mode 0 starts on rising enable edge and is one-shot; delayed modes [1,2,3] remain armed; remain armed; VBlank/HBlank/audio/DRQ trigger producers are deferred; channel 0 mode 3 is refused | project-selected | Gamebloke DMA model in src/machine.c; PPU/audio/DRQ trigger producers remain deferred. |
+| dma_policy.trigger_policy | enable bit 15; immediate mode 0 starts on rising enable edge and is one-shot; delayed modes [1,2,3] remain armed; Direct Sound FIFO A/B uses DMA1/DMA2 special timing; VBlank/HBlank retain their specialized PPU routes; DRQ and other trigger producers remain deferred; channel 0 mode 3 is refused | project-selected | Gamebloke DMA model in src/machine.c; Direct Sound FIFO and the existing specialized VBlank/HBlank PPU routes are implemented; DRQ and other trigger producers remain deferred. |
 | dma_policy.completion_policy | cleared on completion; remain armed and reload count; channel 3 mode 3 only; set the channel IF bit when control bit 14 is enabled | source-backed | Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
 | dma_policy.startup_policy | 2 master cycles; conversion project-selected; hardware qualification UNKNOWN | project-selected | Gamebloke project mapping in include/gamebloke/gamebloke.h; manual activation wording does not qualify a master-cycle conversion. |
 | dma_policy.arbitration_policy | priority [0,1,2,3]; active DMA pauses CPU execution; unit is one source access plus one destination access; reconsider after each complete transfer unit; resume sequence nonsequential; event order ["timer0-3","keypad","dma-ready0-3"]; finer boundary unmodeled; hardware qualification UNKNOWN | project-selected | Gamebloke selected DMA policy in src/machine.c; project tests establish implementation behavior only. |
@@ -934,10 +934,11 @@ This profile does not state that the SP is identical to the AGB.
 
 ## Audio behavior policy
 
-The audio profile is the `gamebloke-audio-model-2` project-selected contract.
-The four PSG channel source calculations are modeled, but the capture tap is
-still signed zero before PWM conversion: PSG sources and Direct Sound are not
-routed into PCM yet. PCM is stereo, interleaved left then right, signed 16-bit
+The audio profile is the `gamebloke-audio-model-3` project-selected contract.
+Four PSG channel sources and the signed Direct Sound FIFO A/B source state are
+modeled, but the capture tap is still signed zero before PWM conversion: PSG
+and Direct Sound are not routed or mixed into PCM yet. PCM is stereo,
+interleaved left then right, signed 16-bit
 little-endian, at 32,768 frames per second. The global grid starts at reset
 cycle 0 and emits its first frame at cycle 512, then every 512 master cycles.
 An interval is start-exclusive and end-inclusive; SOUNDBIAS does not retime the
@@ -945,7 +946,7 @@ grid or quantize samples.
 
 | Setting | Value |
 | --- | --- |
-| `audio_policy.model` | gamebloke-audio-model-2 |
+| `audio_policy.model` | gamebloke-audio-model-3 |
 | `audio_policy.classification` | project-selected |
 | `audio_policy.hardware_qualification` | UNKNOWN |
 | `audio_policy.tap` | pre-pwm |
@@ -958,7 +959,33 @@ grid or quantize samples.
 | `audio_policy.first_sample_cycle` | 512 |
 | `audio_policy.interval` | start-exclusive-end-inclusive |
 | `audio_policy.sample_value` | signed-zero |
-| `audio_policy.modeled_sources` | psg-channel-sources-1-2-3-4 |
+| `audio_policy.modeled_sources` | psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples |
+| `audio_policy.direct_sound_fifo_ports` | A=0x040000A0,B=0x040000A4 |
+| `audio_policy.direct_sound_fifo_capacity_bytes` | 32 |
+| `audio_policy.direct_sound_sample_encoding` | signed-s8 |
+| `audio_policy.direct_sound_write_policy` | widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-advancing-one-word |
+| `audio_policy.direct_sound_overflow_policy` | flush-queue-and-cursors-then-accept-whole-current-write |
+| `audio_policy.direct_sound_underflow_policy` | hold-last-signed-sample,reset-latch-zero |
+| `audio_policy.direct_sound_fifo_reset_policy` | selected-queue-cursors-latch-and-pending-request-only,timers-unaffected |
+| `audio_policy.direct_sound_master_disable_policy` | both-queues-cursors-latches-and-pending-requests,timers-continue |
+| `audio_policy.direct_sound_timer_policy` | actual-selected-timer-overflow-only,timer1-cascade-pops-only-on-real-wrap,each-matching-fifo-pops-once |
+| `audio_policy.direct_sound_same_cycle_order` | timer-pop-and-readiness,PSG-progression,sample-old-route,completing-bus-write |
+| `audio_policy.direct_sound_fifo_request_threshold_bytes` | 16 |
+| `audio_policy.direct_sound_fifo_request_policy` | post-pop-exactly-16,no-duplicate-pending-or-active-request |
+| `audio_policy.direct_sound_dma_channel_map` | fifo-a-dma1,fifo-b-dma2 |
+| `audio_policy.direct_sound_dma_transfer_policy` | four-32-bit-words,fixed-mapped-fifo-destination,ignore-programmed-count-width-and-destination-mode |
+| `audio_policy.direct_sound_dma_source_policy` | align-programmed-source-to-word,increment-decrement-or-fixed-in-4-byte-units,validate-all-four-lanes-in-one-modeled-region |
+| `audio_policy.direct_sound_dma_supported_setup` | enabled-special-audio-timing-only |
+| `audio_policy.direct_sound_dma_unsupported_policy` | consume-sample-ignore-refill,no-programmed-destination-fallback |
+| `audio_policy.direct_sound_dma_rearm_policy` | later-threshold-independent-of-repeat-bit,preserve-source-progression |
+| `audio_policy.direct_sound_dma_irq_policy` | set-matching-channel-if-on-completion-only-when-control-irq-enabled |
+| `audio_policy.direct_sound_dma_priority_policy` | reselect-after-startup-and-each-sound-word,higher-priority-runs-at-next-boundary-before-resume |
+| `audio_policy.direct_sound_dma_publication_policy` | whole-private-machine-candidate,all-interleaved-effects-and-sound-words-commit-or-refuse |
+| `audio_policy.direct_sound_primary_source` | AGB Programming Manual v1.1 §§10.2, 10.3, 10.7 and 12.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| `audio_policy.direct_sound_supplemental_source` | GBATEK Sound and DMA (community reverse-engineered supplement, https://mgba-emu.github.io/gbatek/) |
+| `audio_policy.direct_sound_secondary_report` | mGBA issue #1847, maintainer report with hedged empty and overflow observations (https://github.com/mgba-emu/mgba/issues/1847) |
+| `audio_policy.direct_sound_policy_classification` | project-selected |
+| `audio_policy.direct_sound_hardware_qualification` | UNKNOWN |
 | `audio_policy.capture_bound_scope` | caller-owned-session |
 | `audio_policy.capture_session_start` | explicit-current-machine-cycle |
 | `audio_policy.capture_session_progress` | accepted-contiguous-operations |
@@ -1033,6 +1060,26 @@ observes that state and the old sound route, and the completing bus write
 follows. A DMA data write uses the same completing-write rule; DMA
 readiness/arbitration is not itself a data write.
 
+Direct Sound uses independent 32-byte signed-sample FIFOs at `0x040000A0` and
+`0x040000A4`. Widths 1, 2, and 4 are accepted; bytes are processed in increasing
+address order. Narrow writes merge addressed lanes into the next ring word,
+preserve other lanes, and advance one word. Overflow flushes that queue and
+accepts the whole write; underflow holds the last signed sample, initialized to
+zero. Actual selected timer overflows pop the FIFO before the same-cycle sample
+edge; a Timer 1 cascade pops only when Timer 1 itself wraps. A post-pop depth of
+exactly 16 requests one refill through the shared arbiter (A uses DMA1, B uses
+DMA2). Each request uses four aligned 32-bit source reads and fixed FIFO writes,
+while preserving programmed readback and source stepping. Priority is selected
+again after startup and every sound word; ordinary interleaved effects remain
+inside the same checked candidate as the full sound refill. Invalid bounds or
+work limits refuse the candidate atomically. These exact queue edges, lane
+merging, overflow/latch behavior, timer mapping, channel mapping, and arbitration
+are Gamebloke policy. The manual is primary for FIFO capacity, signed samples,
+timer selection, threshold, and forced transfer shape; GBATEK is supplementary,
+and the cited mGBA report is secondary implementation evidence. None establishes
+hardware qualification, which remains UNKNOWN. The modeled FIFO source is not
+routed into the signed-zero PCM capture until later mixing work.
+
 ### PSG source behavior policy
 
 The sequencer is reset-anchored at cycle 0 with its first 512 Hz tick at cycle
@@ -1101,7 +1148,7 @@ qualification; hardware qualification remains UNKNOWN.
 | `audio_policy.registers.SOUND4CNT_L` | `SOUND4CNT_L` | `0x04000078` | `0xFF3F` | `0xFF00` | `0x0000` | length-and-envelope-control |
 | `audio_policy.registers.SOUND4CNT_H` | `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
 | `audio_policy.registers.SOUNDCNT_L` | `SOUNDCNT_L` | `0x04000080` | `0xFF77` | `0xFF77` | `0x0000` | psg-routing-and-volume-state |
-| `audio_policy.registers.SOUNDCNT_H` | `SOUNDCNT_H` | `0x04000082` | `0x770F` | `0x770F` | `0x8800` | direct-sound-routing-and-volume-state-fifo-actions-unmodeled |
+| `audio_policy.registers.SOUNDCNT_H` | `SOUNDCNT_H` | `0x04000082` | `0x770F` | `0x770F` | `0x8800` | direct-sound-routing-and-volume-state-fifo-reset-actions |
 | `audio_policy.registers.SOUNDCNT_X` | `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x0000` | master-enable-dynamic-channel-status-disable-clears-channel-state |
 
 Bit 14 in each channel frequency/noise control register is the retained sound
@@ -1123,10 +1170,10 @@ master enable is off and is outside that reset subset.
 | `audio_policy.soundbias.cadence_effect` | none |
 | `audio_policy.soundbias.capture_quantization` | none |
 
-Direct Sound and FIFO source/data behavior, PCM routing and mixing, PWM carrier,
-and analog output are unmodeled. PSG source calculations and Wave RAM access
-are implemented as software model behavior, but are not routed to capture.
-Hardware qualification remains UNKNOWN. A
+PCM routing and mixing, PWM carrier, and analog output are unmodeled. PSG source
+calculations, Wave RAM access, and Direct Sound FIFO source/refill behavior are
+implemented as software model behavior, but are not routed to capture. Hardware
+qualification remains UNKNOWN. A
 digest establishes byte identity/replay equality only, not source correctness,
 hardware accuracy, compatibility, or rights.
 
@@ -1143,8 +1190,8 @@ must not claim the behavior of anything in this table.
 | `bus-costs` | Non-ROM values remain project-selected and all modeled bus costs remain hardware-unqualified. |
 | `hblank-flag-edge` | Hardware timing for the HBlank flag change remains unknown and disputed under disp-hblank-flag-edge; the selected 1,006-cycle model event is in ppu_policy and is not a hardware resolution. |
 | `ppu` | The deterministic partial modes, OBJ, window, effect, mosaic, and forced-blank subset is described in `ppu_policy` as project-selected software behavior; all six mode statuses remain partial and hardware qualification remains UNKNOWN. Prohibited OBJ mode/shape encodings and unsupported background-control encodings remain unmodeled. |
-| `audio` | Four PSG source calculations, bounded Wave RAM access, sound-control state, and signed-zero pre-PWM capture are described by `audio_policy`; Direct Sound/FIFO data, PCM routing/mixing, PWM carrier, and analog output remain unmodeled, and hardware qualification remains UNKNOWN. |
-| `dma` | The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled. |
+| `audio` | Four PSG source calculations, bounded Wave RAM access, Direct Sound FIFO A/B source and DMA refill behavior, sound-control state, and signed-zero pre-PWM capture are described by `audio_policy`; PCM routing/mixing, PWM carrier, and analog output remain unmodeled, and hardware qualification remains UNKNOWN. |
+| `dma` | The deterministic project DMA subset, Direct Sound FIFO A/B routes, and existing VBlank plus visible-line HBlank PPU paths are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode, DRQ, and other deferred producers remain unmodeled. |
 | `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |
 | `irq-controller` | A complete hardware-qualified GBA interrupt controller. The deterministic IF/IE/IME and CPU-boundary subset is implemented under `irq_input_power_policy`; exact GBA IRQ latency and BIOS-handler behavior remain unqualified. |
 | `backup-media` | Cartridge backup storage (save memory). |

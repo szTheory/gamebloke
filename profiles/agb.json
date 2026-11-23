@@ -376,7 +376,7 @@
     "write_latch": "preserve"
   },
   "audio_policy": {
-    "model": "gamebloke-audio-model-2",
+    "model": "gamebloke-audio-model-3",
     "classification": "project-selected",
     "hardware_qualification": "UNKNOWN",
     "tap": "pre-pwm",
@@ -389,7 +389,33 @@
     "first_sample_cycle": 512,
     "interval": "start-exclusive-end-inclusive",
     "sample_value": "signed-zero",
-    "modeled_sources": "psg-channel-sources-1-2-3-4",
+    "modeled_sources": "psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples",
+    "direct_sound_fifo_ports": "A=0x040000A0,B=0x040000A4",
+    "direct_sound_fifo_capacity_bytes": 32,
+    "direct_sound_sample_encoding": "signed-s8",
+    "direct_sound_write_policy": "widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-advancing-one-word",
+    "direct_sound_overflow_policy": "flush-queue-and-cursors-then-accept-whole-current-write",
+    "direct_sound_underflow_policy": "hold-last-signed-sample,reset-latch-zero",
+    "direct_sound_fifo_reset_policy": "selected-queue-cursors-latch-and-pending-request-only,timers-unaffected",
+    "direct_sound_master_disable_policy": "both-queues-cursors-latches-and-pending-requests,timers-continue",
+    "direct_sound_timer_policy": "actual-selected-timer-overflow-only,timer1-cascade-pops-only-on-real-wrap,each-matching-fifo-pops-once",
+    "direct_sound_same_cycle_order": "timer-pop-and-readiness,PSG-progression,sample-old-route,completing-bus-write",
+    "direct_sound_fifo_request_threshold_bytes": 16,
+    "direct_sound_fifo_request_policy": "post-pop-exactly-16,no-duplicate-pending-or-active-request",
+    "direct_sound_dma_channel_map": "fifo-a-dma1,fifo-b-dma2",
+    "direct_sound_dma_transfer_policy": "four-32-bit-words,fixed-mapped-fifo-destination,ignore-programmed-count-width-and-destination-mode",
+    "direct_sound_dma_source_policy": "align-programmed-source-to-word,increment-decrement-or-fixed-in-4-byte-units,validate-all-four-lanes-in-one-modeled-region",
+    "direct_sound_dma_supported_setup": "enabled-special-audio-timing-only",
+    "direct_sound_dma_unsupported_policy": "consume-sample-ignore-refill,no-programmed-destination-fallback",
+    "direct_sound_dma_rearm_policy": "later-threshold-independent-of-repeat-bit,preserve-source-progression",
+    "direct_sound_dma_irq_policy": "set-matching-channel-if-on-completion-only-when-control-irq-enabled",
+    "direct_sound_dma_priority_policy": "reselect-after-startup-and-each-sound-word,higher-priority-runs-at-next-boundary-before-resume",
+    "direct_sound_dma_publication_policy": "whole-private-machine-candidate,all-interleaved-effects-and-sound-words-commit-or-refuse",
+    "direct_sound_primary_source": "AGB Programming Manual v1.1 §§10.2, 10.3, 10.7 and 12.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+    "direct_sound_supplemental_source": "GBATEK Sound and DMA (community reverse-engineered supplement, https://mgba-emu.github.io/gbatek/)",
+    "direct_sound_secondary_report": "mGBA issue #1847, maintainer report with hedged empty and overflow observations (https://github.com/mgba-emu/mgba/issues/1847)",
+    "direct_sound_policy_classification": "project-selected",
+    "direct_sound_hardware_qualification": "UNKNOWN",
     "capture_bound_scope": "caller-owned-session",
     "capture_session_start": "explicit-current-machine-cycle",
     "capture_session_progress": "accepted-contiguous-operations",
@@ -466,7 +492,7 @@
       {"name":"SOUND4CNT_L","address":"0x04000078","retained_mask":"0xFF3F","read_mask":"0xFF00","action_mask":"0x0000","effect":"length-and-envelope-control"},
       {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
       {"name":"SOUNDCNT_L","address":"0x04000080","retained_mask":"0xFF77","read_mask":"0xFF77","action_mask":"0x0000","effect":"psg-routing-and-volume-state"},
-      {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-actions-unmodeled"},
+      {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-reset-actions"},
       {"name":"SOUNDCNT_X","address":"0x04000084","retained_mask":"0x0080","read_mask":"0x008F","action_mask":"0x0000","effect":"master-enable-dynamic-channel-status-disable-clears-channel-state"}
     ]
   },
@@ -509,12 +535,12 @@
     {
       "id": "audio",
       "status": "unmodeled",
-      "reason": "The gamebloke-audio-model-2 project policy includes four PSG source calculations and bounded Wave RAM guest access, while PCM remains signed zero pending Phase 19 routing and gain; Direct Sound and FIFO data, PWM-carrier and analog output are unmodeled, and hardware qualification remains UNKNOWN."
+      "reason": "The gamebloke-audio-model-3 project policy includes four PSG source calculations, bounded Wave RAM guest access, and Direct Sound FIFO A/B source, timer-pop, and DMA-refill behavior, while PCM remains signed zero pending Phase 19 routing and gain; PCM mixing, PWM carrier, and analog output remain unmodeled, and hardware qualification remains UNKNOWN."
     },
     {
       "id": "dma",
       "status": "unmodeled",
-      "reason": "The deterministic project DMA subset and VBlank plus visible-line HBlank triggers are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode plus deferred producers remain unmodeled."
+      "reason": "The deterministic project DMA subset, Direct Sound FIFO A/B routes, and existing VBlank plus visible-line HBlank PPU paths are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode, DRQ, and other deferred producers remain unmodeled."
     },
     {
       "id": "timer-edge-qualification",
@@ -4316,10 +4342,10 @@
         2,
         3
       ],
-      "deferred_behavior": "remain armed; VBlank/HBlank/audio/DRQ trigger producers are deferred",
+      "deferred_behavior": "Direct Sound FIFO A/B uses DMA1/DMA2 special timing; VBlank/HBlank retain their specialized PPU routes; DRQ and other trigger producers remain deferred",
       "channel0_mode3": "refused",
       "classification": "project-selected",
-      "cite": "Gamebloke DMA model in src/machine.c; PPU/audio/DRQ trigger producers remain deferred."
+      "cite": "Gamebloke DMA model in src/machine.c; Direct Sound FIFO and the existing specialized VBlank/HBlank PPU routes are implemented; DRQ and other trigger producers remain deferred."
     },
     "completion_policy": {
       "one_shot_enable": "cleared on completion",
