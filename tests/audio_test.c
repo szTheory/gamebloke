@@ -673,6 +673,36 @@ static int run_tracer(void)
     return CHECK_DONE();
 }
 
+static int run_ds_fifo(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    tap_check("FIFO A writes report the modeled audio subset",
+              machine != NULL);
+    if (machine != NULL) {
+        result = gbl_bus_write(machine, UINT32_C(0x040000A0), 4u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x807F01FE));
+        tap_check("FIFO A guest word write is accepted",
+                  result.status == GBL_BUS_STATUS_OK);
+        tap_check("FIFO A write is classified as modeled audio I/O",
+                  result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET);
+        if (result.outcome != GBL_BUS_OUTCOME_IO_AUDIO_SUBSET) {
+            printf("# observed bus outcome: %u\n",
+                   (unsigned)result.outcome);
+        }
+    } else {
+        tap_check("FIFO A guest word write is accepted", false);
+        tap_check("FIFO A write is classified as modeled audio I/O", false);
+    }
+    free_machine(machine);
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static int run_registers(void)
 {
     static const struct {
@@ -3528,6 +3558,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "tracer") == 0) {
         return run_tracer();
+    }
+    if (strcmp(argv[1], "ds_fifo") == 0) {
+        return run_ds_fifo();
     }
     if (strcmp(argv[1], "registers") == 0) {
         return run_registers();
