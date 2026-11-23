@@ -21,7 +21,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Phase 20, Bounded Core API. The v5.0 roadmap and requirement mapping are ready for review.
+**Current focus:** Phase 20, Bounded Core API. The v5.0 requirements and two-phase roadmap are ready for autonomous execution.
 
 ## Current Position
 
@@ -640,4 +640,4 @@ Resume file: None
 
 
 
-- After roadmap review, begin Phase 20 with `$gsd-discuss-phase 20` or `$gsd-plan-phase 20`.
+- Run `$gsd-autonomous` to discuss, plan, and execute Phases 20–21, then audit and complete v5.0.

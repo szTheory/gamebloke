@@ -49,9 +49,9 @@ guest and raw A/V evidence from an installed consumer.
   literal output expectations, and documented refusal postconditions.
 - Evidence-based LibFuturo fit evaluation without default adoption.
 
-**Status:** Owner-approved scope; formal requirements and phase roadmap are
-being established. This does not authorize a public release, hardware
-qualification, or a Playstead route change.
+**Status:** Owner-approved scope; formal requirements and the two-phase roadmap
+are established. Phase 20 is next. This does not authorize a public release,
+hardware qualification, or a Playstead route change.
 
 <details>
 <summary>Previous completed milestone: v3.0 PPU Modes and Composition</summary>
