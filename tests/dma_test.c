@@ -1,4 +1,5 @@
 #include "gamebloke/gamebloke.h"
+#include "../src/audio_internal.h"
 #include "../src/dma_internal.h"
 #include "../src/ppu_internal.h"
 #include "state_check.h"
@@ -505,6 +506,347 @@ static bool test_sound_fixed_source_mode_repeats_word(void)
               "fixed sound source mode repeats one aligned word for all four FIFO writes");
     free_machine(machine);
     return valid;
+}
+
+static bool sound_refusal_setup(gbl_machine *machine, uint32_t source_address,
+                                bool schedule_dma0)
+{
+    static uint8_t synthetic_rom[UINT32_C(0xC0)] = { 0u };
+    const uint32_t source_word = UINT32_C(0xA1B2C3D4);
+    uint64_t deadline;
+    uint32_t address;
+    bool valid;
+
+    if (source_address >= UINT32_C(0x08000000) && machine->rom == NULL) {
+        machine->rom = synthetic_rom;
+        machine->rom_length = sizeof(synthetic_rom);
+    }
+    for (address = 0u; address < 16u; address += 4u) {
+        const uint64_t destination = (uint64_t)source_address + address;
+
+        if (destination >= UINT32_C(0x02000000) &&
+            destination + 4u <= UINT32_C(0x02040000)) {
+            write_ewram_word(machine, (uint32_t)destination, source_word);
+        }
+    }
+    valid = prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u, source_address) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT32_C(0xB000));
+    if (schedule_dma0) {
+        write_ewram_word(machine, UINT32_C(0x02000200),
+                         UINT32_C(0xDEADBEEF));
+        valid = valid && write_register(machine, 0u, 0u, 4u,
+                               UINT32_C(0x02000200)) &&
+                write_register(machine, 0u, 4u, 4u,
+                               UINT32_C(0x02000300)) &&
+                write_register(machine, 0u, 8u, 2u, 1u) &&
+                write_register(machine, 0u, 10u, 2u,
+                               UINT32_C(0x9400));
+    }
+    valid = valid &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    deadline = valid ? next_timer_overflow(machine, 0u) : UINT64_MAX;
+    valid = valid && deadline != UINT64_MAX &&
+            deadline <= UINT64_MAX - 12u &&
+            gbl_machine_advance_to(machine, deadline + 12u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->dma_channels[1].pending;
+    if (valid && schedule_dma0) {
+        valid = gbl_machine_dma_request(
+                    machine, 0u, machine->master_cycles + 4u,
+                    machine->dma_channels[0].generation) ==
+                GBL_TIME_STATUS_OK;
+    }
+    return valid;
+}
+
+static bool sound_refusal_state_equal(const gbl_machine *before,
+                                      const gbl_machine *after)
+{
+    return gbl_test_canonical_equal(before, after) &&
+           gbl_audio_state_equal(&before->audio, &after->audio) &&
+           gbl_test_same_instance_identity_equal(before, after);
+}
+
+static bool test_sound_refusal_budget_and_source_extents(void)
+{
+    gbl_machine *refused = new_machine();
+    gbl_machine *twin = new_machine();
+    gbl_machine *before = NULL;
+    gbl_dma_step_result successful = { 0 };
+    gbl_dma_step_result output = { 0 };
+    uint64_t total_cycles;
+    unsigned valid_words;
+    bool valid = refused != NULL && twin != NULL;
+
+    if (!valid) {
+        free_machine(refused);
+        free_machine(twin);
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(refused);
+        free_machine(twin);
+        return false;
+    }
+    valid = sound_refusal_setup(refused, UINT32_C(0x02000100), false) &&
+            sound_refusal_setup(twin, UINT32_C(0x02000100), false) &&
+            sound_refusal_state_equal(refused, twin) &&
+            gbl_machine_dma_step(twin, UINT64_C(1024), &successful) ==
+                GBL_DMA_STATUS_OK;
+    total_cycles = successful.startup_cycles + successful.source_cycles +
+                   successful.destination_cycles;
+    if (valid && total_cycles > 0u) {
+        uint8_t output_before[sizeof(output)];
+
+        memset(&output, 0xA5, sizeof(output));
+        memcpy(output_before, &output, sizeof(output));
+        *before = *refused;
+        valid = gbl_machine_dma_step(refused, total_cycles - 1u, &output) ==
+                    GBL_DMA_STATUS_BUDGET_REFUSAL &&
+                memcmp(&output, output_before, sizeof(output)) == 0 &&
+                sound_refusal_state_equal(before, refused) &&
+                gbl_machine_dma_step(refused, total_cycles, &output) ==
+                    GBL_DMA_STATUS_OK &&
+                sound_refusal_state_equal(refused, twin);
+    } else {
+        valid = false;
+    }
+    test_case(valid,
+              "one-cycle-short four-word service preserves every sound, scheduler and output byte, then exact-budget retry matches its twin");
+    free_machine(refused);
+    free_machine(twin);
+    free(before);
+
+    for (valid_words = 0u; valid_words < 4u; ++valid_words) {
+        const uint32_t source_address =
+            UINT32_C(0x080000C0) - (uint32_t)valid_words * 4u;
+        gbl_machine *machine = new_machine();
+        gbl_machine *snapshot = NULL;
+        gbl_dma_step_result sentinel = { 0 };
+        uint8_t sentinel_before[sizeof(sentinel)];
+        bool extent_valid = machine != NULL;
+
+        if (machine == NULL) {
+            valid = false;
+            continue;
+        }
+        snapshot = malloc(sizeof(*snapshot));
+        if (snapshot == NULL) {
+            free_machine(machine);
+            valid = false;
+            continue;
+        }
+        extent_valid = sound_refusal_setup(machine, source_address, false);
+        memset(&sentinel, 0x5A, sizeof(sentinel));
+        memcpy(sentinel_before, &sentinel, sizeof(sentinel));
+        if (extent_valid) {
+            *snapshot = *machine;
+            {
+                const gbl_dma_status status = gbl_machine_dma_step(
+                    machine, UINT64_C(1024), &sentinel);
+                extent_valid = status == GBL_DMA_STATUS_UNIT_REFUSAL &&
+                memcmp(&sentinel, sentinel_before, sizeof(sentinel)) == 0 &&
+                sound_refusal_state_equal(snapshot, machine);
+            }
+        }
+        test_case(extent_valid,
+                  "sound source refusal is atomic at each of the four word extents");
+        free_machine(machine);
+        free(snapshot);
+        valid = valid && extent_valid;
+    }
+    return valid;
+}
+
+static bool test_sound_refusal_after_interleave_and_output_limit(void)
+{
+    unsigned output_capacity;
+    bool all_valid = true;
+
+    for (output_capacity = 3u; output_capacity <= 8u; output_capacity += 5u) {
+        gbl_machine *machine = new_machine();
+        gbl_machine *before = NULL;
+        gbl_dma_step_result result;
+        gbl_dma_step_result observations[8];
+        gbl_dma_step_result result_before;
+        gbl_dma_step_result observations_before[8];
+        size_t observation_count = (size_t)0x1234u;
+        const size_t observation_count_before = observation_count;
+        const gbl_dma_status expected_status =
+            output_capacity == 3u ? GBL_DMA_STATUS_OUTPUT_REFUSAL
+                                  : GBL_DMA_STATUS_UNIT_REFUSAL;
+        bool valid = machine != NULL;
+
+        if (machine == NULL) {
+            all_valid = false;
+            continue;
+        }
+        before = malloc(sizeof(*before));
+        if (before == NULL) {
+            free_machine(machine);
+            all_valid = false;
+            continue;
+        }
+        valid = sound_refusal_setup(
+            machine, output_capacity == 3u ? UINT32_C(0x02000100)
+                                           : UINT32_C(0x080000B4),
+            true);
+        memset(&result, 0xA5, sizeof(result));
+        memset(observations, 0x5A, sizeof(observations));
+        memcpy(&result_before, &result, sizeof(result));
+        memcpy(observations_before, observations, sizeof(observations));
+        if (valid) {
+            *before = *machine;
+            valid =
+                gbl_machine_dma_step_observed(
+                    machine, UINT64_C(1024), &result, observations,
+                    output_capacity, &observation_count) == expected_status &&
+                memcmp(&result, &result_before, sizeof(result)) == 0 &&
+                memcmp(observations, observations_before,
+                       sizeof(observations)) == 0 &&
+                observation_count == observation_count_before &&
+                machine->ewram[UINT32_C(0x300)] == 0u &&
+                machine->ewram[UINT32_C(0x301)] == 0u &&
+                machine->ewram[UINT32_C(0x302)] == 0u &&
+                machine->ewram[UINT32_C(0x303)] == 0u &&
+                sound_refusal_state_equal(before, machine);
+        }
+        test_case(valid,
+                  output_capacity == 3u
+                      ? "trace capacity refusal after interleaved DMA0 work leaves machine, RAM, result, trace and count untouched"
+                      : "fourth-word extent refusal after interleaved DMA0 work leaves machine, RAM, result, trace and count untouched");
+        free_machine(machine);
+        free(before);
+        all_valid = all_valid && valid;
+    }
+    return all_valid;
+}
+
+static bool test_sound_preview_identity_refusal(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *before = NULL;
+    gbl_machine_time_preview preview = { 0 };
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    valid = sound_refusal_setup(machine, UINT32_C(0x02000100), false) &&
+            gbl_machine_prepare_time(machine, machine->master_cycles,
+                                     &preview) == GBL_TIME_STATUS_OK;
+    if (valid) {
+        *before = *machine;
+        preview.dma_channels[1].current_source += 4u;
+        valid = !gbl_machine_commit_time_checked(machine, &preview) &&
+                sound_refusal_state_equal(before, machine);
+    }
+    test_case(valid,
+              "prepared sound progress mutation is rejected without changing the machine");
+    free_machine(machine);
+    free(before);
+
+    machine = new_machine();
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    valid = prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT32_C(0xB000));
+    if (valid) {
+        const uint64_t event_cycle = machine->master_cycles + 8u;
+        const uint64_t generation = machine->dma_channels[1].generation;
+
+        valid = gbl_machine_dma_request(machine, 1u, event_cycle,
+                                         generation) == GBL_TIME_STATUS_OK;
+        machine->dma_channels[1].trigger_origin =
+            GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A;
+        machine->dma_channels[1].trigger_cycle = event_cycle;
+    }
+    valid = valid &&
+            gbl_machine_prepare_time(machine, machine->master_cycles,
+                                     &preview) == GBL_TIME_STATUS_OK &&
+            preview.dma_sound_event_present_prepared[0];
+    if (valid) {
+        size_t event_index;
+
+        *before = *machine;
+        for (event_index = 0u; event_index < preview.event_count;
+             ++event_index) {
+            if (preview.events[event_index].kind ==
+                    (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+                preview.events[event_index].dma_channel == 1u) {
+                ++preview.events[event_index].sequence;
+                break;
+            }
+        }
+        valid = event_index < preview.event_count &&
+                !gbl_machine_commit_time_checked(machine, &preview) &&
+                sound_refusal_state_equal(before, machine);
+    }
+    test_case(valid,
+              "prepared matching sound readiness event identity cannot be forged");
+    free_machine(machine);
+    free(before);
+
+    machine = new_machine();
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    valid = gbl_machine_prepare_time(machine, machine->master_cycles,
+                                     &preview) == GBL_TIME_STATUS_OK;
+    if (valid) {
+        *before = *machine;
+        preview.dma_transaction_active = true;
+        preview.dma_transaction_dispatched = 0u;
+        valid = !gbl_machine_commit_time_checked(machine, &preview) &&
+                sound_refusal_state_equal(before, machine);
+    }
+    test_case(valid,
+              "prepared DMA transaction dispatch budget cannot be enabled by an unbound preview mutation");
+    free_machine(machine);
+    free(before);
+    return valid;
+}
+
+static bool run_sound_refusal(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..10\n");
+    (void)test_sound_refusal_budget_and_source_extents();
+    (void)test_sound_refusal_after_interleave_and_output_limit();
+    (void)test_sound_preview_identity_refusal();
+    return failure_count == 0u ? 0 : 1;
 }
 
 static bool test_channel_register_masks(void)
@@ -3318,6 +3660,9 @@ static bool run_sound_arbitration(void)
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "sound_refusal") == 0) {
+        return run_sound_refusal();
+    }
     if (argc == 2 && strcmp(argv[1], "sound_refill") == 0) {
         return run_sound_refill();
     }
