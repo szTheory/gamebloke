@@ -132,7 +132,8 @@ include(cmake/GblTests.cmake)
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
    GBL_LANE STREQUAL "diagnostics" OR
    GBL_LANE STREQUAL "local-timer0" OR
-   GBL_LANE STREQUAL "local-playable0")
+   GBL_LANE STREQUAL "local-playable0" OR
+   GBL_LANE STREQUAL "local-audio")
   include(cmake/ReadLogoDigest.cmake)
   set(GBL_LOGO_AUTHORITY "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -219,6 +220,24 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
 
   add_executable(gbl_instruction_image tests/fixtures/instruction_image.c)
   target_link_libraries(gbl_instruction_image PRIVATE gbl_warnings)
+
+  if(GBL_LANE STREQUAL "local-audio")
+    add_executable(gbl_audio_guest_image tests/fixtures/audio_image.c)
+    target_link_libraries(gbl_audio_guest_image PRIVATE gbl_warnings)
+    target_compile_definitions(gbl_audio_guest_image PRIVATE
+      "GBL_AUDIO_GUEST_OUTPUT_DIR=\"${GBL_FIXTURE_DIR}\"")
+    set(GBL_LOCAL_AUDIO_IMAGE
+      "${GBL_FIXTURE_DIR}/owned-audio-mix.gba")
+    add_custom_command(
+      OUTPUT "${GBL_LOCAL_AUDIO_IMAGE}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${GBL_FIXTURE_DIR}"
+      COMMAND "$<TARGET_FILE:gbl_audio_guest_image>" "${GBL_FIXTURE_DIR}"
+      DEPENDS gbl_audio_guest_image
+        "${CMAKE_SOURCE_DIR}/tests/fixtures/audio_image.c"
+      COMMENT "Generating the original local audio guest under the build tree"
+      VERBATIM)
+    add_custom_target(gbl_local_audio_image DEPENDS "${GBL_LOCAL_AUDIO_IMAGE}")
+  endif()
 
   set(GBL_OWNED_FIXTURE_NAMES
     owned-arm-pass.gba
@@ -439,6 +458,9 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   target_include_directories(gamebloke-run PRIVATE src "${GBL_PRODUCTION_INDEX_DIR}")
   target_link_libraries(gamebloke-run PRIVATE gamebloke_core gbl_warnings)
   add_dependencies(gamebloke-run gbl_fixture_indexes)
+  if(GBL_LANE STREQUAL "local-audio")
+    add_dependencies(gamebloke-run gbl_local_audio_image)
+  endif()
   install(TARGETS gamebloke-run RUNTIME DESTINATION bin)
 
   add_executable(gamebloke-run-control ${GBL_RUNNER_SOURCES})
