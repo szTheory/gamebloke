@@ -2,6 +2,9 @@
 audio.boundaries audio,core,unit
 audio.cadence audio,core,unit
 audio.cpu audio,core,integration
+audio.ds_fifo audio,core,integration
+audio.ds_timer audio,core,integration
+audio.ds_transaction audio,control,core
 audio.psg_noise audio,core,unit
 audio.psg_order audio,core,integration
 audio.psg_sequencer audio,core,unit
@@ -874,6 +877,9 @@ dma.ppu.refusal core,dma,ppu,unit
 dma.ppu.triggers core,dma,ppu,unit
 dma.refusal core,dma,unit
 dma.registers core,dma,unit
+dma.sound_arbitration core,dma,unit
+dma.sound_refill core,dma,unit
+dma.sound_refusal core,dma,unit
 inventory.junit post
 keypad.condition core,time,timer,unit
 keypad.refusal core,time,timer,unit

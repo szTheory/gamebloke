@@ -2,6 +2,9 @@
 audio.boundaries audio,core,unit
 audio.cadence audio,core,unit
 audio.cpu audio,core,integration
+audio.ds_fifo audio,core,integration
+audio.ds_timer audio,core,integration
+audio.ds_transaction audio,control,core
 audio.psg_noise audio,core,unit
 audio.psg_order audio,core,integration
 audio.psg_sequencer audio,core,unit
@@ -926,6 +929,9 @@ dma.ppu.refusal core,dma,ppu,unit
 dma.ppu.triggers core,dma,ppu,unit
 dma.refusal core,dma,unit
 dma.registers core,dma,unit
+dma.sound_arbitration core,dma,unit
+dma.sound_refill core,dma,unit
+dma.sound_refusal core,dma,unit
 fetch.nc.bad_dest control,fetch
 fetch.nc.bad_digest control,fetch
 fetch.nc.bad_row control,fetch
@@ -1131,6 +1137,7 @@ profile.nc.bus_policy_value control,profile
 profile.nc.cpu_policy_doc control,profile
 profile.nc.cpu_policy_value control,profile
 profile.nc.dispute_unknown control,profile
+profile.nc.dma_sound_trigger control,profile
 profile.nc.doc_extra_id control,profile
 profile.nc.doc_missing_id control,profile
 profile.nc.doc_no_section control,profile

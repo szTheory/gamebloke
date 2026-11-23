@@ -72,12 +72,14 @@ target_include_directories(audio_test PRIVATE src)
 target_link_libraries(audio_test PRIVATE gamebloke_core gbl_warnings)
 foreach(selector IN ITEMS tracer registers cadence boundaries refusal cpu
     psg_square psg_sequencer psg_order psg_transaction psg_sweep psg_noise
-    psg_wave psg_wave_bus)
+    psg_wave psg_wave_bus ds_fifo ds_timer ds_transaction)
   if(selector STREQUAL "tracer" OR selector STREQUAL "registers" OR
      selector STREQUAL "cpu" OR selector STREQUAL "psg_order" OR
-     selector STREQUAL "psg_wave_bus")
+     selector STREQUAL "psg_wave_bus" OR selector STREQUAL "ds_fifo" OR
+     selector STREQUAL "ds_timer")
     set(audio_labels audio core integration)
-  elseif(selector STREQUAL "refusal" OR selector STREQUAL "psg_transaction")
+  elseif(selector STREQUAL "refusal" OR selector STREQUAL "psg_transaction" OR
+     selector STREQUAL "ds_transaction")
     set(audio_labels audio control core)
   else()
     set(audio_labels audio core unit)
@@ -371,7 +373,8 @@ if(GBL_INVENTORY_LANE STREQUAL "ci" OR GBL_INVENTORY_LANE STREQUAL "asan")
   file(STRINGS
     "${CMAKE_SOURCE_DIR}/tests/inventory/${GBL_INVENTORY_LANE}.txt"
     GBL_PHASE9_DMA_INVENTORY_ROWS)
-  foreach(selector IN ITEMS registers arbitration events latch refusal controls)
+  foreach(selector IN ITEMS registers arbitration events latch refusal controls
+      sound_refill sound_arbitration sound_refusal)
     set(test_name "dma.${selector}")
     set(registered FALSE)
     foreach(inventory_row IN LISTS GBL_PHASE9_DMA_INVENTORY_ROWS)

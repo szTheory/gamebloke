@@ -98,6 +98,8 @@ manifest.pos.complete_row manifest,positive
 manifest.pos.empty manifest,positive
 manifest.pos.public_ci_ok manifest,positive
 manifest.pos.source_kinds manifest,positive
+phase10.cli gate,integration,ppu,runner
+phase10.cli.control control,ppu,runner
 pins.nc.bad_dest control,pins
 pins.nc.bad_digest control,pins
 pins.nc.bad_row control,pins
@@ -122,6 +124,7 @@ profile.nc.bus_policy_value control,profile
 profile.nc.cpu_policy_doc control,profile
 profile.nc.cpu_policy_value control,profile
 profile.nc.dispute_unknown control,profile
+profile.nc.dma_sound_trigger control,profile
 profile.nc.doc_extra_id control,profile
 profile.nc.doc_missing_id control,profile
 profile.nc.doc_no_section control,profile
@@ -170,6 +173,9 @@ result.nc.missing_reason control,result
 result.nc.missing_refusal control,result
 result.nc.pass_without_digest control,result
 result.nc.pass_without_run control,result
+result.nc.phase10 control,result
+result.nc.phase8 control,result
+result.nc.phase9 control,result
 result.nc.ran_state_mismatch control,result
 result.nc.semantic_time control,result
 result.nc.undisclosed_dispute control,result
@@ -181,6 +187,9 @@ result.pos.all_states positive,result
 result.pos.bios_provider_forms positive,result
 result.pos.disputed positive,result
 result.pos.instruction_reasons positive,result
+result.pos.phase10 positive,result
+result.pos.phase8 positive,result
+result.pos.phase9 positive,result
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature
