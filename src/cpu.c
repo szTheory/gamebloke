@@ -2,8 +2,10 @@
 
 #include "audio_internal.h"
 #include "cpu_helpers.h"
+#include "dma_internal.h"
 
 #include <limits.h>
+#include <stdlib.h>
 
 #define GBL_CPU_WORD_WIDTH 4u
 #define GBL_CPU_HALF_WIDTH 2u
@@ -464,6 +466,35 @@ static bool gbl_cpu_address_add(uint32_t address, uint32_t amount,
     }
     *sum = address + amount;
     return true;
+}
+
+static gbl_trace_record gbl_cpu_dma_trace_record(
+    const gbl_dma_step_result *step)
+{
+    gbl_trace_record record = { 0 };
+
+    record.guest_cycle = step->completion_cycle;
+    record.category = GBL_TRACE_DMA;
+    record.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    record.dma_status = step->status;
+    record.dma_channel = step->channel;
+    record.dma_source_address = step->source_address;
+    record.dma_destination_address = step->destination_address;
+    record.dma_value = step->value;
+    record.dma_width = step->width;
+    record.dma_startup_cycles = step->startup_cycles;
+    record.dma_source_cycles = step->source_cycles;
+    record.dma_destination_cycles = step->destination_cycles;
+    record.dma_source_sequence = step->source_sequence;
+    record.dma_destination_sequence = step->destination_sequence;
+    record.dma_remaining = step->remaining;
+    record.dma_completed = step->completed;
+    record.dma_used_channel_latch = step->used_channel_latch;
+    record.dma_value_provenance = step->value_provenance;
+    record.dma_result_classification = step->result_classification;
+    record.dma_dispute = step->dispute;
+    record.dma_hardware_qualification = step->hardware_qualification;
+    return record;
 }
 
 static bool gbl_cpu_mode_valid(uint32_t cpsr)
@@ -4657,27 +4688,73 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
             }
             if (dma_pending) {
                 gbl_dma_step_result dma_step = { 0 };
+                gbl_dma_step_result *dma_observations = NULL;
+                gbl_trace_record *dma_trace_records = NULL;
+                size_t dma_observation_count = 0u;
+                size_t dma_observation_capacity = 0u;
                 gbl_run_reason trace_reason = GBL_RUN_REASON_NONE;
                 gbl_dma_status dma_status;
                 uint64_t dma_bus_cycles;
                 uint64_t dma_cycles;
 
                 if ((run_options.category_mask &
-                     (uint32_t)GBL_TRACE_DMA) != 0u &&
-                    !gbl_cpu_trace_preflight(&run_options, 1u,
-                                             &trace_reason)) {
-                    run_result.termination = GBL_RUN_TRACE_OUTPUT_FULL;
-                    run_result.reason = trace_reason;
-                    break;
+                     (uint32_t)GBL_TRACE_DMA) != 0u) {
+                    if (!gbl_cpu_trace_preflight(&run_options, 1u,
+                                                 &trace_reason)) {
+                        run_result.termination = GBL_RUN_TRACE_OUTPUT_FULL;
+                        run_result.reason = trace_reason;
+                        break;
+                    }
+                    dma_observation_capacity =
+                        run_options.trace_buffer->capacity -
+                        run_options.trace_buffer->count;
+                    if (dma_observation_capacity >
+                        SIZE_MAX / sizeof(*dma_observations) ||
+                        dma_observation_capacity >
+                            SIZE_MAX / sizeof(*dma_trace_records)) {
+                        run_result.termination = GBL_RUN_TRACE_OUTPUT_FULL;
+                        run_result.reason =
+                            GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+                        break;
+                    }
+                    dma_observations = malloc(
+                        dma_observation_capacity *
+                        sizeof(*dma_observations));
+                    dma_trace_records = malloc(
+                        dma_observation_capacity * sizeof(*dma_trace_records));
+                    if (dma_observations == NULL ||
+                        dma_trace_records == NULL) {
+                        free(dma_observations);
+                        free(dma_trace_records);
+                        run_result.termination = GBL_RUN_STOPPED;
+                        run_result.reason = GBL_RUN_REASON_INTERNAL_ERROR;
+                        break;
+                    }
+                    dma_status = gbl_machine_dma_step_observed(
+                        machine,
+                        run_options.cycle_budget - run_result.cycles,
+                        &dma_step, dma_observations,
+                        dma_observation_capacity,
+                        &dma_observation_count);
+                } else {
+                    dma_status = gbl_machine_dma_step(
+                        machine,
+                        run_options.cycle_budget - run_result.cycles,
+                        &dma_step);
                 }
-                dma_status = gbl_machine_dma_step(
-                    machine, run_options.cycle_budget - run_result.cycles,
-                    &dma_step);
                 if (dma_status == GBL_DMA_STATUS_IDLE) {
                     /* No pending work; proceed to the next CPU unit. */
                 } else if (dma_status == GBL_DMA_STATUS_BUDGET_REFUSAL) {
                     run_result.termination = GBL_RUN_TIMEOUT;
                     run_result.reason = GBL_RUN_REASON_CYCLE_BUDGET;
+                    free(dma_observations);
+                    free(dma_trace_records);
+                    break;
+                } else if (dma_status == GBL_DMA_STATUS_OUTPUT_REFUSAL) {
+                    run_result.termination = GBL_RUN_TRACE_OUTPUT_FULL;
+                    run_result.reason = GBL_RUN_REASON_TRACE_OUTPUT_FULL;
+                    free(dma_observations);
+                    free(dma_trace_records);
                     break;
                 } else if (dma_status != GBL_DMA_STATUS_OK) {
                     run_result.termination = GBL_RUN_STOPPED;
@@ -4685,27 +4762,19 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                                                 GBL_DMA_STATUS_TIME_OVERFLOW
                                             ? GBL_RUN_REASON_COUNTER_OVERFLOW
                                             : GBL_RUN_REASON_TIME_REFUSAL;
+                    free(dma_observations);
+                    free(dma_trace_records);
                     break;
                 } else {
                     dma_bus_cycles = dma_step.source_cycles +
                                      dma_step.destination_cycles;
                     dma_cycles = dma_step.startup_cycles + dma_bus_cycles;
                     if (dma_cycles >
-                        run_options.cycle_budget - run_result.cycles ||
-                        dma_bus_cycles > UINT64_MAX - run_result.bus_cycles ||
-                        dma_step.startup_cycles >
-                            UINT64_MAX - run_result.internal_cycles ||
-                        dma_step.startup_cycles >
-                            UINT64_MAX - run_result.dma_startup_cycles ||
-                        dma_step.source_cycles >
-                            UINT64_MAX - run_result.dma_source_cycles ||
-                        dma_step.destination_cycles >
-                            UINT64_MAX - run_result.dma_destination_cycles ||
-                        dma_cycles > UINT64_MAX - run_result.dma_pause_cycles ||
-                        (dma_step.unit_completed &&
-                         run_result.dma_completed_units == UINT64_MAX)) {
+                        run_options.cycle_budget - run_result.cycles) {
                         run_result.termination = GBL_RUN_STOPPED;
                         run_result.reason = GBL_RUN_REASON_COUNTER_OVERFLOW;
+                        free(dma_observations);
+                        free(dma_trace_records);
                         break;
                     }
                     run_result.cycles += dma_cycles;
@@ -4717,60 +4786,33 @@ gbl_run_status gbl_cpu_run(gbl_machine *machine,
                     run_result.dma_destination_cycles +=
                         dma_step.destination_cycles;
                     run_result.dma_pause_cycles += dma_cycles;
-                    if (dma_step.unit_completed) {
+                    if (dma_step.accepted_units != 0u) {
+                        run_result.dma_completed_units +=
+                            dma_step.accepted_units;
+                    } else if (dma_step.unit_completed) {
                         ++run_result.dma_completed_units;
                     }
                     if ((run_options.category_mask &
                          (uint32_t)GBL_TRACE_DMA) != 0u) {
-                        gbl_trace_record dma_record = { 0 };
+                        size_t observation_index;
 
-                        dma_record.guest_cycle = dma_step.completion_cycle;
-                        dma_record.category = GBL_TRACE_DMA;
-                        dma_record.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
-                        dma_record.dma_status = dma_step.status;
-                        dma_record.dma_channel = dma_step.channel;
-                        dma_record.dma_source_address =
-                            dma_step.source_address;
-                        dma_record.dma_destination_address =
-                            dma_step.destination_address;
-                        dma_record.dma_value = dma_step.value;
-                        dma_record.dma_width = dma_step.width;
-                        dma_record.dma_startup_cycles =
-                            dma_step.startup_cycles;
-                        dma_record.dma_source_cycles =
-                            dma_step.source_cycles;
-                        dma_record.dma_destination_cycles =
-                            dma_step.destination_cycles;
-                        dma_record.dma_source_sequence =
-                            dma_step.source_sequence;
-                        dma_record.dma_destination_sequence =
-                            dma_step.destination_sequence;
-                        dma_record.dma_remaining = dma_step.remaining;
-                        dma_record.dma_completed = dma_step.completed;
-                        dma_record.dma_used_channel_latch =
-                            dma_step.used_channel_latch;
-                        dma_record.dma_value_provenance =
-                            dma_step.value_provenance;
-                        dma_record.dma_result_classification =
-                            dma_step.result_classification;
-                        dma_record.dma_dispute = dma_step.dispute;
-                        dma_record.dma_hardware_qualification =
-                            dma_step.hardware_qualification;
-                        if (!gbl_cpu_trace_stage(
-                                &run_options, trace_records,
-                                &trace_record_count, dma_record)) {
-                            run_result.termination =
-                                GBL_RUN_TRACE_OUTPUT_FULL;
-                            run_result.reason =
-                                GBL_RUN_REASON_TRACE_OUTPUT_FULL;
-                            break;
+                        for (observation_index = 0u;
+                             observation_index < dma_observation_count;
+                             ++observation_index) {
+                            dma_trace_records[observation_index] =
+                                gbl_cpu_dma_trace_record(
+                                    &dma_observations[observation_index]);
                         }
                         gbl_cpu_trace_commit(run_options.trace_buffer,
-                                             trace_records,
-                                             trace_record_count);
+                                             dma_trace_records,
+                                             dma_observation_count);
                     }
+                    free(dma_observations);
+                    free(dma_trace_records);
                     continue;
                 }
+                free(dma_observations);
+                free(dma_trace_records);
             }
         }
         if (machine->power_state == GBL_MACHINE_POWER_HALTED) {

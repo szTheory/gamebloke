@@ -276,7 +276,8 @@ typedef enum gbl_dma_status {
     GBL_DMA_STATUS_UNSUPPORTED = 5,
     GBL_DMA_STATUS_TIME_OVERFLOW = 6,
     GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT = 7,
-    GBL_DMA_STATUS_UNIT_REFUSAL = 8
+    GBL_DMA_STATUS_UNIT_REFUSAL = 8,
+    GBL_DMA_STATUS_OUTPUT_REFUSAL = 9
 } gbl_dma_status;
 
 typedef enum gbl_dma_value_provenance {
@@ -378,7 +379,14 @@ typedef struct gbl_machine_time_preview {
     uint32_t dma_last_source;
     uint32_t dma_last_destination;
     bool dma_stream_valid;
+    bool dma_transaction_active;
+    size_t dma_transaction_dispatched;
     gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
+    /* Prepared sound-channel state plus the matching readiness event, when
+     * one is queued. These copies bind mutable candidate state at commit. */
+    gbl_dma_channel_state dma_sound_channels_prepared[2];
+    bool dma_sound_event_present_prepared[2];
+    gbl_event dma_sound_events_prepared[2];
     uint16_t pressed_keys;
     uint16_t key_control;
     bool key_condition;
@@ -843,6 +851,8 @@ typedef struct gbl_machine {
     uint32_t dma_last_source;
     uint32_t dma_last_destination;
     bool dma_stream_valid;
+    bool dma_transaction_active;
+    size_t dma_transaction_dispatched;
     gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
     uint16_t pressed_keys;
     uint16_t key_control;
@@ -882,6 +892,7 @@ typedef struct gbl_dma_step_result {
     uint64_t completed;
     uint64_t completion_cycle;
     uint64_t trigger_cycle;
+    uint64_t accepted_units;
     gbl_dma_trigger_origin trigger_origin;
     gbl_dma_dispute_id trigger_dispute;
     bool unit_completed;

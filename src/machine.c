@@ -3,6 +3,8 @@
 #include "dma_internal.h"
 #include "ppu_internal.h"
 
+#include <stdlib.h>
+
 #define GBL_KEYPAD_INPUT_MASK UINT16_C(0x03FF)
 #define GBL_KEYPAD_CONTROL_MASK UINT16_C(0xC3FF)
 #define GBL_KEYPAD_IRQ_BIT UINT16_C(0x1000)
@@ -2856,6 +2858,134 @@ static bool gbl_ppu_prepared_registers_valid(
                sizeof(preview->ppu_window_register_bytes_prepared));
 }
 
+static bool gbl_dma_channel_state_equal(
+    const gbl_dma_channel_state *left, const gbl_dma_channel_state *right)
+{
+    return left != NULL && right != NULL &&
+           left->source_address == right->source_address &&
+           left->destination_address == right->destination_address &&
+           left->current_source == right->current_source &&
+           left->current_destination == right->current_destination &&
+           left->read_latch == right->read_latch &&
+           left->completed_units == right->completed_units &&
+           left->generation == right->generation &&
+           left->trigger_cycle == right->trigger_cycle &&
+           left->trigger_origin == right->trigger_origin &&
+           left->trigger_dispute == right->trigger_dispute &&
+           left->count == right->count && left->control == right->control &&
+           left->remaining == right->remaining &&
+           left->pending == right->pending && left->armed == right->armed &&
+           left->active == right->active &&
+           left->startup_complete == right->startup_complete;
+}
+
+static bool gbl_dma_event_identity_equal(const gbl_event *left,
+                                         const gbl_event *right)
+{
+    return left != NULL && right != NULL && left->cycle == right->cycle &&
+           left->sequence == right->sequence &&
+           left->generation == right->generation &&
+           left->priority == right->priority && left->kind == right->kind &&
+           left->timer_index == right->timer_index &&
+           left->dma_channel == right->dma_channel &&
+           left->live == right->live &&
+           left->input_index == right->input_index;
+}
+
+static void gbl_dma_bind_sound_channels(
+    gbl_machine_time_preview *preview)
+{
+    size_t slot;
+
+    for (slot = 0u; slot < 2u; ++slot) {
+        const uint8_t channel_index = (uint8_t)(slot + 1u);
+        size_t event_index;
+
+        preview->dma_sound_channels_prepared[slot] =
+            preview->dma_channels[channel_index];
+        preview->dma_sound_event_present_prepared[slot] = false;
+        preview->dma_sound_events_prepared[slot] = (gbl_event){ 0 };
+        for (event_index = 0u; event_index < preview->event_count;
+             ++event_index) {
+            const gbl_event *event = &preview->events[event_index];
+            const gbl_dma_channel_state *channel =
+                &preview->dma_channels[channel_index];
+
+            if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+                event->dma_channel == channel_index &&
+                event->generation == channel->generation) {
+                preview->dma_sound_event_present_prepared[slot] = true;
+                preview->dma_sound_events_prepared[slot] = *event;
+                break;
+            }
+        }
+    }
+}
+
+static bool gbl_dma_sound_binding_valid(
+    const gbl_machine_time_preview *preview)
+{
+    size_t slot;
+
+    if (preview == NULL || preview->event_count > GBL_EVENT_CAPACITY) {
+        return false;
+    }
+    for (slot = 0u; slot < 2u; ++slot) {
+        const uint8_t channel_index = (uint8_t)(slot + 1u);
+        const gbl_dma_channel_state *channel =
+            &preview->dma_channels[channel_index];
+        size_t matching_count = 0u;
+        size_t event_index;
+
+        if (!gbl_dma_channel_state_equal(
+                channel, &preview->dma_sound_channels_prepared[slot])) {
+            return false;
+        }
+        for (event_index = 0u; event_index < preview->event_count;
+             ++event_index) {
+            const gbl_event *event = &preview->events[event_index];
+
+            if (event->kind == (uint8_t)GBL_EVENT_KIND_DMA_READY &&
+                event->dma_channel == channel_index &&
+                event->generation == channel->generation) {
+                ++matching_count;
+                if (!preview->dma_sound_event_present_prepared[slot] ||
+                    !gbl_dma_event_identity_equal(
+                        event, &preview->dma_sound_events_prepared[slot])) {
+                    return false;
+                }
+            }
+        }
+        if (matching_count > 1u ||
+            (matching_count == 1u) !=
+                preview->dma_sound_event_present_prepared[slot]) {
+            return false;
+        }
+        if (channel->trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A ||
+            channel->trigger_origin ==
+                GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B) {
+            const gbl_dma_trigger_origin expected_origin =
+                channel_index == 1u
+                    ? GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A
+                    : GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B;
+
+            if (channel->trigger_origin != expected_origin ||
+                ((channel->control >> 12u) & 3u) != 3u ||
+                (channel->control & UINT16_C(0x8000)) == 0u ||
+                (channel->active && (channel->pending || channel->armed)) ||
+                (channel->pending && channel->armed) ||
+                (matching_count == 1u &&
+                 (!channel->armed || channel->pending || channel->active ||
+                  preview->dma_sound_events_prepared[slot].cycle !=
+                      channel->trigger_cycle))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static void gbl_machine_time_copy_preview(
     const gbl_machine *machine, gbl_machine_time_preview *preview)
 {
@@ -2882,6 +3012,9 @@ static void gbl_machine_time_copy_preview(
     preview->dma_last_source = machine->dma_last_source;
     preview->dma_last_destination = machine->dma_last_destination;
     preview->dma_stream_valid = machine->dma_stream_valid;
+    preview->dma_transaction_active = machine->dma_transaction_active;
+    preview->dma_transaction_dispatched =
+        machine->dma_transaction_dispatched;
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         preview->dma_channels[index] = machine->dma_channels[index];
     }
@@ -2902,6 +3035,7 @@ static void gbl_machine_time_copy_preview(
     for (index = 0u; index < machine->input_event_count; ++index) {
         preview->input_events[index] = machine->input_events[index];
     }
+    gbl_dma_bind_sound_channels(preview);
 }
 
 static uint32_t gbl_dma_source_mask(uint8_t channel)
@@ -2929,7 +3063,8 @@ static bool gbl_dma_control_valid(uint8_t channel, uint16_t control)
     const uint8_t start_mode = (uint8_t)((control >> 12u) & 3u);
 
     return source_mode != 3u &&
-           (destination_mode != 3u || channel == 3u) &&
+           (destination_mode != 3u || channel == 3u ||
+            ((channel == 1u || channel == 2u) && start_mode == 3u)) &&
            (!drq || channel == 3u) && !(start_mode == 3u && channel == 0u);
 }
 
@@ -2966,7 +3101,8 @@ static void gbl_dma_activate(gbl_dma_channel_state *channel,
 }
 
 static gbl_time_status gbl_preview_dma_register_write(
-    gbl_machine_time_preview *preview, uint32_t address, uint8_t value)
+    gbl_machine_time_preview *preview, uint32_t address, uint8_t value,
+    bool defer_control_validation)
 {
     uint32_t offset;
     uint8_t channel_index;
@@ -3012,7 +3148,8 @@ static gbl_time_status gbl_preview_dma_register_write(
             (channel->control & (uint16_t)~(UINT16_C(0xFF) << shift)) |
             (uint16_t)((uint16_t)value << shift));
         channel->control &= UINT16_C(0xFFE0);
-        if (!gbl_dma_control_valid(channel_index, channel->control)) {
+        if (!defer_control_validation &&
+            !gbl_dma_control_valid(channel_index, channel->control)) {
             return GBL_TIME_STATUS_INVALID_ARGUMENT;
         }
         if ((channel->control & UINT16_C(0x8000)) == 0u) {
@@ -3053,6 +3190,8 @@ static gbl_time_status gbl_preview_advance_to(
     size_t index;
 
     if (preview == NULL || dispatched == NULL || staged_bytes == NULL ||
+        (preview->dma_transaction_active &&
+         *dispatched != preview->dma_transaction_dispatched) ||
         preview->event_count > GBL_EVENT_CAPACITY ||
         preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
         preview->input_event_cursor > preview->input_event_count) {
@@ -3173,6 +3312,10 @@ static gbl_time_status gbl_preview_advance_to(
         }
     }
     candidate.master_cycles = target;
+    if (candidate.dma_transaction_active) {
+        candidate.dma_transaction_dispatched = *dispatched;
+    }
+    gbl_dma_bind_sound_channels(&candidate);
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -3183,7 +3326,9 @@ gbl_time_status gbl_machine_prepare_time(
 {
     gbl_machine_time_preview candidate;
     gbl_time_status status;
-    size_t dispatched = 0u;
+    size_t dispatched = machine != NULL && machine->dma_transaction_active
+                            ? machine->dma_transaction_dispatched
+                            : 0u;
     size_t staged_bytes = 0u;
 
     if (machine == NULL || !machine->initialized || preview == NULL ||
@@ -3205,6 +3350,7 @@ gbl_time_status gbl_machine_prepare_time(
     candidate.audio_prepared = candidate.audio;
     candidate.audio_fifo_reset_mask_prepared =
         candidate.audio_fifo_reset_mask;
+    gbl_dma_bind_sound_channels(&candidate);
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
 }
@@ -3439,9 +3585,16 @@ static gbl_time_status gbl_preview_bus_write(
             key_control_written = true;
         } else if (lane_address >= UINT32_C(0x040000B0) &&
                    lane_address <= UINT32_C(0x040000DF)) {
+            const uint32_t dma_offset =
+                lane_address - UINT32_C(0x040000B0);
+            const bool control_low_lane =
+                dma_offset % UINT32_C(12) == UINT32_C(10);
+            const bool defer_control_validation =
+                control_low_lane && lane + 1u < (uint32_t)width;
             const gbl_time_status status =
                 gbl_preview_dma_register_write(preview, lane_address,
-                                               byte_value);
+                                               byte_value,
+                                               defer_control_validation);
 
             if (status != GBL_TIME_STATUS_OK) {
                 return status;
@@ -3531,7 +3684,9 @@ gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
     gbl_audio_sample_provider provider, void *provider_context)
 {
     gbl_machine_time_preview candidate;
-    size_t dispatched = 0u;
+    size_t dispatched = machine != NULL && machine->dma_transaction_active
+                            ? machine->dma_transaction_dispatched
+                            : 0u;
     size_t staged_bytes = 0u;
     size_t index;
 
@@ -3614,6 +3769,7 @@ gbl_time_status gbl_machine_prepare_operations_audio_with_provider(
     candidate.audio_prepared = candidate.audio;
     candidate.audio_fifo_reset_mask_prepared =
         candidate.audio_fifo_reset_mask;
+    gbl_dma_bind_sound_channels(&candidate);
     *preview = candidate;
     if (staged_bytes_out != NULL) {
         *staged_bytes_out = staged_bytes;
@@ -3872,6 +4028,7 @@ static bool gbl_ppu_commit_preview_valid(
             preview->audio_fifo_reset_mask_prepared ||
         !gbl_audio_state_valid(&preview->audio) ||
         !gbl_audio_state_equal(&preview->audio, &preview->audio_prepared) ||
+        !gbl_dma_sound_binding_valid(preview) ||
         !gbl_ppu_prepared_registers_valid(preview) ||
         !gbl_ppu_write_log_valid(machine, preview)) {
         return false;
@@ -3964,6 +4121,11 @@ bool gbl_machine_commit_time_checked(
         preview->event_count > GBL_EVENT_CAPACITY ||
         preview->input_event_count > GBL_INPUT_EVENT_CAPACITY ||
         preview->input_event_cursor > preview->input_event_count ||
+        (preview->dma_transaction_active &&
+         preview->dma_transaction_dispatched >
+             GBL_MACHINE_MAX_EVENT_DISPATCH) ||
+        (!preview->dma_transaction_active &&
+         preview->dma_transaction_dispatched != 0u) ||
         preview->ppu_row_capture_count > GBL_PPU_ROW_CAPTURE_MAX ||
         preview->ppu_memory_write_count > GBL_TIME_OPERATION_MAX ||
         !gbl_ppu_commit_preview_valid(machine, preview)) {
@@ -3985,6 +4147,9 @@ bool gbl_machine_commit_time_checked(
     machine->dma_last_source = preview->dma_last_source;
     machine->dma_last_destination = preview->dma_last_destination;
     machine->dma_stream_valid = preview->dma_stream_valid;
+    machine->dma_transaction_active = preview->dma_transaction_active;
+    machine->dma_transaction_dispatched =
+        preview->dma_transaction_dispatched;
     machine->pressed_keys = preview->pressed_keys;
     machine->key_control = preview->key_control;
     machine->key_condition = preview->key_condition;
@@ -4081,6 +4246,7 @@ gbl_time_status gbl_machine_dma_request(gbl_machine *machine,
     if (status != GBL_TIME_STATUS_OK) {
         return status;
     }
+    gbl_dma_bind_sound_channels(&candidate);
     gbl_machine_commit_time(machine, &candidate);
     return GBL_TIME_STATUS_OK;
 }
@@ -4144,9 +4310,39 @@ static gbl_dma_status gbl_dma_sound_advance(
     return GBL_DMA_STATUS_OK;
 }
 
+static bool gbl_dma_observation_append(
+    gbl_dma_step_result *observations, size_t observation_capacity,
+    size_t *observation_count, const gbl_dma_step_result *observation)
+{
+    if (observations == NULL) {
+        return true;
+    }
+    if (observation_count == NULL || observation == NULL ||
+        *observation_count >= observation_capacity) {
+        return false;
+    }
+    observations[(*observation_count)++] = *observation;
+    return true;
+}
+
+static bool gbl_dma_higher_priority_ready(const gbl_machine *machine,
+                                          uint8_t channel_index)
+{
+    uint8_t index;
+
+    for (index = 0u; index < channel_index; ++index) {
+        if (machine->dma_channels[index].pending ||
+            machine->dma_channels[index].active) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static gbl_dma_status gbl_machine_dma_sound_burst(
     gbl_machine *machine, uint8_t channel_index, uint64_t cycle_budget,
-    gbl_dma_step_result *result)
+    gbl_dma_step_result *result, gbl_dma_step_result *observations,
+    size_t observation_capacity, size_t *observation_count)
 {
     gbl_machine_time_preview candidate;
     gbl_dma_step_result step = { 0 };
@@ -4158,7 +4354,9 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
     uint32_t last_value = 0u;
     uint64_t source_cycles = 0u;
     uint64_t destination_cycles = 0u;
-    size_t dispatched = 0u;
+    size_t dispatched = machine != NULL && machine->dma_transaction_active
+                            ? machine->dma_transaction_dispatched
+                            : 0u;
     size_t staged_bytes = 0u;
     uint8_t fifo_index;
     uint8_t source_mode;
@@ -4179,7 +4377,9 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
         !initial_channel->pending || initial_channel->active ||
         (initial_channel->control & UINT16_C(0x8000)) == 0u ||
         ((initial_channel->control >> 12u) & 3u) != 3u ||
-        !gbl_dma_control_valid(channel_index, initial_channel->control)) {
+        !gbl_dma_control_valid(
+            channel_index,
+            (uint16_t)(initial_channel->control & (uint16_t)~UINT16_C(0x0060)))) {
         return GBL_DMA_STATUS_UNSUPPORTED;
     }
     if (cycle_budget < GBL_DMA_STARTUP_CYCLES) {
@@ -4197,10 +4397,12 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
     step.trigger_cycle = channel->trigger_cycle;
     step.trigger_dispute = channel->trigger_dispute;
     channel->remaining = 4u;
-    channel->completed_units = 0u;
-    channel->current_source =
-        (channel->source_address & gbl_dma_source_mask(channel_index)) &
-        ~UINT32_C(3);
+    if (channel->completed_units > UINT64_MAX - UINT64_C(4)) {
+        return GBL_DMA_STATUS_UNIT_REFUSAL;
+    }
+    channel->current_source = channel->current_source &
+                              gbl_dma_source_mask(channel_index) &
+                              ~UINT32_C(3);
     channel->current_destination = fifo_address;
     channel->pending = false;
     channel->active = true;
@@ -4221,6 +4423,25 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
     }
     step.startup_cycles = GBL_DMA_STARTUP_CYCLES;
     channel->startup_complete = true;
+    {
+        gbl_dma_step_result startup = { 0 };
+
+        startup.status = GBL_DMA_STATUS_OK;
+        startup.owner = GBL_MACHINE_BUS_OWNER_DMA;
+        startup.channel = channel_index;
+        startup.trigger_origin = step.trigger_origin;
+        startup.trigger_cycle = step.trigger_cycle;
+        startup.trigger_dispute = step.trigger_dispute;
+        startup.startup_cycles = GBL_DMA_STARTUP_CYCLES;
+        startup.remaining = channel->remaining;
+        startup.completed = channel->completed_units;
+        startup.completion_cycle = candidate.master_cycles;
+        if (!gbl_dma_observation_append(observations,
+                                        observation_capacity,
+                                        observation_count, &startup)) {
+            return GBL_DMA_STATUS_OUTPUT_REFUSAL;
+        }
+    }
 
     for (word_index = 0u; word_index < 4u; ++word_index) {
         const uint32_t source_address = channel->current_source;
@@ -4304,6 +4525,94 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
         channel->current_destination = fifo_address;
         --channel->remaining;
         ++channel->completed_units;
+
+        step.accepted_units++;
+        {
+            gbl_dma_step_result word = { 0 };
+
+            word.status = GBL_DMA_STATUS_OK;
+            word.owner = GBL_MACHINE_BUS_OWNER_DMA;
+            word.channel = channel_index;
+            word.trigger_origin = step.trigger_origin;
+            word.trigger_cycle = step.trigger_cycle;
+            word.trigger_dispute = step.trigger_dispute;
+            word.source_address = source_address;
+            word.destination_address = fifo_address;
+            word.value = value;
+            word.width = 4u;
+            word.source_cycles = source_cost.cycles;
+            word.destination_cycles = destination_cost.cycles;
+            word.source_sequence = source_sequence;
+            word.destination_sequence = destination_sequence;
+            word.remaining = channel->remaining;
+            word.completed = channel->completed_units;
+            word.completion_cycle = candidate.master_cycles;
+            word.unit_completed = true;
+            if (!gbl_dma_observation_append(observations,
+                                            observation_capacity,
+                                            observation_count, &word)) {
+                return GBL_DMA_STATUS_OUTPUT_REFUSAL;
+            }
+        }
+
+        /* Publish each completed sound word into the private candidate so
+         * the canonical selector can run any higher-priority work before the
+         * next source read. The caller's machine remains untouched until the
+         * outer candidate succeeds. */
+        gbl_machine_copy_bytes(candidate.ppu_affine_prepared,
+                               candidate.ppu.affine,
+                               sizeof(candidate.ppu_affine_prepared));
+        gbl_ppu_bind_prepared_registers(&candidate);
+        candidate.audio_prepared = candidate.audio;
+        candidate.audio_fifo_reset_mask_prepared =
+            candidate.audio_fifo_reset_mask;
+        gbl_dma_bind_sound_channels(&candidate);
+        if (!gbl_machine_commit_time_checked(machine, &candidate)) {
+            return GBL_DMA_STATUS_UNIT_REFUSAL;
+        }
+        machine->open_bus = value;
+        if (machine->bus_owner == GBL_MACHINE_BUS_OWNER_CPU) {
+            machine->cpu.force_nonsequential_fetch = true;
+        }
+        while (gbl_dma_higher_priority_ready(machine, channel_index)) {
+            gbl_dma_step_result interleaved = { 0 };
+            const uint64_t elapsed = machine->master_cycles - initial_cycle;
+            gbl_dma_status interleaved_status;
+
+            if (elapsed > cycle_budget) {
+                return GBL_DMA_STATUS_BUDGET_REFUSAL;
+            }
+            interleaved_status = gbl_machine_dma_step(
+                machine, cycle_budget - elapsed, &interleaved);
+            if (interleaved_status != GBL_DMA_STATUS_OK) {
+                return interleaved_status;
+            }
+            dispatched = machine->dma_transaction_dispatched;
+            if (!gbl_dma_observation_append(observations,
+                                            observation_capacity,
+                                            observation_count,
+                                            &interleaved)) {
+                return GBL_DMA_STATUS_OUTPUT_REFUSAL;
+            }
+            if (interleaved.startup_cycles >
+                    UINT64_MAX - step.startup_cycles ||
+                interleaved.source_cycles > UINT64_MAX - step.source_cycles ||
+                interleaved.destination_cycles >
+                    UINT64_MAX - step.destination_cycles ||
+                interleaved.accepted_units >
+                    UINT64_MAX - step.accepted_units) {
+                return GBL_DMA_STATUS_TIME_OVERFLOW;
+            }
+            step.startup_cycles += interleaved.startup_cycles;
+            step.source_cycles += interleaved.source_cycles;
+            step.destination_cycles += interleaved.destination_cycles;
+            step.accepted_units += interleaved.accepted_units != 0u
+                                       ? interleaved.accepted_units
+                                       : (interleaved.unit_completed ? 1u
+                                                                     : 0u);
+        }
+        gbl_machine_time_copy_preview(machine, &candidate);
+        channel = &candidate.dma_channels[channel_index];
     }
 
     channel->active = false;
@@ -4330,6 +4639,7 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
     candidate.audio_prepared = candidate.audio;
     candidate.audio_fifo_reset_mask_prepared =
         candidate.audio_fifo_reset_mask;
+    gbl_dma_bind_sound_channels(&candidate);
     if (!gbl_machine_commit_time_checked(machine, &candidate)) {
         return GBL_DMA_STATUS_UNIT_REFUSAL;
     }
@@ -4351,9 +4661,9 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
     return step.status;
 }
 
-gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
-                                   uint64_t cycle_budget,
-                                   gbl_dma_step_result *result)
+static gbl_dma_status gbl_machine_dma_step_single(gbl_machine *machine,
+                                                  uint64_t cycle_budget,
+                                                  gbl_dma_step_result *result)
 {
     uint8_t channel_index;
     gbl_dma_channel_state *channel;
@@ -4390,7 +4700,8 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
         channel->trigger_origin ==
             GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B) {
         return gbl_machine_dma_sound_burst(machine, channel_index,
-                                           cycle_budget, result);
+                                           cycle_budget, result, NULL, 0u,
+                                           NULL);
     }
     step.channel = channel_index;
     step.remaining = channel->remaining;
@@ -4425,6 +4736,7 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
         preview.dma_channels[channel_index].pending = false;
         preview.dma_channels[channel_index].active = true;
         preview.dma_channels[channel_index].startup_complete = true;
+        gbl_dma_bind_sound_channels(&preview);
         gbl_machine_commit_time(machine, &preview);
         step.status = GBL_DMA_STATUS_OK;
         step.owner = GBL_MACHINE_BUS_OWNER_DMA;
@@ -4534,6 +4846,107 @@ gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
     }
     *result = step;
     return step.status;
+}
+
+gbl_dma_status gbl_machine_dma_step_observed(
+    gbl_machine *machine, uint64_t cycle_budget, gbl_dma_step_result *result,
+    gbl_dma_step_result *observations, size_t observation_capacity,
+    size_t *observation_count)
+{
+    gbl_dma_step_result step = { 0 };
+    gbl_dma_step_result *staged_observations = NULL;
+    size_t staged_count = 0u;
+    uint8_t channel_index;
+    gbl_dma_status status;
+
+    if (machine == NULL || result == NULL || !machine->initialized ||
+        (observations != NULL && observation_count == NULL)) {
+        return GBL_DMA_STATUS_INVALID_ARGUMENT;
+    }
+    for (channel_index = 0u; channel_index < GBL_DMA_CHANNEL_COUNT;
+         ++channel_index) {
+        if (machine->dma_channels[channel_index].pending ||
+            machine->dma_channels[channel_index].active) {
+            break;
+        }
+    }
+    if (observations != NULL) {
+        if (observation_capacity == 0u ||
+            observation_capacity > SIZE_MAX / sizeof(*staged_observations)) {
+            return GBL_DMA_STATUS_OUTPUT_REFUSAL;
+        }
+        staged_observations =
+            malloc(observation_capacity * sizeof(*staged_observations));
+        if (staged_observations == NULL) {
+            return GBL_DMA_STATUS_UNIT_REFUSAL;
+        }
+    }
+    if (channel_index < GBL_DMA_CHANNEL_COUNT &&
+        (machine->dma_channels[channel_index].trigger_origin ==
+             GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_A ||
+         machine->dma_channels[channel_index].trigger_origin ==
+             GBL_DMA_TRIGGER_ORIGIN_SOUND_FIFO_B)) {
+        gbl_machine *candidate = malloc(sizeof(*candidate));
+
+        if (candidate == NULL) {
+            free(staged_observations);
+            return GBL_DMA_STATUS_UNIT_REFUSAL;
+        }
+        gbl_machine_copy_bytes((uint8_t *)candidate, (const uint8_t *)machine,
+                               sizeof(*candidate));
+        const bool owns_transaction = !candidate->dma_transaction_active;
+
+        if (owns_transaction) {
+            candidate->dma_transaction_active = true;
+            candidate->dma_transaction_dispatched = 0u;
+        }
+        status = gbl_machine_dma_sound_burst(
+            candidate, channel_index, cycle_budget, &step,
+            staged_observations, observation_capacity, &staged_count);
+        if (status == GBL_DMA_STATUS_OK) {
+            if (owns_transaction) {
+                candidate->dma_transaction_active = false;
+                candidate->dma_transaction_dispatched = 0u;
+            }
+            /* The private candidate contains all ordered device and memory
+             * effects. A single structure publication keeps a late refusal
+             * from exposing any prefix on the caller's machine. */
+            gbl_machine_copy_bytes((uint8_t *)machine,
+                                   (const uint8_t *)candidate,
+                                   sizeof(*machine));
+            *result = step;
+            if (observations != NULL) {
+                gbl_machine_copy_bytes((uint8_t *)observations,
+                                       (const uint8_t *)staged_observations,
+                                       staged_count * sizeof(*observations));
+                *observation_count = staged_count;
+            }
+        }
+        free(candidate);
+        free(staged_observations);
+        return status;
+    }
+
+    status = gbl_machine_dma_step_single(machine, cycle_budget, &step);
+    if (status == GBL_DMA_STATUS_OK && observations != NULL) {
+        step.accepted_units = step.unit_completed ? UINT64_C(1) : 0u;
+        staged_observations[staged_count++] = step;
+        gbl_machine_copy_bytes((uint8_t *)observations,
+                               (const uint8_t *)staged_observations,
+                               sizeof(*observations));
+        *observation_count = staged_count;
+    }
+    *result = step;
+    free(staged_observations);
+    return status;
+}
+
+gbl_dma_status gbl_machine_dma_step(gbl_machine *machine,
+                                    uint64_t cycle_budget,
+                                    gbl_dma_step_result *result)
+{
+    return gbl_machine_dma_step_observed(machine, cycle_budget, result, NULL,
+                                         0u, NULL);
 }
 
 gbl_time_status gbl_machine_advance_to(gbl_machine *machine,

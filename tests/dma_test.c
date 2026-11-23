@@ -1,4 +1,5 @@
 #include "gamebloke/gamebloke.h"
+#include "../src/dma_internal.h"
 #include "../src/ppu_internal.h"
 #include "state_check.h"
 
@@ -224,6 +225,8 @@ static bool test_sound_dma_preemption_reads_staged_dma0_write(void)
     };
     gbl_machine *machine = new_machine();
     gbl_dma_step_result step = { 0 };
+    gbl_dma_step_result observations[8] = { { 0 } };
+    size_t observation_count = 0u;
     uint64_t deadline;
     uint32_t lane;
     bool valid;
@@ -267,10 +270,26 @@ static bool test_sound_dma_preemption_reads_staged_dma0_write(void)
             gbl_machine_dma_request(
                 machine, 0u, machine->master_cycles + 4u,
                 machine->dma_channels[0].generation) == GBL_TIME_STATUS_OK &&
-            gbl_machine_dma_step(machine, UINT64_C(1024), &step) ==
-                GBL_DMA_STATUS_OK;
+            gbl_machine_dma_step_observed(
+                machine, UINT64_C(1024), &step, observations,
+                sizeof(observations) / sizeof(observations[0]),
+                &observation_count) == GBL_DMA_STATUS_OK;
     if (valid) {
         valid = step.channel == 1u && step.completed == 4u &&
+                step.accepted_units == 5u && observation_count == 7u &&
+                observations[0].channel == 1u &&
+                observations[0].startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+                observations[1].channel == 1u &&
+                observations[1].unit_completed &&
+                observations[2].channel == 0u &&
+                observations[2].startup_cycles == GBL_DMA_STARTUP_CYCLES &&
+                observations[3].channel == 0u &&
+                observations[3].unit_completed &&
+                observations[4].channel == 1u &&
+                observations[4].unit_completed &&
+                observations[4].value == UINT32_C(0xDEADBEEF) &&
+                observations[5].channel == 1u &&
+                observations[6].channel == 1u &&
                 machine->dma_channels[0].completed_units == 1u &&
                 !machine->dma_channels[0].pending &&
                 machine->ewram[UINT32_C(0x104)] == UINT8_C(0xEF) &&
@@ -299,6 +318,191 @@ static bool test_sound_dma_preemption_reads_staged_dma0_write(void)
                           ((uint32_t)machine->ewram[UINT32_C(0x105)] << 8u) |
                           ((uint32_t)machine->ewram[UINT32_C(0x106)] << 16u) |
                           ((uint32_t)machine->ewram[UINT32_C(0x107)] << 24u)));
+    free_machine(machine);
+    return valid;
+}
+
+static bool test_sound_fifo_b_fixed_destination_and_decrement_source(void)
+{
+    static const uint32_t source_words[4] = {
+        UINT32_C(0x41424344), UINT32_C(0x51525354),
+        UINT32_C(0x61626364), UINT32_C(0x71727374)
+    };
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    uint64_t deadline;
+    size_t index;
+    bool valid;
+
+    if (machine == NULL) {
+        return false;
+    }
+    for (index = 0u; index < 4u; ++index) {
+        write_ewram_word(machine, UINT32_C(0x02000104) +
+                                     (uint32_t)index * 4u,
+                         source_words[index]);
+    }
+    valid = prime_sound_fifo(machine, 1u) &&
+            write_register(machine, 2u, 0u, 4u,
+                           UINT32_C(0x02000110)) &&
+            write_register(machine, 2u, 4u, 4u,
+                           UINT32_C(0x03000180)) &&
+            write_register(machine, 2u, 8u, 2u, 2u) &&
+            write_register(machine, 2u, 10u, 2u,
+                           UINT16_C(0xB4E0)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    deadline = valid ? next_timer_overflow(machine, 0u) : UINT64_MAX;
+    valid = valid && deadline != UINT64_MAX &&
+            gbl_machine_advance_to(machine, deadline + 12u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->audio.fifo[1].count == 16u &&
+            machine->dma_channels[2].pending &&
+            gbl_machine_dma_step(machine, UINT64_C(1024), &step) ==
+                GBL_DMA_STATUS_OK;
+    if (valid) {
+        valid = step.channel == 2u && step.completed == 4u &&
+                machine->dma_channels[2].source_address ==
+                    UINT32_C(0x02000110) &&
+                machine->dma_channels[2].current_source ==
+                    UINT32_C(0x02000100) &&
+                machine->dma_channels[2].destination_address ==
+                    UINT32_C(0x03000180) &&
+                machine->dma_channels[2].control == UINT16_C(0xB4E0) &&
+                machine->audio.fifo[1].write_cursor == 4u &&
+                machine->audio.fifo[1].count >= 16u;
+        for (index = 0u; valid && index < 16u; ++index) {
+            const uint32_t source_word = source_words[3u - index / 4u];
+            const uint8_t expected = (uint8_t)(
+                source_word >> ((index & 3u) * 8u));
+
+            valid = machine->audio.fifo[1].bytes[(20u + index) & 31u] ==
+                    expected;
+        }
+    }
+    valid = valid &&
+            gbl_machine_advance_to(machine,
+                                   machine->master_cycles + UINT64_C(56)) ==
+                GBL_TIME_STATUS_OK &&
+            machine->dma_channels[2].pending &&
+            gbl_machine_dma_step(machine, UINT64_C(1024), &step) ==
+                GBL_DMA_STATUS_OK &&
+            machine->dma_channels[2].current_source ==
+                UINT32_C(0x020000F0) &&
+            machine->dma_channels[2].completed_units == UINT64_C(8);
+    test_case(valid,
+              "FIFO B uses DMA2's fixed sink and decrements aligned source words across repeat-clear refills");
+    free_machine(machine);
+    return valid;
+}
+
+static bool test_sound_reset_cancels_only_matching_pending_channel(void)
+{
+    gbl_machine *machine = new_machine();
+    uint64_t deadline;
+    bool valid;
+
+    if (machine == NULL) {
+        return false;
+    }
+    valid = prime_sound_fifo(machine, 0u) &&
+            prime_sound_fifo(machine, 1u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT16_C(0xB000)) &&
+            write_register(machine, 2u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 2u, 4u, 4u,
+                           UINT32_C(0x03000120)) &&
+            write_register(machine, 2u, 8u, 2u, 1u) &&
+            write_register(machine, 2u, 10u, 2u, UINT16_C(0xB000)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000084), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    deadline = valid ? next_timer_overflow(machine, 0u) : UINT64_MAX;
+    valid = valid && deadline != UINT64_MAX &&
+            gbl_machine_advance_to(machine, deadline + 12u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->dma_channels[1].pending &&
+            machine->dma_channels[2].pending &&
+            gbl_bus_write(machine, UINT32_C(0x04000082), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0x0800)).status == GBL_BUS_STATUS_OK &&
+            !machine->dma_channels[1].pending &&
+            machine->dma_channels[2].pending &&
+            machine->timers[0].enabled &&
+            gbl_bus_write(machine, UINT32_C(0x04000084), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL, 0u).status ==
+                GBL_BUS_STATUS_OK &&
+            !machine->dma_channels[1].pending &&
+            !machine->dma_channels[2].pending &&
+            machine->audio.fifo[0].count == 0u &&
+            machine->audio.fifo[1].count == 0u &&
+            machine->timers[0].enabled;
+    test_case(valid,
+              "FIFO A reset cancels only DMA1 readiness and master disable cancels both while Timer 0 keeps running");
+    free_machine(machine);
+    return valid;
+}
+
+static bool test_sound_fixed_source_mode_repeats_word(void)
+{
+    const uint32_t fixed_word = UINT32_C(0x89ABCDEF);
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    uint64_t deadline;
+    size_t index;
+    bool valid;
+
+    if (machine == NULL) {
+        return false;
+    }
+    write_ewram_word(machine, UINT32_C(0x02000120), fixed_word);
+    valid = prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000120)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000140)) &&
+            write_register(machine, 1u, 8u, 2u, 7u) &&
+            write_register(machine, 1u, 10u, 2u,
+                           UINT16_C(0xB500)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    deadline = valid ? next_timer_overflow(machine, 0u) : UINT64_MAX;
+    valid = valid && deadline != UINT64_MAX &&
+            gbl_machine_advance_to(machine, deadline + 12u) ==
+                GBL_TIME_STATUS_OK &&
+            machine->dma_channels[1].pending &&
+            gbl_machine_dma_step(machine, UINT64_C(1024), &step) ==
+                GBL_DMA_STATUS_OK &&
+            machine->dma_channels[1].current_source ==
+                UINT32_C(0x02000120) &&
+            machine->dma_channels[1].completed_units == UINT64_C(4);
+    for (index = 0u; valid && index < 16u; ++index) {
+        const uint8_t expected = (uint8_t)(fixed_word >> ((index & 3u) * 8u));
+
+        valid = machine->audio.fifo[0].bytes[(20u + index) & 31u] ==
+                expected;
+    }
+    test_case(valid,
+              "fixed sound source mode repeats one aligned word for all four FIFO writes");
     free_machine(machine);
     return valid;
 }
@@ -2957,7 +3161,7 @@ static bool run_ppu_triggers(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..2\n");
+    printf("TAP version 13\n1..3\n");
     (void)test_ppu_blank_triggers_and_video_row();
     test_case(dma_ppu_video_lane_matrix(),
               "halfword and word DMA units preserve PRAM, VRAM, OAM lanes, private samples, and sampled pixels");
@@ -3103,9 +3307,12 @@ static bool run_sound_arbitration(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..1\n");
+    printf("TAP version 13\n1..4\n");
     test_case(test_sound_dma_preemption_reads_staged_dma0_write(),
               "DMA0 preempts DMA1 sound between words and its ordered EWRAM write feeds sound word 2 before the full candidate commits");
+    test_sound_fifo_b_fixed_destination_and_decrement_source();
+    test_sound_reset_cancels_only_matching_pending_channel();
+    test_sound_fixed_source_mode_repeats_word();
     return failure_count == 0u ? 0 : 1;
 }
 

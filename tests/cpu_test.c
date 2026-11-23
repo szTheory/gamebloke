@@ -1,6 +1,7 @@
 #include "gamebloke/gamebloke.h"
 
 #include "../src/cpu_helpers.h"
+#include "../src/dma_internal.h"
 #include "../src/ppu_internal.h"
 #include "state_check.h"
 
@@ -16560,6 +16561,135 @@ static void test_dma_tracer(void)
     gbl_machine_dispose(&machine);
 }
 
+static void test_sound_dma_tracer(void)
+{
+    uint8_t image[TEST_IMAGE_SIZE];
+    static const uint32_t source_words[4] = {
+        UINT32_C(0xA1A2A3A4), UINT32_C(0xB1B2B3B4),
+        UINT32_C(0xC1C2C3C4), UINT32_C(0xD1D2D3D4)
+    };
+    gbl_machine machine = { 0 };
+    gbl_run_options options = { 0 };
+    gbl_run_result result = { 0 };
+    gbl_trace_record records[5] = { { 0 } };
+    gbl_trace_buffer trace = { records, 5u, 0u, 0u };
+    gbl_bus_result bus_result;
+    uint64_t source_cycles = 0u;
+    uint64_t destination_cycles = 0u;
+    size_t index;
+    bool valid;
+
+    make_empty_image(image);
+    write_word(image, 0u, UINT32_C(0xE3A07042));
+    write_word(image, 4u, UINT32_C(0xEAFFFFFE));
+    valid = machine_load(&machine, image);
+    for (index = 0u; valid && index < 4u; ++index) {
+        const size_t offset = 0x100u + index * 4u;
+        const uint32_t word = source_words[index];
+
+        machine.ewram[offset] = (uint8_t)word;
+        machine.ewram[offset + 1u] = (uint8_t)(word >> 8u);
+        machine.ewram[offset + 2u] = (uint8_t)(word >> 16u);
+        machine.ewram[offset + 3u] = (uint8_t)(word >> 24u);
+    }
+    for (index = 0u; valid && index < 4u; ++index) {
+        bus_result = gbl_bus_write(
+            &machine, UINT32_C(0x040000A0), 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL,
+            UINT32_C(0x01020304) + (uint32_t)index * UINT32_C(0x10101010));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000A0), 1u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x7E));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000BC), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x02000100));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000C0), 4u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT32_C(0x03000100));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000C4), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 1u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x040000C6), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0xB000));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x04000100), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0xFFFC));
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x04000102), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL,
+                                   UINT16_C(0x0080));
+        valid = bus_result.status == GBL_BUS_STATUS_OK &&
+                gbl_machine_advance_to(
+                    &machine, machine.master_cycles + UINT64_C(16)) ==
+                    GBL_TIME_STATUS_OK &&
+                machine.audio.fifo[0].count == 16u &&
+                machine.dma_channels[1].pending;
+    }
+    if (valid) {
+        bus_result = gbl_bus_write(&machine, UINT32_C(0x04000102), 2u,
+                                   GBL_BUS_CLASS_NONSEQUENTIAL, 0u);
+        valid = bus_result.status == GBL_BUS_STATUS_OK;
+    }
+    options.cycle_budget = UINT64_C(128);
+    options.unit_limit = UINT64_C(2);
+    options.category_mask = (uint32_t)GBL_TRACE_DMA;
+    options.trace_buffer = &trace;
+    if (valid) {
+        valid = gbl_cpu_run(&machine, &options, &result) ==
+                    GBL_RUN_STATUS_OK &&
+                result.termination == GBL_RUN_PROGRESS &&
+                result.instructions == UINT64_C(1) &&
+                result.dma_completed_units == UINT64_C(4) &&
+                trace.count == 5u && trace.next_sequence == UINT64_C(5) &&
+                records[0].dma_channel == 1u &&
+                records[0].dma_startup_cycles == UINT64_C(2) &&
+                records[0].dma_remaining == 4u &&
+                records[0].dma_completed == 0u;
+    }
+    for (index = 0u; valid && index < 4u; ++index) {
+        const gbl_trace_record *record = &records[index + 1u];
+
+        source_cycles += record->dma_source_cycles;
+        destination_cycles += record->dma_destination_cycles;
+        valid = record->dma_channel == 1u && record->dma_width == 4u &&
+                record->dma_source_address ==
+                    UINT32_C(0x02000100) + (uint32_t)index * 4u &&
+                record->dma_destination_address == UINT32_C(0x040000A0) &&
+                record->dma_value == source_words[index] &&
+                record->dma_remaining == 3u - (uint32_t)index &&
+                record->dma_completed == index + 1u;
+    }
+    valid = valid && result.dma_startup_cycles == UINT64_C(2) &&
+            result.dma_source_cycles == source_cycles &&
+            result.dma_destination_cycles == destination_cycles &&
+            result.dma_pause_cycles ==
+                UINT64_C(2) + source_cycles + destination_cycles &&
+            machine.audio.fifo[0].count == 32u;
+    test_case(valid,
+              "CPU scheduling accounts and traces sound startup and all four ordered FIFO words");
+    gbl_machine_dispose(&machine);
+}
+
 static void test_dma_cpu_pause_resume(void)
 {
     uint8_t image[TEST_IMAGE_SIZE];
@@ -17577,7 +17707,10 @@ static const cpu_test_function psr_functions[] = {
     test_psr_unpredictable_refusals
 };
 static const cpu_test_function tracer_functions[] = { test_tracer };
-static const cpu_test_function dma_tracer_functions[] = { test_dma_tracer };
+static const cpu_test_function dma_tracer_functions[] = {
+    test_dma_tracer,
+    test_sound_dma_tracer
+};
 static const cpu_test_function dma_cpu_functions[] = {
     test_dma_cpu_pause_resume
 };
@@ -17863,7 +17996,7 @@ static const cpu_test_group cpu_test_groups[] = {
     CPU_TEST_GROUP("arm_pc_return", 10u, arm_pc_return_functions),
     CPU_TEST_GROUP("psr", 42u, psr_functions),
     CPU_TEST_GROUP("tracer", 4u, tracer_functions),
-    CPU_TEST_GROUP("dma.tracer", 1u, dma_tracer_functions),
+    CPU_TEST_GROUP("dma.tracer", 2u, dma_tracer_functions),
     CPU_TEST_GROUP("dma.cpu", 1u, dma_cpu_functions),
     CPU_TEST_GROUP("dma.refusal", 15u, dma_refusal_functions),
     CPU_TEST_GROUP("waitcnt.cpu", 12u, waitcnt_cpu_functions),
