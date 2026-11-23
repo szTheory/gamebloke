@@ -123,7 +123,9 @@ software versions.
   3. A caller can obtain raw video and audio in caller-owned buffers and read structured metadata identifying the machine profile, observations, supported behavior, and limits of the model evidence.
   4. Invalid arguments, rejected profiles or content, unsupported requests, insufficient output capacity, and exhausted work bounds return their documented statuses. A caller can verify the documented machine and buffer postconditions and retry a valid request with the same result as an equivalent run without the refusal.
 
-**Plans**: TBD
+**Plans**: 1 plan
+
+- [ ] 20-01-PLAN.md — Run the opaque C API against the canonical machine and verify lifecycle, media, and atomic refusals.
 
 ### Phase 21: Installed Consumer Proof and LibFuturo Fit
 
@@ -144,7 +146,7 @@ software versions.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 20. Bounded Core API | 0/TBD | Not started | - |
+| 20. Bounded Core API | 0/1 | Planned | - |
 | 21. Installed Consumer Proof and LibFuturo Fit | 0/TBD | Not started | - |
 
 ## Open Carryovers and Evidence Limits
