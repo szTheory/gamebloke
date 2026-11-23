@@ -24,14 +24,14 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Lane selection. Each lane has its own sorted test inventory under
 # tests/inventory/<lane>.txt. Later plans add each lane's content.
 set(GBL_LANE "ci" CACHE STRING
-  "Verification lane: ci | asan | hygiene | diagnostics | local-timer0 | local-playable0")
+  "Verification lane: ci | asan | hygiene | diagnostics | local-timer0 | local-playable0 | local-audio")
 set_property(CACHE GBL_LANE PROPERTY STRINGS
-  ci asan hygiene diagnostics local-timer0 local-playable0)
-if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics|local-timer0|local-playable0)$")
+  ci asan hygiene diagnostics local-timer0 local-playable0 local-audio)
+if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics|local-timer0|local-playable0|local-audio)$")
   message(FATAL_ERROR
-    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, diagnostics, local-timer0, or local-playable0)")
+    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, diagnostics, local-timer0, local-playable0, or local-audio)")
 endif()
-if(GBL_LANE MATCHES "^local-(timer0|playable0)$" AND "$ENV{CI}")
+if(GBL_LANE MATCHES "^local-(timer0|playable0|audio)$" AND "$ENV{CI}")
   message(FATAL_ERROR
     "gamebloke: ${GBL_LANE} lane is prohibited when CI=true")
 endif()
@@ -535,6 +535,13 @@ elseif(GBL_LANE STREQUAL "local-playable0")
         "-DGENERATOR=$<TARGET_FILE:gbl_instruction_image>"
         -P "${CMAKE_SOURCE_DIR}/tests/gates/playable0_guest.cmake")
   endforeach()
+elseif(GBL_LANE STREQUAL "local-audio")
+  gbl_add_test(
+    NAME audio.guest.local
+    LABELS audio core integration local
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/audio_guest.cmake")
 endif()
 
 if(GBL_LANE STREQUAL "ci")
