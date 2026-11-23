@@ -737,6 +737,600 @@ static int run_mix_tracer(void)
     return tap_failure_count == 0u ? 0 : 1;
 }
 
+typedef struct mix_vector {
+    const char *name;
+    uint8_t psg_channels;
+    uint8_t psg_value;
+    uint8_t psg_left_routes;
+    uint8_t psg_right_routes;
+    uint8_t psg_left_level;
+    uint8_t psg_right_level;
+    uint8_t psg_ratio;
+    uint8_t fifo_left_routes;
+    uint8_t fifo_right_routes;
+    uint8_t fifo_full_gain;
+    int8_t fifo_sample[2];
+    bool master_enabled;
+    uint8_t expected[GBL_AUDIO_FRAME_BYTES];
+} mix_vector;
+
+static void mix_vector_set_psg_source(gbl_audio_state *state,
+                                      unsigned channel, uint8_t value)
+{
+    state->active_channels |= (uint8_t)(UINT8_C(1) << channel);
+    state->channel_volume[channel] = value;
+    if (channel < 2u) {
+        state->square_high[channel] = true;
+    } else if (channel == 2u) {
+        state->registers[8] = UINT16_C(0x0080);
+        state->registers[9] = UINT16_C(0x2000);
+        state->wave_ram[0][0] = (uint8_t)(value << 4u);
+        state->wave_phase = 0u;
+    } else {
+        state->noise_lfsr = value == 0u ? UINT16_C(1) : UINT16_C(0);
+    }
+}
+
+static void mix_vector_prepare(gbl_audio_state *state,
+                               const mix_vector *vector)
+{
+    unsigned channel;
+    unsigned fifo_index;
+
+    memset(state, 0, sizeof(*state));
+    state->registers[18] = vector->master_enabled ? UINT16_C(0x0080) : 0u;
+    state->registers[16] =
+        (uint16_t)(((uint16_t)vector->psg_left_level << 4u) |
+                   (uint16_t)vector->psg_right_level);
+    state->registers[17] = (uint16_t)(vector->psg_ratio & UINT8_C(3));
+    for (channel = 0u; channel < 4u; ++channel) {
+        const uint8_t channel_mask = (uint8_t)(UINT8_C(1) << channel);
+
+        if ((vector->psg_channels & channel_mask) != 0u) {
+            mix_vector_set_psg_source(state, channel, vector->psg_value);
+        }
+        if ((vector->psg_left_routes & channel_mask) != 0u) {
+            state->registers[16] |=
+                (uint16_t)(UINT16_C(1) << (12u + channel));
+        }
+        if ((vector->psg_right_routes & channel_mask) != 0u) {
+            state->registers[16] |=
+                (uint16_t)(UINT16_C(1) << (8u + channel));
+        }
+    }
+    for (fifo_index = 0u; fifo_index < 2u; ++fifo_index) {
+        const uint8_t fifo_mask = (uint8_t)(UINT8_C(1) << fifo_index);
+
+        state->fifo[fifo_index].sample = vector->fifo_sample[fifo_index];
+        if ((vector->fifo_left_routes & fifo_mask) != 0u) {
+            state->registers[17] |=
+                (uint16_t)(UINT16_C(1) << (9u + fifo_index * 4u));
+        }
+        if ((vector->fifo_right_routes & fifo_mask) != 0u) {
+            state->registers[17] |=
+                (uint16_t)(UINT16_C(1) << (8u + fifo_index * 4u));
+        }
+        if ((vector->fifo_full_gain & fifo_mask) != 0u) {
+            state->registers[17] |=
+                (uint16_t)(UINT16_C(1) << (2u + fifo_index));
+        }
+    }
+}
+
+static const mix_vector mix_vectors[] = {
+    { .name = "CH1 routes left at full PSG level",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x78u, 0x00u, 0x00u } },
+    { .name = "CH2 routes right at full PSG level",
+      .psg_channels = UINT8_C(0x02), .psg_value = 15u,
+      .psg_right_routes = UINT8_C(0x02), .psg_right_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x78u } },
+    { .name = "CH3 routes left at full PSG level",
+      .psg_channels = UINT8_C(0x04), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x04), .psg_left_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x78u, 0x00u, 0x00u } },
+    { .name = "CH4 routes right at full PSG level",
+      .psg_channels = UINT8_C(0x08), .psg_value = 15u,
+      .psg_right_routes = UINT8_C(0x08), .psg_right_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x78u } },
+    { .name = "routed PSG zero level is centered below zero",
+      .psg_channels = UINT8_C(0x01), .psg_value = 0u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x88u, 0x00u, 0x00u } },
+    { .name = "unrouted active PSG source contributes no signal",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_level = 7u, .psg_right_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x00u } },
+    { .name = "left and right routes use independent side levels",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01),
+      .psg_right_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_right_level = 3u, .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x78u, 0x6Eu, 0x33u } },
+    { .name = "zero PSG side levels silence routed sources",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01),
+      .psg_right_routes = UINT8_C(0x01), .psg_ratio = 2u,
+      .master_enabled = true,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x00u } },
+    { .name = "PSG ratio code 0 applies one-quarter policy",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 0u, .master_enabled = true,
+      .expected = { 0x00u, 0x1Eu, 0x00u, 0x00u } },
+    { .name = "PSG ratio code 1 applies one-half policy",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 1u, .master_enabled = true,
+      .expected = { 0x00u, 0x3Cu, 0x00u, 0x00u } },
+    { .name = "PSG ratio code 2 applies full policy",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x78u, 0x00u, 0x00u } },
+    { .name = "reserved PSG ratio code 3 fails closed",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 3u, .master_enabled = true,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x00u } },
+    { .name = "reserved PSG ratio leaves Direct Sound routes active",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 3u, .fifo_right_routes = UINT8_C(0x01),
+      .fifo_full_gain = UINT8_C(0x01), .fifo_sample = { 1, 0 },
+      .master_enabled = true,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x01u } },
+    { .name = "FIFO A full gain maps signed negative S8 to left S16",
+      .fifo_left_routes = UINT8_C(0x01),
+      .fifo_full_gain = UINT8_C(0x01), .fifo_sample = { -128, 0 },
+      .master_enabled = true,
+      .expected = { 0x00u, 0x80u, 0x00u, 0x00u } },
+    { .name = "FIFO A half gain maps signed negative S8 to left S16",
+      .fifo_left_routes = UINT8_C(0x01),
+      .fifo_sample = { -128, 0 }, .master_enabled = true,
+      .expected = { 0x00u, 0xC0u, 0x00u, 0x00u } },
+    { .name = "FIFO A full gain maps positive S8 to left S16",
+      .fifo_left_routes = UINT8_C(0x01),
+      .fifo_full_gain = UINT8_C(0x01), .fifo_sample = { 127, 0 },
+      .master_enabled = true,
+      .expected = { 0x00u, 0x7Fu, 0x00u, 0x00u } },
+    { .name = "FIFO B independently routes positive S8 to right S16",
+      .fifo_right_routes = UINT8_C(0x02),
+      .fifo_full_gain = UINT8_C(0x02), .fifo_sample = { 0, 127 },
+      .master_enabled = true,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x7Fu } },
+    { .name = "FIFO A full and FIFO B half gain are independent",
+      .fifo_left_routes = UINT8_C(0x01),
+      .fifo_right_routes = UINT8_C(0x02),
+      .fifo_full_gain = UINT8_C(0x01), .fifo_sample = { 1, 1 },
+      .master_enabled = true,
+      .expected = { 0x00u, 0x01u, 0x80u, 0x00u } },
+    { .name = "FIFO A half and FIFO B full gain are independent",
+      .fifo_left_routes = UINT8_C(0x01),
+      .fifo_right_routes = UINT8_C(0x02),
+      .fifo_full_gain = UINT8_C(0x02), .fifo_sample = { 1, 1 },
+      .master_enabled = true,
+      .expected = { 0x80u, 0x00u, 0x00u, 0x01u } },
+    { .name = "master disable silences PSG and Direct Sound",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 7u,
+      .psg_ratio = 2u, .fifo_left_routes = UINT8_C(0x01),
+      .fifo_full_gain = UINT8_C(0x01), .fifo_sample = { 127, 0 },
+      .master_enabled = false,
+      .expected = { 0x00u, 0x00u, 0x00u, 0x00u } },
+    { .name = "positive PSG sum saturates at signed S16 maximum",
+      .psg_channels = UINT8_C(0x0F), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x0F), .psg_left_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0xFFu, 0x7Fu, 0x00u, 0x00u } },
+    { .name = "negative PSG sum saturates at signed S16 minimum",
+      .psg_channels = UINT8_C(0x0F), .psg_value = 0u,
+      .psg_left_routes = UINT8_C(0x0F), .psg_left_level = 7u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x00u, 0x80u, 0x00u, 0x00u } },
+    { .name = "positive fractional numerator rounds down to nearest",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 1u,
+      .psg_ratio = 1u, .master_enabled = true,
+      .expected = { 0x92u, 0x08u, 0x00u, 0x00u } },
+    { .name = "positive fractional numerator rounds up to nearest",
+      .psg_channels = UINT8_C(0x01), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 1u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0x25u, 0x11u, 0x00u, 0x00u } },
+    { .name = "negative fractional numerator rounds toward nearest zero",
+      .psg_channels = UINT8_C(0x01), .psg_value = 0u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 1u,
+      .psg_ratio = 1u, .master_enabled = true,
+      .expected = { 0x6Eu, 0xF7u, 0x00u, 0x00u } },
+    { .name = "negative fractional numerator rounds away from zero",
+      .psg_channels = UINT8_C(0x01), .psg_value = 0u,
+      .psg_left_routes = UINT8_C(0x01), .psg_left_level = 1u,
+      .psg_ratio = 2u, .master_enabled = true,
+      .expected = { 0xDBu, 0xEEu, 0x00u, 0x00u } },
+    { .name = "combined fractional sources round once after summation",
+      .psg_channels = UINT8_C(0x03), .psg_value = 15u,
+      .psg_left_routes = UINT8_C(0x03), .psg_left_level = 1u,
+      .psg_ratio = 1u, .master_enabled = true,
+      .expected = { 0x25u, 0x11u, 0x00u, 0x00u } }
+};
+
+static bool mix_fifo_byte_vector(unsigned fifo_index, uint32_t fifo_byte,
+                                 uint16_t soundcnt_h,
+                                 const uint8_t expected[4])
+{
+    gbl_machine *machine = new_machine();
+    uint8_t frame[GBL_AUDIO_FRAME_BYTES] = { 0u };
+    bool valid = machine != NULL;
+
+    if (valid) {
+        const uint32_t fifo_address =
+            GBL_AUDIO_FIFO_FIRST + (uint32_t)(fifo_index * 4u);
+        valid = fifo_index < 2u &&
+                write16(machine, UINT32_C(0x04000084),
+                        UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK &&
+                write16(machine, UINT32_C(0x04000082), soundcnt_h).status ==
+                    GBL_BUS_STATUS_OK &&
+                gbl_audio_fifo_write(&machine->audio, fifo_address, 4u,
+                                     fifo_byte) &&
+                gbl_audio_fifo_clock_timer(&machine->audio, 0u) == 0u;
+        if (valid) {
+            gbl_audio_write_frame(&machine->audio, UINT64_C(512), frame);
+        }
+        valid = valid && memcmp(frame, expected, sizeof(frame)) == 0;
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static int run_mix_vectors(void)
+{
+    static const uint8_t fifo_a_negative[4] = {
+        0x00u, 0x80u, 0x00u, 0x00u
+    };
+    static const uint8_t fifo_b_positive[4] = {
+        0x00u, 0x00u, 0x00u, 0x7Fu
+    };
+    size_t index;
+    bool source_values_valid = true;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    for (index = 0u; index < 4u; ++index) {
+        unsigned value_index;
+
+        for (value_index = 0u; value_index < 2u; ++value_index) {
+            const uint8_t value = value_index == 0u ? 0u : UINT8_C(15);
+            gbl_audio_state state = { 0 };
+
+            mix_vector_set_psg_source(&state, (unsigned)index, value);
+            source_values_valid =
+                source_values_valid &&
+                gbl_audio_psg_sample(&state, (unsigned)index) == value;
+        }
+    }
+    tap_check("all four PSG projections expose literal zero and fifteen inputs",
+              source_values_valid);
+
+    /* Every PSG numerator is divisible by four because 2048 mod 28 is 8;
+     * each Direct Sound numerator is divisible by 28. The accumulated
+     * remainder can therefore never be the half-denominator value 14. */
+    for (index = 0u; index <
+                    sizeof(mix_vectors) / sizeof(mix_vectors[0]);
+         ++index) {
+        gbl_audio_state state = { 0 };
+        uint8_t frame[GBL_AUDIO_FRAME_BYTES] = { 0u };
+        bool sources_valid = true;
+        unsigned channel;
+
+        mix_vector_prepare(&state, &mix_vectors[index]);
+        for (channel = 0u; channel < 4u; ++channel) {
+            const uint8_t channel_mask = (uint8_t)(UINT8_C(1) << channel);
+
+            if ((mix_vectors[index].psg_channels & channel_mask) != 0u) {
+                sources_valid =
+                    sources_valid &&
+                    gbl_audio_psg_sample(&state, channel) ==
+                        mix_vectors[index].psg_value;
+            }
+        }
+        gbl_audio_write_frame(&state, UINT64_C(512), frame);
+        tap_check(mix_vectors[index].name,
+                  sources_valid &&
+                      memcmp(frame, mix_vectors[index].expected,
+                             sizeof(frame)) == 0);
+        if (memcmp(frame, mix_vectors[index].expected, sizeof(frame)) != 0) {
+            printf("# actual frame: %02X %02X %02X %02X\n", frame[0],
+                   frame[1], frame[2], frame[3]);
+        }
+    }
+
+    tap_check("FIFO byte 0x80 latches signed negative 128",
+              mix_fifo_byte_vector(0u, UINT32_C(0x00000080),
+                                   UINT16_C(0x0206), fifo_a_negative));
+    tap_check("FIFO B byte 0x7F routes to the independent right side",
+              mix_fifo_byte_vector(1u, UINT32_C(0x0000007F),
+                                   UINT16_C(0x100B), fifo_b_positive));
+    {
+        gbl_audio_state state = { 0 };
+        int16_t left = INT16_C(1);
+        int16_t right = INT16_C(1);
+
+        mix_vector_prepare(&state, &mix_vectors[0]);
+        gbl_audio_sample(&state, UINT64_C(512), &left, NULL);
+        gbl_audio_sample(&state, UINT64_C(512), NULL, &right);
+        gbl_audio_sample(NULL, UINT64_C(512), NULL, NULL);
+        tap_check("audio sample keeps nullable mono output pointers",
+                  left == INT16_C(30720) && right == 0);
+    }
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
+static bool configure_mix_bias_machine(gbl_machine *machine)
+{
+    return configure_ch2(machine, 0u, 3u, 15u, false, 0u,
+                         UINT16_C(2037), false) &&
+           write16(machine, UINT32_C(0x04000080), UINT16_C(0x2070)).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x04000082), UINT16_C(0x0002)).status ==
+               GBL_BUS_STATUS_OK;
+}
+
+static bool prepare_mix_bias_write(gbl_machine *machine, uint64_t start,
+                                   uint8_t *staging,
+                                   size_t staging_capacity,
+                                   size_t *staged_bytes)
+{
+    const uint32_t address = UINT32_C(0x04000088);
+    gbl_cycle_cost write_cost = { 0 };
+    gbl_time_operation operation;
+    gbl_machine_time_preview preview;
+
+    if (machine == NULL || staged_bytes == NULL ||
+        gbl_machine_advance_to(machine, start) != GBL_TIME_STATUS_OK ||
+        !gbl_bus_quote(machine, address, GBL_BUS_DIRECTION_WRITE, 2u,
+                       GBL_BUS_CLASS_NONSEQUENTIAL, GBL_BUS_ROLE_DATA,
+                       &write_cost) ||
+        write_cost.cycles != 1u) {
+        return false;
+    }
+    operation = (gbl_time_operation){
+        .kind = GBL_TIME_OPERATION_BUS_WRITE,
+        .width = 2u,
+        .address = address,
+        .value = UINT32_C(0xFFFF),
+        .cycles = write_cost.cycles
+    };
+    if (gbl_machine_prepare_operations_audio(
+            machine, &operation, 1u, &preview, staging, staging_capacity,
+            staged_bytes) != GBL_TIME_STATUS_OK ||
+        !gbl_machine_commit_time_checked(machine, &preview)) {
+        return false;
+    }
+    return true;
+}
+
+static bool run_mix_bias_timing(unsigned timing, uint8_t output[8],
+                                size_t *operation_staged_bytes,
+                                uint64_t *last_capture_cycle,
+                                uint16_t *readback)
+{
+    gbl_machine *machine = new_machine();
+    gbl_audio_capture capture;
+    uint8_t operation_staging[GBL_AUDIO_FRAME_BYTES] = { 0u };
+    size_t operation_bytes = 0u;
+    size_t expected_capture_bytes = 0u;
+    size_t prior_capture_bytes = 0u;
+    bool machine_at_expected_cycle;
+    bool valid = machine != NULL && configure_mix_bias_machine(machine);
+
+    memset(output, 0xA5, 8u);
+    if (valid && timing == 0u) {
+        valid = gbl_machine_advance_to(machine, UINT64_C(510)) ==
+                    GBL_TIME_STATUS_OK &&
+                prepare_mix_bias_write(machine, UINT64_C(510), NULL, 0u,
+                                       &operation_bytes) &&
+                operation_bytes == 0u &&
+                gbl_audio_capture_begin(machine, &capture, output, 8u) ==
+                    GBL_TIME_STATUS_OK &&
+                gbl_machine_advance_to_audio(machine, UINT64_C(1024),
+                                             &capture) ==
+                    GBL_TIME_STATUS_OK;
+        expected_capture_bytes = 8u;
+    } else if (valid && timing == 1u) {
+        valid = gbl_machine_advance_to(machine, UINT64_C(511)) ==
+                    GBL_TIME_STATUS_OK &&
+                prepare_mix_bias_write(machine, UINT64_C(511),
+                                       operation_staging,
+                                       sizeof(operation_staging),
+                                       &operation_bytes) &&
+                operation_bytes == GBL_AUDIO_FRAME_BYTES;
+        if (valid) {
+            memcpy(output, operation_staging, GBL_AUDIO_FRAME_BYTES);
+            valid = gbl_audio_capture_begin(
+                        machine, &capture, output + GBL_AUDIO_FRAME_BYTES,
+                        GBL_AUDIO_FRAME_BYTES) == GBL_TIME_STATUS_OK &&
+                    gbl_machine_advance_to_audio(machine, UINT64_C(1024),
+                                                 &capture) ==
+                        GBL_TIME_STATUS_OK;
+        }
+        expected_capture_bytes = GBL_AUDIO_FRAME_BYTES;
+    } else if (valid && timing == 2u) {
+        valid = gbl_audio_capture_begin(machine, &capture, output, 8u) ==
+                    GBL_TIME_STATUS_OK &&
+                gbl_machine_advance_to_audio(machine, UINT64_C(512),
+                                             &capture) ==
+                    GBL_TIME_STATUS_OK &&
+                capture.bytes_written == GBL_AUDIO_FRAME_BYTES &&
+                (prior_capture_bytes = capture.bytes_written) ==
+                    GBL_AUDIO_FRAME_BYTES &&
+                prepare_mix_bias_write(machine, UINT64_C(512), NULL, 0u,
+                                       &operation_bytes) &&
+                operation_bytes == 0u &&
+                gbl_audio_capture_begin(
+                    machine, &capture, output + GBL_AUDIO_FRAME_BYTES,
+                    GBL_AUDIO_FRAME_BYTES) == GBL_TIME_STATUS_OK &&
+                gbl_machine_advance_to_audio(machine, UINT64_C(1024),
+                                             &capture) ==
+                    GBL_TIME_STATUS_OK;
+        expected_capture_bytes = GBL_AUDIO_FRAME_BYTES;
+    } else if (timing > 2u) {
+        valid = false;
+    }
+
+    machine_at_expected_cycle =
+        valid && machine->audio.cycle_anchor == UINT64_C(1024);
+    if (valid) {
+        const size_t total_bytes = prior_capture_bytes + operation_bytes +
+                                   capture.bytes_written;
+        const gbl_bus_result bias_result =
+            read16(machine, UINT32_C(0x04000088));
+
+        *operation_staged_bytes = operation_bytes;
+        *last_capture_cycle = capture.last_accepted_cycle;
+        *readback = (uint16_t)bias_result.value;
+        valid = total_bytes == 8u &&
+                expected_capture_bytes + prior_capture_bytes +
+                        operation_bytes ==
+                    8u &&
+                machine_at_expected_cycle &&
+                *last_capture_cycle == UINT64_C(1024) &&
+                bias_result.status == GBL_BUS_STATUS_OK &&
+                *readback == UINT16_C(0xC3FF);
+    }
+    free_machine(machine);
+    return valid;
+}
+
+static int run_mix_bias(void)
+{
+    static const uint8_t expected_frames[8] = {
+        0x00u, 0x78u, 0x00u, 0x00u, 0x00u, 0x78u, 0x00u, 0x00u
+    };
+    gbl_machine *master_off = new_machine();
+    gbl_machine *baseline_machine = new_machine();
+    gbl_audio_capture baseline_capture;
+    uint8_t baseline[8] = { 0u };
+    uint8_t before[8] = { 0u };
+    uint8_t at_edge[8] = { 0u };
+    uint8_t after[8] = { 0u };
+    size_t before_staged = 0u;
+    size_t edge_staged = 0u;
+    size_t after_staged = 0u;
+    uint64_t before_cycle = 0u;
+    uint64_t edge_cycle = 0u;
+    uint64_t after_cycle = 0u;
+    uint16_t before_readback = 0u;
+    uint16_t edge_readback = 0u;
+    uint16_t after_readback = 0u;
+    bool before_ok;
+    bool edge_ok;
+    bool after_ok;
+    bool baseline_ok = baseline_machine != NULL &&
+                       configure_mix_bias_machine(baseline_machine) &&
+                       gbl_audio_capture_begin(baseline_machine,
+                                               &baseline_capture, baseline,
+                                               sizeof(baseline)) ==
+                           GBL_TIME_STATUS_OK &&
+                       gbl_machine_advance_to_audio(
+                           baseline_machine, UINT64_C(1024),
+                           &baseline_capture) == GBL_TIME_STATUS_OK &&
+                       baseline_capture.bytes_written == sizeof(baseline) &&
+                       baseline_capture.last_accepted_cycle ==
+                           UINT64_C(1024) &&
+                       baseline_machine->audio.cycle_anchor ==
+                           UINT64_C(1024);
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    tap_check("SOUNDBIAS resets and reads back its preset with master off",
+              master_off != NULL &&
+                  master_off->audio.registers[18] == 0u &&
+                  master_off->audio.soundbias == UINT16_C(0x0200) &&
+                  read16(master_off, UINT32_C(0x04000088)).value ==
+                      UINT32_C(0x0200));
+    if (master_off != NULL) {
+        const gbl_bus_result write_result =
+            write16(master_off, UINT32_C(0x04000088), UINT16_C(0xFFFF));
+        const gbl_bus_result read_result =
+            read16(master_off, UINT32_C(0x04000088));
+
+        tap_check("SOUNDBIAS keeps its mask and readback while master is off",
+                  write_result.status == GBL_BUS_STATUS_OK &&
+                      read_result.status == GBL_BUS_STATUS_OK &&
+                      read_result.value == UINT32_C(0xC3FF) &&
+                      master_off->audio.soundbias == UINT16_C(0xC3FF) &&
+                      master_off->audio.registers[18] == 0u);
+        gbl_machine_reset(master_off);
+        tap_check("machine reset restores SOUNDBIAS without enabling audio",
+                  master_off->audio.soundbias == UINT16_C(0x0200) &&
+                      master_off->audio.registers[18] == 0u);
+    } else {
+        tap_check("SOUNDBIAS keeps its mask and readback while master is off",
+                  false);
+        tap_check("machine reset restores SOUNDBIAS without enabling audio",
+                  false);
+    }
+    tap_check("default bias captures two nonzero frames on the fixed grid",
+              baseline_ok &&
+                  memcmp(baseline, expected_frames, sizeof(baseline)) == 0);
+
+    before_ok = run_mix_bias_timing(0u, before, &before_staged, &before_cycle,
+                                    &before_readback);
+    tap_check("SOUNDBIAS write before the edge leaves PCM and cadence intact",
+              before_ok && before_staged == 0u &&
+                  memcmp(before, expected_frames, sizeof(before)) == 0);
+    edge_ok = run_mix_bias_timing(1u, at_edge, &edge_staged, &edge_cycle,
+                                  &edge_readback);
+    tap_check("SOUNDBIAS write completing at the edge samples old routing first",
+              edge_ok && edge_staged == GBL_AUDIO_FRAME_BYTES &&
+                  memcmp(at_edge, expected_frames, sizeof(at_edge)) == 0);
+    after_ok = run_mix_bias_timing(2u, after, &after_staged, &after_cycle,
+                                   &after_readback);
+    tap_check("SOUNDBIAS write after the edge leaves PCM and cadence intact",
+              after_ok && after_staged == 0u &&
+                  memcmp(after, expected_frames, sizeof(after)) == 0);
+    tap_check("bias rate-bit twins preserve output bytes and accepted cycles",
+              baseline_ok && before_cycle == UINT64_C(1024) &&
+                  edge_cycle == UINT64_C(1024) &&
+                  after_cycle == UINT64_C(1024) &&
+                  before_readback == UINT16_C(0xC3FF) &&
+                  edge_readback == UINT16_C(0xC3FF) &&
+                  after_readback == UINT16_C(0xC3FF) &&
+                  memcmp(baseline, before, sizeof(baseline)) == 0 &&
+                  memcmp(baseline, at_edge, sizeof(baseline)) == 0 &&
+                  memcmp(baseline, after, sizeof(baseline)) == 0);
+    if (!baseline_ok || !before_ok || !edge_ok || !after_ok) {
+        printf("# baseline: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+               baseline[0], baseline[1], baseline[2], baseline[3],
+               baseline[4], baseline[5], baseline[6], baseline[7]);
+        printf("# before: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+               before[0], before[1], before[2], before[3], before[4],
+               before[5], before[6], before[7]);
+        printf("# at edge: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+               at_edge[0], at_edge[1], at_edge[2], at_edge[3], at_edge[4],
+               at_edge[5], at_edge[6], at_edge[7]);
+        printf("# after: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+               after[0], after[1], after[2], after[3], after[4], after[5],
+               after[6], after[7]);
+    }
+
+    free_machine(master_off);
+    free_machine(baseline_machine);
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static bool fifo_lane_vector(gbl_machine *machine, unsigned fifo_index,
                              uint8_t width, uint8_t lane_offset,
                              uint32_t value)
@@ -4581,6 +5175,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "mix_tracer") == 0) {
         return run_mix_tracer();
+    }
+    if (strcmp(argv[1], "mix_vectors") == 0) {
+        return run_mix_vectors();
+    }
+    if (strcmp(argv[1], "mix_bias") == 0) {
+        return run_mix_bias();
     }
     if (strcmp(argv[1], "ds_fifo") == 0) {
         return run_ds_fifo();
