@@ -4773,6 +4773,25 @@ static bool prepare_capture_sound_dma(gbl_machine *machine, uint8_t *image,
     return ready;
 }
 
+static bool prepare_capture_interleaved_dma(gbl_machine *machine)
+{
+    if (machine == NULL) {
+        return false;
+    }
+    machine->ewram[UINT32_C(0x200)] = UINT8_C(0xA5);
+    machine->ewram[UINT32_C(0x201)] = UINT8_C(0x5A);
+    return gbl_bus_write(machine, UINT32_C(0x040000B0), 4u,
+                         GBL_BUS_CLASS_NONSEQUENTIAL,
+                         UINT32_C(0x02000200)).status == GBL_BUS_STATUS_OK &&
+           gbl_bus_write(machine, UINT32_C(0x040000B4), 4u,
+                         GBL_BUS_CLASS_NONSEQUENTIAL,
+                         UINT32_C(0x02000220)).status == GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x040000B8), 1u).status ==
+               GBL_BUS_STATUS_OK &&
+           write16(machine, UINT32_C(0x040000BA), UINT16_C(0x9000)).status ==
+               GBL_BUS_STATUS_OK;
+}
+
 static int run_capture_cpu_wait(void)
 {
     uint8_t cpu_image[UINT32_C(0x100)] = { 0u };
@@ -4906,19 +4925,24 @@ static int run_capture_dma(void)
 {
     uint8_t image[UINT32_C(0x100)] = { 0u };
     uint8_t sound_image[UINT32_C(0x100)] = { 0u };
+    uint8_t interleaved_image[UINT32_C(0x100)] = { 0u };
     uint8_t refused_image[UINT32_C(0x100)] = { 0u };
     uint8_t output[16];
     uint8_t sound_output[8];
+    uint8_t interleaved_output[8];
     uint8_t refused_output[8];
     uint8_t *staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
     uint8_t *sound_staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
+    uint8_t *interleaved_staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
     uint8_t *refused_staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
     gbl_machine *machine = new_machine();
     gbl_machine *sound_machine = new_machine_with_scratch_allocator();
+    gbl_machine *interleaved_machine = new_machine_with_scratch_allocator();
     gbl_machine *refused_machine = new_machine_with_scratch_allocator();
     gbl_machine *refused_before = NULL;
     gbl_audio_capture capture = { 0 };
     gbl_audio_capture sound_capture = { 0 };
+    gbl_audio_capture interleaved_capture = { 0 };
     gbl_audio_capture refused_capture = { 0 };
     gbl_run_options options = {
         .cycle_budget = UINT64_C(32),
@@ -4928,17 +4952,21 @@ static int run_capture_dma(void)
     };
     gbl_run_result result = { 0 };
     gbl_run_result sound_result = { 0 };
+    gbl_run_result interleaved_result = { 0 };
     gbl_run_result refused_result = { 0 };
     gbl_trace_record trace_record = { 0 };
     gbl_trace_record trace_record_before = { 0 };
     gbl_trace_buffer trace = { &trace_record, 1u, 0u, 0u };
     uint64_t sound_threshold = 0u;
+    uint64_t interleaved_threshold = 0u;
     uint64_t refused_threshold = 0u;
     bool setup = machine != NULL && staging != NULL;
     bool ran = false;
-    bool sound_setup = sound_machine != NULL && refused_machine != NULL &&
-                       sound_staging != NULL && refused_staging != NULL;
+    bool sound_setup = sound_machine != NULL && interleaved_machine != NULL &&
+                       refused_machine != NULL && sound_staging != NULL &&
+                       interleaved_staging != NULL && refused_staging != NULL;
     bool sound_ran = false;
+    bool interleaved_ran = false;
     bool refused = false;
 
     tap_test_number = 0u;
@@ -4946,6 +4974,7 @@ static int run_capture_dma(void)
     puts("TAP version 13");
     memset(output, UINT8_C(0xA5), sizeof(output));
     memset(sound_output, UINT8_C(0xA5), sizeof(sound_output));
+    memset(interleaved_output, UINT8_C(0xA5), sizeof(interleaved_output));
     memset(refused_output, UINT8_C(0xA5), sizeof(refused_output));
     if (setup) {
         setup = configure_ch2(machine, 0u, 3u, 15u, false, 0u,
@@ -4998,11 +5027,17 @@ static int run_capture_dma(void)
                           sound_machine, sound_image, sizeof(sound_image),
                           UINT64_C(506),
                           &sound_threshold) &&
+                      prepare_capture_interleaved_dma(interleaved_machine) &&
+                      prepare_capture_sound_dma(
+                          interleaved_machine, interleaved_image,
+                          sizeof(interleaved_image), UINT64_C(4600),
+                          &interleaved_threshold) &&
                       prepare_capture_sound_dma(
                           refused_machine, refused_image,
                           sizeof(refused_image), UINT64_C(508),
                           &refused_threshold) &&
                       sound_threshold == UINT64_C(506) &&
+                      interleaved_threshold == UINT64_C(4600) &&
                       refused_threshold == UINT64_C(508) &&
                       gbl_audio_capture_begin(
                           sound_machine, &sound_capture, sound_output,
@@ -5010,6 +5045,22 @@ static int run_capture_dma(void)
                       gbl_audio_capture_begin(
                           refused_machine, &refused_capture, refused_output,
                           sizeof(refused_output)) == GBL_TIME_STATUS_OK;
+    }
+    if (sound_setup) {
+        interleaved_machine->dma_channels[1].source_address =
+            UINT32_C(0x08000020);
+        interleaved_machine->dma_channels[1].current_source =
+            UINT32_C(0x08000020);
+        sound_setup =
+            gbl_audio_capture_begin(interleaved_machine,
+                                   &interleaved_capture,
+                                   interleaved_output,
+                                   sizeof(interleaved_output)) ==
+                GBL_TIME_STATUS_OK &&
+            gbl_machine_dma_request(
+                interleaved_machine, 0u, UINT64_C(4609),
+                interleaved_machine->dma_channels[0].generation) ==
+                GBL_TIME_STATUS_OK;
     }
     tap_check("timer threshold creates real FIFO-A sound DMA at the planned edge",
               sound_setup && sound_machine->master_cycles == UINT64_C(506) &&
@@ -5030,6 +5081,43 @@ static int run_capture_dma(void)
                   sound_output[0] == 0u && sound_output[1] == UINT8_C(0x7F) &&
                   sound_output[2] == 0u && sound_output[3] == 0u &&
                   sound_output[4] == UINT8_C(0xA5));
+
+    tap_check("ordinary DMA request is scheduled after the sound capture edge",
+              sound_setup && interleaved_machine->master_cycles ==
+                                  interleaved_threshold &&
+                  interleaved_capture.initial_cycle == interleaved_threshold &&
+                  interleaved_machine->dma_channels[1].pending &&
+                  interleaved_machine->dma_channels[0].armed);
+    if (sound_setup) {
+        gbl_run_options interleaved_options = options;
+
+        interleaved_options.cycle_budget = UINT64_C(128);
+        interleaved_ran =
+            gbl_cpu_run_audio(interleaved_machine, &interleaved_options,
+                              &interleaved_result, &interleaved_capture,
+                              interleaved_staging,
+                              GBL_AUDIO_MAX_CAPTURE_BYTES,
+                              UINT64_C(4700)) == GBL_RUN_STATUS_OK;
+    }
+    tap_check("interleaved ordinary DMA retains published literal PCM and DMA effects",
+              interleaved_ran &&
+                  interleaved_machine->dma_channels[1].completed_units ==
+                      4u &&
+                  interleaved_machine->dma_channels[0].completed_units ==
+                      1u &&
+                  interleaved_machine->ewram[UINT32_C(0x220)] ==
+                      UINT8_C(0xA5) &&
+                  interleaved_machine->ewram[UINT32_C(0x221)] ==
+                      UINT8_C(0x5A) &&
+                  interleaved_capture.bytes_written ==
+                      GBL_AUDIO_FRAME_BYTES &&
+                  interleaved_capture.last_accepted_cycle ==
+                      interleaved_machine->master_cycles &&
+                  interleaved_output[0] == 0u &&
+                  interleaved_output[1] == UINT8_C(0x7F) &&
+                  interleaved_output[2] == 0u &&
+                  interleaved_output[3] == 0u &&
+                  interleaved_output[4] == UINT8_C(0xA5));
 
     if (sound_setup) {
         refused_before = malloc(sizeof(*refused_before));
@@ -5067,10 +5155,12 @@ static int run_capture_dma(void)
     printf("1..%u\n", tap_test_number);
     free(staging);
     free(sound_staging);
+    free(interleaved_staging);
     free(refused_staging);
     free(refused_before);
     free_machine(machine);
     free_machine(sound_machine);
+    free_machine(interleaved_machine);
     free_machine(refused_machine);
     return tap_failure_count == 0u ? 0 : 1;
 }

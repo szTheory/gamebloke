@@ -4729,6 +4729,9 @@ static gbl_dma_status gbl_machine_dma_stage_internal_audio(
     gbl_time_status time_status;
     uint64_t final_cycle;
     uint64_t expected_frames;
+    size_t prior_staged_bytes;
+    size_t append_capacity;
+    size_t appended_bytes = 0u;
 
     if (capture == NULL) {
         return GBL_DMA_STATUS_OK;
@@ -4740,12 +4743,37 @@ static gbl_dma_status gbl_machine_dma_stage_internal_audio(
         capture->bytes_written > GBL_AUDIO_MAX_CAPTURE_BYTES) {
         return GBL_DMA_STATUS_INVALID_ARGUMENT;
     }
+    prior_staged_bytes = *staged_audio_bytes;
+    if (prior_staged_bytes > audio_staging_capacity ||
+        prior_staged_bytes > capture->capacity - capture->bytes_written ||
+        prior_staged_bytes > GBL_AUDIO_MAX_CAPTURE_BYTES -
+                                 capture->bytes_written) {
+        return GBL_DMA_STATUS_UNIT_REFUSAL;
+    }
+    append_capacity = audio_staging_capacity - prior_staged_bytes;
+    if (append_capacity > capture->capacity - capture->bytes_written -
+                              prior_staged_bytes) {
+        append_capacity = capture->capacity - capture->bytes_written -
+                          prior_staged_bytes;
+    }
+    if (append_capacity > GBL_AUDIO_MAX_CAPTURE_BYTES -
+                              capture->bytes_written -
+                              prior_staged_bytes) {
+        append_capacity = GBL_AUDIO_MAX_CAPTURE_BYTES -
+                          capture->bytes_written - prior_staged_bytes;
+    }
     time_status = gbl_machine_prepare_operations_audio_until(
-        machine, &operation, 1u, &preview, audio_staging,
-        audio_staging_capacity, staged_audio_bytes, capture_end_cycle);
+        machine, &operation, 1u, &preview,
+        audio_staging + prior_staged_bytes, append_capacity,
+        &appended_bytes, capture_end_cycle);
     if (time_status != GBL_TIME_STATUS_OK) {
         return gbl_dma_status_from_time(time_status);
     }
+    if (appended_bytes > append_capacity ||
+        appended_bytes > SIZE_MAX - prior_staged_bytes) {
+        return GBL_DMA_STATUS_UNIT_REFUSAL;
+    }
+    *staged_audio_bytes = prior_staged_bytes + appended_bytes;
     final_cycle = preview.master_cycles < capture_end_cycle
                       ? preview.master_cycles
                       : capture_end_cycle;
