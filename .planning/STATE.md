@@ -4,18 +4,18 @@ milestone: v4.0
 milestone_name: Audio
 current_phase: 19
 current_phase_name: Stereo Mixing and Runner Evidence
-current_plan: 3
+current_plan: 4
 status: executing
-stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-11-23T12:28:50.858Z"
+stopped_at: Completed 19-03-PLAN.md
+last_updated: "2026-11-23T13:22:10.126Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 19 execution started
-state_head: e2b848621d8eabfc29930c0bc421d0856e0dbf97
+state_head: 15dc027e14f6a2c4b8ee865c9a6ece527b8b6d3b
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 17
-  completed_plans: 13
+  completed_plans: 14
   percent: 50
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 19 (Stereo Mixing and Runner Evidence) — EXECUTING
-Current Plan: 3
+Current Plan: 4
 Total Plans in Phase: 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 19 execution started
@@ -207,6 +207,7 @@ Progress: [█████░░░░░] 50%
 | Phase 18 P04 | 3h33m20s | 2 tasks | 21 files |
 | Phase 19 P19-01 | 23m13s | 2 tasks | 3 files |
 | Phase 19 P2 | 53m | 3 tasks | 5 files |
+| Phase 19 P03 | 49min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -565,6 +566,10 @@ Recent decisions affecting current work:
 - [Phase 19]: Keep capture private behind a CPU runner entry point while preserving the public runner interface.
 - [Phase 19]: Treat the capture horizon as an output limit while advancing machine time through the full accepted operation endpoint.
 - [Phase 19]: Stage ordinary DMA audio over its exact elapsed interval and use the full sound-DMA candidate as the commit boundary.
+- [Phase 19]: Keep gamebloke.result/1 compatible by adding audio observations without changing existing guest or runner fields.
+- [Phase 19]: Keep bounded capture interval, guest outcome, runner termination, and artifact publication as independent observations.
+- [Phase 19]: Compile deterministic short-write, flush, and close injection only into runner_test; production builds have no enabled test seam.
+- [Phase 19]: Report hardware qualification as UNKNOWN and retain the fixed pre-PWM capture policy and evidence limits.
 
 ### Pending Todos
 
@@ -616,8 +621,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T12:28:50.555Z
-Stopped at: Completed 19-02-PLAN.md
+Last session: 2026-11-23T13:22:09.850Z
+Stopped at: Completed 19-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
