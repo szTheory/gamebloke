@@ -673,6 +673,70 @@ static int run_tracer(void)
     return CHECK_DONE();
 }
 
+static bool capture_mix_ch2_route(uint16_t route, uint8_t output[4])
+{
+    gbl_machine *machine = new_machine();
+    gbl_audio_capture capture;
+    bool ready = machine != NULL;
+
+    if (ready) {
+        ready = configure_ch2(machine, 0u, 3u, 15u, false, 0u,
+                              UINT16_C(2040), false) &&
+                write16(machine, UINT32_C(0x04000080), route).status ==
+                    GBL_BUS_STATUS_OK &&
+                write16(machine, UINT32_C(0x04000082), UINT16_C(0x0002))
+                        .status == GBL_BUS_STATUS_OK &&
+                gbl_audio_psg_sample(&machine->audio, 1u) == UINT8_C(15) &&
+                gbl_audio_capture_begin(machine, &capture, output, 4u) ==
+                    GBL_TIME_STATUS_OK &&
+                gbl_machine_advance_to_audio(machine, UINT64_C(512),
+                                             &capture) ==
+                    GBL_TIME_STATUS_OK &&
+                capture.bytes_written == GBL_AUDIO_FRAME_BYTES &&
+                machine->master_cycles == UINT64_C(512);
+    }
+    free_machine(machine);
+    return ready;
+}
+
+static int run_mix_tracer(void)
+{
+    static const uint8_t left_expected[4] = {
+        UINT8_C(0x00), UINT8_C(0x78), UINT8_C(0x00), UINT8_C(0x00)
+    };
+    static const uint8_t right_expected[4] = {
+        UINT8_C(0x00), UINT8_C(0x00), UINT8_C(0x00), UINT8_C(0x78)
+    };
+    uint8_t left_output[4] = { 0u };
+    uint8_t right_output[4] = { 0u };
+    const bool left_ready = capture_mix_ch2_route(UINT16_C(0x2070),
+                                                  left_output);
+    const bool right_ready = capture_mix_ch2_route(UINT16_C(0x0207),
+                                                   right_output);
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    tap_check("left-route guest writes reach the on-grid audio capture",
+              left_ready);
+    tap_check("left-only CH2 route emits literal S16LE frame 00 78 00 00",
+              left_ready && memcmp(left_output, left_expected,
+                                   sizeof(left_expected)) == 0);
+    tap_check("right-only CH2 route emits literal S16LE frame 00 00 00 78",
+              right_ready && memcmp(right_output, right_expected,
+                                    sizeof(right_expected)) == 0);
+    tap_check("reversing the route changes the literal stereo frame",
+              left_ready && right_ready &&
+                  memcmp(left_output, right_output,
+                         sizeof(left_output)) != 0);
+    printf("# left frame: %02X %02X %02X %02X\n", left_output[0],
+           left_output[1], left_output[2], left_output[3]);
+    printf("# right frame: %02X %02X %02X %02X\n", right_output[0],
+           right_output[1], right_output[2], right_output[3]);
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static bool fifo_lane_vector(gbl_machine *machine, unsigned fifo_index,
                              uint8_t width, uint8_t lane_offset,
                              uint32_t value)
@@ -4514,6 +4578,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "tracer") == 0) {
         return run_tracer();
+    }
+    if (strcmp(argv[1], "mix_tracer") == 0) {
+        return run_mix_tracer();
     }
     if (strcmp(argv[1], "ds_fifo") == 0) {
         return run_ds_fifo();
