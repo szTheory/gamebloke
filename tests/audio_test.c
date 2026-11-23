@@ -5075,6 +5075,398 @@ static int run_capture_dma(void)
     return tap_failure_count == 0u ? 0 : 1;
 }
 
+static bool prepare_capture_replay(gbl_machine *machine, uint8_t *image,
+                                   size_t image_size, uint8_t fifo_byte,
+                                   uint64_t threshold_cycle)
+{
+    const gbl_input_event input_events[2] = {
+        { threshold_cycle + UINT64_C(32), UINT16_C(0x0001) },
+        { threshold_cycle + UINT64_C(48), 0u }
+    };
+    const uint32_t fifo_word = (uint32_t)fifo_byte * UINT32_C(0x01010101);
+    uint64_t first_overflow;
+    unsigned index;
+    bool ready;
+
+    if (machine == NULL || image == NULL || image_size < 16u ||
+        threshold_cycle < UINT64_C(20)) {
+        return false;
+    }
+    ready = write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000082), 0u).status ==
+                GBL_BUS_STATUS_OK;
+    for (index = 0u; ready && index < 5u; ++index) {
+        const gbl_bus_result fifo = gbl_bus_write(
+            machine, UINT32_C(0x040000A0), 4u,
+            GBL_BUS_CLASS_NONSEQUENTIAL, fifo_word);
+
+        ready = fifo.status == GBL_BUS_STATUS_OK &&
+                fifo.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+    }
+    for (index = 0u; ready && index < 4u; ++index) {
+        const uint32_t value = UINT32_C(0x90807060) + index;
+        const size_t offset = UINT32_C(0x100) + (size_t)index * 4u;
+
+        machine->ewram[offset] = (uint8_t)value;
+        machine->ewram[offset + 1u] = (uint8_t)(value >> 8u);
+        machine->ewram[offset + 2u] = (uint8_t)(value >> 16u);
+        machine->ewram[offset + 3u] = (uint8_t)(value >> 24u);
+    }
+    ready = ready &&
+            gbl_bus_write(machine, UINT32_C(0x040000BC), 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x02000100)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x040000C0), 4u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x03000100)).status == GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x040000C4), 1u).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x040000C6), UINT16_C(0xB000)).status ==
+                GBL_BUS_STATUS_OK &&
+            gbl_machine_advance_to(
+                machine, threshold_cycle - UINT64_C(20)) ==
+                GBL_TIME_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000104), UINT16_C(0xFFFC)).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000106), UINT16_C(0x00C4)).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000100), UINT16_C(0xFFFC)).status ==
+                GBL_BUS_STATUS_OK &&
+            write16(machine, UINT32_C(0x04000102), UINT16_C(0x00C0)).status ==
+                GBL_BUS_STATUS_OK &&
+            prepare_capture_cpu_owned_rom(
+                machine, image, image_size, UINT32_C(0xE1C100B0));
+    if (!ready) {
+        return false;
+    }
+    first_overflow = timer_next_overflow_cycle(&machine->timers[0]);
+    ready = first_overflow != UINT64_MAX &&
+            first_overflow <= UINT64_MAX - UINT64_C(12) &&
+            first_overflow + UINT64_C(12) == threshold_cycle &&
+            machine->master_cycles == threshold_cycle - UINT64_C(16) &&
+            machine->audio.fifo[0].count == 20u &&
+            machine->timers[1].enabled && machine->timers[1].cascade &&
+            gbl_machine_set_input_timeline(machine, input_events, 2u) ==
+                GBL_TIME_STATUS_OK;
+    machine->cpu.r0_7[0] = UINT32_C(0x0206);
+    machine->cpu.r0_7[1] = UINT32_C(0x04000082);
+    machine->interrupt_enable = UINT16_C(0x0018);
+    machine->interrupt_master_enable = 0u;
+    return ready &&
+           gbl_machine_set_power_state(
+               machine, GBL_MACHINE_POWER_HALTED) == GBL_TIME_STATUS_OK;
+}
+
+static bool capture_replay_machine_equal(const gbl_machine *left,
+                                         const gbl_machine *right)
+{
+    return left != NULL && right != NULL &&
+           left->master_cycles == right->master_cycles &&
+           left->next_event_sequence == right->next_event_sequence &&
+           left->power_state == right->power_state &&
+           left->open_bus == right->open_bus &&
+           left->dispcnt == right->dispcnt &&
+           left->interrupt_flags == right->interrupt_flags &&
+           left->interrupt_enable == right->interrupt_enable &&
+           left->interrupt_master_enable == right->interrupt_master_enable &&
+           left->waitcnt == right->waitcnt &&
+           gbl_audio_state_equal(&left->audio, &right->audio) &&
+           memcmp(&left->ppu, &right->ppu, sizeof(left->ppu)) == 0 &&
+           left->bus_owner == right->bus_owner &&
+           left->dma_last_channel == right->dma_last_channel &&
+           left->dma_last_width == right->dma_last_width &&
+           left->dma_last_source == right->dma_last_source &&
+           left->dma_last_destination == right->dma_last_destination &&
+           left->dma_stream_valid == right->dma_stream_valid &&
+           left->dma_transaction_active == right->dma_transaction_active &&
+           left->dma_transaction_dispatched ==
+               right->dma_transaction_dispatched &&
+           memcmp(left->dma_channels, right->dma_channels,
+                  sizeof(left->dma_channels)) == 0 &&
+           left->pressed_keys == right->pressed_keys &&
+           left->key_control == right->key_control &&
+           left->key_condition == right->key_condition &&
+           left->key_irq_condition == right->key_irq_condition &&
+           left->event_count == right->event_count &&
+           memcmp(left->events, right->events,
+                  left->event_count * sizeof(left->events[0])) == 0 &&
+           memcmp(left->timers, right->timers,
+                  sizeof(left->timers)) == 0 &&
+           left->input_generation == right->input_generation &&
+           left->input_event_count == right->input_event_count &&
+           left->input_event_cursor == right->input_event_cursor &&
+           memcmp(left->input_events, right->input_events,
+                  left->input_event_count * sizeof(left->input_events[0])) ==
+               0 &&
+           memcmp(left->ewram, right->ewram, sizeof(left->ewram)) == 0 &&
+           memcmp(left->iwram, right->iwram, sizeof(left->iwram)) == 0 &&
+           memcmp(left->pram, right->pram, sizeof(left->pram)) == 0 &&
+           memcmp(left->vram, right->vram, sizeof(left->vram)) == 0 &&
+           memcmp(left->video_frame, right->video_frame,
+                  sizeof(left->video_frame)) == 0 &&
+           memcmp(left->oam, right->oam, sizeof(left->oam)) == 0 &&
+           left->rom_length == right->rom_length &&
+           memcmp(&left->cpu, &right->cpu, sizeof(left->cpu)) == 0;
+}
+
+static bool capture_replay_window(gbl_machine *machine,
+                                  gbl_audio_capture *capture,
+                                  uint8_t *pcm, size_t pcm_capacity,
+                                  uint8_t *staging, size_t staging_capacity,
+                                  gbl_trace_buffer *trace, bool split,
+                                  gbl_run_result *aggregate)
+{
+    static const uint64_t chunks[10] = {
+        1u, 2u, 5u, 3u, 8u, 1u, 13u, 7u, 11u, 29u
+    };
+    gbl_run_options options = {
+        .cycle_budget = UINT64_C(10000),
+        .unit_limit = 80u,
+        .category_mask = (uint32_t)(GBL_TRACE_INSTRUCTION | GBL_TRACE_DMA),
+        .trace_buffer = trace
+    };
+    gbl_run_result run = { 0 };
+    size_t index;
+
+    (void)pcm;
+    (void)pcm_capacity;
+    if (machine == NULL || capture == NULL || staging == NULL ||
+        aggregate == NULL ||
+        gbl_audio_capture_begin(machine, capture, pcm, pcm_capacity) !=
+            GBL_TIME_STATUS_OK) {
+        return false;
+    }
+    if (!split) {
+        return gbl_cpu_run_audio(
+                   machine, &options, aggregate, capture, staging,
+                   staging_capacity,
+                   capture->initial_cycle + UINT64_C(4096)) ==
+                   GBL_RUN_STATUS_OK &&
+               aggregate->termination == GBL_RUN_PROGRESS &&
+               aggregate->instructions == UINT64_C(80);
+    }
+    *aggregate = (gbl_run_result){ 0 };
+    for (index = 0u; index < sizeof(chunks) / sizeof(chunks[0]); ++index) {
+        options.unit_limit = chunks[index];
+        run = (gbl_run_result){ 0 };
+        if (gbl_cpu_run_audio(
+                machine, &options, &run, capture, staging,
+                staging_capacity,
+                capture->initial_cycle + UINT64_C(4096)) !=
+                GBL_RUN_STATUS_OK ||
+            run.termination != GBL_RUN_PROGRESS ||
+            run.instructions != chunks[index]) {
+            return false;
+        }
+        aggregate->termination = run.termination;
+        aggregate->reason = run.reason;
+        aggregate->cycles += run.cycles;
+        aggregate->instructions += run.instructions;
+        aggregate->bus_cycles += run.bus_cycles;
+        aggregate->internal_cycles += run.internal_cycles;
+        aggregate->wait_cycles += run.wait_cycles;
+        aggregate->wake_cycle = run.wake_cycle;
+        aggregate->wake_source_mask = run.wake_source_mask;
+        aggregate->power_cause = run.power_cause;
+        aggregate->dma_startup_cycles += run.dma_startup_cycles;
+        aggregate->dma_source_cycles += run.dma_source_cycles;
+        aggregate->dma_destination_cycles += run.dma_destination_cycles;
+        aggregate->dma_completed_units += run.dma_completed_units;
+        aggregate->dma_pause_cycles += run.dma_pause_cycles;
+    }
+    return true;
+}
+
+static int run_capture_replay(void)
+{
+    uint8_t whole_image[UINT32_C(0x1000)] = { 0u };
+    uint8_t split_image[UINT32_C(0x1000)] = { 0u };
+    uint8_t changed_image[UINT32_C(0x1000)] = { 0u };
+    uint8_t capacity_image[UINT32_C(0x4000)] = { 0u };
+    uint8_t whole_pcm[64];
+    uint8_t split_pcm[64];
+    uint8_t changed_pcm[64];
+    uint8_t capacity_pcm[8];
+    uint8_t *staging = malloc(GBL_AUDIO_MAX_CAPTURE_BYTES);
+    gbl_trace_record *trace_records =
+        calloc(3u * 512u, sizeof(*trace_records));
+    gbl_machine *whole = new_machine_with_scratch_allocator();
+    gbl_machine *split = new_machine_with_scratch_allocator();
+    gbl_machine *changed = new_machine_with_scratch_allocator();
+    gbl_machine *capacity_machine = new_machine_with_scratch_allocator();
+    gbl_audio_capture whole_capture = { 0 };
+    gbl_audio_capture split_capture = { 0 };
+    gbl_audio_capture changed_capture = { 0 };
+    gbl_audio_capture capacity_capture = { 0 };
+    gbl_trace_buffer whole_trace = { trace_records, 512u, 0u, 0u };
+    gbl_trace_buffer split_trace = { trace_records == NULL
+                                         ? NULL
+                                         : trace_records + 512u,
+                                     512u, 0u, 0u };
+    gbl_trace_buffer changed_trace = { trace_records == NULL
+                                           ? NULL
+                                           : trace_records + 1024u,
+                                       512u, 0u, 0u };
+    gbl_run_result whole_result = { 0 };
+    gbl_run_result split_result = { 0 };
+    gbl_run_result changed_result = { 0 };
+    gbl_run_result zero_frame_result = { 0 };
+    gbl_run_result capacity_result = { 0 };
+    static const uint8_t expected_first_frame[4] = {
+        0x00u, 0x7Fu, 0x00u, 0x00u
+    };
+    static const uint8_t changed_first_frame[4] = { 0u, 0u, 0u, 0u };
+    bool setup = staging != NULL && trace_records != NULL && whole != NULL &&
+                 split != NULL && changed != NULL &&
+                 capacity_machine != NULL;
+    bool whole_ok = false;
+    bool split_ok = false;
+    bool changed_ok = false;
+    uint64_t horizon = 0u;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    puts("TAP version 13");
+    memset(whole_pcm, UINT8_C(0xA5), sizeof(whole_pcm));
+    memset(split_pcm, UINT8_C(0xA5), sizeof(split_pcm));
+    memset(changed_pcm, UINT8_C(0xA5), sizeof(changed_pcm));
+    memset(capacity_pcm, UINT8_C(0xA5), sizeof(capacity_pcm));
+    if (setup) {
+        setup = prepare_capture_replay(whole, whole_image,
+                                       sizeof(whole_image), UINT8_C(0x7F),
+                                       UINT64_C(508)) &&
+                prepare_capture_replay(split, split_image,
+                                       sizeof(split_image), UINT8_C(0x7F),
+                                       UINT64_C(508)) &&
+                prepare_capture_replay(changed, changed_image,
+                                       sizeof(changed_image), 0u,
+                                       UINT64_C(508)) &&
+                prepare_capture_replay(capacity_machine, capacity_image,
+                                       sizeof(capacity_image), UINT8_C(0x7F),
+                                       UINT64_C(508)) &&
+                whole->master_cycles == split->master_cycles &&
+                whole->master_cycles == changed->master_cycles &&
+                whole->power_state == GBL_MACHINE_POWER_HALTED &&
+                whole->dma_channels[1].armed &&
+                !whole->dma_channels[1].pending &&
+                whole->audio.fifo[0].count == 20u;
+    }
+    tap_check("replay fixtures contain guest STRH, HALT, timer, logical input and armed FIFO DMA",
+              setup);
+    if (setup) {
+        horizon = whole->master_cycles + UINT64_C(4096);
+        const uint64_t before_cycle = whole->master_cycles;
+        gbl_run_options zero_options = {
+            .cycle_budget = 0u,
+            .unit_limit = 0u,
+            .category_mask = 0u,
+            .trace_buffer = NULL
+        };
+
+        zero_frame_result = (gbl_run_result){ 0 };
+        whole_ok =
+            gbl_audio_capture_begin(whole, &whole_capture, whole_pcm,
+                                    sizeof(whole_pcm)) == GBL_TIME_STATUS_OK &&
+            gbl_cpu_run_audio(
+                whole, &zero_options, &zero_frame_result, &whole_capture,
+                staging, GBL_AUDIO_MAX_CAPTURE_BYTES, horizon) ==
+                GBL_RUN_STATUS_OK &&
+            whole->master_cycles == before_cycle &&
+            whole_capture.bytes_written == 0u &&
+            whole_capture.last_accepted_cycle == before_cycle &&
+            whole_pcm[0] == UINT8_C(0xA5) &&
+            whole_pcm[1] == UINT8_C(0xA5) &&
+            whole_trace.count == 0u;
+        tap_check("zero-frame runner call leaves the session and output untouched",
+                  whole_ok &&
+                      zero_frame_result.termination == GBL_RUN_TIMEOUT);
+        whole_ok = capture_replay_window(
+            whole, &whole_capture, whole_pcm, sizeof(whole_pcm), staging,
+            GBL_AUDIO_MAX_CAPTURE_BYTES, &whole_trace, false, &whole_result);
+        split_ok = capture_replay_window(
+            split, &split_capture, split_pcm, sizeof(split_pcm), staging,
+            GBL_AUDIO_MAX_CAPTURE_BYTES, &split_trace, true, &split_result);
+        changed_ok = capture_replay_window(
+            changed, &changed_capture, changed_pcm, sizeof(changed_pcm),
+            staging, GBL_AUDIO_MAX_CAPTURE_BYTES, &changed_trace, false,
+            &changed_result);
+        {
+            gbl_run_options capacity_options = {
+                .cycle_budget = UINT64_C(10000),
+                .unit_limit = 0u,
+                .category_mask = 0u,
+                .trace_buffer = NULL
+            };
+            const uint64_t capacity_end =
+                capacity_machine->master_cycles + UINT64_C(4096);
+
+            capacity_result = (gbl_run_result){ 0 };
+            if (gbl_audio_capture_begin(capacity_machine, &capacity_capture,
+                                       capacity_pcm, 4u) ==
+                GBL_TIME_STATUS_OK) {
+                (void)gbl_cpu_run_audio(
+                    capacity_machine, &capacity_options, &capacity_result,
+                    &capacity_capture, staging,
+                    GBL_AUDIO_MAX_CAPTURE_BYTES, capacity_end);
+            }
+        }
+    }
+    tap_check("whole guest run publishes the literal asymmetric first FIFO frame",
+              whole_ok && whole_capture.bytes_written >= sizeof(expected_first_frame) &&
+                  memcmp(whole_pcm, expected_first_frame,
+                         sizeof(expected_first_frame)) == 0);
+    tap_check("irregular accepted CPU and HALT cuts match PCM and semantic machine state",
+              whole_ok && split_ok &&
+                  whole_capture.bytes_written == split_capture.bytes_written &&
+                  memcmp(whole_pcm, split_pcm,
+                         whole_capture.bytes_written) == 0 &&
+                  whole_capture.last_accepted_cycle ==
+                      split_capture.last_accepted_cycle &&
+                  whole->master_cycles == split->master_cycles &&
+                  capture_replay_machine_equal(whole, split) &&
+                  whole_result.instructions == split_result.instructions &&
+                  whole_result.cycles == split_result.cycles &&
+                  whole_result.wait_cycles == split_result.wait_cycles &&
+                  whole_trace.count == split_trace.count &&
+                  whole_trace.next_sequence == split_trace.next_sequence &&
+                  memcmp(whole_trace.records, split_trace.records,
+                         whole_trace.count * sizeof(whole_trace.records[0])) ==
+                      0 &&
+                  whole->input_event_cursor == 2u &&
+                  whole_capture.last_accepted_cycle <= horizon);
+    tap_check("changed initial FIFO bytes change the predicted sample frame",
+              whole_ok && changed_ok &&
+                  changed_capture.bytes_written >=
+                      sizeof(changed_first_frame) &&
+                  memcmp(changed_pcm, changed_first_frame,
+                         sizeof(changed_first_frame)) == 0 &&
+                  memcmp(changed_pcm, whole_pcm,
+                         sizeof(changed_first_frame)) != 0);
+    tap_check("one-frame capacity stops before the next edge and preserves its suffix",
+              capacity_result.termination == GBL_RUN_STOPPED &&
+                  capacity_result.reason == GBL_RUN_REASON_TIME_REFUSAL &&
+                  capacity_capture.bytes_written == GBL_AUDIO_FRAME_BYTES &&
+                  capacity_capture.last_accepted_cycle ==
+                      capacity_machine->master_cycles &&
+                  capacity_machine->master_cycles < UINT64_C(1024) &&
+                  memcmp(capacity_pcm, expected_first_frame,
+                         sizeof(expected_first_frame)) == 0 &&
+                  capacity_pcm[4] == UINT8_C(0xA5) &&
+                  capacity_pcm[5] == UINT8_C(0xA5) &&
+                  capacity_pcm[6] == UINT8_C(0xA5) &&
+                  capacity_pcm[7] == UINT8_C(0xA5));
+
+    printf("1..%u\n", tap_test_number);
+    free(staging);
+    free(trace_records);
+    free_machine(whole);
+    free_machine(split);
+    free_machine(changed);
+    free_machine(capacity_machine);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static bool snapshot_machine(gbl_machine *machine, gbl_machine **snapshot)
 {
     *snapshot = malloc(sizeof(**snapshot));
@@ -5696,6 +6088,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "capture_dma") == 0) {
         return run_capture_dma();
+    }
+    if (strcmp(argv[1], "capture_replay") == 0) {
+        return run_capture_replay();
     }
     if (strcmp(argv[1], "refusal") == 0) {
         return run_refusal();
