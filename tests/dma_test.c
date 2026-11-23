@@ -70,6 +70,132 @@ static bool read_register(gbl_machine *machine, uint8_t channel,
            result.value == expected;
 }
 
+static bool write_sound_fifo(gbl_machine *machine, uint8_t width,
+                             uint32_t value)
+{
+    const gbl_bus_result result = gbl_bus_write(
+        machine, UINT32_C(0x040000A0), width,
+        GBL_BUS_CLASS_NONSEQUENTIAL, value);
+
+    return result.status == GBL_BUS_STATUS_OK &&
+           result.outcome == GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+}
+
+static uint64_t next_timer_overflow(const gbl_machine *machine,
+                                    uint8_t timer_index)
+{
+    size_t event_index;
+
+    for (event_index = 0u; event_index < machine->event_count;
+         ++event_index) {
+        const gbl_event *event = &machine->events[event_index];
+
+        if (event->live &&
+            event->kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
+            event->timer_index == timer_index &&
+            event->generation == machine->timers[timer_index].generation) {
+            return event->cycle;
+        }
+    }
+    return UINT64_MAX;
+}
+
+static bool test_sound_refill_from_timer_threshold(void)
+{
+    static const uint32_t initial_words[4] = {
+        UINT32_C(0x01020304), UINT32_C(0x11121314),
+        UINT32_C(0x21222324), UINT32_C(0x31323334)
+    };
+    static const uint32_t source_words[4] = {
+        UINT32_C(0xA1A2A3A4), UINT32_C(0xB1B2B3B4),
+        UINT32_C(0xC1C2C3C4), UINT32_C(0xD1D2D3D4)
+    };
+    gbl_machine *machine = new_machine();
+    gbl_dma_step_result step = { 0 };
+    uint64_t deadline = UINT64_MAX;
+    uint32_t lane;
+    bool setup;
+    bool valid;
+
+    if (machine == NULL) {
+        return false;
+    }
+    machine->iwram[UINT32_C(0x100)] = UINT8_C(0x6A);
+    for (lane = 0u; lane < 4u; ++lane) {
+        const uint32_t value = source_words[lane];
+        const size_t offset = (size_t)UINT32_C(0x100) +
+                              (size_t)lane * 4u;
+
+        machine->ewram[offset] = (uint8_t)value;
+        machine->ewram[offset + 1u] = (uint8_t)(value >> 8u);
+        machine->ewram[offset + 2u] = (uint8_t)(value >> 16u);
+        machine->ewram[offset + 3u] = (uint8_t)(value >> 24u);
+    }
+    setup = write_sound_fifo(machine, 4u, initial_words[0]) &&
+            write_sound_fifo(machine, 4u, initial_words[1]) &&
+            write_sound_fifo(machine, 4u, initial_words[2]) &&
+            write_sound_fifo(machine, 4u, initial_words[3]) &&
+            write_sound_fifo(machine, 1u, UINT32_C(0x7E)) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT32_C(0xB000)) &&
+            machine->audio.fifo[0].count == 20u &&
+            machine->dma_channels[1].armed &&
+            !machine->dma_channels[1].pending &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    if (setup) {
+        deadline = next_timer_overflow(machine, 0u);
+    }
+    setup = setup && deadline != UINT64_MAX && deadline <= UINT64_MAX - 12u &&
+            gbl_machine_advance_to(machine, deadline + 12u) ==
+                GBL_TIME_STATUS_OK;
+    valid = setup && machine->audio.fifo[0].count == 16u &&
+            machine->audio.fifo[0].sample == 1 &&
+            gbl_machine_dma_step(machine, UINT64_C(1024), &step) ==
+                GBL_DMA_STATUS_OK;
+    printf("# sound refill setup=%d deadline=%llu fifo_count=%u "
+           "dma_status=%u channel=%u completed=%llu remaining=%u\n",
+           setup ? 1 : 0, (unsigned long long)deadline,
+           machine->audio.fifo[0].count, (unsigned int)step.status,
+           (unsigned int)step.channel, (unsigned long long)step.completed,
+           step.remaining);
+    if (valid) {
+        valid = step.channel == 1u && step.completed == 4u &&
+                step.unit_completed &&
+                machine->audio.fifo[0].count == 32u &&
+                machine->audio.fifo[0].read_cursor == 4u &&
+                machine->audio.fifo[0].write_cursor == 4u &&
+                machine->audio.fifo[0].sample == 1 &&
+                machine->dma_channels[1].source_address ==
+                    UINT32_C(0x02000100) &&
+                machine->dma_channels[1].destination_address ==
+                    UINT32_C(0x03000100) &&
+                machine->dma_channels[1].control == UINT16_C(0xB000) &&
+                machine->dma_channels[1].count == 1u &&
+                machine->dma_channels[1].current_source ==
+                    UINT32_C(0x02000110) &&
+                machine->iwram[UINT32_C(0x100)] == UINT8_C(0x6A);
+        for (lane = 0u; valid && lane < 16u; ++lane) {
+            const uint32_t source_word = source_words[lane / 4u];
+            const uint8_t expected = (uint8_t)(
+                source_word >> ((lane & 3u) * 8u));
+
+            valid = machine->audio.fifo[0].bytes[(20u + lane) & 31u] ==
+                    expected;
+        }
+    }
+    free_machine(machine);
+    return valid;
+}
+
 static bool test_channel_register_masks(void)
 {
     gbl_machine *machine = new_machine();
@@ -2856,8 +2982,21 @@ static bool run_controls(void)
     return failure_count == 0u ? 0 : 1;
 }
 
+static bool run_sound_refill(void)
+{
+    check_count = 0u;
+    failure_count = 0u;
+    printf("TAP version 13\n1..1\n");
+    test_case(test_sound_refill_from_timer_threshold(),
+              "Timer 0 post-pop threshold refills FIFO A through four forced DMA words while preserving programmed registers");
+    return failure_count == 0u ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "sound_refill") == 0) {
+        return run_sound_refill();
+    }
     if (argc == 2 && strcmp(argv[1], "ppu.access") == 0) {
         return run_ppu_access();
     }
