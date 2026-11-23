@@ -24,8 +24,8 @@ This is the committed scope for GSD milestone v4.0; it is not a software release
 ### Raw Capture and Evidence
 
 - [x] **CAP-01**: Raw capture is an interleaved stereo signed 16-bit little-endian tap before PWM conversion, at a fixed 32,768 frames per second aligned to reset cycle 0; its first frame is at cycle 512, subsequent frames are every 512 `agb` master cycles, and capture has explicit bounds.
-- [ ] **CAP-02**: The production headless runner captures bounded raw samples and reports profile/policy identity, cycle interval, cadence/encoding, sample/byte counts, and digest. Audio capture validity is separate from overall runner status and guest result; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results remain distinguishable.
-- [ ] **CAP-03**: Fresh runs advanced as one interval or irregular sub-intervals produce identical concatenated audio and machine observations for the same timed guest input.
+- [x] **CAP-02**: The production headless runner captures bounded raw samples and reports profile/policy identity, cycle interval, cadence/encoding, sample/byte counts, and digest. Audio capture validity is separate from overall runner status and guest result; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results remain distinguishable.
+- [x] **CAP-03**: Fresh runs advanced as one interval or irregular sub-intervals produce identical concatenated audio and machine observations for the same timed guest input.
 - [ ] **EVID-01**: Canonical verification runs an original, rights-cleared, BIOS-free audio diagnostic with independent guest-progress and expected-sample assertions bound to its exact build and run; a digest is used only for identity and replay equality. Fixture metadata records source, revision, build recipe, digest, license, notices, BIOS needs, and permitted use.
 - [ ] **CLAIM-01**: Profile and result metadata name implemented audio capabilities, the fixed pre-PWM capture policy, selected model policies, unsupported edges, and evidence limits; hardware qualification remains UNKNOWN.
 
@@ -61,8 +61,8 @@ Deferred audio capabilities that are not part of v4.0:
 | DS-02 | Phase 18 | Complete |
 | MIX-01 | Phase 19 | Pending |
 | CAP-01 | Phase 16 | Complete |
-| CAP-02 | Phase 19 | Pending |
-| CAP-03 | Phase 19 | Pending |
+| CAP-02 | Phase 19 | Complete |
+| CAP-03 | Phase 19 | Complete |
 | EVID-01 | Phase 19 | Pending |
 | CLAIM-01 | Phase 19 | Pending |
 

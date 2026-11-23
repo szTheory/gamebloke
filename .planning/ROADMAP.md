@@ -113,12 +113,12 @@ v4.0. Hardware qualification remains UNKNOWN.
   4. Canonical verification runs an original, rights-cleared BIOS-free guest that asserts guest progress and sample semantics while exercising PSG and Direct Sound/FIFO-DMA integration. Fixture source, revision, build recipe, digest, license, notices, BIOS needs, and permitted use are bound to the exact run.
   5. Profile and result metadata agree on the implemented pre-PWM capabilities, fixed capture policy, unsupported edges, and evidence limits. Hardware qualification remains UNKNOWN.
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 **Wave 1**
 - [x] 19-01-PLAN.md — Implement and verify stereo mixing on the fixed pre-PWM sample grid (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 19-02-PLAN.md — Capture committed CPU, DMA, and wait samples and prove irregular replay (Wave 2)
+- [x] 19-02-PLAN.md — Capture committed CPU, DMA, and wait samples and prove irregular replay (Wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 19-03-PLAN.md — Add bounded runner audio output and independent result states (Wave 3)
@@ -139,7 +139,7 @@ v4.0. Hardware qualification remains UNKNOWN.
 | 16. Audio Registers and Capture Contract | 3/3 | Complete    | 2026-11-22 |
 | 17. PSG Channels and Sequencer | 4/4 | Complete    | 2026-11-22 |
 | 18. Direct Sound and FIFO DMA | 4/4 | In Progress | — |
-| 19. Stereo Mixing and Runner Evidence | 1/6 | In Progress | — |
+| 19. Stereo Mixing and Runner Evidence | 2/6 | In Progress | — |
 
 ## Open Carryovers and Evidence Limits
 
