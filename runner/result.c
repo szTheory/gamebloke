@@ -1,8 +1,25 @@
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
+#define _POSIX_C_SOURCE 200809L
+#define _DARWIN_C_SOURCE
 #include "run.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <sys/stdio.h>
+#elif defined(__linux__)
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
 
 #if defined(GBL_RUNNER_TESTING)
 static gbl_runner_audio_writer_test_fault gbl_runner_audio_writer_fault;
@@ -596,13 +613,179 @@ static void gbl_runner_set_audio_artifact_error(gbl_runner_result *result,
     memcpy(result->audio.artifact_error, error, length + 1u);
 }
 
+static bool gbl_runner_audio_path_parts(const char *path,
+                                        char **directory_path,
+                                        const char **file_name)
+{
+    const char *slash;
+    size_t directory_length;
+
+    slash = strrchr(path, '/');
+    *file_name = slash == NULL ? path : slash + 1;
+    if ((*file_name)[0] == '\0') {
+        return false;
+    }
+    if (slash == NULL) {
+        *directory_path = malloc(sizeof ".");
+        if (*directory_path != NULL) {
+            memcpy(*directory_path, ".", sizeof ".");
+        }
+        return *directory_path != NULL;
+    }
+    directory_length = slash == path ? 1u : (size_t)(slash - path);
+    if (directory_length > SIZE_MAX - sizeof "") {
+        return false;
+    }
+    *directory_path = malloc(directory_length + sizeof "");
+    if (*directory_path == NULL) {
+        return false;
+    }
+    memcpy(*directory_path, path, directory_length);
+    (*directory_path)[directory_length] = '\0';
+    return true;
+}
+
+static bool gbl_runner_audio_parent_cleanup_is_safe(
+    const struct stat *directory_stat)
+{
+    mode_t mode = directory_stat->st_mode;
+    bool trusted_owner = directory_stat->st_uid == geteuid() ||
+                         directory_stat->st_uid == (uid_t)0;
+
+    /* Only the effective user or root may own the parent we remove from. A
+     * private parent or a sticky shared parent then protects our entry. */
+    return trusted_owner &&
+           ((mode & (S_IWGRP | S_IWOTH)) == 0 || (mode & S_ISVTX) != 0);
+}
+
+static bool gbl_runner_create_audio_stage_directory(int parent_fd,
+                                                    char *name,
+                                                    size_t name_capacity)
+{
+    unsigned int attempt;
+
+    for (attempt = 0u; attempt < 128u; ++attempt) {
+        struct timespec now;
+        uint64_t stamp;
+        int written;
+
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+            return false;
+        }
+        stamp = (uint64_t)now.tv_sec * UINT64_C(1000000000) +
+                (uint64_t)now.tv_nsec;
+        written = snprintf(name, name_capacity,
+                           ".gamebloke-audio-%ld-%016" PRIx64 "-%u",
+                           (long)getpid(), stamp, attempt);
+        if (written < 0 || (size_t)written >= name_capacity) {
+            errno = ENAMETOOLONG;
+            return false;
+        }
+        if (mkdirat(parent_fd, name, 0700) == 0) {
+            return true;
+        }
+        if (errno != EEXIST) {
+            return false;
+        }
+    }
+    errno = EEXIST;
+    return false;
+}
+
+static bool gbl_runner_remove_audio_stage_directory(int parent_fd,
+                                                    const char *name,
+                                                    bool parent_cleanup_safe)
+{
+    if (!parent_cleanup_safe) {
+        return false;
+    }
+    return unlinkat(parent_fd, name, AT_REMOVEDIR) == 0 || errno == ENOENT;
+}
+
+static bool gbl_runner_cleanup_audio_stage(int parent_fd,
+                                           int *stage_directory_fd,
+                                           const char *stage_directory_name,
+                                           bool parent_cleanup_safe,
+                                           bool remove_payload)
+{
+    bool okay = true;
+
+    if (remove_payload &&
+        unlinkat(*stage_directory_fd, "audio.pcm", 0) != 0 &&
+        errno != ENOENT) {
+        okay = false;
+    }
+    if (close(*stage_directory_fd) != 0) {
+        okay = false;
+    }
+    *stage_directory_fd = -1;
+    if (parent_cleanup_safe &&
+        !gbl_runner_remove_audio_stage_directory(
+            parent_fd, stage_directory_name, parent_cleanup_safe)) {
+        okay = false;
+    }
+    /* In a non-sticky shared parent, retain the now-empty private directory
+     * rather than risk removing a different directory by its pathname. */
+    return okay;
+}
+
+static int gbl_runner_publish_audio_temp(int temporary_directory_fd,
+                                         int destination_directory_fd,
+                                         const char *destination_name)
+{
+#if defined(__APPLE__)
+    return renameatx_np(temporary_directory_fd, "audio.pcm",
+                        destination_directory_fd, destination_name,
+                        RENAME_EXCL);
+#elif defined(__linux__)
+    return (int)syscall(SYS_renameat2, temporary_directory_fd, "audio.pcm",
+                        destination_directory_fd, destination_name,
+                        RENAME_NOREPLACE);
+#else
+    (void)temporary_directory_fd;
+    (void)destination_directory_fd;
+    (void)destination_name;
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+
+static bool gbl_runner_publish_unavailable_error(int error)
+{
+    if (error == ENOSYS || error == EINVAL) {
+        return true;
+    }
+#if defined(ENOTSUP)
+    if (error == ENOTSUP) {
+        return true;
+    }
+#endif
+#if defined(EOPNOTSUPP) && (!defined(ENOTSUP) || EOPNOTSUPP != ENOTSUP)
+    if (error == EOPNOTSUPP) {
+        return true;
+    }
+#endif
+    return false;
+}
+
 bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
 {
     gbl_runner_audio_observation *observation;
     FILE *output;
+    char *destination_directory_path = NULL;
+    const char *destination_name = NULL;
+    char stage_directory_name[96];
     char digest[GBL_SHA256_HEX_CAPACITY];
+    struct stat destination_directory_stat;
+    struct stat existing_stat;
+    struct stat stage_directory_stat;
+    struct stat temporary_stat;
     uint64_t expected_frames;
     size_t expected_bytes;
+    int destination_directory_fd = -1;
+    int stage_directory_fd = -1;
+    int temporary_fd;
+    bool parent_cleanup_safe = false;
     bool write_okay;
     bool flush_okay;
     bool close_okay;
@@ -671,18 +854,172 @@ bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
         gbl_runner_set_audio_artifact_error(result, "audio-digest-failed");
         return false;
     }
+    if (!gbl_runner_audio_path_parts(path, &destination_directory_path,
+                                    &destination_name)) {
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-output-path-empty");
+        return false;
+    }
 
-    errno = 0;
-    output = fopen(path, "wbx");
-    if (output == NULL) {
+#if defined(__linux__)
+    destination_directory_fd = open(
+        destination_directory_path, O_PATH | O_DIRECTORY | O_CLOEXEC);
+#elif defined(__APPLE__)
+    destination_directory_fd = open(destination_directory_path,
+                                    O_SEARCH | O_CLOEXEC);
+#else
+    destination_directory_fd = open(destination_directory_path,
+                                    O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+#endif
+    if (destination_directory_fd < 0 ||
+        fstat(destination_directory_fd, &destination_directory_stat) != 0) {
+        if (destination_directory_fd >= 0) {
+            (void)close(destination_directory_fd);
+        }
+        free(destination_directory_path);
         gbl_runner_set_audio_artifact_error(
-            result, errno == EEXIST ? "audio-output-already-exists"
-                                    : "audio-output-open-failed");
+            result, "audio-output-open-failed");
+        return false;
+    }
+    parent_cleanup_safe = gbl_runner_audio_parent_cleanup_is_safe(
+        &destination_directory_stat);
+    errno = 0;
+    if (fstatat(destination_directory_fd, destination_name, &existing_stat,
+                AT_SYMLINK_NOFOLLOW) == 0) {
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, "audio-output-already-exists");
+        return false;
+    }
+    if (errno != ENOENT) {
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-output-open-failed");
+        return false;
+    }
+    if (!gbl_runner_create_audio_stage_directory(
+            destination_directory_fd, stage_directory_name,
+            sizeof stage_directory_name)) {
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, "audio-output-open-failed");
+        return false;
+    }
+    stage_directory_fd = openat(destination_directory_fd,
+                                stage_directory_name,
+                                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (stage_directory_fd < 0 ||
+        fstat(stage_directory_fd, &stage_directory_stat) != 0 ||
+        !S_ISDIR(stage_directory_stat.st_mode) ||
+        stage_directory_stat.st_uid != geteuid() ||
+        fchmod(stage_directory_fd, 0700) != 0) {
+        bool cleanup_okay = false;
+
+        if (stage_directory_fd >= 0) {
+            (void)close(stage_directory_fd);
+            stage_directory_fd = -1;
+        }
+        cleanup_okay = gbl_runner_remove_audio_stage_directory(
+            destination_directory_fd, stage_directory_name,
+            parent_cleanup_safe);
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, cleanup_okay ? "audio-output-open-failed"
+                                 : "audio-output-cleanup-unverified");
+        return false;
+    }
+    temporary_fd = openat(stage_directory_fd, "audio.pcm",
+                          O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW |
+                              O_CLOEXEC,
+                          0600);
+    if (temporary_fd < 0) {
+        int saved_errno = errno;
+        bool cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, false);
+
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, !cleanup_okay
+                        ? "audio-output-cleanup-unverified"
+                        : (saved_errno == EEXIST
+                               ? "audio-output-already-exists"
+                               : "audio-output-open-failed"));
         return false;
     }
 #if defined(GBL_RUNNER_TESTING)
     test_fault = gbl_runner_audio_writer_fault;
     gbl_runner_audio_writer_fault = GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT;
+#endif
+    {
+        int stat_result;
+
+#if defined(GBL_RUNNER_TESTING)
+        if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_FSTAT_FAILURE) {
+            stat_result = -1;
+            errno = EIO;
+        } else
+#endif
+        {
+            do {
+                stat_result = fstat(temporary_fd, &temporary_stat);
+            } while (stat_result != 0 && errno == EINTR);
+        }
+        if (stat_result == 0 &&
+            (!S_ISREG(temporary_stat.st_mode) ||
+             temporary_stat.st_uid != geteuid() ||
+             (temporary_stat.st_mode & (S_IRWXG | S_IRWXO)) != 0 ||
+             temporary_stat.st_dev != stage_directory_stat.st_dev ||
+             temporary_stat.st_nlink != 1)) {
+            stat_result = -1;
+            errno = EPERM;
+        }
+        if (stat_result != 0) {
+            int saved_errno = errno;
+            bool cleanup_okay;
+
+            (void)close(temporary_fd);
+            cleanup_okay = gbl_runner_cleanup_audio_stage(
+                destination_directory_fd, &stage_directory_fd,
+                stage_directory_name, parent_cleanup_safe, true);
+            (void)close(destination_directory_fd);
+            free(destination_directory_path);
+            gbl_runner_set_audio_artifact_error(
+                result, !cleanup_okay
+                            ? "audio-output-cleanup-failed"
+                            : (saved_errno == EEXIST
+                                   ? "audio-output-already-exists"
+                                   : "audio-output-open-failed"));
+            return false;
+        }
+    }
+    output = fdopen(temporary_fd, "wb");
+    if (output == NULL) {
+        int saved_errno = errno;
+        bool cleanup_okay;
+
+        (void)close(temporary_fd);
+        cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, true);
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, cleanup_okay
+                        ? (saved_errno == EEXIST ? "audio-output-already-exists"
+                                                 : "audio-output-open-failed")
+                        : "audio-output-cleanup-failed");
+        return false;
+    }
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_REPLACED) {
+        (void)gbl_runner_test_replace_audio_destination(path);
+    }
 #endif
     {
         size_t write_length = observation->byte_count;
@@ -697,6 +1034,11 @@ bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
                             output) == observation->byte_count &&
                      ferror(output) == 0;
     }
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_REPLACED) {
+        write_okay = false;
+    }
+#endif
     flush_okay = fflush(output) == 0;
 #if defined(GBL_RUNNER_TESTING)
     if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_FLUSH_FAILURE) {
@@ -710,17 +1052,64 @@ bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
     }
 #endif
     if (!write_okay || !flush_okay || !close_okay) {
+        bool cleanup_okay;
+
         failure = !write_okay ? "audio-output-write-failed"
                               : (!flush_okay ? "audio-output-flush-failed"
                                              : "audio-output-close-failed");
-        if (remove(path) != 0) {
-            gbl_runner_set_audio_artifact_error(
-                result, "audio-output-cleanup-failed");
-        } else {
-            gbl_runner_set_audio_artifact_error(result, failure);
-        }
+        cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, true);
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, cleanup_okay ? failure : "audio-output-cleanup-failed");
         return false;
     }
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault ==
+        GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_APPEARS_BEFORE_PUBLISH) {
+        (void)gbl_runner_test_replace_audio_destination(path);
+    }
+#endif
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault ==
+        GBL_RUNNER_AUDIO_WRITER_TEST_PUBLISH_UNSUPPORTED) {
+        errno = ENOTSUP;
+        write_okay = false;
+    } else
+#endif
+    {
+        errno = 0;
+        write_okay = gbl_runner_publish_audio_temp(
+                         stage_directory_fd, destination_directory_fd,
+                         destination_name) == 0;
+    }
+    if (!write_okay) {
+        int saved_errno = errno;
+        bool cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, true);
+
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, !cleanup_okay ? "audio-output-cleanup-failed"
+                                 : (saved_errno == EEXIST
+                                        ? "audio-output-already-exists"
+                                        : (gbl_runner_publish_unavailable_error(
+                                               saved_errno)
+                                               ? "audio-output-exclusive-publish-unsupported"
+                                               : "audio-output-open-failed")));
+        return false;
+    }
+    /* The no-replace rename moved the complete file from the held private
+     * directory. Never remove the published destination during cleanup. */
+    (void)gbl_runner_cleanup_audio_stage(
+        destination_directory_fd, &stage_directory_fd,
+        stage_directory_name, parent_cleanup_safe, true);
+    (void)close(destination_directory_fd);
+    free(destination_directory_path);
     observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_EMITTED;
     observation->artifact_emitted = true;
     observation->has_artifact_byte_count = true;

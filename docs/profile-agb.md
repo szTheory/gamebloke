@@ -1073,9 +1073,10 @@ the machine, caller output, and session progress. The existing 4,096
 event-dispatch limit remains per operation. One second at the capture cap
 contains more than 59 periods of the existing 280,896-cycle video frame, so
 later audio edge and FIFO-refill probes can use bounded windows without
-replacing existing headless cycle budgets. An audio-requested runner path must
-report capture refusal separately from general runner status; the current
-production runner has no audio-output request yet.
+replacing existing headless cycle budgets. The production runner accepts a
+bounded audio request, reports capture and artifact outcomes separately from
+general runner status, and writes raw PCM only after the complete requested
+interval is available.
 
 Same-cycle order is project policy: ordered device effects (including timer
 overflow and DMA readiness) and PSG progression settle first, the sample

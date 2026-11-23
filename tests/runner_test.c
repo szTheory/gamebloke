@@ -2,6 +2,7 @@
 
 #include "run.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -90,6 +91,51 @@ static bool gbl_test_write_file(const char *path, size_t length,
             okay = true;
         }
     }
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_no_audio_temporary_files(const char *directory_path)
+{
+    static const char prefix[] = ".gamebloke-audio-";
+    DIR *directory;
+    struct dirent *entry;
+    bool okay = true;
+
+    directory = opendir(directory_path);
+    if (directory == NULL) {
+        return false;
+    }
+    while ((entry = readdir(directory)) != NULL) {
+        if (strncmp(entry->d_name, prefix, sizeof prefix - 1u) == 0) {
+            okay = false;
+            break;
+        }
+    }
+    if (closedir(directory) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+bool gbl_runner_test_replace_audio_destination(const char *path)
+{
+    static const unsigned char replacement[] = "RACEFILE";
+    FILE *file;
+    bool okay;
+
+    if (path == NULL ||
+        (remove(path) != 0 && errno != ENOENT)) {
+        return false;
+    }
+    file = fopen(path, "wbx");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(replacement, 1u, sizeof replacement - 1u, file) ==
+           sizeof replacement - 1u;
     if (fclose(file) != 0) {
         okay = false;
     }
@@ -1006,6 +1052,8 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
     char missing_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char existing_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char search_only_directory[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char search_only_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char missing_parent_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char fault_path[GBL_RUNNER_TEST_PATH_CAPACITY];
     char failure_json_path[GBL_RUNNER_TEST_PATH_CAPACITY];
@@ -1030,6 +1078,10 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
                        "audio-controls.raw") ||
         !gbl_test_path(existing_path, sizeof existing_path, scratch_directory,
                        "audio-controls-existing.raw") ||
+        !gbl_test_path(search_only_directory, sizeof search_only_directory,
+                       scratch_directory, "audio-controls-search-only") ||
+        !gbl_test_path(search_only_path, sizeof search_only_path,
+                       search_only_directory, "audio.raw") ||
         !gbl_test_path(missing_parent_path, sizeof missing_parent_path,
                        scratch_directory,
                        "audio-controls-no-parent/audio.raw") ||
@@ -1442,6 +1494,32 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
     gbl_test_case(okay,
                   "audio controls: exclusive existing output leaves prior bytes unchanged");
 
+    (void)remove(search_only_path);
+    if (mkdir(search_only_directory, 0700) != 0 && errno != EEXIST) {
+        return false;
+    }
+    okay = chmod(search_only_directory, S_IWUSR | S_IXUSR) == 0;
+    gbl_test_audio_options_init(&options, rom_path, search_only_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = okay &&
+           gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_EMITTED &&
+           result.audio.artifact_emitted && result.audio.has_sha256 &&
+           result.audio.has_artifact_byte_count &&
+           result.audio.artifact_byte_count == sizeof expected_frame;
+    gbl_runner_result_dispose(&result);
+    (void)chmod(search_only_directory, 0700);
+    okay = okay &&
+           gbl_test_read_exact_file(search_only_path, existing,
+                                    sizeof existing,
+                                    sizeof expected_frame) &&
+           memcmp(existing, expected_frame, sizeof expected_frame) == 0 &&
+           gbl_test_no_audio_temporary_files(search_only_directory);
+    gbl_test_case(okay,
+                  "audio controls: output works in a write-search parent without directory-list permission");
+    (void)remove(search_only_path);
+    (void)rmdir(search_only_directory);
+
     gbl_test_audio_options_init(&options, rom_path, missing_parent_path,
                                 UINT64_C(4096), UINT64_C(512));
     okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
@@ -1500,6 +1578,101 @@ static bool gbl_test_runner_audio_controls(const char *scratch_directory)
     }
     gbl_test_case(okay,
                   "audio controls: short write, flush, and close failure remove only attempt-owned files");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_FSTAT_FAILURE);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-open-failed") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           access(fault_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_no_audio_temporary_files(scratch_directory) &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: fstat failure cleans the payload through its held private directory");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_REPLACED);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-write-failed") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           gbl_test_read_exact_file(fault_path, existing, sizeof existing,
+                                    8u) &&
+           memcmp(existing, "RACEFILE", 8u) == 0 &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: failed writer preserves a concurrently replaced destination");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_APPEARS_BEFORE_PUBLISH);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-already-exists") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           gbl_test_read_exact_file(fault_path, existing, sizeof existing,
+                                    8u) &&
+           memcmp(existing, "RACEFILE", 8u) == 0 &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: no-replace publication preserves a destination that appears at commit");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_PUBLISH_UNSUPPORTED);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-exclusive-publish-unsupported") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           access(fault_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: unsupported exclusive publication reports a stable failure and cleans staging");
+    gbl_test_case(gbl_test_no_audio_temporary_files(scratch_directory),
+                  "audio controls: staged files are removed after success and failure");
 
     (void)remove(rom_path);
     (void)remove(halt_rom_path);
@@ -5796,12 +5969,12 @@ int main(int argc, char **argv)
         }
         gbl_test_number = 0u;
         gbl_test_failures = 0u;
-        printf("1..18\n");
+        printf("1..24\n");
         if (!gbl_test_runner_audio_controls(argv[2])) {
             fputs("runner_test: audio controls setup failed\n", stderr);
             return 2;
         }
-        return gbl_test_failures == 0u && gbl_test_number == 18u ? 0 : 1;
+        return gbl_test_failures == 0u && gbl_test_number == 24u ? 0 : 1;
     }
     if (argc == 3 && strcmp(argv[1], "ppu.output-controls") == 0 &&
         argv[2][0] != '\0') {

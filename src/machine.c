@@ -807,8 +807,21 @@ static int32_t gbl_ppu_sign_extend_reference(uint32_t bits)
 static uint32_t gbl_ppu_affine_add_reference(uint32_t origin,
                                              int16_t increment)
 {
-    return (origin + (uint32_t)(int32_t)increment) &
-           GBL_PPU_AFFINE_REFERENCE_MASK;
+    uint32_t reference = origin & GBL_PPU_AFFINE_REFERENCE_MASK;
+
+    /* Add signed increments with unsigned wrap without converting a negative
+     * signed value to uint32_t, which newer GCC diagnoses under -Wconversion. */
+    if (increment < 0) {
+        const uint32_t magnitude = (uint32_t)(-(int32_t)increment);
+
+        reference = reference - magnitude;
+    } else {
+        const uint16_t positive = (uint16_t)increment;
+        const uint32_t magnitude = (uint32_t)positive;
+
+        reference = reference + magnitude;
+    }
+    return reference & GBL_PPU_AFFINE_REFERENCE_MASK;
 }
 
 static uint32_t gbl_ppu_affine_back_project(uint32_t origin,

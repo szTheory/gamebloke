@@ -264,11 +264,16 @@ typedef enum gbl_runner_audio_writer_test_fault {
     GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT = 0,
     GBL_RUNNER_AUDIO_WRITER_TEST_SHORT_WRITE,
     GBL_RUNNER_AUDIO_WRITER_TEST_FLUSH_FAILURE,
-    GBL_RUNNER_AUDIO_WRITER_TEST_CLOSE_FAILURE
+    GBL_RUNNER_AUDIO_WRITER_TEST_CLOSE_FAILURE,
+    GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_REPLACED,
+    GBL_RUNNER_AUDIO_WRITER_TEST_FSTAT_FAILURE,
+    GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_APPEARS_BEFORE_PUBLISH,
+    GBL_RUNNER_AUDIO_WRITER_TEST_PUBLISH_UNSUPPORTED
 } gbl_runner_audio_writer_test_fault;
 
 void gbl_runner_test_set_audio_writer_fault(
     gbl_runner_audio_writer_test_fault fault);
+bool gbl_runner_test_replace_audio_destination(const char *path);
 #endif
 
 void gbl_runner_result_dispose(gbl_runner_result *result);

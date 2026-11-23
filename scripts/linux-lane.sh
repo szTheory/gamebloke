@@ -4,7 +4,7 @@
 # runtime differences) show up before a push. Workflow presets run the full
 # CMake workflow; `compile` configures and builds the `ci` preset without tests.
 #
-#   sh scripts/linux-lane.sh <workflow-preset|compile> [gcc|clang]
+#   sh scripts/linux-lane.sh <workflow-preset|compile|runner-audio> [gcc|clang]
 #
 # The default compiler is clang for the asan preset, gcc otherwise. The working
 # Git-selected snapshot is mounted read-only at /src and copied to /work, so
@@ -24,7 +24,7 @@
 GBL_LINUX_IMAGE=${GBL_LINUX_IMAGE:-ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c}
 
 usage() {
-    echo "linux-lane: usage: linux-lane.sh <workflow-preset|compile> [gcc|clang]" >&2
+    echo "linux-lane: usage: linux-lane.sh <workflow-preset|compile|runner-audio> [gcc|clang]" >&2
     exit 2
 }
 
@@ -53,7 +53,15 @@ root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
 # Neither Git nor tar dereferences working-tree symlinks here.
 set -eu
 snapshot=$(mktemp -d "${TMPDIR:-/tmp}/gamebloke-linux-lane.XXXXXX")
-trap 'rm -rf "$snapshot"' EXIT
+container_name="gamebloke-linux-lane-${preset}-$$-$(date +%s)"
+container_id=
+cleanup() {
+    if [ -n "$container_id" ]; then
+        docker rm --force "$container_id" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$snapshot"
+}
+trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -66,7 +74,12 @@ git -C "$root" ls-files --others --exclude-standard -z > "$snapshot/untracked.li
 tar -C "$root" -cf "$snapshot/untracked.tar" --null -T "$snapshot/untracked.list"
 tar -C "$snapshot/source" -xf "$snapshot/untracked.tar"
 
-docker run --rm \
+if ! docker image inspect "$GBL_LINUX_IMAGE" >/dev/null 2>&1; then
+    docker pull "$GBL_LINUX_IMAGE"
+fi
+container_id=$(docker create --name "$container_name" \
+    --label gamebloke.project=gamebloke \
+    --label "gamebloke.task=linux-lane-$preset" \
     --cpus 4 --memory 8g \
     -e "GBL_PRESET=$preset" \
     -e "GBL_PACKAGES=$packages" \
@@ -93,8 +106,20 @@ if [ "$GBL_PRESET" = compile ]; then
     echo "linux-lane: configure and build ci preset (tests not run)"
     cmake --preset ci
     cmake --build --preset ci
+elif [ "$GBL_PRESET" = runner-audio ]; then
+    echo "linux-lane: configure, build, and run focused audio writer controls"
+    cmake --preset ci
+    cmake --build --preset ci --target runner_test gamebloke-run \
+        gamebloke-run-control timer_test --parallel 2
+    build/ci/runner_test audio.controls build/ci/runner-audio-controls
+    cmake -DSRC=/work -DBIN=/work/build/ci -DCASE=audio_cli \
+        -DCONTROL_INDEX=ON -DVALIDATE_PRODUCER=ON \
+        -P tests/gates/runner_case.cmake
+    ctest --test-dir build/ci --output-on-failure --no-tests=error \
+        -R "^(runner[.]audio[.](controls|output)|result[.]nc[.]audio_policy)$"
 else
     cmake --workflow --preset "$GBL_PRESET"
 fi
 echo "linux-lane: workflow wall seconds $(($(date +%s) - workflow_started))"
-'
+')
+docker start --attach "$container_id"

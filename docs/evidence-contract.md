@@ -129,7 +129,8 @@ these fields:
 - `audio`: an optional additive observation in `gamebloke.result/1`. Historical receipts may
   omit it. Current producer validation opts into requiring it with
   `-DGBL_RESULT_REQUIRE_AUDIO=ON`; a present object is always checked against the AGB
-  profile. Its model, profile revision, project-selected classification, `UNKNOWN`
+  profile. Its model is the literal `gamebloke-audio-model-4`; its profile revision,
+  project-selected classification, `UNKNOWN`
   qualification, PCM format, fixed cadence, implemented sources, unsupported edges, and
   evidence limits are closed and profile-bound. Requested and actual intervals use canonical
   decimal cycle strings, start at reset cycle zero, and are bounded by the run budget and the
@@ -413,8 +414,17 @@ fixture-index path and does not need the source tree after it is built.
 `--audio-output PATH` requests bounded signed 16-bit little-endian stereo PCM. Its optional
 `--audio-cycles N` end cycle requires `--audio-output`; when omitted, the cycle budget is the
 requested end. The positive end must fit both the run budget and profile's 16,777,216-cycle
-capture limit. Output creation is exclusive. The writer publishes only after the complete
-requested interval is captured; an incomplete interval has no PCM artifact. A complete
+capture limit. The writer stages bytes in a mode-0700 temporary directory beside the
+destination and uses its held directory descriptor for the payload and publication. It
+publishes the complete file with no-replace semantics only after the requested interval is
+captured and the full write, flush, and close succeed. A failed write removes only the staged
+payload; cleanup never removes a path that appeared at the requested destination after the
+attempt began. If the destination parent is not owned by the effective user or root, or it is
+writable by group/others without sticky protection, the runner may retain an empty
+`.gamebloke-audio-*` staging directory rather than remove an entry it cannot safely identify.
+A staging-file identity failure is cleaned through the held private-directory descriptor. If
+the host cannot provide a safe exclusive publish operation, the artifact fails with
+`audio-output-exclusive-publish-unsupported`. An incomplete interval has no PCM artifact. A complete
 interval emits all grid samples in `(0, end]`, so a short request may produce an exact empty
 file and a non-aligned end produces the corresponding complete-frame prefix. JSON reports
 capture and artifact status independently of process exit, guest mailbox status, and overall

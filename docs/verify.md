@@ -98,10 +98,22 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 | Lane | Command | Notes |
 | ---- | ------- | ----- |
 | `ci` | `cmake --workflow --preset ci` | Default lane: build, unit tests, gates, controls. |
+| `Linux runner audio` | `sh scripts/linux-lane.sh runner-audio gcc` | Focused pinned Linux GCC build, audio writer controls, CLI and result-schema gates before the full matrix. |
 | `asan` | `sh scripts/linux-lane.sh asan` | AddressSanitizer and UBSan with clang-21. Linux only; the script runs it in a digest-pinned `ubuntu:26.04` container (needs Docker). |
 | `hygiene` | `cmake --workflow --preset hygiene` | The hygiene and signature gates and their controls, plus the Phase 2 evidence validators and their controls, with no compile of the product. |
 | `local-timer0` | See [the Timer 0 fixture notice](../tests/fixtures/timer0-NOTICE.md) | Local-only guest generation/indexing and Timer 0 bus-time/determinism checks. Refuses to configure when `CI` is truthy; never use in hosted CI. |
 | `local CPU fixtures` | `sh scripts/run-local-cpu-suites.sh --fetch --build-dir build/ci` | Local-only jsmolka ARM, Thumb, and memory suites; never run in hosted CI. |
+
+## CI and release turnaround
+
+Before a long hosted CI or release check, run the matching canonical local command and
+cheap consistency checks first. Use `act` only when it reproduces the workflow path closely
+enough to save iteration time; it does not replace host-specific or hosted evidence. After
+each CI or release run, inspect measured setup, configure, build, test, packaging, and
+artifact time for duplicate work or safe preflight checks, while keeping required coverage
+and negative controls. Keep emulator throughput separate from pipeline time. For Docker
+resource naming/cleanup and the owner publication gate, see the
+[project iteration policy](../.planning/PROJECT.md#verification-and-iteration-policy).
 
 ## Local jsmolka CPU suites
 
@@ -173,7 +185,10 @@ edits/deletions and unignored new files overlaid. It never mounts the checkout o
 copies ignored build/private contents. Its native-architecture container keeps
 the existing four-CPU/eight-GiB limit. Without a verified ARM tool install, its
 optional guest skips remain explicit; use the mandatory diagnostic lane for
-guest evidence. Container setup time is separate from build/test time.
+guest evidence. Containers use a unique `gamebloke-linux-lane-*` name and project/task
+labels; the helper removes only the exact container ID it created. Container setup time is
+separate from build/test time. Use the focused `runner-audio` lane to catch Linux-specific
+compiler or publication issues before waiting on a full CI run.
 `linux.snapshot` is a recurring offline CI/hygiene control for this boundary. It
 uses a two-commit synthetic repository and a shell Docker witness to check
 ancestor bytes, exclusions, working edits/deletions/modes and exact resource/
@@ -569,7 +584,8 @@ audits; it never manufactures a successful guest or hosted-proof receipt.
   runtime there; host Clang is not required. The container uses the host's
   native architecture, so Apple Silicon runs ARM64 and does not replace the
   hosted x86_64 CI result.
-- `sh scripts/linux-lane.sh <preset>`: about 5 to 15 minutes, needs Docker. Without
+- `sh scripts/linux-lane.sh <full-preset>`: about 5 to 15 minutes, needs Docker. The
+  focused `runner-audio` lane is shorter and runs only the Linux writer/CLI checks. Without
   Docker the first Linux proof is the CI run.
 - CMake 3.25 floor: download the official Kitware `cmake-3.25.3` tarball, verify its
   SHA-256 against Kitware's published list, extract it outside the repository, and run
