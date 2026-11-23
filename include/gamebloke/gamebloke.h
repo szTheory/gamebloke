@@ -381,6 +381,8 @@ typedef struct gbl_machine_time_preview {
     bool dma_stream_valid;
     bool dma_transaction_active;
     size_t dma_transaction_dispatched;
+    bool dma_transaction_active_prepared;
+    size_t dma_transaction_dispatched_prepared;
     gbl_dma_channel_state dma_channels[GBL_DMA_CHANNEL_COUNT];
     /* Prepared sound-channel state plus the matching readiness event, when
      * one is queued. These copies bind mutable candidate state at commit. */

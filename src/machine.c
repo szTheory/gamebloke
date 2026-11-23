@@ -2927,7 +2927,16 @@ static bool gbl_dma_sound_binding_valid(
 {
     size_t slot;
 
-    if (preview == NULL || preview->event_count > GBL_EVENT_CAPACITY) {
+    if (preview == NULL || preview->event_count > GBL_EVENT_CAPACITY ||
+        preview->dma_transaction_active !=
+            preview->dma_transaction_active_prepared ||
+        preview->dma_transaction_dispatched !=
+            preview->dma_transaction_dispatched_prepared ||
+        (preview->dma_transaction_active &&
+         preview->dma_transaction_dispatched >
+             GBL_MACHINE_MAX_EVENT_DISPATCH) ||
+        (!preview->dma_transaction_active &&
+         preview->dma_transaction_dispatched != 0u)) {
         return false;
     }
     for (slot = 0u; slot < 2u; ++slot) {
@@ -3014,6 +3023,10 @@ static void gbl_machine_time_copy_preview(
     preview->dma_stream_valid = machine->dma_stream_valid;
     preview->dma_transaction_active = machine->dma_transaction_active;
     preview->dma_transaction_dispatched =
+        machine->dma_transaction_dispatched;
+    preview->dma_transaction_active_prepared =
+        machine->dma_transaction_active;
+    preview->dma_transaction_dispatched_prepared =
         machine->dma_transaction_dispatched;
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         preview->dma_channels[index] = machine->dma_channels[index];
@@ -3315,6 +3328,10 @@ static gbl_time_status gbl_preview_advance_to(
     if (candidate.dma_transaction_active) {
         candidate.dma_transaction_dispatched = *dispatched;
     }
+    candidate.dma_transaction_active_prepared =
+        candidate.dma_transaction_active;
+    candidate.dma_transaction_dispatched_prepared =
+        candidate.dma_transaction_dispatched;
     gbl_dma_bind_sound_channels(&candidate);
     *preview = candidate;
     return GBL_TIME_STATUS_OK;
@@ -4655,7 +4672,7 @@ static gbl_dma_status gbl_machine_dma_sound_burst(
     step.width = 4u;
     step.unit_completed = true;
     step.remaining = 0u;
-    step.completed = 4u;
+    step.completed = channel->completed_units;
     step.completion_cycle = machine->master_cycles;
     *result = step;
     return step.status;

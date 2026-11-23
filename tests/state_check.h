@@ -224,6 +224,9 @@ static inline bool gbl_test_time_state_equal(const gbl_machine *left,
         left->dma_last_source != right->dma_last_source ||
         left->dma_last_destination != right->dma_last_destination ||
         left->dma_stream_valid != right->dma_stream_valid ||
+        left->dma_transaction_active != right->dma_transaction_active ||
+        left->dma_transaction_dispatched !=
+            right->dma_transaction_dispatched ||
         left->cpu.force_nonsequential_fetch !=
             right->cpu.force_nonsequential_fetch ||
         left->pressed_keys != right->pressed_keys ||
@@ -303,6 +306,13 @@ static bool gbl_test_time_preview_equal(
         left->dma_last_source != right->dma_last_source ||
         left->dma_last_destination != right->dma_last_destination ||
         left->dma_stream_valid != right->dma_stream_valid ||
+        left->dma_transaction_active != right->dma_transaction_active ||
+        left->dma_transaction_dispatched !=
+            right->dma_transaction_dispatched ||
+        left->dma_transaction_active_prepared !=
+            right->dma_transaction_active_prepared ||
+        left->dma_transaction_dispatched_prepared !=
+            right->dma_transaction_dispatched_prepared ||
         left->pressed_keys != right->pressed_keys ||
         left->key_control != right->key_control ||
         left->key_condition != right->key_condition ||
@@ -406,6 +416,13 @@ static inline bool gbl_test_time_preview_matches_machine(
     machine_time.dma_last_source = machine->dma_last_source;
     machine_time.dma_last_destination = machine->dma_last_destination;
     machine_time.dma_stream_valid = machine->dma_stream_valid;
+    machine_time.dma_transaction_active = machine->dma_transaction_active;
+    machine_time.dma_transaction_dispatched =
+        machine->dma_transaction_dispatched;
+    machine_time.dma_transaction_active_prepared =
+        machine->dma_transaction_active;
+    machine_time.dma_transaction_dispatched_prepared =
+        machine->dma_transaction_dispatched;
     for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
         machine_time.dma_channels[index] = machine->dma_channels[index];
     }

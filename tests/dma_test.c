@@ -392,6 +392,7 @@ static bool test_sound_fifo_b_fixed_destination_and_decrement_source(void)
             machine->dma_channels[2].pending &&
             gbl_machine_dma_step(machine, UINT64_C(1024), &step) ==
                 GBL_DMA_STATUS_OK &&
+            step.completed == UINT64_C(8) &&
             machine->dma_channels[2].current_source ==
                 UINT32_C(0x020000F0) &&
             machine->dma_channels[2].completed_units == UINT64_C(8);
@@ -838,14 +839,192 @@ static bool test_sound_preview_identity_refusal(void)
     return valid;
 }
 
+static bool test_sound_ready_capacity_refuses_timer_candidate(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *before = NULL;
+    gbl_event timer_event = { 0 };
+    uint64_t target = UINT64_MAX;
+    size_t event_index;
+    bool found_timer = false;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    valid = prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT32_C(0xB000)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    for (event_index = 0u;
+         valid && event_index < machine->event_count; ++event_index) {
+        const gbl_event *event = &machine->events[event_index];
+
+        if (event->kind == (uint8_t)GBL_EVENT_KIND_TIMER_OVERFLOW &&
+            event->timer_index == 0u) {
+            timer_event = *event;
+            found_timer = true;
+            break;
+        }
+    }
+    valid = valid && found_timer &&
+            timer_event.cycle <= UINT64_MAX - 12u;
+    if (valid) {
+        target = timer_event.cycle + 12u;
+        machine->events[0] = timer_event;
+        for (event_index = 1u; event_index < GBL_EVENT_CAPACITY;
+             ++event_index) {
+            machine->events[event_index] = (gbl_event){
+                .cycle = target + UINT64_C(1000) + event_index,
+                .sequence = machine->next_event_sequence + event_index,
+                .generation = machine->ppu.generation,
+                .priority = UINT8_MAX,
+                .kind = (uint8_t)GBL_EVENT_KIND_PPU_BOUNDARY,
+                .live = true
+            };
+        }
+        machine->event_count = GBL_EVENT_CAPACITY;
+        *before = *machine;
+        valid = gbl_machine_advance_to(machine, target) ==
+                    GBL_TIME_STATUS_EVENT_CAPACITY &&
+                sound_refusal_state_equal(before, machine);
+    }
+    test_case(valid,
+              "readiness insertion and timer reschedule capacity failure roll back the threshold pop and complete event queue");
+    free_machine(machine);
+    free(before);
+    return valid;
+}
+
+static bool test_sound_reset_at_same_cycle_as_threshold(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_machine *before = NULL;
+    gbl_machine_time_preview preview = { 0 };
+    gbl_time_operation reset = { 0 };
+    uint64_t deadline;
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    before = malloc(sizeof(*before));
+    if (before == NULL) {
+        free_machine(machine);
+        return false;
+    }
+    valid = gbl_bus_write(machine, UINT32_C(0x04000084), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0080)).status == GBL_BUS_STATUS_OK &&
+            prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT32_C(0xB000)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    deadline = valid ? next_timer_overflow(machine, 0u) : UINT64_MAX;
+    valid = valid && deadline != UINT64_MAX &&
+            deadline <= UINT64_MAX - 12u &&
+            deadline + 12u >= machine->master_cycles;
+    if (valid) {
+        reset = (gbl_time_operation){
+            GBL_TIME_OPERATION_BUS_WRITE, 2u, UINT32_C(0x04000082),
+            UINT32_C(0x0800), deadline + 12u - machine->master_cycles
+        };
+        *before = *machine;
+        valid = gbl_machine_prepare_operations(machine, &reset, 1u,
+                                                &preview) ==
+                    GBL_TIME_STATUS_OK &&
+                preview.audio.fifo[0].count == 0u &&
+                preview.dma_channels[1].armed &&
+                !preview.dma_channels[1].pending &&
+                preview.dma_channels[1].trigger_origin ==
+                    GBL_DMA_TRIGGER_ORIGIN_NONE &&
+                gbl_machine_commit_time_checked(machine, &preview) &&
+                machine->audio.fifo[0].count == 0u &&
+                machine->dma_channels[1].armed &&
+                !machine->dma_channels[1].pending &&
+                gbl_test_time_preview_matches_machine(&preview, machine) &&
+                gbl_audio_state_equal(&preview.audio, &machine->audio);
+    }
+    test_case(valid,
+              "FIFO A reset at the same cycle as its fourth timer pop cancels the candidate sound request before publication");
+    free_machine(machine);
+    free(before);
+    return valid;
+}
+
+static bool test_sound_wrong_timing_ignores_threshold(void)
+{
+    gbl_machine *machine = new_machine();
+    bool valid = machine != NULL;
+
+    if (machine == NULL) {
+        return false;
+    }
+    valid = prime_sound_fifo(machine, 0u) &&
+            write_register(machine, 1u, 0u, 4u,
+                           UINT32_C(0x02000100)) &&
+            write_register(machine, 1u, 4u, 4u,
+                           UINT32_C(0x03000100)) &&
+            write_register(machine, 1u, 8u, 2u, 1u) &&
+            write_register(machine, 1u, 10u, 2u, UINT32_C(0xA000)) &&
+            gbl_bus_write(machine, UINT32_C(0x04000100), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0xFFFC)).status == GBL_BUS_STATUS_OK &&
+            gbl_bus_write(machine, UINT32_C(0x04000102), 2u,
+                          GBL_BUS_CLASS_NONSEQUENTIAL,
+                          UINT32_C(0x0080)).status == GBL_BUS_STATUS_OK;
+    if (valid) {
+        const uint64_t deadline = next_timer_overflow(machine, 0u);
+
+        valid = deadline != UINT64_MAX && deadline <= UINT64_MAX - 12u &&
+                gbl_machine_advance_to(machine, deadline + 12u) ==
+                    GBL_TIME_STATUS_OK &&
+                machine->audio.fifo[0].count == 16u &&
+                machine->dma_channels[1].armed &&
+                !machine->dma_channels[1].pending &&
+                machine->dma_channels[1].trigger_origin ==
+                    GBL_DMA_TRIGGER_ORIGIN_NONE;
+    }
+    test_case(valid,
+              "a valid timer threshold pop remains accepted while a channel configured for HBlank is ignored");
+    free_machine(machine);
+    return valid;
+}
+
 static bool run_sound_refusal(void)
 {
     check_count = 0u;
     failure_count = 0u;
-    printf("TAP version 13\n1..10\n");
+    printf("TAP version 13\n1..13\n");
     (void)test_sound_refusal_budget_and_source_extents();
     (void)test_sound_refusal_after_interleave_and_output_limit();
     (void)test_sound_preview_identity_refusal();
+    (void)test_sound_ready_capacity_refuses_timer_candidate();
+    (void)test_sound_reset_at_same_cycle_as_threshold();
+    (void)test_sound_wrong_timing_ignores_threshold();
     return failure_count == 0u ? 0 : 1;
 }
 
