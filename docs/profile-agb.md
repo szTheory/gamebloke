@@ -934,19 +934,32 @@ This profile does not state that the SP is identical to the AGB.
 
 ## Audio behavior policy
 
-The audio profile is the `gamebloke-audio-model-3` project-selected contract.
-Four PSG channel sources and the signed Direct Sound FIFO A/B source state are
-modeled, but the capture tap is still signed zero before PWM conversion: PSG
-and Direct Sound are not routed or mixed into PCM yet. PCM is stereo,
-interleaved left then right, signed 16-bit
-little-endian, at 32,768 frames per second. The global grid starts at reset
-cycle 0 and emits its first frame at cycle 512, then every 512 master cycles.
-An interval is start-exclusive and end-inclusive; SOUNDBIAS does not retime the
+The audio profile is the `gamebloke-audio-model-4` project-selected software
+contract. It mixes four modeled PSG sources and two signed Direct Sound FIFO
+latches into stereo PCM before PWM. PSG uses independent left/right routes and
+side levels, with the SOUNDCNT_H group ratio; Direct Sound A/B use independent
+routes and half/full gains without the PSG side-level control. Each source is
+centered and scaled by the explicit project policy below. The mixer sums
+independent signed 64-bit side numerators over denominator 28, rounds once to
+nearest with ties away from zero, then saturates to signed 16-bit. Master
+disable silences both sides and reserved PSG ratio code 3 mutes the PSG group.
+PCM is interleaved left then right, signed 16-bit little-endian, at 32,768
+frames per second. The global grid starts at reset cycle 0 and emits its first
+frame at cycle 512, then every 512 master cycles. Capture intervals are
+start-exclusive and end-inclusive, bounded to 32,768 frames (one second).
+SOUNDBIAS remains accessible under its register policy but does not retime the
 grid or quantize samples.
+
+Amplitudes, rounding, and clipping are Gamebloke software policy and have
+independent expected-sample tests; they do not claim the exact hardware
+transfer function. PSG noise behavior and other listed partial or unsupported
+edges remain model limits. This profile grants no transfer, redistribution, or
+other content rights. `hardware_qualification` remains `UNKNOWN`; no physical
+hardware qualification or broad game-compatibility claim is made.
 
 | Setting | Value |
 | --- | --- |
-| `audio_policy.model` | gamebloke-audio-model-3 |
+| `audio_policy.model` | gamebloke-audio-model-4 |
 | `audio_policy.classification` | project-selected |
 | `audio_policy.hardware_qualification` | UNKNOWN |
 | `audio_policy.tap` | pre-pwm |
@@ -958,7 +971,17 @@ grid or quantize samples.
 | `audio_policy.reset_epoch_cycle` | 0 |
 | `audio_policy.first_sample_cycle` | 512 |
 | `audio_policy.interval` | start-exclusive-end-inclusive |
-| `audio_policy.sample_value` | signed-zero |
+| `audio_policy.sample_value` | six-source-mixed-signed-s16le |
+| `audio_policy.psg_channel_count` | 4 |
+| `audio_policy.direct_sound_channel_count` | 2 |
+| `audio_policy.psg_source_centering` | per-channel-(2*unsigned-level-15)*2048 |
+| `audio_policy.psg_route_gain_policy` | SOUNDCNT_L-independent-left-right-routes,side-level-0-through-7-over-7-applies-only-to-PSG |
+| `audio_policy.psg_group_ratio_policy` | SOUNDCNT_H-code-0-quarter,code-1-half,code-2-full,code-3-mutes-PSG |
+| `audio_policy.direct_sound_route_gain_policy` | FIFO-A/B-independent-left-right-routes,signed-S8-times-256,half-or-full-gain,SOUNDCNT_L-side-level-excluded |
+| `audio_policy.master_mute_policy` | SOUNDCNT_X-master-off-silences-both-sides |
+| `audio_policy.mix_accumulator_policy` | left-and-right-independent-signed-64-bit-numerators,common-denominator-28 |
+| `audio_policy.mix_rounding_policy` | one-final-nearest-ties-away-from-zero-after-summing |
+| `audio_policy.mix_clipping_policy` | round-then-saturate-to-signed-16-bit |
 | `audio_policy.modeled_sources` | psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples |
 | `audio_policy.direct_sound_fifo_ports` | A=0x040000A0,B=0x040000A4 |
 | `audio_policy.direct_sound_fifo_capacity_bytes` | 32 |

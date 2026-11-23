@@ -294,6 +294,66 @@ elseif(CASE STREQUAL "audio_policy")
   expect_audio_detail(audio-policy-doc
     "audio_policy.registers: missing or stale row" "${p}" "${d}")
 
+elseif(CASE STREQUAL "audio_mix")
+  profile_copy(p clean_audio_mix)
+  doc_copy(d clean_audio_mix)
+  check_audio_command(audio_cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${audio_cmd}
+    REGEX "profile: ok \\(agb audio policy\\)")
+
+  profile_copy(p wrong_psg_mixer_centering)
+  gbl_json_mutate_set("${p}" [=["per-channel-(2*level-15)*2048"]=]
+    audio_policy psg_source_centering)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.psg_source_centering: expected per-channel" "${p}")
+
+  profile_copy(p wrong_psg_ratio_weight)
+  gbl_json_mutate_set("${p}" [=["SOUNDCNT_H-code-0-half,code-1-quarter,code-2-full,code-3-mutes-PSG"]=]
+    audio_policy psg_group_ratio_policy)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.psg_group_ratio_policy: expected SOUNDCNT_H-code-0-quarter"
+    "${p}")
+
+  profile_copy(p wrong_soundbias_cadence)
+  gbl_json_mutate_set("${p}" [=["changes-sample-intervals"]=]
+    audio_policy soundbias cadence_effect)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.soundbias.cadence_effect: expected none" "${p}")
+
+  profile_copy(p qualified_audio_policy)
+  gbl_json_mutate_set("${p}" [=["qualified-on-hardware"]=]
+    audio_policy hardware_qualification)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.hardware_qualification: expected UNKNOWN" "${p}")
+
+  profile_copy(p audio_mix_doc_source)
+  doc_copy(d audio_mix_doc_source)
+  file(READ "${d}" doc_before)
+  string(REPLACE
+    "| `audio_policy.psg_group_ratio_policy` | SOUNDCNT_H-code-0-quarter,code-1-half,code-2-full,code-3-mutes-PSG |"
+    "| `audio_policy.psg_group_ratio_policy` | SOUNDCNT_H-code-0-half,code-1-quarter,code-2-full,code-3-mutes-PSG |"
+    doc_after "${doc_before}")
+  if("${doc_after}" STREQUAL "${doc_before}")
+    message(FATAL_ERROR "mutate: no-match: audio group ratio documentation row")
+  endif()
+  file(WRITE "${d}" "${doc_after}")
+  expect_audio_detail(audio-policy-doc
+    "audio_policy: missing or stale row" "${p}" "${d}")
+
+  profile_copy(p audio_mix_doc_qualification)
+  doc_copy(d audio_mix_doc_qualification)
+  file(READ "${d}" qual_before)
+  string(REPLACE
+    "| `audio_policy.hardware_qualification` | UNKNOWN |"
+    "| `audio_policy.hardware_qualification` | qualified-on-hardware |"
+    qual_after "${qual_before}")
+  if("${qual_after}" STREQUAL "${qual_before}")
+    message(FATAL_ERROR "mutate: no-match: audio qualification documentation row")
+  endif()
+  file(WRITE "${d}" "${qual_after}")
+  expect_audio_detail(audio-policy-doc
+    "audio_policy: missing or stale row" "${p}" "${d}")
+
 elseif(CASE STREQUAL "dma_sound_trigger")
   profile_copy(p clean_dma_sound_trigger)
   doc_copy(d clean_dma_sound_trigger)

@@ -92,7 +92,7 @@ set(GBL_PROFILE_REQUIRED_UNMODELED
   hblank-flag-edge ppu audio dma irq-controller backup-media bios-protection
   io-devices)
 set(GBL_PROFILE_AUDIO_POLICY_ROWS
-  "model|gamebloke-audio-model-3|STRING"
+  "model|gamebloke-audio-model-4|STRING"
   "classification|project-selected|STRING"
   "hardware_qualification|UNKNOWN|STRING"
   "tap|pre-pwm|STRING"
@@ -104,7 +104,17 @@ set(GBL_PROFILE_AUDIO_POLICY_ROWS
   "reset_epoch_cycle|0|NUMBER"
   "first_sample_cycle|512|NUMBER"
   "interval|start-exclusive-end-inclusive|STRING"
-  "sample_value|signed-zero|STRING"
+  "sample_value|six-source-mixed-signed-s16le|STRING"
+  "psg_channel_count|4|NUMBER"
+  "direct_sound_channel_count|2|NUMBER"
+  "psg_source_centering|per-channel-(2*unsigned-level-15)*2048|STRING"
+  "psg_route_gain_policy|SOUNDCNT_L-independent-left-right-routes,side-level-0-through-7-over-7-applies-only-to-PSG|STRING"
+  "psg_group_ratio_policy|SOUNDCNT_H-code-0-quarter,code-1-half,code-2-full,code-3-mutes-PSG|STRING"
+  "direct_sound_route_gain_policy|FIFO-A/B-independent-left-right-routes,signed-S8-times-256,half-or-full-gain,SOUNDCNT_L-side-level-excluded|STRING"
+  "master_mute_policy|SOUNDCNT_X-master-off-silences-both-sides|STRING"
+  "mix_accumulator_policy|left-and-right-independent-signed-64-bit-numerators,common-denominator-28|STRING"
+  "mix_rounding_policy|one-final-nearest-ties-away-from-zero-after-summing|STRING"
+  "mix_clipping_policy|round-then-saturate-to-signed-16-bit|STRING"
   "modeled_sources|psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples|STRING"
   "direct_sound_fifo_ports|A=0x040000A0,B=0x040000A4|STRING"
   "direct_sound_fifo_capacity_bytes|32|NUMBER"
