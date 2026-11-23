@@ -393,7 +393,7 @@
     "direct_sound_fifo_ports": "A=0x040000A0,B=0x040000A4",
     "direct_sound_fifo_capacity_bytes": 32,
     "direct_sound_sample_encoding": "signed-s8",
-    "direct_sound_write_policy": "widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-advancing-one-word",
+    "direct_sound_write_policy": "widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-consuming-one-word",
     "direct_sound_overflow_policy": "flush-queue-and-cursors-then-accept-whole-current-write",
     "direct_sound_underflow_policy": "hold-last-signed-sample,reset-latch-zero",
     "direct_sound_fifo_reset_policy": "selected-queue-cursors-latch-and-pending-request-only,timers-unaffected",

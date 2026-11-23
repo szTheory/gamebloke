@@ -109,7 +109,7 @@ set(GBL_PROFILE_AUDIO_POLICY_ROWS
   "direct_sound_fifo_ports|A=0x040000A0,B=0x040000A4|STRING"
   "direct_sound_fifo_capacity_bytes|32|NUMBER"
   "direct_sound_sample_encoding|signed-s8|STRING"
-  "direct_sound_write_policy|widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-advancing-one-word|STRING"
+  "direct_sound_write_policy|widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-consuming-one-word|STRING"
   "direct_sound_overflow_policy|flush-queue-and-cursors-then-accept-whole-current-write|STRING"
   "direct_sound_underflow_policy|hold-last-signed-sample,reset-latch-zero|STRING"
   "direct_sound_fifo_reset_policy|selected-queue-cursors-latch-and-pending-request-only,timers-unaffected|STRING"

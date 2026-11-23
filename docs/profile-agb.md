@@ -963,7 +963,7 @@ grid or quantize samples.
 | `audio_policy.direct_sound_fifo_ports` | A=0x040000A0,B=0x040000A4 |
 | `audio_policy.direct_sound_fifo_capacity_bytes` | 32 |
 | `audio_policy.direct_sound_sample_encoding` | signed-s8 |
-| `audio_policy.direct_sound_write_policy` | widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-advancing-one-word |
+| `audio_policy.direct_sound_write_policy` | widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-consuming-one-word |
 | `audio_policy.direct_sound_overflow_policy` | flush-queue-and-cursors-then-accept-whole-current-write |
 | `audio_policy.direct_sound_underflow_policy` | hold-last-signed-sample,reset-latch-zero |
 | `audio_policy.direct_sound_fifo_reset_policy` | selected-queue-cursors-latch-and-pending-request-only,timers-unaffected |
@@ -1063,7 +1063,8 @@ readiness/arbitration is not itself a data write.
 Direct Sound uses independent 32-byte signed-sample FIFOs at `0x040000A0` and
 `0x040000A4`. Widths 1, 2, and 4 are accepted; bytes are processed in increasing
 address order. Narrow writes merge addressed lanes into the next ring word,
-preserve other lanes, and advance one word. Overflow flushes that queue and
+preserve other lanes, and consume one four-byte queue word per accepted access.
+Overflow flushes that queue and
 accepts the whole write; underflow holds the last signed sample, initialized to
 zero. Actual selected timer overflows pop the FIFO before the same-cycle sample
 edge; a Timer 1 cascade pops only when Timer 1 itself wraps. A post-pop depth of
