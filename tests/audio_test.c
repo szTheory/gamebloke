@@ -777,6 +777,60 @@ static int run_ds_fifo(void)
     return tap_failure_count == 0u ? 0 : 1;
 }
 
+static int run_ds_transaction(void)
+{
+    gbl_machine *machine = new_machine();
+    gbl_bus_result result;
+
+    tap_test_number = 0u;
+    tap_failure_count = 0u;
+    tap_check("fresh machine is available", machine != NULL);
+    if (machine != NULL) {
+        tap_check("sound master can be enabled",
+                  write16(machine, UINT32_C(0x04000084),
+                          UINT16_C(0x0080)).status == GBL_BUS_STATUS_OK);
+        tap_check("FIFO A accepts its initial word",
+                  gbl_bus_write(machine, UINT32_C(0x040000A0), 4u,
+                                GBL_BUS_CLASS_NONSEQUENTIAL,
+                                UINT32_C(0x44332211)).status ==
+                      GBL_BUS_STATUS_OK);
+        tap_check("FIFO B accepts its initial word",
+                  gbl_bus_write(machine, UINT32_C(0x040000A4), 4u,
+                                GBL_BUS_CLASS_NONSEQUENTIAL,
+                                UINT32_C(0x88776655)).status ==
+                      GBL_BUS_STATUS_OK);
+        tap_check("both FIFOs contain four queued bytes",
+                  machine->audio.fifo[0].count == 4u &&
+                      machine->audio.fifo[1].count == 4u);
+        result = gbl_bus_write(machine, UINT32_C(0x04000083), 1u,
+                               GBL_BUS_CLASS_NONSEQUENTIAL,
+                               UINT32_C(0x08));
+        tap_check("SOUNDCNT_H FIFO A action resets only FIFO A",
+                  result.status == GBL_BUS_STATUS_OK &&
+                      machine->audio.fifo[0].count == 0u &&
+                      machine->audio.fifo[0].read_cursor == 0u &&
+                      machine->audio.fifo[0].write_cursor == 0u &&
+                      machine->audio.fifo[0].sample == 0);
+        if (machine->audio.fifo[0].count != 0u) {
+            printf("# FIFO A count after reset pulse: %u\n",
+                   (unsigned)machine->audio.fifo[0].count);
+        }
+        tap_check("FIFO B is unchanged by FIFO A reset",
+                  machine->audio.fifo[1].count == 4u &&
+                      machine->audio.fifo[1].bytes[0] == UINT8_C(0x55));
+    } else {
+        tap_check("sound master can be enabled", false);
+        tap_check("FIFO A accepts its initial word", false);
+        tap_check("FIFO B accepts its initial word", false);
+        tap_check("both FIFOs contain four queued bytes", false);
+        tap_check("SOUNDCNT_H FIFO A action resets only FIFO A", false);
+        tap_check("FIFO B is unchanged by FIFO A reset", false);
+    }
+    free_machine(machine);
+    printf("1..%u\n", tap_test_number);
+    return tap_failure_count == 0u ? 0 : 1;
+}
+
 static int run_registers(void)
 {
     static const struct {
@@ -3635,6 +3689,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "ds_fifo") == 0) {
         return run_ds_fifo();
+    }
+    if (strcmp(argv[1], "ds_transaction") == 0) {
+        return run_ds_transaction();
     }
     if (strcmp(argv[1], "registers") == 0) {
         return run_registers();
