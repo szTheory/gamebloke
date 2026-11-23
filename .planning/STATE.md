@@ -5,17 +5,17 @@ milestone_name: Audio
 current_phase: 19
 current_phase_name: Stereo Mixing and Runner Evidence
 current_plan: 6
-status: executing
-stopped_at: Completed 19-05-PLAN.md
-last_updated: "2026-11-23T14:39:06.763Z"
+status: verifying
+stopped_at: Completed 19-06-PLAN.md
+last_updated: "2026-11-23T16:37:07.627Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 19 execution started
-state_head: 35a2ca49fd7cdbe01775ca3c9880e73d3874552d
+state_head: 871b7ca9eb241010e8455b28ee0c5639ffd21e6d
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
   percent: 50
 ---
 
@@ -34,7 +34,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 Phase: 19 (Stereo Mixing and Runner Evidence) — EXECUTING
 Current Plan: 6
 Total Plans in Phase: 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-23 — Phase 19 execution started
 Last activity description: Phase 19 execution started
 Progress: [█████░░░░░] 50%
@@ -210,6 +210,7 @@ Progress: [█████░░░░░] 50%
 | Phase 19 P03 | 49min | 3 tasks | 7 files |
 | Phase 19 P04 | 27min | 2 tasks | 8 files |
 | Phase 19 P05 | 37min | 2 tasks | 6 files |
+| Phase 19 P06 | 1h 44m | 2 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -578,6 +579,8 @@ Recent decisions affecting current work:
 - [Phase 19]: Use a source-bound BIOS-free guest with PSG channel 2 left and signed FIFO A right for independent stereo observations.
 - [Phase 19]: Keep the original audio fixture local-only with redistribution unknown; do not select it in standard CI.
 - [Phase 19]: Stop Timer 0 and DMA before the completion marker so the final producer result has no pending refill request.
+- [Phase 19]: Use a generated synthetic runner control guest in the ASan lane so sanitizer coverage does not depend on the optional ARM diagnostics toolchain.
+- [Phase 19]: Keep the existing two-worker CI setting; the measured CTest critical path did not justify a quality-risking concurrency or coverage change.
 
 ### Pending Todos
 
@@ -629,8 +632,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T14:39:06.495Z
-Stopped at: Completed 19-05-PLAN.md
+Last session: 2026-11-23T16:37:07.353Z
+Stopped at: Completed 19-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
