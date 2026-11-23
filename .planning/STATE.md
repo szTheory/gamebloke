@@ -2,43 +2,38 @@
 gsd_state_version: "1.0"
 milestone: v4.0
 milestone_name: Audio
-current_phase: 19
-current_phase_name: Stereo Mixing and Runner Evidence
-current_plan: 6
-status: verifying
-stopped_at: Completed 19-06-PLAN.md
-last_updated: "2026-11-23T16:37:07.627Z"
+status: Awaiting next milestone
+stopped_at: v4.0 milestone archived locally
+last_updated: "2026-11-23T19:52:29.219Z"
 last_activity: 2026-11-23
-last_activity_desc: Phase 19 execution started
-state_head: 871b7ca9eb241010e8455b28ee0c5639ffd21e6d
+last_activity_desc: Milestone v4.0 completed and archived
+state_head: e0513a96168955ce3fc4eaf9a9b91ba1c93ceb59
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 4
   total_plans: 17
   completed_plans: 17
-  percent: 50
+  percent: 100
+current_phase: 19
+current_phase_name: Stereo Mixing and Runner Evidence
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-22)
+See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
-**Most recent milestone:** v3.0 PPU Modes and Composition (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Phase 19 — Stereo Mixing and Runner Evidence
+**Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
+**Current focus:** v4.0 is complete and archived; the next milestone has not started.
 
 ## Current Position
 
-Phase: 19 (Stereo Mixing and Runner Evidence) — EXECUTING
-Current Plan: 6
-Total Plans in Phase: 6
-Status: Phase complete — ready for verification
-Last activity: 2026-11-23 — Phase 19 execution started
-Last activity description: Phase 19 execution started
-Progress: [█████░░░░░] 50%
-
+Phase: Milestone v4.0 complete and archived
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-23 — Milestone v4.0 completed and archived
 
 ## Performance Metrics
 
@@ -623,6 +618,12 @@ None yet.
   warning for the portable `~/.codex` runtime reference is a prose-path scanner
   limitation, not a missing shipped artifact.
 
+- v4.0 audio hardware qualification remains UNKNOWN. The project-authored audio
+  diagnostic is authorized for local verification only and has unknown
+  redistribution rights. Hosted CI, external publication, release packaging,
+  and physical hardware qualification remain owner gates. See
+  `.planning/milestones/v4.0-MILESTONE-AUDIT.md`.
+
 ### Acknowledged at milestone close
 
 | Category | Item | Status | Deferred At | Milestone |
@@ -632,11 +633,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T16:37:07.353Z
-Stopped at: Completed 19-06-PLAN.md
+Last session: 2026-11-23T19:52:29.219Z
+Stopped at: v4.0 milestone archived locally; no next milestone started
 Resume file: None
 
 ## Operator Next Steps
 
 
-- Phase 18 Plan 04 is complete; proceed with Phase 18 verification. Phase 19 remains after Phase 18, and hardware qualification remains UNKNOWN.
+
+- Start the next milestone with $gsd-new-milestone

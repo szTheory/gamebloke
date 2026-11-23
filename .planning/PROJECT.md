@@ -18,43 +18,37 @@ behavior. That behavior covers guest progress, machine time, CPU/device
 effects, raw video, and raw audio, all observed separately, and every result
 says exactly what it proves and what it does not.
 
-## Most Recent Completed Milestone: v3.0 PPU Modes and Composition
+## Most Recent Completed Milestone: v4.0 Audio
+
+v4.0 added guest-time behavior for PSG channels 1–4 and Direct Sound FIFO A/B,
+integrated with the canonical machine clock, timers, and shared DMA arbitration.
+The `agb` profile now declares deterministic six-source stereo mixing and a
+bounded pre-PWM S16LE capture grid. The production runner reports guest,
+capture, and artifact outcomes independently. Literal PCM, replay, refusal,
+profile/result, and source-bound local guest checks passed; the full v4.0
+requirements and cross-phase flows are verified locally.
+
+This is a GSD milestone label, not a Gamebloke software release. The output is a
+digital software model, not PWM or analog playback, and does not establish
+physical audio accuracy or broad retail compatibility. Hardware qualification
+remains UNKNOWN. The original diagnostic is permitted for local verification;
+redistribution remains unknown. No hosted run, publication, release package,
+or replacement of Playstead's managed mGBA route is claimed or authorized.
+
+<details>
+<summary>Previous completed milestone: v3.0 PPU Modes and Composition</summary>
 
 v3.0 extended the canonical raw-video path into a deterministic software model
 for display modes 0–5: text, affine, and bitmap backgrounds; regular and affine
 objects; shared priorities; windows; color effects; mosaic; and forced blank.
-The `agb` profile and production runner expose the implemented capability and
-policy details. CPU and DMA accesses retain the existing bus behavior across
-drawing, HBlank, VBlank, and forced blank. Semantic pixel expectations and a
-bounded production-runner scene passed the local canonical verification path.
+Semantic pixel expectations and a bounded production-runner scene passed the
+local canonical verification path. The selected 1006-cycle HBlank policy and
+HBlank-edge, DMA-latch, and within-line visibility disputes remain open;
+hardware qualification is UNKNOWN. The generated guest remains local-only
+with redistribution rights unknown, and v1.0 `DIAG-04`/`DET-02` remain open
+carryovers.
 
-This is a GSD milestone label, not a Gamebloke software release. It does not
-claim cycle-accurate PPU behavior, hardware qualification, or broad retail
-compatibility. The selected 1006-cycle HBlank policy and HBlank-edge,
-DMA-latch, and within-line visibility disputes remain open; hardware
-qualification is UNKNOWN. The generated guest remains local-only with
-redistribution rights unknown, and v1.0 `DIAG-04`/`DET-02` remain open
-carryovers. Audio, cartridge saves, and the public API/consumer/package remain
-future work.
-
-## Current Milestone: v4.0 Audio
-
-**Goal:** Extend the canonical machine and deterministic runner with guest-time
-GBA sound behavior and inspectable raw audio output, while keeping host playback
-and hardware qualification outside the claim.
-
-**Target features:**
-- GBA PSG channels and Direct Sound FIFO playback integrated with the existing
-  machine clock, timers, and DMA boundaries.
-- A declared raw sample format and cadence with deterministic mixing/output
-  semantics at a pre-PWM digital mixer tap. The profile explicitly limits
-  SOUNDBIAS behavior; analog PWM output is not modeled.
-- Headless runner audio capture and semantic/repeatability evidence from
-  original, rights-cleared diagnostic guests.
-
-The intended added value beside Playstead's managed mGBA route is a reproducible
-headless audio and semantic-evidence contract. This is not a fidelity comparison
-or an assumed replacement.
+</details>
 
 ## Next Milestone Direction
 
@@ -88,16 +82,17 @@ tradeoffs, and limits.
 - ✓ Regular and affine OBJ rendering compose with backgrounds and backdrop through a shared priority policy, with bounded object work and semantic pixel evidence — Phase 13. Mode capabilities remain partial; priority and timing behavior are deterministic software policy, not hardware qualification.
 - ✓ Window masks, color effects, mosaic, and forced blank produce declared semantic raw pixels with deterministic region and boundary behavior — Phase 14. This remains a software model, not hardware qualification.
 - ✓ CPU/DMA video-memory accesses retain the selected existing bus behavior, while a bounded production-runner scene reports semantic pixels, machine time, guest progress, complete-frame status, and capability evidence — Phase 15. HBlank, DMA-latch, and within-line visibility disputes remain open.
+- ✓ Guest-time PSG 1–4 and Direct Sound FIFO A/B behavior, fixed-grid six-source pre-PWM stereo mixing, and bounded production-runner PCM evidence — v4.0 Audio (2026-11-23). The diagnostic is local-only with redistribution unknown; hardware qualification remains UNKNOWN.
 
 ### Active
 
 These are hypotheses until shipped and verified. Formal REQ-IDs live in
-REQUIREMENTS.md.
+.planning/REQUIREMENTS.md while a milestone is active. The completed v4.0 audio
+requirements are archived in `.planning/milestones/v4.0-REQUIREMENTS.md`; the
+next milestone will define its own requirements.
 
 - [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
-- [ ] v4.0 Audio capabilities and raw capture, tracked by the approved REQ-IDs in REQUIREMENTS.md
 - [ ] Explicitly modeled cartridge backup devices. Save type is never inferred from a filename or title.
-- [ ] Raw audio capture in the deterministic runner; missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
 - [ ] A fixture manifest for every test ROM (source, revision, build recipe, digest, license, permitted use, BIOS mode, expected result)
 - [ ] Complete per-fixture rights review for any scenario intended for redistribution; the current generated guest remains local-only
 - [ ] A defined public API boundary (lifecycle, load/unload, input timing, bounded advancement, buffer ownership, reset, errors, refusal postconditions) before it is exposed
@@ -127,7 +122,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
-- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, and dependency-free terminal frontend with v3.0 PPU work complete. One machine-owned time path drives timers, CPU IRQ/HALT sampling, timestamped logical input, WAITCNT-aware CPU/DMA bus costs, DMA arbitration, PPU boundaries, and sampled raw video. Modes 0–5, regular/affine OBJ, shared composition, windows, effects, mosaic, forced blank, and the selected video-memory access policy are covered by semantic pixels and production-runner evidence. The model remains unqualified: Game Pak prefetch is unmodeled; DMA latch, selected HBlank, and within-line visibility remain disputed; hardware qualification is UNKNOWN. The generated guest is local-only and redistribution rights are unknown. Phase 6 `DIAG-04` and `DET-02` remain open; no hosted rerun or publication was authorized by v3.0.
+- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, and dependency-free terminal frontend. The shared machine-time path drives timers, CPU IRQ/HALT sampling, timestamped logical input, WAITCNT-aware bus costs, DMA arbitration, PPU boundaries, PSG/Direct Sound and raw video/audio capture. PPU modes 0–5 and the declared six-source audio mixer have semantic, replay, and production-runner evidence. Selected timing remains project-model policy: Game Pak prefetch is unmodeled; DMA-latch, HBlank, and within-line visibility disputes remain open; hardware qualification is UNKNOWN. The generated audio diagnostic remains local-only with redistribution unknown. Phase 6 `DIAG-04` and `DET-02` remain open; no hosted run, publication, or software release occurred for v4.0.
 
 ## Constraints
 
@@ -190,7 +185,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Time and timer evidence boundary (Phase 7) | Keep one-cycle non-ROM costs and timer edge choices project-selected; separate semantic guest completion, IF request, and model cycles | Verified locally as model evidence; no GBA timing qualification is claimed |
 | IRQ/HALT and logical input boundary (Phase 8) | Keep device IF, CPU eligibility/entry, HALT wake, and timestamped host-neutral input distinct | Verified locally; no BIOS handler, hardware IRQ latency, or physical-controller behavior is claimed |
 | PPU and Playable 0 boundary (Phase 10) | Use explicit PPU events, complete supported mode-3 frame capture, semantic pixel checks, and a local host; preserve HBlank evidence and dispute labels | Verified locally; the owner accepted the original diagnostic demo only; no hardware, retail-game, audio/save, or redistribution claim is implied |
-| v4.0 Audio scope and raw capture policy (owner, 2026-11-22) | Add PSG 1–4 and Direct Sound FIFO A/B on guest time, with bounded pre-PWM capture at fixed 32,768 Hz stereo S16LE and explicit model-policy labels | ✓ Scope and output contract approved; no host playback, PWM/analog-output, or hardware qualification claim |
+| v4.0 Audio scope and raw capture policy (owner, 2026-11-22) | Add PSG 1–4 and Direct Sound FIFO A/B on guest time, with bounded pre-PWM capture at fixed 32,768 Hz stereo S16LE and explicit model-policy labels | ✓ Completed locally 2026-11-23; no host playback, publication, redistribution, PWM/analog-output, or hardware qualification claim |
 | Local interactive host boundary (Phase 10) | Reuse the canonical machine through the official Libretro ABI; use a dependency-free terminal fallback after managed RetroArch launch denial | Verified locally; no policy bypass, second core, or runtime dependency was added |
 | v2.0 owner judgment (2026-11-19) | The owner ran the terminal demo and accepted the visible original BIOS-free diagnostic behavior | ✓ Accepted for scoped Playable 0 demo; broader compatibility, hardware, physical-controller, and rights decisions remain open |
 | v3.0 PPU scope (owner-prepared recommendation; 2026-11-19) | Extend the mode-3 path to functional modes 0–5 and common composition through raw video, preserving explicit project-model and hardware-evidence limits | ✓ Completed across Phases 11–15; deterministic model and local production-runner evidence only; hardware qualification remains UNKNOWN |
@@ -221,4 +216,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-21 after starting v4.0 Audio*
+*Last updated: 2026-11-23 after completing local verification of v4.0 Audio*

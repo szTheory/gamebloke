@@ -16,18 +16,18 @@
     {
       "number": "18",
       "name": "Direct Sound and FIFO DMA",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "19",
       "name": "Stereo Mixing and Runner Evidence",
-      "status": "in_progress"
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "$gsd-progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 4 of 4 · 50% · ready to verify"
+    "command": "$gsd-progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-11-23T16:37:05.826Z"
+  "updated_at": "2026-11-23T19:52:29.239Z"
 }

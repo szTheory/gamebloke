@@ -1,5 +1,21 @@
 # Milestones
 
+## v4.0 Audio (Completed locally: 2026-11-23)
+
+**Phases completed:** 4 phases, 17 plans, 42 tasks
+**Verification:** 13/13 requirements satisfied; 4/4 phases passed; 5/5 integration flows wired. Audit status is `tech_debt` for documented owner gates and carryovers.
+**Outcome:** Local software milestone complete. No software release, hosted CI run, fixture redistribution, physical hardware qualification, or publication occurred. Hardware qualification remains UNKNOWN.
+**Known verification overrides:** 0 newly acknowledged; 1 previously acknowledged from v1.0 remains carried forward.
+
+**Key accomplishments:**
+- PSG channels 1–4 and Direct Sound FIFO A/B now advance on guest time through shared timer/DMA behavior.
+- A fixed-grid six-source stereo mixer produces deterministic pre-PWM S16LE samples with literal semantic vectors.
+- The production runner writes bounded audio artifacts transactionally and reports guest, capture, and artifact outcomes separately.
+- Profile, result schema, fixture metadata, and evidence docs agree on capabilities and limits; the source-bound diagnostic remains local-only with redistribution unknown.
+- Canonical local CI, a final-source sanitizer subset, a local guest run, and the pinned Linux audio lane passed. Critical-path measurements and cleanup are recorded in the audit.
+
+---
+
 ## v3.0 PPU Modes and Composition (Completed: 2026-11-21)
 
 **Phases completed:** 5 phases, 40 plans, 76 tasks
