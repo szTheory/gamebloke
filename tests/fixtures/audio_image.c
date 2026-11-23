@@ -254,6 +254,14 @@ static bool make_audio_image(uint8_t image[IMAGE_SIZE],
         return false;
     }
 
+    /* Stop both producers before reporting terminal guest progress. */
+    if (!store_halfword_literal(&builder, UINT32_C(0x040000C6),
+                                UINT16_C(0)) ||
+        !store_halfword_literal(&builder, UINT32_C(0x04000102),
+                                UINT16_C(0))) {
+        return false;
+    }
+
     /* The distinct mailbox marker is written only after the audio interval. */
     if (!load_literal(&builder, 0u, MAILBOX_ADDRESS) ||
         !load_literal(&builder, 1u, MAILBOX_MAGIC) ||
