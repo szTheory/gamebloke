@@ -294,6 +294,56 @@ elseif(CASE STREQUAL "audio_policy")
   expect_audio_detail(audio-policy-doc
     "audio_policy.registers: missing or stale row" "${p}" "${d}")
 
+elseif(CASE STREQUAL "dma_sound_trigger")
+  profile_copy(p clean_dma_sound_trigger)
+  doc_copy(d clean_dma_sound_trigger)
+  check_audio_command(audio_cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${audio_cmd}
+    REGEX "profile: ok \\(agb audio policy\\)")
+  check_command(full_cmd "${p}" "${d}")
+  gbl_expect_pass(COMMAND ${full_cmd}
+    REGEX "profile: ok \\(agb v${PROFILE_VERSION}, 11 timing constants, ${UNMODELED_COUNT} unmodeled\\)")
+
+  profile_copy(p wrong_direct_sound_threshold)
+  gbl_json_mutate_set("${p}" "17"
+    audio_policy direct_sound_fifo_request_threshold_bytes)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.direct_sound_fifo_request_threshold_bytes: expected 16" "${p}")
+
+  profile_copy(p wrong_direct_sound_threshold_type)
+  gbl_json_mutate_set("${p}" [=["16"]=]
+    audio_policy direct_sound_fifo_request_threshold_bytes)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.direct_sound_fifo_request_threshold_bytes: expected NUMBER, found STRING" "${p}")
+
+  profile_copy(p stale_dma_trigger_json)
+  doc_copy(d stale_dma_trigger_json)
+  gbl_json_mutate_set("${p}" [=["old trigger producers are deferred"]=]
+    dma_policy trigger_policy deferred_behavior)
+  expect_detail(dma-policy "trigger producer and refusal policy is missing or stale"
+    "${p}" "${d}")
+
+  profile_copy(p stale_dma_trigger_table)
+  doc_copy(d stale_dma_trigger_table)
+  file(READ "${d}" trigger_doc_before)
+  string(REPLACE
+    "Direct Sound FIFO A/B uses DMA1/DMA2 special timing"
+    "Direct Sound audio trigger producer remains deferred"
+    trigger_doc_after "${trigger_doc_before}")
+  if("${trigger_doc_after}" STREQUAL "${trigger_doc_before}")
+    message(FATAL_ERROR "mutate: no-match: linked DMA producer table")
+  endif()
+  file(WRITE "${d}" "${trigger_doc_after}")
+  expect_detail(dma-policy-doc
+    "dma_policy.trigger_policy: linked producer declaration or citation row is stale"
+    "${p}" "${d}")
+
+  profile_copy(p direct_sound_qualification_escalation)
+  gbl_json_mutate_set("${p}" [=["qualified"]=]
+    audio_policy direct_sound_hardware_qualification)
+  expect_audio_detail(audio-policy-value
+    "audio_policy.direct_sound_hardware_qualification: expected UNKNOWN" "${p}")
+
 elseif(CASE STREQUAL "ppu_policy")
   if(NOT "${PROFILE_VERSION}" STREQUAL "16")
     message(FATAL_ERROR
