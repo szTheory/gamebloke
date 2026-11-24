@@ -204,22 +204,40 @@ static const char *mailbox_name(uint32_t state)
     }
 }
 
+static uint16_t pixel_value(const uint8_t *video, size_t pixel_index)
+{
+    const size_t offset = pixel_index * 2u;
+
+    return (uint16_t)video[offset] |
+           (uint16_t)((uint16_t)video[offset + 1u] << 8u);
+}
+
+static int32_t sample_channel(const uint8_t *audio, size_t frame_index,
+                              size_t channel)
+{
+    const size_t offset = frame_index * PHASE21_AUDIO_FRAME_BYTES +
+                          channel * 2u;
+    const uint16_t bits = (uint16_t)audio[offset] |
+                          (uint16_t)((uint16_t)audio[offset + 1u] << 8u);
+
+    return bits <= UINT16_C(0x7FFF)
+               ? (int32_t)bits
+               : (int32_t)bits - INT32_C(0x10000);
+}
+
 static bool sample_pair_is(const uint8_t *audio, size_t frame_index)
 {
-    const size_t offset = frame_index * PHASE21_AUDIO_FRAME_BYTES;
-    const uint16_t left_bits = (uint16_t)audio[offset] |
-                               (uint16_t)((uint16_t)audio[offset + 1u] << 8u);
-    const uint16_t right_bits = (uint16_t)audio[offset + 2u] |
-                                (uint16_t)((uint16_t)audio[offset + 3u] << 8u);
-    const int16_t left = (int16_t)left_bits;
-    const int16_t right = (int16_t)right_bits;
-
-    return left == PHASE21_AUDIO_LEFT && right == PHASE21_AUDIO_RIGHT;
+    return sample_channel(audio, frame_index, 0u) == PHASE21_AUDIO_LEFT &&
+           sample_channel(audio, frame_index, 1u) == PHASE21_AUDIO_RIGHT;
 }
 
 static bool write_observations(const char *directory,
                                const gbl_v1_observation *observation,
-                               const gbl_v1_advance_result *result)
+                               const gbl_v1_advance_result *result,
+                               const gbl_v1_input_event *events,
+                               const uint8_t *video_bytes,
+                               const uint8_t *audio_bytes,
+                               const char *expected_status)
 {
     char json[2048];
     int count;
@@ -232,7 +250,10 @@ static bool write_observations(const char *directory,
         "\"bios\": \"%s\", \"hardware_qualification\": \"unknown\"},\n"
         "  \"guest\": {\"case_id\": %u, \"status\": \"%s\", "
         "\"expected_status\": \"%s\"},\n"
-        "  \"input\": {\"events\": [0, %u, %u], "
+        "  \"input\": {\"events\": [{\"cycle\": %llu, "
+        "\"pressed_mask\": %u}, {\"cycle\": %llu, "
+        "\"pressed_mask\": %u}, {\"cycle\": %llu, "
+        "\"pressed_mask\": %u}], "
         "\"final_mask\": %u, \"applied\": %u, \"pending\": %u},\n"
         "  \"execution\": {\"outcome\": \"guest_terminal\", "
         "\"stop_reason\": \"no_bios_swi\", \"requested_units\": %u, "
@@ -245,21 +266,22 @@ static bool write_observations(const char *directory,
         "  \"audio\": {\"format\": \"s16le\", \"sample_rate\": %u, "
         "\"cycles_per_frame\": %u, \"channels\": %u, "
         "\"model\": \"pre-pwm\", \"frames\": %llu, "
-        "\"bytes\": %llu, \"expectations\": ["
+        "\"bytes\": %llu, \"samples\": ["
         "{\"cycle\": 4096, \"index\": %u, \"left\": %d, "
         "\"right\": %d}, {\"cycle\": 8192, \"index\": %u, "
         "\"left\": %d, \"right\": %d}]},\n"
-        "  \"pixels\": [{\"x\": 0, \"y\": 1, \"value\": 31}, "
-        "{\"x\": 1, \"y\": 1, \"value\": 992}, "
-        "{\"x\": 2, \"y\": 1, \"value\": 0}]\n"
+        "  \"pixels\": [{\"x\": 0, \"y\": 1, \"value\": %u}, "
+        "{\"x\": 1, \"y\": 1, \"value\": %u}, "
+        "{\"x\": 2, \"y\": 1, \"value\": %u}]\n"
         "}\n",
         observation->profile_id, observation->profile_version,
         observation->bios_id, observation->mailbox_case_id,
         mailbox_name(observation->mailbox_state),
-        result->observation.mailbox_state == GBL_V1_MAILBOX_PASS
-            ? "pass"
-            : "fail",
-        1024u, 2048u, (unsigned)observation->logical_input_mask,
+        expected_status,
+        (unsigned long long)events[0].cycle, (unsigned)events[0].pressed_mask,
+        (unsigned long long)events[1].cycle, (unsigned)events[1].pressed_mask,
+        (unsigned long long)events[2].cycle, (unsigned)events[2].pressed_mask,
+        (unsigned)observation->logical_input_mask,
         observation->applied_input_count, observation->pending_input_count,
         result->requested_units, (unsigned)result->requested_cycle_budget,
         (unsigned long long)result->start_cycle,
@@ -272,8 +294,15 @@ static bool write_observations(const char *directory,
         observation->audio_cycles_per_frame, observation->audio_channels,
         (unsigned long long)result->audio_frames_written,
         (unsigned long long)result->audio_bytes_written,
-        PHASE21_AUDIO_INDEX_4096, PHASE21_AUDIO_LEFT, PHASE21_AUDIO_RIGHT,
-        PHASE21_AUDIO_INDEX_8192, PHASE21_AUDIO_LEFT, PHASE21_AUDIO_RIGHT);
+        PHASE21_AUDIO_INDEX_4096,
+        (int)sample_channel(audio_bytes, PHASE21_AUDIO_INDEX_4096, 0u),
+        (int)sample_channel(audio_bytes, PHASE21_AUDIO_INDEX_4096, 1u),
+        PHASE21_AUDIO_INDEX_8192,
+        (int)sample_channel(audio_bytes, PHASE21_AUDIO_INDEX_8192, 0u),
+        (int)sample_channel(audio_bytes, PHASE21_AUDIO_INDEX_8192, 1u),
+        (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u),
+        (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u + 1u),
+        (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u + 2u));
     if (count < 0 || (size_t)count >= sizeof json) {
         return false;
     }
@@ -551,7 +580,9 @@ int main(int argc, char **argv)
                         GBL_V1_VIDEO_BYTES) ||
         !write_new_file(evidence_directory, "audio.s16le", audio_bytes,
                         expected_audio_bytes) ||
-        !write_observations(evidence_directory, &observation, &result)) {
+        !write_observations(evidence_directory, &observation, &result,
+                            events, video_bytes, audio_bytes,
+                            mailbox_name(expected_mailbox))) {
         (void)snprintf(failure_detail, sizeof failure_detail,
                        "could not publish all asserted local evidence files");
         failure_category = "evidence-write";

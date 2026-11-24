@@ -6,8 +6,11 @@ if [ -n "${CI:-}" ]; then
     exit 2
 fi
 
-if [ "$#" -ne 0 ]; then
-    printf '%s\n' 'usage: sh scripts/check-installed-consumer.sh' >&2
+NEGATIVE_CONTROLS=OFF
+if [ "$#" -eq 1 ] && [ "$1" = '--negative-controls' ]; then
+    NEGATIVE_CONTROLS=ON
+elif [ "$#" -ne 0 ]; then
+    printf '%s\n' 'usage: sh scripts/check-installed-consumer.sh [--negative-controls]' >&2
     exit 2
 fi
 
@@ -70,6 +73,21 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+if [ "$NEGATIVE_CONTROLS" = ON ]; then
+    if CI_OUTPUT=$(CI=1 sh "$SCRIPT_DIR/check-installed-consumer.sh" 2>&1); then
+        CI_STATUS=0
+    else
+        CI_STATUS=$?
+    fi
+    [ "$CI_STATUS" -eq 2 ] ||
+        fail 'CI refusal control did not exit with status 2'
+    printf '%s\n' "$CI_OUTPUT" |
+        grep -Fx 'check-installed-consumer: refused because CI is set' >/dev/null ||
+        fail 'CI refusal control did not report its specific refusal'
+    [ ! -e "$WORK_ROOT" ] && [ ! -e "$EVIDENCE_ROOT" ] ||
+        fail 'CI refusal created task scratch before rejecting the run'
+fi
 
 case "$PHASE_ROOT" in
     "$REPO_ROOT"/build/phase21-local) ;;
@@ -137,6 +155,39 @@ git -C "$REPO_ROOT" check-ignore -q "$ROM_PATH" ||
     fail 'generated diagnostic stopped being ignored'
 if git -C "$REPO_ROOT" ls-files --error-unmatch -- "$ROM_PATH" >/dev/null 2>&1; then
     fail 'generated diagnostic was unexpectedly tracked'
+fi
+
+cmake \
+    -DGBL_STAGE=preflight \
+    -DGBL_REPO_ROOT="$REPO_ROOT" \
+    -DGBL_MANIFEST="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json" \
+    -DGBL_SOURCE_PATH="$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" \
+    -DGBL_ROM_PATH="$ROM_PATH" \
+    -DGBL_SCRATCH="$WORK_ROOT" \
+    -DGBL_EVIDENCE_ROOT="$EVIDENCE_ROOT" \
+    -DGBL_COMPILER_IDENTITY="$CC_IDENTITY" \
+    -DGBL_COMPILER_TARGET="$CC_TARGET" \
+    -DGBL_CMAKE_IDENTITY="$CMAKE_IDENTITY" \
+    -DGBL_NINJA_IDENTITY="$NINJA_IDENTITY" \
+    -DGBL_NEGATIVE_CONTROLS="$NEGATIVE_CONTROLS" \
+    -P "$REPO_ROOT/scripts/check-installed-consumer.cmake" \
+    >"$EVIDENCE_ROOT/manifest-preflight.log" 2>&1 || {
+        cat "$EVIDENCE_ROOT/manifest-preflight.log" >&2
+        fail 'fixture provenance, rights, recipe, or digest check failed'
+    }
+
+if [ "$NEGATIVE_CONTROLS" = ON ]; then
+    if git -C "$REPO_ROOT" grep -n -E \
+       'check-installed-consumer|phase21_diagnostic|phase21-diagnostic|gamebloke[.]phase21-consumer|fixture-manifest[.]json|phase21-local' \
+       -- CMakeLists.txt cmake .github/workflows tests/inventory \
+       >"$EVIDENCE_ROOT/public-registration-search.txt" 2>&1; then
+        cat "$EVIDENCE_ROOT/public-registration-search.txt" >&2
+        fail 'Phase 21 local fixture or receipt leaked into root/public registrations'
+    fi
+    if [ -n "$(git -C "$REPO_ROOT" ls-files -- '*.gba' '*.agb' \
+            'build/phase21-local/*')" ]; then
+        fail 'generated ROM or local receipt is tracked'
+    fi
 fi
 
 PACKAGE_BUILD="$WORK_ROOT/package-build"
@@ -228,6 +279,40 @@ grep -F "gamebloke_DIR:PATH=$MOVED_PREFIX/lib/cmake/gamebloke" \
     "$BUILD_INITIAL/CMakeCache.txt" >/dev/null ||
     fail 'CMake cache did not bind the relocated package directory'
 
+[ ! -e "$MISSING_BUILD" ] ||
+    fail 'unique missing-package build path already exists'
+if env -u gamebloke_DIR -u Gamebloke_DIR -u GAMEBLOKE_DIR \
+    -u gamebloke_ROOT -u Gamebloke_ROOT -u CMAKE_PREFIX_PATH \
+    -u CMAKE_MODULE_PATH -u CMAKE_INCLUDE_PATH -u CMAKE_LIBRARY_PATH \
+    -u CMAKE_FRAMEWORK_PATH \
+    cmake -S "$SOURCE_MOVED" -B "$MISSING_BUILD" -G Ninja \
+      -DCMAKE_C_COMPILER="$CC_REAL" -DCMAKE_MAKE_PROGRAM="$NINJA_PATH" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+      -DCMAKE_PREFIX_PATH= -DCMAKE_MODULE_PATH= \
+      -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON \
+      -DCMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE \
+      -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=FALSE \
+      -DCMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH=FALSE \
+      -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=FALSE \
+      -DCMAKE_FIND_USE_CMAKE_SYSTEM_PATH=FALSE \
+      -DCMAKE_FIND_USE_INSTALL_PREFIX=FALSE \
+      -DCMAKE_FIND_USE_PACKAGE_ROOT_PATH=FALSE \
+      --debug-find-pkg=gamebloke \
+      >"$EVIDENCE_ROOT/package-missing.log" 2>&1; then
+    fail 'source-only consumer unexpectedly configured without the moved package'
+else
+    MISSING_STATUS=$?
+fi
+[ "$MISSING_STATUS" -ne 0 ] ||
+    fail 'missing-package negative control unexpectedly succeeded'
+grep -F 'Could not find a package configuration file provided by "gamebloke"' \
+    "$EVIDENCE_ROOT/package-missing.log" >/dev/null || {
+        cat "$EVIDENCE_ROOT/package-missing.log" >&2
+        fail 'missing-package control failed without the expected package-specific diagnostic'
+    }
+
 MOVED_PREFIX_REAL=$(CDPATH= cd -P "$MOVED_PREFIX" && pwd -P)
 MOVED_CONFIG_REAL=$(canonical_file \
     "$MOVED_PREFIX/lib/cmake/gamebloke/gameblokeConfig.cmake") ||
@@ -262,7 +347,7 @@ cp "$BUILD_INITIAL/CMakeCache.txt" "$EVIDENCE_ROOT/CMakeCache.txt"
 mv "$BUILD_INITIAL" "$BUILD_MOVED"
 [ ! -e "$BUILD_INITIAL" ] || fail 'original external consumer build path still exists'
 
-for output_name in run-1 run-2 timing-control; do
+for output_name in run-1 run-2 timing-control expectation-video expectation-audio; do
     mkdir "$EVIDENCE_ROOT/$output_name"
 done
 (cd "$EXECUTION_DIR" && \
@@ -287,6 +372,74 @@ done
     }
 grep -F '"status": "fail"' "$EVIDENCE_ROOT/timing-control/observations.json" >/dev/null ||
     fail 'timing control evidence did not record the guest FAIL verdict'
+
+if [ "$NEGATIVE_CONTROLS" = ON ]; then
+if (cd "$EXECUTION_DIR" && \
+    "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
+      "$EVIDENCE_ROOT/expectation-video" \
+      --expectation-control video) \
+      >"$EVIDENCE_ROOT/expectation-video.stdout" \
+      2>"$EVIDENCE_ROOT/expectation-video.stderr"; then
+    fail 'video expectation mutation unexpectedly passed'
+else
+    VIDEO_CONTROL_STATUS=$?
+fi
+[ "$VIDEO_CONTROL_STATUS" -ne 0 ] ||
+    fail 'video expectation mutation did not fail'
+grep -F 'installed-consumer: expected-video-mismatch:' \
+    "$EVIDENCE_ROOT/expectation-video.stderr" >/dev/null || {
+        cat "$EVIDENCE_ROOT/expectation-video.stderr" >&2
+        fail 'video expectation mutation failed for the wrong reason'
+    }
+for file in observations.json frame.bgr555le audio.s16le; do
+    [ ! -e "$EVIDENCE_ROOT/expectation-video/$file" ] ||
+        fail "video mutation published passing output: $file"
+done
+
+if (cd "$EXECUTION_DIR" && \
+    "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
+      "$EVIDENCE_ROOT/expectation-audio" \
+      --expectation-control audio) \
+      >"$EVIDENCE_ROOT/expectation-audio.stdout" \
+      2>"$EVIDENCE_ROOT/expectation-audio.stderr"; then
+    fail 'audio expectation mutation unexpectedly passed'
+else
+    AUDIO_CONTROL_STATUS=$?
+fi
+[ "$AUDIO_CONTROL_STATUS" -ne 0 ] ||
+    fail 'audio expectation mutation did not fail'
+grep -F 'installed-consumer: expected-audio-mismatch:' \
+    "$EVIDENCE_ROOT/expectation-audio.stderr" >/dev/null || {
+        cat "$EVIDENCE_ROOT/expectation-audio.stderr" >&2
+        fail 'audio expectation mutation failed for the wrong reason'
+    }
+for file in observations.json frame.bgr555le audio.s16le; do
+    [ ! -e "$EVIDENCE_ROOT/expectation-audio/$file" ] ||
+        fail "audio mutation published passing output: $file"
+done
+fi
+
+cmake \
+    -DGBL_STAGE=evidence \
+    -DGBL_REPO_ROOT="$REPO_ROOT" \
+    -DGBL_MANIFEST="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json" \
+    -DGBL_SOURCE_PATH="$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" \
+    -DGBL_ROM_PATH="$ROM_PATH" \
+    -DGBL_SCRATCH="$WORK_ROOT" \
+    -DGBL_EVIDENCE_ROOT="$EVIDENCE_ROOT" \
+    -DGBL_COMPILER_IDENTITY="$CC_IDENTITY" \
+    -DGBL_COMPILER_TARGET="$CC_TARGET" \
+    -DGBL_CMAKE_IDENTITY="$CMAKE_IDENTITY" \
+    -DGBL_NINJA_IDENTITY="$NINJA_IDENTITY" \
+    -DGBL_RUN1_DIR="$EVIDENCE_ROOT/run-1" \
+    -DGBL_RUN2_DIR="$EVIDENCE_ROOT/run-2" \
+    -DGBL_TIMING_CONTROL_DIR="$EVIDENCE_ROOT/timing-control" \
+    -P "$REPO_ROOT/scripts/check-installed-consumer.cmake" \
+    >"$EVIDENCE_ROOT/manifest-evidence.log" 2>&1 || {
+        cat "$EVIDENCE_ROOT/manifest-evidence.log" >&2
+        fail 'installed consumer evidence did not match the admitted manifest'
+    }
+
 for file in observations.json frame.bgr555le audio.s16le; do
     cmp -s "$EVIDENCE_ROOT/run-1/$file" "$EVIDENCE_ROOT/run-2/$file" ||
         fail "fresh process output differed: $file"
@@ -323,6 +476,15 @@ audio_sha256=$AUDIO_SHA256
 comparison=two fresh processes matched normalized observations and complete A/V bytes
 timing_control=same fixture, A event shifted from cycle 1024 to 1536, guest FAIL case 21001
 EOF
+printf '%s\n' \
+    'package_missing=expected gamebloke package-config discovery failure' \
+    "timing_control=same ROM, expected guest FAIL case 21001" \
+    "video_mutation_status=${VIDEO_CONTROL_STATUS:-not-run}" \
+    "audio_mutation_status=${AUDIO_CONTROL_STATUS:-not-run}" \
+    "ci_refusal=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
+    "manifest_negative_controls=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
+    >"$EVIDENCE_ROOT/control-results.txt"
+cp "$EVIDENCE_ROOT/run-1/observations.json" "$EVIDENCE_ROOT/proof.json"
 END_SECONDS=$(date +%s)
 printf 'elapsed_seconds=%s\n' "$((END_SECONDS - START_SECONDS))" \
     > "$EVIDENCE_ROOT/feedback-time.txt"
