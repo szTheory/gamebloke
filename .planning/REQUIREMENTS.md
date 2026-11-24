@@ -24,7 +24,7 @@ software release claim.
 
 ### Integration Evaluation
 
-- [ ] **INT-01**: A fit report evaluates LibFuturo against the real Gamebloke API and relocated consumer, including input timing, bounded advancement, output ownership, and evidence semantics; adoption and contract changes remain separate decisions.
+- [x] **INT-01**: A fit report evaluates LibFuturo against the real Gamebloke API and relocated consumer, including input timing, bounded advancement, output ownership, and evidence semantics; adoption and contract changes remain separate decisions.
 
 ## v2 Requirements
 
@@ -65,7 +65,7 @@ Deferred until a real consumer or separate owner decision promotes them:
 | CONS-01 | Phase 21 | Complete |
 | EVID-01 | Phase 21 | Complete |
 | EVID-02 | Phase 21 | Complete |
-| INT-01 | Phase 21 | Pending |
+| INT-01 | Phase 21 | Complete |
 
 **Coverage:**
 - v1 requirements: 9 total

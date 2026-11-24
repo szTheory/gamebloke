@@ -5,17 +5,17 @@ milestone_name: Deterministic Core API and Installed Consumer Proof
 current_phase: 21
 current_phase_name: Installed Consumer Proof and LibFuturo Fit
 current_plan: 2
-status: executing
-stopped_at: Completed 21-01-PLAN.md
-last_updated: "2026-11-24T03:53:33.779Z"
+status: verifying
+stopped_at: Completed 21-02-PLAN.md; canonical workflow stopped at existing hygiene.tree findings; phase verification pending
+last_updated: "2026-11-24T05:06:58.256Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 20 complete, transitioned to Phase 21
-state_head: e7eb490d895f2b528fdbed7fb68fa360e0d00321
+state_head: 0c2080dd7514f24bb546edba2d7ac40c4b0f4ec0
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 50
 ---
 
@@ -34,7 +34,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 Phase: 21 (Installed Consumer Proof and LibFuturo Fit) — READY TO EXECUTE
 Current Plan: 2
 Total Plans in Phase: 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-23 — Phase 20 complete, transitioned to Phase 21
 
 Progress: [█████░░░░░] 50%
@@ -213,6 +213,7 @@ Progress: [█████░░░░░] 50%
 | Phase 19 P06 | 1h 44m | 2 tasks | 20 files |
 | Phase 20 P01 | not measured | 3 tasks | 8 files |
 | Phase 21 P01 | 29m | 2 tasks | 9 files |
+| Phase 21 P02 | 51m+ lower bound; initial setup unmeasured | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -591,6 +592,8 @@ Recent decisions affecting current work:
 - [Phase 21]: Keep the Phase 21 diagnostic scoped to local verification; assert no public license or redistribution right.
 - [Phase 21]: Use the relocated gamebloke_DIR:PATH package and compare measured guest and raw media observations independently against the manifest.
 - [Phase 21]: Keep the raw audio classification pre-PWM and hardware qualification UNKNOWN.
+- [Phase 21]: Keep the Gamebloke v1 API as the only demonstrated GBA consumer route; the inspected LibFuturo registry has no GBA/AGB profile and the shared contract lacks the measured timed-input schedule and strict cycle ceiling.
+- [Phase 21]: Defer any LibFuturo dependency or contract change until a GBA-specific profile passes a second isolated installed-consumer proof.
 
 ### Pending Todos
 
@@ -621,6 +624,7 @@ None yet.
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
 - Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
 - macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The owner ran the dependency-free terminal Libretro host and accepted the visible original demo; G6 is recorded as accepted for this scope. The terminal preview is downsampled and sub-real-time, and does not establish hardware qualification or broad compatibility.
+- Phase 21 verification is pending: cmake --workflow --preset ci stopped at hygiene.tree on existing absolute home-path references in Phase 20 summary/verification artifacts and Phase 21 research. Resolve those prior planning artifacts, then rerun the canonical workflow through ci-post.
 
 ## Deferred Items
 
@@ -648,8 +652,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-24T03:51:03.000Z
-Stopped at: Completed 21-01-PLAN.md
+Last session: 2026-11-24T05:06:58.215Z
+Stopped at: Completed 21-02-PLAN.md; canonical workflow stopped at existing hygiene.tree findings; phase verification pending
 Resume file: None
 
 ## Operator Next Steps

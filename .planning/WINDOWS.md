@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 8
+open_count: 9
 waived_count: 0
 fixed_count: 31
-total_count: 39
-last_updated: 2026-11-23T02:39:47.156Z
+total_count: 40
+last_updated: 2026-11-24T05:07:22.942Z
 ---
 
 # Broken Windows Ledger
@@ -54,6 +54,7 @@ last_updated: 2026-11-23T02:39:47.156Z
 | 37 | 17 | deviation | src/audio.c |  | Updated stale source-projection comment to say PCM mixing remains deferred after CH3 was modeled. | fixed |  | 2026-11-22T22:25:55.121Z | 2026-11-22T22:25:58.275Z |
 | 38 | 17 | deviation | .planning/phases/17-psg-channels-and-sequencer/17-01-PLAN.md | 43 | Canonical ci workflow fails hygiene.tree on pre-existing absolute GSD home-path references in phase 17-01 through 17-04 plans; main CTest stops before full inventory and JUnit postcheck. | fixed |  | 2026-11-22T23:38:11.263Z | 2026-11-22T23:49:41.320Z |
 | 39 | 18 | deviation | src/machine.c |  | Task 3 timer and cascade behavior was already implemented through Task 1's shared actual-overflow transition, so Task 3 added direct semantic vectors without a separate RED implementation cycle. | fixed |  | 2026-11-23T02:38:04.692Z | 2026-11-23T02:39:47.156Z |
+| 40 | 21 | unrun-verify | .planning/phases/21-installed-consumer-proof-and-libfuturo-fit/21-VALIDATION.md |  | Canonical workflow stopped at existing hygiene findings; the separate ci-post inventory.junit check was not run. | open |  | 2026-11-24T05:07:22.942Z |  |
 
 ````json
 [
@@ -563,6 +564,19 @@ last_updated: 2026-11-23T02:39:47.156Z
     "recorded_at": "2026-11-23T02:38:04.692Z",
     "resolved_at": "2026-11-23T02:39:47.156Z",
     "milestone": "v4.0"
+  },
+  {
+    "id": 40,
+    "kind": "unrun-verify",
+    "phase": "21",
+    "file": ".planning/phases/21-installed-consumer-proof-and-libfuturo-fit/21-VALIDATION.md",
+    "line": null,
+    "description": "Canonical workflow stopped at existing hygiene findings; the separate ci-post inventory.junit check was not run.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-24T05:07:22.942Z",
+    "resolved_at": null,
+    "milestone": "v5.0"
   }
 ]
 ````
