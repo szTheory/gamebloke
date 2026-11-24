@@ -68,6 +68,48 @@ macro(gbl_v_equal variable expected label)
   endif()
 endmacro()
 
+function(gbl_require_exact_binding lines key expected label)
+  set(_binding_count 0)
+  set(_binding_value "")
+  foreach(_line IN LISTS lines)
+    if(_line MATCHES "^${key}=(.*)$")
+      math(EXPR _binding_count "${_binding_count} + 1")
+      set(_binding_value "${CMAKE_MATCH_1}")
+    endif()
+  endforeach()
+  if(NOT _binding_count EQUAL 1 OR
+     NOT "${_binding_value}" STREQUAL "${expected}")
+    message(FATAL_ERROR
+        "phase21-fit: ${label} must match exactly one ${key} field")
+  endif()
+endfunction()
+
+function(gbl_require_exact_file_binding lines relative_path expected_sha)
+  set(_binding_count 0)
+  set(_binding_sha "")
+  foreach(_line IN LISTS lines)
+    string(REPLACE "|" ";" _parts "${_line}")
+    list(LENGTH _parts _part_count)
+    if(_part_count GREATER_EQUAL 2)
+      list(GET _parts 0 _kind)
+      list(GET _parts 1 _path)
+      if(_kind STREQUAL "file_sha256" AND _path STREQUAL "${relative_path}")
+        math(EXPR _binding_count "${_binding_count} + 1")
+        if(_part_count EQUAL 3)
+          list(GET _parts 2 _binding_sha)
+        else()
+          set(_binding_sha "")
+        endif()
+      endif()
+    endif()
+  endforeach()
+  if(NOT _binding_count EQUAL 1 OR
+     NOT "${_binding_sha}" STREQUAL "${expected_sha}")
+    message(FATAL_ERROR
+        "phase21-fit: reviewed LibFuturo content binding is not unique and exact: ${relative_path}")
+  endif()
+endfunction()
+
 function(gbl_validate_manifest manifest_path output_ok output_error)
   set(_gbl_ok_var "${output_ok}")
   set(_gbl_error_var "${output_error}")
@@ -618,6 +660,7 @@ elseif(GBL_STAGE STREQUAL "fit")
   file(STRINGS "${GBL_FIT_REPORT}" _fit_report_lines)
   file(READ "${GBL_PROOF_PATH}" _fit_proof)
   file(READ "${GBL_PACKAGE_INPUTS}" _package_inputs)
+  file(STRINGS "${GBL_PACKAGE_INPUTS}" _package_input_lines)
   file(SHA256 "${GBL_PROOF_PATH}" _proof_sha)
   set(_proof_binding_count 0)
   set(_proof_binding_value "")
@@ -649,38 +692,33 @@ elseif(GBL_STAGE STREQUAL "fit")
   if(NOT _fixture_source_sha STREQUAL _actual_source_sha)
     message(FATAL_ERROR "phase21-fit: diagnostic source identity differs from the manifest")
   endif()
-  foreach(_identity IN ITEMS
-      "fixture_sha256=${_fixture_sha}"
-      "fixture_source_commit=${_fixture_source_commit}"
-      "fixture_source_sha256=${_fixture_source_sha}")
-    string(FIND "${_fit_report}" "${_identity}" _identity_position)
-    if(_identity_position EQUAL -1)
-      message(FATAL_ERROR "phase21-fit: report does not bind ${_identity}")
-    endif()
-  endforeach()
+  gbl_require_exact_binding("${_fit_report_lines}" fixture_sha256
+      "${_fixture_sha}" "fixture identity")
+  gbl_require_exact_binding("${_fit_report_lines}" fixture_source_commit
+      "${_fixture_source_commit}" "fixture source revision")
+  gbl_require_exact_binding("${_fit_report_lines}" fixture_source_sha256
+      "${_fixture_source_sha}" "fixture source identity")
 
   file(SHA256 "${GBL_REPO_ROOT}/examples/installed-consumer/consumer.c"
        _consumer_source_sha)
   file(SHA256 "${GBL_REPO_ROOT}/include/gamebloke/gamebloke_v1.h"
        _public_header_sha)
-  foreach(_identity IN ITEMS
-      "consumer_source_sha256=${_consumer_source_sha}"
-      "public_header_sha256=${_public_header_sha}")
-    string(FIND "${_fit_report}" "${_identity}" _identity_position)
-    if(_identity_position EQUAL -1)
-      message(FATAL_ERROR "phase21-fit: tested Gamebloke source identity differs from the report")
-    endif()
-  endforeach()
-  foreach(_identity IN ITEMS
-      "toolchain_compiler=${GBL_COMPILER_IDENTITY}"
-      "toolchain_target=${GBL_COMPILER_TARGET}"
-      "toolchain_cmake=${GBL_CMAKE_IDENTITY}"
-      "toolchain_ninja=${GBL_NINJA_IDENTITY}")
-    string(FIND "${_package_inputs}" "${_identity}" _package_position)
-    string(FIND "${_fit_report}" "${_identity}" _report_position)
-    if(_package_position EQUAL -1 OR _report_position EQUAL -1)
-      message(FATAL_ERROR "phase21-fit: tested toolchain identity differs from the report")
-    endif()
+  gbl_require_exact_binding("${_fit_report_lines}" consumer_source_sha256
+      "${_consumer_source_sha}" "installed consumer identity")
+  gbl_require_exact_binding("${_fit_report_lines}" public_header_sha256
+      "${_public_header_sha}" "public API header identity")
+  foreach(_tool_binding IN ITEMS
+      "toolchain_compiler|GBL_COMPILER_IDENTITY"
+      "toolchain_target|GBL_COMPILER_TARGET"
+      "toolchain_cmake|GBL_CMAKE_IDENTITY"
+      "toolchain_ninja|GBL_NINJA_IDENTITY")
+    string(REPLACE "|" ";" _tool_binding_parts "${_tool_binding}")
+    list(GET _tool_binding_parts 0 _tool_key)
+    list(GET _tool_binding_parts 1 _tool_value_variable)
+    gbl_require_exact_binding("${_package_input_lines}" "${_tool_key}"
+        "${${_tool_value_variable}}" "package toolchain identity")
+    gbl_require_exact_binding("${_fit_report_lines}" "${_tool_key}"
+        "${${_tool_value_variable}}" "fit report toolchain identity")
   endforeach()
 
   gbl_json_get(_profile _fit_error "${_fit_proof}" profile id)
@@ -807,11 +845,8 @@ elseif(GBL_STAGE STREQUAL "fit")
   if(NOT _head_result EQUAL 0)
     message(FATAL_ERROR "phase21-fit: could not refresh LibFuturo HEAD: ${_head_error}")
   endif()
-  string(FIND "${_fit_report}" "libfuturo_head=${_libfuturo_head}"
-      _head_binding_position)
-  if(_head_binding_position EQUAL -1)
-    message(FATAL_ERROR "phase21-fit: LibFuturo HEAD differs from the inspected report")
-  endif()
+  gbl_require_exact_binding("${_fit_report_lines}" libfuturo_head
+      "${_libfuturo_head}" "LibFuturo revision")
   execute_process(
       COMMAND "${CMAKE_COMMAND}" -E env GIT_OPTIONAL_LOCKS=0
               git -C "${GBL_LIBFUTURO_CHECKOUT}" status --short -- ${_libfuturo_paths}
@@ -829,22 +864,17 @@ elseif(GBL_STAGE STREQUAL "fit")
     endif()
   endforeach()
   list(JOIN _normalized_status_lines "|" _normalized_status)
-  string(FIND "${_fit_report}"
-      "libfuturo_relevant_status=${_normalized_status}" _status_binding_position)
-  if(_status_binding_position EQUAL -1)
-    message(FATAL_ERROR "phase21-fit: relevant LibFuturo dirty status differs from the report")
-  endif()
+  gbl_require_exact_binding("${_fit_report_lines}"
+      libfuturo_relevant_status "${_normalized_status}"
+      "LibFuturo relevant working-tree status")
   foreach(_relative_path IN LISTS _libfuturo_paths)
     set(_absolute_path "${GBL_LIBFUTURO_CHECKOUT}/${_relative_path}")
     if(NOT EXISTS "${_absolute_path}" OR IS_SYMLINK "${_absolute_path}")
       message(FATAL_ERROR "phase21-fit: reviewed LibFuturo source is missing or symlinked: ${_relative_path}")
     endif()
     file(SHA256 "${_absolute_path}" _current_sha)
-    string(FIND "${_fit_report}"
-        "file_sha256|${_relative_path}|${_current_sha}" _file_binding_position)
-    if(_file_binding_position EQUAL -1)
-      message(FATAL_ERROR "phase21-fit: reviewed LibFuturo content changed: ${_relative_path}")
-    endif()
+    gbl_require_exact_file_binding("${_fit_report_lines}"
+        "${_relative_path}" "${_current_sha}")
   endforeach()
   file(READ "${GBL_LIBFUTURO_CHECKOUT}/src/synthetic.c" _profile_registry)
   foreach(_declared_profile IN ITEMS "synthetic-v1" "nesturbator-ntsc-v1"

@@ -1,8 +1,16 @@
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
+#define _POSIX_C_SOURCE 200809L
+
+#include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef GBL_PHASE21_OUTPUT_DIR
 #error "Phase 21 diagnostic generator must be bound to ignored local output"
@@ -292,10 +300,12 @@ static bool make_diagnostic(uint8_t image[IMAGE_SIZE])
 
 static bool write_image(const char *directory)
 {
-    char path[1024];
+    const char *file_name = "phase21-diagnostic.gba";
     uint8_t image[IMAGE_SIZE];
-    FILE *file;
-    int count;
+    size_t offset = 0u;
+    int directory_fd = -1;
+    int file_fd = -1;
+    bool created = false;
     bool okay;
 
     if (directory == NULL || strcmp(directory, GBL_PHASE21_OUTPUT_DIR) != 0 ||
@@ -304,23 +314,45 @@ static bool write_image(const char *directory)
               stderr);
         return false;
     }
-    count = snprintf(path, sizeof path, "%s/phase21-diagnostic.gba", directory);
-    if (count < 0 || (size_t)count >= sizeof path) {
-        fputs("phase21-diagnostic: output path is too long\n", stderr);
-        return false;
-    }
-    file = fopen(path, "wb");
-    if (file == NULL) {
-        fputs("phase21-diagnostic: cannot open assigned ignored output\n",
+    directory_fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (directory_fd < 0) {
+        fputs("phase21-diagnostic: assigned output directory is unavailable\n",
               stderr);
         return false;
     }
-    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
-    if (fclose(file) != 0) {
+    file_fd = openat(directory_fd, file_name,
+                     O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0666);
+    if (file_fd < 0) {
+        fputs("phase21-diagnostic: cannot exclusively create assigned output\n",
+              stderr);
+        (void)close(directory_fd);
+        return false;
+    }
+    created = true;
+    okay = true;
+    while (offset < sizeof image) {
+        ssize_t written = write(file_fd, image + offset, sizeof image - offset);
+
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (written <= 0) {
+            okay = false;
+            break;
+        }
+        offset += (size_t)written;
+    }
+    if (close(file_fd) != 0) {
+        okay = false;
+    }
+    file_fd = -1;
+    if (!okay && created) {
+        (void)unlinkat(directory_fd, file_name, 0);
+    }
+    if (close(directory_fd) != 0) {
         okay = false;
     }
     if (!okay) {
-        (void)remove(path);
         fputs("phase21-diagnostic: incomplete output\n", stderr);
     }
     return okay;

@@ -179,6 +179,41 @@ GENERATOR_DEFINE="-DGBL_PHASE21_OUTPUT_DIR=\"$FIXTURE_DIR\""
         cat "$EVIDENCE_ROOT/generator-build.log" >&2
         fail 'C17 diagnostic generator did not compile'
     }
+if [ "$NEGATIVE_CONTROLS" = ON ]; then
+    GENERATOR_SYMLINK_DIR="$WORK_ROOT/generator-symlink-directory"
+    GENERATOR_SYMLINK_TARGET="$WORK_ROOT/generator-symlink-target.txt"
+    GENERATOR_SYMLINK_BINARY="$WORK_ROOT/phase21-diagnostic-symlink-control"
+    mkdir "$GENERATOR_SYMLINK_DIR"
+    printf '%s\n' 'diagnostic symlink target must survive' \
+        >"$GENERATOR_SYMLINK_TARGET"
+    ln -s "$GENERATOR_SYMLINK_TARGET" \
+        "$GENERATOR_SYMLINK_DIR/phase21-diagnostic.gba"
+    GENERATOR_SYMLINK_DEFINE="-DGBL_PHASE21_OUTPUT_DIR=\"$GENERATOR_SYMLINK_DIR\""
+    "$CC_REAL" -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion \
+        -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wcast-qual \
+        -Werror "$GENERATOR_SYMLINK_DEFINE" \
+        "$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" \
+        -o "$GENERATOR_SYMLINK_BINARY" \
+        >"$EVIDENCE_ROOT/generator-symlink-build.log" 2>&1 || {
+            cat "$EVIDENCE_ROOT/generator-symlink-build.log" >&2
+            fail 'C17 diagnostic symlink-control generator did not compile'
+        }
+    if "$GENERATOR_SYMLINK_BINARY" "$GENERATOR_SYMLINK_DIR" \
+         >"$EVIDENCE_ROOT/generator-symlink-control.stdout" \
+         2>"$EVIDENCE_ROOT/generator-symlink-control.stderr"; then
+        fail 'diagnostic generator unexpectedly followed an output symlink'
+    fi
+    grep -F 'phase21-diagnostic: cannot exclusively create assigned output' \
+        "$EVIDENCE_ROOT/generator-symlink-control.stderr" >/dev/null || {
+            cat "$EVIDENCE_ROOT/generator-symlink-control.stderr" >&2
+            fail 'diagnostic generator symlink control failed for the wrong reason'
+        }
+    grep -Fx 'diagnostic symlink target must survive' \
+        "$GENERATOR_SYMLINK_TARGET" >/dev/null ||
+        fail 'diagnostic generator modified its symlink target'
+    [ -L "$GENERATOR_SYMLINK_DIR/phase21-diagnostic.gba" ] ||
+        fail 'diagnostic generator removed the preexisting output symlink'
+fi
 if [ -e "$ROM_PATH" ]; then
     [ -f "$ROM_PATH" ] && [ ! -L "$ROM_PATH" ] ||
         fail 'existing local diagnostic is not a regular file'
@@ -462,7 +497,7 @@ fi
 grep -F 'installed-consumer: evidence-setup:' \
     "$EVIDENCE_ROOT/output-symlink-control.stderr" >/dev/null || {
         cat "$EVIDENCE_ROOT/output-symlink-control.stderr" >&2
-    fail 'trailing-slash symlinked evidence directory failed for the wrong reason'
+        fail 'trailing-slash symlinked evidence directory failed for the wrong reason'
     }
 grep -Fx 'symlink target must survive' \
     "$EVIDENCE_ROOT/output-symlink-target/sentinel.txt" >/dev/null ||
@@ -607,6 +642,7 @@ printf '%s\n' \
     "video_mutation_status=${VIDEO_CONTROL_STATUS:-not-run}" \
     "audio_mutation_status=${AUDIO_CONTROL_STATUS:-not-run}" \
     "refusal_canary_mutation_status=${REFUSAL_CANARY_STATUS:-not-run}" \
+    "generator_output_symlink=$([ "$NEGATIVE_CONTROLS" = ON ] && printf refused || printf not-run)" \
     "ci_refusal=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
     "manifest_negative_controls=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
     >"$EVIDENCE_ROOT/control-results.txt"
@@ -654,6 +690,33 @@ if [ "$CHECK_FIT" = ON ]; then
                 cat "$EVIDENCE_ROOT/fit-stale-digest.log" >&2
                 fail 'stale proof digest report control failed for the wrong reason'
             }
+        sed 's/^\(consumer_source_sha256=.*\)$/\1-suffix/' \
+            "$FIT_REPORT" >"$EVIDENCE_ROOT/fit-substring-identity.md"
+        if check_fit_report "$EVIDENCE_ROOT/fit-substring-identity.md" \
+             "$EVIDENCE_ROOT/fit-substring-identity.log"; then
+            fail 'substring Gamebloke identity report control unexpectedly passed'
+        fi
+        grep -F 'phase21-fit: installed consumer identity must match exactly one consumer_source_sha256 field' \
+            "$EVIDENCE_ROOT/fit-substring-identity.log" >/dev/null || {
+                cat "$EVIDENCE_ROOT/fit-substring-identity.log" >&2
+                fail 'substring Gamebloke identity control failed for the wrong reason'
+            }
+        awk -F'|' '
+            $1 == "file_sha256" && $2 == "docs/contract.md" {
+                $3 = $3 "-suffix"
+            }
+            $1 == "file_sha256" { print $1 "|" $2 "|" $3; next }
+            { print }
+        ' "$FIT_REPORT" >"$EVIDENCE_ROOT/fit-substring-file-identity.md"
+        if check_fit_report "$EVIDENCE_ROOT/fit-substring-file-identity.md" \
+             "$EVIDENCE_ROOT/fit-substring-file-identity.log"; then
+            fail 'substring LibFuturo file identity report control unexpectedly passed'
+        fi
+        grep -F 'phase21-fit: reviewed LibFuturo content binding is not unique and exact: docs/contract.md' \
+            "$EVIDENCE_ROOT/fit-substring-file-identity.log" >/dev/null || {
+                cat "$EVIDENCE_ROOT/fit-substring-file-identity.log" >&2
+                fail 'substring LibFuturo file identity control failed for the wrong reason'
+            }
         sed 's/^\(normalized_proof_sha256=.*\)$/\1-suffix/' \
             "$FIT_REPORT" >"$EVIDENCE_ROOT/fit-substring-digest.md"
         if check_fit_report "$EVIDENCE_ROOT/fit-substring-digest.md" \
@@ -683,6 +746,8 @@ if [ "$CHECK_FIT" = ON ]; then
             'fit_report=pass' \
             'fit_stale_digest=refused' \
             'fit_substring_digest=refused' \
+            'fit_substring_identity=refused' \
+            'fit_substring_file_identity=refused' \
             'fit_missing_dimension=refused' \
             'libfuturo_recheck=read-only-pass' \
             >>"$EVIDENCE_ROOT/control-results.txt"

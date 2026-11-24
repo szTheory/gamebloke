@@ -44,8 +44,9 @@ later write fails.
 ## Requirements and evidence
 
 The local script requires a C17 host compiler, CMake 3.25 or newer, Ninja,
-Git, `shasum`, and standard POSIX shell utilities. The source-built guest uses
-the host compiler; the pinned ARM toolchain is not required. The measured
+Git, `shasum`, POSIX shell utilities, `mktemp -d`, and `env -u` support. The
+source-built guest uses the host compiler; the pinned ARM toolchain is not
+required. The measured
 fixture recipe, compiler identity, target, source revision, source digest,
 output digest, BIOS mode, and local authorization are recorded in
 `.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json`.

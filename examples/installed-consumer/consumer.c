@@ -1,8 +1,12 @@
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
 #define _POSIX_C_SOURCE 200809L
 
 #include <gamebloke/gamebloke_v1.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -10,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 enum {
     PHASE21_CASE_ID = 21001,
@@ -188,25 +193,30 @@ static bool read_rom_file(const char *path, uint8_t **bytes_out,
     return true;
 }
 
-static bool path_is_directory(const char *path)
+static int open_evidence_directory(const char *path)
 {
     struct stat status;
+    int directory_fd;
 
-    return path != NULL && lstat(path, &status) == 0 &&
-           S_ISDIR(status.st_mode);
+    if (path == NULL) {
+        return -1;
+    }
+    directory_fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (directory_fd < 0) {
+        return -1;
+    }
+    if (fstat(directory_fd, &status) != 0 || !S_ISDIR(status.st_mode)) {
+        (void)close(directory_fd);
+        return -1;
+    }
+    return directory_fd;
 }
 
-static bool output_path_is_available(const char *directory, const char *name)
+static bool output_path_is_available(int directory_fd, const char *name)
 {
-    char path[1024];
     struct stat status;
-    int count;
 
-    count = snprintf(path, sizeof path, "%s/%s", directory, name);
-    if (count < 0 || (size_t)count >= sizeof path) {
-        return false;
-    }
-    if (lstat(path, &status) == 0) {
+    if (fstatat(directory_fd, name, &status, AT_SYMLINK_NOFOLLOW) == 0) {
         return false;
     }
     return errno == ENOENT;
@@ -225,28 +235,29 @@ static bool all_bytes_equal(const uint8_t *bytes, size_t length,
     return true;
 }
 
-static bool write_new_file(const char *directory, const char *name,
+static bool write_new_file(int directory_fd, const char *name,
                            const uint8_t *bytes, size_t length,
                            bool *created_out)
 {
-    char path[1024];
     FILE *file;
-    int count;
+    int file_fd;
     bool okay;
 
     if (created_out == NULL) {
         return false;
     }
     *created_out = false;
-    count = snprintf(path, sizeof path, "%s/%s", directory, name);
-    if (count < 0 || (size_t)count >= sizeof path) {
-        return false;
-    }
-    file = fopen(path, "wbx");
-    if (file == NULL) {
+    file_fd = openat(directory_fd, name,
+                     O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0666);
+    if (file_fd < 0) {
         return false;
     }
     *created_out = true;
+    file = fdopen(file_fd, "wb");
+    if (file == NULL) {
+        (void)close(file_fd);
+        return false;
+    }
     okay = fwrite(bytes, 1u, length, file) == length;
     if (fclose(file) != 0) {
         okay = false;
@@ -254,19 +265,13 @@ static bool write_new_file(const char *directory, const char *name,
     return okay;
 }
 
-static void remove_created_file(const char *directory, const char *name,
+static void remove_created_file(int directory_fd, const char *name,
                                 bool created)
 {
-    char path[1024];
-    int count;
-
     if (!created) {
         return;
     }
-    count = snprintf(path, sizeof path, "%s/%s", directory, name);
-    if (count >= 0 && (size_t)count < sizeof path) {
-        (void)remove(path);
-    }
+    (void)unlinkat(directory_fd, name, 0);
 }
 
 static const char *mailbox_name(uint32_t state)
@@ -986,9 +991,13 @@ static bool run_bounded_probe(const char *rom_path,
         result.end_cycle <= GBL_V1_AUDIO_CYCLES_PER_FRAME ||
         result.end_cycle > options.cycle_budget ||
         result.audio_frames_written == 0u ||
-        result.audio_bytes_written != result.audio_frames_written * 4u ||
-        !all_bytes_equal(audio_bytes + result.audio_bytes_written,
-                         sizeof audio_bytes - result.audio_bytes_written,
+        result.audio_bytes_written > sizeof audio_bytes ||
+        result.audio_bytes_written % PHASE21_AUDIO_FRAME_BYTES != 0u ||
+        result.audio_frames_written !=
+            result.audio_bytes_written / PHASE21_AUDIO_FRAME_BYTES ||
+        !all_bytes_equal(
+            audio_bytes + (size_t)result.audio_bytes_written,
+            sizeof audio_bytes - (size_t)result.audio_bytes_written,
                          0xA5u) ||
         !observe_public(instance.machine, &observation)) {
         (void)snprintf(failure_category, 64u, "refusal-work-probe-mismatch");
@@ -1268,7 +1277,7 @@ static bool append_refusal_proof(char *buffer, size_t capacity,
     return append_jsonf(buffer, capacity, &used, "]}");
 }
 
-static bool write_observations(const char *directory,
+static bool write_observations(int directory_fd,
                                const gbl_v1_observation *observation,
                                const gbl_v1_advance_result *result,
                                const gbl_v1_input_event *events,
@@ -1280,14 +1289,11 @@ static bool write_observations(const char *directory,
 {
     char json[32768];
     char refusal_json[24576];
-    size_t refusal_json_size = 0u;
     int count;
 
     if (!append_refusal_proof(refusal_json, sizeof refusal_json, refusals)) {
         return false;
     }
-    refusal_json_size = strlen(refusal_json);
-
     count = snprintf(
         json, sizeof json,
         "{\n"
@@ -1351,11 +1357,10 @@ static bool write_observations(const char *directory,
         (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u + 1u),
         (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u + 2u),
         refusal_json);
-    if (count < 0 || (size_t)count >= sizeof json ||
-        refusal_json_size >= sizeof refusal_json) {
+    if (count < 0 || (size_t)count >= sizeof json) {
         return false;
     }
-    return write_new_file(directory, "observations.json",
+    return write_new_file(directory_fd, "observations.json",
                           (const uint8_t *)json, (size_t)count, created_out);
 }
 
@@ -1371,7 +1376,6 @@ int main(int argc, char **argv)
 {
     run_mode mode = RUN_EXPECT_PASS;
     const char *rom_path;
-    const char *evidence_directory;
     char normalized_evidence_directory[1024];
     const char *failure_category = NULL;
     char failure_detail[256] = "";
@@ -1399,6 +1403,7 @@ int main(int argc, char **argv)
     bool audio_created = false;
     bool observations_created = false;
     int exit_code = EXIT_FAILURE;
+    int evidence_directory_fd = -1;
 
     if ((argc != 3 && argc != 4 && argc != 5) || argv[1] == NULL ||
         argv[2] == NULL) {
@@ -1420,7 +1425,6 @@ int main(int argc, char **argv)
             normalized_evidence_directory[--directory_length] = '\0';
         }
     }
-    evidence_directory = normalized_evidence_directory;
     if (argc == 4 && strcmp(argv[3], "--timing-control") == 0) {
         mode = RUN_EXPECT_TIMING_FAIL;
         expected_mailbox = GBL_V1_MAILBOX_FAIL;
@@ -1437,15 +1441,17 @@ int main(int argc, char **argv)
         usage(argv[0]);
         return 2;
     }
-    if (!path_is_directory(evidence_directory)) {
+    evidence_directory_fd = open_evidence_directory(
+        normalized_evidence_directory);
+    if (evidence_directory_fd < 0) {
         (void)snprintf(failure_detail, sizeof failure_detail,
                        "evidence directory is missing, symlinked, or not a directory");
         failure_category = "evidence-setup";
         goto cleanup;
     }
-    if (!output_path_is_available(evidence_directory, "frame.bgr555le") ||
-        !output_path_is_available(evidence_directory, "audio.s16le") ||
-        !output_path_is_available(evidence_directory, "observations.json")) {
+    if (!output_path_is_available(evidence_directory_fd, "frame.bgr555le") ||
+        !output_path_is_available(evidence_directory_fd, "audio.s16le") ||
+        !output_path_is_available(evidence_directory_fd, "observations.json")) {
         (void)snprintf(failure_detail, sizeof failure_detail,
                        "one or more evidence output paths already exist or cannot be inspected");
         failure_category = "evidence-output-path";
@@ -1666,11 +1672,11 @@ int main(int argc, char **argv)
         failure_category = "allocator-accounting";
         goto cleanup;
     }
-    if (!write_new_file(evidence_directory, "frame.bgr555le", video_bytes,
+    if (!write_new_file(evidence_directory_fd, "frame.bgr555le", video_bytes,
                         GBL_V1_VIDEO_BYTES, &frame_created) ||
-        !write_new_file(evidence_directory, "audio.s16le", audio_bytes,
+        !write_new_file(evidence_directory_fd, "audio.s16le", audio_bytes,
                         expected_audio_bytes, &audio_created) ||
-        !write_observations(evidence_directory, &observation, &result,
+        !write_observations(evidence_directory_fd, &observation, &result,
                             events, video_bytes, audio_bytes,
                             mailbox_name(expected_mailbox), &refusals,
                             &observations_created)) {
@@ -1688,13 +1694,18 @@ cleanup:
         gbl_v1_destroy(machine);
     }
     free(rom_bytes);
-    if (!success) {
-        remove_created_file(evidence_directory, "frame.bgr555le",
+    if (!success && evidence_directory_fd >= 0) {
+        remove_created_file(evidence_directory_fd, "frame.bgr555le",
                             frame_created);
-        remove_created_file(evidence_directory, "audio.s16le",
+        remove_created_file(evidence_directory_fd, "audio.s16le",
                             audio_created);
-        remove_created_file(evidence_directory, "observations.json",
+        remove_created_file(evidence_directory_fd, "observations.json",
                             observations_created);
+    }
+    if (evidence_directory_fd >= 0) {
+        (void)close(evidence_directory_fd);
+    }
+    if (!success) {
         if (failure_category != NULL) {
             fprintf(stderr, "installed-consumer: %s: %s\n",
                     failure_category, failure_detail);
