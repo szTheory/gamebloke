@@ -874,6 +874,29 @@ if [ "$CHECK_FIT" = ON ]; then
                 cat "$EVIDENCE_ROOT/fit-indented-fence-heading.log" >&2
                 fail 'indented fake fit heading control failed for the wrong reason'
             }
+        awk -F'|' '
+            $0 == "## Output ownership" {
+                print "``` markdown"
+                print "~~~"
+                print "## Bounded work"
+                print "proof.json docs/core-api-v1.md include/libfuturo/libfuturo.h docs/contract.md"
+                print "docs/muhtari-profile.md docs/gabbaboy-profile.md docs/nesturbator-profile.md"
+                print "bounded_probe 2,048 **Follow-up.**"
+                print "```"
+                print "``` a`b"
+            }
+            { print }
+        ' "$EVIDENCE_ROOT/fit-missing-dimension.md" \
+            >"$EVIDENCE_ROOT/fit-mismatched-fence-heading.md"
+        if check_fit_report "$EVIDENCE_ROOT/fit-mismatched-fence-heading.md" \
+             "$EVIDENCE_ROOT/fit-mismatched-fence-heading.log"; then
+            fail 'mismatched fake fit heading report control unexpectedly passed'
+        fi
+        grep -F 'phase21-fit: missing required fit dimension: Bounded work' \
+            "$EVIDENCE_ROOT/fit-mismatched-fence-heading.log" >/dev/null || {
+                cat "$EVIDENCE_ROOT/fit-mismatched-fence-heading.log" >&2
+                fail 'mismatched fake fit heading control failed for the wrong reason'
+            }
         printf '%s\n' \
             'fit_report=pass' \
             'fit_stale_digest=refused' \
@@ -884,6 +907,7 @@ if [ "$CHECK_FIT" = ON ]; then
             'fit_comment_heading=refused' \
             'fit_code_heading=refused' \
             'fit_indented_fence_heading=refused' \
+            'fit_mismatched_fence_heading=refused' \
             'libfuturo_recheck=read-only-pass' \
             >>"$EVIDENCE_ROOT/control-results.txt"
     fi
