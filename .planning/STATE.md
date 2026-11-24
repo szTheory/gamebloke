@@ -1,20 +1,18 @@
 ---
 gsd_state_version: "1.0"
-milestone: v5.0
-milestone_name: Deterministic Core API and Installed Consumer Proof
-status: Awaiting next milestone
-stopped_at: Phase 21 complete — all phases complete
-last_updated: "2026-11-24T16:39:17Z"
+milestone: v6.0
+milestone_name: Public API Host Session Readiness
+status: planning
+last_updated: "2026-11-24T17:17:01Z"
 last_activity: 2026-11-24
-last_activity_desc: Milestone v5.0 completed and archived
-state_head: c50bcd736b33c8e761cc3b82a9ebcd6d5736c7e1
+last_activity_desc: v6.0 roadmap created
 progress:
   total_phases: 2
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
-current_phase: 21
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+current_phase: 22
 ---
 
 # Project State
@@ -25,14 +23,16 @@ See: .planning/PROJECT.md (updated 2026-11-24)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v5.0 Deterministic Core API and Installed Consumer Proof (completed locally; a GSD milestone label, not a software version)
-**Current focus:** v5.0 is archived locally with all nine requirements satisfied and both phases verified. The audit retains one non-blocking relocated-consumer evidence limit: reset, unload, and unsupported-request refusal are covered by Phase 20 API tests but not repeated by the Phase 21 consumer. No next milestone scope has been selected. No software release or hardware qualification is claimed.
+**Current focus:** v6.0 Public API Host Session Readiness starts with the archived Phase 21 proof's reference checks. Phase 23 then verifies a sustained public C API session and assesses Playstead fit from its read-only source.
 
 ## Current Position
 
-Phase: Milestone v5.0 complete
+Phase: 22 (Archived Installed-Consumer Evidence)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-24 — Milestone v5.0 completed and archived
+Status: Ready for phase discussion
+Last activity: 2026-11-24 — v6.0 roadmap created
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -592,12 +592,20 @@ Recent decisions affecting current work:
 - [Phase 21]: Keep the raw audio classification pre-PWM and hardware qualification UNKNOWN.
 - [Phase 21]: Keep the Gamebloke v1 API as the only demonstrated GBA consumer route; the inspected LibFuturo registry has no GBA/AGB profile and the shared contract lacks the measured timed-input schedule and strict cycle ceiling.
 - [Phase 21]: Defer any LibFuturo dependency or contract change until a GBA-specific profile passes a second isolated installed-consumer proof.
+- [v6.0]: Keep the original Phase 21 witness under its local Phase 21 grant. Check the archived references without generating or loading that fixture. Use a newly authored and separately permitted fixture for the public API session.
+- [v6.0]: Keep the Playstead assessment read-only and label the inspected revision and working-tree state. The active managed mGBA route remains in service.
 
 ### Pending Todos
 
 None yet.
 
 ### Blockers/Concerns
+
+No active blocker prevents v6.0 Phases 22–23. The following carryovers are
+historical or conditional gates from earlier phases. Preserve them if their
+exact scope is reopened, but do not treat them as authority to start new
+hosted runs, merge changes, author BIOS content, publish, or perform physical
+qualification during v6.0.
 
 - Before the Phase5 merge, owner must decide the [producer-ancestry merge exception](phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-MERGE-PROVENANCE.md). Cheap graph simulation proves squash would break the source guard; a merge commit preserves it and current rules permit that method. No merge is authorized yet; current PR verification can continue.
 
@@ -649,8 +657,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-24T16:39:17Z
-Stopped at: v5.0 milestone archived locally; next milestone scope not selected
+Last session: 2026-11-24T17:17:01Z
+Stopped at: v6.0 scope, requirements, and roadmap ready for autonomous execution
 Resume file: None
 
 ## Operator Next Steps
@@ -658,4 +666,6 @@ Resume file: None
 
 
 
-- Start the next milestone with $gsd-new-milestone; refresh the rolling roadmap and select scope at that boundary.
+- After context is cleared, run `$gsd-autonomous` to discuss, plan, execute,
+  verify, audit, and close the remaining v6.0 phases; pause only for a genuine
+  blocker or an owner-only gate.

@@ -69,6 +69,12 @@ for owner decisions, source observations, measurements, inferences,
 recommendations, and unknowns. Keep these durable instructions aligned with
 the owner's corrections and standing preferences.
 
+Apply the same decision-specific research standard to each phase discussion:
+use only relevant lenses, include an adversarial pass when it can change the
+scope or evidence plan, and return one recommendation with exclusions and an
+automated verification direction. Carry verification into phase planning early
+so repeatable behavior is automated before implementation expands.
+
 Keep accepted owner decisions, source observations, measured results,
 historical reports, inferences, recommendations, and unknowns distinct. Refresh
 only evidence that could change the current decision. Do not repeat generic
@@ -84,6 +90,8 @@ approval requests.
 
 ## Verification, CI, and releases
 
+- Target zero owner UAT for objectively machine-checkable behavior. Run and inspect useful local CLI/API checks; add integration, guest, installed-consumer, host, or smoke checks only when each proves a distinct boundary. Use throwaway local checks when they provide useful feedback without recurring CI value. Do not ask the owner to run commands or builds the agent can run safely.
+- Keep human verification for judgments or authority the agent cannot establish, such as subjective playability, physical hardware, rights, publication, credentials, or a required human action. Explain why each remaining check needs a human and preserve it as a `blocking-human` gate so auto-advance cannot silently approve it. Do not manufacture UAT for behavior already established by automated evidence.
 - When a required compiler, SDK, or verification tool is missing on the host,
   check whether a pinned Docker lane can provide it before installing host
   dependencies. Keep the container path easy to invoke and use it as a normal

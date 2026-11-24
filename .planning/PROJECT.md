@@ -71,18 +71,34 @@ carryovers.
 
 </details>
 
-## Next Milestone Goals
+## Current Milestone: v6.0 Public API Host Session Readiness
 
-No next milestone scope has been selected. Keep the rolling horizon in
-`.planning/ROADMAP.md` as decision context: revisit cartridge/save devices when
-a consumer demonstrates a concrete need; consider a side-by-side Playstead
-route only after Gamebloke establishes useful capability beside the managed
-mGBA route; then prioritize exact-profile portability and compatibility
-evidence. Package publication and software releases remain gated by rights,
-licensing, package readiness, qualification claims, and owner authority. These
-are alternatives for future discussion, not committed milestone scope. See
-`.planning/ROADMAP.md` and `research/V5.0-MILESTONE-SUMMARY.md` for provenance,
-tradeoffs, and promotion criteria.
+**Goal:** Restore the archived installed-consumer proof's operational
+references, then demonstrate a sustained deterministic session through the
+public C API and produce a bounded Playstead host-fit assessment. No Playstead
+source changes, route replacement, or compatibility advantage are claimed.
+
+**Target features:**
+- Archive-safe installed-consumer fixture and notice references with a visible
+  missing-path control.
+- A relocated public-only C17 consumer that performs repeated bounded
+  advances, uses timed input, asserts guest semantics and literal raw media,
+  and handles refusals and teardown.
+- A source-grounded Playstead host-fit report that keeps the sibling checkout
+  read-only and labels its current dirty source state.
+
+## Next Milestone Directions
+
+After v6.0, consider an opt-in side-by-side Playstead route only with a clean
+owner-selected source snapshot, separately authorized fixture use, and an
+independent guest oracle. Consider a cartridge save-device slice only when a
+named consumer scenario selects the exact device and save outcome. Targeted
+compatibility evidence must name its exact profile, rights-cleared fixture,
+expected behavior, and oracle. Package publication and software releases remain
+gated by rights, licensing, package readiness, qualification claims, and
+owner authority. See `.planning/ROADMAP.md` and
+`research/V6.0-MILESTONE-SCOPE.md` for current provenance, alternatives, and
+promotion criteria.
 
 ## Requirements
 
@@ -117,11 +133,14 @@ tradeoffs, and promotion criteria.
 ### Active
 
 These are hypotheses until shipped and verified. Formal REQ-IDs live in
-.planning/REQUIREMENTS.md while a milestone is active. The completed v4.0 audio
-requirements are archived in `.planning/milestones/v4.0-REQUIREMENTS.md`; the
-next milestone will define its own requirements.
+.planning/REQUIREMENTS.md while a milestone is active. The completed v5.0
+requirements are archived in `.planning/milestones/v5.0-REQUIREMENTS.md`.
 
-- [ ] Complete provenance and rights metadata for every test ROM, including source, revision, build recipe, digest, license/notices, permitted use, BIOS mode, and expected result; Phase 21 validates one local-only diagnostic, not every fixture.
+- [ ] v6.0: Keep the relocated public C API session evidence reproducible after milestone artifact archival.
+- [ ] v6.0: Demonstrate repeated bounded host-session operation using only the installed public API and an independently authorized fixture.
+- [ ] v6.0: Record the Playstead host fit and all compatibility, rights, and route-change limits without modifying its managed mGBA path.
+
+Fixture provenance remains required for every added test image; a digest proves identity, not redistribution rights.
 
 ### Future
 
@@ -168,6 +187,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 
 ## Verification and Iteration Policy
 
+- **Owner preference (2026-11-24):** Aim for zero owner UAT on objective behavior. The agent should run useful local CLI/API checks and inspect their results, then add distinct integration or smoke checks where they provide more evidence. Keep throwaway checks local when they have no recurring CI value. Ask the owner only for subjective judgment, physical access, rights, publication authority, credentials, or another action that genuinely requires them. Explain why each remaining human check cannot be automated and preserve it as a `blocking-human` gate.
 - Shift verification left. For each requirement, automate observable behavior at the smallest useful seam, then add integration, end-to-end, or smoke coverage only when it proves a distinct cross-component risk. Use deterministic inputs, semantic assertions, and meaningful negative controls for important gates.
 - Prefer useful automated evidence over manual UAT for repeatable behavior. Before handing work to the owner, inspect the actual local result and its limits. Convert repeatable manual checks into automated checks when they provide trustworthy feedback. Keep owner-only decisions—rights, physical hardware, subjective playability, product preference, and publication—explicit; automation must not impersonate owner acceptance.
 - Do not put every check in CI. Add or retain CI work when it catches a distinct recurring failure class at worthwhile runtime and maintenance cost. Keep one-off or exploratory checks local when they provide useful feedback without recurring CI value.
@@ -179,6 +199,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - Reuse valid results when their source, configuration, fixture, and toolchain inputs are unchanged. Refresh only affected evidence; do not rerun a whole matrix by habit. Record what each result proves, skips, and leaves unknown.
 - Record recurring bottlenecks and effective low-disruption remedies as project lessons. Prefer measured changes; do not add caches, dependencies, or concurrency solely on intuition, and do not trade correct output or trustworthy evidence for speed.
 - At verification checkpoints, first determine whether a human-needed item has a useful local, deterministic, or contract-level check. Run and inspect that check when authorized, persist the evidence, and ask the owner only for a remaining material judgment or authority gate. Do not reopen a resolved judgment without new evidence.
+- Keep GSD's `end-of-phase` verification mode to batch any unavoidable human review. Do not ask for routine acknowledgements or repeat a human check when existing machine evidence already covers it; give unavoidable judgments an explicit `blocking-human` gate so autonomous mode cannot auto-approve them.
 - Apply the same cost and evidence discipline to release checks: run cheap integrity, rights, and package-consistency checks before expensive workflows; measure release/CI critical paths; keep publication and release authority with the owner.
 
 ## Milestone and Phase Scoping Policy
@@ -196,6 +217,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Project name "Gamebloke" (owner) | Owner reviewed the old Apple IIe name collision and accepted reuse. Not trademark clearance. | ✓ Settled |
 | Build a new GBA emulator (owner) | Broad console coverage with an owner-controlled core | ✓ Settled |
 | Autonomous OpenGSD with a rolling roadmap (owner) | Routine reversible work proceeds; material choices are surfaced | ✓ Settled |
+| Automate objective verification by default (owner, 2026-11-24) | Prefer useful local and CI automation; leave only genuine subjective or authority decisions for owner review, with explicit human gates | ✓ Adopted in Verification and Iteration Policy |
 | Gamebloke does not assume it replaces Playstead's mGBA route (owner) | Value beside mGBA must be identified and measured | ✓ Settled |
 | Differentiator beside managed mGBA (owner, 2026-11-23) | Prove a deterministic, inspectable, embeddable core through a real installed consumer; do not claim a compatibility advantage or replace the route | ✓ Accepted as v5.0 scope |
 | First machine profile (model/region/BIOS mode) | Phase 3 established `agb`, direct-start/no-BIOS, and ROM-only scope; later profiles require separate evidence | ✓ Initial profile established; no broad compatibility claim |
@@ -248,4 +270,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-24 after v5.0 milestone completion*
+*Last updated: 2026-11-24 after starting v6.0 and recording the owner verification-policy update*
