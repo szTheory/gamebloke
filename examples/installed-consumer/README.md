@@ -36,6 +36,11 @@ video case retries the complete frame read against the same valid frame.
 valid refusal and requires the matching atomicity predicate to reject it. This
 control changes neither the fixture nor the installed library.
 
+The standalone consumer requires an existing, non-symlink evidence directory
+with none of its three output filenames present. It refuses collisions without
+changing existing files and removes only output files created by that run if a
+later write fails.
+
 ## Requirements and evidence
 
 The local script requires a C17 host compiler, CMake 3.25 or newer, Ninja,

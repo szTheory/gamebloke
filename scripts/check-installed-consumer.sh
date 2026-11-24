@@ -49,6 +49,26 @@ fail()
     exit 1
 }
 
+command -v shasum >/dev/null 2>&1 ||
+    fail 'shasum is required to record SHA-256 evidence'
+
+sha256_file()
+{
+    SHA256_FILE_INPUT=$1
+    SHA256_FILE_OUTPUT=$(shasum -a 256 "$SHA256_FILE_INPUT") ||
+        fail "shasum failed for $SHA256_FILE_INPUT"
+    SHA256_FILE_DIGEST=$(printf '%s\n' "$SHA256_FILE_OUTPUT" | awk '
+        NR == 1 { digest = $1 }
+        END {
+            if (NR != 1 || length(digest) != 64 || digest ~ /[^[:xdigit:]]/) {
+                exit 1
+            }
+            print digest
+        }
+    ') || fail "shasum returned a malformed digest for $SHA256_FILE_INPUT"
+    printf '%s\n' "$SHA256_FILE_DIGEST"
+}
+
 is_within()
 {
     case "$1" in
@@ -396,6 +416,66 @@ grep -F '"status": "fail"' "$EVIDENCE_ROOT/timing-control/observations.json" >/d
     fail 'timing control evidence did not record the guest FAIL verdict'
 
 if [ "$NEGATIVE_CONTROLS" = ON ]; then
+mkdir "$EVIDENCE_ROOT/output-collision-control" \
+      "$EVIDENCE_ROOT/output-symlink-target"
+printf '%s\n' 'preexisting evidence must survive' \
+    >"$EVIDENCE_ROOT/output-collision-control/frame.bgr555le"
+printf '%s\n' 'symlink target must survive' \
+    >"$EVIDENCE_ROOT/output-symlink-target/sentinel.txt"
+ln -s "$EVIDENCE_ROOT/output-symlink-target" \
+    "$EVIDENCE_ROOT/output-symlink-control"
+if (cd "$EXECUTION_DIR" && \
+    "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
+      "$EVIDENCE_ROOT/output-collision-control") \
+      >"$EVIDENCE_ROOT/output-collision-control.stdout" \
+      2>"$EVIDENCE_ROOT/output-collision-control.stderr"; then
+    fail 'preexisting output collision unexpectedly passed'
+else
+    OUTPUT_COLLISION_STATUS=$?
+fi
+[ "$OUTPUT_COLLISION_STATUS" -ne 0 ] ||
+    fail 'preexisting output collision did not fail'
+grep -F 'installed-consumer: evidence-output-path:' \
+    "$EVIDENCE_ROOT/output-collision-control.stderr" >/dev/null || {
+        cat "$EVIDENCE_ROOT/output-collision-control.stderr" >&2
+        fail 'preexisting output collision failed for the wrong reason'
+    }
+grep -Fx 'preexisting evidence must survive' \
+    "$EVIDENCE_ROOT/output-collision-control/frame.bgr555le" >/dev/null ||
+    fail 'preexisting evidence was changed or deleted after output collision'
+for file in audio.s16le observations.json; do
+    [ ! -e "$EVIDENCE_ROOT/output-collision-control/$file" ] ||
+        fail "output collision unexpectedly created $file"
+done
+
+if (cd "$EXECUTION_DIR" && \
+    "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
+      "$EVIDENCE_ROOT/output-symlink-control") \
+      >"$EVIDENCE_ROOT/output-symlink-control.stdout" \
+      2>"$EVIDENCE_ROOT/output-symlink-control.stderr"; then
+    fail 'symlinked evidence directory unexpectedly passed'
+else
+    SYMLINK_DIRECTORY_STATUS=$?
+fi
+[ "$SYMLINK_DIRECTORY_STATUS" -ne 0 ] ||
+    fail 'symlinked evidence directory did not fail'
+grep -F 'installed-consumer: evidence-setup:' \
+    "$EVIDENCE_ROOT/output-symlink-control.stderr" >/dev/null || {
+        cat "$EVIDENCE_ROOT/output-symlink-control.stderr" >&2
+        fail 'symlinked evidence directory failed for the wrong reason'
+    }
+grep -Fx 'symlink target must survive' \
+    "$EVIDENCE_ROOT/output-symlink-target/sentinel.txt" >/dev/null ||
+    fail 'symlink target evidence was changed or deleted'
+for file in frame.bgr555le audio.s16le observations.json; do
+    [ ! -e "$EVIDENCE_ROOT/output-symlink-target/$file" ] ||
+        fail "symlink target unexpectedly received $file"
+done
+printf '%s\n' \
+    'output_collision=preexisting_bytes_preserved' \
+    'symlink_evidence_directory=rejected' \
+    >"$EVIDENCE_ROOT/output-path-controls.txt"
+
 if (cd "$EXECUTION_DIR" && \
     "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
       "$EVIDENCE_ROOT/refusal-canary-control" \
@@ -507,13 +587,10 @@ external_source=$SOURCE_MOVED
 external_build=$BUILD_MOVED
 external_working_directory=$EXECUTION_DIR
 EOF
-ROM_SHA256=$(shasum -a 256 "$ROM_PATH" | awk '{print $1}')
-SOURCE_SHA256=$(shasum -a 256 "$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" |
-    awk '{print $1}')
-FRAME_SHA256=$(shasum -a 256 "$EVIDENCE_ROOT/run-1/frame.bgr555le" |
-    awk '{print $1}')
-AUDIO_SHA256=$(shasum -a 256 "$EVIDENCE_ROOT/run-1/audio.s16le" |
-    awk '{print $1}')
+ROM_SHA256=$(sha256_file "$ROM_PATH")
+SOURCE_SHA256=$(sha256_file "$REPO_ROOT/tests/fixtures/phase21_diagnostic.c")
+FRAME_SHA256=$(sha256_file "$EVIDENCE_ROOT/run-1/frame.bgr555le")
+AUDIO_SHA256=$(sha256_file "$EVIDENCE_ROOT/run-1/audio.s16le")
 cat > "$EVIDENCE_ROOT/identity-and-replay.txt" <<EOF
 fixture_path=build/phase21-local/fixture/phase21-diagnostic.gba
 fixture_sha256=$ROM_SHA256

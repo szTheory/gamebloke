@@ -1,5 +1,8 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <gamebloke/gamebloke_v1.h>
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -189,8 +192,24 @@ static bool path_is_directory(const char *path)
 {
     struct stat status;
 
-    return path != NULL && stat(path, &status) == 0 &&
-           (status.st_mode & S_IFMT) == S_IFDIR;
+    return path != NULL && lstat(path, &status) == 0 &&
+           S_ISDIR(status.st_mode);
+}
+
+static bool output_path_is_available(const char *directory, const char *name)
+{
+    char path[1024];
+    struct stat status;
+    int count;
+
+    count = snprintf(path, sizeof path, "%s/%s", directory, name);
+    if (count < 0 || (size_t)count >= sizeof path) {
+        return false;
+    }
+    if (lstat(path, &status) == 0) {
+        return false;
+    }
+    return errno == ENOENT;
 }
 
 static bool all_bytes_equal(const uint8_t *bytes, size_t length,
@@ -207,13 +226,18 @@ static bool all_bytes_equal(const uint8_t *bytes, size_t length,
 }
 
 static bool write_new_file(const char *directory, const char *name,
-                           const uint8_t *bytes, size_t length)
+                           const uint8_t *bytes, size_t length,
+                           bool *created_out)
 {
     char path[1024];
     FILE *file;
     int count;
     bool okay;
 
+    if (created_out == NULL) {
+        return false;
+    }
+    *created_out = false;
     count = snprintf(path, sizeof path, "%s/%s", directory, name);
     if (count < 0 || (size_t)count >= sizeof path) {
         return false;
@@ -222,14 +246,27 @@ static bool write_new_file(const char *directory, const char *name,
     if (file == NULL) {
         return false;
     }
+    *created_out = true;
     okay = fwrite(bytes, 1u, length, file) == length;
     if (fclose(file) != 0) {
         okay = false;
     }
-    if (!okay) {
+    return okay;
+}
+
+static void remove_created_file(const char *directory, const char *name,
+                                bool created)
+{
+    char path[1024];
+    int count;
+
+    if (!created) {
+        return;
+    }
+    count = snprintf(path, sizeof path, "%s/%s", directory, name);
+    if (count >= 0 && (size_t)count < sizeof path) {
         (void)remove(path);
     }
-    return okay;
 }
 
 static const char *mailbox_name(uint32_t state)
@@ -1238,7 +1275,8 @@ static bool write_observations(const char *directory,
                                const uint8_t *video_bytes,
                                const uint8_t *audio_bytes,
                                const char *expected_status,
-                               const refusal_suite *refusals)
+                               const refusal_suite *refusals,
+                               bool *created_out)
 {
     char json[32768];
     char refusal_json[24576];
@@ -1318,7 +1356,7 @@ static bool write_observations(const char *directory,
         return false;
     }
     return write_new_file(directory, "observations.json",
-                          (const uint8_t *)json, (size_t)count);
+                          (const uint8_t *)json, (size_t)count, created_out);
 }
 
 static void usage(const char *program)
@@ -1356,6 +1394,9 @@ int main(int argc, char **argv)
     size_t expected_audio_bytes;
     char refusal_failure_category[64] = "";
     bool success = false;
+    bool frame_created = false;
+    bool audio_created = false;
+    bool observations_created = false;
     int exit_code = EXIT_FAILURE;
 
     if ((argc != 3 && argc != 4 && argc != 5) || argv[1] == NULL ||
@@ -1383,8 +1424,16 @@ int main(int argc, char **argv)
     }
     if (!path_is_directory(evidence_directory)) {
         (void)snprintf(failure_detail, sizeof failure_detail,
-                       "evidence directory is missing or not a directory");
+                       "evidence directory is missing, symlinked, or not a directory");
         failure_category = "evidence-setup";
+        goto cleanup;
+    }
+    if (!output_path_is_available(evidence_directory, "frame.bgr555le") ||
+        !output_path_is_available(evidence_directory, "audio.s16le") ||
+        !output_path_is_available(evidence_directory, "observations.json")) {
+        (void)snprintf(failure_detail, sizeof failure_detail,
+                       "one or more evidence output paths already exist or cannot be inspected");
+        failure_category = "evidence-output-path";
         goto cleanup;
     }
     if (!read_rom_file(rom_path, &rom_bytes, &rom_length)) {
@@ -1603,12 +1652,13 @@ int main(int argc, char **argv)
         goto cleanup;
     }
     if (!write_new_file(evidence_directory, "frame.bgr555le", video_bytes,
-                        GBL_V1_VIDEO_BYTES) ||
+                        GBL_V1_VIDEO_BYTES, &frame_created) ||
         !write_new_file(evidence_directory, "audio.s16le", audio_bytes,
-                        expected_audio_bytes) ||
+                        expected_audio_bytes, &audio_created) ||
         !write_observations(evidence_directory, &observation, &result,
                             events, video_bytes, audio_bytes,
-                            mailbox_name(expected_mailbox), &refusals)) {
+                            mailbox_name(expected_mailbox), &refusals,
+                            &observations_created)) {
         (void)snprintf(failure_detail, sizeof failure_detail,
                        "could not publish all asserted local evidence files");
         failure_category = "evidence-write";
@@ -1624,24 +1674,12 @@ cleanup:
     }
     free(rom_bytes);
     if (!success) {
-        char path[1024];
-        int count;
-
-        count = snprintf(path, sizeof path, "%s/frame.bgr555le",
-                         evidence_directory);
-        if (count >= 0 && (size_t)count < sizeof path) {
-            (void)remove(path);
-        }
-        count = snprintf(path, sizeof path, "%s/audio.s16le",
-                         evidence_directory);
-        if (count >= 0 && (size_t)count < sizeof path) {
-            (void)remove(path);
-        }
-        count = snprintf(path, sizeof path, "%s/observations.json",
-                         evidence_directory);
-        if (count >= 0 && (size_t)count < sizeof path) {
-            (void)remove(path);
-        }
+        remove_created_file(evidence_directory, "frame.bgr555le",
+                            frame_created);
+        remove_created_file(evidence_directory, "audio.s16le",
+                            audio_created);
+        remove_created_file(evidence_directory, "observations.json",
+                            observations_created);
         if (failure_category != NULL) {
             fprintf(stderr, "installed-consumer: %s: %s\n",
                     failure_category, failure_detail);
