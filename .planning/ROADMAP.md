@@ -141,9 +141,9 @@ software versions.
   4. Through the installed API, a developer can reproduce the documented refusal statuses and compare the machine observations and buffer contents before and after invalid size, capacity, and budget requests.
   5. The LibFuturo fit report cites observations from the actual API and relocated consumer, identifies fits and gaps in input timing, work bounds, output ownership, and evidence semantics, and gives the evidence needed for a separate dependency or contract decision.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
-- [ ] 21-01-PLAN.md — Run the original local diagnostic through a relocated public-only C consumer with verified provenance and literal guest and media checks.
+- [x] 21-01-PLAN.md — Run the original local diagnostic through a relocated public-only C consumer with verified provenance and literal guest and media checks.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 21-02-PLAN.md — Verify installed API refusal and retry behavior and evaluate LibFuturo against the measured consumer evidence.
@@ -153,7 +153,7 @@ software versions.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. Bounded Core API | 1/1 | Complete    | 2026-11-23 |
-| 21. Installed Consumer Proof and LibFuturo Fit | 0/2 | Not started | - |
+| 21. Installed Consumer Proof and LibFuturo Fit | 1/2 | In Progress | - |
 
 ## Open Carryovers and Evidence Limits
 

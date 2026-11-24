@@ -4,19 +4,19 @@ milestone: v5.0
 milestone_name: Deterministic Core API and Installed Consumer Proof
 current_phase: 21
 current_phase_name: Installed Consumer Proof and LibFuturo Fit
-current_plan: Not started
+current_plan: 2
 status: executing
-stopped_at: Phase 20 complete, ready to plan Phase 21
-last_updated: "2026-11-24T02:42:47.703Z"
+stopped_at: Completed 21-01-PLAN.md
+last_updated: "2026-11-24T03:53:33.779Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 20 complete, transitioned to Phase 21
-state_head: 51affb5f39ce4c98aa3ab539661b55abbca47a4a
+state_head: e7eb490d895f2b528fdbed7fb68fa360e0d00321
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -32,12 +32,12 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 21 (Installed Consumer Proof and LibFuturo Fit) — READY TO EXECUTE
-Current Plan: Not started
+Current Plan: 2
 Total Plans in Phase: 2
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 20 complete, transitioned to Phase 21
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -212,6 +212,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 19 P05 | 37min | 2 tasks | 6 files |
 | Phase 19 P06 | 1h 44m | 2 tasks | 20 files |
 | Phase 20 P01 | not measured | 3 tasks | 8 files |
+| Phase 21 P01 | 29m | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -587,6 +588,9 @@ Recent decisions affecting current work:
 - [Phase 20]: API v1 uses versioned gbl_v1_* symbols with size-tagged extensible structs.
 - [Phase 20]: API v1 uses paired caller allocator callbacks for opaque instances and copied ROM storage.
 - [Phase 20]: The adapter stages advance and media work before publishing changes and keeps the canonical core as the single machine implementation.
+- [Phase 21]: Keep the Phase 21 diagnostic scoped to local verification; assert no public license or redistribution right.
+- [Phase 21]: Use the relocated gamebloke_DIR:PATH package and compare measured guest and raw media observations independently against the manifest.
+- [Phase 21]: Keep the raw audio classification pre-PWM and hardware qualification UNKNOWN.
 
 ### Pending Todos
 
@@ -644,8 +648,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-24T01:33:10.442Z
-Stopped at: Phase 20 complete, ready to plan Phase 21
+Last session: 2026-11-24T03:51:03.000Z
+Stopped at: Completed 21-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -18,9 +18,9 @@ software release claim.
 
 ### Installed Consumer and Evidence
 
-- [ ] **CONS-01**: A small C consumer builds and runs against the installed public headers and libraries after relocation outside both the source and build trees, without accessing private machine structures.
-- [ ] **EVID-01**: The consumer runs a rights-reviewed, original BIOS-free diagnostic whose manifest records source, revision, build recipe, digest, license/notices, BIOS mode, expected results, and permitted use; no commercial ROM, BIOS dump, or private save is required.
-- [ ] **EVID-02**: Fresh consumer runs assert guest semantics and literal raw video/audio expectations independently of output hashes, while hashes are used only to establish identity or repeatability.
+- [x] **CONS-01**: A small C consumer builds and runs against the installed public headers and libraries after relocation outside both the source and build trees, without accessing private machine structures.
+- [x] **EVID-01**: The consumer runs a rights-reviewed, original BIOS-free diagnostic whose manifest records source, revision, build recipe, digest, license/notices, BIOS mode, expected results, and permitted use; no commercial ROM, BIOS dump, or private save is required.
+- [x] **EVID-02**: Fresh consumer runs assert guest semantics and literal raw video/audio expectations independently of output hashes, while hashes are used only to establish identity or repeatability.
 
 ### Integration Evaluation
 
@@ -62,9 +62,9 @@ Deferred until a real consumer or separate owner decision promotes them:
 | API-03 | Phase 20 | Complete |
 | API-04 | Phase 20 | Complete |
 | API-05 | Phase 20 | Complete |
-| CONS-01 | Phase 21 | Pending |
-| EVID-01 | Phase 21 | Pending |
-| EVID-02 | Phase 21 | Pending |
+| CONS-01 | Phase 21 | Complete |
+| EVID-01 | Phase 21 | Complete |
+| EVID-02 | Phase 21 | Complete |
 | INT-01 | Phase 21 | Pending |
 
 **Coverage:**

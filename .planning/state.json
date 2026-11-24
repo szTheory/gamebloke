@@ -11,13 +11,13 @@
     {
       "number": "21",
       "name": "Installed Consumer Proof and LibFuturo Fit",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
   "next": {
     "command": "$gsd-progress --next",
     "label": "Advance to the next step",
-    "reason": "Phase 2 of 2 · 33% · executing"
+    "reason": "Phase 2 of 2 · 50% · executing"
   },
-  "updated_at": "2026-11-24T02:42:47.720Z"
+  "updated_at": "2026-11-24T03:53:33.793Z"
 }
