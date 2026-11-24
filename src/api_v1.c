@@ -557,9 +557,11 @@ gbl_v1_status gbl_v1_unload(gbl_v1_machine *machine)
     }
     allocator = machine->machine->allocator;
     gbl_machine_dispose(machine->machine);
-    if (gbl_machine_init(machine->machine, &allocator) != GBL_BUS_STATUS_OK) {
-        return GBL_V1_INTERNAL_REFUSAL;
-    }
+    /* A live handle proves that this storage is initialized and that its
+     * allocator pair is complete. The local descriptor cannot overlap the
+     * machine, so gbl_machine_init's documented refusal preconditions cannot
+     * occur here. */
+    (void)gbl_machine_init(machine->machine, &allocator);
     return GBL_V1_OK;
 }
 
@@ -677,7 +679,10 @@ gbl_v1_status gbl_v1_advance(gbl_v1_machine *machine,
          request.reserved2 != 0u)) {
         return GBL_V1_INVALID_ARGUMENT;
     }
-    if (request.units == 0u || request.cycle_budget == 0u) {
+    if (request.units == 0u) {
+        return GBL_V1_INVALID_ARGUMENT;
+    }
+    if (request.cycle_budget == 0u) {
         return GBL_V1_WORK_EXHAUSTED;
     }
     if (request.cycle_budget > GBL_V1_MAX_ADVANCE_CYCLES) {

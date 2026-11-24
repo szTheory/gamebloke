@@ -99,6 +99,8 @@ not the logical mask's encoding.
 
 `gbl_v1_advance` requires a loaded machine, a positive number of complete core
 units, and a positive cycle budget no greater than 16,777,216 guest cycles.
+An empty unit goal is `GBL_V1_INVALID_ARGUMENT`; a zero cycle budget is
+`GBL_V1_WORK_EXHAUSTED`.
 The cycle budget bounds total work in this call; the unit goal counts complete
 core execution units and may include pipeline refill. A unit goal reached
 within budget returns `GBL_V1_OK` with `GBL_V1_ADVANCE_COMPLETED`. A modeled

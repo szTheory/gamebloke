@@ -970,7 +970,7 @@ static void check_advance_and_output_refusals(void)
     expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
     options.struct_size = sizeof(options);
     options.units = 0u;
-    expect_advance_refusal(&instance, &options, GBL_V1_WORK_EXHAUSTED);
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
     options.units = 8u;
     options.cycle_budget = 0u;
     expect_advance_refusal(&instance, &options, GBL_V1_WORK_EXHAUSTED);
