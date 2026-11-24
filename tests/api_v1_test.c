@@ -10,6 +10,7 @@
 
 typedef struct api_block {
     void *pointer;
+    void *raw;
     size_t size;
     int active;
 } api_block;
@@ -18,6 +19,9 @@ typedef struct api_allocator {
     size_t allocate_calls;
     size_t release_calls;
     size_t fail_call;
+    size_t misalign_call;
+    size_t alias_call;
+    void *alias_pointer;
     api_block blocks[8];
 } api_allocator;
 
@@ -25,20 +29,32 @@ static void *api_allocate(void *context, size_t size)
 {
     api_allocator *allocator = context;
     size_t index;
+    size_t extra;
 
     ++allocator->allocate_calls;
     if (allocator->fail_call == allocator->allocate_calls) {
         return NULL;
     }
+    if (allocator->alias_call == allocator->allocate_calls) {
+        return allocator->alias_pointer;
+    }
+    extra = allocator->misalign_call == allocator->allocate_calls ? 1u : 0u;
     for (index = 0u; index < sizeof(allocator->blocks) /
                             sizeof(allocator->blocks[0]); ++index) {
         if (!allocator->blocks[index].active) {
-            void *pointer = malloc(size);
+            void *raw;
+            void *pointer;
 
-            if (pointer == NULL) {
+            if (size > SIZE_MAX - extra) {
                 return NULL;
             }
+            raw = malloc(size + extra);
+            if (raw == NULL) {
+                return NULL;
+            }
+            pointer = (uint8_t *)raw + extra;
             allocator->blocks[index].pointer = pointer;
+            allocator->blocks[index].raw = raw;
             allocator->blocks[index].size = size;
             allocator->blocks[index].active = 1;
             return pointer;
@@ -61,8 +77,13 @@ static void api_release(void *context, void *pointer, size_t size)
             CHECK(block->size == size);
             block->active = 0;
             block->pointer = NULL;
-            block->size = 0u;
-            free(pointer);
+            {
+                void *raw = block->raw;
+
+                block->raw = NULL;
+                block->size = 0u;
+                free(raw);
+            }
             return;
         }
     }
@@ -388,6 +409,16 @@ static void check_zero_bytes(const uint8_t *bytes, size_t length)
     }
 }
 
+static void check_filled_bytes(const uint8_t *bytes, size_t length,
+                               uint8_t expected)
+{
+    size_t index;
+
+    for (index = 0u; index < length; ++index) {
+        CHECK(bytes[index] == expected);
+    }
+}
+
 static int run_media(void)
 {
     api_instance media;
@@ -426,7 +457,7 @@ static int run_media(void)
     CHECK(before_video.video_state != GBL_V1_VIDEO_VALID);
     CHECK(gbl_v1_read_video(media.machine, &video_request) ==
           GBL_V1_OUTPUT_UNAVAILABLE);
-    CHECK(video[0] == 0xA5u && video[sizeof(video) - 1u] == 0xA5u);
+    check_filled_bytes(video, sizeof(video), 0xA5u);
 
     set_timeline(&no_input, NULL, 0u);
     no_input_result = advance_instance(&no_input, 64u, 100000u);
@@ -435,6 +466,20 @@ static int run_media(void)
     CHECK(no_input_result.observation.mailbox_case_id == UINT32_C(0xC0DE));
     CHECK(no_input_observation.logical_input_mask == 0u);
 
+    CHECK(gbl_v1_reset(no_input.machine) == GBL_V1_OK);
+    options.struct_size = sizeof(options);
+    options.units = 1u;
+    options.cycle_budget = 4096u;
+    options.capture_audio = 1u;
+    options.audio_bytes = NULL;
+    options.audio_capacity = 0u;
+    result.struct_size = sizeof(result);
+    CHECK(gbl_v1_advance(no_input.machine, &options, &result) == GBL_V1_OK);
+    CHECK(result.audio_available == 1u);
+    CHECK(result.audio_bytes_written == 0u);
+    CHECK(result.audio_frames_written == 0u);
+
+    options = (gbl_v1_advance_options){ 0 };
     options.struct_size = sizeof(options);
     options.units = 200000u;
     options.cycle_budget = GBL_V1_MAX_ADVANCE_CYCLES;
@@ -480,7 +525,7 @@ static int run_media(void)
     video_request.capacity = GBL_V1_VIDEO_BYTES - 1u;
     CHECK(gbl_v1_read_video(media.machine, &video_request) ==
           GBL_V1_INSUFFICIENT_CAPACITY);
-    CHECK(video[0] == 0xA5u && video[GBL_V1_VIDEO_BYTES - 2u] == 0xA5u);
+    check_filled_bytes(video, sizeof(video), 0xA5u);
     video_request.capacity = sizeof(video);
     CHECK(gbl_v1_read_video(media.machine, &video_request) == GBL_V1_OK);
     CHECK(video[0] == 0u && video[1] == 0u);
@@ -500,7 +545,7 @@ static int run_media(void)
     memset(video, 0xA5, sizeof(video));
     CHECK(gbl_v1_read_video(media.machine, &video_request) ==
           GBL_V1_OUTPUT_UNAVAILABLE);
-    CHECK(video[0] == 0xA5u && video[sizeof(video) - 1u] == 0xA5u);
+    check_filled_bytes(video, sizeof(video), 0xA5u);
 
     CHECK(instance_init(&audio_reference, 1));
     CHECK(instance_init(&audio_retry, 1));
@@ -568,10 +613,586 @@ static int run_media(void)
     return CHECK_DONE();
 }
 
+static size_t active_block_count(const api_allocator *allocator)
+{
+    size_t index;
+    size_t active = 0u;
+
+    for (index = 0u; index < sizeof(allocator->blocks) /
+                            sizeof(allocator->blocks[0]); ++index) {
+        if (allocator->blocks[index].active) {
+            ++active;
+        }
+    }
+    return active;
+}
+
+static void check_unchanged_observation(api_instance *instance,
+                                        const gbl_v1_observation *before)
+{
+    gbl_v1_observation after;
+
+    observe_instance(instance, &after);
+    CHECK(memcmp(before, &after, sizeof(after)) == 0);
+}
+
+static void check_create_refusals(gbl_v1_machine *sentinel)
+{
+    api_allocator allocator = { 0 };
+    api_allocator scratch_failure = { 0 };
+    api_allocator misaligned = { 0 };
+    api_allocator extended_allocator = { 0 };
+    gbl_v1_config config = make_config(&allocator);
+    gbl_v1_machine *slot = sentinel;
+
+    config.allocate = NULL;
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_INVALID_ARGUMENT);
+    CHECK(slot == sentinel);
+    CHECK(allocator.allocate_calls == 0u);
+    config = make_config(&allocator);
+    config.release = NULL;
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_INVALID_ARGUMENT);
+    CHECK(slot == sentinel);
+    config = make_config(&allocator);
+    config.struct_size = sizeof(config) - 1u;
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_INVALID_ARGUMENT);
+    CHECK(slot == sentinel);
+    config = make_config(&allocator);
+    config.profile = UINT32_C(0xFFFF);
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_UNSUPPORTED);
+    CHECK(slot == sentinel);
+    config = make_config(&allocator);
+    config.start_mode = UINT32_C(0xFFFF);
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_UNSUPPORTED);
+    CHECK(slot == sentinel);
+    config = make_config(&allocator);
+    config.cartridge_mode = UINT32_C(0xFFFF);
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_UNSUPPORTED);
+    CHECK(slot == sentinel);
+    config = make_config(&allocator);
+    config.reserved = 1u;
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_UNSUPPORTED);
+    CHECK(slot == sentinel);
+
+    config = make_config(&allocator);
+    CHECK(gbl_v1_create(&config, (gbl_v1_machine **)(void *)&config) ==
+          GBL_V1_INVALID_ARGUMENT);
+    CHECK(allocator.allocate_calls == 0u);
+
+    config = make_config(&scratch_failure);
+    scratch_failure.fail_call = 2u;
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_ALLOCATION_FAILED);
+    CHECK(slot == sentinel);
+    CHECK(scratch_failure.allocate_calls == 2u);
+    CHECK(scratch_failure.release_calls == 1u);
+    CHECK(active_block_count(&scratch_failure) == 0u);
+
+    config = make_config(&misaligned);
+    misaligned.misalign_call = 1u;
+    CHECK(gbl_v1_create(&config, &slot) == GBL_V1_ALLOCATION_FAILED);
+    CHECK(slot == sentinel);
+    CHECK(misaligned.allocate_calls == 1u);
+    CHECK(misaligned.release_calls == 1u);
+    CHECK(active_block_count(&misaligned) == 0u);
+
+    {
+        struct extended_config {
+            gbl_v1_config value;
+            uint8_t tail[13];
+        } extended = { 0 };
+        gbl_v1_machine *created = NULL;
+        size_t index;
+
+        extended.value = make_config(&extended_allocator);
+        extended.value.struct_size = sizeof(extended);
+        memset(extended.tail, 0x6D, sizeof(extended.tail));
+        CHECK(gbl_v1_create(&extended.value, &created) == GBL_V1_OK);
+        for (index = 0u; index < sizeof(extended.tail); ++index) {
+            CHECK(extended.tail[index] == 0x6Du);
+        }
+        gbl_v1_destroy(created);
+        CHECK(extended_allocator.release_calls == 2u);
+        CHECK(active_block_count(&extended_allocator) == 0u);
+    }
+}
+
+static void check_content_refusals(api_instance *instance)
+{
+    api_instance reference;
+    gbl_v1_observation before;
+    gbl_v1_observation after_retry;
+    gbl_v1_observation reference_after_retry;
+    gbl_v1_rom rom = { 0 };
+    size_t release_before;
+    size_t allocation_before;
+
+    observe_instance(instance, &before);
+    rom.struct_size = sizeof(rom);
+    rom.bytes = instance->rom;
+    rom.length = sizeof(instance->rom) - 1u;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_CONTENT_REFUSED);
+    check_unchanged_observation(instance, &before);
+
+    rom.length = sizeof(instance->rom) + 1u;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_CONTENT_REFUSED);
+    check_unchanged_observation(instance, &before);
+
+    rom.length = sizeof(instance->rom);
+    rom.bytes = NULL;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_INVALID_ARGUMENT);
+    check_unchanged_observation(instance, &before);
+
+    rom.bytes = instance->rom;
+    rom.length = (size_t)GBL_V1_MAX_ROM_BYTES + 2u;
+    allocation_before = instance->allocator.allocate_calls;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_CONTENT_REFUSED);
+    CHECK(instance->allocator.allocate_calls == allocation_before);
+    check_unchanged_observation(instance, &before);
+
+    rom.length = sizeof(instance->rom);
+    rom.struct_size = sizeof(rom) - 1u;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_INVALID_ARGUMENT);
+    rom.struct_size = sizeof(rom);
+
+    {
+        union overlapping_rom {
+            gbl_v1_rom descriptor;
+            uint8_t bytes[0xC0u];
+        } overlapping = { 0 };
+
+        overlapping.descriptor.struct_size = sizeof(overlapping.descriptor);
+        overlapping.descriptor.bytes = overlapping.bytes;
+        overlapping.descriptor.length = sizeof(overlapping.bytes);
+        CHECK(gbl_v1_load_rom(instance->machine,
+                              &overlapping.descriptor) ==
+              GBL_V1_INVALID_ARGUMENT);
+    }
+    check_unchanged_observation(instance, &before);
+
+    release_before = instance->allocator.release_calls;
+    allocation_before = instance->allocator.allocate_calls;
+    instance->allocator.alias_call = allocation_before + 1u;
+    instance->allocator.alias_pointer = instance->rom;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_ALLOCATION_FAILED);
+    CHECK(instance->allocator.release_calls == release_before);
+    CHECK(instance->allocator.allocate_calls == allocation_before + 1u);
+    check_unchanged_observation(instance, &before);
+    instance->allocator.alias_call = 0u;
+    instance->allocator.alias_pointer = NULL;
+
+    release_before = instance->allocator.release_calls;
+    allocation_before = instance->allocator.allocate_calls;
+    instance->allocator.alias_call = allocation_before + 1u;
+    instance->allocator.alias_pointer = instance->machine;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_ALLOCATION_FAILED);
+    CHECK(instance->allocator.release_calls == release_before);
+    CHECK(instance->allocator.allocate_calls == allocation_before + 1u);
+    check_unchanged_observation(instance, &before);
+    instance->allocator.alias_call = 0u;
+    instance->allocator.alias_pointer = NULL;
+
+    release_before = instance->allocator.release_calls;
+    instance->allocator.misalign_call =
+        instance->allocator.allocate_calls + 1u;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_ALLOCATION_FAILED);
+    CHECK(instance->allocator.release_calls == release_before + 1u);
+    check_unchanged_observation(instance, &before);
+    instance->allocator.misalign_call = 0u;
+
+    instance->allocator.fail_call = instance->allocator.allocate_calls + 1u;
+    release_before = instance->allocator.release_calls;
+    CHECK(gbl_v1_load_rom(instance->machine, &rom) ==
+          GBL_V1_ALLOCATION_FAILED);
+    CHECK(instance->allocator.release_calls == release_before);
+    check_unchanged_observation(instance, &before);
+    instance->allocator.fail_call = 0u;
+
+    CHECK(instance_init(&reference, 0));
+    (void)advance_instance(instance, 8u, 4096u);
+    (void)advance_instance(&reference, 8u, 4096u);
+    observe_instance(instance, &after_retry);
+    observe_instance(&reference, &reference_after_retry);
+    CHECK(memcmp(&after_retry, &reference_after_retry,
+                 sizeof(after_retry)) == 0);
+    instance_destroy(&reference);
+}
+
+static void check_input_refusals(void)
+{
+    api_instance instance;
+    api_instance reference;
+    gbl_v1_input_event events[2] = {
+        { 0u, GBL_V1_KEY_A, 0u }, { 0u, GBL_V1_KEY_B, 0u }
+    };
+    gbl_v1_input_event reference_events[2] = {
+        { 0u, GBL_V1_KEY_A, 0u }, { 0u, GBL_V1_KEY_B, 0u }
+    };
+    gbl_v1_input_event too_many[GBL_V1_MAX_INPUT_EVENTS + 1u] = { { 0 } };
+    gbl_v1_input_event invalid;
+    gbl_v1_input_timeline timeline;
+    gbl_v1_observation before;
+    gbl_v1_observation after;
+    size_t index;
+
+    CHECK(instance_init(&instance, 0));
+    CHECK(instance_init(&reference, 0));
+    timeline = (gbl_v1_input_timeline){ sizeof(timeline), events, 2u };
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) == GBL_V1_OK);
+    timeline.events = reference_events;
+    CHECK(gbl_v1_set_input(reference.machine, &timeline) == GBL_V1_OK);
+    events[0].pressed_mask = 0u;
+    events[1].pressed_mask = 0u;
+
+    observe_instance(&instance, &before);
+    timeline.struct_size = sizeof(timeline) - 1u;
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) ==
+          GBL_V1_INVALID_ARGUMENT);
+    check_unchanged_observation(&instance, &before);
+    timeline.struct_size = sizeof(timeline);
+
+    timeline.events = NULL;
+    timeline.count = 1u;
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) ==
+          GBL_V1_INVALID_ARGUMENT);
+    check_unchanged_observation(&instance, &before);
+
+    invalid = (gbl_v1_input_event){ 0u, UINT16_C(0x8000), 0u };
+    timeline.events = &invalid;
+    timeline.count = 1u;
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) ==
+          GBL_V1_INVALID_ARGUMENT);
+    check_unchanged_observation(&instance, &before);
+
+    invalid = (gbl_v1_input_event){ 0u, GBL_V1_KEY_A, 1u };
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) ==
+          GBL_V1_INVALID_ARGUMENT);
+    check_unchanged_observation(&instance, &before);
+
+    too_many[0] = (gbl_v1_input_event){ 0u, GBL_V1_KEY_A, 0u };
+    timeline.events = too_many;
+    timeline.count = GBL_V1_MAX_INPUT_EVENTS + 1u;
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) == GBL_V1_UNSUPPORTED);
+    check_unchanged_observation(&instance, &before);
+    timeline.count = SIZE_MAX;
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) == GBL_V1_UNSUPPORTED);
+    check_unchanged_observation(&instance, &before);
+
+    for (index = 0u; index < 2u; ++index) {
+        events[index].cycle = index == 0u ? UINT64_C(2) : UINT64_C(1);
+    }
+    timeline.events = events;
+    timeline.count = 2u;
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) ==
+          GBL_V1_INVALID_ARGUMENT);
+    check_unchanged_observation(&instance, &before);
+    events[0].cycle = 0u;
+    events[1].cycle = 0u;
+
+    {
+        union overlapping_input {
+            gbl_v1_input_timeline descriptor;
+            uint8_t bytes[sizeof(gbl_v1_input_event)];
+        } overlapping = { 0 };
+
+        overlapping.descriptor.struct_size = sizeof(overlapping.descriptor);
+        overlapping.descriptor.events =
+            (const gbl_v1_input_event *)overlapping.bytes;
+        overlapping.descriptor.count = 1u;
+        CHECK(gbl_v1_set_input(instance.machine,
+                               &overlapping.descriptor) ==
+              GBL_V1_INVALID_ARGUMENT);
+    }
+    check_unchanged_observation(&instance, &before);
+
+    (void)advance_instance(&instance, 16u, 4096u);
+    (void)advance_instance(&reference, 16u, 4096u);
+    observe_instance(&instance, &after);
+    observe_instance(&reference, &before);
+    CHECK(memcmp(&after, &before, sizeof(after)) == 0);
+
+    invalid = (gbl_v1_input_event){ 0u, GBL_V1_KEY_RIGHT, 0u };
+    timeline.events = &invalid;
+    timeline.count = 1u;
+    observe_instance(&instance, &before);
+    CHECK(gbl_v1_set_input(instance.machine, &timeline) ==
+          GBL_V1_INVALID_ARGUMENT);
+    check_unchanged_observation(&instance, &before);
+
+    instance_destroy(&instance);
+    instance_destroy(&reference);
+}
+
+static void expect_advance_refusal(api_instance *instance,
+                                   const gbl_v1_advance_options *options,
+                                   gbl_v1_status expected)
+{
+    gbl_v1_advance_result result;
+    gbl_v1_advance_result before_result;
+    gbl_v1_observation before_observation;
+
+    observe_instance(instance, &before_observation);
+    memset(&result, 0xA5, sizeof(result));
+    result.struct_size = sizeof(result);
+    before_result = result;
+    CHECK(gbl_v1_advance(instance->machine, options, &result) == expected);
+    CHECK(memcmp(&result, &before_result, sizeof(result)) == 0);
+    check_unchanged_observation(instance, &before_observation);
+}
+
+static void check_advance_and_output_refusals(void)
+{
+    api_instance instance;
+    api_instance probe;
+    api_instance reference;
+    gbl_v1_advance_options options = { 0 };
+    gbl_v1_advance_result result;
+    gbl_v1_observation before;
+    gbl_v1_observation after;
+    uint8_t audio[GBL_V1_MAX_AUDIO_BYTES];
+    uint8_t video[GBL_V1_VIDEO_BYTES + 1u];
+    gbl_v1_video video_request = { 0 };
+
+    CHECK(instance_init(&instance, 0));
+    options.struct_size = sizeof(options);
+    options.units = 8u;
+    options.cycle_budget = 4096u;
+    options.struct_size =
+        offsetof(gbl_v1_advance_options, cycle_budget) +
+        sizeof(options.cycle_budget) - 1u;
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+    options.struct_size = sizeof(options);
+    options.units = 0u;
+    expect_advance_refusal(&instance, &options, GBL_V1_WORK_EXHAUSTED);
+    options.units = 8u;
+    options.cycle_budget = 0u;
+    expect_advance_refusal(&instance, &options, GBL_V1_WORK_EXHAUSTED);
+    options.cycle_budget = GBL_V1_MAX_ADVANCE_CYCLES + 1u;
+    expect_advance_refusal(&instance, &options, GBL_V1_UNSUPPORTED);
+    options.cycle_budget = 4096u;
+    options.reserved = 1u;
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+    options.reserved = 0u;
+    options.reserved2 = 1u;
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+    options.reserved2 = 0u;
+    options.capture_audio = 2u;
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+    options.capture_audio = 1u;
+    options.audio_bytes = NULL;
+    options.audio_capacity = 4u;
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+    options.audio_bytes = audio;
+    options.audio_capacity = GBL_V1_MAX_AUDIO_BYTES + 1u;
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+    options.audio_bytes = (uint8_t *)&options;
+    options.audio_capacity = sizeof(options);
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+    options.capture_audio = 0u;
+    options.audio_bytes = NULL;
+    options.audio_capacity = 0u;
+    options.struct_size = SIZE_MAX;
+    expect_advance_refusal(&instance, &options, GBL_V1_INVALID_ARGUMENT);
+
+    options.struct_size = sizeof(options);
+    options.units = 8u;
+    options.cycle_budget = 4096u;
+    memset(&result, 0xA5, sizeof(result));
+    result.struct_size = offsetof(gbl_v1_advance_result,
+                                  retired_instructions);
+    {
+        gbl_v1_advance_result before_result = result;
+
+        observe_instance(&instance, &before);
+        CHECK(gbl_v1_advance(instance.machine, &options, &result) ==
+              GBL_V1_INVALID_ARGUMENT);
+        CHECK(memcmp(&result, &before_result, sizeof(result)) == 0);
+        check_unchanged_observation(&instance, &before);
+    }
+
+    {
+        union overlap_request_result {
+            gbl_v1_advance_options request;
+            gbl_v1_advance_result result;
+        } overlap = { 0 };
+        uint8_t before_bytes[sizeof(overlap)];
+
+        overlap.request.struct_size = sizeof(overlap);
+        overlap.request.units = 8u;
+        overlap.request.cycle_budget = 4096u;
+        memcpy(before_bytes, &overlap, sizeof(overlap));
+        observe_instance(&instance, &before);
+        CHECK(gbl_v1_advance(instance.machine, &overlap.request,
+                             &overlap.result) == GBL_V1_INVALID_ARGUMENT);
+        CHECK(memcmp(before_bytes, &overlap, sizeof(overlap)) == 0);
+        check_unchanged_observation(&instance, &before);
+    }
+
+    {
+        gbl_v1_observation short_observation;
+        gbl_v1_observation before_short_observation;
+
+        memset(&short_observation, 0x9B, sizeof(short_observation));
+        short_observation.struct_size =
+            offsetof(gbl_v1_observation, profile_id) - 1u;
+        before_short_observation = short_observation;
+        CHECK(gbl_v1_observe(instance.machine, &short_observation) ==
+              GBL_V1_INVALID_ARGUMENT);
+        CHECK(memcmp(&short_observation, &before_short_observation,
+                     sizeof(short_observation)) == 0);
+    }
+
+    {
+        struct extended_observation {
+            gbl_v1_observation value;
+            uint8_t tail[11];
+        } extended = { 0 };
+        size_t index;
+
+        extended.value.struct_size = sizeof(extended);
+        memset(extended.tail, 0xBD, sizeof(extended.tail));
+        CHECK(gbl_v1_observe(instance.machine, &extended.value) ==
+              GBL_V1_OK);
+        for (index = 0u; index < sizeof(extended.tail); ++index) {
+            CHECK(extended.tail[index] == 0xBDu);
+        }
+    }
+
+    {
+        struct extended_result {
+            gbl_v1_advance_result value;
+            uint8_t tail[9];
+        } extended = { 0 };
+        size_t index;
+
+        extended.value.struct_size = sizeof(extended);
+        options.struct_size = sizeof(options);
+        options.units = 8u;
+        options.cycle_budget = 4096u;
+        memset(extended.tail, 0xC3, sizeof(extended.tail));
+        CHECK(gbl_v1_advance(instance.machine, &options, &extended.value) ==
+              GBL_V1_OK);
+        for (index = 0u; index < sizeof(extended.tail); ++index) {
+            CHECK(extended.tail[index] == 0xC3u);
+        }
+    }
+
+    options.struct_size = sizeof(options);
+    options.units = 8u;
+    options.cycle_budget = 4096u;
+    options.capture_audio = 1u;
+    options.audio_bytes = (uint8_t *)&result;
+    options.audio_capacity = sizeof(uint32_t);
+    memset(&result, 0xD4, sizeof(result));
+    result.struct_size = sizeof(result);
+    {
+        gbl_v1_advance_result before_result = result;
+
+        observe_instance(&instance, &before);
+        CHECK(gbl_v1_advance(instance.machine, &options, &result) ==
+              GBL_V1_INVALID_ARGUMENT);
+        CHECK(memcmp(&result, &before_result, sizeof(result)) == 0);
+        check_unchanged_observation(&instance, &before);
+    }
+
+    options.struct_size =
+        offsetof(gbl_v1_advance_options, capture_audio);
+    options.units = 8u;
+    options.cycle_budget = 4096u;
+    options.capture_audio = 0u;
+    options.audio_bytes = NULL;
+    options.audio_capacity = 0u;
+    memset(&result, 0, sizeof(result));
+    result.struct_size = sizeof(result);
+    CHECK(gbl_v1_advance(instance.machine, &options, &result) == GBL_V1_OK);
+    CHECK(result.audio_available == 0u);
+
+    video_request.struct_size = sizeof(video_request) - 1u;
+    video_request.bytes = video;
+    video_request.capacity = sizeof(video);
+    memset(video, 0xA6, sizeof(video));
+    CHECK(gbl_v1_read_video(instance.machine, &video_request) ==
+          GBL_V1_INVALID_ARGUMENT);
+    CHECK(video[0] == 0xA6u && video[sizeof(video) - 1u] == 0xA6u);
+    video_request.struct_size = sizeof(video_request);
+    video_request.bytes = NULL;
+    video_request.capacity = sizeof(video);
+    CHECK(gbl_v1_read_video(instance.machine, &video_request) ==
+          GBL_V1_INVALID_ARGUMENT);
+    video_request.bytes = video;
+    video_request.capacity = SIZE_MAX;
+    CHECK(gbl_v1_read_video(instance.machine, &video_request) ==
+          GBL_V1_INVALID_ARGUMENT);
+    video_request.capacity = sizeof(video);
+    {
+        union overlap_video {
+            gbl_v1_video descriptor;
+            uint8_t bytes[GBL_V1_VIDEO_BYTES + 1u];
+        } overlap = { 0 };
+
+        overlap.descriptor.struct_size = sizeof(overlap.descriptor);
+        overlap.descriptor.bytes = overlap.bytes;
+        overlap.descriptor.capacity = GBL_V1_VIDEO_BYTES;
+        CHECK(gbl_v1_read_video(instance.machine, &overlap.descriptor) ==
+              GBL_V1_INVALID_ARGUMENT);
+    }
+
+    instance_destroy(&instance);
+
+    CHECK(instance_init(&probe, 0));
+    CHECK(instance_init(&instance, 0));
+    CHECK(instance_init(&reference, 0));
+    result = advance_instance(&probe, 1u, 4096u);
+    CHECK(result.elapsed_cycles > 1u);
+    options = (gbl_v1_advance_options){ 0 };
+    options.struct_size = sizeof(options);
+    options.units = 8u;
+    options.cycle_budget = result.elapsed_cycles + 1u;
+    expect_advance_refusal(&instance, &options, GBL_V1_WORK_EXHAUSTED);
+    result = advance_instance(&instance, 8u, 4096u);
+    (void)advance_instance(&reference, 8u, 4096u);
+    observe_instance(&instance, &after);
+    observe_instance(&reference, &before);
+    CHECK(memcmp(&after, &before, sizeof(after)) == 0);
+    CHECK(result.retired_instructions > 0u);
+
+    CHECK(gbl_v1_unload(instance.machine) == GBL_V1_OK);
+    options.units = 8u;
+    options.cycle_budget = 4096u;
+    memset(&result, 0, sizeof(result));
+    result.struct_size = sizeof(result);
+    CHECK(gbl_v1_advance(instance.machine, &options, &result) ==
+          GBL_V1_INVALID_LIFECYCLE);
+
+    instance_destroy(&probe);
+    instance_destroy(&instance);
+    instance_destroy(&reference);
+}
+
+static int run_refusal(void)
+{
+    api_instance instance;
+
+    CHECK(instance_init(&instance, 0));
+    check_create_refusals(instance.machine);
+    check_content_refusals(&instance);
+    instance_destroy(&instance);
+    check_input_refusals();
+    check_advance_and_output_refusals();
+    return CHECK_DONE();
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "usage: api_v1_test smoke|lifecycle|media\n");
+        fprintf(stderr, "usage: api_v1_test smoke|lifecycle|media|refusal\n");
         return 2;
     }
     if (strcmp(argv[1], "smoke") == 0) {
@@ -582,6 +1203,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "media") == 0) {
         return run_media();
+    }
+    if (strcmp(argv[1], "refusal") == 0) {
+        return run_refusal();
     }
     fprintf(stderr, "api_v1_test: unknown selector: %s\n", argv[1]);
     return 2;

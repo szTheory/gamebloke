@@ -190,18 +190,20 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     "GBL_AGB_PROFILE_VERSION=${GBL_AGB_PROFILE_VERSION}")
   if(NOT GBL_LANE STREQUAL "asan")
     install(TARGETS gamebloke_core EXPORT GameblokeCoreApiTargets
-      ARCHIVE DESTINATION lib COMPONENT GameblokeCoreApi)
+      ARCHIVE DESTINATION lib COMPONENT GameblokeCoreApi EXCLUDE_FROM_ALL)
     install(FILES include/gamebloke/gamebloke_v1.h
-      DESTINATION include/gamebloke COMPONENT GameblokeCoreApi)
+      DESTINATION include/gamebloke COMPONENT GameblokeCoreApi
+      EXCLUDE_FROM_ALL)
     install(EXPORT GameblokeCoreApiTargets
       FILE gameblokeTargets.cmake
       NAMESPACE gamebloke::
       DESTINATION lib/cmake/gamebloke
-      COMPONENT GameblokeCoreApi)
+      COMPONENT GameblokeCoreApi EXCLUDE_FROM_ALL)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gameblokeConfig.cmake"
       "include(\"\${CMAKE_CURRENT_LIST_DIR}/gameblokeTargets.cmake\")\n")
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/gameblokeConfig.cmake"
-      DESTINATION lib/cmake/gamebloke COMPONENT GameblokeCoreApi)
+      DESTINATION lib/cmake/gamebloke COMPONENT GameblokeCoreApi
+      EXCLUDE_FROM_ALL)
   endif()
   gbl__add_core_target(gamebloke_core_logo_synthetic
     "${GBL_LOGO_SYNTHETIC_SHA256}")

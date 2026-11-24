@@ -670,6 +670,13 @@ gbl_v1_status gbl_v1_advance(gbl_v1_machine *machine,
     request = (gbl_v1_advance_options){ 0 };
     gbl_v1_copy(&request, options,
                 gbl_v1_output_size(options->struct_size, sizeof(request)));
+    if (request.reserved != 0u ||
+        (gbl_v1_field_available(request.struct_size,
+                                offsetof(gbl_v1_advance_options, reserved2),
+                                sizeof(request.reserved2)) &&
+         request.reserved2 != 0u)) {
+        return GBL_V1_INVALID_ARGUMENT;
+    }
     if (request.units == 0u || request.cycle_budget == 0u) {
         return GBL_V1_WORK_EXHAUSTED;
     }

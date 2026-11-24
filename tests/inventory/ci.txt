@@ -1,4 +1,8 @@
 # Literal sorted snapshot of actual top-directory CTest registration.
+api-v1-lifecycle api,core,integration
+api-v1-media api,core,integration
+api-v1-refusal api,control,core
+api-v1-smoke api,core,integration
 audio.boundaries audio,core,unit
 audio.cadence audio,core,unit
 audio.capture_cpu_wait audio,core,integration

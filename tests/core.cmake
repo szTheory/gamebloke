@@ -93,6 +93,18 @@ gbl_add_test(
   LABELS core unit
   COMMAND $<TARGET_FILE:version_test>)
 
+foreach(selector IN ITEMS smoke lifecycle media refusal)
+  if(selector STREQUAL "refusal")
+    set(api_v1_labels api control core)
+  else()
+    set(api_v1_labels api core integration)
+  endif()
+  gbl_add_test(
+    NAME api-v1-${selector}
+    LABELS ${api_v1_labels}
+    COMMAND $<TARGET_FILE:api_v1_test> ${selector})
+endforeach()
+
 add_executable(audio_test tests/audio_test.c)
 target_include_directories(audio_test PRIVATE src)
 target_link_libraries(audio_test PRIVATE gamebloke_core gbl_warnings)
