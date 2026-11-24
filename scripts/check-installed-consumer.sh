@@ -742,16 +742,18 @@ if [ "$CHECK_FIT" = ON ]; then
                 cat "$EVIDENCE_ROOT/fit-missing-dimension.log" >&2
                 fail 'missing fit dimension report control failed for the wrong reason'
             }
-        {
-            printf '%s\n' \
-                '<!--' \
-                '## Bounded work' \
-                'proof.json docs/core-api-v1.md include/libfuturo/libfuturo.h docs/contract.md' \
-                'docs/muhtari-profile.md docs/gabbaboy-profile.md docs/nesturbator-profile.md' \
-                'bounded_probe 2,048 **Follow-up.**' \
-                '-->'
-            cat "$EVIDENCE_ROOT/fit-missing-dimension.md"
-        } >"$EVIDENCE_ROOT/fit-comment-heading.md"
+        awk -F'|' '
+            $0 == "## Output ownership" {
+                print "<!--"
+                print "## Bounded work"
+                print "proof.json docs/core-api-v1.md include/libfuturo/libfuturo.h docs/contract.md"
+                print "docs/muhtari-profile.md docs/gabbaboy-profile.md docs/nesturbator-profile.md"
+                print "bounded_probe 2,048 **Follow-up.**"
+                print "-->"
+            }
+            { print }
+        ' "$EVIDENCE_ROOT/fit-missing-dimension.md" \
+            >"$EVIDENCE_ROOT/fit-comment-heading.md"
         if check_fit_report "$EVIDENCE_ROOT/fit-comment-heading.md" \
              "$EVIDENCE_ROOT/fit-comment-heading.log"; then
             fail 'HTML-comment fit heading report control unexpectedly passed'
@@ -761,16 +763,20 @@ if [ "$CHECK_FIT" = ON ]; then
                 cat "$EVIDENCE_ROOT/fit-comment-heading.log" >&2
                 fail 'HTML-comment fit heading control failed for the wrong reason'
             }
-        {
-            printf '%s\n' \
-                '```markdown' \
-                '## Bounded work' \
-                'proof.json docs/core-api-v1.md include/libfuturo/libfuturo.h docs/contract.md' \
-                'docs/muhtari-profile.md docs/gabbaboy-profile.md docs/nesturbator-profile.md' \
-                'bounded_probe 2,048 **Follow-up.**' \
-                '```'
-            cat "$EVIDENCE_ROOT/fit-missing-dimension.md"
-        } >"$EVIDENCE_ROOT/fit-code-heading.md"
+        awk -F'|' '
+            $0 == "## Output ownership" {
+                print "```` markdown"
+                print "``` markdown"
+                print "## Bounded work"
+                print "proof.json docs/core-api-v1.md include/libfuturo/libfuturo.h docs/contract.md"
+                print "docs/muhtari-profile.md docs/gabbaboy-profile.md docs/nesturbator-profile.md"
+                print "bounded_probe 2,048 **Follow-up.**"
+                print "``` a`b"
+                print "````"
+            }
+            { print }
+        ' "$EVIDENCE_ROOT/fit-missing-dimension.md" \
+            >"$EVIDENCE_ROOT/fit-code-heading.md"
         if check_fit_report "$EVIDENCE_ROOT/fit-code-heading.md" \
              "$EVIDENCE_ROOT/fit-code-heading.log"; then
             fail 'code-fence fit heading report control unexpectedly passed'
