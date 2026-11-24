@@ -157,6 +157,45 @@
 
 ---
 
+## Milestone: v5.0 — Deterministic Core API and Installed Consumer Proof
+
+**Closeout:** Completed locally 2026-11-24; no software release or hardware qualification claimed. The audit retains one non-blocking relocated-consumer evidence limit, and one verification gap from v1.0 remains acknowledged from its earlier close.
+**Phases:** 2 complete | **Plans:** 3 | **Tasks:** 7 | **Requirements:** 9/9 verified
+
+### What Was Built
+- A versioned opaque C API over the one canonical machine, with sized extensible structs, caller allocation callbacks, bounded advancement, caller-owned raw media, and documented refusal behavior.
+- An installable static API component and a relocated public-only C consumer that checks guest semantics, timed input, literal BGR555LE video, and pre-PWM S16LE audio.
+- Failure-atomic refusal and clean retry checks, plus a LibFuturo fit report tied to current consumer measurements and read-only source identities.
+
+### What Worked
+- The installed consumer made the public boundary and its exact evidence claims observable without access to private machine structures.
+- Literal guest and media assertions stayed independent from hashes, and refusal tests compared corrected retries against clean references.
+- The final canonical workflow passed through `ci-post` with 551 tests passed, 726 explicitly allowed skips, and zero failures. A prior hygiene failure from absolute local paths was repaired and kept as historical evidence.
+- The fit evaluation identified timing and caller-selected cycle-budget gaps against the real consumer before any dependency or contract change.
+
+### What Was Inefficient
+- The first canonical workflow attempt stopped at the historical-path hygiene check and required a focused repair followed by a full rerun.
+- The inherited fast regression exceeded its original 600-second limit without a failing test; its one authorized longer retry completed the Phase 7–11 closure and exact Phase 12 selectors in 279 seconds.
+- Verification fingerprints and milestone audit records needed refreshing after the validation metadata was reconciled. No implementation files changed for that refresh.
+
+### Patterns Established
+- Keep public ABI evolution and allocation policy explicit at the C boundary while retaining one canonical machine implementation.
+- Pair API status, guest verdict, stop outcome, and media validity as separate observations.
+- Bind consumer and integration claims to exact local artifacts and source identities; keep fixture permission local and hardware qualification unknown.
+
+### Key Lessons
+1. Evaluate integration contracts through a real consumer; similar names for frames, input, or capacity do not prove equivalent timing and work limits.
+2. Use independent semantic guest checks and literal output expectations; hashes establish identity or repeatability only.
+3. Keep accepted evidence limits visible: Phase 20 covers reset, unload, and unsupported-request refusal, while the relocated Phase 21 consumer does not repeat those cases.
+4. A measured fit report can justify deferring a dependency or contract change without treating that decision as permanent.
+
+### Cost Observations
+- The final canonical workflow took 2,986 seconds in CTest plus 3.8 seconds configure and 0.47 seconds for the `ci-post` inventory; 551 checks passed, 726 allowed skips were accounted for, and none failed.
+- The relocated-consumer negative-control check took 20 seconds. The inherited regression retry took 279 seconds.
+- Model mix and session count were not reliably recorded. No hosted run, release, or publication occurred.
+
+---
+
 ## Cross-Milestone Trends
 
 Four milestones are recorded. Each established that evidence must be bound to the exact claim and that missing observations stay open instead of being inferred from adjacent results.
@@ -169,6 +208,7 @@ Four milestones are recorded. Each established that evidence must be bound to th
 | v2.0 | Unknown | 4 complete | One shared deterministic clock integrates device behavior while preserving explicit timing and compatibility limits. |
 | v3.0 | Unknown | 5 complete | Semantic raw-pixel behavior now spans modes 0–5 and composition, with timing disputes and qualification limits still explicit. |
 | v4.0 | Unknown | 4 complete | Guest-time audio and bounded raw capture now integrate through the canonical runner, with critical-path measurements and local-only rights limits retained. |
+| v5.0 | Unknown | 2 complete | A versioned opaque API and relocated public consumer provide measurable integration evidence; adoption remains separate from fit. |
 
 ### Cumulative Quality
 
@@ -178,6 +218,7 @@ Four milestones are recorded. Each established that evidence must be bound to th
 | v2.0 | See archived phase evidence | 13/13 requirements; 4/4 phase verifications | Dependency-free terminal host |
 | v3.0 | 1,238 passed; one allowed local-only skip | 18/18 requirements; 5/5 phase verifications | None |
 | v4.0 | 547 passed; 726 explicitly allowed skips; zero failures | 13/13 requirements; 4/4 phase verifications; 5/5 integration flows | None |
+| v5.0 | 551 passed; 726 explicitly allowed skips; zero failures | 9/9 requirements; 2/2 phase verifications; 1/1 E2E flow | None |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -185,3 +226,4 @@ Four milestones are recorded. Each established that evidence must be bound to th
 2. Run cheap deterministic checks before longer suites when they catch known selection or setup failures.
 3. Separate local project-model results from hosted, hardware, rights, and compatibility claims.
 4. Measure long-run bottlenecks before changing concurrency; keep all distinct required controls and use focused reruns after fixes.
+5. Measure required integration semantics through the real consumer before inferring that another library's frame-level contract preserves timed input or a strict caller-selected cycle budget.
