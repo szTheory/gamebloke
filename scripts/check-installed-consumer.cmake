@@ -79,8 +79,7 @@ function(gbl_require_exact_binding lines key expected label)
   endforeach()
   if(NOT _binding_count EQUAL 1 OR
      NOT "${_binding_value}" STREQUAL "${expected}")
-    message(FATAL_ERROR
-        "phase21-fit: ${label} must match exactly one ${key} field")
+    message(FATAL_ERROR "phase21-fit: ${label} binding mismatch")
   endif()
 endfunction()
 
@@ -106,7 +105,7 @@ function(gbl_require_exact_file_binding lines relative_path expected_sha)
   if(NOT _binding_count EQUAL 1 OR
      NOT "${_binding_sha}" STREQUAL "${expected_sha}")
     message(FATAL_ERROR
-        "phase21-fit: reviewed LibFuturo content binding is not unique and exact: ${relative_path}")
+        "phase21-fit: reviewed file binding mismatch: ${relative_path}")
   endif()
 endfunction()
 

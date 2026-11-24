@@ -696,7 +696,7 @@ if [ "$CHECK_FIT" = ON ]; then
              "$EVIDENCE_ROOT/fit-substring-identity.log"; then
             fail 'substring Gamebloke identity report control unexpectedly passed'
         fi
-        grep -F 'phase21-fit: installed consumer identity must match exactly one consumer_source_sha256 field' \
+        grep -F 'phase21-fit: installed consumer identity binding mismatch' \
             "$EVIDENCE_ROOT/fit-substring-identity.log" >/dev/null || {
                 cat "$EVIDENCE_ROOT/fit-substring-identity.log" >&2
                 fail 'substring Gamebloke identity control failed for the wrong reason'
@@ -712,7 +712,7 @@ if [ "$CHECK_FIT" = ON ]; then
              "$EVIDENCE_ROOT/fit-substring-file-identity.log"; then
             fail 'substring LibFuturo file identity report control unexpectedly passed'
         fi
-        grep -F 'phase21-fit: reviewed LibFuturo content binding is not unique and exact: docs/contract.md' \
+        grep -F 'phase21-fit: reviewed file binding mismatch: docs/contract.md' \
             "$EVIDENCE_ROOT/fit-substring-file-identity.log" >/dev/null || {
                 cat "$EVIDENCE_ROOT/fit-substring-file-identity.log" >&2
                 fail 'substring LibFuturo file identity control failed for the wrong reason'
