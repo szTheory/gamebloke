@@ -6,9 +6,9 @@ current_phase: 21
 current_plan: Not started
 status: completed
 stopped_at: Phase 21 complete — all phases complete
-last_updated: "2026-11-24T15:04:22Z"
+last_updated: "2026-11-24T15:28:47Z"
 last_activity: 2026-11-24
-last_activity_desc: v5.0 audit complete; owner choice needed on Phase 20 Nyquist status
+last_activity_desc: Phase 20 validation and verification reconciled; v5.0 audit complete
 state_head: 795c13e3bc16e388b7b4f87450ad6fb6bc5dad60
 progress:
   total_phases: 2
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-11-24)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Both v5.0 phases are complete and goal verification passed. The milestone audit found no critical blockers but classified Phase 20 Nyquist metadata as not validated because its status is `complete`, not `validated`. The audit report is ready; milestone close awaits the owner's choice to validate Phase 20 or accept the documented verification debt. No new milestone scope has been selected.
+**Current focus:** Both v5.0 phases are complete, goal verification passed, and Nyquist validation is compliant for both. The audit found no critical blockers. One non-blocking integration-evidence limit remains: reset, unload, and unsupported-request refusal are not repeated through the relocated consumer, though Phase 20 tests cover them. The audit report is ready for the owner's milestone-close decision. No new milestone scope has been selected.
 
 ## Current Position
 
 Phase: 21 — Installed Consumer Proof and LibFuturo Fit (complete)
 Current Plan: None
 Total Plans in Phase: 2
-Status: All phases complete; audit is `tech_debt`; waiting for owner choice before milestone close
+Status: All phases complete; audit is `tech_debt`; waiting for owner choice to accept the documented consumer-evidence limit or add coverage
 Last activity: 2026-11-24 — Phase 21 verified and completed
 
 Progress: [██████████] 100%
@@ -653,12 +653,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-24T15:04:22Z
-Stopped at: v5.0 milestone audit report complete; waiting for owner choice on Phase 20 Nyquist validation
+Last session: 2026-11-24T15:28:47Z
+Stopped at: Phase 20 validation and verification reconciled; waiting for owner choice on the remaining non-blocking integration-evidence debt
 Resume file: None
 
 ## Operator Next Steps
 
 
 
-- Choose whether to run `$gsd-validate-phase 20` before close or accept the non-blocking Phase 20 Nyquist metadata debt and proceed with milestone completion. The audit report is `.planning/v5.0-MILESTONE-AUDIT.md`. After close, review the phase-archive dry run before any directories are moved. Decide the next rolling milestone scope separately; no release, adoption, or Playstead route change is authorized by this completion.
+- Review `.planning/v5.0-MILESTONE-AUDIT.md` and choose whether to complete v5.0 with the documented relocated-consumer coverage limit or add that evidence before close. Phase 20 Nyquist validation is now compliant. After close, review the phase-archive dry run before any directories are moved. Decide the next rolling milestone scope separately; no release, adoption, or Playstead route change is authorized by this completion.
