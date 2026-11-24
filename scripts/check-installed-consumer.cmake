@@ -912,10 +912,14 @@ elseif(GBL_STAGE STREQUAL "fit")
       if(_fit_line MATCHES "^ *(`+|~+)(.*)$")
         set(_fit_candidate_fence_run "${CMAKE_MATCH_1}")
         set(_fit_candidate_fence_tail "${CMAKE_MATCH_2}")
+        string(REGEX MATCH "^ *" _fit_fence_indentation "${_fit_line}")
+        string(LENGTH "${_fit_fence_indentation}"
+            _fit_fence_indentation_length)
         string(LENGTH "${_fit_candidate_fence_run}" _fit_candidate_fence_length)
         string(SUBSTRING "${_fit_candidate_fence_run}" 0 1
             _fit_candidate_fence_character)
-        if(_fit_candidate_fence_character STREQUAL _fit_fence_character AND
+        if(_fit_fence_indentation_length LESS_EQUAL 3 AND
+           _fit_candidate_fence_character STREQUAL _fit_fence_character AND
            _fit_candidate_fence_length GREATER_EQUAL _fit_fence_length AND
            _fit_candidate_fence_tail MATCHES "^[ \t]*$")
           set(_fit_inside_fence FALSE)
@@ -934,6 +938,9 @@ elseif(GBL_STAGE STREQUAL "fit")
     if(_fit_line MATCHES "^ *(`+|~+)(.*)$")
       set(_fit_candidate_fence_run "${CMAKE_MATCH_1}")
       set(_fit_candidate_fence_tail "${CMAKE_MATCH_2}")
+      string(REGEX MATCH "^ *" _fit_fence_indentation "${_fit_line}")
+      string(LENGTH "${_fit_fence_indentation}"
+          _fit_fence_indentation_length)
       string(LENGTH "${_fit_candidate_fence_run}" _fit_candidate_fence_length)
       string(SUBSTRING "${_fit_candidate_fence_run}" 0 1
           _fit_candidate_fence_character)
@@ -942,7 +949,8 @@ elseif(GBL_STAGE STREQUAL "fit")
          _fit_candidate_fence_tail MATCHES "^[ \t]")
         set(_fit_valid_opening_tail TRUE)
       endif()
-      if(_fit_candidate_fence_length GREATER_EQUAL 3 AND
+      if(_fit_fence_indentation_length LESS_EQUAL 3 AND
+         _fit_candidate_fence_length GREATER_EQUAL 3 AND
          _fit_valid_opening_tail)
         set(_fit_valid_backtick_info TRUE)
         if(_fit_candidate_fence_character STREQUAL "`" AND

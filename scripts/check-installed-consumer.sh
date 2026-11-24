@@ -451,6 +451,51 @@ grep -F '"status": "fail"' "$EVIDENCE_ROOT/timing-control/observations.json" >/d
     fail 'timing control evidence did not record the guest FAIL verdict'
 
 if [ "$NEGATIVE_CONTROLS" = ON ]; then
+FIFO_ROM_PATH="$WORK_ROOT/input.fifo"
+FIFO_EVIDENCE="$EVIDENCE_ROOT/fifo-rom-control"
+FIFO_STATUS_PATH="$WORK_ROOT/fifo-consumer.status"
+FIFO_PID_PATH="$WORK_ROOT/fifo-consumer.pid"
+mkdir "$FIFO_EVIDENCE"
+mkfifo "$FIFO_ROM_PATH"
+(
+    cd "$EXECUTION_DIR"
+    "$BUILD_MOVED/gamebloke-installed-consumer" "$FIFO_ROM_PATH" \
+        "$FIFO_EVIDENCE" &
+    FIFO_INNER_PID=$!
+    printf '%s\n' "$FIFO_INNER_PID" >"$FIFO_PID_PATH"
+    if wait "$FIFO_INNER_PID"; then
+        FIFO_CONSUMER_STATUS=0
+    else
+        FIFO_CONSUMER_STATUS=$?
+    fi
+    printf '%s\n' "$FIFO_CONSUMER_STATUS" >"$FIFO_STATUS_PATH"
+) >"$EVIDENCE_ROOT/fifo-rom-control.stdout" \
+  2>"$EVIDENCE_ROOT/fifo-rom-control.stderr" &
+FIFO_CONSUMER_PID=$!
+sleep 1
+if [ ! -f "$FIFO_STATUS_PATH" ]; then
+    if [ -f "$FIFO_PID_PATH" ]; then
+        FIFO_INNER_PID=$(cat "$FIFO_PID_PATH")
+        kill "$FIFO_INNER_PID" 2>/dev/null || true
+    fi
+    kill "$FIFO_CONSUMER_PID" 2>/dev/null || true
+    wait "$FIFO_CONSUMER_PID" 2>/dev/null || true
+    fail 'consumer blocked while opening a FIFO as the ROM input'
+fi
+wait "$FIFO_CONSUMER_PID" 2>/dev/null || true
+FIFO_CONSUMER_STATUS=$(cat "$FIFO_STATUS_PATH")
+[ "$FIFO_CONSUMER_STATUS" -ne 0 ] ||
+    fail 'consumer unexpectedly accepted a FIFO as the ROM input'
+grep -F 'installed-consumer: fixture-input:' \
+    "$EVIDENCE_ROOT/fifo-rom-control.stderr" >/dev/null || {
+        cat "$EVIDENCE_ROOT/fifo-rom-control.stderr" >&2
+        fail 'FIFO ROM control failed for the wrong reason'
+    }
+for file in frame.bgr555le audio.s16le observations.json; do
+    [ ! -e "$FIFO_EVIDENCE/$file" ] ||
+        fail "FIFO ROM refusal created evidence output $file"
+done
+
 mkdir "$EVIDENCE_ROOT/output-collision-control" \
       "$EVIDENCE_ROOT/output-symlink-target"
 printf '%s\n' 'preexisting evidence must survive' \
@@ -642,6 +687,7 @@ printf '%s\n' \
     "video_mutation_status=${VIDEO_CONTROL_STATUS:-not-run}" \
     "audio_mutation_status=${AUDIO_CONTROL_STATUS:-not-run}" \
     "refusal_canary_mutation_status=${REFUSAL_CANARY_STATUS:-not-run}" \
+    "fifo_rom_refusal=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
     "generator_output_symlink=$([ "$NEGATIVE_CONTROLS" = ON ] && printf refused || printf not-run)" \
     "ci_refusal=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
     "manifest_negative_controls=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
@@ -786,6 +832,29 @@ if [ "$CHECK_FIT" = ON ]; then
                 cat "$EVIDENCE_ROOT/fit-code-heading.log" >&2
                 fail 'code-fence fit heading control failed for the wrong reason'
             }
+        awk -F'|' '
+            $0 == "## Output ownership" {
+                print "```"
+                print "    ```"
+                print "## Bounded work"
+                print "proof.json docs/core-api-v1.md include/libfuturo/libfuturo.h docs/contract.md"
+                print "docs/muhtari-profile.md docs/gabbaboy-profile.md docs/nesturbator-profile.md"
+                print "bounded_probe 2,048 **Follow-up.**"
+                print "```"
+                print "``` a`b"
+            }
+            { print }
+        ' "$EVIDENCE_ROOT/fit-missing-dimension.md" \
+            >"$EVIDENCE_ROOT/fit-indented-fence-heading.md"
+        if check_fit_report "$EVIDENCE_ROOT/fit-indented-fence-heading.md" \
+             "$EVIDENCE_ROOT/fit-indented-fence-heading.log"; then
+            fail 'indented fake fit heading report control unexpectedly passed'
+        fi
+        grep -F 'phase21-fit: missing required fit dimension: Bounded work' \
+            "$EVIDENCE_ROOT/fit-indented-fence-heading.log" >/dev/null || {
+                cat "$EVIDENCE_ROOT/fit-indented-fence-heading.log" >&2
+                fail 'indented fake fit heading control failed for the wrong reason'
+            }
         printf '%s\n' \
             'fit_report=pass' \
             'fit_stale_digest=refused' \
@@ -795,6 +864,7 @@ if [ "$CHECK_FIT" = ON ]; then
             'fit_missing_dimension=refused' \
             'fit_comment_heading=refused' \
             'fit_code_heading=refused' \
+            'fit_indented_fence_heading=refused' \
             'libfuturo_recheck=read-only-pass' \
             >>"$EVIDENCE_ROOT/control-results.txt"
     fi

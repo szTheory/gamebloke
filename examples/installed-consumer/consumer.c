@@ -151,6 +151,8 @@ static bool read_rom_file(const char *path, uint8_t **bytes_out,
                           size_t *length_out)
 {
     FILE *file;
+    struct stat path_status;
+    int file_fd;
     long file_length;
     size_t length;
     uint8_t *bytes;
@@ -161,8 +163,17 @@ static bool read_rom_file(const char *path, uint8_t **bytes_out,
     }
     *bytes_out = NULL;
     *length_out = 0u;
-    file = fopen(path, "rb");
+    file_fd = open(path, O_RDONLY | O_NONBLOCK);
+    if (file_fd < 0) {
+        return false;
+    }
+    if (fstat(file_fd, &path_status) != 0 || !S_ISREG(path_status.st_mode)) {
+        (void)close(file_fd);
+        return false;
+    }
+    file = fdopen(file_fd, "rb");
     if (file == NULL) {
+        (void)close(file_fd);
         return false;
     }
     okay = fseek(file, 0L, SEEK_END) == 0;
