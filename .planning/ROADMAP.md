@@ -10,20 +10,21 @@
 
 ## v5.0 — Deterministic Core API and Installed Consumer Proof
 
-**Status:** Owner-approved scope. Phase 20 is next for discussion and planning.
+**Status:** Owner-approved scope. Phase 20 is complete locally; Phase 21 is next for discussion and planning.
 
 **Goal:** Prove that a developer or integrator can use Gamebloke's canonical
 GBA machine through a stable, portable API and obtain bounded, reproducible,
 machine-level evidence from an installed consumer.
 
 **Why this order:** Gamebloke's differentiator beside Playstead's managed mGBA
-route is still a product hypothesis. The repository already has deterministic
-guest execution and raw video/audio evidence, but `gbl_machine` is explicitly
-an internal, non-stable interface and CMake installs only `gamebloke-run`.
-Adding save-chip models first would expand machine behavior before a consumer
-can use the core. The current Playstead GBA route already has managed save
-transfer/restore; a save-device matrix alone would not establish a distinct
-Gamebloke benefit.
+route is still a product hypothesis. Before Phase 20, `gbl_machine` was an
+internal, non-stable interface and CMake installed only `gamebloke-run`. Phase
+20 now provides an opaque API and a named static install component. Phase 21
+will prove that installed boundary with an independent consumer and evaluate
+LibFuturo against actual machine-level observations. Adding save-chip models
+first would expand machine behavior before a consumer can use the core; the
+current Playstead GBA route already has managed save transfer/restore, so a
+save-device matrix alone would not establish a distinct Gamebloke benefit.
 
 **Scope:**
 
@@ -85,7 +86,7 @@ software versions.
 
 ## Phases
 
-- [ ] **Phase 20: Bounded Core API** - C callers can run independent machines, observe raw outputs, and handle refusals through the versioned public API.
+- [x] **Phase 20: Bounded Core API** - C callers can run independent machines, observe raw outputs, and handle refusals through the versioned public API. (completed 2026-11-23)
 - [ ] **Phase 21: Installed Consumer Proof and LibFuturo Fit** - A relocated C consumer reproduces guest and raw A/V evidence and provides a concrete basis for evaluating LibFuturo.
 
 <details>
@@ -123,9 +124,9 @@ software versions.
   3. A caller can obtain raw video and audio in caller-owned buffers and read structured metadata identifying the machine profile, observations, supported behavior, and limits of the model evidence.
   4. Invalid arguments, rejected profiles or content, unsupported requests, insufficient output capacity, and exhausted work bounds return their documented statuses. A caller can verify the documented machine and buffer postconditions and retry a valid request with the same result as an equivalent run without the refusal.
 
-**Plans**: 1 plan
+**Plans**: 1/1 plans complete
 
-- [ ] 20-01-PLAN.md — Run the opaque C API against the canonical machine and verify lifecycle, media, and atomic refusals.
+- [x] 20-01-PLAN.md — Run the opaque C API against the canonical machine and verify lifecycle, media, and atomic refusals.
 
 ### Phase 21: Installed Consumer Proof and LibFuturo Fit
 
@@ -146,7 +147,7 @@ software versions.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 20. Bounded Core API | 0/1 | Planned | - |
+| 20. Bounded Core API | 1/1 | Complete    | 2026-11-23 |
 | 21. Installed Consumer Proof and LibFuturo Fit | 0/TBD | Not started | - |
 
 ## Open Carryovers and Evidence Limits

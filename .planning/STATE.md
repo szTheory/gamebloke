@@ -2,15 +2,21 @@
 gsd_state_version: "1.0"
 milestone: v5.0
 milestone_name: Deterministic Core API and Installed Consumer Proof
+current_phase: 21
+current_phase_name: Installed Consumer Proof and LibFuturo Fit
+current_plan: Not started
 status: planning
-last_updated: "2026-11-23T22:10:44Z"
+stopped_at: Phase 20 complete, ready to plan Phase 21
+last_updated: "2026-11-24T01:34:56.329Z"
 last_activity: 2026-11-23
+last_activity_desc: Phase 20 complete, transitioned to Phase 21
+state_head: 8dbc16f65ba240f61259da3a32205c6da9f7d693
 progress:
   total_phases: 2
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -21,21 +27,22 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Phase 20, Bounded Core API. The v5.0 requirements and two-phase roadmap are ready for autonomous execution.
+**Current focus:** Phase 21, Installed Consumer Proof and LibFuturo Fit. Phase 20's API and threat mitigations are verified; the v5.0 requirements and remaining scope are ready for autonomous discussion and planning.
 
 ## Current Position
 
-Phase: 20 (Bounded Core API), first of 2 in v5.0
-Plan: —
+Phase: 21 of 2 (Installed Consumer Proof and LibFuturo Fit)
+Current Plan: Not started
+Total Plans in Phase: 1
 Status: Ready to plan
-Last activity: 2026-11-23 — Mapped the v5.0 requirements to Phases 20 and 21
+Last activity: 2026-11-23 — Phase 20 complete, transitioned to Phase 21
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 124
+- Total plans completed: 125
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -57,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | 15 | 5 | - | - |
 | 16 | 3 | - | - |
 | 17 | 4 | - | - |
+| 20 | 1 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -203,6 +211,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 19 P04 | 27min | 2 tasks | 8 files |
 | Phase 19 P05 | 37min | 2 tasks | 6 files |
 | Phase 19 P06 | 1h 44m | 2 tasks | 20 files |
+| Phase 20 P01 | not measured | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -575,6 +584,9 @@ Recent decisions affecting current work:
 - [Phase 19]: Stop Timer 0 and DMA before the completion marker so the final producer result has no pending refill request.
 - [Phase 19]: Use a generated synthetic runner control guest in the ASan lane so sanitizer coverage does not depend on the optional ARM diagnostics toolchain.
 - [Phase 19]: Keep the existing two-worker CI setting; the measured CTest critical path did not justify a quality-risking concurrency or coverage change.
+- [Phase 20]: API v1 uses versioned gbl_v1_* symbols with size-tagged extensible structs.
+- [Phase 20]: API v1 uses paired caller allocator callbacks for opaque instances and copied ROM storage.
+- [Phase 20]: The adapter stages advance and media work before publishing changes and keeps the canonical core as the single machine implementation.
 
 ### Pending Todos
 
@@ -632,8 +644,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-23T22:10:44Z
-Stopped at: v5.0 roadmap and requirement mapping created. Phase 20 is next.
+Last session: 2026-11-24T01:33:10.442Z
+Stopped at: Phase 20 complete, ready to plan Phase 21
 Resume file: None
 
 ## Operator Next Steps

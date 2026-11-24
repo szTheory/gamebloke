@@ -10,11 +10,11 @@ software release claim.
 
 ### Public Core API
 
-- [ ] **API-01**: A C consumer can create and destroy independent machine instances through a versioned opaque API without depending on `gbl_machine` or other private structures.
-- [ ] **API-02**: A consumer can select the supported `agb`, direct-start, ROM-only profile and load, unload, or reset content; rejected profile or content operations report a documented status and preserve the documented machine and buffer state.
-- [ ] **API-03**: A consumer can submit timestamped logical input and advance an instance within a caller-specified work bound, with progress and refusal results reported explicitly.
-- [ ] **API-04**: A consumer can read raw video and audio through caller-owned buffers and structured result metadata that identifies the profile, guest progress, machine time, observations, supported behavior, and claim limits.
-- [ ] **API-05**: Invalid arguments, insufficient output capacity, unsupported requests, and exhausted work bounds are refused with documented state and buffer postconditions before partial mutation.
+- [x] **API-01**: A C consumer can create and destroy independent machine instances through a versioned opaque API without depending on `gbl_machine` or other private structures.
+- [x] **API-02**: A consumer can select the supported `agb`, direct-start, ROM-only profile and load, unload, or reset content; rejected profile or content operations report a documented status and preserve the documented machine and buffer state.
+- [x] **API-03**: A consumer can submit timestamped logical input and advance an instance within a caller-specified work bound, with progress and refusal results reported explicitly.
+- [x] **API-04**: A consumer can read raw video and audio through caller-owned buffers and structured result metadata that identifies the profile, guest progress, machine time, observations, supported behavior, and claim limits.
+- [x] **API-05**: Invalid arguments, insufficient output capacity, unsupported requests, and exhausted work bounds are refused with documented state and buffer postconditions before partial mutation.
 
 ### Installed Consumer and Evidence
 
@@ -57,11 +57,11 @@ Deferred until a real consumer or separate owner decision promotes them:
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| API-01 | Phase 20 | Pending |
-| API-02 | Phase 20 | Pending |
-| API-03 | Phase 20 | Pending |
-| API-04 | Phase 20 | Pending |
-| API-05 | Phase 20 | Pending |
+| API-01 | Phase 20 | Complete |
+| API-02 | Phase 20 | Complete |
+| API-03 | Phase 20 | Complete |
+| API-04 | Phase 20 | Complete |
+| API-05 | Phase 20 | Complete |
 | CONS-01 | Phase 21 | Pending |
 | EVID-01 | Phase 21 | Pending |
 | EVID-02 | Phase 21 | Pending |

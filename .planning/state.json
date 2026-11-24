@@ -2,11 +2,22 @@
   "contract": "1.0.0",
   "flavor": "core",
   "milestone": "v5.0 — Deterministic Core API and Installed Consumer Proof",
-  "phases": [],
+  "phases": [
+    {
+      "number": "20",
+      "name": "Bounded Core API",
+      "status": "complete"
+    },
+    {
+      "number": "21",
+      "name": "Installed Consumer Proof and LibFuturo Fit",
+      "status": "pending"
+    }
+  ],
   "next": {
-    "command": "$gsd-discuss-phase",
-    "label": "Discuss the first phase",
-    "reason": "Project initialized — plan your first phase"
+    "command": "$gsd-progress --next",
+    "label": "Advance to the next step (plan phase 21)",
+    "reason": "Phase 2 of 2 — needs a plan"
   },
-  "updated_at": "2026-11-23T22:06:36.621Z"
+  "updated_at": "2026-11-24T01:34:56.341Z"
 }
