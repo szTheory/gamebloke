@@ -145,10 +145,17 @@ GENERATOR_DEFINE="-DGBL_PHASE21_OUTPUT_DIR=\"$FIXTURE_DIR\""
         cat "$EVIDENCE_ROOT/generator-build.log" >&2
         fail 'C17 diagnostic generator did not compile'
     }
-"$GENERATOR" "$FIXTURE_DIR" >"$EVIDENCE_ROOT/generator.log" 2>&1 || {
-    cat "$EVIDENCE_ROOT/generator.log" >&2
-    fail 'C17 diagnostic generator failed'
-}
+if [ -e "$ROM_PATH" ]; then
+    [ -f "$ROM_PATH" ] && [ ! -L "$ROM_PATH" ] ||
+        fail 'existing local diagnostic is not a regular file'
+    printf '%s\n' 'preserved_existing_fixture=yes' \
+        >"$EVIDENCE_ROOT/generator.log"
+else
+    "$GENERATOR" "$FIXTURE_DIR" >"$EVIDENCE_ROOT/generator.log" 2>&1 || {
+        cat "$EVIDENCE_ROOT/generator.log" >&2
+        fail 'C17 diagnostic generator failed'
+    }
+fi
 [ -f "$ROM_PATH" ] && [ ! -L "$ROM_PATH" ] ||
     fail 'generator did not produce the assigned regular file'
 git -C "$REPO_ROOT" check-ignore -q "$ROM_PATH" ||
@@ -347,7 +354,8 @@ cp "$BUILD_INITIAL/CMakeCache.txt" "$EVIDENCE_ROOT/CMakeCache.txt"
 mv "$BUILD_INITIAL" "$BUILD_MOVED"
 [ ! -e "$BUILD_INITIAL" ] || fail 'original external consumer build path still exists'
 
-for output_name in run-1 run-2 timing-control expectation-video expectation-audio; do
+for output_name in run-1 run-2 timing-control expectation-video expectation-audio \
+                   refusal-canary-control; do
     mkdir "$EVIDENCE_ROOT/$output_name"
 done
 (cd "$EXECUTION_DIR" && \
@@ -374,6 +382,28 @@ grep -F '"status": "fail"' "$EVIDENCE_ROOT/timing-control/observations.json" >/d
     fail 'timing control evidence did not record the guest FAIL verdict'
 
 if [ "$NEGATIVE_CONTROLS" = ON ]; then
+if (cd "$EXECUTION_DIR" && \
+    "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
+      "$EVIDENCE_ROOT/refusal-canary-control" \
+      --refusal-canary-control) \
+      >"$EVIDENCE_ROOT/refusal-canary-control.stdout" \
+      2>"$EVIDENCE_ROOT/refusal-canary-control.stderr"; then
+    fail 'refusal caller-canary mutation unexpectedly passed'
+else
+    REFUSAL_CANARY_STATUS=$?
+fi
+[ "${REFUSAL_CANARY_STATUS:-0}" -ne 0 ] ||
+    fail 'refusal caller-canary mutation did not fail'
+grep -F 'installed-consumer: refusal-audio-canary-mismatch:' \
+    "$EVIDENCE_ROOT/refusal-canary-control.stderr" >/dev/null || {
+        cat "$EVIDENCE_ROOT/refusal-canary-control.stderr" >&2
+        fail 'refusal caller-canary mutation failed for the wrong reason'
+    }
+for file in observations.json frame.bgr555le audio.s16le; do
+    [ ! -e "$EVIDENCE_ROOT/refusal-canary-control/$file" ] ||
+        fail "refusal canary mutation published passing output: $file"
+done
+
 if (cd "$EXECUTION_DIR" && \
     "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
       "$EVIDENCE_ROOT/expectation-video" \
@@ -481,6 +511,7 @@ printf '%s\n' \
     "timing_control=same ROM, expected guest FAIL case 21001" \
     "video_mutation_status=${VIDEO_CONTROL_STATUS:-not-run}" \
     "audio_mutation_status=${AUDIO_CONTROL_STATUS:-not-run}" \
+    "refusal_canary_mutation_status=${REFUSAL_CANARY_STATUS:-not-run}" \
     "ci_refusal=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
     "manifest_negative_controls=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
     >"$EVIDENCE_ROOT/control-results.txt"

@@ -20,6 +20,22 @@ controls, is:
 sh scripts/check-installed-consumer.sh --negative-controls
 ```
 
+The same relocated consumer checks failure-atomic refusals and retries in each
+fresh run. Its normalized receipt records the expected status, all public
+observation fields before and after, result and media sentinels, request bounds,
+and whether the corrected operation matches the clean reference. The cases are
+an undersized advance descriptor (`invalid_argument`), an even ROM span shorter
+than `0xC0` while valid content is mounted (`content_refused`), one-byte-short
+audio and video destinations (`insufficient_capacity`), and a positive 2048
+cycle budget that cannot complete the requested unit goal (`work_exhausted`).
+Each refusal is retried with valid inputs; the audio-capacity and exhausted-work
+cases compare a full successful continuation against a fresh reference. The
+video case retries the complete frame read against the same valid frame.
+
+`--negative-controls` mutates a local caller audio canary after an otherwise
+valid refusal and requires the matching atomicity predicate to reject it. This
+control changes neither the fixture nor the installed library.
+
 ## Requirements and evidence
 
 The local script requires a C17 host compiler, CMake 3.25 or newer, Ninja,
@@ -36,6 +52,10 @@ compiler/linker inputs, hashes, control outcomes, and elapsed time under
 `build/phase21-local/evidence/<run-id>/`. Hashes establish byte identity and
 repeatability; the consumer and manifest checker independently assert guest
 semantics and literal media values.
+
+If the admitted ignored ROM already exists, the harness preserves its bytes and
+checks the manifest-bound digest instead of regenerating it. The local refusal
+receipt is part of the installed-consumer evidence, not public CI input.
 
 The consumer selects `agb` profile version 16, direct start, a ROM-only
 cartridge, and no BIOS. It checks a cycle-stamped A/B input timeline, a finite

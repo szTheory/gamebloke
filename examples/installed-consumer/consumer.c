@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,8 +35,53 @@ typedef enum run_mode {
     RUN_EXPECT_PASS,
     RUN_EXPECT_TIMING_FAIL,
     RUN_MUTATE_VIDEO,
-    RUN_MUTATE_AUDIO
+    RUN_MUTATE_AUDIO,
+    RUN_MUTATE_REFUSAL_CANARY
 } run_mode;
+
+typedef struct consumer_instance {
+    allocator_state allocator;
+    gbl_v1_machine *machine;
+} consumer_instance;
+
+typedef struct refusal_record {
+    const char *name;
+    const char *expected_status;
+    uint32_t observed_status;
+    bool has_result;
+    bool observation_unchanged;
+    bool result_unchanged;
+    bool caller_bytes_unchanged;
+    bool retry_matches;
+    size_t descriptor_size;
+    size_t requested_capacity;
+    size_t caller_bytes;
+    size_t retry_audio_bytes;
+    size_t retry_video_bytes;
+    uint64_t requested_units;
+    uint64_t cycle_budget;
+    uint64_t committed_cycles;
+    uint64_t retry_end_cycle;
+    gbl_v1_observation before;
+    gbl_v1_observation after;
+} refusal_record;
+
+typedef struct refusal_suite {
+    refusal_record cases[5];
+    size_t case_count;
+    uint64_t timing_control_input_cycle;
+    uint64_t timing_control_end_cycle;
+    uint32_t timing_control_case_id;
+    uint32_t timing_control_mailbox_state;
+    uint32_t timing_control_final_mask;
+    uint32_t timing_control_applied_count;
+    uint32_t timing_control_pending_count;
+    uint32_t bounded_probe_units;
+    uint64_t bounded_probe_budget;
+    uint64_t bounded_probe_end_cycle;
+    size_t bounded_probe_audio_bytes;
+    size_t bounded_probe_audio_frames;
+} refusal_suite;
 
 static void *consumer_allocate(void *context, size_t size)
 {
@@ -231,16 +277,978 @@ static bool sample_pair_is(const uint8_t *audio, size_t frame_index)
            sample_channel(audio, frame_index, 1u) == PHASE21_AUDIO_RIGHT;
 }
 
+static bool observations_equal(const gbl_v1_observation *left,
+                               const gbl_v1_observation *right)
+{
+    return left->struct_size == right->struct_size &&
+           left->loaded == right->loaded && left->profile == right->profile &&
+           left->profile_version == right->profile_version &&
+           left->bios_mode == right->bios_mode &&
+           left->cartridge_mode == right->cartridge_mode &&
+           left->video_state == right->video_state &&
+           left->mailbox_state == right->mailbox_state &&
+           left->hardware_qualification == right->hardware_qualification &&
+           left->raw_video_format == right->raw_video_format &&
+           left->raw_audio_format == right->raw_audio_format &&
+           left->audio_sample_rate == right->audio_sample_rate &&
+           left->audio_cycles_per_frame == right->audio_cycles_per_frame &&
+           left->audio_channels == right->audio_channels &&
+           left->logical_input_mask == right->logical_input_mask &&
+           left->reserved == right->reserved &&
+           left->applied_input_count == right->applied_input_count &&
+           left->pending_input_count == right->pending_input_count &&
+           left->mailbox_case_id == right->mailbox_case_id &&
+           left->maximum_input_events == right->maximum_input_events &&
+           left->maximum_rom_bytes == right->maximum_rom_bytes &&
+           left->video_width == right->video_width &&
+           left->video_height == right->video_height &&
+           left->maximum_audio_bytes == right->maximum_audio_bytes &&
+           left->model_limit_flags == right->model_limit_flags &&
+           left->capabilities == right->capabilities &&
+           left->input_generation == right->input_generation &&
+           left->master_cycle == right->master_cycle &&
+           left->retired_instructions == right->retired_instructions &&
+           left->video_epoch == right->video_epoch &&
+           left->maximum_advance_cycles == right->maximum_advance_cycles &&
+           memcmp(left->profile_id, right->profile_id,
+                  sizeof left->profile_id) == 0 &&
+           memcmp(left->bios_id, right->bios_id,
+                  sizeof left->bios_id) == 0 &&
+           memcmp(left->cartridge_id, right->cartridge_id,
+                  sizeof left->cartridge_id) == 0;
+}
+
+static bool results_equal(const gbl_v1_advance_result *left,
+                          const gbl_v1_advance_result *right)
+{
+    return left->struct_size == right->struct_size &&
+           left->requested_units == right->requested_units &&
+           left->outcome == right->outcome &&
+           left->stop_reason == right->stop_reason &&
+           left->audio_available == right->audio_available &&
+           left->requested_cycle_budget == right->requested_cycle_budget &&
+           left->start_cycle == right->start_cycle &&
+           left->end_cycle == right->end_cycle &&
+           left->elapsed_cycles == right->elapsed_cycles &&
+           left->retired_instructions == right->retired_instructions &&
+           left->audio_bytes_written == right->audio_bytes_written &&
+           left->audio_frames_written == right->audio_frames_written &&
+           observations_equal(&left->observation, &right->observation);
+}
+
+static const char *status_name(uint32_t status)
+{
+    switch (status) {
+    case GBL_V1_OK:
+        return "ok";
+    case GBL_V1_INVALID_ARGUMENT:
+        return "invalid_argument";
+    case GBL_V1_CONTENT_REFUSED:
+        return "content_refused";
+    case GBL_V1_INSUFFICIENT_CAPACITY:
+        return "insufficient_capacity";
+    case GBL_V1_WORK_EXHAUSTED:
+        return "work_exhausted";
+    default:
+        return "other";
+    }
+}
+
+static bool observe_public(gbl_v1_machine *machine,
+                           gbl_v1_observation *observation)
+{
+    memset(observation, 0, sizeof *observation);
+    observation->struct_size = sizeof *observation;
+    return gbl_v1_observe(machine, observation) == GBL_V1_OK;
+}
+
+static bool instance_from_fixture(const char *rom_path,
+                                  const gbl_v1_input_event *events,
+                                  size_t event_count,
+                                  consumer_instance *instance,
+                                  char *failure_category,
+                                  char *failure_detail,
+                                  size_t failure_detail_size)
+{
+    uint8_t *rom_bytes = NULL;
+    size_t rom_length = 0u;
+    gbl_v1_config config = { 0 };
+    gbl_v1_rom rom = { 0 };
+    gbl_v1_input_timeline timeline = { 0 };
+
+    memset(instance, 0, sizeof *instance);
+    if (!read_rom_file(rom_path, &rom_bytes, &rom_length)) {
+        (void)snprintf(failure_category, 64u, "refusal-fixture-read");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "could not read the admitted fixture for a refusal case");
+        return false;
+    }
+    config.struct_size = sizeof config;
+    config.profile = GBL_V1_PROFILE_AGB;
+    config.start_mode = GBL_V1_START_DIRECT;
+    config.cartridge_mode = GBL_V1_CARTRIDGE_ROM_ONLY;
+    config.allocator_context = &instance->allocator;
+    config.allocate = consumer_allocate;
+    config.release = consumer_release;
+    if (gbl_v1_create(&config, &instance->machine) != GBL_V1_OK ||
+        instance->machine == NULL) {
+        free(rom_bytes);
+        (void)snprintf(failure_category, 64u, "refusal-create");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "public API create failed in a refusal case");
+        return false;
+    }
+    rom.struct_size = sizeof rom;
+    rom.bytes = rom_bytes;
+    rom.length = rom_length;
+    if (gbl_v1_load_rom(instance->machine, &rom) != GBL_V1_OK) {
+        free(rom_bytes);
+        gbl_v1_destroy(instance->machine);
+        instance->machine = NULL;
+        (void)snprintf(failure_category, 64u, "refusal-load");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "public API refused the admitted fixture in a refusal case");
+        return false;
+    }
+    free(rom_bytes);
+    timeline.struct_size = sizeof timeline;
+    timeline.events = events;
+    timeline.count = event_count;
+    if (gbl_v1_set_input(instance->machine, &timeline) != GBL_V1_OK) {
+        gbl_v1_destroy(instance->machine);
+        instance->machine = NULL;
+        (void)snprintf(failure_category, 64u, "refusal-input");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "public API refused copied timestamped input in a refusal case");
+        return false;
+    }
+    return true;
+}
+
+static bool instance_destroy_checked(consumer_instance *instance,
+                                     char *failure_category,
+                                     char *failure_detail,
+                                     size_t failure_detail_size)
+{
+    if (instance->machine != NULL) {
+        gbl_v1_destroy(instance->machine);
+        instance->machine = NULL;
+    }
+    if (instance->allocator.live_count != 0u ||
+        instance->allocator.invalid_release) {
+        (void)snprintf(failure_category, 64u, "refusal-allocator");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "refusal instance allocator did not release exact live sizes");
+        return false;
+    }
+    return true;
+}
+
+static bool add_refusal_record(refusal_suite *suite, const char *name,
+                               const char *expected_status,
+                               refusal_record **record)
+{
+    if (suite->case_count >=
+        sizeof suite->cases / sizeof suite->cases[0]) {
+        return false;
+    }
+    *record = &suite->cases[suite->case_count++];
+    memset(*record, 0, sizeof **record);
+    (*record)->name = name;
+    (*record)->expected_status = expected_status;
+    (*record)->observation_unchanged = true;
+    (*record)->caller_bytes_unchanged = true;
+    (*record)->retry_matches = true;
+    return true;
+}
+
+static bool setup_full_advance(gbl_v1_machine *machine,
+                               uint8_t *audio_bytes, size_t audio_capacity,
+                               gbl_v1_advance_result *result,
+                               uint64_t cycle_budget)
+{
+    gbl_v1_advance_options options = { 0 };
+
+    memset(audio_bytes, 0xA5, audio_capacity);
+    options.struct_size = sizeof options;
+    options.units = PHASE21_REQUESTED_UNITS;
+    options.cycle_budget = cycle_budget;
+    options.capture_audio = 1u;
+    options.audio_bytes = audio_bytes;
+    options.audio_capacity = audio_capacity;
+    memset(result, 0, sizeof *result);
+    result->struct_size = sizeof *result;
+    return gbl_v1_advance(machine, &options, result) == GBL_V1_OK &&
+           result->outcome == GBL_V1_ADVANCE_GUEST_TERMINAL &&
+           result->stop_reason == GBL_V1_STOP_GUEST_TERMINAL;
+}
+
+static bool retry_matches_reference(gbl_v1_machine *machine,
+                                    const gbl_v1_advance_result *reference_result,
+                                    const gbl_v1_observation *reference_observation,
+                                    const uint8_t *reference_video,
+                                    const uint8_t *reference_audio,
+                                    refusal_record *record,
+                                    char *failure_category,
+                                    char *failure_detail,
+                                    size_t failure_detail_size)
+{
+    uint8_t retry_audio[GBL_V1_MAX_AUDIO_BYTES];
+    uint8_t retry_video[GBL_V1_VIDEO_BYTES + 4u];
+    gbl_v1_advance_result retry_result = { 0 };
+    gbl_v1_observation retry_observation = { 0 };
+    gbl_v1_video video_request = { 0 };
+    bool retry_okay;
+
+    if (!setup_full_advance(machine, retry_audio, sizeof retry_audio,
+                            &retry_result, PHASE21_CYCLE_BUDGET) ||
+        !observe_public(machine, &retry_observation)) {
+        (void)snprintf(failure_category, 64u, "refusal-retry-advance");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "corrected full advance did not succeed after refusal");
+        return false;
+    }
+    memset(retry_video, 0xA5, sizeof retry_video);
+    video_request.struct_size = sizeof video_request;
+    video_request.bytes = retry_video;
+    video_request.capacity = sizeof retry_video;
+    if (gbl_v1_read_video(machine, &video_request) != GBL_V1_OK) {
+        (void)snprintf(failure_category, 64u, "refusal-retry-video");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "corrected complete-frame read did not succeed after refusal");
+        return false;
+    }
+    retry_okay = results_equal(&retry_result, reference_result) &&
+                 observations_equal(&retry_observation,
+                                    reference_observation) &&
+                 memcmp(retry_video, reference_video,
+                        GBL_V1_VIDEO_BYTES) == 0 &&
+                 all_bytes_equal(retry_video + GBL_V1_VIDEO_BYTES, 4u,
+                                 0xA5u) &&
+                 retry_result.audio_bytes_written ==
+                     reference_result->audio_bytes_written &&
+                 memcmp(retry_audio, reference_audio,
+                        retry_result.audio_bytes_written) == 0 &&
+                 all_bytes_equal(retry_audio + retry_result.audio_bytes_written,
+                                 sizeof retry_audio -
+                                     retry_result.audio_bytes_written,
+                                 0xA5u);
+    record->retry_matches = retry_okay;
+    record->retry_audio_bytes = retry_result.audio_bytes_written;
+    record->retry_video_bytes = GBL_V1_VIDEO_BYTES;
+    record->retry_end_cycle = retry_result.end_cycle;
+    if (!retry_okay) {
+        (void)snprintf(failure_category, 64u, "refusal-retry-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "corrected retry did not match the clean installed reference");
+        return false;
+    }
+    return true;
+}
+
+typedef enum advance_refusal_kind {
+    REFUSE_ADVANCE_SIZE,
+    REFUSE_AUDIO_CAPACITY,
+    REFUSE_WORK_BUDGET
+} advance_refusal_kind;
+
+static bool run_advance_refusal(
+    const char *rom_path, const gbl_v1_input_event *events, size_t event_count,
+    const gbl_v1_advance_result *reference_result,
+    const gbl_v1_observation *reference_observation,
+    const uint8_t *reference_video, const uint8_t *reference_audio,
+    refusal_suite *suite, advance_refusal_kind kind, bool mutate_canary,
+    char *failure_category, char *failure_detail,
+    size_t failure_detail_size)
+{
+    consumer_instance instance;
+    refusal_record *record;
+    uint8_t audio_bytes[GBL_V1_MAX_AUDIO_BYTES];
+    gbl_v1_advance_options options = { 0 };
+    gbl_v1_advance_result result;
+    uint8_t result_before[sizeof(gbl_v1_advance_result)];
+    gbl_v1_observation after;
+    uint32_t status;
+    bool okay = false;
+    bool result_unchanged;
+    bool audio_unchanged;
+    const char *case_name;
+    const char *expected_status;
+
+    if (kind == REFUSE_ADVANCE_SIZE) {
+        case_name = "advance-size";
+        expected_status = "invalid_argument";
+    } else if (kind == REFUSE_AUDIO_CAPACITY) {
+        case_name = "audio-capacity";
+        expected_status = "insufficient_capacity";
+    } else {
+        case_name = "work-budget";
+        expected_status = "work_exhausted";
+    }
+    if (!add_refusal_record(suite, case_name, expected_status, &record)) {
+        (void)snprintf(failure_category, 64u, "refusal-record-capacity");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "too many refusal cases in normalized proof");
+        return false;
+    }
+    if (!instance_from_fixture(rom_path, events, event_count, &instance,
+                               failure_category, failure_detail,
+                               failure_detail_size)) {
+        return false;
+    }
+    memset(audio_bytes, 0x5A, sizeof audio_bytes);
+    options.struct_size = sizeof options;
+    options.units = PHASE21_REQUESTED_UNITS;
+    options.cycle_budget = PHASE21_CYCLE_BUDGET;
+    options.capture_audio = 1u;
+    options.audio_bytes = audio_bytes;
+    options.audio_capacity = sizeof audio_bytes;
+    if (kind == REFUSE_ADVANCE_SIZE) {
+        options.struct_size = offsetof(gbl_v1_advance_options, cycle_budget) +
+                              sizeof options.cycle_budget - 1u;
+    } else if (kind == REFUSE_AUDIO_CAPACITY) {
+        if (reference_result->audio_bytes_written == 0u) {
+            (void)snprintf(failure_category, 64u, "refusal-reference-audio");
+            (void)snprintf(failure_detail, failure_detail_size,
+                           "clean reference contains no audio bytes for capacity refusal");
+            goto cleanup;
+        }
+        options.audio_capacity = reference_result->audio_bytes_written - 1u;
+    } else {
+        options.cycle_budget = UINT64_C(2048);
+    }
+    record->has_result = true;
+    record->descriptor_size = options.struct_size;
+    record->requested_capacity = options.audio_capacity;
+    record->caller_bytes = sizeof audio_bytes;
+    record->requested_units = options.units;
+    record->cycle_budget = options.cycle_budget;
+    memset(&result, 0xA5, sizeof result);
+    result.struct_size = sizeof result;
+    memcpy(result_before, &result, sizeof result);
+    if (!observe_public(instance.machine, &record->before)) {
+        (void)snprintf(failure_category, 64u, "refusal-observe-before");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "could not capture public state before %s refusal",
+                       case_name);
+        goto cleanup;
+    }
+    status = (uint32_t)gbl_v1_advance(instance.machine, &options, &result);
+    if (mutate_canary && kind == REFUSE_AUDIO_CAPACITY) {
+        audio_bytes[0] ^= UINT8_C(1);
+    }
+    record->observed_status = status;
+    if (!observe_public(instance.machine, &after)) {
+        (void)snprintf(failure_category, 64u, "refusal-observe-after");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "could not capture public state after %s refusal",
+                       case_name);
+        goto cleanup;
+    }
+    record->after = after;
+    record->committed_cycles = after.master_cycle >= record->before.master_cycle
+                                   ? after.master_cycle -
+                                         record->before.master_cycle
+                                   : UINT64_MAX;
+    record->observation_unchanged =
+        observations_equal(&record->before, &record->after);
+    result_unchanged = memcmp(&result, result_before, sizeof result) == 0;
+    audio_unchanged = all_bytes_equal(audio_bytes, sizeof audio_bytes, 0x5Au);
+    record->result_unchanged = result_unchanged;
+    record->caller_bytes_unchanged = audio_unchanged;
+    if (status != (uint32_t)(kind == REFUSE_ADVANCE_SIZE
+                                 ? GBL_V1_INVALID_ARGUMENT
+                                 : kind == REFUSE_AUDIO_CAPACITY
+                                       ? GBL_V1_INSUFFICIENT_CAPACITY
+                                       : GBL_V1_WORK_EXHAUSTED)) {
+        (void)snprintf(failure_category, 64u, "refusal-status-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "%s expected %s, observed %s", case_name,
+                       expected_status, status_name(status));
+        goto cleanup;
+    }
+    if (!record->observation_unchanged || record->committed_cycles != 0u) {
+        (void)snprintf(failure_category, 64u, "refusal-observation-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "%s changed one or more public observation fields",
+                       case_name);
+        goto cleanup;
+    }
+    if (!result_unchanged) {
+        (void)snprintf(failure_category, 64u, "refusal-result-canary-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "%s changed the result canary", case_name);
+        goto cleanup;
+    }
+    if (!audio_unchanged) {
+        (void)snprintf(failure_category, 64u, "refusal-audio-canary-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "%s changed caller audio bytes after refusal", case_name);
+        goto cleanup;
+    }
+    if (!retry_matches_reference(instance.machine, reference_result,
+                                 reference_observation, reference_video,
+                                 reference_audio, record, failure_category,
+                                 failure_detail, failure_detail_size)) {
+        goto cleanup;
+    }
+    okay = true;
+
+cleanup:
+    if (!instance_destroy_checked(&instance, failure_category,
+                                  failure_detail, failure_detail_size)) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool run_content_refusal(
+    const char *rom_path, const gbl_v1_input_event *events, size_t event_count,
+    const gbl_v1_advance_result *reference_result,
+    const gbl_v1_observation *reference_observation,
+    const uint8_t *reference_video, const uint8_t *reference_audio,
+    refusal_suite *suite, char *failure_category, char *failure_detail,
+    size_t failure_detail_size)
+{
+    consumer_instance instance;
+    refusal_record *record;
+    uint8_t short_rom_bytes[0xBEu];
+    gbl_v1_rom short_rom = { 0 };
+    gbl_v1_observation after;
+    uint32_t status;
+    bool okay = false;
+
+    if (!add_refusal_record(suite, "short-rom", "content_refused", &record)) {
+        (void)snprintf(failure_category, 64u, "refusal-record-capacity");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "too many refusal cases in normalized proof");
+        return false;
+    }
+    if (!instance_from_fixture(rom_path, events, event_count, &instance,
+                               failure_category, failure_detail,
+                               failure_detail_size)) {
+        return false;
+    }
+    memset(short_rom_bytes, 0x3C, sizeof short_rom_bytes);
+    short_rom.struct_size = sizeof short_rom;
+    short_rom.bytes = short_rom_bytes;
+    short_rom.length = sizeof short_rom_bytes;
+    record->descriptor_size = short_rom.struct_size;
+    record->requested_capacity = short_rom.length;
+    record->caller_bytes = sizeof short_rom_bytes;
+    if (!observe_public(instance.machine, &record->before)) {
+        (void)snprintf(failure_category, 64u, "refusal-observe-before");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "could not capture public state before short-ROM refusal");
+        goto cleanup;
+    }
+    status = (uint32_t)gbl_v1_load_rom(instance.machine, &short_rom);
+    record->observed_status = status;
+    if (!observe_public(instance.machine, &after)) {
+        (void)snprintf(failure_category, 64u, "refusal-observe-after");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "could not capture public state after short-ROM refusal");
+        goto cleanup;
+    }
+    record->after = after;
+    record->committed_cycles = after.master_cycle >= record->before.master_cycle
+                                   ? after.master_cycle -
+                                         record->before.master_cycle
+                                   : UINT64_MAX;
+    record->observation_unchanged =
+        observations_equal(&record->before, &record->after);
+    record->caller_bytes_unchanged =
+        all_bytes_equal(short_rom_bytes, sizeof short_rom_bytes, 0x3Cu);
+    if (status != (uint32_t)GBL_V1_CONTENT_REFUSED) {
+        (void)snprintf(failure_category, 64u, "refusal-status-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "short-rom expected content_refused, observed %s",
+                       status_name(status));
+        goto cleanup;
+    }
+    if (!record->observation_unchanged || record->committed_cycles != 0u) {
+        (void)snprintf(failure_category, 64u, "refusal-observation-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "short-ROM refusal changed loaded identity or public state");
+        goto cleanup;
+    }
+    if (!record->caller_bytes_unchanged) {
+        (void)snprintf(failure_category, 64u, "refusal-rom-canary-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "short-ROM input bytes changed after refusal");
+        goto cleanup;
+    }
+    if (!retry_matches_reference(instance.machine, reference_result,
+                                 reference_observation, reference_video,
+                                 reference_audio, record, failure_category,
+                                 failure_detail, failure_detail_size)) {
+        goto cleanup;
+    }
+    okay = true;
+
+cleanup:
+    if (!instance_destroy_checked(&instance, failure_category,
+                                  failure_detail, failure_detail_size)) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool run_video_refusal(
+    const char *rom_path, const gbl_v1_input_event *events, size_t event_count,
+    const gbl_v1_advance_result *reference_result,
+    const gbl_v1_observation *reference_observation,
+    const uint8_t *reference_video, const uint8_t *reference_audio,
+    refusal_suite *suite, char *failure_category, char *failure_detail,
+    size_t failure_detail_size)
+{
+    consumer_instance instance;
+    refusal_record *record;
+    uint8_t retry_audio[GBL_V1_MAX_AUDIO_BYTES];
+    uint8_t video_bytes[GBL_V1_VIDEO_BYTES + 4u];
+    gbl_v1_advance_result retry_result = { 0 };
+    gbl_v1_observation advanced_observation = { 0 };
+    gbl_v1_observation after;
+    gbl_v1_video request = { 0 };
+    uint32_t status;
+    bool okay = false;
+
+    if (!add_refusal_record(suite, "video-capacity", "insufficient_capacity",
+                            &record)) {
+        (void)snprintf(failure_category, 64u, "refusal-record-capacity");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "too many refusal cases in normalized proof");
+        return false;
+    }
+    if (!instance_from_fixture(rom_path, events, event_count, &instance,
+                               failure_category, failure_detail,
+                               failure_detail_size)) {
+        return false;
+    }
+    if (!setup_full_advance(instance.machine, retry_audio, sizeof retry_audio,
+                            &retry_result, PHASE21_CYCLE_BUDGET) ||
+        !observe_public(instance.machine, &advanced_observation) ||
+        !results_equal(&retry_result, reference_result) ||
+        !observations_equal(&advanced_observation, reference_observation) ||
+        retry_result.audio_bytes_written != reference_result->audio_bytes_written ||
+        memcmp(retry_audio, reference_audio,
+               retry_result.audio_bytes_written) != 0) {
+        (void)snprintf(failure_category, 64u, "video-refusal-setup-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "video refusal precondition differs from the clean complete-frame reference");
+        goto cleanup;
+    }
+    memset(video_bytes, 0x5A, sizeof video_bytes);
+    request.struct_size = sizeof request;
+    request.bytes = video_bytes;
+    request.capacity = GBL_V1_VIDEO_BYTES - 1u;
+    record->descriptor_size = request.struct_size;
+    record->requested_capacity = request.capacity;
+    record->caller_bytes = sizeof video_bytes;
+    record->has_result = false;
+    if (!observe_public(instance.machine, &record->before)) {
+        (void)snprintf(failure_category, 64u, "refusal-observe-before");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "could not capture public state before video-capacity refusal");
+        goto cleanup;
+    }
+    status = (uint32_t)gbl_v1_read_video(instance.machine, &request);
+    record->observed_status = status;
+    if (!observe_public(instance.machine, &after)) {
+        (void)snprintf(failure_category, 64u, "refusal-observe-after");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "could not capture public state after video-capacity refusal");
+        goto cleanup;
+    }
+    record->after = after;
+    record->committed_cycles = after.master_cycle >= record->before.master_cycle
+                                   ? after.master_cycle -
+                                         record->before.master_cycle
+                                   : UINT64_MAX;
+    record->observation_unchanged =
+        observations_equal(&record->before, &record->after);
+    record->caller_bytes_unchanged =
+        all_bytes_equal(video_bytes, sizeof video_bytes, 0x5Au);
+    if (status != (uint32_t)GBL_V1_INSUFFICIENT_CAPACITY) {
+        (void)snprintf(failure_category, 64u, "refusal-status-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "video-capacity expected insufficient_capacity, observed %s",
+                       status_name(status));
+        goto cleanup;
+    }
+    if (!record->observation_unchanged || record->committed_cycles != 0u) {
+        (void)snprintf(failure_category, 64u, "refusal-observation-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "video-capacity refusal changed public state");
+        goto cleanup;
+    }
+    if (!record->caller_bytes_unchanged) {
+        (void)snprintf(failure_category, 64u, "refusal-video-canary-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "video-capacity refusal changed caller video bytes");
+        goto cleanup;
+    }
+    request.capacity = sizeof video_bytes;
+    status = (uint32_t)gbl_v1_read_video(instance.machine, &request);
+    record->retry_matches = status == (uint32_t)GBL_V1_OK &&
+                            memcmp(video_bytes, reference_video,
+                                   GBL_V1_VIDEO_BYTES) == 0 &&
+                            all_bytes_equal(video_bytes + GBL_V1_VIDEO_BYTES,
+                                            4u, 0x5Au) &&
+                            observe_public(instance.machine, &after) &&
+                            observations_equal(&after,
+                                               reference_observation);
+    record->retry_video_bytes = GBL_V1_VIDEO_BYTES;
+    record->retry_end_cycle = retry_result.end_cycle;
+    if (!record->retry_matches) {
+        (void)snprintf(failure_category, 64u, "refusal-retry-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "complete video retry did not match the clean reference frame");
+        goto cleanup;
+    }
+    okay = true;
+
+cleanup:
+    if (!instance_destroy_checked(&instance, failure_category,
+                                  failure_detail, failure_detail_size)) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool run_bounded_probe(const char *rom_path,
+                              const gbl_v1_input_event *events,
+                              size_t event_count, refusal_suite *suite,
+                              char *failure_category, char *failure_detail,
+                              size_t failure_detail_size)
+{
+    consumer_instance instance;
+    uint8_t audio_bytes[GBL_V1_MAX_AUDIO_BYTES];
+    gbl_v1_advance_options options = { 0 };
+    gbl_v1_advance_result result = { 0 };
+    gbl_v1_observation observation = { 0 };
+    uint32_t status;
+    bool okay = false;
+
+    if (!instance_from_fixture(rom_path, events, event_count, &instance,
+                               failure_category, failure_detail,
+                               failure_detail_size)) {
+        return false;
+    }
+    memset(audio_bytes, 0xA5, sizeof audio_bytes);
+    options.struct_size = sizeof options;
+    options.units = 128u;
+    options.cycle_budget = UINT64_C(2048);
+    options.capture_audio = 1u;
+    options.audio_bytes = audio_bytes;
+    options.audio_capacity = sizeof audio_bytes;
+    result.struct_size = sizeof result;
+    status = (uint32_t)gbl_v1_advance(instance.machine, &options, &result);
+    if (status != (uint32_t)GBL_V1_OK ||
+        result.outcome != GBL_V1_ADVANCE_COMPLETED ||
+        result.end_cycle <= GBL_V1_AUDIO_CYCLES_PER_FRAME ||
+        result.end_cycle > options.cycle_budget ||
+        result.audio_frames_written == 0u ||
+        result.audio_bytes_written != result.audio_frames_written * 4u ||
+        !all_bytes_equal(audio_bytes + result.audio_bytes_written,
+                         sizeof audio_bytes - result.audio_bytes_written,
+                         0xA5u) ||
+        !observe_public(instance.machine, &observation)) {
+        (void)snprintf(failure_category, 64u, "refusal-work-probe-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "positive 2048-cycle probe did not complete work and emit an audio sample");
+        goto cleanup;
+    }
+    suite->bounded_probe_units = options.units;
+    suite->bounded_probe_budget = options.cycle_budget;
+    suite->bounded_probe_end_cycle = result.end_cycle;
+    suite->bounded_probe_audio_bytes = result.audio_bytes_written;
+    suite->bounded_probe_audio_frames = result.audio_frames_written;
+    okay = true;
+
+cleanup:
+    if (!instance_destroy_checked(&instance, failure_category,
+                                  failure_detail, failure_detail_size)) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool run_timing_control(const char *rom_path,
+                               const gbl_v1_input_event *events,
+                               size_t event_count, refusal_suite *suite,
+                               char *failure_category, char *failure_detail,
+                               size_t failure_detail_size)
+{
+    consumer_instance instance;
+    gbl_v1_input_event control_events[3];
+    uint8_t audio_bytes[GBL_V1_MAX_AUDIO_BYTES];
+    gbl_v1_advance_result result = { 0 };
+    gbl_v1_observation observation = { 0 };
+    bool okay = false;
+
+    if (event_count != sizeof control_events / sizeof control_events[0]) {
+        (void)snprintf(failure_category, 64u, "timing-control-input-count");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "timing control requires the declared three-event input");
+        return false;
+    }
+    memcpy(control_events, events, sizeof control_events);
+    control_events[1].cycle = UINT64_C(1536);
+    if (!instance_from_fixture(rom_path, control_events, event_count, &instance,
+                               failure_category, failure_detail,
+                               failure_detail_size)) {
+        return false;
+    }
+    if (!setup_full_advance(instance.machine, audio_bytes, sizeof audio_bytes,
+                            &result, PHASE21_CYCLE_BUDGET) ||
+        !observe_public(instance.machine, &observation) ||
+        observation.mailbox_state != GBL_V1_MAILBOX_FAIL ||
+        observation.mailbox_case_id != PHASE21_CASE_ID ||
+        observation.logical_input_mask != GBL_V1_KEY_B ||
+        observation.applied_input_count != 3u ||
+        observation.pending_input_count != 0u) {
+        (void)snprintf(failure_category, 64u, "timing-control-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "shifted A input did not produce the expected guest FAIL with the final B mask");
+        goto cleanup;
+    }
+    suite->timing_control_input_cycle = control_events[1].cycle;
+    suite->timing_control_end_cycle = result.end_cycle;
+    suite->timing_control_case_id = observation.mailbox_case_id;
+    suite->timing_control_mailbox_state = observation.mailbox_state;
+    suite->timing_control_final_mask = observation.logical_input_mask;
+    suite->timing_control_applied_count = observation.applied_input_count;
+    suite->timing_control_pending_count = observation.pending_input_count;
+    okay = true;
+
+cleanup:
+    if (!instance_destroy_checked(&instance, failure_category,
+                                  failure_detail, failure_detail_size)) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool run_refusal_suite(
+    const char *rom_path, const gbl_v1_input_event *events, size_t event_count,
+    const gbl_v1_advance_result *reference_result,
+    const gbl_v1_observation *reference_observation,
+    const uint8_t *reference_video, const uint8_t *reference_audio,
+    bool mutate_canary, refusal_suite *suite,
+    char *failure_category, char *failure_detail,
+    size_t failure_detail_size)
+{
+    memset(suite, 0, sizeof *suite);
+    if (!run_timing_control(rom_path, events, event_count, suite,
+                            failure_category, failure_detail,
+                            failure_detail_size) ||
+        !run_content_refusal(rom_path, events, event_count, reference_result,
+                             reference_observation, reference_video,
+                             reference_audio, suite, failure_category,
+                             failure_detail, failure_detail_size) ||
+        !run_advance_refusal(rom_path, events, event_count, reference_result,
+                             reference_observation, reference_video,
+                             reference_audio, suite, REFUSE_ADVANCE_SIZE, false,
+                             failure_category, failure_detail,
+                             failure_detail_size) ||
+        !run_advance_refusal(rom_path, events, event_count, reference_result,
+                             reference_observation, reference_video,
+                             reference_audio, suite, REFUSE_AUDIO_CAPACITY,
+                             mutate_canary, failure_category,
+                             failure_detail, failure_detail_size) ||
+        !run_bounded_probe(rom_path, events, event_count, suite,
+                           failure_category, failure_detail,
+                           failure_detail_size) ||
+        !run_advance_refusal(rom_path, events, event_count, reference_result,
+                             reference_observation, reference_video,
+                             reference_audio, suite, REFUSE_WORK_BUDGET, false,
+                             failure_category, failure_detail,
+                             failure_detail_size) ||
+        !run_video_refusal(rom_path, events, event_count, reference_result,
+                           reference_observation, reference_video,
+                           reference_audio, suite, failure_category,
+                           failure_detail, failure_detail_size)) {
+        return false;
+    }
+    return suite->case_count ==
+           sizeof suite->cases / sizeof suite->cases[0];
+}
+
+static bool append_jsonf(char *buffer, size_t capacity, size_t *used,
+                         const char *format, ...)
+{
+    va_list arguments;
+    int count;
+
+    if (*used >= capacity) {
+        return false;
+    }
+    va_start(arguments, format);
+    count = vsnprintf(buffer + *used, capacity - *used, format, arguments);
+    va_end(arguments);
+    if (count < 0 || (size_t)count >= capacity - *used) {
+        return false;
+    }
+    *used += (size_t)count;
+    return true;
+}
+
+static bool append_observation_json(char *buffer, size_t capacity,
+                                    size_t *used,
+                                    const gbl_v1_observation *observation)
+{
+    return append_jsonf(
+               buffer, capacity, used,
+               "{\"struct_size\":%llu,\"loaded\":%u,\"profile\":%u,"
+               "\"profile_version\":%u,\"bios_mode\":%u,"
+               "\"cartridge_mode\":%u,\"video_state\":%u,"
+               "\"mailbox_state\":%u,\"hardware_qualification\":%u,"
+               "\"raw_video_format\":%u,\"raw_audio_format\":%u,"
+               "\"audio_sample_rate\":%u,\"audio_cycles_per_frame\":%u,"
+               "\"audio_channels\":%u,\"logical_input_mask\":%u,"
+               "\"reserved\":%u,\"applied_input_count\":%u,"
+               "\"pending_input_count\":%u,\"mailbox_case_id\":%u,"
+               "\"maximum_input_events\":%u,\"maximum_rom_bytes\":%u,"
+               "\"video_width\":%u,\"video_height\":%u,"
+               "\"maximum_audio_bytes\":%u,\"model_limit_flags\":%u,"
+               "\"capabilities\":%llu,\"input_generation\":%llu,"
+               "\"master_cycle\":%llu,\"retired_instructions\":%llu,"
+               "\"video_epoch\":%llu,\"maximum_advance_cycles\":%llu,"
+               "\"profile_id\":\"%s\",\"bios_id\":\"%s\","
+               "\"cartridge_id\":\"%s\"}",
+               (unsigned long long)observation->struct_size,
+               (unsigned)observation->loaded, (unsigned)observation->profile,
+               (unsigned)observation->profile_version,
+               (unsigned)observation->bios_mode,
+               (unsigned)observation->cartridge_mode,
+               (unsigned)observation->video_state,
+               (unsigned)observation->mailbox_state,
+               (unsigned)observation->hardware_qualification,
+               (unsigned)observation->raw_video_format,
+               (unsigned)observation->raw_audio_format,
+               (unsigned)observation->audio_sample_rate,
+               (unsigned)observation->audio_cycles_per_frame,
+               (unsigned)observation->audio_channels,
+               (unsigned)observation->logical_input_mask,
+               (unsigned)observation->reserved,
+               (unsigned)observation->applied_input_count,
+               (unsigned)observation->pending_input_count,
+               (unsigned)observation->mailbox_case_id,
+               (unsigned)observation->maximum_input_events,
+               (unsigned)observation->maximum_rom_bytes,
+               (unsigned)observation->video_width,
+               (unsigned)observation->video_height,
+               (unsigned)observation->maximum_audio_bytes,
+               (unsigned)observation->model_limit_flags,
+               (unsigned long long)observation->capabilities,
+               (unsigned long long)observation->input_generation,
+               (unsigned long long)observation->master_cycle,
+               (unsigned long long)observation->retired_instructions,
+               (unsigned long long)observation->video_epoch,
+               (unsigned long long)observation->maximum_advance_cycles,
+               observation->profile_id, observation->bios_id,
+               observation->cartridge_id);
+}
+
+static bool append_refusal_proof(char *buffer, size_t capacity,
+                                 const refusal_suite *suite)
+{
+    size_t used = 0u;
+    size_t index;
+
+    if (!append_jsonf(buffer, capacity, &used,
+                      "{\"timing_control\":{\"input_cycle\":%llu,"
+                      "\"end_cycle\":%llu,\"case_id\":%u,"
+                      "\"status\":\"%s\",\"final_mask\":%u,"
+                      "\"applied\":%u,\"pending\":%u},"
+                      "\"bounded_probe\":{\"units\":%u,"
+                      "\"cycle_budget\":%llu,\"end_cycle\":%llu,"
+                      "\"audio_bytes\":%llu,\"audio_frames\":%llu},"
+                      "\"cases\":[",
+                      (unsigned long long)suite->timing_control_input_cycle,
+                      (unsigned long long)suite->timing_control_end_cycle,
+                      (unsigned)suite->timing_control_case_id,
+                      mailbox_name(suite->timing_control_mailbox_state),
+                      (unsigned)suite->timing_control_final_mask,
+                      (unsigned)suite->timing_control_applied_count,
+                      (unsigned)suite->timing_control_pending_count,
+                      (unsigned)suite->bounded_probe_units,
+                      (unsigned long long)suite->bounded_probe_budget,
+                      (unsigned long long)suite->bounded_probe_end_cycle,
+                      (unsigned long long)suite->bounded_probe_audio_bytes,
+                      (unsigned long long)suite->bounded_probe_audio_frames)) {
+        return false;
+    }
+    for (index = 0u; index < suite->case_count; ++index) {
+        const refusal_record *record = &suite->cases[index];
+        const char *sentinel = strcmp(record->name, "short-rom") == 0
+                                   ? "0x3c"
+                                   : "0x5a";
+
+        if (index > 0u && !append_jsonf(buffer, capacity, &used, ",")) {
+            return false;
+        }
+        if (!append_jsonf(
+                buffer, capacity, &used,
+                "{\"name\":\"%s\",\"expected_status\":\"%s\","
+                "\"observed_status\":\"%s\",\"descriptor_size\":%llu,"
+                "\"requested_units\":%llu,\"cycle_budget\":%llu,"
+                "\"requested_capacity\":%llu,\"committed_cycles\":%llu,"
+                "\"caller_buffer\":{\"length\":%llu,"
+                "\"sentinel_before\":\"%s\",\"unchanged\":%s},"
+                "\"result_canary_unchanged\":%s,"
+                "\"observation_unchanged\":%s,"
+                "\"retry\":{\"matches_clean_reference\":%s,"
+                "\"audio_bytes\":%llu,\"video_bytes\":%llu,"
+                "\"end_cycle\":%llu},\"before\":",
+                record->name, record->expected_status,
+                status_name(record->observed_status),
+                (unsigned long long)record->descriptor_size,
+                (unsigned long long)record->requested_units,
+                (unsigned long long)record->cycle_budget,
+                (unsigned long long)record->requested_capacity,
+                (unsigned long long)record->committed_cycles,
+                (unsigned long long)record->caller_bytes, sentinel,
+                record->caller_bytes_unchanged ? "true" : "false",
+                record->has_result
+                    ? (record->result_unchanged ? "true" : "false")
+                    : "null",
+                record->observation_unchanged ? "true" : "false",
+                record->retry_matches ? "true" : "false",
+                (unsigned long long)record->retry_audio_bytes,
+                (unsigned long long)record->retry_video_bytes,
+                (unsigned long long)record->retry_end_cycle) ||
+            !append_observation_json(buffer, capacity, &used,
+                                     &record->before) ||
+            !append_jsonf(buffer, capacity, &used, ",\"after\":") ||
+            !append_observation_json(buffer, capacity, &used,
+                                     &record->after) ||
+            !append_jsonf(buffer, capacity, &used, "}")) {
+            return false;
+        }
+    }
+    return append_jsonf(buffer, capacity, &used, "]}");
+}
+
 static bool write_observations(const char *directory,
                                const gbl_v1_observation *observation,
                                const gbl_v1_advance_result *result,
                                const gbl_v1_input_event *events,
                                const uint8_t *video_bytes,
                                const uint8_t *audio_bytes,
-                               const char *expected_status)
+                               const char *expected_status,
+                               const refusal_suite *refusals)
 {
-    char json[2048];
+    char json[32768];
+    char refusal_json[24576];
+    size_t refusal_json_size = 0u;
     int count;
+
+    if (!append_refusal_proof(refusal_json, sizeof refusal_json, refusals)) {
+        return false;
+    }
+    refusal_json_size = strlen(refusal_json);
 
     count = snprintf(
         json, sizeof json,
@@ -272,7 +1280,8 @@ static bool write_observations(const char *directory,
         "\"left\": %d, \"right\": %d}]},\n"
         "  \"pixels\": [{\"x\": 0, \"y\": 1, \"value\": %u}, "
         "{\"x\": 1, \"y\": 1, \"value\": %u}, "
-        "{\"x\": 2, \"y\": 1, \"value\": %u}]\n"
+        "{\"x\": 2, \"y\": 1, \"value\": %u}],\n"
+        "  \"refusal_proof\": %s\n"
         "}\n",
         observation->profile_id, observation->profile_version,
         observation->bios_id, observation->mailbox_case_id,
@@ -302,8 +1311,10 @@ static bool write_observations(const char *directory,
         (int)sample_channel(audio_bytes, PHASE21_AUDIO_INDEX_8192, 1u),
         (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u),
         (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u + 1u),
-        (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u + 2u));
-    if (count < 0 || (size_t)count >= sizeof json) {
+        (unsigned)pixel_value(video_bytes, GBL_V1_VIDEO_WIDTH * 1u + 2u),
+        refusal_json);
+    if (count < 0 || (size_t)count >= sizeof json ||
+        refusal_json_size >= sizeof refusal_json) {
         return false;
     }
     return write_new_file(directory, "observations.json",
@@ -339,9 +1350,11 @@ int main(int argc, char **argv)
     gbl_v1_advance_result result = { 0 };
     gbl_v1_observation observation = { 0 };
     gbl_v1_video video_request = { 0 };
+    refusal_suite refusals = { 0 };
     uint32_t expected_mailbox = GBL_V1_MAILBOX_PASS;
     uint64_t expected_frames;
     size_t expected_audio_bytes;
+    char refusal_failure_category[64] = "";
     bool success = false;
     int exit_code = EXIT_FAILURE;
 
@@ -355,6 +1368,9 @@ int main(int argc, char **argv)
     if (argc == 4 && strcmp(argv[3], "--timing-control") == 0) {
         mode = RUN_EXPECT_TIMING_FAIL;
         expected_mailbox = GBL_V1_MAILBOX_FAIL;
+    } else if (argc == 4 &&
+               strcmp(argv[3], "--refusal-canary-control") == 0) {
+        mode = RUN_MUTATE_REFUSAL_CANARY;
     } else if (argc == 5 && strcmp(argv[3], "--expectation-control") == 0 &&
                strcmp(argv[4], "video") == 0) {
         mode = RUN_MUTATE_VIDEO;
@@ -568,6 +1584,16 @@ int main(int argc, char **argv)
         goto cleanup;
     }
 
+    if (!run_refusal_suite(
+            rom_path, events, sizeof events / sizeof events[0], &result,
+            &observation, video_bytes, audio_bytes,
+            mode == RUN_MUTATE_REFUSAL_CANARY, &refusals,
+            refusal_failure_category, failure_detail,
+            sizeof failure_detail)) {
+        failure_category = refusal_failure_category;
+        goto cleanup;
+    }
+
     gbl_v1_destroy(machine);
     machine = NULL;
     if (allocator.live_count != 0u || allocator.invalid_release) {
@@ -582,7 +1608,7 @@ int main(int argc, char **argv)
                         expected_audio_bytes) ||
         !write_observations(evidence_directory, &observation, &result,
                             events, video_bytes, audio_bytes,
-                            mailbox_name(expected_mailbox))) {
+                            mailbox_name(expected_mailbox), &refusals)) {
         (void)snprintf(failure_detail, sizeof failure_detail,
                        "could not publish all asserted local evidence files");
         failure_category = "evidence-write";
