@@ -615,12 +615,23 @@ elseif(GBL_STAGE STREQUAL "fit")
   endif()
 
   file(READ "${GBL_FIT_REPORT}" _fit_report)
+  file(STRINGS "${GBL_FIT_REPORT}" _fit_report_lines)
   file(READ "${GBL_PROOF_PATH}" _fit_proof)
   file(READ "${GBL_PACKAGE_INPUTS}" _package_inputs)
   file(SHA256 "${GBL_PROOF_PATH}" _proof_sha)
-  string(FIND "${_fit_report}"
-      "normalized_proof_sha256=${_proof_sha}" _proof_binding_position)
-  if(_proof_binding_position EQUAL -1)
+  set(_proof_binding_count 0)
+  set(_proof_binding_value "")
+  foreach(_fit_line IN LISTS _fit_report_lines)
+    if(_fit_line MATCHES "^normalized_proof_sha256=(.*)$")
+      math(EXPR _proof_binding_count "${_proof_binding_count} + 1")
+      set(_proof_binding_value "${CMAKE_MATCH_1}")
+    endif()
+  endforeach()
+  string(LENGTH "${_proof_binding_value}" _proof_binding_length)
+  if(NOT _proof_binding_count EQUAL 1 OR
+     NOT _proof_binding_length EQUAL 64 OR
+     NOT _proof_binding_value MATCHES "^[0-9a-fA-F]+$" OR
+     NOT _proof_binding_value STREQUAL _proof_sha)
     message(FATAL_ERROR "phase21-fit: normalized proof digest mismatch")
   endif()
 

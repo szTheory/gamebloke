@@ -1372,6 +1372,7 @@ int main(int argc, char **argv)
     run_mode mode = RUN_EXPECT_PASS;
     const char *rom_path;
     const char *evidence_directory;
+    char normalized_evidence_directory[1024];
     const char *failure_category = NULL;
     char failure_detail[256] = "";
     uint8_t *rom_bytes = NULL;
@@ -1405,7 +1406,21 @@ int main(int argc, char **argv)
         return 2;
     }
     rom_path = argv[1];
-    evidence_directory = argv[2];
+    {
+        size_t directory_length = strlen(argv[2]);
+
+        if (directory_length >= sizeof normalized_evidence_directory) {
+            (void)fprintf(stderr,
+                          "installed-consumer: evidence-setup: evidence directory path is too long\n");
+            return EXIT_FAILURE;
+        }
+        memcpy(normalized_evidence_directory, argv[2], directory_length + 1u);
+        while (directory_length > 1u &&
+               normalized_evidence_directory[directory_length - 1u] == '/') {
+            normalized_evidence_directory[--directory_length] = '\0';
+        }
+    }
+    evidence_directory = normalized_evidence_directory;
     if (argc == 4 && strcmp(argv[3], "--timing-control") == 0) {
         mode = RUN_EXPECT_TIMING_FAIL;
         expected_mailbox = GBL_V1_MAILBOX_FAIL;

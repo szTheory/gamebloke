@@ -450,19 +450,19 @@ done
 
 if (cd "$EXECUTION_DIR" && \
     "$BUILD_MOVED/gamebloke-installed-consumer" "$ROM_PATH" \
-      "$EVIDENCE_ROOT/output-symlink-control") \
+      "$EVIDENCE_ROOT/output-symlink-control/") \
       >"$EVIDENCE_ROOT/output-symlink-control.stdout" \
       2>"$EVIDENCE_ROOT/output-symlink-control.stderr"; then
-    fail 'symlinked evidence directory unexpectedly passed'
+    fail 'trailing-slash symlinked evidence directory unexpectedly passed'
 else
     SYMLINK_DIRECTORY_STATUS=$?
 fi
 [ "$SYMLINK_DIRECTORY_STATUS" -ne 0 ] ||
-    fail 'symlinked evidence directory did not fail'
+    fail 'trailing-slash symlinked evidence directory did not fail'
 grep -F 'installed-consumer: evidence-setup:' \
     "$EVIDENCE_ROOT/output-symlink-control.stderr" >/dev/null || {
         cat "$EVIDENCE_ROOT/output-symlink-control.stderr" >&2
-        fail 'symlinked evidence directory failed for the wrong reason'
+    fail 'trailing-slash symlinked evidence directory failed for the wrong reason'
     }
 grep -Fx 'symlink target must survive' \
     "$EVIDENCE_ROOT/output-symlink-target/sentinel.txt" >/dev/null ||
@@ -473,7 +473,7 @@ for file in frame.bgr555le audio.s16le observations.json; do
 done
 printf '%s\n' \
     'output_collision=preexisting_bytes_preserved' \
-    'symlink_evidence_directory=rejected' \
+    'trailing_slash_symlink_evidence_directory=rejected' \
     >"$EVIDENCE_ROOT/output-path-controls.txt"
 
 if (cd "$EXECUTION_DIR" && \
@@ -654,6 +654,17 @@ if [ "$CHECK_FIT" = ON ]; then
                 cat "$EVIDENCE_ROOT/fit-stale-digest.log" >&2
                 fail 'stale proof digest report control failed for the wrong reason'
             }
+        sed 's/^\(normalized_proof_sha256=.*\)$/\1-suffix/' \
+            "$FIT_REPORT" >"$EVIDENCE_ROOT/fit-substring-digest.md"
+        if check_fit_report "$EVIDENCE_ROOT/fit-substring-digest.md" \
+             "$EVIDENCE_ROOT/fit-substring-digest.log"; then
+            fail 'substring proof digest report control unexpectedly passed'
+        fi
+        grep -F 'phase21-fit: normalized proof digest mismatch' \
+            "$EVIDENCE_ROOT/fit-substring-digest.log" >/dev/null || {
+                cat "$EVIDENCE_ROOT/fit-substring-digest.log" >&2
+                fail 'substring proof digest report control failed for the wrong reason'
+            }
         awk '
             $0 == "## Bounded work" { skip = 1 }
             $0 == "## Output ownership" { skip = 0 }
@@ -671,6 +682,7 @@ if [ "$CHECK_FIT" = ON ]; then
         printf '%s\n' \
             'fit_report=pass' \
             'fit_stale_digest=refused' \
+            'fit_substring_digest=refused' \
             'fit_missing_dimension=refused' \
             'libfuturo_recheck=read-only-pass' \
             >>"$EVIDENCE_ROOT/control-results.txt"
