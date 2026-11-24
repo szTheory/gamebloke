@@ -7,15 +7,29 @@ if [ -n "${CI:-}" ]; then
 fi
 
 NEGATIVE_CONTROLS=OFF
-if [ "$#" -eq 1 ] && [ "$1" = '--negative-controls' ]; then
-    NEGATIVE_CONTROLS=ON
-elif [ "$#" -ne 0 ]; then
-    printf '%s\n' 'usage: sh scripts/check-installed-consumer.sh [--negative-controls]' >&2
-    exit 2
-fi
+CHECK_FIT=OFF
+for argument in "$@"; do
+    case "$argument" in
+        --negative-controls) NEGATIVE_CONTROLS=ON ;;
+        --check-fit) CHECK_FIT=ON ;;
+        *)
+            printf '%s\n' 'usage: sh scripts/check-installed-consumer.sh [--negative-controls] [--check-fit]' >&2
+            exit 2
+            ;;
+    esac
+done
 
 SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd -P)
 REPO_ROOT=$(CDPATH= cd -P "$SCRIPT_DIR/.." && pwd -P)
+LIBFUTURO_ROOT=
+if [ "$CHECK_FIT" = ON ]; then
+    LIBFUTURO_REQUEST=${GBL_LIBFUTURO_CHECKOUT:-"$REPO_ROOT/../libfuturo"}
+    if [ ! -d "$LIBFUTURO_REQUEST" ]; then
+        printf '%s\n' 'check-installed-consumer: read-only LibFuturo checkout is unavailable; set GBL_LIBFUTURO_CHECKOUT to an equivalent local checkout' >&2
+        exit 1
+    fi
+    LIBFUTURO_ROOT=$(CDPATH= cd -P "$LIBFUTURO_REQUEST" && pwd -P)
+fi
 PHASE_ROOT="$REPO_ROOT/build/phase21-local"
 WORK_PARENT="$PHASE_ROOT/work"
 FIXTURE_DIR="$PHASE_ROOT/fixture"
@@ -481,6 +495,10 @@ compiler_path=$CC_REAL
 compiler_target=$CC_TARGET
 cmake=$CMAKE_IDENTITY
 ninja=$NINJA_IDENTITY
+toolchain_compiler=$CC_IDENTITY
+toolchain_target=$CC_TARGET
+toolchain_cmake=$CMAKE_IDENTITY
+toolchain_ninja=$NINJA_IDENTITY
 platform=$(uname -s)/$(uname -m)
 package_config=$MOVED_CONFIG_REAL
 package_include=$MOVED_INCLUDE_REAL
@@ -519,6 +537,68 @@ cp "$EVIDENCE_ROOT/run-1/observations.json" "$EVIDENCE_ROOT/proof.json"
 END_SECONDS=$(date +%s)
 printf 'elapsed_seconds=%s\n' "$((END_SECONDS - START_SECONDS))" \
     > "$EVIDENCE_ROOT/feedback-time.txt"
+
+if [ "$CHECK_FIT" = ON ]; then
+    FIT_REPORT="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/LIBFUTURO-FIT.md"
+    check_fit_report()
+    {
+        cmake \
+            -DGBL_STAGE=fit \
+            -DGBL_REPO_ROOT="$REPO_ROOT" \
+            -DGBL_MANIFEST="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json" \
+            -DGBL_SOURCE_PATH="$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" \
+            -DGBL_ROM_PATH="$ROM_PATH" \
+            -DGBL_SCRATCH="$WORK_ROOT" \
+            -DGBL_EVIDENCE_ROOT="$EVIDENCE_ROOT" \
+            -DGBL_COMPILER_IDENTITY="$CC_IDENTITY" \
+            -DGBL_COMPILER_TARGET="$CC_TARGET" \
+            -DGBL_CMAKE_IDENTITY="$CMAKE_IDENTITY" \
+            -DGBL_NINJA_IDENTITY="$NINJA_IDENTITY" \
+            -DGBL_PROOF_PATH="$EVIDENCE_ROOT/proof.json" \
+            -DGBL_PACKAGE_INPUTS="$EVIDENCE_ROOT/package-inputs.txt" \
+            -DGBL_FIT_REPORT="$1" \
+            -DGBL_LIBFUTURO_CHECKOUT="$LIBFUTURO_ROOT" \
+            -P "$REPO_ROOT/scripts/check-installed-consumer.cmake" \
+            >"$2" 2>&1
+    }
+    if ! check_fit_report "$FIT_REPORT" "$EVIDENCE_ROOT/fit-validation.log"; then
+        cat "$EVIDENCE_ROOT/fit-validation.log" >&2
+        fail 'LibFuturo fit report or refreshed source identity did not match the local proof'
+    fi
+    if [ "$NEGATIVE_CONTROLS" = ON ]; then
+        sed 's/^normalized_proof_sha256=.*/normalized_proof_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \
+            "$FIT_REPORT" >"$EVIDENCE_ROOT/fit-stale-digest.md"
+        if check_fit_report "$EVIDENCE_ROOT/fit-stale-digest.md" \
+             "$EVIDENCE_ROOT/fit-stale-digest.log"; then
+            fail 'stale proof digest report control unexpectedly passed'
+        fi
+        grep -F 'phase21-fit: normalized proof digest mismatch' \
+            "$EVIDENCE_ROOT/fit-stale-digest.log" >/dev/null || {
+                cat "$EVIDENCE_ROOT/fit-stale-digest.log" >&2
+                fail 'stale proof digest report control failed for the wrong reason'
+            }
+        awk '
+            $0 == "## Bounded work" { skip = 1 }
+            $0 == "## Output ownership" { skip = 0 }
+            !skip { print }
+        ' "$FIT_REPORT" >"$EVIDENCE_ROOT/fit-missing-dimension.md"
+        if check_fit_report "$EVIDENCE_ROOT/fit-missing-dimension.md" \
+             "$EVIDENCE_ROOT/fit-missing-dimension.log"; then
+            fail 'missing fit dimension report control unexpectedly passed'
+        fi
+        grep -F 'phase21-fit: missing required fit dimension: Bounded work' \
+            "$EVIDENCE_ROOT/fit-missing-dimension.log" >/dev/null || {
+                cat "$EVIDENCE_ROOT/fit-missing-dimension.log" >&2
+                fail 'missing fit dimension report control failed for the wrong reason'
+            }
+        printf '%s\n' \
+            'fit_report=pass' \
+            'fit_stale_digest=refused' \
+            'fit_missing_dimension=refused' \
+            'libfuturo_recheck=read-only-pass' \
+            >>"$EVIDENCE_ROOT/control-results.txt"
+    fi
+fi
 
 printf 'check-installed-consumer: pass; evidence=%s\n' \
     "${EVIDENCE_ROOT#"$REPO_ROOT/"}"

@@ -596,6 +596,327 @@ elseif(GBL_STAGE STREQUAL "evidence")
        "provenance=verified\nfixture_sha256="
        "${_artifact_sha}\nconsumer_semantics=verified\nliteral_raw_media=verified\n")
   message(STATUS "phase21-evidence: installed observations and literal raw media verified")
+elseif(GBL_STAGE STREQUAL "fit")
+  foreach(_required IN ITEMS
+      GBL_PROOF_PATH GBL_PACKAGE_INPUTS GBL_FIT_REPORT GBL_LIBFUTURO_CHECKOUT)
+    if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
+      message(FATAL_ERROR "phase21-fit: missing required input ${_required}")
+    endif()
+  endforeach()
+  foreach(_path IN ITEMS "${GBL_PROOF_PATH}" "${GBL_PACKAGE_INPUTS}"
+      "${GBL_FIT_REPORT}")
+    if(NOT EXISTS "${_path}" OR IS_SYMLINK "${_path}")
+      message(FATAL_ERROR "phase21-fit: required fit evidence is missing or symlinked: ${_path}")
+    endif()
+  endforeach()
+  if(NOT IS_DIRECTORY "${GBL_LIBFUTURO_CHECKOUT}" OR
+     IS_SYMLINK "${GBL_LIBFUTURO_CHECKOUT}")
+    message(FATAL_ERROR "phase21-fit: LibFuturo checkout is missing or symlinked")
+  endif()
+
+  file(READ "${GBL_FIT_REPORT}" _fit_report)
+  file(READ "${GBL_PROOF_PATH}" _fit_proof)
+  file(READ "${GBL_PACKAGE_INPUTS}" _package_inputs)
+  file(SHA256 "${GBL_PROOF_PATH}" _proof_sha)
+  string(FIND "${_fit_report}"
+      "normalized_proof_sha256=${_proof_sha}" _proof_binding_position)
+  if(_proof_binding_position EQUAL -1)
+    message(FATAL_ERROR "phase21-fit: normalized proof digest mismatch")
+  endif()
+
+  gbl_json_get(_fixture_sha _fit_error "${_manifest_json}"
+      fixtures 0 build artifact sha256)
+  gbl_json_get(_fixture_source_commit _fit_error "${_manifest_json}"
+      fixtures 0 source commit)
+  gbl_json_get(_fixture_source_sha _fit_error "${_manifest_json}"
+      fixtures 0 source sha256)
+  file(SHA256 "${GBL_ROM_PATH}" _actual_fixture_sha)
+  file(SHA256 "${GBL_SOURCE_PATH}" _actual_source_sha)
+  if(NOT _fixture_sha STREQUAL _actual_fixture_sha)
+    message(FATAL_ERROR "phase21-fit: local fixture identity differs from the manifest")
+  endif()
+  if(NOT _fixture_source_sha STREQUAL _actual_source_sha)
+    message(FATAL_ERROR "phase21-fit: diagnostic source identity differs from the manifest")
+  endif()
+  foreach(_identity IN ITEMS
+      "fixture_sha256=${_fixture_sha}"
+      "fixture_source_commit=${_fixture_source_commit}"
+      "fixture_source_sha256=${_fixture_source_sha}")
+    string(FIND "${_fit_report}" "${_identity}" _identity_position)
+    if(_identity_position EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: report does not bind ${_identity}")
+    endif()
+  endforeach()
+
+  file(SHA256 "${GBL_REPO_ROOT}/examples/installed-consumer/consumer.c"
+       _consumer_source_sha)
+  file(SHA256 "${GBL_REPO_ROOT}/include/gamebloke/gamebloke_v1.h"
+       _public_header_sha)
+  foreach(_identity IN ITEMS
+      "consumer_source_sha256=${_consumer_source_sha}"
+      "public_header_sha256=${_public_header_sha}")
+    string(FIND "${_fit_report}" "${_identity}" _identity_position)
+    if(_identity_position EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: tested Gamebloke source identity differs from the report")
+    endif()
+  endforeach()
+  foreach(_identity IN ITEMS
+      "toolchain_compiler=${GBL_COMPILER_IDENTITY}"
+      "toolchain_target=${GBL_COMPILER_TARGET}"
+      "toolchain_cmake=${GBL_CMAKE_IDENTITY}"
+      "toolchain_ninja=${GBL_NINJA_IDENTITY}")
+    string(FIND "${_package_inputs}" "${_identity}" _package_position)
+    string(FIND "${_fit_report}" "${_identity}" _report_position)
+    if(_package_position EQUAL -1 OR _report_position EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: tested toolchain identity differs from the report")
+    endif()
+  endforeach()
+
+  gbl_json_get(_profile _fit_error "${_fit_proof}" profile id)
+  gbl_json_get(_profile_version _fit_error "${_fit_proof}" profile version)
+  gbl_json_get(_bios _fit_error "${_fit_proof}" profile bios)
+  gbl_json_get(_qualification _fit_error "${_fit_proof}"
+      profile hardware_qualification)
+  gbl_json_get(_guest_status _fit_error "${_fit_proof}" guest status)
+  gbl_json_get(_guest_case _fit_error "${_fit_proof}" guest case_id)
+  gbl_json_get(_cycle_budget _fit_error "${_fit_proof}"
+      execution cycle_budget)
+  gbl_json_get(_end_cycle _fit_error "${_fit_proof}" execution end_cycle)
+  gbl_json_get(_retired _fit_error "${_fit_proof}"
+      execution retired_instructions)
+  gbl_json_get(_audio_frames _fit_error "${_fit_proof}" audio frames)
+  gbl_json_get(_audio_bytes _fit_error "${_fit_proof}" audio bytes)
+  gbl_json_get(_video_bytes _fit_error "${_fit_proof}" video bytes)
+  if(NOT _profile STREQUAL "agb" OR NOT _profile_version STREQUAL "16" OR
+     NOT _bios STREQUAL "none" OR NOT _qualification STREQUAL "unknown" OR
+     NOT _guest_status STREQUAL "pass" OR NOT _guest_case STREQUAL "21001" OR
+     NOT _cycle_budget STREQUAL "300000" OR NOT _end_cycle STREQUAL "197285" OR
+     NOT _retired STREQUAL "17957" OR NOT _audio_frames STREQUAL "385" OR
+     NOT _audio_bytes STREQUAL "1540" OR NOT _video_bytes STREQUAL "76800")
+    message(FATAL_ERROR "phase21-fit: normalized proof is incomplete or changed")
+  endif()
+
+  gbl_json_get(_timing_cycle _fit_error "${_fit_proof}"
+      refusal_proof timing_control input_cycle)
+  gbl_json_get(_timing_status _fit_error "${_fit_proof}"
+      refusal_proof timing_control status)
+  gbl_json_get(_timing_mask _fit_error "${_fit_proof}"
+      refusal_proof timing_control final_mask)
+  gbl_json_get(_timing_applied _fit_error "${_fit_proof}"
+      refusal_proof timing_control applied)
+  gbl_json_get(_timing_pending _fit_error "${_fit_proof}"
+      refusal_proof timing_control pending)
+  if(NOT _timing_cycle STREQUAL "1536" OR
+     NOT _timing_status STREQUAL "fail" OR NOT _timing_mask STREQUAL "2" OR
+     NOT _timing_applied STREQUAL "3" OR NOT _timing_pending STREQUAL "0")
+    message(FATAL_ERROR "phase21-fit: measured timing control is missing or changed")
+  endif()
+
+  string(JSON _refusal_count ERROR_VARIABLE _refusal_error
+      LENGTH "${_fit_proof}" refusal_proof cases)
+  if(NOT _refusal_error STREQUAL "NOTFOUND" OR NOT _refusal_count EQUAL 5)
+    message(FATAL_ERROR "phase21-fit: proof must contain all five refusal cases")
+  endif()
+  set(_expected_names short-rom advance-size audio-capacity work-budget video-capacity)
+  set(_expected_statuses content_refused invalid_argument
+      insufficient_capacity work_exhausted insufficient_capacity)
+  foreach(_index RANGE 0 4)
+    list(GET _expected_names ${_index} _expected_name)
+    list(GET _expected_statuses ${_index} _expected_status)
+    gbl_json_get(_name _fit_error "${_fit_proof}"
+        refusal_proof cases ${_index} name)
+    gbl_json_get(_expected _fit_error "${_fit_proof}"
+        refusal_proof cases ${_index} expected_status)
+    gbl_json_get(_observed _fit_error "${_fit_proof}"
+        refusal_proof cases ${_index} observed_status)
+    gbl_json_get(_unchanged _fit_error "${_fit_proof}"
+        refusal_proof cases ${_index} caller_buffer unchanged)
+    gbl_json_get(_observation_unchanged _fit_error "${_fit_proof}"
+        refusal_proof cases ${_index} observation_unchanged)
+    gbl_json_get(_committed_cycles _fit_error "${_fit_proof}"
+        refusal_proof cases ${_index} committed_cycles)
+    gbl_json_get(_retry_matches _fit_error "${_fit_proof}"
+        refusal_proof cases ${_index} retry matches_clean_reference)
+    string(JSON _before ERROR_VARIABLE _before_error GET "${_fit_proof}"
+        refusal_proof cases ${_index} before)
+    string(JSON _after ERROR_VARIABLE _after_error GET "${_fit_proof}"
+        refusal_proof cases ${_index} after)
+    if(NOT _before_error STREQUAL "NOTFOUND" OR
+       NOT _after_error STREQUAL "NOTFOUND" OR
+       NOT _before STREQUAL _after)
+      message(FATAL_ERROR "phase21-fit: refusal ${_expected_name} does not preserve every public observation field")
+    endif()
+    if(NOT _name STREQUAL _expected_name OR
+       NOT _expected STREQUAL _expected_status OR
+       NOT _observed STREQUAL _expected_status OR NOT _unchanged OR
+       NOT _observation_unchanged OR NOT _committed_cycles STREQUAL "0" OR
+       NOT _retry_matches)
+      message(FATAL_ERROR "phase21-fit: refusal ${_expected_name} status, canary, state, or retry proof failed")
+    endif()
+    if(_expected_name STREQUAL "advance-size" OR
+       _expected_name STREQUAL "audio-capacity" OR
+       _expected_name STREQUAL "work-budget")
+      gbl_json_get(_result_unchanged _fit_error "${_fit_proof}"
+          refusal_proof cases ${_index} result_canary_unchanged)
+      if(NOT _result_unchanged)
+        message(FATAL_ERROR "phase21-fit: refusal ${_expected_name} changed the result canary")
+      endif()
+    endif()
+  endforeach()
+  gbl_json_get(_probe_units _fit_error "${_fit_proof}"
+      refusal_proof bounded_probe units)
+  gbl_json_get(_probe_budget _fit_error "${_fit_proof}"
+      refusal_proof bounded_probe cycle_budget)
+  gbl_json_get(_probe_end _fit_error "${_fit_proof}"
+      refusal_proof bounded_probe end_cycle)
+  gbl_json_get(_probe_frames _fit_error "${_fit_proof}"
+      refusal_proof bounded_probe audio_frames)
+  if(NOT _probe_units STREQUAL "128" OR
+     NOT _probe_budget STREQUAL "2048" OR NOT _probe_end GREATER 512 OR
+     NOT _probe_end LESS_EQUAL _probe_budget OR NOT _probe_frames GREATER 0)
+    message(FATAL_ERROR "phase21-fit: positive bounded probe did not prove guest work and an audio sample")
+  endif()
+
+  set(_libfuturo_paths
+      docs/contract.md
+      docs/gabbaboy-profile.md
+      docs/muhtari-profile.md
+      docs/nesturbator-profile.md
+      docs/synthetic-profile.md
+      include/libfuturo/libfuturo.h
+      src/gabbaboy_adapter.c
+      src/muhtari_adapter.c
+      src/nesturbator_adapter.c
+      src/synthetic.c)
+  execute_process(
+      COMMAND "${CMAKE_COMMAND}" -E env GIT_OPTIONAL_LOCKS=0
+              git -C "${GBL_LIBFUTURO_CHECKOUT}" rev-parse HEAD
+      RESULT_VARIABLE _head_result OUTPUT_VARIABLE _libfuturo_head
+      ERROR_VARIABLE _head_error OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT _head_result EQUAL 0)
+    message(FATAL_ERROR "phase21-fit: could not refresh LibFuturo HEAD: ${_head_error}")
+  endif()
+  string(FIND "${_fit_report}" "libfuturo_head=${_libfuturo_head}"
+      _head_binding_position)
+  if(_head_binding_position EQUAL -1)
+    message(FATAL_ERROR "phase21-fit: LibFuturo HEAD differs from the inspected report")
+  endif()
+  execute_process(
+      COMMAND "${CMAKE_COMMAND}" -E env GIT_OPTIONAL_LOCKS=0
+              git -C "${GBL_LIBFUTURO_CHECKOUT}" status --short -- ${_libfuturo_paths}
+      RESULT_VARIABLE _status_result OUTPUT_VARIABLE _libfuturo_status
+      ERROR_VARIABLE _status_error OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT _status_result EQUAL 0)
+    message(FATAL_ERROR "phase21-fit: could not refresh relevant LibFuturo status: ${_status_error}")
+  endif()
+  string(REPLACE "\n" ";" _status_lines "${_libfuturo_status}")
+  set(_normalized_status_lines)
+  foreach(_status_line IN LISTS _status_lines)
+    string(STRIP "${_status_line}" _status_line)
+    if(NOT _status_line STREQUAL "")
+      list(APPEND _normalized_status_lines "${_status_line}")
+    endif()
+  endforeach()
+  list(JOIN _normalized_status_lines "|" _normalized_status)
+  string(FIND "${_fit_report}"
+      "libfuturo_relevant_status=${_normalized_status}" _status_binding_position)
+  if(_status_binding_position EQUAL -1)
+    message(FATAL_ERROR "phase21-fit: relevant LibFuturo dirty status differs from the report")
+  endif()
+  foreach(_relative_path IN LISTS _libfuturo_paths)
+    set(_absolute_path "${GBL_LIBFUTURO_CHECKOUT}/${_relative_path}")
+    if(NOT EXISTS "${_absolute_path}" OR IS_SYMLINK "${_absolute_path}")
+      message(FATAL_ERROR "phase21-fit: reviewed LibFuturo source is missing or symlinked: ${_relative_path}")
+    endif()
+    file(SHA256 "${_absolute_path}" _current_sha)
+    string(FIND "${_fit_report}"
+        "file_sha256|${_relative_path}|${_current_sha}" _file_binding_position)
+    if(_file_binding_position EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: reviewed LibFuturo content changed: ${_relative_path}")
+    endif()
+  endforeach()
+  file(READ "${GBL_LIBFUTURO_CHECKOUT}/src/synthetic.c" _profile_registry)
+  foreach(_declared_profile IN ITEMS "synthetic-v1" "nesturbator-ntsc-v1"
+      "muhtari-ntsc-v1" "gabbaboy-dmg-v1")
+    string(FIND "${_profile_registry}" "${_declared_profile}" _declared_position)
+    if(_declared_position EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: expected LibFuturo profile declaration is absent: ${_declared_profile}")
+    endif()
+  endforeach()
+  string(FIND "${_profile_registry}" "\"agb\"" _gba_profile_position)
+  if(NOT _gba_profile_position EQUAL -1)
+    message(FATAL_ERROR "phase21-fit: source registry now declares an agb profile; refresh the fit report")
+  endif()
+
+  set(_fit_headings
+      "Input timing" "Bounded work" "Output ownership" "Evidence semantics")
+  set(_fit_profile_references
+      "docs/muhtari-profile.md"
+      "docs/gabbaboy-profile.md|docs/nesturbator-profile.md"
+      "docs/muhtari-profile.md|docs/gabbaboy-profile.md|docs/nesturbator-profile.md"
+      "docs/synthetic-profile.md|docs/muhtari-profile.md|docs/gabbaboy-profile.md|docs/nesturbator-profile.md|src/synthetic.c")
+  set(_fit_measurement_references
+      "timing_control|1,536"
+      "bounded_probe|2,048"
+      "audio-capacity|video-capacity|76,800"
+      "timing_control|mailbox|unknown")
+  foreach(_heading IN LISTS _fit_headings)
+    string(FIND "${_fit_report}" "## ${_heading}" _heading_position)
+    if(_heading_position EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: missing required fit dimension: ${_heading}")
+    endif()
+  endforeach()
+  foreach(_index RANGE 0 3)
+    list(GET _fit_headings ${_index} _heading)
+    math(EXPR _next_index "${_index} + 1")
+    if(_index LESS 3)
+      list(GET _fit_headings ${_next_index} _next_heading)
+      set(_next_marker "## ${_next_heading}")
+    else()
+      set(_next_marker "## Recommendation")
+    endif()
+    string(FIND "${_fit_report}" "## ${_heading}" _section_start)
+    if(_section_start EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: missing required fit dimension: ${_heading}")
+    endif()
+    string(FIND "${_fit_report}" "${_next_marker}" _section_end)
+    if(_section_end LESS_EQUAL _section_start)
+      message(FATAL_ERROR "phase21-fit: malformed fit dimension order: ${_heading}")
+    endif()
+    math(EXPR _section_length "${_section_end} - ${_section_start}")
+    string(SUBSTRING "${_fit_report}" ${_section_start} ${_section_length}
+        _section_text)
+    foreach(_source_marker IN ITEMS "proof.json" "docs/core-api-v1.md"
+        "include/libfuturo/libfuturo.h" "docs/contract.md")
+      string(FIND "${_section_text}" "${_source_marker}" _source_position)
+      if(_source_position EQUAL -1)
+        message(FATAL_ERROR "phase21-fit: ${_heading} lacks source or measurement reference ${_source_marker}")
+      endif()
+    endforeach()
+    list(GET _fit_profile_references ${_index} _profile_reference_list)
+    string(REPLACE "|" " " _profile_reference_list "${_profile_reference_list}")
+    separate_arguments(_profile_reference_list)
+    foreach(_profile_reference IN LISTS _profile_reference_list)
+      string(FIND "${_section_text}" "${_profile_reference}" _profile_position)
+      if(_profile_position EQUAL -1)
+        message(FATAL_ERROR "phase21-fit: ${_heading} lacks profile/registry source ${_profile_reference}")
+      endif()
+    endforeach()
+    list(GET _fit_measurement_references ${_index} _measurement_reference_list)
+    string(REPLACE "|" " " _measurement_reference_list "${_measurement_reference_list}")
+    separate_arguments(_measurement_reference_list)
+    foreach(_measurement_reference IN LISTS _measurement_reference_list)
+      string(FIND "${_section_text}" "${_measurement_reference}" _measurement_position)
+      if(_measurement_position EQUAL -1)
+        message(FATAL_ERROR "phase21-fit: ${_heading} lacks measured reference ${_measurement_reference}")
+      endif()
+    endforeach()
+    string(FIND "${_section_text}" "**Follow-up.**" _followup_position)
+    if(_followup_position EQUAL -1)
+      message(FATAL_ERROR "phase21-fit: ${_heading} lacks a concrete follow-up")
+    endif()
+  endforeach()
+  message(STATUS "phase21-fit: report dimensions, proof, fixture, toolchain, and read-only LibFuturo state verified")
 else()
   message(FATAL_ERROR "phase21-manifest: unknown stage '${GBL_STAGE}'")
 endif()
