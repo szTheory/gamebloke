@@ -297,13 +297,26 @@ cmake --install "$PACKAGE_BUILD" --prefix "$INITIAL_PREFIX" \
         cat "$EVIDENCE_ROOT/root-install.log" >&2
         fail 'GameblokeCoreApi component install failed'
     }
-PACKAGE_INVENTORY=$(cd "$INITIAL_PREFIX" && find . -type f -print | sort)
+PACKAGE_INVENTORY=$(cd "$INITIAL_PREFIX" && find . ! -type d -print | sort)
 EXPECTED_INVENTORY=$(printf '%s\n' \
     './include/gamebloke/gamebloke_v1.h' \
     './lib/cmake/gamebloke/gameblokeConfig.cmake' \
     './lib/cmake/gamebloke/gameblokeTargets-release.cmake' \
     './lib/cmake/gamebloke/gameblokeTargets.cmake' \
     './lib/libgamebloke_core.a')
+if [ "$NEGATIVE_CONTROLS" = ON ]; then
+    ln -s "$WORK_ROOT/missing-package-target" \
+        "$INITIAL_PREFIX/unexpected-package-link"
+    PACKAGE_SYMLINK_INVENTORY=$(cd "$INITIAL_PREFIX" && \
+        find . ! -type d -print | sort)
+    printf '%s\n' "$PACKAGE_SYMLINK_INVENTORY" |
+        grep -Fx './unexpected-package-link' >/dev/null ||
+        fail 'installed-package inventory omitted an unexpected symlink'
+    rm "$INITIAL_PREFIX/unexpected-package-link"
+    PACKAGE_SYMLINK_CONTROL=visible
+else
+    PACKAGE_SYMLINK_CONTROL=not-run
+fi
 if [ "$PACKAGE_INVENTORY" != "$EXPECTED_INVENTORY" ]; then
     printf '%s\n' "$PACKAGE_INVENTORY" > "$EVIDENCE_ROOT/package-inventory.actual.txt"
     printf '%s\n' "$EXPECTED_INVENTORY" > "$EVIDENCE_ROOT/package-inventory.expected.txt"
@@ -472,7 +485,12 @@ mkfifo "$FIFO_ROM_PATH"
 ) >"$EVIDENCE_ROOT/fifo-rom-control.stdout" \
   2>"$EVIDENCE_ROOT/fifo-rom-control.stderr" &
 FIFO_CONSUMER_PID=$!
-sleep 1
+FIFO_WAIT_SECONDS=0
+while [ ! -f "$FIFO_STATUS_PATH" ] &&
+      [ "$FIFO_WAIT_SECONDS" -lt 10 ]; do
+    sleep 1
+    FIFO_WAIT_SECONDS=$((FIFO_WAIT_SECONDS + 1))
+done
 if [ ! -f "$FIFO_STATUS_PATH" ]; then
     if [ -f "$FIFO_PID_PATH" ]; then
         FIFO_INNER_PID=$(cat "$FIFO_PID_PATH")
@@ -687,6 +705,7 @@ printf '%s\n' \
     "video_mutation_status=${VIDEO_CONTROL_STATUS:-not-run}" \
     "audio_mutation_status=${AUDIO_CONTROL_STATUS:-not-run}" \
     "refusal_canary_mutation_status=${REFUSAL_CANARY_STATUS:-not-run}" \
+    "package_symlink_inventory=${PACKAGE_SYMLINK_CONTROL:-not-run}" \
     "fifo_rom_refusal=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
     "generator_output_symlink=$([ "$NEGATIVE_CONTROLS" = ON ] && printf refused || printf not-run)" \
     "ci_refusal=$([ "$NEGATIVE_CONTROLS" = ON ] && printf checked || printf not-run)" \
