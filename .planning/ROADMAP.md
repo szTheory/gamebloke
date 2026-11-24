@@ -87,7 +87,7 @@ software versions.
 ## Phases
 
 - [x] **Phase 20: Bounded Core API** - C callers can run independent machines, observe raw outputs, and handle refusals through the versioned public API. (completed 2026-11-23)
-- [ ] **Phase 21: Installed Consumer Proof and LibFuturo Fit** - A relocated C consumer reproduces guest and raw A/V evidence and provides a concrete basis for evaluating LibFuturo.
+- [x] **Phase 21: Installed Consumer Proof and LibFuturo Fit** - A relocated C consumer reproduces guest and raw A/V evidence and provides a concrete basis for evaluating LibFuturo. (completed 2026-11-24)
 
 <details>
 <summary>✅ Completed v4.0 Audio phases — 2026-11-23</summary>
@@ -141,7 +141,7 @@ software versions.
   4. Through the installed API, a developer can reproduce the documented refusal statuses and compare the machine observations and buffer contents before and after invalid size, capacity, and budget requests.
   5. The LibFuturo fit report cites observations from the actual API and relocated consumer, identifies fits and gaps in input timing, work bounds, output ownership, and evidence semantics, and gives the evidence needed for a separate dependency or contract decision.
 
-**Plans**: 2/2 plans executed
+**Plans**: 2/2 plans complete
 **Wave 1**
 - [x] 21-01-PLAN.md — Run the original local diagnostic through a relocated public-only C consumer with verified provenance and literal guest and media checks.
 
@@ -153,7 +153,7 @@ software versions.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. Bounded Core API | 1/1 | Complete    | 2026-11-23 |
-| 21. Installed Consumer Proof and LibFuturo Fit | 2/2 | In Progress | - |
+| 21. Installed Consumer Proof and LibFuturo Fit | 2/2 | Complete    | 2026-11-24 |
 
 ## Open Carryovers and Evidence Limits
 

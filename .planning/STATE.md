@@ -3,46 +3,45 @@ gsd_state_version: "1.0"
 milestone: v5.0
 milestone_name: Deterministic Core API and Installed Consumer Proof
 current_phase: 21
-current_phase_name: Installed Consumer Proof and LibFuturo Fit
-current_plan: 2
-status: verifying
-stopped_at: Completed 21-02-PLAN.md; canonical workflow stopped at existing hygiene.tree findings; phase verification pending
-last_updated: "2026-11-24T05:06:58.256Z"
-last_activity: 2026-11-23
-last_activity_desc: Phase 20 complete, transitioned to Phase 21
-state_head: 0c2080dd7514f24bb546edba2d7ac40c4b0f4ec0
+current_plan: Not started
+status: completed
+stopped_at: Phase 21 complete — all phases complete
+last_updated: "2026-11-24T15:04:22Z"
+last_activity: 2026-11-24
+last_activity_desc: v5.0 audit complete; owner choice needed on Phase 20 Nyquist status
+state_head: 795c13e3bc16e388b7b4f87450ad6fb6bc5dad60
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
   completed_plans: 3
-  percent: 50
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-23)
+See: .planning/PROJECT.md (updated 2026-11-24)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
 **Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Phase 21, Installed Consumer Proof and LibFuturo Fit. Phase 20's API and threat mitigations are verified; the v5.0 requirements and remaining scope are ready for autonomous discussion and planning.
+**Current focus:** Both v5.0 phases are complete and goal verification passed. The milestone audit found no critical blockers but classified Phase 20 Nyquist metadata as not validated because its status is `complete`, not `validated`. The audit report is ready; milestone close awaits the owner's choice to validate Phase 20 or accept the documented verification debt. No new milestone scope has been selected.
 
 ## Current Position
 
-Phase: 21 (Installed Consumer Proof and LibFuturo Fit) — READY TO EXECUTE
-Current Plan: 2
+Phase: 21 — Installed Consumer Proof and LibFuturo Fit (complete)
+Current Plan: None
 Total Plans in Phase: 2
-Status: Phase complete — ready for verification
-Last activity: 2026-11-23 — Phase 20 complete, transitioned to Phase 21
+Status: All phases complete; audit is `tech_debt`; waiting for owner choice before milestone close
+Last activity: 2026-11-24 — Phase 21 verified and completed
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 125
+- Total plans completed: 127
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -65,6 +64,7 @@ Progress: [█████░░░░░] 50%
 | 16 | 3 | - | - |
 | 17 | 4 | - | - |
 | 20 | 1 | - | - |
+| 21 | 2 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -223,6 +223,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - [v5.0 Roadmap] Phase 20 proves the versioned, opaque Core API for the existing `agb` direct-start, ROM-only profile, including bounded advancement, A/V observations, and refusal postconditions. Phase 21 proves the same public boundary from a relocated C consumer with a rights-reviewed diagnostic and uses its results to assess LibFuturo fit. All nine requirements map to one phase each. Dependency adoption, Playstead changes, backup devices, compatibility-superiority claims, hardware qualification, and public release are outside this milestone.
+- [Phase 20 owner decisions] API v1 uses versioned `gbl_v1_*` symbols, sized extensible structs, and caller allocator callbacks. These choices shape the implemented public source contract; they do not promise long-term binary package compatibility.
+- [Phase 21 LibFuturo review] The owner-provided current-source assessment supports the four fit comparisons. Existing GabbaBoy frame bounds do not provide a caller-selected GBA cycle ceiling; preflight refusal guarantees do not imply rollback after a native run begins. The assessment does not approve adoption.
 
 - [v3.0 Roadmap]: Phase 11 owns the mode/output contract, sampled rows, and transactional visibility; Phase 12 delivers all text/affine/bitmap BG families; Phase 13 owns OBJ and shared priority; Phase 14 owns windows/effects/mosaic/blank; Phase 15 owns CPU/DMA video-memory policy enforcement and complete semantic/runner/replay evidence. All 18 current requirements have one owner phase; tests accompany each feature, with full coverage accepted in Phase 15.
 - [v3.0 Limits]: Preserve the selected 1006-cycle HBlank and line-sampling policy, open HBlank/DMA-latch/within-line disputes, UNKNOWN hardware qualification, fixture-rights limits, and every existing hosted/budget/no-retry stop. No new BIOS, third-party fixture, hosted rerun, publication, or implementation authority follows from roadmap creation. See ROADMAP.md and PROJECT.md for scope and horizon alternatives.
@@ -624,7 +626,6 @@ None yet.
 - Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
 - Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
 - macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The owner ran the dependency-free terminal Libretro host and accepted the visible original demo; G6 is recorded as accepted for this scope. The terminal preview is downsampled and sub-real-time, and does not establish hardware qualification or broad compatibility.
-- Phase 21 verification is pending: cmake --workflow --preset ci stopped at hygiene.tree on existing absolute home-path references in Phase 20 summary/verification artifacts and Phase 21 research. Resolve those prior planning artifacts, then rerun the canonical workflow through ci-post.
 
 ## Deferred Items
 
@@ -652,12 +653,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-24T05:06:58.215Z
-Stopped at: Completed 21-02-PLAN.md; canonical workflow stopped at existing hygiene.tree findings; phase verification pending
+Last session: 2026-11-24T15:04:22Z
+Stopped at: v5.0 milestone audit report complete; waiting for owner choice on Phase 20 Nyquist validation
 Resume file: None
 
 ## Operator Next Steps
 
 
 
-- Run `$gsd-autonomous` to discuss, plan, and execute Phases 20–21, then audit and complete v5.0.
+- Choose whether to run `$gsd-validate-phase 20` before close or accept the non-blocking Phase 20 Nyquist metadata debt and proceed with milestone completion. The audit report is `.planning/v5.0-MILESTONE-AUDIT.md`. After close, review the phase-archive dry run before any directories are moved. Decide the next rolling milestone scope separately; no release, adoption, or Playstead route change is authorized by this completion.

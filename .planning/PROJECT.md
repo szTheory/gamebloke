@@ -49,8 +49,8 @@ guest and raw A/V evidence from an installed consumer.
   literal output expectations, and documented refusal postconditions.
 - Evidence-based LibFuturo fit evaluation without default adoption.
 
-**Status:** Owner-approved scope; formal requirements and the two-phase roadmap
-are established. Phase 20 is next. This does not authorize a public release,
+**Status:** Phases 20 and 21 are complete and locally verified; milestone audit
+and archival are in progress. This does not authorize a public release,
 hardware qualification, or a Playstead route change.
 
 <details>
@@ -105,6 +105,9 @@ promotion criteria.
 - ✓ Window masks, color effects, mosaic, and forced blank produce declared semantic raw pixels with deterministic region and boundary behavior — Phase 14. This remains a software model, not hardware qualification.
 - ✓ CPU/DMA video-memory accesses retain the selected existing bus behavior, while a bounded production-runner scene reports semantic pixels, machine time, guest progress, complete-frame status, and capability evidence — Phase 15. HBlank, DMA-latch, and within-line visibility disputes remain open.
 - ✓ Guest-time PSG 1–4 and Direct Sound FIFO A/B behavior, fixed-grid six-source pre-PWM stereo mixing, and bounded production-runner PCM evidence — v4.0 Audio (2026-11-23). The diagnostic is local-only with redistribution unknown; hardware qualification remains UNKNOWN.
+- ✓ Versioned opaque Gamebloke C API v1 for the supported `agb` direct-start, ROM-only machine, with caller allocator callbacks, extensible sized structs, bounded advancement, caller-owned outputs, and documented refusal postconditions — Phase 20. This records the source contract; it does not claim a separately versioned binary package or release.
+- ✓ Relocated public-only C consumer and local original BIOS-free diagnostic proof with semantic guest checks, literal raw A/V observations, provenance, refusal controls, and retry evidence — Phase 21. The diagnostic and generated ROM remain authorized for this local phase only; redistribution rights and hardware qualification remain unknown.
+- ✓ LibFuturo fit assessed against the measured installed consumer — Phase 21. Gamebloke v1 remains the only demonstrated GBA route; adoption, contract changes, and Playstead integration remain separate decisions.
 
 ### Active
 
@@ -113,9 +116,7 @@ These are hypotheses until shipped and verified. Formal REQ-IDs live in
 requirements are archived in `.planning/milestones/v4.0-REQUIREMENTS.md`; the
 next milestone will define its own requirements.
 
-- [ ] A versioned, opaque, per-instance core API for the currently supported `agb` behavior, with explicit lifecycle, bounded advancement, caller-owned outputs, result claims, and refusal postconditions
-- [ ] A relocated installed consumer proving the public API without source-tree or private-structure access
-- [ ] A fixture manifest for every test ROM (source, revision, build recipe, digest, license, permitted use, BIOS mode, expected result)
+- [ ] Complete provenance and rights metadata for every test ROM, including source, revision, build recipe, digest, license/notices, permitted use, BIOS mode, and expected result; Phase 21 validates one local-only diagnostic, not every fixture.
 
 ### Future
 
@@ -197,9 +198,10 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | CPU/system timing architecture | Phases 7–10 use one machine-owned event/time path and shared bus accounting | ✓ Architecture established; exact hardware timing and prefetch remain incomplete or unqualified |
 | Cartridge format and backup-media scope | Current profile accepts ROM-only content; backup devices remain deferred | ✓ Current scope documented; CART-01 and other save media remain future work |
 | First diagnostic and playable fixture | Phase 10 original BIOS-free demo ran locally and was accepted under G6; manifest keeps it local-only | ✓ Scoped demo accepted; redistribution rights remain unknown |
-| Implementation language, build, API/ABI | C17/CMake core; official Libretro ABI adapter added; public Gamebloke API remains later scope | ✓ Implementation/build and Libretro boundary established; stable public API remains pending |
-| Host platform and installed consumer | Phase 10 local terminal host runs the Libretro module; installed external consumer remains future scope | ✓ Local host established; relocatable consumer/package remains pending |
-| LibFuturo fit | Prove with a real core/consumer before adoption | — Pending (later phase) |
+| Implementation language, build, API/ABI | C17/CMake core; official Libretro ABI adapter; versioned opaque Gamebloke API v1 delivered in Phase 20 | ✓ The public source contract and its installed component are verified; package publication and long-term binary compatibility remain separate |
+| Host platform and installed consumer | Phase 10 local terminal host runs the Libretro module; Phase 21 adds a relocated public-only C consumer | ✓ Both host paths are locally verified within their stated scopes |
+| API v1 evolution and allocation (owner, 2026-11-24) | Use `gbl_v1_*` symbols and sized extensible structs; let the caller choose allocation through callbacks | ✓ Implemented in Phase 20; API revisions and callback lifetime remain explicit |
+| LibFuturo fit | Compare the current contract to the real Gamebloke consumer before adoption | ✓ Assessed in Phase 21; no current GBA route or matching single-advance timed-input/caller-cycle-budget contract was demonstrated. Defer adoption and contract changes pending a GBA-specific proof. |
 | Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
 | Required check `CI required` on `ubuntu-26.04` + `macos-26` (arm64), actions SHA-pinned, `main` protected by a PR-only ruleset with no bypass actors (owner-authorized, 2026-11-10) | One command, same verdict locally and in CI; nothing reaches main except through a green PR | ✓ Good (Phase 1) |
 | Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | Remains the policy; Phase 6 is local and incomplete, with hosted evidence still open |
@@ -241,4 +243,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-23 after starting the owner-approved v5.0 milestone*
+*Last updated: 2026-11-24 after Phase 21 verification*
