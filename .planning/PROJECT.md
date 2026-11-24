@@ -18,40 +18,43 @@ behavior. That behavior covers guest progress, machine time, CPU/device
 effects, raw video, and raw audio, all observed separately, and every result
 says exactly what it proves and what it does not.
 
-## Most Recent Completed Milestone: v4.0 Audio
+## Most Recent Completed Milestone: v5.0 Deterministic Core API and Installed Consumer Proof
+
+Phases 20 and 21 completed locally with all nine v5.0 requirements satisfied.
+Gamebloke now exposes a versioned opaque C API for the supported `agb`
+direct-start, ROM-only profile and an installed static component. A relocated
+public-only C consumer reproduced guest semantics and literal raw video/audio
+observations from the original BIOS-free diagnostic. The LibFuturo assessment
+found no current GBA route or contract that carries the measured timed-input
+schedule and caller-selected cycle ceiling, so adoption and contract changes
+remain deferred.
+
+The milestone audit found no unsatisfied requirements or broken flows. It
+records one non-blocking evidence-breadth limit: the relocated consumer does
+not repeat reset, unload, and unsupported-request refusals, though Phase 20 API
+tests cover them. The diagnostic remains authorized for local Phase 21 use
+only, with redistribution rights unknown. Hardware qualification is UNKNOWN.
+This GSD milestone is complete locally; no software release, package
+publication, hardware qualification, or Playstead route change is claimed.
+
+<details>
+<summary>Previous completed milestone: v4.0 Audio</summary>
 
 v4.0 added guest-time behavior for PSG channels 1–4 and Direct Sound FIFO A/B,
 integrated with the canonical machine clock, timers, and shared DMA arbitration.
-The `agb` profile now declares deterministic six-source stereo mixing and a
+The `agb` profile declares deterministic six-source stereo mixing and a
 bounded pre-PWM S16LE capture grid. The production runner reports guest,
 capture, and artifact outcomes independently. Literal PCM, replay, refusal,
 profile/result, and source-bound local guest checks passed; the full v4.0
-requirements and cross-phase flows are verified locally.
+requirements and cross-phase flows were verified locally.
 
-This is a GSD milestone label, not a Gamebloke software release. The output is a
-digital software model, not PWM or analog playback, and does not establish
-physical audio accuracy or broad retail compatibility. Hardware qualification
-remains UNKNOWN. The original diagnostic is permitted for local verification;
-redistribution remains unknown. No hosted run, publication, release package,
-or replacement of Playstead's managed mGBA route is claimed or authorized.
+The output is a digital software model, not PWM or analog playback, and does
+not establish physical audio accuracy or broad retail compatibility. Hardware
+qualification remains UNKNOWN. The original diagnostic is permitted for local
+verification; redistribution remains unknown. No hosted run, publication,
+release package, or replacement of Playstead's managed mGBA route was claimed.
 
-## Current Milestone: v5.0 Deterministic Core API and Installed Consumer Proof
-
-**Goal:** Prove that developers and integrators can use Gamebloke's canonical
-GBA machine through a stable, portable, bounded API and obtain reproducible
-guest and raw A/V evidence from an installed consumer.
-
-**Target features:**
-- Versioned opaque per-instance C API for the existing `agb`, direct-start,
-  ROM-only profile.
-- Relocated installed C consumer using only public artifacts.
-- Rights-reviewed BIOS-free diagnostic with semantic guest assertions,
-  literal output expectations, and documented refusal postconditions.
-- Evidence-based LibFuturo fit evaluation without default adoption.
-
-**Status:** Phases 20 and 21 are complete and locally verified; milestone audit
-and archival are in progress. This does not authorize a public release,
-hardware qualification, or a Playstead route change.
+</details>
 
 <details>
 <summary>Previous completed milestone: v3.0 PPU Modes and Composition</summary>
@@ -68,16 +71,18 @@ carryovers.
 
 </details>
 
-## Rolling Milestone Direction
+## Next Milestone Goals
 
-The active v5.0 scope tests Gamebloke's proposed developer/integrator value
-beside Playstead's managed mGBA route. After that, use actual consumer evidence
-to select a narrowly scoped cartridge/save capability; then consider a
-side-by-side Playstead route, targeted compatibility and portability evidence,
-and package/release readiness. This is a rolling horizon, not a commitment to
-specific future milestone numbers. See ROADMAP.md and
-research/V5.0-MILESTONE-SUMMARY.md for evidence, provenance, tradeoffs, and
-promotion criteria.
+No next milestone scope has been selected. Keep the rolling horizon in
+`.planning/ROADMAP.md` as decision context: revisit cartridge/save devices when
+a consumer demonstrates a concrete need; consider a side-by-side Playstead
+route only after Gamebloke establishes useful capability beside the managed
+mGBA route; then prioritize exact-profile portability and compatibility
+evidence. Package publication and software releases remain gated by rights,
+licensing, package readiness, qualification claims, and owner authority. These
+are alternatives for future discussion, not committed milestone scope. See
+`.planning/ROADMAP.md` and `research/V5.0-MILESTONE-SUMMARY.md` for provenance,
+tradeoffs, and promotion criteria.
 
 ## Requirements
 
@@ -105,9 +110,9 @@ promotion criteria.
 - ✓ Window masks, color effects, mosaic, and forced blank produce declared semantic raw pixels with deterministic region and boundary behavior — Phase 14. This remains a software model, not hardware qualification.
 - ✓ CPU/DMA video-memory accesses retain the selected existing bus behavior, while a bounded production-runner scene reports semantic pixels, machine time, guest progress, complete-frame status, and capability evidence — Phase 15. HBlank, DMA-latch, and within-line visibility disputes remain open.
 - ✓ Guest-time PSG 1–4 and Direct Sound FIFO A/B behavior, fixed-grid six-source pre-PWM stereo mixing, and bounded production-runner PCM evidence — v4.0 Audio (2026-11-23). The diagnostic is local-only with redistribution unknown; hardware qualification remains UNKNOWN.
-- ✓ Versioned opaque Gamebloke C API v1 for the supported `agb` direct-start, ROM-only machine, with caller allocator callbacks, extensible sized structs, bounded advancement, caller-owned outputs, and documented refusal postconditions — Phase 20. This records the source contract; it does not claim a separately versioned binary package or release.
-- ✓ Relocated public-only C consumer and local original BIOS-free diagnostic proof with semantic guest checks, literal raw A/V observations, provenance, refusal controls, and retry evidence — Phase 21. The diagnostic and generated ROM remain authorized for this local phase only; redistribution rights and hardware qualification remain unknown.
-- ✓ LibFuturo fit assessed against the measured installed consumer — Phase 21. Gamebloke v1 remains the only demonstrated GBA route; adoption, contract changes, and Playstead integration remain separate decisions.
+- ✓ **API-01–API-05:** Versioned opaque Gamebloke C API v1 for the supported `agb` direct-start, ROM-only machine, with caller allocator callbacks, extensible sized structs, bounded advancement, caller-owned outputs, and documented refusal postconditions — Phase 20. This records the source contract; it does not claim a separately versioned binary package or release.
+- ✓ **CONS-01, EVID-01, EVID-02:** Relocated public-only C consumer and local original BIOS-free diagnostic proof with semantic guest checks, literal raw A/V observations, provenance, refusal controls, and retry evidence — Phase 21. The diagnostic and generated ROM remain authorized for this local phase only; redistribution rights and hardware qualification remain unknown.
+- ✓ **INT-01:** LibFuturo fit assessed against the measured installed consumer — Phase 21. Gamebloke v1 remains the only demonstrated GBA route; adoption, contract changes, and Playstead integration remain separate decisions.
 
 ### Active
 
@@ -148,7 +153,7 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
-- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, and dependency-free terminal frontend. The shared machine-time path drives timers, CPU IRQ/HALT sampling, timestamped logical input, WAITCNT-aware bus costs, DMA arbitration, PPU boundaries, PSG/Direct Sound and raw video/audio capture. PPU modes 0–5 and the declared six-source audio mixer have semantic, replay, and production-runner evidence. Selected timing remains project-model policy: Game Pak prefetch is unmodeled; DMA-latch, HBlank, and within-line visibility disputes remain open; hardware qualification is UNKNOWN. The generated audio diagnostic remains local-only with redistribution unknown. Phase 6 `DIAG-04` and `DET-02` remain open; no hosted run, publication, or software release occurred for v4.0.
+- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, dependency-free terminal frontend, and the versioned opaque C API with an installed static component. The relocated consumer demonstrates guest semantics, timed input, literal raw video/audio, and refusal/retry behavior. The shared machine-time path drives timers, CPU IRQ/HALT sampling, WAITCNT-aware bus costs, DMA arbitration, PPU boundaries, PSG/Direct Sound, and raw media capture. PPU modes 0–5 and the declared six-source audio mixer retain semantic, replay, and production-runner evidence. Selected timing remains project-model policy: Game Pak prefetch is unmodeled; DMA-latch, HBlank, and within-line visibility disputes remain open; hardware qualification is UNKNOWN. The Phase 21 diagnostic is local-only with redistribution unknown. LibFuturo adoption and contract changes are deferred; Phase 6 `DIAG-04` and `DET-02` remain open. No hosted run, publication, or software release occurred for v5.0.
 
 ## Constraints
 
@@ -243,4 +248,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-24 after Phase 21 verification*
+*Last updated: 2026-11-24 after v5.0 milestone completion*

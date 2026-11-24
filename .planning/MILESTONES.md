@@ -1,5 +1,24 @@
 # Milestones
 
+## v5.0 Deterministic Core API and Installed Consumer Proof (Completed locally: 2026-11-24)
+
+**Delivered:** A stable local C API and relocated consumer prove the public GBA machine boundary and provide evidence for future integration decisions.
+**Phases completed:** 2 phases, 3 plans, 7 tasks
+**Verification:** 9/9 requirements satisfied; both phases passed goal verification and Nyquist validation. Audit status is `tech_debt` for one non-blocking relocated-consumer evidence limit.
+**Outcome:** Local GSD milestone complete. No software release, package publication, hosted release run, or hardware qualification occurred. Hardware qualification remains UNKNOWN.
+**Stats:** 47 files changed, 10,028 insertions and 89 deletions across the implementation/review range; 4,458 C/header lines added in 5 files. Two calendar days from the first API implementation commit to final feature commit.
+**Git range:** `56d0226` (first Phase 20 implementation) → `0c2080d` (final Phase 21 feature commit); closeout records continue through `c50bcd7`.
+**Known evidence limit:** The relocated consumer does not repeat reset, unload, or unsupported-request refusal; Phase 20 API tests cover those cases.
+**Known verification overrides:** 0 newly acknowledged; 1 previously acknowledged verification gap from v1.0 remains carried forward.
+**What's next:** No scope is selected; use the rolling horizon in `.planning/ROADMAP.md` for the next milestone discussion.
+
+**Key accomplishments:**
+- A versioned opaque C boundary now runs the canonical machine with caller-owned allocation, copied input, bounded transactional execution, raw media output and a relocatable static component.
+- A relocated public C consumer reproduces a local BIOS-free diagnostic with literal BGR555LE video and pre-PWM S16LE audio evidence.
+- The installed consumer now proves atomic refusals and retries, and the LibFuturo assessment is tied to fresh local proof and read-only source identities.
+
+---
+
 ## v4.0 Audio (Completed locally: 2026-11-23)
 
 **Phases completed:** 4 phases, 17 plans, 42 tasks

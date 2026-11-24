@@ -2,20 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v5.0
 milestone_name: Deterministic Core API and Installed Consumer Proof
-current_phase: 21
-current_plan: Not started
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 21 complete — all phases complete
-last_updated: "2026-11-24T15:28:47Z"
+last_updated: "2026-11-24T16:36:47Z"
 last_activity: 2026-11-24
-last_activity_desc: Phase 20 validation and verification reconciled; v5.0 audit complete
-state_head: 795c13e3bc16e388b7b4f87450ad6fb6bc5dad60
+last_activity_desc: Milestone v5.0 completed and archived
+state_head: c50bcd736b33c8e761cc3b82a9ebcd6d5736c7e1
 progress:
   total_phases: 2
   completed_phases: 2
   total_plans: 3
   completed_plans: 3
   percent: 100
+current_phase: 21
 ---
 
 # Project State
@@ -25,18 +24,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-24)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
-**Most recent milestone:** v4.0 Audio (completed locally; a GSD milestone label, not a software version)
-**Current focus:** Both v5.0 phases are complete, goal verification passed, and Nyquist validation is compliant for both. The audit found no critical blockers. One non-blocking integration-evidence limit remains: reset, unload, and unsupported-request refusal are not repeated through the relocated consumer, though Phase 20 tests cover them. The audit report is ready for the owner's milestone-close decision. No new milestone scope has been selected.
+**Most recent milestone:** v5.0 Deterministic Core API and Installed Consumer Proof (completed locally; a GSD milestone label, not a software version)
+**Current focus:** v5.0 is archived locally with all nine requirements satisfied and both phases verified. The audit retains one non-blocking relocated-consumer evidence limit: reset, unload, and unsupported-request refusal are covered by Phase 20 API tests but not repeated by the Phase 21 consumer. No next milestone scope has been selected. No software release or hardware qualification is claimed.
 
 ## Current Position
 
-Phase: 21 — Installed Consumer Proof and LibFuturo Fit (complete)
-Current Plan: None
-Total Plans in Phase: 2
-Status: All phases complete; audit is `tech_debt`; waiting for owner choice to accept the documented consumer-evidence limit or add coverage
-Last activity: 2026-11-24 — Phase 21 verified and completed
-
-Progress: [██████████] 100%
+Phase: Milestone v5.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-24 — Milestone v5.0 completed and archived
 
 ## Performance Metrics
 
@@ -653,12 +649,13 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-11-24T15:28:47Z
-Stopped at: Phase 20 validation and verification reconciled; waiting for owner choice on the remaining non-blocking integration-evidence debt
+Last session: 2026-11-24T16:36:47Z
+Stopped at: v5.0 milestone archived locally; next milestone scope not selected
 Resume file: None
 
 ## Operator Next Steps
 
 
 
-- Review `.planning/v5.0-MILESTONE-AUDIT.md` and choose whether to complete v5.0 with the documented relocated-consumer coverage limit or add that evidence before close. Phase 20 Nyquist validation is now compliant. After close, review the phase-archive dry run before any directories are moved. Decide the next rolling milestone scope separately; no release, adoption, or Playstead route change is authorized by this completion.
+
+- Start the next milestone with $gsd-new-milestone; refresh the rolling roadmap and select scope at that boundary.
