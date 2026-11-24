@@ -999,8 +999,13 @@ static bool run_bounded_probe(const char *rom_path,
     status = (uint32_t)gbl_v1_advance(instance.machine, &options, &result);
     if (status != (uint32_t)GBL_V1_OK ||
         result.outcome != GBL_V1_ADVANCE_COMPLETED ||
+        result.requested_units != options.units ||
+        result.requested_cycle_budget != options.cycle_budget ||
+        result.start_cycle != 0u ||
         result.end_cycle <= GBL_V1_AUDIO_CYCLES_PER_FRAME ||
         result.end_cycle > options.cycle_budget ||
+        result.elapsed_cycles != result.end_cycle - result.start_cycle ||
+        result.retired_instructions == 0u ||
         result.audio_frames_written == 0u ||
         result.audio_bytes_written > sizeof audio_bytes ||
         result.audio_bytes_written % PHASE21_AUDIO_FRAME_BYTES != 0u ||
@@ -1014,6 +1019,16 @@ static bool run_bounded_probe(const char *rom_path,
         (void)snprintf(failure_category, 64u, "refusal-work-probe-mismatch");
         (void)snprintf(failure_detail, failure_detail_size,
                        "positive 2048-cycle probe did not complete work and emit an audio sample");
+        goto cleanup;
+    }
+    if (observation.master_cycle != result.end_cycle ||
+        observation.retired_instructions != result.retired_instructions ||
+        result.observation.master_cycle != result.end_cycle ||
+        result.observation.retired_instructions !=
+            result.retired_instructions) {
+        (void)snprintf(failure_category, 64u, "refusal-work-probe-mismatch");
+        (void)snprintf(failure_detail, failure_detail_size,
+                       "positive bounded probe result disagreed with public machine progress");
         goto cleanup;
     }
     suite->bounded_probe_units = options.units;
