@@ -786,7 +786,6 @@ int main(int argc, char **argv)
     size_t input_checkpoint_calls[3] = { SIZE_MAX, SIZE_MAX, SIZE_MAX };
     uint32_t refusal_statuses[2] = { 0u, 0u };
     uint64_t prior_cycle = 0u;
-    uint64_t total_host_ns = 0u;
     uint64_t retry_host_ns = 0u;
     bool refusal_checked = false;
     gbl_v1_observation reference_final_observation = { 0 };
@@ -864,7 +863,6 @@ int main(int argc, char **argv)
         (void)timespec_get(&host_start, TIME_UTC);
         status = gbl_v1_advance(machine, &options, &result);
         (void)timespec_get(&host_end, TIME_UTC);
-        total_host_ns += host_elapsed_ns(host_start, host_end);
         if (status != GBL_V1_OK) {
             fprintf(stderr, "phase23: API advance refused status=%u\n",
                     (unsigned)status);
@@ -1011,7 +1009,6 @@ int main(int argc, char **argv)
                 goto cleanup;
             }
             host_used += (size_t)retry_timing_length;
-            total_host_ns += retry_host_ns;
             calls += 1u;
             prior_cycle = retry_record.end_cycle;
             observation = retry_observation;
@@ -1105,10 +1102,9 @@ int main(int argc, char **argv)
             "\"call_count\":%zu,\"audio_bytes\":%zu,"
             "\"video_format\":\"BGR555LE\","
             "\"audio_format\":\"S16LE-pre-PWM\","
-            "\"host_elapsed_ns\":%llu,"
             "\"host_presentation\":\"outside-session-evidence\"}\n",
             UINT32_C(0x23010001), (unsigned long long)prior_cycle,
-            calls, audio_used, (unsigned long long)total_host_ns);
+            calls, audio_used);
         int refusal_summary_length = 0;
 
         if (mode.refusal_retry) {

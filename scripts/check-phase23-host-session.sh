@@ -15,6 +15,8 @@ case "${1:-}" in
     "") ;;
     *) printf '%s\n' 'usage: sh scripts/check-phase23-host-session.sh [--preflight|--negative-controls]' >&2; exit 2 ;;
 esac
+NEGATIVE_ONLY=0
+[ "$MODE" = negative-controls ] && NEGATIVE_ONLY=1
 [ "$#" -eq 0 ] || {
     printf '%s\n' 'usage: sh scripts/check-phase23-host-session.sh [--preflight|--negative-controls]' >&2
     exit 2
@@ -356,7 +358,31 @@ if [ "$MODE" = negative-controls ]; then
     [ -z "$(find "$NEG_ROOT" -type f -name '*.gba' -print)" ] ||
         fail 'authority control created a fixture image'
     printf '%s\n' 'phase23: authority negative controls verified'
-    exit 0
+    before_runs=$(find "$PHASE_ROOT" -maxdepth 1 -type d -name 'run-*' -print | sort)
+    for ci_case in set empty; do
+        if [ "$ci_case" = set ]; then
+            if CI=1 sh "$SCRIPT_DIR/check-phase23-host-session.sh" --preflight \
+                > "$NEG_ROOT/ci-set.log" 2>&1; then
+                ci_status=0
+            else
+                ci_status=$?
+            fi
+            ci_log="$NEG_ROOT/ci-set.log"
+        else
+            if CI= sh "$SCRIPT_DIR/check-phase23-host-session.sh" --preflight \
+                > "$NEG_ROOT/ci-empty.log" 2>&1; then
+                ci_status=0
+            else
+                ci_status=$?
+            fi
+            ci_log="$NEG_ROOT/ci-empty.log"
+        fi
+        [ "$ci_status" -eq 2 ] || fail "CI=$ci_case refusal did not exit 2"
+        grep -Fx 'phase23: refused because CI is set' "$ci_log" >/dev/null ||
+            fail "CI=$ci_case refusal omitted its diagnostic"
+    done
+    after_runs=$(find "$PHASE_ROOT" -maxdepth 1 -type d -name 'run-*' -print | sort)
+    [ "$before_runs" = "$after_runs" ] || fail 'CI refusal created a run or scratch path'
 fi
 
 umask 077
@@ -389,6 +415,69 @@ IMAGE_DIGEST=$(sha256_file "$IMAGE")
 write_fixture_record "$SOURCE_DIGEST" "$NOTICE_DIGEST" "$IMAGE_DIGEST" \
     "$IMAGE_LENGTH" "$RECORD"
 validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
+
+if [ "$MODE" = negative-controls ]; then
+    NEGATIVE_ROOT="$RUN_ROOT/negative-controls"
+    mkdir -m 700 "$NEGATIVE_ROOT" "$NEGATIVE_ROOT/provenance" \
+        "$NEGATIVE_ROOT/missing-package"
+    mkdir -m 700 "$NEGATIVE_ROOT/missing-package/source" \
+        "$NEGATIVE_ROOT/missing-package/build"
+    sed 's/"permitted_environment": "local-phase23-verification"/"permitted_environment": "local-phase23-verification,public-ci"/' \
+        "$RECORD" > "$NEGATIVE_ROOT/provenance/broadened-environment.json"
+    printf '%s\n' \
+        'source_sha256' 'notice_sha256' 'image_sha256' > \
+        "$NEGATIVE_ROOT/provenance/digests.txt"
+    for digest_field in source_sha256 notice_sha256 image_sha256; do
+        awk -v field="$digest_field" '
+            index($0, "\"" field "\":") {
+                sub(/[\"]([0-9a-f]+)[\"]/, "\"0000000000000000000000000000000000000000000000000000000000000000\"")
+            }
+            { print }
+        ' "$RECORD" > "$NEGATIVE_ROOT/provenance/bad-$digest_field.json"
+    done
+    for control in \
+        'broadened-environment.json|fixture-record: authority permitted_environment mismatch' \
+        'bad-source_sha256.json|fixture-record: source_sha256 mismatch' \
+        'bad-notice_sha256.json|fixture-record: notice_sha256 mismatch' \
+        'bad-image_sha256.json|fixture-record: image_sha256 mismatch'; do
+        name=${control%%|*}
+        expected=${control#*|}
+        if (validate_record "$NEGATIVE_ROOT/provenance/$name" "$IMAGE" \
+            "$STAGED_SOURCE") > "$NEGATIVE_ROOT/provenance/$name.log" 2>&1; then
+            fail "record negative control passed unexpectedly: $name"
+        fi
+        grep -F "$expected" "$NEGATIVE_ROOT/provenance/$name.log" >/dev/null || {
+            cat "$NEGATIVE_ROOT/provenance/$name.log" >&2
+            fail "record negative control lacked its named diagnostic: $name"
+        }
+    done
+    [ ! -e "$RUN_ROOT/session-receipt.json" ] ||
+        fail 'provenance refusal published an accepted receipt'
+    cp "$EXAMPLE/CMakeLists.txt" "$EXAMPLE/consumer.c" \
+        "$NEGATIVE_ROOT/missing-package/source/"
+    if (
+        unset CMAKE_PREFIX_PATH CMAKE_MODULE_PATH gamebloke_DIR
+        cmake -S "$NEGATIVE_ROOT/missing-package/source" \
+            -B "$NEGATIVE_ROOT/missing-package/build" -G Ninja \
+            -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
+            -DCMAKE_C_COMPILER="$CC_PATH" \
+            -DCMAKE_PREFIX_PATH= \
+            -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
+            -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
+            -DCMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY=ON \
+            -DCMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH=OFF \
+            -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF
+    ) > "$NEGATIVE_ROOT/missing-package/configure.log" 2>&1; then
+        fail 'missing-package negative control configured unexpectedly'
+    fi
+    grep -F 'Could not find a package configuration file provided by "gamebloke"' \
+        "$NEGATIVE_ROOT/missing-package/configure.log" >/dev/null || {
+        cat "$NEGATIVE_ROOT/missing-package/configure.log" >&2
+        fail 'missing-package control did not report unresolved gameblokeConfig.cmake'
+    }
+    [ ! -e "$RUN_ROOT/session-receipt.json" ] ||
+        fail 'missing-package refusal published an accepted receipt'
+fi
 
 cmake -S "$REPO_ROOT" -B "$RUN_ROOT/package-build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
@@ -429,7 +518,8 @@ EXT_ROOT=$(mktemp -d "${EXT_PARENT%/}/gamebloke-phase23-consumer.XXXXXX") || fai
 EXT_PHYSICAL=$(CDPATH= cd -P "$EXT_ROOT" && pwd -P)
 EXT_ROOT=$EXT_PHYSICAL
 case "$EXT_PHYSICAL" in "$REPO_ROOT"|"$REPO_ROOT"/*) fail 'external consumer scratch resolved inside checkout' ;; esac
-mkdir -m 700 "$EXT_ROOT/source" "$EXT_ROOT/build" "$EXT_ROOT/work" "$RUN_ROOT/sessions/base"
+mkdir -m 700 "$EXT_ROOT/source" "$EXT_ROOT/build" "$EXT_ROOT/work" \
+    "$RUN_ROOT/sessions/base" "$RUN_ROOT/sessions/replay"
 cp "$EXAMPLE/CMakeLists.txt" "$EXAMPLE/consumer.c" "$EXT_ROOT/source/"
 cmp -s "$EXAMPLE/CMakeLists.txt" "$EXT_ROOT/source/CMakeLists.txt" || fail 'external CMake project copy mismatch'
 cmp -s "$EXAMPLE/consumer.c" "$EXT_ROOT/source/consumer.c" || fail 'external consumer copy mismatch'
@@ -456,6 +546,48 @@ cmake --build "$EXT_ROOT/build" --verbose > "$RUN_ROOT/consumer-build.log" 2>&1 
 grep -F "$MOVED_PREFIX/lib/libgamebloke_core.a" "$RUN_ROOT/consumer-build.log" >/dev/null ||
     fail 'external consumer link does not use the relocated static archive'
 validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
+mkdir -p -m 700 "$RUN_ROOT/negative-controls" \
+    "$RUN_ROOT/negative-controls/shift-first-input" \
+    "$RUN_ROOT/negative-controls/wrong-video-literal"
+if (cd "$EXT_ROOT/work" &&
+    "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
+        "$RUN_ROOT/negative-controls/shift-first-input" \
+        --shift-first-input) \
+        > "$RUN_ROOT/negative-controls/shift-first-input.log" 2>&1; then
+    fail 'shifted-input negative control passed unexpectedly'
+fi
+grep -F 'phase23: guest-case-mismatch expected PASS case=0x23010001 observed FAIL case=0x2301f001' \
+    "$RUN_ROOT/negative-controls/shift-first-input.log" >/dev/null || {
+    cat "$RUN_ROOT/negative-controls/shift-first-input.log" >&2
+    fail 'shifted-input control lacked the named guest-case mismatch'
+}
+if (cd "$EXT_ROOT/work" &&
+    "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
+        "$RUN_ROOT/negative-controls/wrong-video-literal" \
+        --wrong-video-literal) \
+        > "$RUN_ROOT/negative-controls/wrong-video-literal.log" 2>&1; then
+    fail 'wrong-video-literal negative control passed unexpectedly'
+fi
+grep -Fx 'phase23: video-literal-mismatch row=1 pixel=0 offset=480' \
+    "$RUN_ROOT/negative-controls/wrong-video-literal.log" >/dev/null || {
+    cat "$RUN_ROOT/negative-controls/wrong-video-literal.log" >&2
+    fail 'wrong-video-literal control lacked the named row-1 mismatch'
+}
+for negative_dir in \
+    "$RUN_ROOT/negative-controls/shift-first-input" \
+    "$RUN_ROOT/negative-controls/wrong-video-literal"; do
+    for accepted_file in run.json trace.jsonl video.bgr555le audio.s16le refusal.json; do
+        [ ! -e "$negative_dir/$accepted_file" ] ||
+            fail "negative control published accepted evidence: $accepted_file"
+    done
+done
+printf '%s\n' 'phase23: consumer negative controls verified'
+if [ "$NEGATIVE_ONLY" -eq 1 ]; then
+    [ ! -e "$RUN_ROOT/session-receipt.json" ] ||
+        fail 'negative controls published an accepted receipt'
+    printf '%s\n' 'phase23: negative controls verified'
+    exit 0
+fi
 if ! (cd "$EXT_ROOT/work" &&
       "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
         "$RUN_ROOT/sessions/base") > "$RUN_ROOT/session.log" 2>&1; then
@@ -464,5 +596,25 @@ if ! (cd "$EXT_ROOT/work" &&
 fi
 grep -Fx 'phase23: installed session verified' "$RUN_ROOT/session.log" >/dev/null ||
     fail 'installed session success marker is missing'
-printf '{\n  "fixture_record": "fixture-record.json",\n  "session": "sessions/base/run.json",\n  "trace": "sessions/base/trace.jsonl",\n  "video": "sessions/base/video.bgr555le",\n  "audio": "sessions/base/audio.s16le",\n  "scope": "local-phase23-verification-only"\n}\n' > "$RUN_ROOT/session-receipt.json"
-printf 'phase23: installed session verified (%s)\n' "$RUN_ROOT"
+validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
+if ! (cd "$EXT_ROOT/work" &&
+      "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
+        "$RUN_ROOT/sessions/replay") > "$RUN_ROOT/replay.log" 2>&1; then
+    cat "$RUN_ROOT/replay.log" >&2
+    fail 'fresh public API replay failed'
+fi
+grep -Fx 'phase23: installed session verified' "$RUN_ROOT/replay.log" >/dev/null ||
+    fail 'fresh replay success marker is missing'
+for evidence_file in trace.jsonl run.json video.bgr555le audio.s16le; do
+    cmp -s "$RUN_ROOT/sessions/base/$evidence_file" \
+        "$RUN_ROOT/sessions/replay/$evidence_file" ||
+        fail "fresh replay differs in $evidence_file"
+done
+VIDEO_DIGEST=$(sha256_file "$RUN_ROOT/sessions/base/video.bgr555le")
+AUDIO_DIGEST=$(sha256_file "$RUN_ROOT/sessions/base/audio.s16le")
+TRACE_DIGEST=$(sha256_file "$RUN_ROOT/sessions/base/trace.jsonl")
+printf '{\n  "fixture_id": "phase23-host-session",\n  "fixture_record": "fixture-record.json",\n  "source_sha256": "%s",\n  "notice_sha256": "%s",\n  "image_sha256": "%s",\n  "baseline": "sessions/base/run.json",\n  "replay": "sessions/replay/run.json",\n  "guest_trace_sha256": "%s",\n  "video_sha256_supplemental": "%s",\n  "audio_sha256_supplemental": "%s",\n  "video_path": "sessions/base/video.bgr555le",\n  "audio_path": "sessions/base/audio.s16le",\n  "host_timing_path": "sessions/base/host-timing.jsonl",\n  "host_presentation": "outside-session-evidence",\n  "permission": "local-phase23-verification-only"\n}\n' \
+    "$SOURCE_DIGEST" "$NOTICE_DIGEST" "$IMAGE_DIGEST" \
+    "$TRACE_DIGEST" "$VIDEO_DIGEST" "$AUDIO_DIGEST" > \
+    "$RUN_ROOT/session-receipt.json"
+printf 'phase23: fresh replay verified (%s)\n' "$RUN_ROOT"
