@@ -246,6 +246,11 @@ validate_record()
             next
         }
         inside {
+            if ($0 !~ /^[[:space:]]*"[^"]+"[[:space:]]*:[[:space:]]*"[^"]+"[,]?[[:space:]]*$/) {
+                print "phase23: fixture-record: malformed authority row"
+                bad = 1
+                next
+            }
             if (split($0, part, "\"") < 5 || part[2] == "") {
                 print "phase23: fixture-record: malformed authority row"
                 bad = 1
@@ -444,6 +449,8 @@ if [ "$MODE" = negative-controls ]; then
         "$NEGATIVE_ROOT/missing-package/build"
     sed 's/"permitted_environment": "local-phase23-verification"/"permitted_environment": "local-phase23-verification,public-ci"/' \
         "$RECORD" > "$NEGATIVE_ROOT/provenance/broadened-environment.json"
+    sed 's/"fixture_id": "phase23-host-session",/"fixture_id": "phase23-host-session", "external_permission": "public",/' \
+        "$RECORD" > "$NEGATIVE_ROOT/provenance/trailing-authority-property.json"
     printf '%s\n' \
         'source_sha256' 'notice_sha256' 'image_sha256' > \
         "$NEGATIVE_ROOT/provenance/digests.txt"
@@ -457,6 +464,7 @@ if [ "$MODE" = negative-controls ]; then
     done
     for control in \
         'broadened-environment.json|fixture-record: authority permitted_environment mismatch' \
+        'trailing-authority-property.json|fixture-record: malformed authority row' \
         'bad-source_sha256.json|fixture-record: source_sha256 mismatch' \
         'bad-notice_sha256.json|fixture-record: notice_sha256 mismatch' \
         'bad-image_sha256.json|fixture-record: image_sha256 mismatch'; do
