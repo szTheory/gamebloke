@@ -72,7 +72,10 @@ local proof entry point after milestone archival.
    preflight checks the restored entry point without loading the Phase 21
    fixture.
 
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 22-01-PLAN.md — Restore the archived proof references and verify named missing-record refusals without fixture use.
 
 Phase 22 verifies the archived references and retains Phase 21's original run
 as the installed-consumer witness. The archived notice still limits fixture
@@ -129,7 +132,7 @@ package publication, and software release require separate scope.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 22. Archived Installed-Consumer Evidence | 0/TBD | Not started | - |
+| 22. Archived Installed-Consumer Evidence | 0/1 | Not started | - |
 | 23. Public API Host Session and Playstead Fit | 0/TBD | Not started | - |
 
 ## Rolling Horizon
