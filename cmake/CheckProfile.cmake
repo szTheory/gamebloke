@@ -1457,14 +1457,7 @@ function(gbl__profile_timing doc)
   endif()
 endfunction()
 
-function(gbl__profile_ppu_policy doc)
-  gbl_json_type(policy_type "${doc}" ppu_policy)
-  if(NOT "${policy_type}" STREQUAL "OBJECT")
-    gbl_finding(profile ppu-policy-missing
-      "ppu_policy: missing or not an object")
-    return()
-  endif()
-
+function(gbl__profile_ppu_policy_scalars doc)
   string(JSON policy_version ERROR_VARIABLE version_error GET
     "${doc}" profile_version)
   if(NOT "${policy_version}" MATCHES "^[1-9][0-9]*$" OR
@@ -1506,6 +1499,18 @@ function(gbl__profile_ppu_policy doc)
 
   gbl__profile_dispute("${doc}" "ppu_policy.hblank_dispute"
     ppu_policy hblank_dispute)
+endfunction()
+
+function(gbl__profile_ppu_policy doc)
+  gbl_json_type(policy_type "${doc}" ppu_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ppu-policy-missing
+      "ppu_policy: missing or not an object")
+    return()
+  endif()
+
+  gbl__profile_ppu_policy_scalars("${doc}")
+
   gbl__profile_ppu_policy_object("${doc}" object_policy
     ppu-object-policy-value "${GBL_PROFILE_PPU_OBJECT_POLICY_JSON}"
     ${GBL_PROFILE_PPU_OBJECT_POLICY_FIELDS})
@@ -1688,6 +1693,55 @@ endfunction()
 
 # The CPU/DMA × PRAM/VRAM/OAM × state product shares one selected availability
 # policy. Bus request costs remain owned by bus_policy.request_cycles.
+function(gbl__profile_ppu_policy_section doc section)
+  if("${section}" STREQUAL "all")
+    gbl__profile_ppu_policy("${doc}")
+    return()
+  endif()
+
+  gbl_json_type(policy_type "${doc}" ppu_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    gbl_finding(profile ppu-policy-missing
+      "ppu_policy: missing or not an object")
+    return()
+  endif()
+
+  if("${section}" STREQUAL "scalar")
+    gbl__profile_ppu_policy_scalars("${doc}")
+  elseif("${section}" STREQUAL "object_policy")
+    gbl__profile_ppu_policy_object("${doc}" object_policy
+      ppu-object-policy-value "${GBL_PROFILE_PPU_OBJECT_POLICY_JSON}"
+      ${GBL_PROFILE_PPU_OBJECT_POLICY_FIELDS})
+  elseif("${section}" STREQUAL "composition_policy")
+    gbl__profile_ppu_policy_object("${doc}" composition_policy
+      ppu-composition-policy-value "${GBL_PROFILE_PPU_COMPOSITION_POLICY_JSON}"
+      ${GBL_PROFILE_PPU_COMPOSITION_POLICY_FIELDS})
+  elseif("${section}" STREQUAL "window_policy")
+    gbl__profile_ppu_policy_object("${doc}" window_policy
+      ppu-window-policy-value "${GBL_PROFILE_PPU_WINDOW_POLICY_JSON}"
+      ${GBL_PROFILE_PPU_WINDOW_POLICY_FIELDS})
+  elseif("${section}" STREQUAL "effect_policy")
+    gbl__profile_ppu_policy_object("${doc}" effect_policy
+      ppu-effect-policy-value "${GBL_PROFILE_PPU_EFFECT_POLICY_JSON}"
+      ${GBL_PROFILE_PPU_EFFECT_POLICY_FIELDS})
+  elseif("${section}" STREQUAL "mosaic_policy")
+    gbl__profile_ppu_policy_object("${doc}" mosaic_policy
+      ppu-mosaic-policy-value "${GBL_PROFILE_PPU_MOSAIC_POLICY_JSON}"
+      ${GBL_PROFILE_PPU_MOSAIC_POLICY_FIELDS})
+  elseif("${section}" STREQUAL "forced_blank_policy")
+    gbl__profile_ppu_policy_object("${doc}" forced_blank_policy
+      ppu-forced-blank-policy-value "${GBL_PROFILE_PPU_FORCED_BLANK_POLICY_JSON}"
+      ${GBL_PROFILE_PPU_FORCED_BLANK_POLICY_FIELDS})
+  elseif("${section}" STREQUAL "display_capabilities")
+    gbl__profile_ppu_display_capabilities("${doc}")
+  elseif("${section}" STREQUAL "video_memory_access")
+    gbl__profile_ppu_video_memory_access("${doc}")
+  else()
+    message(FATAL_ERROR
+      "profile: unknown PPU policy section '${section}'")
+  endif()
+endfunction()
+
 function(gbl__profile_ppu_video_memory_access doc)
   gbl_json_type(policy_type "${doc}" ppu_policy video_memory_access)
   if(NOT "${policy_type}" STREQUAL "OBJECT")
@@ -3259,9 +3313,25 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
     endif()
   endforeach()
 
+  gbl_json_load(doc "${PROFILE}")
+
+  # These focused mutation gates still enter through the production checker
+  # script, but validate only the owning policy. A clean full-profile control
+  # covers the cross-policy and documentation path separately.
+  if(DEFINED GBL_PROFILE_TIMING_MODEL_ONLY AND GBL_PROFILE_TIMING_MODEL_ONLY)
+    gbl__profile_timing_model("${doc}")
+    gbl_findings_finish(profile "ok (agb timing model values)")
+    return()
+  endif()
+
+  if(DEFINED GBL_PROFILE_IRQ_POLICY_VALUE_ONLY AND GBL_PROFILE_IRQ_POLICY_VALUE_ONLY)
+    gbl__profile_irq_input_power_policy("${doc}")
+    gbl_findings_finish(profile "ok (agb IRQ/input/power policy values)")
+    return()
+  endif()
+
   gbl_contract_read(V "${VOCAB}")
   gbl_registry_read(R "${REGISTRY}" V)
-  gbl_json_load(doc "${PROFILE}")
 
   # Focused mutation controls target the production policy validator directly.
   # The ordinary lint and clean-copy controls still exercise the full profile.
@@ -3362,6 +3432,13 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
   # Profile-value controls should not repeat the separate documentation
   # synchronization check when their input is only a mutated profile copy.
   # Clean full-profile and mutated-document controls use the scoped checks below.
+  if(DEFINED GBL_PROFILE_PPU_SECTION_ONLY AND
+      NOT "${GBL_PROFILE_PPU_SECTION_ONLY}" STREQUAL "")
+    gbl__profile_ppu_policy_section("${doc}" "${GBL_PROFILE_PPU_SECTION_ONLY}")
+    gbl_findings_finish(profile "ok (agb PPU policy section values)")
+    return()
+  endif()
+
   if(DEFINED GBL_PROFILE_PPU_VALUE_ONLY AND GBL_PROFILE_PPU_VALUE_ONLY)
     gbl__profile_ppu_policy("${doc}")
     gbl_findings_finish(profile "ok (agb PPU policy values)")

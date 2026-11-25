@@ -515,10 +515,14 @@ function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json 
 endfunction()
 
 function(gbl_phase10_check_profile_document candidate_profile candidate_doc out_status out_output)
+  set(profile_check_args "")
+  if(ARGC GREATER 4 AND "${ARGV4}" STREQUAL "ppu")
+    list(APPEND profile_check_args -DGBL_PROFILE_PPU_ONLY=ON)
+  endif()
   execute_process(COMMAND "${CMAKE_PROGRAM}"
     "-DPROFILE=${candidate_profile}" "-DDOC=${candidate_doc}"
     "-DREGISTRY=${registry_file}" "-DVOCAB=${vocab_file}"
-    -P "${checker_file}" WORKING_DIRECTORY "${GBL_PHASE10_SRC}"
+    ${profile_check_args} -P "${checker_file}" WORKING_DIRECTORY "${GBL_PHASE10_SRC}"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
   if(NOT "${error}" STREQUAL "")
     string(APPEND output "${error}")
@@ -529,29 +533,14 @@ endfunction()
 
 function(gbl_phase10_control name expected kind path operation encoded_value)
   set(control_dir "${GBL_PHASE10_BIN}/nc/phase10-policy/${name}")
-  set(clean_dir "${control_dir}/clean")
   set(candidate_dir "${control_dir}/candidate")
   file(REMOVE_RECURSE "${control_dir}")
-  file(MAKE_DIRECTORY "${clean_dir}" "${candidate_dir}")
-
-  foreach(dir IN ITEMS "${clean_dir}" "${candidate_dir}")
-    file(COPY_FILE "${profile_file}" "${dir}/profile.json")
-    file(COPY_FILE "${doc_file}" "${dir}/profile.md")
-    file(WRITE "${dir}/tracer.json" "${GBL_PHASE10_TRACER_RECORD}\n")
-    file(WRITE "${dir}/boundary.json" "${GBL_PHASE10_BOUNDARY_RECORD}\n")
-    file(WRITE "${dir}/registers.txt" "${GBL_PHASE10_REGISTERS_SUMMARY}\n")
-  endforeach()
-
-  file(READ "${clean_dir}/profile.json" clean_profile)
-  file(READ "${clean_dir}/tracer.json" clean_tracer)
-  file(READ "${clean_dir}/boundary.json" clean_boundary)
-  file(READ "${clean_dir}/registers.txt" clean_registers)
-  string(STRIP "${clean_registers}" clean_registers)
-  gbl_phase10_evaluate(clean_reason "${clean_profile}" "${clean_tracer}"
-    "${clean_boundary}" "${clean_registers}")
-  if(NOT "${clean_reason}" STREQUAL "")
-    message(FATAL_ERROR "phase10-policy: control-${name}-clean-twin-${clean_reason}")
-  endif()
+  file(MAKE_DIRECTORY "${candidate_dir}")
+  file(COPY_FILE "${profile_file}" "${candidate_dir}/profile.json")
+  file(COPY_FILE "${doc_file}" "${candidate_dir}/profile.md")
+  file(WRITE "${candidate_dir}/tracer.json" "${GBL_PHASE10_TRACER_RECORD}\n")
+  file(WRITE "${candidate_dir}/boundary.json" "${GBL_PHASE10_BOUNDARY_RECORD}\n")
+  file(WRITE "${candidate_dir}/registers.txt" "${GBL_PHASE10_REGISTERS_SUMMARY}\n")
 
   if(kind STREQUAL "doc")
     file(READ "${candidate_dir}/profile.md" candidate_doc_text)
@@ -560,13 +549,8 @@ function(gbl_phase10_control name expected kind path operation encoded_value)
       message(FATAL_ERROR "phase10-policy: control-${name}-stale-mutation")
     endif()
     file(WRITE "${candidate_dir}/profile.md" "${mutated_doc_text}")
-    gbl_phase10_check_profile_document("${clean_dir}/profile.json"
-      "${clean_dir}/profile.md" clean_doc_result clean_doc_output)
-    if(NOT "${clean_doc_result}" STREQUAL "0")
-      message(FATAL_ERROR "phase10-policy: control-${name}-clean-document-${clean_doc_result}\n${clean_doc_output}")
-    endif()
     gbl_phase10_check_profile_document("${candidate_dir}/profile.json"
-      "${candidate_dir}/profile.md" candidate_result candidate_output)
+      "${candidate_dir}/profile.md" candidate_result candidate_output ppu)
     if("${candidate_result}" STREQUAL "0" OR
        NOT "${candidate_output}" MATCHES "profile: ${expected}")
       message(FATAL_ERROR "phase10-policy: control-${name}-wrong-reason (${candidate_result})\n${candidate_output}")
@@ -613,7 +597,7 @@ function(gbl_phase10_control name expected kind path operation encoded_value)
       message(FATAL_ERROR "phase10-policy: control-${name}-wrong-reason (${candidate_reason}) expected ${expected}")
     endif()
   endif()
-  message(STATUS "phase10-policy: control-${name} rejected with ${expected}; clean twin passed")
+  message(STATUS "phase10-policy: control-${name} rejected with ${expected}; clean baseline passed")
 endfunction()
 
 gbl_phase10_collect_json(GBL_PHASE10_TRACER_RECORD GBL_PHASE10_TRACER_OUTPUT
@@ -639,6 +623,23 @@ if(NOT CASE STREQUAL "control")
 endif()
 
 if(NOT CASE STREQUAL "verify")
+  if(CASE STREQUAL "control")
+    # One canonical full-profile/document pass covers the identical clean
+    # input shared by every PPU document mutation below.
+    gbl_phase10_check_profile_document("${profile_file}" "${doc_file}"
+      control_clean_result control_clean_output)
+    if(NOT "${control_clean_result}" STREQUAL "0")
+      message(FATAL_ERROR
+        "phase10-policy: control-clean-document-${control_clean_result}\n${control_clean_output}")
+    endif()
+    gbl_phase10_evaluate(control_clean_reason "${GBL_PHASE10_PROFILE_JSON}"
+      "${GBL_PHASE10_TRACER_RECORD}" "${GBL_PHASE10_BOUNDARY_RECORD}"
+      "${GBL_PHASE10_REGISTERS_SUMMARY}")
+    if(NOT "${control_clean_reason}" STREQUAL "")
+      message(FATAL_ERROR
+        "phase10-policy: control-clean-runtime-${control_clean_reason}")
+    endif()
+  endif()
   gbl_phase10_control(runtime-edge hblank-offset tracer hblank_offset set 1007)
   gbl_phase10_control(qualification-claim qualification-claim profile
     ppu_policy.hblank_hardware_qualification set [=["QUALIFIED"]=])

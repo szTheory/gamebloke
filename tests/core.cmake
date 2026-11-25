@@ -48,9 +48,9 @@ gbl_add_test(
     -DCASE=audio_controls -DVALIDATE_PRODUCER=ON
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
 set(runner_audio_cli_index_option "")
-if(GBL_LANE STREQUAL "asan")
-  # The sanitizer lane deliberately has no ARM diagnostic toolchain. Its
-  # generated synthetic control fixture exercises the same instrumented CLI.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  # These lanes do not generate admitted ARM ROMs. Both runner targets compile
+  # the same production code; use the generated control index for this CLI test.
   set(runner_audio_cli_index_option -DCONTROL_INDEX=ON)
 endif()
 gbl_add_test(

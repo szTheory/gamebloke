@@ -86,12 +86,12 @@ endfunction()
 
 # Profile-value negatives do not need the separate, unchanged-document sync.
 # Explicit document mutation controls continue through check_ppu_command.
-function(check_ppu_value_command out profile)
+function(check_ppu_value_command out profile section)
   set(${out}
     "${CMAKE_COMMAND}" "-DPROFILE=${profile}"
     "-DDOC=${SRC}/docs/profile-agb.md"
     "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
-    -DGBL_PROFILE_PPU_VALUE_ONLY=ON -P "${CHECK}"
+    "-DGBL_PROFILE_PPU_SECTION_ONLY=${section}" -P "${CHECK}"
     PARENT_SCOPE)
 endfunction()
 
@@ -151,6 +151,29 @@ function(check_section_value_command out profile section)
     PARENT_SCOPE)
 endfunction()
 
+function(check_timing_model_value_command out profile)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}"
+    "-DDOC=${SRC}/docs/profile-agb.md"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_TIMING_MODEL_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+function(expect_timing_model_detail code detail profile)
+  check_timing_model_value_command(cmd "${profile}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
+function(expect_irq_policy_detail code detail profile)
+  set(cmd
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}"
+    "-DDOC=${SRC}/docs/profile-agb.md"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_IRQ_POLICY_VALUE_ONLY=ON -P "${CHECK}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
 # Audio mutation controls exercise the production audio policy validator and
 # its synchronized documentation tables without unrelated profile checks.
 function(check_audio_command out profile doc)
@@ -191,9 +214,33 @@ function(expect_ppu_detail code detail profile)
     set(doc "${ARGV3}")
     check_ppu_command(cmd "${profile}" "${doc}")
   else()
-    # This negative input changes only the profile. The clean full-document
-    # control and every mutated-document control are checked separately.
-    check_ppu_value_command(cmd "${profile}")
+    # Run the production validator that owns this diagnostic. The clean
+    # profile still exercises the full PPU validator; document mutations below
+    # continue through the complete profile/document synchronization path.
+    if("${code}" STREQUAL "ppu-policy-value")
+      set(section scalar)
+    elseif("${code}" STREQUAL "ppu-object-policy-value")
+      set(section object_policy)
+    elseif("${code}" STREQUAL "ppu-composition-policy-value")
+      set(section composition_policy)
+    elseif("${code}" STREQUAL "ppu-window-policy-value")
+      set(section window_policy)
+    elseif("${code}" STREQUAL "ppu-effect-policy-value")
+      set(section effect_policy)
+    elseif("${code}" STREQUAL "ppu-mosaic-policy-value")
+      set(section mosaic_policy)
+    elseif("${code}" STREQUAL "ppu-forced-blank-policy-value")
+      set(section forced_blank_policy)
+    elseif("${code}" STREQUAL "ppu-capability-value")
+      set(section display_capabilities)
+    elseif("${code}" STREQUAL "ppu-access-policy-value")
+      set(section video_memory_access)
+    elseif("${code}" STREQUAL "ppu-policy-missing")
+      set(section all)
+    else()
+      message(FATAL_ERROR "profile PPU value control has no section for ${code}")
+    endif()
+    check_ppu_value_command(cmd "${profile}" "${section}")
   endif()
   gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
 endfunction()
@@ -1385,14 +1432,16 @@ elseif(CASE STREQUAL "timing_model")
     message(FATAL_ERROR "profile-case: missing width/class control anchor")
   endif()
   gbl_json_mutate_remove("${p}" timing_model bus_access_costs ${found_row})
-  expect_detail(timing-model-missing-key "read/bios/4/s/data" "${p}")
+  expect_timing_model_detail(timing-model-missing-key
+    "read/bios/4/s/data" "${p}")
 
   profile_copy(p timing_model_duplicate_key)
   gbl_json_mutate_set("${p}" "\"read/bios/1/n/fetch\""
     timing_model bus_access_costs 1 key)
   gbl_json_mutate_set("${p}" "\"fetch\""
     timing_model bus_access_costs 1 role)
-  expect_detail(timing-model-duplicate-key "read/bios/1/n/fetch" "${p}")
+  expect_timing_model_detail(timing-model-duplicate-key
+    "read/bios/1/n/fetch" "${p}")
 
   profile_copy(p timing_model_stale_narrative)
   doc_copy(d timing_model_stale_narrative)
@@ -1416,7 +1465,8 @@ elseif(CASE STREQUAL "timing_model")
     message(FATAL_ERROR "profile-case: WAITCNT control anchor missing")
   endif()
   gbl_json_mutate_remove("${p}" timing_model unmodeled_hardware ${waitcnt_row})
-  expect_detail(timing-model-gap "missing required unmodeled hardware gap waitcnt" "${p}")
+  expect_timing_model_detail(timing-model-gap
+    "missing required unmodeled hardware gap waitcnt" "${p}")
 
   profile_copy(p timing_model_missing_prefetch)
   file(READ "${p}" json)
@@ -1433,12 +1483,14 @@ elseif(CASE STREQUAL "timing_model")
     message(FATAL_ERROR "profile-case: prefetch control anchor missing")
   endif()
   gbl_json_mutate_remove("${p}" timing_model unmodeled_hardware ${prefetch_row})
-  expect_detail(timing-model-gap "missing required unmodeled hardware gap prefetch" "${p}")
+  expect_timing_model_detail(timing-model-gap
+    "missing required unmodeled hardware gap prefetch" "${p}")
 
   profile_copy(p timing_model_invented_source)
   gbl_json_mutate_set("${p}" "\"hardware-qualified\""
     timing_model qualification)
-  expect_detail(timing-model-qualification "timing_model\\.qualification must be project-model-only" "${p}")
+  expect_timing_model_detail(timing-model-qualification
+    "timing_model\\.qualification must be project-model-only" "${p}")
 
   profile_copy(p timing_model_rom_fixed_cost)
   file(READ "${p}" json)
@@ -1455,7 +1507,8 @@ elseif(CASE STREQUAL "timing_model")
     message(FATAL_ERROR "profile-case: ROM formula control anchor missing")
   endif()
   gbl_json_mutate_set("${p}" "1" timing_model bus_access_costs ${rom_row} execution cost_cycles)
-  expect_detail(timing-model-execution "read/rom/1/n/fetch: expected contextual WAITCNT source-backed beat formula" "${p}")
+  expect_timing_model_detail(timing-model-execution
+    "read/rom/1/n/fetch: expected contextual WAITCNT source-backed beat formula" "${p}")
 
   profile_copy(p waitcnt_prefetch_modeled)
   gbl_json_mutate_set("${p}" "\"modeled\"" waitcnt_policy prefetch execution)
@@ -2055,11 +2108,13 @@ elseif(CASE STREQUAL "coordinated_change")
 elseif(CASE STREQUAL "irq_policy")
   profile_copy(p bad_keycnt_mask)
   gbl_json_mutate_set("${p}" "0" irq_input_power_policy keycnt_mask)
-  expect_detail(irq-policy-value "irq_input_power_policy\\.keycnt_mask: expected 50175" "${p}")
+  expect_irq_policy_detail(irq-policy-value
+    "irq_input_power_policy\\.keycnt_mask: expected 50175" "${p}")
 
   profile_copy(p bad_policy_source)
   gbl_json_mutate_set("${p}" [=["REF"]=] irq_input_power_policy source)
-  expect_detail(irq-policy-source "irq_input_power_policy: source/citation" "${p}")
+  expect_irq_policy_detail(irq-policy-source
+    "irq_input_power_policy: source/citation" "${p}")
 
   profile_copy(p wrong_irq_doc)
   doc_copy(d wrong_irq_doc)
