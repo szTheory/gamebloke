@@ -84,6 +84,53 @@ function(check_ppu_command out profile doc)
     PARENT_SCOPE)
 endfunction()
 
+# Profile-value negatives do not need the separate, unchanged-document sync.
+# Explicit document mutation controls continue through check_ppu_command.
+function(check_ppu_value_command out profile)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}"
+    "-DDOC=${SRC}/docs/profile-agb.md"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_PPU_VALUE_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+# CPU value negatives target only the production CPU policy validator. The
+# clean positive control above still validates the complete profile/document.
+function(check_cpu_value_command out profile)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}"
+    "-DDOC=${SRC}/docs/profile-agb.md"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_CPU_VALUE_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+function(check_bus_value_command out profile)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}"
+    "-DDOC=${SRC}/docs/profile-agb.md"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_BUS_VALUE_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+function(check_bus_doc_command out profile doc)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_BUS_DOC_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+function(check_cpu_doc_command out profile doc)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_CPU_DOC_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
 # Audio mutation controls exercise the production audio policy validator and
 # its synchronized documentation tables without unrelated profile checks.
 function(check_audio_command out profile doc)
@@ -122,11 +169,38 @@ endfunction()
 function(expect_ppu_detail code detail profile)
   if(ARGC GREATER 3)
     set(doc "${ARGV3}")
+    check_ppu_command(cmd "${profile}" "${doc}")
   else()
-    doc_copy(doc unchanged_ppu_detail)
+    # This negative input changes only the profile. The clean full-document
+    # control and every mutated-document control are checked separately.
+    check_ppu_value_command(cmd "${profile}")
   endif()
-  check_ppu_command(cmd "${profile}" "${doc}")
   gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
+function(expect_cpu_code code profile)
+  check_cpu_value_command(cmd "${profile}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}")
+endfunction()
+
+function(expect_cpu_detail code detail profile)
+  check_cpu_value_command(cmd "${profile}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
+function(expect_bus_detail code detail profile)
+  check_bus_value_command(cmd "${profile}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
+function(expect_bus_doc code detail profile doc)
+  check_bus_doc_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
+function(expect_cpu_doc code profile doc)
+  check_cpu_doc_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}")
 endfunction()
 
 function(expect_audio_detail code detail profile)
@@ -1120,11 +1194,11 @@ elseif(CASE STREQUAL "cpu_policy_value")
 
   profile_copy(p missing_cpu_policy)
   gbl_json_mutate_remove("${p}" cpu_policy)
-  expect_code(cpu-policy-missing "${p}")
+  expect_cpu_code(cpu-policy-missing "${p}")
 
   profile_copy(p stale_version_four)
   gbl_json_mutate_set("${p}" "4" profile_version)
-  expect_detail(cpu-policy-value "profile_version: expected 5" "${p}")
+  expect_cpu_detail(cpu-policy-value "profile_version: expected 5" "${p}")
 
   foreach(key IN ITEMS pc_operand_reads internal_work multiply_flag_policy
       loaded_pc_boundary unpredictable_operands extension_encoding address_arithmetic)
@@ -1137,68 +1211,68 @@ elseif(CASE STREQUAL "cpu_policy_value")
       else()
         gbl_json_mutate_set("${p}" "\"hardware-qualified\"" cpu_policy ${key})
       endif()
-      expect_detail(cpu-policy-value "cpu_policy\\.${key}: expected" "${p}")
+      expect_cpu_detail(cpu-policy-value "cpu_policy\\.${key}: expected" "${p}")
     endforeach()
   endforeach()
   profile_copy(p extra_policy_field)
   gbl_json_mutate_set("${p}" "true" cpu_policy hardware_qualified)
-  expect_detail(cpu-policy-value "cpu_policy: field count" "${p}")
+  expect_cpu_detail(cpu-policy-value "cpu_policy: field count" "${p}")
 
   profile_copy(p wrong_entry)
   gbl_json_mutate_set("${p}" "134217732" cpu_policy entry_address)
-  expect_detail(cpu-policy-value "cpu_policy\\.entry_address: expected 134217728" "${p}")
+  expect_cpu_detail(cpu-policy-value "cpu_policy\\.entry_address: expected 134217728" "${p}")
 
   profile_copy(p wrong_mode)
   gbl_json_mutate_set("${p}" "211" cpu_policy cpsr)
-  expect_detail(cpu-policy-value "cpu_policy\\.cpsr: expected 223" "${p}")
+  expect_cpu_detail(cpu-policy-value "cpu_policy\\.cpsr: expected 223" "${p}")
 
   profile_copy(p wrong_flags)
   gbl_json_mutate_set("${p}" "2147483871" cpu_policy cpsr)
-  expect_detail(cpu-policy-value "cpu_policy\\.cpsr: expected 223" "${p}")
+  expect_cpu_detail(cpu-policy-value "cpu_policy\\.cpsr: expected 223" "${p}")
 
   profile_copy(p wrong_arm_pc)
   gbl_json_mutate_set("${p}" "4" cpu_policy arm_pc_offset)
-  expect_detail(cpu-policy-value "cpu_policy\\.arm_pc_offset: expected 8" "${p}")
+  expect_cpu_detail(cpu-policy-value "cpu_policy\\.arm_pc_offset: expected 8" "${p}")
 
   profile_copy(p fake_user_spsr)
   gbl_json_mutate_set("${p}" "\"present\"" cpu_policy user_system_spsr)
-  expect_detail(cpu-policy-value "cpu_policy\\.user_system_spsr: expected absent" "${p}")
+  expect_cpu_detail(cpu-policy-value "cpu_policy\\.user_system_spsr: expected absent" "${p}")
 
   profile_copy(p wrong_stop_edge)
   gbl_json_mutate_set("${p}" "\"after-vector-fetch\"" cpu_policy bios_none_stop)
-  expect_detail(cpu-policy-value "cpu_policy\\.bios_none_stop: expected after-entry-before-vector-fetch" "${p}")
+  expect_cpu_detail(cpu-policy-value "cpu_policy\\.bios_none_stop: expected after-entry-before-vector-fetch" "${p}")
 
   profile_copy(p inflated_policy_source)
   gbl_json_mutate_set("${p}" "\"REF\"" cpu_policy source)
-  expect_code(cpu-policy-source "${p}")
+  expect_cpu_code(cpu-policy-source "${p}")
 
   profile_copy(p inflated_arch_source)
   gbl_json_mutate_set("${p}" "\"SRC\"" cpu_policy architecture_source)
-  expect_code(cpu-policy-source "${p}")
+  expect_cpu_code(cpu-policy-source "${p}")
 
   profile_copy(p omitted_supported_rows)
   gbl_json_mutate_set("${p}" "[]" cpu_policy supported_opcode_operands)
-  expect_code(cpu-policy-value "${p}")
+  expect_cpu_code(cpu-policy-value "${p}")
 
   profile_copy(p excess_supported_rows)
   string(JSON supported_count LENGTH "${base_profile}" cpu_policy supported_opcode_operands)
   gbl_json_mutate_set("${p}" "\"Extra instruction family not implemented\""
     cpu_policy supported_opcode_operands ${supported_count})
-  expect_code(cpu-policy-value "${p}")
+  expect_cpu_code(cpu-policy-value "${p}")
 
   profile_copy(p omitted_excluded_rows)
   gbl_json_mutate_set("${p}" "[]" cpu_policy excluded_opcode_operands)
-  expect_code(cpu-policy-value "${p}")
+  expect_cpu_code(cpu-policy-value "${p}")
 
   profile_copy(p false_bios_claim)
   gbl_json_mutate_set("${p}" "\"Hardware-qualified BIOS and active DMA execution\""
     cpu_policy supported_opcode_operands 0)
-  expect_code(cpu-policy-value "${p}")
+  expect_cpu_code(cpu-policy-value "${p}")
 
   profile_copy(p wrong_thumb_format_mapping)
   gbl_json_mutate_set("${p}" "\"Thumb formats 6-14: PC-relative, register/immediate byte/word/halfword and signed loads, SP-relative transfers and PC/SP address formation\""
     cpu_policy supported_opcode_operands 10)
-  expect_code(cpu-policy-value "${p}")
+  expect_cpu_code(cpu-policy-value "${p}")
 
 elseif(CASE STREQUAL "cpu_policy_doc")
   profile_copy(p positive_cpu_policy_doc)
@@ -1212,36 +1286,36 @@ elseif(CASE STREQUAL "cpu_policy_doc")
   doc_copy(d stale_cpu_value)
   gbl_text_mutate("${d}" "${entry_row}"
     "| cpu_policy.entry_address | 134217732 | IMPL | Gamebloke deterministic project policy: direct-start CPU initialization, one preflighted interpreter path, and explicit BIOS-none exception stops. |")
-  expect_code(cpu-policy-doc "${p}" "${d}")
+  expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
 
   profile_copy(p duplicated_cpu_row)
   doc_copy(d duplicated_cpu_row)
   gbl_text_mutate("${d}" "${entry_row}" "${entry_row}\n${entry_row}")
-  expect_code(cpu-policy-doc "${p}" "${d}")
+  expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
 
   profile_copy(p hidden_cpu_row)
   doc_copy(d hidden_cpu_row)
   gbl_text_mutate("${d}" "${entry_row}"
     "<!--\n${entry_row}\n-->\n```markdown\n${entry_row}\n```")
-  expect_code(cpu-policy-doc "${p}" "${d}")
+  expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
 
   profile_copy(p inflated_cpu_doc_source)
   doc_copy(d inflated_cpu_doc_source)
   gbl_text_mutate("${d}" "| cpu_policy.entry_address | 134217728 | IMPL |"
     "| cpu_policy.entry_address | 134217728 | REF |")
-  expect_code(cpu-policy-doc "${p}" "${d}")
+  expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
 
   profile_copy(p stale_cpu_scope)
   doc_copy(d stale_cpu_scope)
   gbl_text_mutate("${d}" "ARM control flow: B, BL, BX"
     "ARM control flow: B, BL, BX, and extra opcode")
-  expect_code(cpu-policy-doc "${p}" "${d}")
+  expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
 
   profile_copy(p stale_thumb_format_mapping)
   doc_copy(d stale_thumb_format_mapping)
   gbl_text_mutate("${d}" "| cpu_scope.supported.11 | Thumb formats 6-12:"
     "| cpu_scope.supported.11 | Thumb formats 6-14:")
-  expect_code(cpu-policy-doc "${p}" "${d}")
+  expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
 
   foreach(key IN ITEMS pc_operand_reads internal_work multiply_flag_policy
       loaded_pc_boundary unpredictable_operands extension_encoding address_arithmetic)
@@ -1250,14 +1324,14 @@ elseif(CASE STREQUAL "cpu_policy_doc")
     string(JSON value GET "${base_profile}" cpu_policy ${key})
     gbl_text_mutate("${d}" "| cpu_policy.${key} | ${value} |"
       "| cpu_policy.${key} | hardware-qualified |")
-    expect_code(cpu-policy-doc "${p}" "${d}")
+    expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
   endforeach()
 
   profile_copy(p stop_reason_drift)
   doc_copy(d stop_reason_drift)
   gbl_text_mutate("${d}" "| cpu_stop.unpredictable | unpredictable-instruction |"
     "| cpu_stop.unpredictable | unsupported-instruction |")
-  expect_code(cpu-policy-doc "${p}" "${d}")
+  expect_cpu_doc(cpu-policy-doc "${p}" "${d}")
 
 elseif(CASE STREQUAL "timing_model")
   profile_copy(p timing_model_clean)
@@ -1369,16 +1443,16 @@ elseif(CASE STREQUAL "bus_policy_missing")
 elseif(CASE STREQUAL "bus_policy_value")
   profile_copy(p request_cost)
   gbl_json_mutate_set("${p}" "2" bus_policy request_cycles rom)
-  expect_detail(bus-policy-value "bus_policy\\.request_cycles\\.rom: expected contextual WAITCNT beat formula" "${p}")
+  expect_bus_detail(bus-policy-value "bus_policy\\.request_cycles\\.rom: expected contextual WAITCNT beat formula" "${p}")
   profile_copy(p widths)
   gbl_json_mutate_set("${p}" "[1, 2]" bus_policy widths_bytes)
-  expect_detail(bus-policy-value "bus_policy\\.widths_bytes: expected \\[1, 2, 4\\]" "${p}")
+  expect_bus_detail(bus-policy-value "bus_policy\\.widths_bytes: expected \\[1, 2, 4\\]" "${p}")
   profile_copy(p classes)
   gbl_json_mutate_set("${p}" "[\"nonsequential\"]" bus_policy access_classes)
-  expect_detail(bus-policy-value "bus_policy\\.access_classes: expected \\[nonsequential, sequential\\]" "${p}")
+  expect_bus_detail(bus-policy-value "bus_policy\\.access_classes: expected \\[nonsequential, sequential\\]" "${p}")
   profile_copy(p internal_unit)
   gbl_json_mutate_set("${p}" "2" bus_policy internal_cycle_unit)
-  expect_detail(bus-policy-value "bus_policy\\.internal_cycle_unit: expected 1" "${p}")
+  expect_bus_detail(bus-policy-value "bus_policy\\.internal_cycle_unit: expected 1" "${p}")
 
 elseif(CASE STREQUAL "bus_policy_source")
   profile_copy(p bad_label)
@@ -1403,14 +1477,14 @@ elseif(CASE STREQUAL "bus_policy_doc")
     gbl_text_mutate("${d}"
       "| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
       "| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n${row}")
-    expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+    expect_bus_doc(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
   endforeach()
   profile_copy(p stale_value)
   doc_copy(d stale_value)
   gbl_text_mutate("${d}"
     "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
     "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
-  expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
   # A complete but hidden copy must not stand in for the stale rendered table.
   profile_copy(p commented_stale_value)
   doc_copy(d commented_stale_value)
@@ -1427,7 +1501,7 @@ elseif(CASE STREQUAL "bus_policy_doc")
   string(SUBSTRING "${source_doc}" ${table_start} ${table_length} valid_table)
   gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
     "<!--\n${valid_table}\n-->\n| Setting | Value | Label | Citation |")
-  expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
   profile_copy(p raw_html_table)
   doc_copy(d raw_html_table)
   gbl_text_mutate("${d}"
@@ -1443,72 +1517,72 @@ elseif(CASE STREQUAL "bus_policy_doc")
   string(SUBSTRING "${source_doc}" ${table_start} ${table_length} valid_table)
   gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
     "<pre>\n${valid_table}\n</pre>\n| Setting | Value | Label | Citation |")
-  expect_detail(bus-policy-doc
+  expect_bus_doc(bus-policy-doc
     "unsupported raw HTML element <pre>" "${p}" "${d}")
   profile_copy(p hidden_bus_heading)
   doc_copy(d hidden_bus_heading)
   gbl_text_mutate("${d}" "\n## Bus policy\n"
     "\n<!--\n## Bus policy\n-->\n")
-  expect_detail(bus-policy-doc "missing ## Bus policy section" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "missing ## Bus policy section" "${p}" "${d}")
   profile_copy(p multiline_inline_hidden_version)
   doc_copy(d multiline_inline_hidden_version)
   gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n"
     "\n``\nprofile_version: ${PROFILE_VERSION}\n``\nprofile_version: ${NEXT_PROFILE_VERSION}\n")
-  expect_detail(doc-version-mismatch "document ${NEXT_PROFILE_VERSION}, profile ${PROFILE_VERSION}" "${p}" "${d}")
+  expect_bus_doc(doc-version-mismatch "document ${NEXT_PROFILE_VERSION}, profile ${PROFILE_VERSION}" "${p}" "${d}")
   profile_copy(p html_crosses_policy_sections)
   doc_copy(d html_crosses_policy_sections)
   gbl_text_mutate("${d}" "\n## Bus policy\n"
     "\n<pre>\n## Bus policy\n")
   file(APPEND "${d}" "\n<!-- </pre> -->\n")
-  expect_detail(bus-policy-doc "unsupported raw HTML element <pre>" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "unsupported raw HTML element <pre>" "${p}" "${d}")
   profile_copy(p raw_html_section)
   doc_copy(d raw_html_section)
   gbl_text_mutate("${d}" "## Bus policy\n"
     "<section>\n## Bus policy\n")
   file(APPEND "${d}" "\n</section>\n")
-  expect_detail(bus-policy-doc
+  expect_bus_doc(bus-policy-doc
     "unsupported raw HTML element <section>" "${p}" "${d}")
   profile_copy(p raw_html_custom_element)
   doc_copy(d raw_html_custom_element)
   gbl_text_mutate("${d}" "## Bus policy\n"
     "<gamebloke-profile>\n## Bus policy\n")
   file(APPEND "${d}" "\n</gamebloke-profile>\n")
-  expect_detail(bus-policy-doc
+  expect_bus_doc(bus-policy-doc
     "unsupported raw HTML element <gamebloke-profile>" "${p}" "${d}")
   profile_copy(p raw_html_processing_instruction)
   doc_copy(d raw_html_processing_instruction)
   gbl_text_mutate("${d}" "## Bus policy\n"
     "<?profile\n## Bus policy\n")
   file(APPEND "${d}" "\n?>\n")
-  expect_detail(bus-policy-doc
+  expect_bus_doc(bus-policy-doc
     "unsupported raw HTML declaration or processing instruction" "${p}" "${d}")
   profile_copy(p raw_html_cdata)
   doc_copy(d raw_html_cdata)
   gbl_text_mutate("${d}" "## Bus policy\n"
     "<![CDATA[\n## Bus policy\n")
   file(APPEND "${d}" "\n]]>\n")
-  expect_detail(bus-policy-doc
+  expect_bus_doc(bus-policy-doc
     "unsupported raw HTML declaration or processing instruction" "${p}" "${d}")
   profile_copy(p wrong_policy_header)
   doc_copy(d wrong_policy_header)
   gbl_text_mutate("${d}" "| Setting | Value | Label | Citation |"
     "| Setting | Value | Label | Evidence |")
-  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
   profile_copy(p colon_only_policy_delimiter)
   doc_copy(d colon_only_policy_delimiter)
   gbl_text_mutate("${d}" "| ------- | ----- | ----- | -------- |"
     "| : | : | : | : |")
-  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
   profile_copy(p missing_policy_hyphen)
   doc_copy(d missing_policy_hyphen)
   gbl_text_mutate("${d}" "| ------- | ----- | ----- | -------- |"
     "| : | ----- | ----- | -------- |")
-  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
   profile_copy(p wrong_policy_separator_columns)
   doc_copy(d wrong_policy_separator_columns)
   gbl_text_mutate("${d}" "| ------- | ----- | ----- | -------- |"
     "| ------- | ----- | ----- |")
-  expect_detail(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: missing policy table" "${p}" "${d}")
   profile_copy(p malformed_unmodeled_separator)
   doc_copy(d malformed_unmodeled_separator)
   gbl_text_mutate("${d}" "| -- | ------------------- |" "| : | : |")
@@ -1518,20 +1592,20 @@ elseif(CASE STREQUAL "bus_policy_doc")
   gbl_text_mutate("${d}"
     "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
     "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
-  expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 13" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: expected 12 rows, found 13" "${p}" "${d}")
   profile_copy(p unexpected_policy_row)
   doc_copy(d unexpected_policy_row)
   gbl_text_mutate("${d}"
     "| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
     "| bus_policy.request_cycles.extra | 1 | IMPL | test-only row |")
-  expect_detail(bus-policy-doc
+  expect_bus_doc(bus-policy-doc
     "bus_policy: unexpected policy row bus_policy.request_cycles.extra" "${p}" "${d}")
   profile_copy(p wrong_policy_body_cells)
   doc_copy(d wrong_policy_body_cells)
   gbl_text_mutate("${d}"
     "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
     "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. | extra |")
-  expect_detail(bus-policy-doc
+  expect_bus_doc(bus-policy-doc
     "bus_policy: expected 4 cells per body row, found 5" "${p}" "${d}")
   profile_copy(p wrong_unmodeled_body_cells)
   doc_copy(d wrong_unmodeled_body_cells)
@@ -1552,7 +1626,7 @@ elseif(CASE STREQUAL "bus_policy_doc")
     "| bus_policy.request_cycles.rom | 2 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
   gbl_text_mutate("${d}" "## Machine\n"
     "## Machine\n| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n")
-  expect_detail(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: missing or stale row" "${p}" "${d}")
   profile_copy(p same_section_fence)
   doc_copy(d same_section_fence)
   gbl_text_mutate("${d}"
@@ -1560,7 +1634,7 @@ elseif(CASE STREQUAL "bus_policy_doc")
     "")
   gbl_text_mutate("${d}" "## Initialization policy"
     "```text\n| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n```\n\n## Initialization policy")
-  expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
   profile_copy(p same_section_indented)
   doc_copy(d same_section_indented)
   gbl_text_mutate("${d}"
@@ -1568,13 +1642,13 @@ elseif(CASE STREQUAL "bus_policy_doc")
     "")
   gbl_text_mutate("${d}" "## Initialization policy"
     "    | bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n\t| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |\n\n## Initialization policy")
-  expect_detail(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: expected 12 rows, found 11" "${p}" "${d}")
   profile_copy(p duplicate_key)
   doc_copy(d duplicate_key)
   gbl_text_mutate("${d}"
     "| bus_policy.request_cycles.oam | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |"
     "| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |")
-  expect_detail(bus-policy-doc "bus_policy: expected key bus_policy\\.request_cycles\\.rom exactly once in policy table, found 2" "${p}" "${d}")
+  expect_bus_doc(bus-policy-doc "bus_policy: expected key bus_policy\\.request_cycles\\.rom exactly once in policy table, found 2" "${p}" "${d}")
 
 elseif(CASE STREQUAL "init_policy")
   profile_copy(p missing)

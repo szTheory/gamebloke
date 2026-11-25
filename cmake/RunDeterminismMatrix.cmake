@@ -27,6 +27,14 @@ function(timed seconds_out output_out result_out)
   set(${result_out} "${rc}" PARENT_SCOPE)
 endfunction()
 
+function(receipt_field out receipt key owner)
+  string(JSON value ERROR_VARIABLE error GET "${receipt}" "${key}")
+  if(NOT "${error}" STREQUAL "NOTFOUND")
+    message(FATAL_ERROR "determinism-matrix: receipt-field-invalid:${owner}:${key}:${error}")
+  endif()
+  set(${out} "${value}" PARENT_SCOPE)
+endfunction()
+
 function(validate_record_set path variant)
   if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}" OR IS_SYMLINK "${path}")
     message(FATAL_ERROR "determinism-matrix: missing-record-artifact:${variant}")
@@ -222,6 +230,56 @@ if(NOT "${selected_ids}" STREQUAL "${manifest_owned_ids}")
   message(FATAL_ERROR "determinism-matrix: diagnostic-manifest-selection-mismatch")
 endif()
 
+# The required diagnostics.execute fixture already performs the canonical
+# result check for every admitted JSON and writes fresh receipts. Rebind those
+# exact bytes and their run identity here instead of repeating full authority
+# parsing once per fixture before the determinism observations.
+set(receipt_root "${BIN}/diagnostic-execution")
+set(run_receipt_path "${receipt_root}/run.json")
+if(NOT EXISTS "${run_receipt_path}" OR IS_DIRECTORY "${run_receipt_path}" OR
+   IS_SYMLINK "${run_receipt_path}")
+  message(FATAL_ERROR "determinism-matrix: admitted-run-receipt-missing")
+endif()
+file(READ "${run_receipt_path}" run_receipt)
+foreach(key IN ITEMS token stage group reviewed_head manifest_sha256
+    source_input_sha256 runner_sha256 native_sha256 source_commit)
+  receipt_field("run_${key}" "${run_receipt}" "${key}" run)
+endforeach()
+if(run_token STREQUAL "" OR NOT run_stage STREQUAL "admitted" OR
+   NOT run_group STREQUAL GROUP OR NOT run_source_commit STREQUAL source_commit)
+  message(FATAL_ERROR "determinism-matrix: admitted-run-receipt-identity-mismatch")
+endif()
+execute_process(COMMAND git -C "${SRC}" rev-parse HEAD
+  RESULT_VARIABLE reviewed_rc OUTPUT_VARIABLE reviewed_head
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT reviewed_rc STREQUAL "0" OR NOT run_reviewed_head STREQUAL reviewed_head)
+  message(FATAL_ERROR "determinism-matrix: admitted-run-receipt-reviewed-head-mismatch")
+endif()
+file(SHA256 "${SRC}/tests/fixtures/manifest.json" current_manifest_sha)
+gbl_diagnostic_input_digest("${SRC}" current_inputs_sha)
+file(SHA256 "${BIN}/gamebloke-run" current_runner_sha)
+file(SHA256 "${BIN}/cpu_test" current_native_sha)
+if(NOT run_manifest_sha256 STREQUAL current_manifest_sha OR
+   NOT run_source_input_sha256 STREQUAL current_inputs_sha OR
+   NOT run_runner_sha256 STREQUAL current_runner_sha OR
+   NOT run_native_sha256 STREQUAL current_native_sha)
+  message(FATAL_ERROR "determinism-matrix: admitted-run-receipt-inputs-changed")
+endif()
+string(JSON receipt_output_count LENGTH "${run_receipt}" outputs)
+if(NOT receipt_output_count EQUAL selected_count)
+  message(FATAL_ERROR "determinism-matrix: admitted-receipt-output-count-mismatch")
+endif()
+set(receipt_output_ids "")
+math(EXPR receipt_output_last "${receipt_output_count}-1")
+foreach(index RANGE 0 ${receipt_output_last})
+  string(JSON receipt_output GET "${run_receipt}" outputs ${index})
+  list(APPEND receipt_output_ids "${receipt_output}")
+endforeach()
+list(SORT receipt_output_ids)
+if(NOT receipt_output_ids STREQUAL selected_ids)
+  message(FATAL_ERROR "determinism-matrix: admitted-receipt-output-set-mismatch")
+endif()
+
 file(SHA256 "${SRC}/tests/fixtures/manifest.json" setup_manifest_sha)
 file(SHA256 "${SRC}/diagnostics/armv4t/cases.json" setup_matrix_sha)
 set(setup_signature "${source_commit}|${setup_manifest_sha}|${setup_matrix_sha}|${GROUP}|${selected_count}")
@@ -255,12 +313,14 @@ foreach(fid IN LISTS selected_ids)
 
   set(expected_status PASS)
   set(expected_reason guest-mailbox-pass)
+  set(expected_termination mailbox-complete)
   set(expected_semantic pass)
   if(fid MATCHES "^(arm|thumb)-stop-([0-9]+)$")
     set(case_id "${CMAKE_MATCH_2}")
     set(expected_status GUEST_STOP)
     set(expected_semantic pending)
     string(JSON expected_reason GET "${GBL_DIAG_ROW_${fid}}" source_test expected_reason)
+    set(expected_termination "${expected_reason}")
   elseif(fid MATCHES "^(arm|thumb)-([0-9]+)-broken$")
     set(case_id "${CMAKE_MATCH_2}")
     set(expected_status GUEST_FAIL)
@@ -284,10 +344,38 @@ foreach(fid IN LISTS selected_ids)
      IS_SYMLINK "${result_path}")
     message(FATAL_ERROR "determinism-matrix: admitted-result-missing:${fid}")
   endif()
+  set(receipt_path "${receipt_root}/${fid}.json")
+  if(NOT EXISTS "${receipt_path}" OR IS_DIRECTORY "${receipt_path}" OR
+     IS_SYMLINK "${receipt_path}")
+    message(FATAL_ERROR "determinism-matrix: admitted-case-receipt-missing:${fid}")
+  endif()
+  file(READ "${receipt_path}" fixture_receipt)
+  foreach(key IN ITEMS token stage group reviewed_head source_commit)
+    receipt_field("fixture_${key}" "${fixture_receipt}" "${key}" "${fid}")
+    if(NOT fixture_${key} STREQUAL run_${key})
+      message(FATAL_ERROR "determinism-matrix: admitted-case-receipt-identity-mismatch:${fid}:${key}")
+    endif()
+  endforeach()
+  receipt_field(receipt_fixture_id "${fixture_receipt}" fixture_id "${fid}")
+  receipt_field(receipt_result_path "${fixture_receipt}" result_path "${fid}")
+  receipt_field(receipt_result_sha "${fixture_receipt}" result_sha256 "${fid}")
+  receipt_field(receipt_status "${fixture_receipt}" status "${fid}")
+  receipt_field(receipt_reason "${fixture_receipt}" reason "${fid}")
+  receipt_field(receipt_termination "${fixture_receipt}" termination "${fid}")
+  receipt_field(receipt_state "${fixture_receipt}" semantic_state "${fid}")
+  receipt_field(receipt_case_id "${fixture_receipt}" semantic_case_id "${fid}")
+  file(SHA256 "${result_path}" current_result_sha)
+  if(NOT receipt_fixture_id STREQUAL fid OR
+     NOT receipt_result_path STREQUAL result_path OR
+     NOT receipt_result_sha STREQUAL current_result_sha OR
+     NOT receipt_status STREQUAL expected_status OR
+     NOT receipt_reason STREQUAL expected_reason OR
+     NOT receipt_termination STREQUAL expected_termination OR
+     NOT receipt_state STREQUAL expected_semantic OR
+     NOT receipt_case_id STREQUAL case_id)
+    message(FATAL_ERROR "determinism-matrix: admitted-case-receipt-mismatch:${fid}")
+  endif()
   file(READ "${result_path}" result_doc)
-  set_property(GLOBAL PROPERTY GBL_FINDINGS 0)
-  gbl_result_check("${result_path}" M R V)
-  gbl_findings_finish(result "admitted result valid:${fid}")
   foreach(field IN ITEMS status reason)
     string(JSON actual_${field} ERROR_VARIABLE error_${field} GET "${result_doc}" ${field})
     if(NOT "${error_${field}}" STREQUAL "NOTFOUND")

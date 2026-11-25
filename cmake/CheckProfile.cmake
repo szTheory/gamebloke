@@ -2967,81 +2967,8 @@ function(gbl__profile_doc_audio_sync normalized_text profile)
     audio-policy-doc 7)
 endfunction()
 
-# gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the canonical
-# profile narrative must agree with the JSON. Normalize once before any
-# metadata, heading, section, or table lookup. <version-text> is empty when the
-# JSON version is not valid (bad-version already reported).
-function(gbl__profile_doc_sync docfile profile json_ids version)
-  if(NOT EXISTS "${docfile}" OR IS_DIRECTORY "${docfile}")
-    gbl_finding(profile doc-no-section "${docfile}: unreadable")
-    return()
-  endif()
-  # file(READ), never file(STRINGS): lines may hold semicolons or brackets.
-  file(READ "${docfile}" raw_text)
-  set(raw_text "\n${raw_text}")
-  gbl__profile_doc_normalize(normalized_text "${raw_text}")
-  unset(raw_text)
-
-  # Reject unsupported HTML in the canonical profile document before finding
-  # any synchronized sections. This catches blocks that begin before a section
-  # and span across its heading or table.
-  gbl__profile_doc_unsupported_html(unsupported_markup "${normalized_text}")
-  if(NOT "${unsupported_markup}" STREQUAL "")
-    gbl_finding(profile bus-policy-doc
-      "unsupported raw HTML ${unsupported_markup}")
-    return()
-  endif()
-
-  # Count complete standalone lines instead of matching one substring; a
-  # second contradictory visible version must not be silently ignored.
-  set(remaining "${normalized_text}")
-  set(version_count 0)
-  set(document_version "")
-  while(TRUE)
-    string(FIND "${remaining}" "\n" line_end)
-    if(line_end EQUAL -1)
-      set(line "${remaining}")
-      set(remaining "")
-      set(last_line TRUE)
-    else()
-      string(SUBSTRING "${remaining}" 0 ${line_end} line)
-      math(EXPR next_line "${line_end}+1")
-      string(SUBSTRING "${remaining}" ${next_line} -1 remaining)
-      set(last_line FALSE)
-    endif()
-    if("${line}" MATCHES "^profile_version: ([0-9]+)$")
-      math(EXPR version_count "${version_count}+1")
-      set(document_version "${CMAKE_MATCH_1}")
-    endif()
-    if(last_line)
-      break()
-    endif()
-  endwhile()
-
-  if(version_count EQUAL 0)
-    gbl_finding(profile doc-version-mismatch "no profile_version line")
-  elseif(version_count GREATER 1)
-    gbl_finding(profile doc-version-mismatch
-      "expected exactly one profile_version line, found ${version_count}")
-  elseif(NOT "${version}" STREQUAL "")
-    if(NOT "${document_version}" STREQUAL "${version}")
-      gbl_finding(profile doc-version-mismatch "document ${document_version}, profile ${version}")
-    endif()
-  endif()
-
-  foreach(heading IN ITEMS "## Bus policy" "## Initialization policy" "## Read policy")
-    string(FIND "${normalized_text}" "${heading}" heading_at)
-    if(heading_at EQUAL -1)
-      gbl_finding(profile bus-policy-doc "missing ${heading} section")
-    endif()
-  endforeach()
-  foreach(heading IN ITEMS "## CPU direct-start policy" "## CPU instruction scope")
-    string(FIND "${normalized_text}" "${heading}" heading_at)
-    if(heading_at EQUAL -1)
-      gbl_finding(profile cpu-policy-doc "missing ${heading} section")
-    endif()
-  endforeach()
-
+# Validate the bus policy table from a normalized profile document.
+function(gbl__profile_doc_bus_sync normalized_text profile)
   gbl_json_string(bus_source "${profile}" bus_policy source)
   gbl_json_string(bus_cite "${profile}" bus_policy cite)
   string(REPLACE ";" "\\;" bus_cite_row "${bus_cite}")
@@ -3060,27 +2987,9 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
     "| bus_policy.internal_cycle_unit | 1 | ${bus_source} | ${bus_cite_row} |")
   gbl__profile_doc_policy_table("${normalized_text}" "## Bus policy" bus_policy 12 bus_rows)
 
-  gbl_json_string(init_source "${profile}" initialization_policy source)
-  gbl_json_string(init_cite "${profile}" initialization_policy cite)
-  string(REPLACE ";" "\\;" init_cite_row "${init_cite}")
-  set(init_rows)
-  foreach(k IN ITEMS memory_fill register_fill master_cycles open_bus)
-    list(APPEND init_rows "| initialization_policy.${k} | 0 | ${init_source} | ${init_cite_row} |")
-  endforeach()
-  gbl__profile_doc_policy_table("${normalized_text}" "## Initialization policy"
-    initialization_policy 4 init_rows)
+endfunction()
 
-  gbl_json_string(read_source "${profile}" read_policy source)
-  gbl_json_string(read_cite "${profile}" read_policy cite)
-  string(REPLACE ";" "\\;" read_cite_row "${read_cite}")
-  set(read_rows
-    "| read_policy.absent_bios | current-open-bus | ${read_source} | ${read_cite_row} |"
-    "| read_policy.unsupported_io | current-open-bus | ${read_source} | ${read_cite_row} |"
-    "| read_policy.rom_tail | current-open-bus | ${read_source} | ${read_cite_row} |"
-    "| read_policy.latch_update | mapped-read-width-replicated | ${read_source} | ${read_cite_row} |"
-    "| read_policy.write_latch | preserve | ${read_source} | ${read_cite_row} |")
-  gbl__profile_doc_policy_table("${normalized_text}" "## Read policy" read_policy 5 read_rows)
-
+function(gbl__profile_doc_cpu_sync normalized_text)
   set(cpu_rows
     "| cpu_policy.entry_address | 134217728 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
     "| cpu_policy.cpsr | 223 | IMPL | ${GBL_PROFILE_CPU_CITE} |"
@@ -3135,6 +3044,113 @@ function(gbl__profile_doc_sync docfile profile json_ids version)
   endforeach()
   gbl__profile_doc_policy_table("${normalized_text}" "## CPU stop classifications"
     cpu_stop 6 cpu_stop_rows "Setting;Value;Label;Citation" cpu-policy-doc)
+
+endfunction()
+
+function(gbl__profile_doc_version_sync normalized_text version)
+  # Count complete standalone lines instead of matching one substring; a
+  # second contradictory visible version must not be silently ignored.
+  set(remaining "${normalized_text}")
+  set(version_count 0)
+  set(document_version "")
+  while(TRUE)
+    string(FIND "${remaining}" "\n" line_end)
+    if(line_end EQUAL -1)
+      set(line "${remaining}")
+      set(remaining "")
+      set(last_line TRUE)
+    else()
+      string(SUBSTRING "${remaining}" 0 ${line_end} line)
+      math(EXPR next_line "${line_end}+1")
+      string(SUBSTRING "${remaining}" ${next_line} -1 remaining)
+      set(last_line FALSE)
+    endif()
+    if("${line}" MATCHES "^profile_version: ([0-9]+)$")
+      math(EXPR version_count "${version_count}+1")
+      set(document_version "${CMAKE_MATCH_1}")
+    endif()
+    if(last_line)
+      break()
+    endif()
+  endwhile()
+
+  if(version_count EQUAL 0)
+    gbl_finding(profile doc-version-mismatch "no profile_version line")
+  elseif(version_count GREATER 1)
+    gbl_finding(profile doc-version-mismatch
+      "expected exactly one profile_version line, found ${version_count}")
+  elseif(NOT "${version}" STREQUAL "")
+    if(NOT "${document_version}" STREQUAL "${version}")
+      gbl_finding(profile doc-version-mismatch "document ${document_version}, profile ${version}")
+    endif()
+  endif()
+
+endfunction()
+
+# gbl__profile_doc_sync(<doc-file> <profile-json> <json-ids> <version-text>): the canonical
+# profile narrative must agree with the JSON. Normalize once before any
+# metadata, heading, section, or table lookup. <version-text> is empty when the
+# JSON version is not valid (bad-version already reported).
+function(gbl__profile_doc_sync docfile profile json_ids version)
+  if(NOT EXISTS "${docfile}" OR IS_DIRECTORY "${docfile}")
+    gbl_finding(profile doc-no-section "${docfile}: unreadable")
+    return()
+  endif()
+  # file(READ), never file(STRINGS): lines may hold semicolons or brackets.
+  file(READ "${docfile}" raw_text)
+  set(raw_text "\n${raw_text}")
+  gbl__profile_doc_normalize(normalized_text "${raw_text}")
+  unset(raw_text)
+
+  # Reject unsupported HTML in the canonical profile document before finding
+  # any synchronized sections. This catches blocks that begin before a section
+  # and span across its heading or table.
+  gbl__profile_doc_unsupported_html(unsupported_markup "${normalized_text}")
+  if(NOT "${unsupported_markup}" STREQUAL "")
+    gbl_finding(profile bus-policy-doc
+      "unsupported raw HTML ${unsupported_markup}")
+    return()
+  endif()
+
+  gbl__profile_doc_version_sync("${normalized_text}" "${version}")
+
+  foreach(heading IN ITEMS "## Bus policy" "## Initialization policy" "## Read policy")
+    string(FIND "${normalized_text}" "${heading}" heading_at)
+    if(heading_at EQUAL -1)
+      gbl_finding(profile bus-policy-doc "missing ${heading} section")
+    endif()
+  endforeach()
+  foreach(heading IN ITEMS "## CPU direct-start policy" "## CPU instruction scope")
+    string(FIND "${normalized_text}" "${heading}" heading_at)
+    if(heading_at EQUAL -1)
+      gbl_finding(profile cpu-policy-doc "missing ${heading} section")
+    endif()
+  endforeach()
+
+  gbl__profile_doc_bus_sync("${normalized_text}" "${profile}")
+
+  gbl_json_string(init_source "${profile}" initialization_policy source)
+  gbl_json_string(init_cite "${profile}" initialization_policy cite)
+  string(REPLACE ";" "\\;" init_cite_row "${init_cite}")
+  set(init_rows)
+  foreach(k IN ITEMS memory_fill register_fill master_cycles open_bus)
+    list(APPEND init_rows "| initialization_policy.${k} | 0 | ${init_source} | ${init_cite_row} |")
+  endforeach()
+  gbl__profile_doc_policy_table("${normalized_text}" "## Initialization policy"
+    initialization_policy 4 init_rows)
+
+  gbl_json_string(read_source "${profile}" read_policy source)
+  gbl_json_string(read_cite "${profile}" read_policy cite)
+  string(REPLACE ";" "\\;" read_cite_row "${read_cite}")
+  set(read_rows
+    "| read_policy.absent_bios | current-open-bus | ${read_source} | ${read_cite_row} |"
+    "| read_policy.unsupported_io | current-open-bus | ${read_source} | ${read_cite_row} |"
+    "| read_policy.rom_tail | current-open-bus | ${read_source} | ${read_cite_row} |"
+    "| read_policy.latch_update | mapped-read-width-replicated | ${read_source} | ${read_cite_row} |"
+    "| read_policy.write_latch | preserve | ${read_source} | ${read_cite_row} |")
+  gbl__profile_doc_policy_table("${normalized_text}" "## Read policy" read_policy 5 read_rows)
+
+  gbl__profile_doc_cpu_sync("${normalized_text}")
 
   string(REPLACE ";" "\\;" irq_cite_row "${GBL_PROFILE_IRQ_POLICY_CITE}")
   set(irq_rows
@@ -3249,6 +3265,62 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
 
   # Focused mutation controls target the production policy validator directly.
   # The ordinary lint and clean-copy controls still exercise the full profile.
+  if(DEFINED GBL_PROFILE_BUS_VALUE_ONLY AND GBL_PROFILE_BUS_VALUE_ONLY)
+    gbl__profile_bus_policy("${doc}")
+    gbl_findings_finish(profile "ok (agb bus policy values)")
+    return()
+  endif()
+
+  if(DEFINED GBL_PROFILE_BUS_DOC_ONLY AND GBL_PROFILE_BUS_DOC_ONLY)
+    gbl__profile_bus_policy("${doc}")
+    if(NOT EXISTS "${DOC}" OR IS_DIRECTORY "${DOC}")
+      gbl_finding(profile bus-policy-doc "${DOC}: unreadable")
+    else()
+      file(READ "${DOC}" bus_raw_text)
+      set(bus_raw_text "\n${bus_raw_text}")
+      gbl__profile_doc_normalize(bus_normalized_text "${bus_raw_text}")
+      gbl__profile_doc_unsupported_html(unsupported_markup "${bus_normalized_text}")
+      if(NOT "${unsupported_markup}" STREQUAL "")
+        gbl_finding(profile bus-policy-doc
+          "unsupported raw HTML ${unsupported_markup}")
+        gbl_findings_finish(profile "ok (agb bus policy documentation)")
+        return()
+      endif()
+      string(JSON bus_profile_version GET "${doc}" profile_version)
+      gbl__profile_doc_version_sync("${bus_normalized_text}" "${bus_profile_version}")
+      gbl__profile_doc_bus_sync("${bus_normalized_text}" "${doc}")
+    endif()
+    gbl_findings_finish(profile "ok (agb bus policy documentation)")
+    return()
+  endif()
+
+  if(DEFINED GBL_PROFILE_CPU_DOC_ONLY AND GBL_PROFILE_CPU_DOC_ONLY)
+    gbl__profile_cpu_policy("${doc}")
+    if(NOT EXISTS "${DOC}" OR IS_DIRECTORY "${DOC}")
+      gbl_finding(profile cpu-policy-doc "${DOC}: unreadable")
+    else()
+      file(READ "${DOC}" cpu_raw_text)
+      set(cpu_raw_text "\n${cpu_raw_text}")
+      gbl__profile_doc_normalize(cpu_normalized_text "${cpu_raw_text}")
+      gbl__profile_doc_unsupported_html(unsupported_markup "${cpu_normalized_text}")
+      if(NOT "${unsupported_markup}" STREQUAL "")
+        gbl_finding(profile bus-policy-doc
+          "unsupported raw HTML ${unsupported_markup}")
+        gbl_findings_finish(profile "ok (agb CPU policy documentation)")
+        return()
+      endif()
+      gbl__profile_doc_cpu_sync("${cpu_normalized_text}")
+    endif()
+    gbl_findings_finish(profile "ok (agb CPU policy documentation)")
+    return()
+  endif()
+
+  if(DEFINED GBL_PROFILE_CPU_VALUE_ONLY AND GBL_PROFILE_CPU_VALUE_ONLY)
+    gbl__profile_cpu_policy("${doc}")
+    gbl_findings_finish(profile "ok (agb CPU policy values)")
+    return()
+  endif()
+
   if(DEFINED GBL_PROFILE_AUDIO_ONLY AND GBL_PROFILE_AUDIO_ONLY)
     gbl__profile_audio_policy("${doc}")
     if(NOT EXISTS "${DOC}" OR IS_DIRECTORY "${DOC}")
@@ -3260,6 +3332,15 @@ if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
       gbl__profile_doc_audio_sync("${audio_normalized_text}" "${doc}")
     endif()
     gbl_findings_finish(profile "ok (agb audio policy)")
+    return()
+  endif()
+
+  # Profile-value controls should not repeat the separate documentation
+  # synchronization check when their input is only a mutated profile copy.
+  # Clean full-profile and mutated-document controls use the scoped checks below.
+  if(DEFINED GBL_PROFILE_PPU_VALUE_ONLY AND GBL_PROFILE_PPU_VALUE_ONLY)
+    gbl__profile_ppu_policy("${doc}")
+    gbl_findings_finish(profile "ok (agb PPU policy values)")
     return()
   endif()
 
