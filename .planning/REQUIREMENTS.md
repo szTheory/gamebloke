@@ -43,7 +43,7 @@ phase.
 
 ### Playstead Host Fit
 
-- [ ] **INT-02**: A host-fit report maps the labeled Playstead source snapshot
+- [x] **INT-02**: A host-fit report maps the labeled Playstead source snapshot
   to Gamebloke v1 lifecycle, timed input, cycle budget, raw video/audio,
   teardown, and save capabilities, and lists unsupported behavior and
   unknowns without claiming Playstead integration, hardware accuracy, or a
@@ -81,7 +81,7 @@ Acknowledged, but not committed to v6.0:
 | CONS-03 | Phase 23 | Complete |
 | API-06 | Phase 23 | Complete |
 | FIX-01 | Phase 23 | Complete |
-| INT-02 | Phase 23 | Pending |
+| INT-02 | Phase 23 | Complete |
 
 **Coverage:**
 - v1 requirements: 6 total
