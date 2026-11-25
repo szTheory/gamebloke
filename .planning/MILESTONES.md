@@ -1,5 +1,21 @@
 # Milestones
 
+## v6.0 Public API Host Session Readiness (Completed locally: 2026-11-25)
+
+**Phases completed:** 2 phases, 3 plans, 7 tasks
+**Verification:** 6/6 requirements satisfied; 2/2 phases passed goal verification; 2/2 end-to-end flows complete. Audit status is `tech_debt` for the historical Playstead snapshot, Linux helper coverage, and unpublished local branch.
+**Outcome:** Local GSD milestone complete. No hosted CI run, software release, package publication, Playstead route change, or hardware qualification occurred. Remote `main` had no open PR or status/workflow run at closeout.
+**Closeout:** Open-artifact audit found no open items. One previously acknowledged v1.0 verification gap remains carried forward.
+**What's next:** No scope is selected. Use `.planning/ROADMAP.md` for a clean Playstead route-feasibility assessment, a consumer-driven save-device slice, or targeted compatibility evidence; obtain owner authorization before publication or merge.
+
+**Key accomplishments:**
+- A metadata-only preflight validates the archived Phase 21 records before fixture setup.
+- A relocated-package C17 consumer proves a source-bound local GBA session, fresh replay, raw media literals, and refusal-safe retry.
+- A source-cited report maps the v1 host boundary to one inspected Playstead snapshot and preserves unknowns.
+- A measured fast hygiene gate stops expensive CI jobs on consistency failures without removing test coverage.
+
+---
+
 ## v5.0 Deterministic Core API and Installed Consumer Proof (Completed locally: 2026-11-24)
 
 **Delivered:** A stable local C API and relocated consumer prove the public GBA machine boundary and provide evidence for future integration decisions.

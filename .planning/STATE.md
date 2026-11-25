@@ -2,41 +2,37 @@
 gsd_state_version: "1.0"
 milestone: v6.0
 milestone_name: Public API Host Session Readiness
-current_phase: 23
-current_plan: Not started
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 23 complete — all phases complete
-last_updated: "2026-11-25T16:37:22.354Z"
+last_updated: "2026-11-25T16:53:27.639Z"
 last_activity: 2026-11-25
-last_activity_desc: Phase 23 complete
-state_head: c2079f54225be5963a7671d5a73dd9e9510e32a0
+last_activity_desc: Milestone v6.0 completed and archived
+state_head: 3ac48f41a8c07981256303e1b83421dbc092e4ea
 progress:
   total_phases: 2
   completed_phases: 2
   total_plans: 3
   completed_plans: 3
   percent: 100
+current_phase: 23
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-24)
+See: .planning/PROJECT.md (updated 2026-11-25)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
-**Most recent milestone:** v5.0 Deterministic Core API and Installed Consumer Proof (completed locally; a GSD milestone label, not a software version)
-**Current focus:** v6.0 Public API Host Session Readiness starts with the archived Phase 21 proof's reference checks. Phase 23 then verifies a sustained public C API session and assesses Playstead fit from its read-only source.
+**Most recent milestone:** v6.0 Public API Host Session Readiness (completed locally; a GSD milestone label, not a software version)
+**Current focus:** No next milestone scope is selected. Use the rolling horizon in `.planning/ROADMAP.md`; remote publication and merge remain owner-controlled.
 
 ## Current Position
 
-Phase: 23
-Current Plan: Not started
-Total Plans in Phase: 2
-Status: All phases complete
-Last activity: 2026-11-25 — Phase 23 complete
-
-Progress: [██████████] 100%
+Phase: Milestone v6.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-25 — Milestone v6.0 completed and archived
 
 ## Performance Metrics
 
@@ -681,6 +677,5 @@ Resume file: None
 
 
 
-- After context is cleared, run `$gsd-autonomous` to discuss, plan, execute,
-  verify, audit, and close the remaining v6.0 phases; pause only for a genuine
-  blocker or an owner-only gate.
+
+- Start the next milestone with $gsd-new-milestone

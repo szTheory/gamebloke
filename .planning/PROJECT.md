@@ -18,7 +18,36 @@ behavior. That behavior covers guest progress, machine time, CPU/device
 effects, raw video, and raw audio, all observed separately, and every result
 says exactly what it proves and what it does not.
 
-## Most Recent Completed Milestone: v5.0 Deterministic Core API and Installed Consumer Proof
+## Current State
+
+The latest locally completed GSD milestone is v6.0 Public API Host Session
+Readiness. Its six requirements and both phases passed local verification. No
+software release, package publication, or hardware qualification is claimed.
+The milestone history remains on the current local branch; remote `main` has
+not been updated or qualified in this closeout. No next milestone scope is
+selected; use the rolling horizon in `.planning/ROADMAP.md` to start that
+discussion.
+
+## Most Recent Completed Milestone: v6.0 Public API Host Session Readiness
+
+Phases 22 and 23 completed locally with all six v6.0 requirements satisfied.
+The archived Phase 21 witness now has a fixture-free preflight, and an
+independently built C17 consumer proves a bounded public API session, semantic
+guest progress, literal raw video/audio, refusal-safe retry, and teardown. The
+Playstead assessment maps six host capabilities to the exact inspected
+snapshot and preserves its unknowns.
+
+The milestone audit found no unsatisfied requirements, broken integration
+links, or broken end-to-end flows. Its non-blocking limits are the historical
+Playstead snapshot, the lack of Linux execution for the host-only snapshot
+helper, and the fact that this local branch has not been published to remote
+`main`. The full canonical CMake workflow and optional diagnostics lane passed
+locally; focused CI-policy checks validated the fast hygiene prerequisite.
+No hosted run, `act` replay, Docker resource, software release, or publication
+occurred. The GSD milestone label is not a Gamebloke software version.
+
+<details>
+<summary>Previous completed milestone: v5.0 Deterministic Core API and Installed Consumer Proof</summary>
 
 Phases 20 and 21 completed locally with all nine v5.0 requirements satisfied.
 Gamebloke now exposes a versioned opaque C API for the supported `agb`
@@ -36,6 +65,8 @@ tests cover them. The diagnostic remains authorized for local Phase 21 use
 only, with redistribution rights unknown. Hardware qualification is UNKNOWN.
 This GSD milestone is complete locally; no software release, package
 publication, hardware qualification, or Playstead route change is claimed.
+
+</details>
 
 <details>
 <summary>Previous completed milestone: v4.0 Audio</summary>
@@ -71,34 +102,17 @@ carryovers.
 
 </details>
 
-## Current Milestone: v6.0 Public API Host Session Readiness
-
-**Goal:** Restore the archived installed-consumer proof's operational
-references, then demonstrate a sustained deterministic session through the
-public C API and produce a bounded Playstead host-fit assessment. No Playstead
-source changes, route replacement, or compatibility advantage are claimed.
-
-**Target features:**
-- Archive-safe installed-consumer fixture and notice references with a visible
-  missing-path control.
-- A relocated public-only C17 consumer that performs repeated bounded
-  advances, uses timed input, asserts guest semantics and literal raw media,
-  and handles refusals and teardown.
-- A source-grounded Playstead host-fit report that keeps the sibling checkout
-  read-only and labels its current dirty source state.
-
 ## Next Milestone Directions
 
-After v6.0, consider an opt-in side-by-side Playstead route only with a clean
-owner-selected source snapshot, separately authorized fixture use, and an
-independent guest oracle. Consider a cartridge save-device slice only when a
-named consumer scenario selects the exact device and save outcome. Targeted
-compatibility evidence must name its exact profile, rights-cleared fixture,
-expected behavior, and oracle. Package publication and software releases remain
-gated by rights, licensing, package readiness, qualification claims, and
-owner authority. See `.planning/ROADMAP.md` and
-`research/V6.0-MILESTONE-SCOPE.md` for current provenance, alternatives, and
-promotion criteria.
+No next scope has been selected. Start with an evidence-backed scoping session
+using the refreshed `.planning/ROADMAP.md`. The strongest candidate is an
+owner-selected clean Playstead source snapshot and a read-only route-feasibility
+slice, promoted only if separately authorized fixture use and an independent
+guest oracle are available. If those inputs are unavailable or the fit report
+shows no distinct value beside managed mGBA, compare a named cartridge
+save-device scenario or targeted compatibility evidence instead. Package
+publication and software releases remain gated by rights, licensing, package
+readiness, qualification claims, and owner authority.
 
 ## Requirements
 
@@ -129,16 +143,14 @@ promotion criteria.
 - ✓ **API-01–API-05:** Versioned opaque Gamebloke C API v1 for the supported `agb` direct-start, ROM-only machine, with caller allocator callbacks, extensible sized structs, bounded advancement, caller-owned outputs, and documented refusal postconditions — Phase 20. This records the source contract; it does not claim a separately versioned binary package or release.
 - ✓ **CONS-01, EVID-01, EVID-02:** Relocated public-only C consumer and local original BIOS-free diagnostic proof with semantic guest checks, literal raw A/V observations, provenance, refusal controls, and retry evidence — Phase 21. The diagnostic and generated ROM remain authorized for this local phase only; redistribution rights and hardware qualification remain unknown.
 - ✓ **INT-01:** LibFuturo fit assessed against the measured installed consumer — Phase 21. Gamebloke v1 remains the only demonstrated GBA route; adoption, contract changes, and Playstead integration remain separate decisions.
+- ✓ **EVID-03:** The archived installed-consumer witness can be located and preflighted using metadata only, with missing records refused before fixture setup — v6.0 Phase 22.
+- ✓ **FIX-01, CONS-02, CONS-03, API-06:** A rights-bounded fixture and relocated C17 consumer establish one deterministic public-API session, literal machine outputs, and failure-atomic retry behavior — v6.0 Phase 23.
+- ✓ **INT-02:** A source-cited report maps the measured host boundary to one exact Playstead snapshot while preserving unsupported behavior and unknowns — v6.0 Phase 23. The current live checkout has since changed; the report is historical.
 
 ### Active
 
-These are hypotheses until shipped and verified. Formal REQ-IDs live in
-.planning/REQUIREMENTS.md while a milestone is active. The completed v5.0
-requirements are archived in `.planning/milestones/v5.0-REQUIREMENTS.md`.
-
-- [ ] v6.0: Keep the relocated public C API session evidence reproducible after milestone artifact archival.
-- [ ] v6.0: Demonstrate repeated bounded host-session operation using only the installed public API and an independently authorized fixture.
-- [ ] v6.0: Record the Playstead host fit and all compatibility, rights, and route-change limits without modifying its managed mGBA path.
+No next-milestone requirements are active. Formal REQ-IDs will be defined in
+`.planning/REQUIREMENTS.md` when a new milestone scope is selected.
 
 Fixture provenance remains required for every added test image; a digest proves identity, not redistribution rights.
 
@@ -172,7 +184,8 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
-- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, dependency-free terminal frontend, and the versioned opaque C API with an installed static component. The relocated consumer demonstrates guest semantics, timed input, literal raw video/audio, and refusal/retry behavior. The shared machine-time path drives timers, CPU IRQ/HALT sampling, WAITCNT-aware bus costs, DMA arbitration, PPU boundaries, PSG/Direct Sound, and raw media capture. PPU modes 0–5 and the declared six-source audio mixer retain semantic, replay, and production-runner evidence. Selected timing remains project-model policy: Game Pak prefetch is unmodeled; DMA-latch, HBlank, and within-line visibility disputes remain open; hardware qualification is UNKNOWN. The Phase 21 diagnostic is local-only with redistribution unknown. LibFuturo adoption and contract changes are deferred; Phase 6 `DIAG-04` and `DET-02` remain open. No hosted run, publication, or software release occurred for v5.0.
+- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, dependency-free terminal frontend, and versioned opaque C API with an installed static component. The v6.0 relocated consumer demonstrates guest semantics, timed input, literal raw video/audio, and refusal/retry behavior. The shared machine-time path drives timers, CPU IRQ/HALT sampling, WAITCNT-aware bus costs, DMA arbitration, PPU boundaries, PSG/Direct Sound, and raw media capture. PPU modes 0–5 and the six-source audio mixer retain semantic, replay, and production-runner evidence. Selected timing remains project-model policy: Game Pak prefetch is unmodeled; DMA-latch, HBlank, and within-line visibility disputes remain open; hardware qualification is UNKNOWN. Phase 21 and 23 diagnostics have separate local-use grants; neither implies redistribution. LibFuturo adoption and contract changes are deferred; Phase 6 `DIAG-04` and `DET-02` remain open.
+- **v6.0 verification and integration:** Six requirements and two phases passed local verification. The historical Playstead report is tied to its captured source state; the live sibling fingerprint changed. The current local branch has not been published or merged to remote `main`; no open PR or hosted status was present at closeout. No software release or package publication occurred.
 
 ## Constraints
 
@@ -249,6 +262,10 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | OBJ composition and bounded work policy (Phase 13) | Preserve source identity and transparency through one shared comparator; use explicit within-class ties, document OBJ-over-BG equal-priority behavior as project policy, and bound each row to 1,226 abstract work units | Verified locally with semantic pixels and causal controls; deterministic software behavior only, hardware ordering and timing remain UNKNOWN |
 | Display effects and production access (Phases 14–15) | Compose windows/effects/mosaic/forced blank over sampled rows; keep current VRAM/palette/OAM bus access behavior and label unresolved timing disputes | Verified locally through semantic vectors and a bounded production runner scene; no access denial/stalls were introduced and no hardware qualification is claimed |
 | Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
+| v6.0 host-session fixture authority | Use a distinct project-authored fixture only under its recorded local Phase 23 authority; bind source, notice, image, and receipt before accepting evidence | ✓ Verified locally; no upload, public CI use, or redistribution authorized |
+| v6.0 Playstead fit evidence | Bind the fit report to an exact read-only source snapshot and refuse when live fingerprints change | ✓ Implemented; report remains historical until an owner selects a clean current baseline |
+| v6.0 CI iteration gate | Make the measured fast hygiene job prerequisite to expensive CI jobs; keep required-check visibility and mutation controls | ✓ Local workflow policy, missing-gate control, hygiene, and diagnostics passed; no hosted run claimed |
+| v6.0 archive-aware report lookup | Resolve one active or archived Phase 23 report and fail when both or neither path exists | ✓ Four local path controls passed; report remains available after milestone archival |
 | Automation-first verification and CI efficiency (owner, 2026-11-16) | Shift repeatable verification left; minimize UAT through useful automated evidence; use CI for recurring value; preflight long work and inspect measured critical paths without weakening checks | ✓ Adopted as the default in Verification and Iteration Policy above |
 | Evidence-first milestone and phase discussions (owner, 2026-11-19) | Start from roadmap recommendations and options; use relevant parallel research, primary sources, an adversarial pass, provenance, and a diminishing-returns stop; apply the same approach to milestone and phase scope | ✓ Adopted in Milestone and Phase Scoping Policy above |
 | Carry v1.0 Phase 6 evidence gaps into v2.0 (owner, 2026-11-15) | Archive v1.0 while preserving ARM/Thumb source-bound evaluation (`DIAG-04`) and hosted Linux x64 GCC/Clang (`DET-02`) as open; do not relabel local results as passes for those claims | Recorded in `.planning/STATE.md` and the archived v1.0 audit; no hosted run or publication authorized |
@@ -256,7 +273,10 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 
 ## Evolution
 
-This document evolves at phase transitions and milestone boundaries.
+This document evolves at phase transitions and milestone boundaries. The
+project core value and product description remain accurate after v6.0; the
+near-term integration paths remain conditional on owner-selected evidence and
+authority.
 
 **After each phase transition** (via `/gsd-transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
@@ -272,4 +292,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-24 after starting v6.0 and recording the owner verification-policy update*
+*Last updated: 2026-11-25 after completing v6.0 locally and recording its evidence limits*
