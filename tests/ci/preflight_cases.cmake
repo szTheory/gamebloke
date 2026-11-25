@@ -29,6 +29,7 @@ control(wrong-platform "host: darwin-arm64" "host: linux-x64" "workflow-budget-m
 control(renamed-build "name: build (" "name: renamed (" "workflow-job-name-mismatch")
 control(unknown-job "  asan:\n" "  unknown:\n" "workflow-job-set-mismatch")
 control(duplicate-job "  asan:\n" "  asan:\n  asan:\n" "workflow-job-set-mismatch")
+control(missing-hygiene-gate "needs: [changes, hygiene]" "needs: changes" "workflow-hygiene-gate-missing")
 control(wrong-timeout [=[timeout-minutes: ${{ matrix.minutes }}]=] "timeout-minutes: 5" "workflow-job-timeout-mismatch")
 control(wrong-pin "GBL_PRODUCER_HEAD: 85c361edfd6b56640e68e64c5e32527f85408836"
   "GBL_PRODUCER_HEAD: c3d0000000000000000000000000000000000000" "workflow-producer-pin-mismatch")

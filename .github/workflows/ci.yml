@@ -91,7 +91,7 @@ jobs:
 
   build:
     name: build (${{ matrix.runner }}, ${{ matrix.cc }}, ${{ matrix.id }})
-    needs: changes
+    needs: [changes, hygiene]
     if: needs.changes.outputs.heavy == 'true'
     strategy:
       fail-fast: false
@@ -124,7 +124,7 @@ jobs:
           path: build/ci/junit.xml
 
   asan:
-    needs: changes
+    needs: [changes, hygiene]
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 3  # 2 x slowest of runs 42737527955#1,42737527955#2 (10s)
@@ -144,7 +144,7 @@ jobs:
   # the immutable producer ancestor before generating admitted metadata.
   diagnostics:
     name: diagnostics (${{ matrix.host }}, ${{ matrix.group }})
-    needs: changes
+    needs: [changes, hygiene]
     if: needs.changes.outputs.heavy == 'true'
     strategy:
       fail-fast: false
