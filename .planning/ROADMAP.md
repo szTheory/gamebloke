@@ -20,7 +20,7 @@ source snapshot. See the [accepted scope](research/V6.0-MILESTONE-SCOPE.md).
 ## Phases
 
 - [x] **Phase 22: Archived Installed-Consumer Evidence** - Restore and check the archived proof's operational references. (completed 2026-11-24)
-- [ ] **Phase 23: Public API Host Session and Playstead Fit** - Demonstrate a bounded installed-consumer session and assess Playstead's host needs.
+- [x] **Phase 23: Public API Host Session and Playstead Fit** - Demonstrate a bounded installed-consumer session and assess Playstead's host needs. (completed 2026-11-25)
 
 <details>
 <summary>✅ v5.0 Deterministic Core API and Installed Consumer Proof — COMPLETED LOCALLY 2026-11-24</summary>
@@ -118,7 +118,7 @@ installed public C API and use measured results to judge fit for Playstead.
    unsupported behavior and unknowns explicit. The assessment uses read-only
    source observations and leaves the existing managed mGBA route in place.
 
-**Plans**: 2/2 plans executed
+**Plans**: 2/2 plans complete
 
 - [x] 23-01-PLAN.md — Prove the installed host session, fresh replay, and atomic refusal and retry.
 - [x] 23-02-PLAN.md — Assess Playstead's host fit and record final local verification.
@@ -136,7 +136,7 @@ package publication, and software release require separate scope.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 22. Archived Installed-Consumer Evidence | 1/1 | Complete    | 2026-11-24 |
-| 23. Public API Host Session and Playstead Fit | 2/2 | In Progress | - |
+| 23. Public API Host Session and Playstead Fit | 2/2 | Complete    | 2026-11-25 |
 
 ## Rolling Horizon
 
