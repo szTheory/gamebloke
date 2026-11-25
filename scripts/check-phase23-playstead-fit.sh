@@ -31,7 +31,7 @@ fail()
     exit 1
 }
 
-for command_name in git awk sed sort shasum mktemp cmp wc tr grep; do
+for command_name in git awk sed sort shasum mktemp cmp wc tr grep ln; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command is unavailable: $command_name"
 done
 
@@ -62,6 +62,20 @@ trap 'exit 143' TERM
 sha256_file()
 {
     shasum -a 256 "$1" | awk '{ print $1 }'
+}
+
+physical_parent_within_root()
+{
+    boundary_root=$1
+    candidate_path=$2
+    candidate_parent=${candidate_path%/*}
+    [ "$candidate_parent" != "$candidate_path" ] || candidate_parent=.
+    resolved_parent=$(CDPATH= cd -P "$candidate_parent" 2>/dev/null && pwd -P) ||
+        return 1
+    case "$resolved_parent" in
+        "$boundary_root"|"$boundary_root"/*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 valid_sha256()
@@ -101,7 +115,10 @@ worktree_snapshot()
     for snapshot_path in $CITED_PATHS; do
         git --no-optional-locks -C "$PLAYSTEAD_ROOT" ls-files --error-unmatch -- "$snapshot_path" \
             >/dev/null 2>&1 || fail "cited Playstead path is not tracked: $snapshot_path"
-        [ -f "$PLAYSTEAD_ROOT/$snapshot_path" ] && [ ! -L "$PLAYSTEAD_ROOT/$snapshot_path" ] ||
+        snapshot_file="$PLAYSTEAD_ROOT/$snapshot_path"
+        physical_parent_within_root "$PLAYSTEAD_GIT_ROOT" "$snapshot_file" ||
+            fail "cited Playstead path escapes its Git root: $snapshot_path"
+        [ -f "$snapshot_file" ] && [ ! -L "$snapshot_file" ] ||
             fail "cited Playstead path is missing or ambiguous: $snapshot_path"
         snapshot_porcelain=$(git --no-optional-locks -C "$PLAYSTEAD_ROOT" \
             status --porcelain=v1 --untracked-files=all -- "$snapshot_path" 2>/dev/null) ||
@@ -112,7 +129,7 @@ worktree_snapshot()
             snapshot_xy=$(printf '%s\n' "$snapshot_porcelain" | awk 'NR == 1 { value = substr($0, 1, 2); gsub(/ /, ".", value); print value }')
             [ -n "$snapshot_xy" ] || fail "cited Playstead status is ambiguous: $snapshot_path"
         fi
-        snapshot_digest=$(sha256_file "$PLAYSTEAD_ROOT/$snapshot_path")
+        snapshot_digest=$(sha256_file "$snapshot_file")
         valid_sha256 "$snapshot_digest" || fail "cited Playstead file digest is not SHA-256: $snapshot_path"
         printf 'file=%s|%s|%s\n' "$snapshot_path" "$snapshot_xy" "$snapshot_digest"
     done
@@ -215,17 +232,21 @@ validate_citation_cell()
                 *) fail "Gamebloke citation is outside the approved source set: $citation_path" ;;
             esac
             citation_root=$REPO_ROOT
+            citation_boundary=$REPO_ROOT
         else
             case "$citation_path" in
                 docs/SUPPORT-MATRIX.md|docs/STATE-SUPPORT.md|Playstead/Adapter/AdapterHost.swift|Playstead/Adapter/AdapterCatalog.swift|Playstead/Adapter/StateSupportMatrix.swift|AdapterRuntime/ManagedMGBA/PROTOCOL.md) ;;
                 *) fail "Playstead citation is outside the captured source set: $citation_path" ;;
             esac
             citation_root=$PLAYSTEAD_ROOT
+            citation_boundary=$PLAYSTEAD_GIT_ROOT
             snapshot_match=$(awk -F'|' -v path="$citation_path" '$1 == "file=" path { count++; row = $0 } END { if (count == 1) print row; else exit 1 }' "$TEMP_ROOT/validated-snapshot.txt") ||
                 fail "Playstead citation is not bound to the snapshot: $citation_path"
             [ -n "$snapshot_match" ] || fail "Playstead citation is not bound to the snapshot: $citation_path"
         fi
         citation_file="$citation_root/$citation_path"
+        physical_parent_within_root "$citation_boundary" "$citation_file" ||
+            fail "cited path escapes its captured root: $citation_path"
         [ -f "$citation_file" ] && [ ! -L "$citation_file" ] || fail "cited path is missing or ambiguous: $citation_path"
         line_range_valid "$citation_file" "$citation_range" || fail "citation line range invalid: $citation_path#$citation_range"
         citation_count=$((citation_count + 1))
@@ -338,6 +359,24 @@ must_reject()
     }
 }
 
+verify_symlinked_parent_controls()
+{
+    mkdir -p "$TEMP_ROOT/outside-gamebloke/include/gamebloke" \
+        "$TEMP_ROOT/outside-playstead/docs"
+    : > "$TEMP_ROOT/outside-gamebloke/include/gamebloke/gamebloke_v1.h"
+    : > "$TEMP_ROOT/outside-playstead/docs/SUPPORT-MATRIX.md"
+    ln -s "$TEMP_ROOT/outside-gamebloke" "$TEMP_ROOT/gamebloke-parent-link"
+    ln -s "$TEMP_ROOT/outside-playstead" "$TEMP_ROOT/playstead-parent-link"
+    if physical_parent_within_root "$REPO_ROOT" \
+        "$TEMP_ROOT/gamebloke-parent-link/include/gamebloke/gamebloke_v1.h"; then
+        fail 'Gamebloke symlink-parent control escaped the checkout boundary'
+    fi
+    if physical_parent_within_root "$PLAYSTEAD_GIT_ROOT" \
+        "$TEMP_ROOT/playstead-parent-link/docs/SUPPORT-MATRIX.md"; then
+        fail 'Playstead symlink-parent control escaped the Git root boundary'
+    fi
+}
+
 if [ "$MODE" = --snapshot ]; then
     worktree_snapshot > "$TEMP_ROOT/snapshot.before.txt"
     worktree_snapshot > "$TEMP_ROOT/snapshot.after.txt"
@@ -424,5 +463,6 @@ if snapshot_equal "$TEMP_ROOT/equality-before.txt" "$TEMP_ROOT/equality-after.tx
     fail 'moving-source equality control failed to detect a cited digest change'
 fi
 
+verify_symlinked_parent_controls
 check_report_file "$REPORT"
-printf '%s\n' 'phase23: Playstead fit controls verified'
+printf '%s\n' 'phase23: Playstead fit and symlink controls verified'
