@@ -31,7 +31,7 @@ fail()
     exit 1
 }
 
-for command_name in git awk sed sort shasum mktemp cmp wc tr grep ln; do
+for command_name in git awk sed sort shasum mktemp cmp wc tr grep ln python3; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command is unavailable: $command_name"
 done
 
@@ -40,6 +40,10 @@ PLAYSTEAD_ROOT=$(CDPATH= cd -P "$PLAYSTEAD_ROOT" && pwd -P) || fail 'Playstead c
 PLAYSTEAD_GIT_ROOT=$(git --no-optional-locks -C "$PLAYSTEAD_ROOT" rev-parse --show-toplevel 2>/dev/null) ||
     fail 'Playstead checkout is not a readable Git worktree'
 PLAYSTEAD_GIT_ROOT=$(CDPATH= cd -P "$PLAYSTEAD_GIT_ROOT" && pwd -P) || fail 'Playstead Git root cannot be resolved'
+case "$PLAYSTEAD_ROOT" in
+    "$PLAYSTEAD_GIT_ROOT"|"$PLAYSTEAD_GIT_ROOT"/*) ;;
+    *) fail 'Playstead checkout resolves outside its Git root' ;;
+esac
 PLAYSTEAD_PREFIX=$(git --no-optional-locks -C "$PLAYSTEAD_ROOT" rev-parse --show-prefix 2>/dev/null) ||
     fail 'Playstead source prefix cannot be resolved'
 case "$PLAYSTEAD_PREFIX" in
@@ -58,24 +62,89 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+PRESERVE_SNAPSHOT_CAPTURES=0
 
 sha256_file()
 {
     shasum -a 256 "$1" | awk '{ print $1 }'
 }
 
-physical_parent_within_root()
+capture_file_no_follow()
 {
-    boundary_root=$1
-    candidate_path=$2
-    candidate_parent=${candidate_path%/*}
-    [ "$candidate_parent" != "$candidate_path" ] || candidate_parent=.
-    resolved_parent=$(CDPATH= cd -P "$candidate_parent" 2>/dev/null && pwd -P) ||
-        return 1
-    case "$resolved_parent" in
-        "$boundary_root"|"$boundary_root"/*) return 0 ;;
-        *) return 1 ;;
-    esac
+    capture_root=$1
+    capture_relative=$2
+    capture_output=$3
+    python3 - "$capture_root" "$capture_relative" "$capture_output" <<'PY'
+import os
+import stat
+import sys
+
+root, relative, destination = sys.argv[1:]
+if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY") or os.open not in os.supports_dir_fd:
+    raise SystemExit("safe captured-copy support is unavailable (requires O_NOFOLLOW, O_DIRECTORY, and openat)")
+
+parts = relative.split("/")
+if not parts or any(part in ("", ".", "..") for part in parts):
+    raise SystemExit("unsafe relative source path")
+
+directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+source_fd = None
+parent_fd = None
+destination_fd = None
+created = False
+try:
+    # The caller supplies a physically resolved checkout root. Keep each child
+    # directory pinned by fd so a later symlink/path swap cannot redirect openat.
+    parent_fd = os.open(root, directory_flags)
+    for component in parts[:-1]:
+        next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
+        os.close(parent_fd)
+        parent_fd = next_fd
+
+    source_fd = os.open(parts[-1], file_flags, dir_fd=parent_fd)
+    before = os.fstat(source_fd)
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError("source is not a regular file")
+
+    destination_fd = os.open(
+        destination,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    created = True
+    copied = 0
+    while True:
+        block = os.read(source_fd, 1024 * 1024)
+        if not block:
+            break
+        view = memoryview(block)
+        while view:
+            written = os.write(destination_fd, view)
+            view = view[written:]
+        copied += len(block)
+
+    after = os.fstat(source_fd)
+    stable_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+    stable_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+    if copied != before.st_size or stable_before != stable_after:
+        raise OSError("source changed while its captured copy was read")
+except Exception as error:
+    if created:
+        try:
+            os.unlink(destination)
+        except OSError:
+            pass
+    print("safe captured copy failed: {}".format(error), file=sys.stderr)
+    raise SystemExit(1)
+finally:
+    for descriptor in (destination_fd, source_fd, parent_fd):
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+PY
 }
 
 valid_sha256()
@@ -92,6 +161,11 @@ snapshot_equal()
 
 worktree_snapshot()
 {
+    snapshot_capture_dir=$(mktemp -d "$TEMP_ROOT/snapshot-captures.XXXXXX") ||
+        fail 'cannot create private source-capture directory'
+    SNAPSHOT_CAPTURE_DIR=$snapshot_capture_dir
+    SNAPSHOT_CAPTURE_MANIFEST="$snapshot_capture_dir/manifest"
+    : > "$SNAPSHOT_CAPTURE_MANIFEST"
     snapshot_status_file=$(mktemp "$TEMP_ROOT/status.XXXXXX") || fail 'cannot create status scratch'
     snapshot_head=$(git --no-optional-locks -C "$PLAYSTEAD_ROOT" rev-parse --verify HEAD 2>/dev/null) ||
         fail 'Playstead HEAD cannot be resolved'
@@ -112,12 +186,11 @@ worktree_snapshot()
     printf 'source_prefix=%s\n' "$PLAYSTEAD_PREFIX"
     printf 'worktree=%s\n' "$snapshot_worktree"
     printf 'status_sha256=%s\n' "$snapshot_status_sha"
+    snapshot_index=0
     for snapshot_path in $CITED_PATHS; do
         git --no-optional-locks -C "$PLAYSTEAD_ROOT" ls-files --error-unmatch -- "$snapshot_path" \
             >/dev/null 2>&1 || fail "cited Playstead path is not tracked: $snapshot_path"
         snapshot_file="$PLAYSTEAD_ROOT/$snapshot_path"
-        physical_parent_within_root "$PLAYSTEAD_GIT_ROOT" "$snapshot_file" ||
-            fail "cited Playstead path escapes its Git root: $snapshot_path"
         [ -f "$snapshot_file" ] && [ ! -L "$snapshot_file" ] ||
             fail "cited Playstead path is missing or ambiguous: $snapshot_path"
         snapshot_porcelain=$(git --no-optional-locks -C "$PLAYSTEAD_ROOT" \
@@ -129,10 +202,18 @@ worktree_snapshot()
             snapshot_xy=$(printf '%s\n' "$snapshot_porcelain" | awk 'NR == 1 { value = substr($0, 1, 2); gsub(/ /, ".", value); print value }')
             [ -n "$snapshot_xy" ] || fail "cited Playstead status is ambiguous: $snapshot_path"
         fi
-        snapshot_digest=$(sha256_file "$snapshot_file")
+        snapshot_index=$((snapshot_index + 1))
+        snapshot_capture="$snapshot_capture_dir/source.$snapshot_index"
+        capture_file_no_follow "$PLAYSTEAD_ROOT" "$snapshot_path" "$snapshot_capture" ||
+            fail "cited Playstead path cannot be safely captured: $snapshot_path"
+        snapshot_digest=$(sha256_file "$snapshot_capture")
         valid_sha256 "$snapshot_digest" || fail "cited Playstead file digest is not SHA-256: $snapshot_path"
+        printf '%s|%s\n' "$snapshot_path" "$snapshot_capture" >> "$SNAPSHOT_CAPTURE_MANIFEST"
         printf 'file=%s|%s|%s\n' "$snapshot_path" "$snapshot_xy" "$snapshot_digest"
     done
+    if [ "$PRESERVE_SNAPSHOT_CAPTURES" != 1 ]; then
+        rm -rf "$snapshot_capture_dir"
+    fi
 }
 
 read_snapshot_block()
@@ -232,23 +313,28 @@ validate_citation_cell()
                 *) fail "Gamebloke citation is outside the approved source set: $citation_path" ;;
             esac
             citation_root=$REPO_ROOT
-            citation_boundary=$REPO_ROOT
         else
             case "$citation_path" in
                 docs/SUPPORT-MATRIX.md|docs/STATE-SUPPORT.md|Playstead/Adapter/AdapterHost.swift|Playstead/Adapter/AdapterCatalog.swift|Playstead/Adapter/StateSupportMatrix.swift|AdapterRuntime/ManagedMGBA/PROTOCOL.md) ;;
                 *) fail "Playstead citation is outside the captured source set: $citation_path" ;;
             esac
-            citation_root=$PLAYSTEAD_ROOT
-            citation_boundary=$PLAYSTEAD_GIT_ROOT
             snapshot_match=$(awk -F'|' -v path="$citation_path" '$1 == "file=" path { count++; row = $0 } END { if (count == 1) print row; else exit 1 }' "$TEMP_ROOT/validated-snapshot.txt") ||
                 fail "Playstead citation is not bound to the snapshot: $citation_path"
             [ -n "$snapshot_match" ] || fail "Playstead citation is not bound to the snapshot: $citation_path"
+            citation_capture=$(awk -F'|' -v path="$citation_path" '$1 == path { count++; captured = $2 } END { if (count == 1) print captured; else exit 1 }' "$SNAPSHOT_CAPTURE_MANIFEST") ||
+                fail "Playstead citation has no unique captured source: $citation_path"
         fi
-        citation_file="$citation_root/$citation_path"
-        physical_parent_within_root "$citation_boundary" "$citation_file" ||
-            fail "cited path escapes its captured root: $citation_path"
-        [ -f "$citation_file" ] && [ ! -L "$citation_file" ] || fail "cited path is missing or ambiguous: $citation_path"
-        line_range_valid "$citation_file" "$citation_range" || fail "citation line range invalid: $citation_path#$citation_range"
+        if [ "$citation_tree" = gamebloke ]; then
+            citation_capture=$(mktemp "$TEMP_ROOT/citation.XXXXXX") ||
+                fail 'cannot reserve private citation capture path'
+            rm -f "$citation_capture"
+            capture_file_no_follow "$citation_root" "$citation_path" "$citation_capture" ||
+                fail "cited path cannot be safely captured: $citation_path"
+        fi
+        line_range_valid "$citation_capture" "$citation_range" || fail "citation line range invalid: $citation_path#$citation_range"
+        if [ "$citation_tree" = gamebloke ]; then
+            rm -f "$citation_capture"
+        fi
         citation_count=$((citation_count + 1))
     done
     IFS=$old_ifs
@@ -337,12 +423,16 @@ check_report_file()
     checked_path=$1
     before_snapshot="$TEMP_ROOT/snapshot-before.$$.txt"
     after_snapshot="$TEMP_ROOT/snapshot-after.$$.txt"
+    PRESERVE_SNAPSHOT_CAPTURES=1
     worktree_snapshot > "$before_snapshot"
+    PRESERVE_SNAPSHOT_CAPTURES=0
+    validation_capture_dir=$SNAPSHOT_CAPTURE_DIR
     check_snapshot_block "$checked_path" "$before_snapshot"
     validate_mapping "$checked_path" "$before_snapshot"
     validate_report_citations "$checked_path"
     worktree_snapshot > "$after_snapshot"
     snapshot_equal "$before_snapshot" "$after_snapshot" || fail 'stale-snapshot: Playstead changed during source capture or validation'
+    rm -rf "$validation_capture_dir"
 }
 
 must_reject()
@@ -367,13 +457,43 @@ verify_symlinked_parent_controls()
     : > "$TEMP_ROOT/outside-playstead/docs/SUPPORT-MATRIX.md"
     ln -s "$TEMP_ROOT/outside-gamebloke" "$TEMP_ROOT/gamebloke-parent-link"
     ln -s "$TEMP_ROOT/outside-playstead" "$TEMP_ROOT/playstead-parent-link"
-    if physical_parent_within_root "$REPO_ROOT" \
-        "$TEMP_ROOT/gamebloke-parent-link/include/gamebloke/gamebloke_v1.h"; then
+    if capture_file_no_follow "$TEMP_ROOT" \
+        "gamebloke-parent-link/include/gamebloke/gamebloke_v1.h" \
+        "$TEMP_ROOT/gamebloke-parent-capture"; then
         fail 'Gamebloke symlink-parent control escaped the checkout boundary'
     fi
-    if physical_parent_within_root "$PLAYSTEAD_GIT_ROOT" \
-        "$TEMP_ROOT/playstead-parent-link/docs/SUPPORT-MATRIX.md"; then
+    if capture_file_no_follow "$TEMP_ROOT" \
+        "playstead-parent-link/docs/SUPPORT-MATRIX.md" \
+        "$TEMP_ROOT/playstead-parent-capture"; then
         fail 'Playstead symlink-parent control escaped the Git root boundary'
+    fi
+}
+
+verify_captured_copy_stability()
+{
+    capture_control_root="$TEMP_ROOT/capture-replacement/source"
+    capture_control_outside="$TEMP_ROOT/capture-replacement/outside"
+    capture_control_file="$capture_control_root/docs/SUPPORT-MATRIX.md"
+    capture_control_copy="$TEMP_ROOT/capture-replacement/captured-source"
+    mkdir -p "$capture_control_root/docs" "$capture_control_outside"
+    printf 'inside line one\ninside line two\n' > "$capture_control_file"
+    printf 'replacement line one\nreplacement line two\nreplacement line three\n' \
+        > "$capture_control_outside/SUPPORT-MATRIX.md"
+    capture_control_digest=$(sha256_file "$capture_control_file")
+    capture_file_no_follow "$capture_control_root" "docs/SUPPORT-MATRIX.md" \
+        "$capture_control_copy" || fail 'cannot create captured-copy replacement control'
+    mv "$capture_control_root/docs" "$capture_control_root/docs-original"
+    ln -s "$capture_control_outside" "$capture_control_root/docs"
+    [ "$(sha256_file "$capture_control_copy")" = "$capture_control_digest" ] ||
+        fail 'later source-path replacement changed the captured bytes'
+    line_range_valid "$capture_control_copy" 1-2 ||
+        fail 'captured-copy line-range control rejected the original bytes'
+    if line_range_valid "$capture_control_copy" 1-3; then
+        fail 'captured-copy line-range control read the replacement source path'
+    fi
+    if capture_file_no_follow "$capture_control_root" "docs/SUPPORT-MATRIX.md" \
+        "$TEMP_ROOT/replacement-capture"; then
+        fail 'no-follow capture accepted a later symlink replacement'
     fi
 }
 
@@ -464,5 +584,6 @@ if snapshot_equal "$TEMP_ROOT/equality-before.txt" "$TEMP_ROOT/equality-after.tx
 fi
 
 verify_symlinked_parent_controls
+verify_captured_copy_stability
 check_report_file "$REPORT"
 printf '%s\n' 'phase23: Playstead fit and symlink controls verified'
