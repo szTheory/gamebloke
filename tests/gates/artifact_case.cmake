@@ -260,6 +260,7 @@ if(CASE STREQUAL "compatibility-and-controls")
   # This control uses a one-row synthetic manifest, so its pin table must stay
   # isolated from unrelated project fixture pins.
   file(WRITE "${source_pin}"
+    "# gamebloke.pins/1 <sha256> <url> <dest>\n"
     "${artifact_digest} https://example.invalid/example-suite/raw/${source_commit}/diagnostics.S ${source_dest}\n")
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -DMODE=all
