@@ -171,14 +171,15 @@ static bool observations_equal(const gbl_v1_observation *left,
                               const gbl_v1_observation *right)
 {
 #define SAME_FIELD(field) (left->field == right->field)
-    return SAME_FIELD(loaded) && SAME_FIELD(profile) &&
+    return SAME_FIELD(struct_size) && SAME_FIELD(loaded) &&
+           SAME_FIELD(profile) &&
            SAME_FIELD(profile_version) && SAME_FIELD(bios_mode) &&
            SAME_FIELD(cartridge_mode) && SAME_FIELD(video_state) &&
            SAME_FIELD(mailbox_state) && SAME_FIELD(hardware_qualification) &&
            SAME_FIELD(raw_video_format) && SAME_FIELD(raw_audio_format) &&
            SAME_FIELD(audio_sample_rate) &&
            SAME_FIELD(audio_cycles_per_frame) && SAME_FIELD(audio_channels) &&
-           SAME_FIELD(logical_input_mask) &&
+           SAME_FIELD(logical_input_mask) && SAME_FIELD(reserved) &&
            SAME_FIELD(applied_input_count) &&
            SAME_FIELD(pending_input_count) &&
            SAME_FIELD(mailbox_case_id) &&
@@ -557,6 +558,10 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
     reference_result.struct_size = sizeof reference_result;
     if (gbl_v1_advance(reference, &options, &reference_result) != GBL_V1_OK ||
         reference_result.outcome != GBL_V1_ADVANCE_COMPLETED ||
+        main_result.struct_size != reference_result.struct_size ||
+        main_result.outcome != reference_result.outcome ||
+        main_result.stop_reason != reference_result.stop_reason ||
+        main_result.audio_available != reference_result.audio_available ||
         main_result.requested_units != reference_result.requested_units ||
         main_result.requested_cycle_budget != reference_result.requested_cycle_budget ||
         main_result.start_cycle != reference_result.start_cycle ||
