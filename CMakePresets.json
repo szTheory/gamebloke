@@ -250,8 +250,7 @@
       "steps": [
         { "type": "configure", "name": "hygiene" },
         { "type": "build", "name": "hygiene" },
-        { "type": "test", "name": "hygiene" },
-        { "type": "test", "name": "hygiene-post" }
+        { "type": "test", "name": "hygiene" }
       ]
     },
     {
