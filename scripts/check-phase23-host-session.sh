@@ -1,0 +1,468 @@
+#!/bin/sh
+set -eu
+
+# This local-only diagnostic refuses even an empty CI assignment before path
+# resolution, output creation, package configuration, or fixture generation.
+if [ "${CI+x}" = x ]; then
+    printf '%s\n' 'phase23: refused because CI is set' >&2
+    exit 2
+fi
+
+MODE=run
+case "${1:-}" in
+    --preflight) MODE=preflight; shift ;;
+    --negative-controls) MODE=negative-controls; shift ;;
+    "") ;;
+    *) printf '%s\n' 'usage: sh scripts/check-phase23-host-session.sh [--preflight|--negative-controls]' >&2; exit 2 ;;
+esac
+[ "$#" -eq 0 ] || {
+    printf '%s\n' 'usage: sh scripts/check-phase23-host-session.sh [--preflight|--negative-controls]' >&2
+    exit 2
+}
+
+SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd -P)
+REPO_ROOT=$(CDPATH= cd -P "$SCRIPT_DIR/.." && pwd -P)
+PHASE_ROOT="$REPO_ROOT/build/phase23-local"
+NOTICE="$REPO_ROOT/tests/fixtures/phase23-host-session-NOTICE.md"
+SOURCE="$REPO_ROOT/tests/fixtures/phase23_host_session.c"
+EXAMPLE="$REPO_ROOT/examples/phase23-host-session"
+START_ID=$(date -u '+%Y%m%dT%H%M%SZ')-$$
+RUN_ROOT="$PHASE_ROOT/run-$START_ID"
+EXT_ROOT=
+EXT_PHYSICAL=
+NEG_ROOT=
+CC_REQUEST=${CC:-cc}
+CC_PATH=
+
+fail()
+{
+    printf 'phase23: %s\n' "$*" >&2
+    exit 1
+}
+
+sha256_file()
+{
+    digest_line=$(shasum -a 256 "$1") || fail "sha256 failed for $1"
+    digest=$(printf '%s\n' "$digest_line" | awk 'NR == 1 { print $1 }')
+    [ "${#digest}" -eq 64 ] || fail "malformed SHA-256 for $1"
+    case "$digest" in *[!0123456789abcdef]*) fail "malformed SHA-256 for $1" ;; esac
+    printf '%s\n' "$digest"
+}
+
+authority_check()
+{
+    authority_file=$1
+    [ -f "$authority_file" ] && [ -s "$authority_file" ] &&
+        [ ! -L "$authority_file" ] || {
+        printf 'phase23: authority: notice unavailable or empty: %s\n' "$authority_file" >&2
+        return 1
+    }
+    awk '
+        BEGIN {
+            expected["fixture_id"] = "phase23-host-session"
+            expected["permitted_use"] = "local-only"
+            expected["permitted_environment"] = "local-phase23-verification"
+            expected["license_status"] = "no-redistribution-license-granted"
+            expected["public_ci"] = "false"
+            expected["upload"] = "false"
+            expected["package"] = "false"
+            expected["redistribution"] = "false"
+            expected["profile"] = "agb"
+            expected["profile_version"] = "16"
+            expected["start_mode"] = "direct"
+            expected["bios"] = "none"
+            expected["cartridge"] = "rom-only"
+        }
+        $0 == "<!-- PHASE23_AUTHORITY_START -->" {
+            starts++
+            if (inside) { print "phase23: authority: duplicate authority block"; bad = 1 }
+            inside = 1
+            next
+        }
+        $0 == "<!-- PHASE23_AUTHORITY_END -->" {
+            ends++
+            if (!inside) { print "phase23: authority: closing block without opening block"; bad = 1 }
+            inside = 0
+            next
+        }
+        inside {
+            if ($0 == "") {
+                print "phase23: authority: empty metadata row"
+                bad = 1
+                next
+            }
+            separator = index($0, "=")
+            if (separator < 2) {
+                print "phase23: authority: malformed metadata line"
+                bad = 1
+                next
+            }
+            key = substr($0, 1, separator - 1)
+            value = substr($0, separator + 1)
+            if (!(key in expected)) {
+                print "phase23: authority: unexpected field " key
+                bad = 1
+                next
+            }
+            if (seen[key]++) {
+                print "phase23: authority: duplicate field " key
+                bad = 1
+                next
+            }
+            field_count++
+            if (value != expected[key]) {
+                print "phase23: authority: " key " expected " expected[key] ", got " value
+                bad = 1
+            }
+        }
+        END {
+            if (starts != 1 || ends != 1 || inside) {
+                print "phase23: authority: exactly one delimited metadata block is required"
+                bad = 1
+            }
+            for (key in expected) {
+                if (!seen[key]) {
+                    print "phase23: authority: missing field " key
+                    bad = 1
+                }
+            }
+            if (field_count != 13) {
+                print "phase23: authority: exactly 13 approved fields are required"
+                bad = 1
+            }
+            if (bad) {
+                exit 1
+            }
+        }
+    ' "$authority_file"
+}
+
+check_local_paths()
+{
+    for candidate in "$REPO_ROOT/build" "$PHASE_ROOT"; do
+        [ ! -L "$candidate" ] || fail "refusing symlinked output path: $candidate"
+    done
+    git -C "$REPO_ROOT" check-ignore -q "$PHASE_ROOT/output-probe" ||
+        fail 'build/phase23-local is not ignored'
+    if [ -e "$RUN_ROOT" ] || [ -L "$RUN_ROOT" ]; then
+        fail "unique invocation path already exists: $RUN_ROOT"
+    fi
+    if git -C "$REPO_ROOT" ls-files --error-unmatch -- "$RUN_ROOT" >/dev/null 2>&1; then
+        fail 'refusing a tracked invocation path'
+    fi
+}
+
+check_tools()
+{
+    for tool in cmake ninja shasum awk sed grep git; do
+        command -v "$tool" >/dev/null 2>&1 || fail "required local tool unavailable: $tool"
+    done
+    case "$CC_REQUEST" in
+        */*) CC_PATH=$CC_REQUEST ;;
+        *) CC_PATH=$(command -v "$CC_REQUEST" || true) ;;
+    esac
+    [ -n "$CC_PATH" ] && [ -x "$CC_PATH" ] || fail "C compiler unavailable: $CC_REQUEST"
+    cmake --version | awk 'NR == 1 { split($3, version, "."); if (version[1] + 0 < 3 || (version[1] + 0 == 3 && version[2] + 0 < 25)) exit 1 }' ||
+        fail 'CMake 3.25 or newer is required'
+}
+
+preflight()
+{
+    [ -f "$SOURCE" ] && [ -s "$SOURCE" ] && [ ! -L "$SOURCE" ] ||
+        fail 'required Phase 23 generator source is missing, empty, or symlinked'
+    [ -f "$NOTICE" ] && [ -s "$NOTICE" ] && [ ! -L "$NOTICE" ] ||
+        fail 'required Phase 23 notice is missing, empty, or symlinked'
+    authority_check "$NOTICE" || fail 'Phase 23 local authority is not the approved tuple'
+    check_tools
+    check_local_paths
+}
+
+write_fixture_record()
+{
+    source_digest=$1
+    notice_digest=$2
+    image_digest=$3
+    image_length=$4
+    record_file=$5
+    revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
+    dirty_state=$(if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]; then printf dirty; else printf clean; fi)
+    compiler_version=$("$CC_PATH" --version 2>&1 | sed -n '1p' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    recipe="cc -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror"
+    printf '{\n  "schema": "gamebloke.phase23-fixture-record/1",\n  "authority": {\n' > "$record_file"
+    printf '    "fixture_id": "phase23-host-session",\n    "permitted_use": "local-only",\n    "permitted_environment": "local-phase23-verification",\n    "license_status": "no-redistribution-license-granted",\n    "public_ci": "false",\n    "upload": "false",\n    "package": "false",\n    "redistribution": "false",\n    "profile": "agb",\n    "profile_version": "16",\n    "start_mode": "direct",\n    "bios": "none",\n    "cartridge": "rom-only"\n  },\n' >> "$record_file"
+    printf '  "source_path": "tests/fixtures/phase23_host_session.c",\n  "source_sha256": "%s",\n' "$source_digest" >> "$record_file"
+    printf '  "notice_path": "tests/fixtures/phase23-host-session-NOTICE.md",\n  "notice_sha256": "%s",\n' "$notice_digest" >> "$record_file"
+    printf '  "image_path": "phase23-host-session.gba",\n  "image_sha256": "%s",\n  "image_bytes": %s,\n' "$image_digest" "$image_length" >> "$record_file"
+    printf '  "source_revision": "%s",\n  "source_tree_state": "%s",\n' "$revision" "$dirty_state" >> "$record_file"
+    printf '  "compiler_identity": "%s",\n  "generation_recipe": "%s",\n' "$compiler_version" "$recipe" >> "$record_file"
+    printf '  "expected_guest_behavior": "mailbox PASS 0x23010001; line 6/14/24 KEYINPUT 0x03FE/0x03DF/0x03FF; first frame row 0 black and rows 1-159 BGR555LE 0x56AA; pre-PWM audio left -9472 right 0"\n}\n' >> "$record_file"
+}
+
+validate_record()
+{
+    record_file=$1
+    image_file=$2
+    staged_source=$3
+    [ -f "$record_file" ] && [ -s "$record_file" ] && [ ! -L "$record_file" ] ||
+        fail 'fixture-record: missing, empty, or symlinked record'
+    authority_check "$NOTICE" || fail 'fixture-record: notice authority changed before consumer launch'
+    expected_source=$(sha256_file "$staged_source")
+    expected_notice=$(sha256_file "$NOTICE")
+    expected_image=$(sha256_file "$image_file")
+    awk '
+        BEGIN {
+            expected["fixture_id"] = "phase23-host-session"
+            expected["permitted_use"] = "local-only"
+            expected["permitted_environment"] = "local-phase23-verification"
+            expected["license_status"] = "no-redistribution-license-granted"
+            expected["public_ci"] = "false"
+            expected["upload"] = "false"
+            expected["package"] = "false"
+            expected["redistribution"] = "false"
+            expected["profile"] = "agb"
+            expected["profile_version"] = "16"
+            expected["start_mode"] = "direct"
+            expected["bios"] = "none"
+            expected["cartridge"] = "rom-only"
+        }
+        /"authority": \{/ {
+            if (inside) { print "phase23: fixture-record: duplicate authority object"; bad = 1 }
+            inside = 1
+            starts++
+            next
+        }
+        inside && /^[[:space:]]*\}/ {
+            inside = 0
+            ends++
+            next
+        }
+        inside {
+            if (split($0, part, "\"") < 5 || part[2] == "") {
+                print "phase23: fixture-record: malformed authority row"
+                bad = 1
+                next
+            }
+            key = part[2]
+            value = part[4]
+            if (!(key in expected)) {
+                print "phase23: fixture-record: unexpected authority field " key
+                bad = 1
+                next
+            }
+            if (seen[key]++) {
+                print "phase23: fixture-record: duplicate authority field " key
+                bad = 1
+                next
+            }
+            fields++
+            if (value != expected[key]) {
+                print "phase23: fixture-record: authority " key " mismatch"
+                bad = 1
+            }
+        }
+        END {
+            if (starts != 1 || ends != 1 || inside) {
+                print "phase23: fixture-record: one complete authority object is required"
+                bad = 1
+            }
+            for (key in expected) {
+                if (!seen[key]) {
+                    print "phase23: fixture-record: missing authority field " key
+                    bad = 1
+                }
+            }
+            if (fields != 13) {
+                print "phase23: fixture-record: exactly 13 authority fields are required"
+                bad = 1
+            }
+            if (bad) exit 1
+        }
+    ' "$record_file" || fail 'fixture-record: authority object mismatch'
+    [ "$(grep -Fxc '  "source_path": "tests/fixtures/phase23_host_session.c",' "$record_file" || true)" -eq 1 ] ||
+        fail 'fixture-record: source path mismatch'
+    [ "$(grep -Fxc '  "notice_path": "tests/fixtures/phase23-host-session-NOTICE.md",' "$record_file" || true)" -eq 1 ] ||
+        fail 'fixture-record: notice path mismatch'
+    [ "$(grep -Fxc '  "image_path": "phase23-host-session.gba",' "$record_file" || true)" -eq 1 ] ||
+        fail 'fixture-record: image path mismatch'
+    expected_length=$(wc -c < "$image_file" | tr -d ' ')
+    [ "$(grep -Fxc "  \"image_bytes\": $expected_length," "$record_file" || true)" -eq 1 ] ||
+        fail 'fixture-record: image_bytes mismatch'
+    [ "$(grep -Fxc "  \"source_sha256\": \"$expected_source\"," "$record_file" || true)" -eq 1 ] ||
+        fail 'fixture-record: source_sha256 mismatch'
+    [ "$(grep -Fxc "  \"notice_sha256\": \"$expected_notice\"," "$record_file" || true)" -eq 1 ] ||
+        fail 'fixture-record: notice_sha256 mismatch'
+    [ "$(grep -Fxc "  \"image_sha256\": \"$expected_image\"," "$record_file" || true)" -eq 1 ] ||
+        fail 'fixture-record: image_sha256 mismatch'
+}
+
+cleanup()
+{
+    if [ -n "$EXT_ROOT" ] && [ -n "$EXT_PHYSICAL" ] && [ -d "$EXT_ROOT" ]; then
+        ext_now=$(CDPATH= cd -P "$EXT_ROOT" 2>/dev/null && pwd -P || true)
+        if [ "$ext_now" = "$EXT_PHYSICAL" ]; then
+            case "$ext_now" in
+                "$REPO_ROOT"|"$REPO_ROOT"/*) ;;
+                *) rm -rf "$EXT_ROOT" ;;
+            esac
+        fi
+    fi
+    if [ -n "$NEG_ROOT" ] && [ -d "$NEG_ROOT" ] &&
+       [ -f "$NEG_ROOT/.phase23-owner" ] &&
+       [ "$(cat "$NEG_ROOT/.phase23-owner")" = "$START_ID" ] &&
+       [ "$(CDPATH= cd -P "$NEG_ROOT" 2>/dev/null && pwd -P || true)" = "$NEG_ROOT" ]; then
+        case "$NEG_ROOT" in
+            "$PHASE_ROOT"/authority-controls-*) rm -rf "$NEG_ROOT" ;;
+        esac
+    fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+preflight
+if [ "$MODE" = preflight ]; then
+    printf '%s\n' 'phase23: local preflight verified'
+    exit 0
+fi
+if [ "$MODE" = negative-controls ]; then
+    mkdir -p "$PHASE_ROOT"
+    NEG_ROOT="$PHASE_ROOT/authority-controls-$START_ID"
+    [ ! -e "$NEG_ROOT" ] && [ ! -L "$NEG_ROOT" ] || fail 'authority control path already exists'
+    mkdir -m 700 "$NEG_ROOT"
+    printf '%s' "$START_ID" > "$NEG_ROOT/.phase23-owner"
+    sed '/<!-- PHASE23_AUTHORITY_START -->/,/<!-- PHASE23_AUTHORITY_END -->/d' \
+        "$NOTICE" > "$NEG_ROOT/missing-block.md"
+    : > "$NEG_ROOT/empty.md"
+    sed 's/^public_ci=false$/public_ci=true/' "$NOTICE" > "$NEG_ROOT/broadened-ci.md"
+    sed 's/^fixture_id=phase23-host-session$/fixture_id=other-fixture/' \
+        "$NOTICE" > "$NEG_ROOT/wrong-id.md"
+    for control in \
+        'missing-block.md|missing field fixture_id' \
+        'empty.md|notice unavailable or empty' \
+        'broadened-ci.md|public_ci expected false, got true' \
+        'wrong-id.md|fixture_id expected phase23-host-session, got other-fixture'; do
+        name=${control%%|*}
+        expected=${control#*|}
+        if authority_check "$NEG_ROOT/$name" > "$NEG_ROOT/$name.log" 2>&1; then
+            fail "authority negative control passed unexpectedly: $name"
+        fi
+        grep -F "$expected" "$NEG_ROOT/$name.log" >/dev/null || {
+            cat "$NEG_ROOT/$name.log" >&2
+            fail "authority negative control lacked its named diagnostic: $name"
+        }
+    done
+    [ ! -e "$RUN_ROOT" ] || fail 'authority control created a package or guest run before rejection'
+    [ -z "$(find "$NEG_ROOT" -type f -name '*.gba' -print)" ] ||
+        fail 'authority control created a fixture image'
+    printf '%s\n' 'phase23: authority negative controls verified'
+    exit 0
+fi
+
+umask 077
+mkdir -p "$PHASE_ROOT"
+phase_physical=$(CDPATH= cd -P "$PHASE_ROOT" && pwd -P)
+[ "$phase_physical" = "$PHASE_ROOT" ] || fail 'Phase 23 output resolved outside build/phase23-local'
+mkdir -m 700 "$RUN_ROOT"
+mkdir -m 700 "$RUN_ROOT/fixture" "$RUN_ROOT/package-build" "$RUN_ROOT/sessions"
+git -C "$REPO_ROOT" check-ignore -q "$RUN_ROOT/fixture/phase23-host-session.gba" ||
+    fail 'generated Phase 23 fixture is not ignored'
+IMAGE="$RUN_ROOT/fixture/phase23-host-session.gba"
+STAGED_SOURCE="$RUN_ROOT/fixture/phase23_host_session.c"
+GENERATOR="$RUN_ROOT/fixture/phase23-image-generator"
+RECORD="$RUN_ROOT/fixture-record.json"
+cp "$SOURCE" "$STAGED_SOURCE"
+cmp -s "$SOURCE" "$STAGED_SOURCE" || fail 'staged generator source differs from checked source'
+SOURCE_DIGEST=$(sha256_file "$STAGED_SOURCE")
+NOTICE_DIGEST=$(sha256_file "$NOTICE")
+OUTPUT_DEFINE="-DGBL_PHASE23_OUTPUT_PATH=\"$IMAGE\""
+"$CC_PATH" -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow \
+    -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wcast-qual -Werror \
+    "$OUTPUT_DEFINE" "$STAGED_SOURCE" -o "$GENERATOR" || fail 'host generator compile failed'
+"$GENERATOR" "$IMAGE" || fail 'bounded local fixture generation failed'
+[ -f "$IMAGE" ] && [ ! -L "$IMAGE" ] || fail 'generator did not create its bound image'
+IMAGE_LENGTH=$(wc -c < "$IMAGE" | tr -d ' ')
+case "$IMAGE_LENGTH" in *[!0-9]*|'') fail 'generated image length is not numeric' ;; esac
+[ "$IMAGE_LENGTH" -ge 192 ] && [ "$IMAGE_LENGTH" -le 33554432 ] || fail 'generated image is outside bounded ROM size'
+[ $((IMAGE_LENGTH % 2)) -eq 0 ] || fail 'generated image length is not even'
+IMAGE_DIGEST=$(sha256_file "$IMAGE")
+write_fixture_record "$SOURCE_DIGEST" "$NOTICE_DIGEST" "$IMAGE_DIGEST" \
+    "$IMAGE_LENGTH" "$RECORD"
+validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
+
+cmake -S "$REPO_ROOT" -B "$RUN_ROOT/package-build" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
+    -DGBL_LANE=ci > "$RUN_ROOT/configure.log" 2>&1 || {
+        cat "$RUN_ROOT/configure.log" >&2
+        fail 'Release package configure failed'
+    }
+cmake --build "$RUN_ROOT/package-build" --target gamebloke_core \
+    > "$RUN_ROOT/build.log" 2>&1 || {
+        cat "$RUN_ROOT/build.log" >&2
+        fail 'static API package build failed'
+    }
+INITIAL_PREFIX="$RUN_ROOT/install-before-move"
+MOVED_PREFIX="$RUN_ROOT/relocated-prefix"
+cmake --install "$RUN_ROOT/package-build" --prefix "$INITIAL_PREFIX" \
+    --component GameblokeCoreApi > "$RUN_ROOT/install.log" 2>&1 || {
+        cat "$RUN_ROOT/install.log" >&2
+        fail 'static API package install failed'
+    }
+[ -f "$INITIAL_PREFIX/lib/cmake/gamebloke/gameblokeConfig.cmake" ] || fail 'installed CMake package config is missing'
+[ -f "$INITIAL_PREFIX/lib/cmake/gamebloke/gameblokeTargets.cmake" ] || fail 'installed CMake target export is missing'
+[ -f "$INITIAL_PREFIX/include/gamebloke/gamebloke_v1.h" ] || fail 'installed public v1 header is missing'
+if [ "$(find "$INITIAL_PREFIX" -type f -name 'gamebloke_v1.h' | wc -l | tr -d ' ')" -ne 1 ]; then
+    fail 'installed inventory does not contain exactly one public v1 header'
+fi
+if [ "$(find "$INITIAL_PREFIX" -type f -name 'libgamebloke_core.a' | wc -l | tr -d ' ')" -ne 1 ]; then
+    fail 'installed inventory does not contain one static core archive'
+fi
+if [ "$(find "$INITIAL_PREFIX" -type f -name 'gameblokeTargets.cmake' | wc -l | tr -d ' ')" -ne 1 ]; then
+    fail 'installed inventory does not contain one static target export'
+fi
+mv "$INITIAL_PREFIX" "$MOVED_PREFIX"
+[ ! -e "$INITIAL_PREFIX" ] && [ -d "$MOVED_PREFIX" ] || fail 'install prefix relocation failed'
+
+EXT_PARENT=${TMPDIR:-/private/tmp}
+mkdir -p "$EXT_PARENT"
+EXT_ROOT=$(mktemp -d "${EXT_PARENT%/}/gamebloke-phase23-consumer.XXXXXX") || fail 'external consumer scratch creation failed'
+EXT_PHYSICAL=$(CDPATH= cd -P "$EXT_ROOT" && pwd -P)
+EXT_ROOT=$EXT_PHYSICAL
+case "$EXT_PHYSICAL" in "$REPO_ROOT"|"$REPO_ROOT"/*) fail 'external consumer scratch resolved inside checkout' ;; esac
+mkdir -m 700 "$EXT_ROOT/source" "$EXT_ROOT/build" "$EXT_ROOT/work" "$RUN_ROOT/sessions/base"
+cp "$EXAMPLE/CMakeLists.txt" "$EXAMPLE/consumer.c" "$EXT_ROOT/source/"
+cmp -s "$EXAMPLE/CMakeLists.txt" "$EXT_ROOT/source/CMakeLists.txt" || fail 'external CMake project copy mismatch'
+cmp -s "$EXAMPLE/consumer.c" "$EXT_ROOT/source/consumer.c" || fail 'external consumer copy mismatch'
+(
+    unset CMAKE_PREFIX_PATH CMAKE_MODULE_PATH gamebloke_DIR
+    cmake -S "$EXT_ROOT/source" -B "$EXT_ROOT/build" -G Ninja \
+        -Dgamebloke_DIR="$MOVED_PREFIX/lib/cmake/gamebloke" \
+        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
+        -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
+        -DCMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY=ON \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
+        > "$RUN_ROOT/consumer-configure.log" 2>&1
+) || {
+    cat "$RUN_ROOT/consumer-configure.log" >&2
+    fail 'external consumer did not resolve the relocated package'
+}
+grep -F "$MOVED_PREFIX/include" "$EXT_ROOT/build/compile_commands.json" >/dev/null ||
+    fail 'external consumer compile does not resolve the relocated public header'
+cmake --build "$EXT_ROOT/build" --verbose > "$RUN_ROOT/consumer-build.log" 2>&1 || {
+    cat "$RUN_ROOT/consumer-build.log" >&2
+    fail 'external C17 consumer build failed'
+}
+grep -F "$MOVED_PREFIX/lib/libgamebloke_core.a" "$RUN_ROOT/consumer-build.log" >/dev/null ||
+    fail 'external consumer link does not use the relocated static archive'
+validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
+if ! (cd "$EXT_ROOT/work" &&
+      "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
+        "$RUN_ROOT/sessions/base") > "$RUN_ROOT/session.log" 2>&1; then
+    cat "$RUN_ROOT/session.log" >&2
+    fail 'installed public API session failed'
+fi
+grep -Fx 'phase23: installed session verified' "$RUN_ROOT/session.log" >/dev/null ||
+    fail 'installed session success marker is missing'
+printf '{\n  "fixture_record": "fixture-record.json",\n  "session": "sessions/base/run.json",\n  "trace": "sessions/base/trace.jsonl",\n  "video": "sessions/base/video.bgr555le",\n  "audio": "sessions/base/audio.s16le",\n  "scope": "local-phase23-verification-only"\n}\n' > "$RUN_ROOT/session-receipt.json"
+printf 'phase23: installed session verified (%s)\n' "$RUN_ROOT"
