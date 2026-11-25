@@ -35,6 +35,34 @@ file(COPY_FILE "${SRC}/contracts/evidence.json" "${dir}/evidence.json")
 file(COPY_FILE "${SRC}/registry/disputes.json" "${dir}/disputes.json")
 set(VOCAB_COPY "${dir}/evidence.json")
 set(REGISTRY_COPY "${dir}/disputes.json")
+if(CASE STREQUAL "ppu_policy")
+  # Load the production policy functions once. The clean CLI controls below
+  # still exercise CheckProfile.cmake's script-mode entry point.
+  include("${SRC}/cmake/CheckProfile.cmake")
+  # Keep the production finding output/count behavior while retaining messages
+  # for exact assertions on the in-process mutation controls.
+  function(gbl_finding family code detail)
+    message("${family}: ${code}: ${detail}")
+    get_property(messages GLOBAL PROPERTY GBL_FINDING_MESSAGES)
+    string(APPEND messages "${family}: ${code}: ${detail}\n")
+    set_property(GLOBAL PROPERTY GBL_FINDING_MESSAGES "${messages}")
+    get_property(n GLOBAL PROPERTY GBL_FINDINGS)
+    if("${n}" STREQUAL "")
+      set(n 0)
+    endif()
+    math(EXPR n "${n}+1")
+    set_property(GLOBAL PROPERTY GBL_FINDINGS "${n}")
+  endfunction()
+  set_property(GLOBAL PROPERTY GBL_FINDING_MESSAGES "")
+  gbl_contract_read(V "${VOCAB_COPY}")
+  gbl_registry_read(R "${REGISTRY_COPY}" V)
+  get_property(setup_findings GLOBAL PROPERTY GBL_FINDINGS)
+  if(NOT setup_findings EQUAL 0)
+    message(FATAL_ERROR "profile-case: PPU validator setup produced ${setup_findings} findings")
+  endif()
+  set_property(GLOBAL PROPERTY GBL_FINDINGS 0)
+  set_property(GLOBAL PROPERTY GBL_FINDING_MESSAGES "")
+endif()
 file(READ "${SRC}/profiles/agb.json" base_profile)
 string(JSON PROFILE_VERSION GET "${base_profile}" profile_version)
 string(JSON UNMODELED_COUNT LENGTH "${base_profile}" unmodeled)
@@ -71,6 +99,31 @@ function(check_command out profile doc)
   set(${out}
     "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
     "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}" -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+function(check_required_fields_command out profile)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}"
+    "-DDOC=${SRC}/docs/profile-agb.md"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_REQUIRED_FIELDS_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+function(check_unmodeled_doc_command out profile doc)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_UNMODELED_DOC_ONLY=ON -P "${CHECK}"
+    PARENT_SCOPE)
+endfunction()
+
+function(check_doc_version_command out profile doc)
+  set(${out}
+    "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}"
+    -DGBL_PROFILE_DOC_VERSION_ONLY=ON -P "${CHECK}"
     PARENT_SCOPE)
 endfunction()
 
@@ -196,6 +249,31 @@ function(expect_code code profile)
   gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}")
 endfunction()
 
+function(expect_required_code code profile)
+  check_required_fields_command(cmd "${profile}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}")
+endfunction()
+
+function(expect_unmodeled_doc_code code profile doc)
+  check_unmodeled_doc_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}")
+endfunction()
+
+function(expect_unmodeled_doc_detail code detail profile doc)
+  check_unmodeled_doc_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
+function(expect_doc_version_code code profile doc)
+  check_doc_version_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}")
+endfunction()
+
+function(expect_doc_version_detail code detail profile doc)
+  check_doc_version_command(cmd "${profile}" "${doc}")
+  gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
+endfunction()
+
 # expect_detail(<code> <detail-regex> <profile>): fails with <code> and that finding
 # detail (findings are printed unwrapped). One variant per invariant or trigger: a bare
 # code can come from another check, so the control names the detail it targets.
@@ -214,9 +292,10 @@ function(expect_ppu_detail code detail profile)
     set(doc "${ARGV3}")
     check_ppu_command(cmd "${profile}" "${doc}")
   else()
-    # Run the production validator that owns this diagnostic. The clean
-    # profile still exercises the full PPU validator; document mutations below
-    # continue through the complete profile/document synchronization path.
+    # Run the production validator that owns this diagnostic in the current
+    # process. Every mutation stays isolated; the clean controls above still
+    # exercise the full CLI/loader path, and document mutations below continue
+    # through complete profile/document synchronization.
     if("${code}" STREQUAL "ppu-policy-value")
       set(section scalar)
     elseif("${code}" STREQUAL "ppu-object-policy-value")
@@ -240,7 +319,18 @@ function(expect_ppu_detail code detail profile)
     else()
       message(FATAL_ERROR "profile PPU value control has no section for ${code}")
     endif()
-    check_ppu_value_command(cmd "${profile}" "${section}")
+    file(READ "${profile}" candidate_profile)
+    set_property(GLOBAL PROPERTY GBL_FINDINGS 0)
+    set_property(GLOBAL PROPERTY GBL_FINDING_MESSAGES "")
+    gbl__profile_ppu_policy_section("${candidate_profile}" "${section}")
+    get_property(finding_count GLOBAL PROPERTY GBL_FINDINGS)
+    get_property(finding_messages GLOBAL PROPERTY GBL_FINDING_MESSAGES)
+    if(finding_count LESS 1 OR
+       NOT "${finding_messages}" MATCHES "profile: ${code}: ${detail}")
+      message(FATAL_ERROR
+        "profile-case: expected profile: ${code}: ${detail}; got ${finding_messages}")
+    endif()
+    return()
   endif()
   gbl_expect_fail(COMMAND ${cmd} REGEX "profile: ${code}: ${detail}")
 endfunction()
@@ -1825,28 +1915,38 @@ elseif(CASE STREQUAL "bad_schema")
   expect_code(bad-schema "${p}")
 
 elseif(CASE STREQUAL "bad_version")
-  # Zero, negative, fractional, and a string are all outside a positive integer.
+  # Keep one full CLI control; other variants target the same required-field
+  # owner without running unrelated policy checks.
   set(i 0)
   foreach(v IN ITEMS "0" "-1" "1.5" "\"1\"")
     profile_copy(p version${i})
     gbl_json_mutate_set("${p}" "${v}" profile_version)
-    expect_code(bad-version "${p}")
+    if(i EQUAL 0)
+      expect_code(bad-version "${p}")
+    else()
+      expect_required_code(bad-version "${p}")
+    endif()
     math(EXPR i "${i}+1")
   endforeach()
 
 elseif(CASE STREQUAL "missing_field")
-  # Each of the nine required top-level fields, then one timing key.
+  # One full CLI control retains integration coverage; other mutations target
+  # the production required-field validator without rerunning every policy.
   set(i 0)
   foreach(field IN ITEMS
       schema profile_version id machine boot bios_provider cart timing unmodeled)
     profile_copy(p field${i})
     gbl_json_mutate_remove("${p}" ${field})
-    expect_code(missing-field "${p}")
+    if(i EQUAL 0)
+      expect_code(missing-field "${p}")
+    else()
+      expect_required_code(missing-field "${p}")
+    endif()
     math(EXPR i "${i}+1")
   endforeach()
   profile_copy(p timing_key)
   gbl_json_mutate_remove("${p}" timing cycles_per_line)
-  expect_code(missing-field "${p}")
+  expect_required_code(missing-field "${p}")
 
 elseif(CASE STREQUAL "bad_machine")
   profile_copy(p machine)
@@ -1854,7 +1954,7 @@ elseif(CASE STREQUAL "bad_machine")
   expect_code(bad-machine "${p}")
   profile_copy(p id)
   gbl_json_mutate_set("${p}" "\"ags\"" id)
-  expect_code(bad-machine "${p}")
+  expect_required_code(bad-machine "${p}")
 
 elseif(CASE STREQUAL "bad_boot")
   profile_copy(p boot)
@@ -1862,14 +1962,22 @@ elseif(CASE STREQUAL "bad_boot")
   expect_code(bad-boot "${p}")
 
 elseif(CASE STREQUAL "bad_bios_provider")
-  # Empty and malformed hle lists, a branch name where a commit is required, a
-  # short digest, a retired milestone label, and a wrong-case keyword.
+  # Keep one end-to-end profile control, then exercise the owner grammar
+  # directly for the remaining malformed values instead of reloading every
+  # unrelated profile and registry section in another CMake process.
+  include("${SRC}/cmake/CheckContract.cmake")
   set(i 0)
   foreach(v IN ITEMS
       "hle:" "hle:a,,b" "hle:a," "replacement:x@main" "user-official@abc" "M0" "NONE")
-    profile_copy(p bios${i})
-    gbl_json_mutate_set("${p}" "\"${v}\"" bios_provider)
-    expect_code(bad-bios-provider "${p}")
+    gbl_bios_provider_valid(provider_valid "${v}")
+    if(provider_valid)
+      message(FATAL_ERROR "profile-case: malformed BIOS provider accepted: ${v}")
+    endif()
+    if(i EQUAL 0)
+      profile_copy(p bios${i})
+      gbl_json_mutate_set("${p}" "\"${v}\"" bios_provider)
+      expect_code(bad-bios-provider "${p}")
+    endif()
     math(EXPR i "${i}+1")
   endforeach()
 
@@ -1879,15 +1987,15 @@ elseif(CASE STREQUAL "bad_cart")
   expect_code(bad-cart "${p}")
   profile_copy(p string)
   gbl_json_mutate_set("${p}" "\"rom-only\"" cart)
-  expect_code(bad-cart "${p}")
+  expect_required_code(bad-cart "${p}")
 
 elseif(CASE STREQUAL "missing_source")
   profile_copy(p source)
   gbl_json_mutate_remove("${p}" timing dots_visible source)
-  expect_code(missing-source "${p}")
+  expect_section_code(timing missing-source "${p}")
   profile_copy(p cite)
   gbl_json_mutate_remove("${p}" timing lines_visible cite)
-  expect_code(missing-source "${p}")
+  expect_section_code(timing missing-source "${p}")
 
 elseif(CASE STREQUAL "bad_source_label")
   # A reserved later-phase label, a lower-case variant, and two labels in one string.
@@ -1895,17 +2003,19 @@ elseif(CASE STREQUAL "bad_source_label")
   foreach(v IN ITEMS "calibrated:arm-basic" "ref" "REF,SRC")
     profile_copy(p label${i})
     gbl_json_mutate_set("${p}" "\"${v}\"" timing master_clock_hz source)
-    expect_code(bad-source-label "${p}")
+    expect_section_code(timing bad-source-label "${p}")
     math(EXPR i "${i}+1")
   endforeach()
   # A label that claims a source over a null value is refused, for an ordinary constant
   # and for the disputed edge (only UNK may stand over no value).
   profile_copy(p null_value)
   gbl_json_mutate_set("${p}" "null" timing master_clock_hz value)
-  expect_detail(bad-source-label "timing.master_clock_hz: null value under REF" "${p}")
+  expect_section_detail(timing bad-source-label
+    "timing.master_clock_hz: null value under REF" "${p}")
   profile_copy(p null_edge)
   gbl_json_mutate_set("${p}" "\"REF\"" timing hblank_flag_edge_cycle source)
-  expect_detail(bad-source-label "timing.hblank_flag_edge_cycle: null value under REF" "${p}")
+  expect_section_detail(timing bad-source-label
+    "timing.hblank_flag_edge_cycle: null value under REF" "${p}")
 
 elseif(CASE STREQUAL "timing_arithmetic")
   # One variant per invariant, each changing ONE input so that exactly that invariant
@@ -1961,39 +2071,40 @@ elseif(CASE STREQUAL "hblank_edge_hardcoded")
   foreach(v IN ITEMS 960 1006)
     profile_copy(p edge${v})
     gbl_json_mutate_set("${p}" "${v}" timing hblank_flag_edge_cycle value)
-    expect_code(hblank-edge-hardcoded "${p}")
+    expect_section_code(timing hblank-edge-hardcoded "${p}")
   endforeach()
 
 elseif(CASE STREQUAL "unmodeled_bad_entry")
   # prefetch is entry 1, dma entry 7, sp-micro-differences entry 0.
   profile_copy(p status)
   gbl_json_mutate_set("${p}" "\"todo\"" unmodeled 1 status)
-  expect_code(unmodeled-bad-entry "${p}")
+  expect_section_code(unmodeled unmodeled-bad-entry "${p}")
   profile_copy(p reason)
   gbl_json_mutate_set("${p}" "\"\"" unmodeled 1 reason)
-  expect_code(unmodeled-bad-entry "${p}")
+  expect_section_code(unmodeled unmodeled-bad-entry "${p}")
   profile_copy(p duplicate)
   gbl_json_mutate_set("${p}"
     [=[{"id": "dma", "status": "unmodeled", "reason": "A duplicated entry used only by this control."}]=]
     unmodeled 9)
-  expect_code(unmodeled-bad-entry "${p}")
+  expect_section_code(unmodeled unmodeled-bad-entry "${p}")
   profile_copy(p details)
   gbl_json_mutate_set("${p}" [=["The Micro has no cartridge switch."]=] unmodeled 0 details 0)
-  expect_code(unmodeled-bad-entry "${p}")
+  expect_section_code(unmodeled unmodeled-bad-entry "${p}")
   # hblank-flag-edge (entry 4) must carry disp-hblank-flag-edge, not another dispute id
   # (disp-dma-latch is a registry id, so no dispute-unknown finding can stand in for it).
   profile_copy(p hblank_dispute)
   gbl_json_mutate_set("${p}" "\"disp-dma-latch\"" unmodeled 4 dispute)
-  expect_detail(unmodeled-bad-entry "hblank-flag-edge: dispute" "${p}")
+  expect_section_detail(unmodeled unmodeled-bad-entry
+    "hblank-flag-edge: dispute" "${p}")
 
 elseif(CASE STREQUAL "dispute_unknown")
   # An id the registry does not hold, on the unmodeled entry and on the timing entry.
   profile_copy(p unmodeled)
   gbl_json_mutate_set("${p}" "\"disp-nope\"" unmodeled 2 dispute)
-  expect_code(dispute-unknown "${p}")
+  expect_section_code(unmodeled dispute-unknown "${p}")
   profile_copy(p timing)
   gbl_json_mutate_set("${p}" "\"disp-nope\"" timing hblank_flag_edge_cycle dispute)
-  expect_code(dispute-unknown "${p}")
+  expect_section_code(timing dispute-unknown "${p}")
 
 elseif(CASE STREQUAL "doc_missing_id")
   profile_copy(p missing)
@@ -2012,12 +2123,12 @@ elseif(CASE STREQUAL "doc_extra_id")
   doc_copy(d duplicate_row)
   gbl_text_mutate("${d}" "${io_devices_row}"
     "${io_devices_row}\n${io_devices_row}")
-  expect_detail(doc-extra-id "duplicate id io-devices" "${p}" "${d}")
+  expect_unmodeled_doc_detail(doc-extra-id "duplicate id io-devices" "${p}" "${d}")
   profile_copy(p duplicate_replaces_row)
   doc_copy(d duplicate_replaces_row)
   gbl_text_mutate("${d}" "${io_devices_row}"
     "| `prefetch` | The cartridge prefetch buffer and cartridge wait-state timing. |")
-  expect_detail(doc-extra-id "duplicate id prefetch" "${p}" "${d}")
+  expect_unmodeled_doc_detail(doc-extra-id "duplicate id prefetch" "${p}" "${d}")
   foreach(shape IN ITEMS left right neither hash)
     profile_copy(p unwrapped_${shape})
     doc_copy(d unwrapped_${shape})
@@ -2031,7 +2142,7 @@ elseif(CASE STREQUAL "doc_extra_id")
     endif()
     gbl_text_mutate("${d}" "${io_devices_row}"
       "${io_devices_row}\n${row}")
-    expect_code(doc-no-section "${p}" "${d}")
+    expect_unmodeled_doc_code(doc-no-section "${p}" "${d}")
   endforeach()
 
 elseif(CASE STREQUAL "doc_version_mismatch")
@@ -2042,17 +2153,17 @@ elseif(CASE STREQUAL "doc_version_mismatch")
   profile_copy(p deleted)
   doc_copy(d deleted)
   gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n" "\n")
-  expect_code(doc-version-mismatch "${p}" "${d}")
+  expect_doc_version_code(doc-version-mismatch "${p}" "${d}")
   profile_copy(p commented_version)
   doc_copy(d commented_version)
   gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n"
     "\n<!--\nprofile_version: ${PROFILE_VERSION}\n-->\n")
-  expect_detail(doc-version-mismatch "no profile_version line" "${p}" "${d}")
+  expect_doc_version_detail(doc-version-mismatch "no profile_version line" "${p}" "${d}")
   profile_copy(p duplicate_version)
   doc_copy(d duplicate_version)
   gbl_text_mutate("${d}" "\nprofile_version: ${PROFILE_VERSION}\n"
     "\nprofile_version: ${PROFILE_VERSION}\nprofile_version: ${NEXT_PROFILE_VERSION}\n")
-  expect_detail(doc-version-mismatch
+  expect_doc_version_detail(doc-version-mismatch
     "expected exactly one profile_version line, found 2" "${p}" "${d}")
 
 elseif(CASE STREQUAL "doc_no_section")
@@ -2071,7 +2182,7 @@ elseif(CASE STREQUAL "doc_no_section")
   endif()
   string(SUBSTRING "${content}" 0 ${at} head)
   file(WRITE "${d}" "${head}")
-  expect_code(doc-no-section "${p}" "${d}")
+  expect_unmodeled_doc_code(doc-no-section "${p}" "${d}")
   profile_copy(p commented_unmodeled)
   doc_copy(d commented_unmodeled)
   file(READ "${d}" content)
@@ -2082,12 +2193,12 @@ elseif(CASE STREQUAL "doc_no_section")
   string(SUBSTRING "${content}" 0 ${table_start} head)
   string(SUBSTRING "${content}" ${table_start} -1 table)
   file(WRITE "${d}" "${head}<!--\n${table}-->\n")
-  expect_code(doc-no-section "${p}" "${d}")
+  expect_unmodeled_doc_code(doc-no-section "${p}" "${d}")
   profile_copy(p hidden_unmodeled_heading)
   doc_copy(d hidden_unmodeled_heading)
   gbl_text_mutate("${d}" "\n## Unmodeled\n"
     "\n<!--\n## Unmodeled\n-->\n")
-  expect_code(doc-no-section "${p}" "${d}")
+  expect_unmodeled_doc_code(doc-no-section "${p}" "${d}")
 
 elseif(CASE STREQUAL "coordinated_change")
   # The next profile version plus a coordinated unmodeled addition is accepted while every
