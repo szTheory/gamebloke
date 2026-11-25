@@ -14,7 +14,7 @@ phase.
 
 ### Archived Evidence
 
-- [ ] **EVID-03**: A developer can locate and preflight the archived Phase 21
+- [x] **EVID-03**: A developer can locate and preflight the archived Phase 21
   witness after milestone archival; its runner, checker, manifest, notice, and
   README references resolve to the archived records, and a missing reference
   fails clearly before any guest content is loaded. The local Phase 21 fixture
@@ -76,7 +76,7 @@ Acknowledged, but not committed to v6.0:
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVID-03 | Phase 22 | Pending |
+| EVID-03 | Phase 22 | Complete |
 | CONS-02 | Phase 23 | Pending |
 | CONS-03 | Phase 23 | Pending |
 | API-06 | Phase 23 | Pending |

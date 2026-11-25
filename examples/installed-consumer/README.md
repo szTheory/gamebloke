@@ -20,6 +20,27 @@ controls, is:
 sh scripts/check-installed-consumer.sh --negative-controls
 ```
 
+## Archived Phase 21 records
+
+The retained Phase 21 run is the installed-consumer witness. Its manifest,
+diagnostic notice, and verification record remain authoritative in the v5.0
+archive:
+
+- [archived fixture manifest](../../.planning/milestones/v5.0-phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json)
+- [archived diagnostic notice](../../.planning/milestones/v5.0-phases/21-installed-consumer-proof-and-libfuturo-fit/21-DIAGNOSTIC-NOTICE.md)
+- [archived verification record](../../.planning/milestones/v5.0-phases/21-installed-consumer-proof-and-libfuturo-fit/21-VERIFICATION.md)
+
+Check that these metadata references still resolve without generating or
+loading the local Phase 21 fixture:
+
+```sh
+sh scripts/check-installed-consumer.sh --archive-preflight
+```
+
+The full local proof command above is retained for its original Phase 21
+verification scope. Phase 22 uses only the archive preflight; it does not
+repeat that proof or extend the fixture's local-only authorization.
+
 The same relocated consumer checks failure-atomic refusals and retries in each
 fresh run. Its normalized receipt records the expected status, all public
 observation fields before and after, result and media sentinels, request bounds,
@@ -48,8 +69,8 @@ Git, `shasum`, POSIX shell utilities, `mktemp -d`, and `env -u` support. The
 source-built guest uses the host compiler; the pinned ARM toolchain is not
 required. The measured
 fixture recipe, compiler identity, target, source revision, source digest,
-output digest, BIOS mode, and local authorization are recorded in
-`.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json`.
+output digest, BIOS mode, and local authorization are recorded in the archived
+fixture manifest linked above.
 
 Generated ROM bytes remain under the ignored
 `build/phase21-local/fixture/` directory. A successful invocation retains its

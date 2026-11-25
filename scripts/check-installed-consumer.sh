@@ -8,19 +8,38 @@ fi
 
 NEGATIVE_CONTROLS=OFF
 CHECK_FIT=OFF
+ARCHIVE_PREFLIGHT=OFF
 for argument in "$@"; do
     case "$argument" in
         --negative-controls) NEGATIVE_CONTROLS=ON ;;
         --check-fit) CHECK_FIT=ON ;;
+        --archive-preflight) ARCHIVE_PREFLIGHT=ON ;;
         *)
-            printf '%s\n' 'usage: sh scripts/check-installed-consumer.sh [--negative-controls] [--check-fit]' >&2
+            printf '%s\n' 'usage: sh scripts/check-installed-consumer.sh [--archive-preflight] [--negative-controls] [--check-fit]' >&2
             exit 2
             ;;
     esac
 done
+if [ "$ARCHIVE_PREFLIGHT" = ON ] &&
+   { [ "$NEGATIVE_CONTROLS" = ON ] || [ "$CHECK_FIT" = ON ]; }; then
+    printf '%s\n' 'usage: sh scripts/check-installed-consumer.sh [--archive-preflight] [--negative-controls] [--check-fit]' >&2
+    printf '%s\n' 'phase21-archive: --archive-preflight must be used alone' >&2
+    exit 2
+fi
 
 SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd -P)
 REPO_ROOT=$(CDPATH= cd -P "$SCRIPT_DIR/.." && pwd -P)
+ARCHIVED_PHASE21_ROOT="$REPO_ROOT/.planning/milestones/v5.0-phases/21-installed-consumer-proof-and-libfuturo-fit"
+ARCHIVED_PHASE21_MANIFEST="$ARCHIVED_PHASE21_ROOT/fixture-manifest.json"
+cmake \
+    -DGBL_STAGE=archive-preflight \
+    -DGBL_REPO_ROOT="$REPO_ROOT" \
+    -DGBL_MANIFEST="$ARCHIVED_PHASE21_MANIFEST" \
+    -P "$REPO_ROOT/scripts/check-installed-consumer.cmake"
+if [ "$ARCHIVE_PREFLIGHT" = ON ]; then
+    exit 0
+fi
+
 LIBFUTURO_ROOT=
 if [ "$CHECK_FIT" = ON ]; then
     LIBFUTURO_REQUEST=${GBL_LIBFUTURO_CHECKOUT:-"$REPO_ROOT/../libfuturo"}
@@ -236,7 +255,7 @@ fi
 cmake \
     -DGBL_STAGE=preflight \
     -DGBL_REPO_ROOT="$REPO_ROOT" \
-    -DGBL_MANIFEST="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json" \
+    -DGBL_MANIFEST="$ARCHIVED_PHASE21_MANIFEST" \
     -DGBL_SOURCE_PATH="$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" \
     -DGBL_ROM_PATH="$ROM_PATH" \
     -DGBL_SCRATCH="$WORK_ROOT" \
@@ -644,7 +663,7 @@ fi
 cmake \
     -DGBL_STAGE=evidence \
     -DGBL_REPO_ROOT="$REPO_ROOT" \
-    -DGBL_MANIFEST="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json" \
+    -DGBL_MANIFEST="$ARCHIVED_PHASE21_MANIFEST" \
     -DGBL_SOURCE_PATH="$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" \
     -DGBL_ROM_PATH="$ROM_PATH" \
     -DGBL_SCRATCH="$WORK_ROOT" \
@@ -717,13 +736,13 @@ printf 'elapsed_seconds=%s\n' "$((END_SECONDS - START_SECONDS))" \
     > "$EVIDENCE_ROOT/feedback-time.txt"
 
 if [ "$CHECK_FIT" = ON ]; then
-    FIT_REPORT="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/LIBFUTURO-FIT.md"
+    FIT_REPORT="$ARCHIVED_PHASE21_ROOT/LIBFUTURO-FIT.md"
     check_fit_report()
     {
         cmake \
             -DGBL_STAGE=fit \
             -DGBL_REPO_ROOT="$REPO_ROOT" \
-            -DGBL_MANIFEST="$REPO_ROOT/.planning/phases/21-installed-consumer-proof-and-libfuturo-fit/fixture-manifest.json" \
+            -DGBL_MANIFEST="$ARCHIVED_PHASE21_MANIFEST" \
             -DGBL_SOURCE_PATH="$REPO_ROOT/tests/fixtures/phase21_diagnostic.c" \
             -DGBL_ROM_PATH="$ROM_PATH" \
             -DGBL_SCRATCH="$WORK_ROOT" \

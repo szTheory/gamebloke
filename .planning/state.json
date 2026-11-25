@@ -1,12 +1,23 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v6.0",
-  "phases": [],
+  "milestone": "v6.0 — Public API Host Session Readiness",
+  "phases": [
+    {
+      "number": "22",
+      "name": "Archived Installed-Consumer Evidence",
+      "status": "complete"
+    },
+    {
+      "number": "23",
+      "name": "Public API Host Session and Playstead Fit",
+      "status": "pending"
+    }
+  ],
   "next": {
-    "command": "$gsd-discuss-phase",
-    "label": "Discuss the first phase",
-    "reason": "Project initialized — plan your first phase"
+    "command": "$gsd-progress --next",
+    "label": "Advance to the next step (plan phase 23)",
+    "reason": "Phase 2 of 2 — needs a plan"
   },
-  "updated_at": "2026-11-24T17:13:17.500Z"
+  "updated_at": "2026-11-25T03:36:59.742Z"
 }
