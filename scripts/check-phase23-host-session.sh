@@ -205,12 +205,19 @@ validate_record()
     record_file=$1
     image_file=$2
     staged_source=$3
+    notice_file=${4:-$NOTICE}
     [ -f "$record_file" ] && [ -s "$record_file" ] && [ ! -L "$record_file" ] ||
         fail 'fixture-record: missing, empty, or symlinked record'
-    authority_check "$NOTICE" || fail 'fixture-record: notice authority changed before consumer launch'
+    authority_check "$notice_file" || fail 'fixture-record: notice authority changed before consumer launch'
     expected_source=$(sha256_file "$staged_source")
-    expected_notice=$(sha256_file "$NOTICE")
+    expected_notice=$(sha256_file "$notice_file")
     expected_image=$(sha256_file "$image_file")
+    [ "$expected_source" = "$SOURCE_DIGEST" ] ||
+        fail 'fixture-record: source digest differs from staged captured digest'
+    [ "$expected_notice" = "$NOTICE_DIGEST" ] ||
+        fail 'fixture-record: notice digest differs from staged captured digest'
+    [ "$expected_image" = "$IMAGE_DIGEST" ] ||
+        fail 'fixture-record: image digest differs from staged captured digest'
     awk '
         BEGIN {
             expected["fixture_id"] = "phase23-host-session"
@@ -295,6 +302,19 @@ validate_record()
         fail 'fixture-record: notice_sha256 mismatch'
     [ "$(grep -Fxc "  \"image_sha256\": \"$expected_image\"," "$record_file" || true)" -eq 1 ] ||
         fail 'fixture-record: image_sha256 mismatch'
+}
+
+run_consumer()
+{
+    run_record=$1
+    run_image=$2
+    run_source=$3
+    run_output=$4
+    shift 4
+    validate_record "$run_record" "$run_image" "$run_source"
+    (cd "$EXT_ROOT/work" &&
+        "$EXT_ROOT/build/gamebloke-phase23-host-session" "$run_image" \
+            "$run_output" "$@")
 }
 
 cleanup()
@@ -451,6 +471,51 @@ if [ "$MODE" = negative-controls ]; then
             fail "record negative control lacked its named diagnostic: $name"
         }
     done
+    mkdir -m 700 "$NEGATIVE_ROOT/provenance/changed-inputs"
+    cp "$STAGED_SOURCE" "$NEGATIVE_ROOT/provenance/changed-inputs/source.c"
+    cp "$NOTICE" "$NEGATIVE_ROOT/provenance/changed-inputs/notice.md"
+    cp "$IMAGE" "$NEGATIVE_ROOT/provenance/changed-inputs/image.gba"
+    printf '\n/* changed after provenance capture */\n' >> \
+        "$NEGATIVE_ROOT/provenance/changed-inputs/source.c"
+    printf '\nChanged after provenance capture.\n' >> \
+        "$NEGATIVE_ROOT/provenance/changed-inputs/notice.md"
+    printf '\001' >> "$NEGATIVE_ROOT/provenance/changed-inputs/image.gba"
+    for captured_input in source notice image; do
+        control_source=$STAGED_SOURCE
+        control_notice=$NOTICE
+        control_image=$IMAGE
+        case "$captured_input" in
+            source)
+                control_source="$NEGATIVE_ROOT/provenance/changed-inputs/source.c"
+                expected_diagnostic='fixture-record: source digest differs from staged captured digest'
+                ;;
+            notice)
+                control_notice="$NEGATIVE_ROOT/provenance/changed-inputs/notice.md"
+                expected_diagnostic='fixture-record: notice digest differs from staged captured digest'
+                ;;
+            image)
+                control_image="$NEGATIVE_ROOT/provenance/changed-inputs/image.gba"
+                expected_diagnostic='fixture-record: image digest differs from staged captured digest'
+                ;;
+        esac
+        control_record="$NEGATIVE_ROOT/provenance/redefined-$captured_input.json"
+        write_fixture_record \
+            "$(sha256_file "$control_source")" \
+            "$(sha256_file "$control_notice")" \
+            "$(sha256_file "$control_image")" \
+            "$(wc -c < "$control_image" | tr -d ' ')" \
+            "$control_record"
+        if (validate_record "$control_record" "$control_image" \
+            "$control_source" "$control_notice") \
+            > "$NEGATIVE_ROOT/provenance/redefined-$captured_input.log" 2>&1; then
+            fail "captured-input negative control passed unexpectedly: $captured_input"
+        fi
+        grep -F "$expected_diagnostic" \
+            "$NEGATIVE_ROOT/provenance/redefined-$captured_input.log" >/dev/null || {
+            cat "$NEGATIVE_ROOT/provenance/redefined-$captured_input.log" >&2
+            fail "captured-input negative control lacked its named diagnostic: $captured_input"
+        }
+    done
     [ ! -e "$RUN_ROOT/session-receipt.json" ] ||
         fail 'provenance refusal published an accepted receipt'
     cp "$EXAMPLE/CMakeLists.txt" "$EXAMPLE/consumer.c" \
@@ -546,15 +611,36 @@ cmake --build "$EXT_ROOT/build" --verbose > "$RUN_ROOT/consumer-build.log" 2>&1 
 }
 grep -F "$MOVED_PREFIX/lib/libgamebloke_core.a" "$RUN_ROOT/consumer-build.log" >/dev/null ||
     fail 'external consumer link does not use the relocated static archive'
-validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
+if [ "$NEGATIVE_ONLY" -eq 1 ]; then
+    PRELAUNCH_ROOT="$RUN_ROOT/negative-controls/provenance-before-launch"
+    mkdir -p -m 700 "$PRELAUNCH_ROOT/output"
+    cp "$IMAGE" "$PRELAUNCH_ROOT/changed-image.gba"
+    printf '\001' >> "$PRELAUNCH_ROOT/changed-image.gba"
+    PRELAUNCH_RECORD="$PRELAUNCH_ROOT/redefined-record.json"
+    write_fixture_record "$SOURCE_DIGEST" "$NOTICE_DIGEST" \
+        "$(sha256_file "$PRELAUNCH_ROOT/changed-image.gba")" \
+        "$(wc -c < "$PRELAUNCH_ROOT/changed-image.gba" | tr -d ' ')" \
+        "$PRELAUNCH_RECORD"
+    if (run_consumer "$PRELAUNCH_RECORD" \
+        "$PRELAUNCH_ROOT/changed-image.gba" "$STAGED_SOURCE" \
+        "$PRELAUNCH_ROOT/output") > "$PRELAUNCH_ROOT/launch.log" 2>&1; then
+        fail 'changed-input prelaunch control launched unexpectedly'
+    fi
+    grep -Fx 'phase23: fixture-record: image digest differs from staged captured digest' \
+        "$PRELAUNCH_ROOT/launch.log" >/dev/null || {
+        cat "$PRELAUNCH_ROOT/launch.log" >&2
+        fail 'changed-input prelaunch control missed the captured-digest diagnostic'
+    }
+    [ ! -e "$PRELAUNCH_ROOT/output/run.json" ] ||
+        fail 'changed-input prelaunch control published consumer evidence'
+fi
 mkdir -p -m 700 "$RUN_ROOT/negative-controls" \
     "$RUN_ROOT/negative-controls/shift-first-input" \
     "$RUN_ROOT/negative-controls/wrong-video-literal" \
     "$RUN_ROOT/negative-controls/wrong-receipt-left-mask"
-if (cd "$EXT_ROOT/work" &&
-    "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
-        "$RUN_ROOT/negative-controls/shift-first-input" \
-        --shift-first-input) \
+if run_consumer "$RECORD" "$IMAGE" "$STAGED_SOURCE" \
+    "$RUN_ROOT/negative-controls/shift-first-input" \
+    --shift-first-input \
         > "$RUN_ROOT/negative-controls/shift-first-input.log" 2>&1; then
     fail 'shifted-input negative control passed unexpectedly'
 fi
@@ -563,10 +649,9 @@ grep -F 'phase23: guest-case-mismatch expected PASS case=0x23010001 observed FAI
     cat "$RUN_ROOT/negative-controls/shift-first-input.log" >&2
     fail 'shifted-input control lacked the named guest-case mismatch'
 }
-if (cd "$EXT_ROOT/work" &&
-    "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
-        "$RUN_ROOT/negative-controls/wrong-video-literal" \
-        --wrong-video-literal) \
+if run_consumer "$RECORD" "$IMAGE" "$STAGED_SOURCE" \
+    "$RUN_ROOT/negative-controls/wrong-video-literal" \
+    --wrong-video-literal \
         > "$RUN_ROOT/negative-controls/wrong-video-literal.log" 2>&1; then
     fail 'wrong-video-literal negative control passed unexpectedly'
 fi
@@ -575,10 +660,9 @@ grep -Fx 'phase23: video-literal-mismatch row=1 pixel=0 offset=480' \
     cat "$RUN_ROOT/negative-controls/wrong-video-literal.log" >&2
     fail 'wrong-video-literal control lacked the named row-1 mismatch'
 }
-if (cd "$EXT_ROOT/work" &&
-    "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
-        "$RUN_ROOT/negative-controls/wrong-receipt-left-mask" \
-        --wrong-receipt-left-mask) \
+if run_consumer "$RECORD" "$IMAGE" "$STAGED_SOURCE" \
+    "$RUN_ROOT/negative-controls/wrong-receipt-left-mask" \
+    --wrong-receipt-left-mask \
         > "$RUN_ROOT/negative-controls/wrong-receipt-left-mask.log" 2>&1; then
     fail 'wrong-receipt-left-mask negative control passed unexpectedly'
 fi
@@ -603,18 +687,15 @@ if [ "$NEGATIVE_ONLY" -eq 1 ]; then
     printf '%s\n' 'phase23: negative controls verified'
     exit 0
 fi
-if ! (cd "$EXT_ROOT/work" &&
-      "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
-        "$RUN_ROOT/sessions/base") > "$RUN_ROOT/session.log" 2>&1; then
+if ! run_consumer "$RECORD" "$IMAGE" "$STAGED_SOURCE" \
+      "$RUN_ROOT/sessions/base" > "$RUN_ROOT/session.log" 2>&1; then
     cat "$RUN_ROOT/session.log" >&2
     fail 'installed public API session failed'
 fi
 grep -Fx 'phase23: installed session verified' "$RUN_ROOT/session.log" >/dev/null ||
     fail 'installed session success marker is missing'
-validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
-if ! (cd "$EXT_ROOT/work" &&
-      "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
-        "$RUN_ROOT/sessions/replay") > "$RUN_ROOT/replay.log" 2>&1; then
+if ! run_consumer "$RECORD" "$IMAGE" "$STAGED_SOURCE" \
+      "$RUN_ROOT/sessions/replay" > "$RUN_ROOT/replay.log" 2>&1; then
     cat "$RUN_ROOT/replay.log" >&2
     fail 'fresh public API replay failed'
 fi
@@ -625,10 +706,8 @@ for evidence_file in trace.jsonl run.json video.bgr555le audio.s16le; do
         "$RUN_ROOT/sessions/replay/$evidence_file" ||
         fail "fresh replay differs in $evidence_file"
 done
-validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
-if ! (cd "$EXT_ROOT/work" &&
-      "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
-        "$RUN_ROOT/sessions/refusal" --refusal-retry) \
+if ! run_consumer "$RECORD" "$IMAGE" "$STAGED_SOURCE" \
+      "$RUN_ROOT/sessions/refusal" --refusal-retry \
         > "$RUN_ROOT/refusal.log" 2>&1; then
     cat "$RUN_ROOT/refusal.log" >&2
     fail 'atomic refusal/retry session failed'
