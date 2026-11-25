@@ -113,19 +113,19 @@ static bool configure_ch1(gbl_machine *machine, uint8_t length_setting,
                           bool sweep_decrease, unsigned sweep_shift,
                           uint16_t frequency, bool length_enable)
 {
-    const uint16_t sweep =
+    const uint16_t sweep = (uint16_t)(
         (uint16_t)((sweep_time & 7u) << 4u) |
         (sweep_decrease ? UINT16_C(0x0008) : 0u) |
-        (uint16_t)(sweep_shift & 7u);
-    const uint16_t control =
+        (uint16_t)(sweep_shift & 7u));
+    const uint16_t control = (uint16_t)(
         (uint16_t)(length_setting & UINT8_C(0x3F)) |
         (uint16_t)((duty & 3u) << 6u) |
         (uint16_t)((envelope_period & 7u) << 8u) |
         (increase ? UINT16_C(0x0800) : 0u) |
-        (uint16_t)((volume & 15u) << 12u);
-    const uint16_t frequency_control =
+        (uint16_t)((volume & 15u) << 12u));
+    const uint16_t frequency_control = (uint16_t)(
         (uint16_t)(frequency & UINT16_C(0x07FF)) |
-        (length_enable ? UINT16_C(0x4000) : 0u) | UINT16_C(0x8000);
+        (length_enable ? UINT16_C(0x4000) : 0u) | UINT16_C(0x8000));
 
     return machine != NULL &&
            write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
@@ -144,16 +144,16 @@ static bool configure_ch4_noise(gbl_machine *machine,
                                 unsigned shift, bool width_7bit,
                                 unsigned ratio, bool length_enable)
 {
-    const uint16_t control =
+    const uint16_t control = (uint16_t)(
         (uint16_t)(length_setting & UINT8_C(0x3F)) |
         (uint16_t)((envelope_period & 7u) << 8u) |
         (increase ? UINT16_C(0x0800) : 0u) |
-        (uint16_t)((volume & 15u) << 12u);
-    const uint16_t noise_control =
+        (uint16_t)((volume & 15u) << 12u));
+    const uint16_t noise_control = (uint16_t)(
         (uint16_t)(ratio & 7u) |
         (width_7bit ? UINT16_C(0x0008) : 0u) |
         (uint16_t)((shift & 15u) << 4u) |
-        (length_enable ? UINT16_C(0x4000) : 0u) | UINT16_C(0x8000);
+        (length_enable ? UINT16_C(0x4000) : 0u) | UINT16_C(0x8000));
 
     return machine != NULL &&
            write16(machine, UINT32_C(0x04000084), UINT16_C(0x0080)).status ==
