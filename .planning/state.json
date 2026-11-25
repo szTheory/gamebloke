@@ -11,13 +11,13 @@
     {
       "number": "23",
       "name": "Public API Host Session and Playstead Fit",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
   "next": {
     "command": "$gsd-progress --next",
-    "label": "Advance to the next step (plan phase 23)",
-    "reason": "Phase 2 of 2 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 2 of 2 · 50% · executing"
   },
-  "updated_at": "2026-11-25T03:36:59.742Z"
+  "updated_at": "2026-11-25T10:25:58.978Z"
 }

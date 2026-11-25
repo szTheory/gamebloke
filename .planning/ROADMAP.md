@@ -118,9 +118,9 @@ installed public C API and use measured results to judge fit for Playstead.
    unsupported behavior and unknowns explicit. The assessment uses read-only
    source observations and leaves the existing managed mGBA route in place.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
-- [ ] 23-01-PLAN.md — Prove the installed host session, fresh replay, and atomic refusal and retry.
+- [x] 23-01-PLAN.md — Prove the installed host session, fresh replay, and atomic refusal and retry.
 - [ ] 23-02-PLAN.md — Assess Playstead's host fit and record final local verification.
 
 Run cheap reference and fixture checks before the focused consumer proof and
@@ -136,7 +136,7 @@ package publication, and software release require separate scope.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 22. Archived Installed-Consumer Evidence | 1/1 | Complete    | 2026-11-24 |
-| 23. Public API Host Session and Playstead Fit | 0/2 | Not started | - |
+| 23. Public API Host Session and Playstead Fit | 1/2 | In Progress | - |
 
 ## Rolling Horizon
 

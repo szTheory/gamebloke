@@ -22,21 +22,21 @@ phase.
 
 ### Public Host Session
 
-- [ ] **CONS-02**: A C17 consumer can use only the installed public v1 API and
+- [x] **CONS-02**: A C17 consumer can use only the installed public v1 API and
   static package to create a fresh supported machine, load a rights-cleared
   fixture, schedule logical input, perform repeated bounded advances, and
   destroy the machine cleanly.
-- [ ] **CONS-03**: A consumer can report guest semantic completion, guest
+- [x] **CONS-03**: A consumer can report guest semantic completion, guest
   cycles, raw video, and raw audio independently; literal output expectations
   and semantic assertions establish correctness, while digests only supplement
   replay identity.
-- [ ] **API-06**: A consumer can observe and retry a refused bounded operation
+- [x] **API-06**: A consumer can observe and retry a refused bounded operation
   without partial machine-state or caller-output publication, reaching the
   same declared guest result from fresh state.
 
 ### Fixture Evidence
 
-- [ ] **FIX-01**: Every fixture used for the host-session proof identifies its
+- [x] **FIX-01**: Every fixture used for the host-session proof identifies its
   source, revision, build recipe, digest, license and notices, BIOS
   requirement, expected behavior, and permitted use; the Phase 21 local-only
   diagnostic is not reused.
@@ -77,10 +77,10 @@ Acknowledged, but not committed to v6.0:
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | EVID-03 | Phase 22 | Complete |
-| CONS-02 | Phase 23 | Pending |
-| CONS-03 | Phase 23 | Pending |
-| API-06 | Phase 23 | Pending |
-| FIX-01 | Phase 23 | Pending |
+| CONS-02 | Phase 23 | Complete |
+| CONS-03 | Phase 23 | Complete |
+| API-06 | Phase 23 | Complete |
+| FIX-01 | Phase 23 | Complete |
 | INT-02 | Phase 23 | Pending |
 
 **Coverage:**

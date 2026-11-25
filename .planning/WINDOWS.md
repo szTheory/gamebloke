@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 9
 waived_count: 0
-fixed_count: 31
-total_count: 40
-last_updated: 2026-11-24T05:07:22.942Z
+fixed_count: 35
+total_count: 44
+last_updated: 2026-11-25T10:29:12.832Z
 ---
 
 # Broken Windows Ledger
@@ -55,6 +55,10 @@ last_updated: 2026-11-24T05:07:22.942Z
 | 38 | 17 | deviation | .planning/phases/17-psg-channels-and-sequencer/17-01-PLAN.md | 43 | Canonical ci workflow fails hygiene.tree on pre-existing absolute GSD home-path references in phase 17-01 through 17-04 plans; main CTest stops before full inventory and JUnit postcheck. | fixed |  | 2026-11-22T23:38:11.263Z | 2026-11-22T23:49:41.320Z |
 | 39 | 18 | deviation | src/machine.c |  | Task 3 timer and cascade behavior was already implemented through Task 1's shared actual-overflow transition, so Task 3 added direct semantic vectors without a separate RED implementation cycle. | fixed |  | 2026-11-23T02:38:04.692Z | 2026-11-23T02:39:47.156Z |
 | 40 | 21 | unrun-verify | .planning/phases/21-installed-consumer-proof-and-libfuturo-fit/21-VALIDATION.md |  | Canonical workflow stopped at existing hygiene findings; the separate ci-post inventory.junit check was not run. | open |  | 2026-11-24T05:07:22.942Z |  |
+| 41 | 23 | deviation | scripts/check-phase23-host-session.sh |  | Authority and record validators were made fail-closed after review found mismatch, duplicate, and extra-field acceptance gaps. | fixed |  | 2026-11-25T10:27:28.851Z | 2026-11-25T10:29:05.812Z |
+| 42 | 23 | deviation | examples/phase23-host-session/consumer.c |  | Consumer checks were aligned with the public API's ABSENT pre-marker mailbox, per-call versus cumulative retirement, and unit-limit completion semantics. | fixed |  | 2026-11-25T10:28:55.880Z | 2026-11-25T10:29:08.078Z |
+| 43 | 23 | deviation | scripts/check-phase23-host-session.sh |  | Expected negative-control failures run in subshells, and the missing-package check receives explicit local CMake tool paths. | fixed |  | 2026-11-25T10:28:59.988Z | 2026-11-25T10:29:10.319Z |
+| 44 | 23 | deviation | examples/phase23-host-session/consumer.c |  | Corrected retry equivalence now compares every advance-result field and complete nested observations, trace, and media. | fixed |  | 2026-11-25T10:29:02.914Z | 2026-11-25T10:29:12.832Z |
 
 ````json
 [
@@ -577,6 +581,58 @@ last_updated: 2026-11-24T05:07:22.942Z
     "recorded_at": "2026-11-24T05:07:22.942Z",
     "resolved_at": null,
     "milestone": "v5.0"
+  },
+  {
+    "id": 41,
+    "kind": "deviation",
+    "phase": "23",
+    "file": "scripts/check-phase23-host-session.sh",
+    "line": null,
+    "description": "Authority and record validators were made fail-closed after review found mismatch, duplicate, and extra-field acceptance gaps.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-25T10:27:28.851Z",
+    "resolved_at": "2026-11-25T10:29:05.812Z",
+    "milestone": "v6.0"
+  },
+  {
+    "id": 42,
+    "kind": "deviation",
+    "phase": "23",
+    "file": "examples/phase23-host-session/consumer.c",
+    "line": null,
+    "description": "Consumer checks were aligned with the public API's ABSENT pre-marker mailbox, per-call versus cumulative retirement, and unit-limit completion semantics.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-25T10:28:55.880Z",
+    "resolved_at": "2026-11-25T10:29:08.078Z",
+    "milestone": "v6.0"
+  },
+  {
+    "id": 43,
+    "kind": "deviation",
+    "phase": "23",
+    "file": "scripts/check-phase23-host-session.sh",
+    "line": null,
+    "description": "Expected negative-control failures run in subshells, and the missing-package check receives explicit local CMake tool paths.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-25T10:28:59.988Z",
+    "resolved_at": "2026-11-25T10:29:10.319Z",
+    "milestone": "v6.0"
+  },
+  {
+    "id": 44,
+    "kind": "deviation",
+    "phase": "23",
+    "file": "examples/phase23-host-session/consumer.c",
+    "line": null,
+    "description": "Corrected retry equivalence now compares every advance-result field and complete nested observations, trace, and media.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-25T10:29:02.914Z",
+    "resolved_at": "2026-11-25T10:29:12.832Z",
+    "milestone": "v6.0"
   }
 ]
 ````
