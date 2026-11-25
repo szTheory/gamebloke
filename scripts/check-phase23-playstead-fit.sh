@@ -3,15 +3,15 @@ set -eu
 
 MODE=${1:---check}
 case "$MODE" in
-    --snapshot|--check|--negative-controls|--capture-controls) ;;
-    *) printf '%s\n' 'usage: sh scripts/check-phase23-playstead-fit.sh [--snapshot|--check|--negative-controls|--capture-controls]' >&2; exit 2 ;;
+    --snapshot|--check|--negative-controls|--capture-controls|--phase-resolution-controls) ;;
+    *) printf '%s\n' 'usage: sh scripts/check-phase23-playstead-fit.sh [--snapshot|--check|--negative-controls|--capture-controls|--phase-resolution-controls]' >&2; exit 2 ;;
 esac
 
 SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd -P)
 REPO_ROOT=$(CDPATH= cd -P "$SCRIPT_DIR/.." && pwd -P)
 PLAYSTEAD_ROOT="$REPO_ROOT/../playstead/playstead-mac"
-PHASE_DIR="$REPO_ROOT/.planning/phases/23-public-api-host-session-and-playstead-fit"
-REPORT="$PHASE_DIR/23-PLAYSTEAD-FIT.md"
+PHASE_NAME=23-public-api-host-session-and-playstead-fit
+PLANNING_ROOT="$REPO_ROOT/.planning"
 CITED_PATHS='docs/SUPPORT-MATRIX.md
 docs/STATE-SUPPORT.md
 Playstead/Adapter/AdapterHost.swift
@@ -30,6 +30,29 @@ fail()
     printf 'phase23-fit: %s\n' "$*" >&2
     exit 1
 }
+
+phase_dir_for()
+{
+    phase_root=$1
+    active_phase_dir="$phase_root/phases/$PHASE_NAME"
+    archived_phase_dir="$phase_root/milestones/v6.0-phases/$PHASE_NAME"
+    if [ -d "$active_phase_dir" ] && [ -d "$archived_phase_dir" ]; then
+        return 2
+    fi
+    if [ -d "$active_phase_dir" ]; then
+        printf '%s\n' "$active_phase_dir"
+        return 0
+    fi
+    if [ -d "$archived_phase_dir" ]; then
+        printf '%s\n' "$archived_phase_dir"
+        return 0
+    fi
+    return 1
+}
+
+PHASE_DIR=$(phase_dir_for "$PLANNING_ROOT") ||
+    fail 'Phase 23 report directory is missing or ambiguous in active and v6.0 archive paths'
+REPORT="$PHASE_DIR/23-PLAYSTEAD-FIT.md"
 
 for command_name in git awk sed sort shasum mktemp cmp wc tr grep ln python3; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command is unavailable: $command_name"
@@ -522,6 +545,34 @@ verify_captured_copy_stability()
         fail 'captured-copy FIFO refusal left a partial destination'
 }
 
+verify_phase_dir_resolution_controls()
+{
+    resolution_root="$TEMP_ROOT/phase-directory-resolution"
+    active_root="$resolution_root/active-only"
+    archived_root="$resolution_root/archived-only"
+    both_root="$resolution_root/both"
+    empty_root="$resolution_root/empty"
+
+    mkdir -p "$active_root/phases/$PHASE_NAME"
+    [ "$(phase_dir_for "$active_root")" = "$active_root/phases/$PHASE_NAME" ] ||
+        fail 'phase path resolver did not select the active phase directory'
+
+    mkdir -p "$archived_root/milestones/v6.0-phases/$PHASE_NAME"
+    [ "$(phase_dir_for "$archived_root")" = "$archived_root/milestones/v6.0-phases/$PHASE_NAME" ] ||
+        fail 'phase path resolver did not select the archived phase directory'
+
+    mkdir -p "$both_root/phases/$PHASE_NAME" \
+        "$both_root/milestones/v6.0-phases/$PHASE_NAME"
+    if phase_dir_for "$both_root"; then
+        fail 'phase path resolver accepted ambiguous active and archived directories'
+    fi
+
+    mkdir -p "$empty_root"
+    if phase_dir_for "$empty_root"; then
+        fail 'phase path resolver accepted a missing phase directory'
+    fi
+}
+
 if [ "$MODE" = --snapshot ]; then
     worktree_snapshot > "$TEMP_ROOT/snapshot.before.txt"
     worktree_snapshot > "$TEMP_ROOT/snapshot.after.txt"
@@ -543,6 +594,12 @@ if [ "$MODE" = --capture-controls ]; then
     verify_symlinked_parent_controls
     verify_captured_copy_stability
     printf '%s\n' 'phase23: captured-copy and symlink controls verified'
+    exit 0
+fi
+
+if [ "$MODE" = --phase-resolution-controls ]; then
+    verify_phase_dir_resolution_controls
+    printf '%s\n' 'phase23: active/archive phase path controls verified'
     exit 0
 fi
 
@@ -617,5 +674,6 @@ fi
 
 verify_symlinked_parent_controls
 verify_captured_copy_stability
+verify_phase_dir_resolution_controls
 check_report_file "$REPORT"
 printf '%s\n' 'phase23: Playstead fit and symlink controls verified'
