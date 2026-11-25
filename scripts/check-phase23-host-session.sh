@@ -549,7 +549,8 @@ grep -F "$MOVED_PREFIX/lib/libgamebloke_core.a" "$RUN_ROOT/consumer-build.log" >
 validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
 mkdir -p -m 700 "$RUN_ROOT/negative-controls" \
     "$RUN_ROOT/negative-controls/shift-first-input" \
-    "$RUN_ROOT/negative-controls/wrong-video-literal"
+    "$RUN_ROOT/negative-controls/wrong-video-literal" \
+    "$RUN_ROOT/negative-controls/wrong-receipt-left-mask"
 if (cd "$EXT_ROOT/work" &&
     "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
         "$RUN_ROOT/negative-controls/shift-first-input" \
@@ -574,9 +575,22 @@ grep -Fx 'phase23: video-literal-mismatch row=1 pixel=0 offset=480' \
     cat "$RUN_ROOT/negative-controls/wrong-video-literal.log" >&2
     fail 'wrong-video-literal control lacked the named row-1 mismatch'
 }
+if (cd "$EXT_ROOT/work" &&
+    "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
+        "$RUN_ROOT/negative-controls/wrong-receipt-left-mask" \
+        --wrong-receipt-left-mask) \
+        > "$RUN_ROOT/negative-controls/wrong-receipt-left-mask.log" 2>&1; then
+    fail 'wrong-receipt-left-mask negative control passed unexpectedly'
+fi
+grep -E '^phase23: input receipt does not match call trace checkpoint=2 call=[0-9]+ mask=16 applied=2$' \
+    "$RUN_ROOT/negative-controls/wrong-receipt-left-mask.log" >/dev/null || {
+    cat "$RUN_ROOT/negative-controls/wrong-receipt-left-mask.log" >&2
+    fail 'wrong-receipt-left-mask control lacked its named input-trace mismatch'
+}
 for negative_dir in \
     "$RUN_ROOT/negative-controls/shift-first-input" \
-    "$RUN_ROOT/negative-controls/wrong-video-literal"; do
+    "$RUN_ROOT/negative-controls/wrong-video-literal" \
+    "$RUN_ROOT/negative-controls/wrong-receipt-left-mask"; do
     for accepted_file in run.json trace.jsonl video.bgr555le audio.s16le refusal.json; do
         [ ! -e "$negative_dir/$accepted_file" ] ||
             fail "negative control published accepted evidence: $accepted_file"

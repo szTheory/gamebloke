@@ -49,6 +49,7 @@ typedef struct session_mode {
     bool shift_first_input;
     bool wrong_video_literal;
     bool refusal_retry;
+    bool wrong_receipt_left_mask;
 } session_mode;
 
 static void *consumer_allocate(void *context, size_t size)
@@ -321,6 +322,46 @@ static void append_call(char *trace, size_t capacity, size_t *used,
         return;
     }
     *used += (size_t)length;
+}
+
+static bool trace_input_checkpoint_matches(const char *trace, size_t trace_used,
+                                          size_t call_index,
+                                          uint16_t logical_mask,
+                                          uint32_t applied_count)
+{
+    char expected_fields[96];
+    int expected_length = snprintf(expected_fields, sizeof expected_fields,
+        "\"logical_input_mask\":%u,\"applied_input_count\":%u,",
+        (unsigned)logical_mask, applied_count);
+    size_t line_start = 0u;
+    size_t line_index = 0u;
+
+    if (expected_length <= 0 ||
+        (size_t)expected_length >= sizeof expected_fields) {
+        return false;
+    }
+    while (line_start < trace_used) {
+        size_t line_end = line_start;
+
+        while (line_end < trace_used && trace[line_end] != '\n') {
+            line_end += 1u;
+        }
+        if (line_index == call_index) {
+            size_t offset;
+
+            for (offset = line_start;
+                 offset + (size_t)expected_length <= line_end; ++offset) {
+                if (memcmp(trace + offset, expected_fields,
+                           (size_t)expected_length) == 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        line_index += 1u;
+        line_start = line_end + 1u;
+    }
+    return false;
 }
 
 static bool check_video(const uint8_t *bytes, size_t capacity,
@@ -771,6 +812,8 @@ static bool parse_mode(int argc, char **argv, session_mode *mode)
             mode->wrong_video_literal = true;
         } else if (strcmp(argv[index], "--refusal-retry") == 0) {
             mode->refusal_retry = true;
+        } else if (strcmp(argv[index], "--wrong-receipt-left-mask") == 0) {
+            mode->wrong_receipt_left_mask = true;
         } else {
             return false;
         }
@@ -780,7 +823,7 @@ static bool parse_mode(int argc, char **argv, session_mode *mode)
 
 int main(int argc, char **argv)
 {
-    session_mode mode = { false, false, false };
+    session_mode mode = { false, false, false, false };
     allocator_state allocator = { 0 };
     gbl_v1_machine *machine = NULL;
     gbl_v1_input_event events[3] = { { 0u, 0u, 0u } };
@@ -802,6 +845,8 @@ int main(int argc, char **argv)
     size_t calls = 0u;
     size_t bad_offset = 0u;
     size_t input_checkpoint_calls[3] = { SIZE_MAX, SIZE_MAX, SIZE_MAX };
+    uint16_t input_checkpoint_masks[3] = { 0u, 0u, 0u };
+    uint32_t input_checkpoint_applied_counts[3] = { 0u, 0u, 0u };
     uint32_t refusal_statuses[2] = { 0u, 0u };
     uint64_t prior_cycle = 0u;
     uint64_t retry_host_ns = 0u;
@@ -814,7 +859,7 @@ int main(int argc, char **argv)
     if (argc < 3 || !parse_mode(argc, argv, &mode)) {
         fputs("usage: gamebloke-phase23-host-session ROM OUTPUT_DIR "
               "[--shift-first-input] [--wrong-video-literal] "
-              "[--refusal-retry]\n", stderr);
+              "[--refusal-retry] [--wrong-receipt-left-mask]\n", stderr);
         return 2;
     }
     rom_file = fopen(argv[1], "rb");
@@ -945,7 +990,12 @@ int main(int argc, char **argv)
         if (observation.applied_input_count > 0u &&
             observation.applied_input_count <= 3u &&
             input_checkpoint_calls[observation.applied_input_count - 1u] == SIZE_MAX) {
-            input_checkpoint_calls[observation.applied_input_count - 1u] = calls;
+            size_t checkpoint = observation.applied_input_count - 1u;
+
+            input_checkpoint_calls[checkpoint] = calls;
+            input_checkpoint_masks[checkpoint] = observation.logical_input_mask;
+            input_checkpoint_applied_counts[checkpoint] =
+                observation.applied_input_count;
         }
         record.requested_budget = budget;
         record.start_cycle = result.start_cycle;
@@ -1033,7 +1083,12 @@ int main(int argc, char **argv)
             if (observation.applied_input_count > 0u &&
                 observation.applied_input_count <= 3u &&
                 input_checkpoint_calls[observation.applied_input_count - 1u] == SIZE_MAX) {
-                input_checkpoint_calls[observation.applied_input_count - 1u] = calls - 1u;
+                size_t checkpoint = observation.applied_input_count - 1u;
+
+                input_checkpoint_calls[checkpoint] = calls - 1u;
+                input_checkpoint_masks[checkpoint] = observation.logical_input_mask;
+                input_checkpoint_applied_counts[checkpoint] =
+                    observation.applied_input_count;
             }
             if (observation.mailbox_state != GBL_V1_MAILBOX_ABSENT) {
                 fputs("phase23: corrected retry crossed the guest terminal boundary\n",
@@ -1114,7 +1169,31 @@ int main(int argc, char **argv)
     {
         char summary[1024];
         char refusal_summary[768];
-        int summary_length = snprintf(summary, sizeof summary,
+        uint16_t receipt_masks[3] = {
+            input_checkpoint_masks[0], input_checkpoint_masks[1],
+            input_checkpoint_masks[2]
+        };
+        size_t checkpoint;
+        int summary_length;
+        int refusal_summary_length = 0;
+
+        if (mode.wrong_receipt_left_mask) {
+            receipt_masks[1] = GBL_V1_KEY_RIGHT;
+        }
+        for (checkpoint = 0u; checkpoint < 3u; ++checkpoint) {
+            if (input_checkpoint_calls[checkpoint] == SIZE_MAX ||
+                !trace_input_checkpoint_matches(trace, trace_used,
+                    input_checkpoint_calls[checkpoint], receipt_masks[checkpoint],
+                    input_checkpoint_applied_counts[checkpoint])) {
+                fprintf(stderr,
+                    "phase23: input receipt does not match call trace checkpoint=%zu call=%zu mask=%u applied=%u\n",
+                    checkpoint + 1u, input_checkpoint_calls[checkpoint],
+                    (unsigned)receipt_masks[checkpoint],
+                    input_checkpoint_applied_counts[checkpoint]);
+                goto cleanup;
+            }
+        }
+        summary_length = snprintf(summary, sizeof summary,
             "{\"api_status\":\"OK\",\"guest_mailbox\":\"PASS\","
             "\"case_id\":%u,\"start_cycle\":0,"
             "\"guest_end_cycle\":%llu,\"call_count\":%zu,"
@@ -1123,19 +1202,22 @@ int main(int argc, char **argv)
             "\"input_events\":[{\"name\":\"press-a\",\"cycle\":2464},"
             "{\"name\":\"switch-left\",\"cycle\":12320},"
             "{\"name\":\"release\",\"cycle\":24640}],"
-            "\"input_observations\":[{\"call\":%zu,\"logical_mask\":1,\"applied_count\":1},"
-            "{\"call\":%zu,\"logical_mask\":16,\"applied_count\":2},"
-            "{\"call\":%zu,\"logical_mask\":0,\"applied_count\":3}],"
+            "\"input_observations\":[{\"call\":%zu,\"logical_mask\":%u,\"applied_count\":%u},"
+            "{\"call\":%zu,\"logical_mask\":%u,\"applied_count\":%u},"
+            "{\"call\":%zu,\"logical_mask\":%u,\"applied_count\":%u}],"
             "\"audio_frames\":%zu,\"audio_bytes\":%zu,"
             "\"audio_channel_order\":\"left,right\","
             "\"video_format\":\"BGR555LE\",\"video_epoch\":0,"
             "\"audio_format\":\"S16LE-pre-PWM\","
             "\"host_presentation\":\"outside-session-evidence\"}\n",
             UINT32_C(0x23010001), (unsigned long long)prior_cycle,
-            calls, CALL_UNITS, CALL_BUDGET, input_checkpoint_calls[0],
-            input_checkpoint_calls[1], input_checkpoint_calls[2],
-            audio_used / 4u, audio_used);
-        int refusal_summary_length = 0;
+            calls, CALL_UNITS, CALL_BUDGET,
+            input_checkpoint_calls[0], (unsigned)receipt_masks[0],
+            input_checkpoint_applied_counts[0],
+            input_checkpoint_calls[1], (unsigned)receipt_masks[1],
+            input_checkpoint_applied_counts[1],
+            input_checkpoint_calls[2], (unsigned)receipt_masks[2],
+            input_checkpoint_applied_counts[2], audio_used / 4u, audio_used);
 
         if (mode.refusal_retry) {
             refusal_summary_length = snprintf(refusal_summary,
