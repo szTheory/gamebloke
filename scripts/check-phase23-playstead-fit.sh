@@ -3,8 +3,8 @@ set -eu
 
 MODE=${1:---check}
 case "$MODE" in
-    --snapshot|--check|--negative-controls) ;;
-    *) printf '%s\n' 'usage: sh scripts/check-phase23-playstead-fit.sh [--snapshot|--check|--negative-controls]' >&2; exit 2 ;;
+    --snapshot|--check|--negative-controls|--capture-controls) ;;
+    *) printf '%s\n' 'usage: sh scripts/check-phase23-playstead-fit.sh [--snapshot|--check|--negative-controls|--capture-controls]' >&2; exit 2 ;;
 esac
 
 SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd -P)
@@ -76,19 +76,22 @@ capture_file_no_follow()
     capture_output=$3
     python3 - "$capture_root" "$capture_relative" "$capture_output" <<'PY'
 import os
+import signal
 import stat
 import sys
 
 root, relative, destination = sys.argv[1:]
-if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY") or os.open not in os.supports_dir_fd:
-    raise SystemExit("safe captured-copy support is unavailable (requires O_NOFOLLOW, O_DIRECTORY, and openat)")
+if (not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY")
+        or not hasattr(os, "O_NONBLOCK") or not hasattr(signal, "SIGALRM")
+        or os.open not in os.supports_dir_fd):
+    raise SystemExit("safe captured-copy support is unavailable (requires O_NOFOLLOW, O_DIRECTORY, O_NONBLOCK, SIGALRM, and openat)")
 
 parts = relative.split("/")
 if not parts or any(part in ("", ".", "..") for part in parts):
     raise SystemExit("unsafe relative source path")
 
 directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
-file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
 source_fd = None
 parent_fd = None
 destination_fd = None
@@ -102,7 +105,18 @@ try:
         os.close(parent_fd)
         parent_fd = next_fd
 
-    source_fd = os.open(parts[-1], file_flags, dir_fd=parent_fd)
+    # O_NONBLOCK makes a raced FIFO fail promptly instead of waiting for a
+    # writer. Keep a short alarm as a backstop if a filesystem open stalls.
+    previous_alarm_handler = signal.getsignal(signal.SIGALRM)
+    def open_timeout(_signum, _frame):
+        raise TimeoutError("source open exceeded three seconds")
+    signal.signal(signal.SIGALRM, open_timeout)
+    signal.alarm(3)
+    try:
+        source_fd = os.open(parts[-1], file_flags, dir_fd=parent_fd)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_alarm_handler)
     before = os.fstat(source_fd)
     if not stat.S_ISREG(before.st_mode):
         raise OSError("source is not a regular file")
@@ -495,6 +509,17 @@ verify_captured_copy_stability()
         "$TEMP_ROOT/replacement-capture"; then
         fail 'no-follow capture accepted a later symlink replacement'
     fi
+
+    python3 -c 'import os, sys; os.mkfifo(sys.argv[1])' "$TEMP_ROOT/capture-fifo" ||
+        fail 'cannot create captured-copy FIFO control'
+    if capture_file_no_follow "$TEMP_ROOT" "capture-fifo" \
+        "$TEMP_ROOT/fifo-capture" > "$TEMP_ROOT/fifo-stdout" 2> "$TEMP_ROOT/fifo-stderr"; then
+        fail 'captured-copy control accepted a FIFO'
+    fi
+    grep -q 'source is not a regular file' "$TEMP_ROOT/fifo-stderr" ||
+        fail 'captured-copy control did not reject a FIFO promptly as a non-regular file'
+    [ ! -e "$TEMP_ROOT/fifo-capture" ] ||
+        fail 'captured-copy FIFO refusal left a partial destination'
 }
 
 if [ "$MODE" = --snapshot ]; then
@@ -511,6 +536,13 @@ fi
 if [ "$MODE" = --check ]; then
     check_report_file "$REPORT"
     printf '%s\n' 'phase23: Playstead fit snapshot verified'
+    exit 0
+fi
+
+if [ "$MODE" = --capture-controls ]; then
+    verify_symlinked_parent_controls
+    verify_captured_copy_stability
+    printf '%s\n' 'phase23: captured-copy and symlink controls verified'
     exit 0
 fi
 
