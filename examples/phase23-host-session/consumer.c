@@ -445,6 +445,7 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
     uint64_t reference_cycle = 0u;
     bool reference_completed = false;
     bool success = false;
+    const char *failure_stage = "prefix validation";
 
     memset(reference_audio_total, 0xa5, reference_audio_capacity);
     memset(reference_video, 0xa5, reference_video_capacity);
@@ -452,6 +453,7 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
     *reference_trace_used = 0u;
     memset(reference_final_observation, 0,
            sizeof *reference_final_observation);
+    before.struct_size = sizeof before;
     if (prefix->mailbox_state != GBL_V1_MAILBOX_ABSENT ||
         gbl_v1_observe(machine, &before) != GBL_V1_OK ||
         before.master_cycle != prefix->end_cycle ||
@@ -462,6 +464,7 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
     }
     memset(reference_audio, 0xa5, sizeof reference_audio);
     options.struct_size = sizeof options;
+    failure_stage = "fresh reference prefix advance";
     options.units = prefix->requested_units;
     options.cycle_budget = prefix->requested_budget;
     options.capture_audio = 1u;
@@ -500,6 +503,7 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
 
         memset(refused_audio, 0xa5, sizeof refused_audio);
         memset(&refused_result, 0xa5, sizeof refused_result);
+        failure_stage = "positive-budget refusal status and output preservation";
         refused_result.struct_size = sizeof refused_result;
         memcpy(&refused_snapshot, &refused_result, sizeof refused_result);
         options.struct_size = sizeof options;
@@ -524,6 +528,7 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
         }
     }
 
+    failure_stage = "corrected retry equivalence";
     memset(retry_audio, 0xa5, retry_capacity);
     memset(reference_retry_audio, 0xa5, sizeof reference_retry_audio);
     options.struct_size = sizeof options;
@@ -607,6 +612,7 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
 
     reference_cycle = reference_result.end_cycle;
     reference_calls = 2u;
+    failure_stage = "fresh reference completion";
     while (reference_calls < CALL_LIMIT && reference_cycle < CYCLE_LIMIT) {
         uint8_t next_audio[AUDIO_CALL_CAPACITY];
         uint64_t budget = CALL_BUDGET;
@@ -732,6 +738,13 @@ static bool run_refusal_retry(gbl_v1_machine *machine,
     success = true;
 
 cleanup:
+    if (!success) {
+        fprintf(stderr,
+            "phase23: refusal-proof failed at %s main=%llu reference=%llu calls=%zu statuses=%u,%u\n",
+            failure_stage, (unsigned long long)before.master_cycle,
+            (unsigned long long)reference_cycle, reference_calls,
+            refusal_statuses[0], refusal_statuses[1]);
+    }
     if (reference != NULL) {
         gbl_v1_destroy(reference);
     }
@@ -973,7 +986,7 @@ int main(int argc, char **argv)
             size_t retry_audio_bytes;
             int retry_timing_length;
 
-            if (record.mailbox_state != GBL_V1_MAILBOX_PENDING ||
+            if (record.mailbox_state != GBL_V1_MAILBOX_ABSENT ||
                 !run_refusal_retry(machine, rom_bytes, rom_length,
                     &record, call_audio, retry_audio, sizeof retry_audio,
                     &retry_record, &retry_observation, refusal_statuses,
@@ -1094,17 +1107,29 @@ int main(int argc, char **argv)
         goto cleanup;
     }
     {
-        char summary[512];
+        char summary[1024];
         char refusal_summary[768];
         int summary_length = snprintf(summary, sizeof summary,
             "{\"api_status\":\"OK\",\"guest_mailbox\":\"PASS\","
-            "\"case_id\":%u,\"guest_end_cycle\":%llu,"
-            "\"call_count\":%zu,\"audio_bytes\":%zu,"
-            "\"video_format\":\"BGR555LE\","
+            "\"case_id\":%u,\"start_cycle\":0,"
+            "\"guest_end_cycle\":%llu,\"call_count\":%zu,"
+            "\"requested_units_per_call\":%u,"
+            "\"requested_budget_per_call\":%u,"
+            "\"input_events\":[{\"name\":\"press-a\",\"cycle\":2464},"
+            "{\"name\":\"switch-left\",\"cycle\":12320},"
+            "{\"name\":\"release\",\"cycle\":24640}],"
+            "\"input_observations\":[{\"call\":%zu,\"logical_mask\":1,\"applied_count\":1},"
+            "{\"call\":%zu,\"logical_mask\":16,\"applied_count\":2},"
+            "{\"call\":%zu,\"logical_mask\":0,\"applied_count\":3}],"
+            "\"audio_frames\":%zu,\"audio_bytes\":%zu,"
+            "\"audio_channel_order\":\"left,right\","
+            "\"video_format\":\"BGR555LE\",\"video_epoch\":0,"
             "\"audio_format\":\"S16LE-pre-PWM\","
             "\"host_presentation\":\"outside-session-evidence\"}\n",
             UINT32_C(0x23010001), (unsigned long long)prior_cycle,
-            calls, audio_used);
+            calls, CALL_UNITS, CALL_BUDGET, input_checkpoint_calls[0],
+            input_checkpoint_calls[1], input_checkpoint_calls[2],
+            audio_used / 4u, audio_used);
         int refusal_summary_length = 0;
 
         if (mode.refusal_retry) {

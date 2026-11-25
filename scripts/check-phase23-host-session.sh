@@ -519,7 +519,8 @@ EXT_PHYSICAL=$(CDPATH= cd -P "$EXT_ROOT" && pwd -P)
 EXT_ROOT=$EXT_PHYSICAL
 case "$EXT_PHYSICAL" in "$REPO_ROOT"|"$REPO_ROOT"/*) fail 'external consumer scratch resolved inside checkout' ;; esac
 mkdir -m 700 "$EXT_ROOT/source" "$EXT_ROOT/build" "$EXT_ROOT/work" \
-    "$RUN_ROOT/sessions/base" "$RUN_ROOT/sessions/replay"
+    "$RUN_ROOT/sessions/base" "$RUN_ROOT/sessions/replay" \
+    "$RUN_ROOT/sessions/refusal"
 cp "$EXAMPLE/CMakeLists.txt" "$EXAMPLE/consumer.c" "$EXT_ROOT/source/"
 cmp -s "$EXAMPLE/CMakeLists.txt" "$EXT_ROOT/source/CMakeLists.txt" || fail 'external CMake project copy mismatch'
 cmp -s "$EXAMPLE/consumer.c" "$EXT_ROOT/source/consumer.c" || fail 'external consumer copy mismatch'
@@ -610,6 +611,31 @@ for evidence_file in trace.jsonl run.json video.bgr555le audio.s16le; do
         "$RUN_ROOT/sessions/replay/$evidence_file" ||
         fail "fresh replay differs in $evidence_file"
 done
+validate_record "$RECORD" "$IMAGE" "$STAGED_SOURCE"
+if ! (cd "$EXT_ROOT/work" &&
+      "$EXT_ROOT/build/gamebloke-phase23-host-session" "$IMAGE" \
+        "$RUN_ROOT/sessions/refusal" --refusal-retry) \
+        > "$RUN_ROOT/refusal.log" 2>&1; then
+    cat "$RUN_ROOT/refusal.log" >&2
+    fail 'atomic refusal/retry session failed'
+fi
+grep -Fx 'phase23: installed session verified' "$RUN_ROOT/refusal.log" >/dev/null ||
+    fail 'refusal session success marker is missing'
+grep -Fx 'phase23: atomic refusal and retry verified' "$RUN_ROOT/refusal.log" >/dev/null ||
+    fail 'refusal session did not report its completed retry proof'
+[ -f "$RUN_ROOT/sessions/refusal/refusal.json" ] &&
+    [ -s "$RUN_ROOT/sessions/refusal/refusal.json" ] &&
+    [ ! -L "$RUN_ROOT/sessions/refusal/refusal.json" ] ||
+    fail 'measured refusal receipt is missing or unsafe'
+grep -E '^[{]"attempts":\[[{]"status":[0-9]+,"units":512,"budget":512,"result_unchanged":true,"audio_unchanged":true,"observation_unchanged":true[}],[{]"status":[0-9]+,"units":512,"budget":512,"result_unchanged":true,"audio_unchanged":true,"observation_unchanged":true[}]\],"corrected_budget":8192,"retry_matches_fresh_reference":true[}]$' \
+    "$RUN_ROOT/sessions/refusal/refusal.json" >/dev/null ||
+    fail 'measured refusal receipt omitted expected statuses or postconditions'
+for evidence_file in trace.jsonl run.json video.bgr555le audio.s16le; do
+    cmp -s "$RUN_ROOT/sessions/base/$evidence_file" \
+        "$RUN_ROOT/sessions/refusal/$evidence_file" ||
+        fail "refusal/retry final state differs from fresh session in $evidence_file"
+done
+printf '%s\n' 'phase23: refusal/retry matched fresh session'
 VIDEO_DIGEST=$(sha256_file "$RUN_ROOT/sessions/base/video.bgr555le")
 AUDIO_DIGEST=$(sha256_file "$RUN_ROOT/sessions/base/audio.s16le")
 TRACE_DIGEST=$(sha256_file "$RUN_ROOT/sessions/base/trace.jsonl")
@@ -617,4 +643,12 @@ printf '{\n  "fixture_id": "phase23-host-session",\n  "fixture_record": "fixture
     "$SOURCE_DIGEST" "$NOTICE_DIGEST" "$IMAGE_DIGEST" \
     "$TRACE_DIGEST" "$VIDEO_DIGEST" "$AUDIO_DIGEST" > \
     "$RUN_ROOT/session-receipt.json"
-printf 'phase23: fresh replay verified (%s)\n' "$RUN_ROOT"
+mv "$RUN_ROOT/session-receipt.json" \
+    "$RUN_ROOT/session-baseline-receipt.json"
+REFUSAL_RECEIPT=$(cat "$RUN_ROOT/sessions/refusal/refusal.json")
+REFUSAL_DIGEST=$(sha256_file "$RUN_ROOT/sessions/refusal/refusal.json")
+printf '{\n  "fixture_id": "phase23-host-session",\n  "baseline_receipt": "session-baseline-receipt.json",\n  "refusal_retry": "sessions/refusal/run.json",\n  "refusal_proof": %s,\n  "refusal_proof_sha256": "%s",\n  "final_comparison": "guest trace, run record, full raw video and audio match fresh baseline",\n  "host_presentation": "outside-session-evidence",\n  "permission": "local-phase23-verification-only"\n}\n' \
+    "$REFUSAL_RECEIPT" "$REFUSAL_DIGEST" > \
+    "$RUN_ROOT/session-receipt.json"
+printf 'phase23: installed session, replay, and refusal/retry verified (%s)\n' \
+    "$RUN_ROOT"
