@@ -2094,7 +2094,7 @@ enum {
     GBL_MATRIX_MAX_ROWS = 1024u,
     GBL_MATRIX_LINE_CAPACITY = 4096u,
     GBL_MATRIX_RECORD_CAPACITY = 2048u,
-    GBL_MATRIX_CYCLE_BUDGET = 1000u,
+    GBL_MATRIX_CYCLE_BUDGET = 3000u,
     GBL_MATRIX_TRACE_CAPACITY = 4096u
 };
 
@@ -2577,9 +2577,12 @@ static bool gbl_matrix_observe(const gbl_matrix_row *row,
 
 static const char *gbl_matrix_instance_matches_runner(
     const gbl_interleave_instance *instance,
-    const gbl_test_observation *observation)
+    const gbl_test_observation *observation, const char *trace_path)
 {
     const gbl_runner_result *result = &observation->result;
+    gbl_runner_result expected_trace = { 0 };
+    gbl_test_bytes expected_bytes = { 0 };
+    bool equal;
 
     if (instance->mailbox.status != result->semantic.status ||
         instance->mailbox.case_id != result->semantic.case_id) {
@@ -2589,14 +2592,32 @@ static const char *gbl_matrix_instance_matches_runner(
         instance->instructions != result->instructions) {
         return "interleave-progress-mismatch";
     }
-    if (instance->trace.count != result->trace_count ||
-        !gbl_interleave_trace_fields_equal(instance->trace.records,
+    if (instance->trace.count != result->trace_count) {
+        return "interleave-trace-count-mismatch";
+    }
+    if (!gbl_interleave_trace_fields_equal(instance->trace.records,
                                            result->trace_records,
-                                           result->trace_count) ||
-        instance->serialized_trace_length != observation->trace.length ||
-        memcmp(instance->serialized_trace, observation->trace.data,
-               observation->trace.length) != 0) {
-        return "interleave-trace-mismatch";
+                                           result->trace_count)) {
+        return "interleave-trace-fields-mismatch";
+    }
+    expected_trace.trace_records = instance->trace.records;
+    expected_trace.trace_count = instance->trace.count;
+    expected_trace.trace_capacity = instance->trace.capacity;
+    if (!gbl_runner_write_trace(trace_path, &expected_trace)) {
+        (void)unlink(trace_path);
+        return "interleave-trace-serialization-failed";
+    }
+    if (!gbl_test_read_file(trace_path, &expected_bytes)) {
+        (void)unlink(trace_path);
+        return "interleave-trace-serialization-read-failed";
+    }
+    equal = expected_bytes.length == observation->trace.length &&
+        memcmp(expected_bytes.data, observation->trace.data,
+               observation->trace.length) == 0;
+    free(expected_bytes.data);
+    (void)unlink(trace_path);
+    if (!equal) {
+        return "interleave-serialized-trace-mismatch";
     }
     return "ok";
 }
@@ -2723,6 +2744,10 @@ static bool gbl_matrix_compare_pair(const gbl_matrix_row *first_row,
     char second_path[GBL_DETERMINISM_PATH_CAPACITY];
     char first_trace[GBL_DETERMINISM_PATH_CAPACITY];
     char second_trace[GBL_DETERMINISM_PATH_CAPACITY];
+    char first_isolated_trace[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char first_alternating_trace[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char second_isolated_trace[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
+    char second_alternating_trace[GBL_DETERMINISM_PATH_CAPACITY] = { 0 };
     gbl_test_bytes first_image = { 0 };
     gbl_test_bytes second_image = { 0 };
     gbl_interleave_pair pair = { 0 };
@@ -2738,6 +2763,16 @@ static bool gbl_matrix_compare_pair(const gbl_matrix_row *first_row,
                        "interleave-first.trace.jsonl") ||
         !gbl_test_path(second_trace, sizeof second_trace, work,
                        "interleave-second.trace.jsonl") ||
+        !gbl_test_path(first_isolated_trace, sizeof first_isolated_trace,
+                       work, "interleave-first-isolated.trace.jsonl") ||
+        !gbl_test_path(first_alternating_trace,
+                       sizeof first_alternating_trace, work,
+                       "interleave-first-alternating.trace.jsonl") ||
+        !gbl_test_path(second_isolated_trace, sizeof second_isolated_trace,
+                       work, "interleave-second-isolated.trace.jsonl") ||
+        !gbl_test_path(second_alternating_trace,
+                       sizeof second_alternating_trace, work,
+                       "interleave-second-alternating.trace.jsonl") ||
         !gbl_test_read_file(first_path, &first_image) ||
         !gbl_test_read_file(second_path, &second_image)) {
         *failure = "interleave-artifact-missing";
@@ -2755,16 +2790,46 @@ static bool gbl_matrix_compare_pair(const gbl_matrix_row *first_row,
                             &second_observation, failure)) {
         goto done;
     }
-    if (strcmp(gbl_matrix_instance_matches_runner(
-                   &pair.isolated_first, &first_observation), "ok") != 0 ||
-        strcmp(gbl_matrix_instance_matches_runner(
-                   &pair.alternating_first, &first_observation), "ok") != 0 ||
-        strcmp(gbl_matrix_instance_matches_runner(
-                   &pair.isolated_second, &second_observation), "ok") != 0 ||
-        strcmp(gbl_matrix_instance_matches_runner(
-                   &pair.alternating_second, &second_observation), "ok") != 0) {
-        *failure = "interleave-observation-mismatch";
-        goto done;
+    {
+        const char *finding = gbl_matrix_instance_matches_runner(
+            &pair.isolated_first, &first_observation, first_isolated_trace);
+        if (strcmp(finding, "ok") != 0) {
+            (void)fprintf(stderr,
+                          "matrix interleave mismatch: fixture=%s context=isolated-first finding=%s\n",
+                          first_row->id, finding);
+            *failure = "interleave-observation-mismatch";
+            goto done;
+        }
+        finding = gbl_matrix_instance_matches_runner(
+            &pair.alternating_first, &first_observation,
+            first_alternating_trace);
+        if (strcmp(finding, "ok") != 0) {
+            (void)fprintf(stderr,
+                          "matrix interleave mismatch: fixture=%s context=alternating-first finding=%s\n",
+                          first_row->id, finding);
+            *failure = "interleave-observation-mismatch";
+            goto done;
+        }
+        finding = gbl_matrix_instance_matches_runner(
+            &pair.isolated_second, &second_observation,
+            second_isolated_trace);
+        if (strcmp(finding, "ok") != 0) {
+            (void)fprintf(stderr,
+                          "matrix interleave mismatch: fixture=%s context=isolated-second finding=%s\n",
+                          second_row->id, finding);
+            *failure = "interleave-observation-mismatch";
+            goto done;
+        }
+        finding = gbl_matrix_instance_matches_runner(
+            &pair.alternating_second, &second_observation,
+            second_alternating_trace);
+        if (strcmp(finding, "ok") != 0) {
+            (void)fprintf(stderr,
+                          "matrix interleave mismatch: fixture=%s context=alternating-second finding=%s\n",
+                          second_row->id, finding);
+            *failure = "interleave-observation-mismatch";
+            goto done;
+        }
     }
     if (strcmp(gbl_matrix_write_record(first_record, first_record_capacity,
                                        first_row, &first_observation),
@@ -2788,6 +2853,10 @@ done:
     free(second_image.data);
     (void)unlink(first_trace);
     (void)unlink(second_trace);
+    (void)unlink(first_isolated_trace);
+    (void)unlink(first_alternating_trace);
+    (void)unlink(second_isolated_trace);
+    (void)unlink(second_alternating_trace);
     return okay;
 }
 

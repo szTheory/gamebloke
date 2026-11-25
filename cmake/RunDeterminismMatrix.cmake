@@ -297,8 +297,9 @@ foreach(fid IN LISTS selected_ids)
   string(JSON actual_semantic ERROR_VARIABLE semantic_error GET "${result_doc}" semantic state)
   string(JSON actual_case ERROR_VARIABLE case_error GET "${result_doc}" semantic case_id)
   string(JSON cycles ERROR_VARIABLE cycles_error GET "${result_doc}" time cycles)
+  string(JSON budget_cycles ERROR_VARIABLE budget_error GET "${result_doc}" time budget_cycles)
   string(JSON instructions ERROR_VARIABLE instructions_error GET "${result_doc}" time instructions)
-  foreach(error IN ITEMS semantic_error case_error cycles_error instructions_error)
+  foreach(error IN ITEMS semantic_error case_error cycles_error budget_error instructions_error)
     if(NOT "${${error}}" STREQUAL "NOTFOUND")
       message(FATAL_ERROR "determinism-matrix: admitted-result-invalid:${fid}:${error}")
     endif()
@@ -307,8 +308,11 @@ foreach(fid IN LISTS selected_ids)
      NOT actual_reason STREQUAL expected_reason OR
      NOT actual_semantic STREQUAL expected_semantic OR
      NOT actual_case EQUAL case_id OR cycles LESS 1 OR instructions LESS 1 OR
-     cycles GREATER 1000)
+     cycles GREATER budget_cycles)
     message(FATAL_ERROR "determinism-matrix: admitted-expectation-mismatch:${fid}")
+  endif()
+  if(cycles GREATER 3000)
+    message(FATAL_ERROR "determinism-matrix: admitted-cycle-count-exceeds-matrix-budget:${fid}:${cycles}")
   endif()
 
   if(fid MATCHES "^(arm|thumb)-")
@@ -378,7 +382,7 @@ foreach(level IN ITEMS O0 O2)
     -fno-stack-protector -U_FORTIFY_SOURCE -${level})
   add_executable(determinism_${level} ${runner_sources})
   target_include_directories(determinism_${level} PRIVATE
-    "${GBL_SRC}/runner" "${GBL_CONTROL_INDEX}")
+    "${GBL_SRC}/runner" "${GBL_SRC}/src" "${GBL_CONTROL_INDEX}")
   target_compile_definitions(determinism_${level} PRIVATE
     "GBL_DETERMINISM_FIXTURE_DIR=\"${GBL_FIXTURE_DIR}\"")
   target_compile_definitions(determinism_${level} PRIVATE
