@@ -25,13 +25,38 @@ if(DEFINED CASE AND CASE STREQUAL "public_exclusion")
   set(rejected_root "${probe_root}/ci-local-audio")
   file(MAKE_DIRECTORY "${probe_root}")
 
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" -S "${SRC}" -B "${default_root}"
-    RESULT_VARIABLE default_configure OUTPUT_VARIABLE default_output
-    ERROR_VARIABLE default_error TIMEOUT 120)
-  if(NOT "${default_configure}" STREQUAL "0")
-    message(FATAL_ERROR
-      "audio-guest: default exclusion configure failed: ${default_error}${default_output}")
+  # The CI workflow has already configured and built its CI lane before CTest.
+  # Reuse that exact build when available; other callers keep the isolated
+  # default configure so the test remains useful outside the canonical CI lane.
+  set(reuse_ci_build FALSE)
+  set(ci_cache "${BIN}/CMakeCache.txt")
+  if(EXISTS "${ci_cache}")
+    file(STRINGS "${ci_cache}" configured_lane
+      REGEX "^GBL_LANE:STRING=")
+    file(STRINGS "${ci_cache}" configured_source
+      REGEX "^CMAKE_HOME_DIRECTORY:INTERNAL=")
+    string(REPLACE "CMAKE_HOME_DIRECTORY:INTERNAL=" ""
+      configured_source "${configured_source}")
+    if("${configured_lane}" STREQUAL "GBL_LANE:STRING=ci" AND
+        NOT "${configured_source}" STREQUAL "")
+      get_filename_component(configured_source "${configured_source}" REALPATH)
+      get_filename_component(expected_source "${SRC}" REALPATH)
+      if("${configured_source}" STREQUAL "${expected_source}")
+        set(default_root "${BIN}")
+        set(reuse_ci_build TRUE)
+      endif()
+    endif()
+  endif()
+
+  if(NOT reuse_ci_build)
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" -S "${SRC}" -B "${default_root}"
+      RESULT_VARIABLE default_configure OUTPUT_VARIABLE default_output
+      ERROR_VARIABLE default_error TIMEOUT 120)
+    if(NOT "${default_configure}" STREQUAL "0")
+      message(FATAL_ERROR
+        "audio-guest: default exclusion configure failed: ${default_error}${default_output}")
+    endif()
   endif()
 
   set(default_cache "${default_root}/CMakeCache.txt")
@@ -87,18 +112,20 @@ if(DEFINED CASE AND CASE STREQUAL "public_exclusion")
     endif()
   endforeach()
 
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${default_root}"
-      --target gbl_fixture_indexes
-    RESULT_VARIABLE index_build_result OUTPUT_VARIABLE index_build_output
-    ERROR_VARIABLE index_build_error TIMEOUT 120)
-  if(NOT "${index_build_result}" STREQUAL "0")
-    message(FATAL_ERROR
-      "audio-guest: default production index build failed: ${index_build_error}${index_build_output}")
-  endif()
-
   set(standard_manifest "${SRC}/tests/fixtures/manifest.json")
   set(default_index "${default_root}/generated/production/fixture_index.h")
+  if(NOT EXISTS "${default_index}")
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" --build "${default_root}"
+        --target gbl_fixture_indexes
+      RESULT_VARIABLE index_build_result OUTPUT_VARIABLE index_build_output
+      ERROR_VARIABLE index_build_error TIMEOUT 120)
+    if(NOT "${index_build_result}" STREQUAL "0")
+      message(FATAL_ERROR
+        "audio-guest: default production index build failed: ${index_build_error}${index_build_output}")
+    endif()
+  endif()
+
   if(NOT EXISTS "${standard_manifest}" OR NOT EXISTS "${default_index}")
     message(FATAL_ERROR
       "audio-guest: default production manifest/index is missing")
