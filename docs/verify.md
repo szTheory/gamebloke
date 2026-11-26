@@ -22,7 +22,7 @@ paths stop before compiler discovery. It reconciles
 the seven workflow definitions (11 expanded required jobs), their stable names,
 platform/group routing and exact budgets with `cmake/CiJobBudgets.json`.
 Fast jobs use 180 seconds; ASan and Linux ARM diagnostics use 360 seconds;
-Linux Thumb diagnostics use 240 seconds; Linux/GCC build uses 480 seconds;
+Linux Thumb diagnostics use 240 seconds; Linux/GCC build uses 720 seconds;
 macOS ARM diagnostics use 480 seconds; macOS Thumb diagnostics use 360 seconds;
 and the AppleClang build uses 840 seconds. These whole-job allowances
 include setup and cleanup; they are not emulator performance targets. The existing
@@ -31,6 +31,13 @@ source-pin refusal controls. It also checks explicit admitted stages for all fiv
 required presets and full-history checkout configuration for build, ASan and
 diagnostic jobs. Missing or proof-valued stages and shallow checkout mutations
 have clean and refusal controls. This preflight does not substitute for the workflow.
+
+On 2026-11-26, the Linux/GCC job finished in 402 seconds on the PR run, with
+CTest taking 357 seconds. The same merged change exceeded the former 480-second
+job ceiling and was cancelled after 364 of 1,277 inventory entries, with no
+assertion failure recorded. That run-to-run spread supports a 720-second ceiling
+while retaining all checks and four CTest workers ([PR run](https://github.com/szTheory/gamebloke/actions/runs/45747427056),
+[merge run](https://github.com/szTheory/gamebloke/actions/runs/45748671474)).
 
 The pre-admission producer pin remains
 `85c361edfd6b56640e68e64c5e32527f85408836`, with input digest

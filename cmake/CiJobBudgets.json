@@ -8,7 +8,7 @@
     {"name":"title","seconds":180},
     {"name":"asan","seconds":360},
     {"name":"CI required","seconds":180},
-    {"name":"build (ubuntu-26.04, gcc, GNU)","seconds":480},
+    {"name":"build (ubuntu-26.04, gcc, GNU)","seconds":720},
     {"name":"build (macos-26, cc, AppleClang)","seconds":840},
     {"name":"diagnostics (linux-x64, arm)","seconds":360},
     {"name":"diagnostics (linux-x64, thumb)","seconds":240},

@@ -53,9 +53,9 @@ def main():
     for label, change, reason in (
         ("raised-policy", lambda doc: doc["jobs"][0].update(seconds=300), "unauthorized-job-budget"),
         ("typed-policy", lambda doc: doc["jobs"][0].update(seconds="180"), "unauthorized-job-budget"),
-        ("raised-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=600), "unauthorized-job-budget"),
-        ("old-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=240), "unauthorized-job-budget"),
-        ("typed-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds="480"), "unauthorized-job-budget"),
+        ("raised-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=780), "unauthorized-job-budget"),
+        ("old-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=480), "unauthorized-job-budget"),
+        ("typed-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds="720"), "unauthorized-job-budget"),
         ("raised-macos-native-policy", lambda doc: doc["jobs"][6].update(seconds=900), "unauthorized-job-budget"),
         ("old-macos-native-policy", lambda doc: doc["jobs"][6].update(seconds=480), "unauthorized-job-budget"),
         ("raised-macos-arm-policy", lambda doc: doc["jobs"][9].update(seconds=600), "unauthorized-job-budget"),
