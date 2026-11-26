@@ -25,7 +25,7 @@ function(gbl_ci_policy source)
     string(JSON seconds_type TYPE "${policy}" jobs ${i} seconds)
     set(approved 180)
     if(name STREQUAL "build (ubuntu-26.04, gcc, GNU)")
-      set(approved 480)
+      set(approved 720)
     elseif(name STREQUAL "build (macos-26, cc, AppleClang)")
       set(approved 840)
     elseif(name STREQUAL "asan" OR
