@@ -1,43 +1,23 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v1.0 — Evidence Spine",
+  "milestone": "v6.0 — Public API Host Session Readiness",
   "phases": [
     {
-      "number": "1",
-      "name": "CI and Verification Foundation",
+      "number": "22",
+      "name": "Archived Installed-Consumer Evidence",
       "status": "complete"
     },
     {
-      "number": "2",
-      "name": "Profile, Fixture Manifest, and Result Contract",
+      "number": "23",
+      "name": "Public API Host Session and Playstead Fit",
       "status": "complete"
-    },
-    {
-      "number": "3",
-      "name": "Bus API, Memory Map, and ROM Loading",
-      "status": "pending"
-    },
-    {
-      "number": "4",
-      "name": "CPU Execution Core and Headless Runner",
-      "status": "pending"
-    },
-    {
-      "number": "5",
-      "name": "Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion",
-      "status": "pending"
-    },
-    {
-      "number": "6",
-      "name": "Determinism Gates and Third-Party CPU Fixtures",
-      "status": "pending"
     }
   ],
   "next": {
-    "command": "$gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 3 of 6 · executing"
+    "command": "$gsd-progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-11-10T15:29:06.894Z"
+  "updated_at": "2026-11-25T16:53:27.658Z"
 }

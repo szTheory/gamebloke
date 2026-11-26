@@ -57,6 +57,8 @@ function(gbl_ci_workflow source workflow)
       string(APPEND row ",${CMAKE_MATCH_1}=${CMAKE_MATCH_2}")
     elseif(line MATCHES "^    timeout-minutes: ([^#]+)")
       string(STRIP "${CMAKE_MATCH_1}" timeout_${job})
+    elseif(line MATCHES "^    needs: (.+)$")
+      set(needs_${job} "${CMAKE_MATCH_1}")
     elseif(line MATCHES "^    name: (.+)$")
       set(name_${job} "${CMAKE_MATCH_1}")
     elseif(line MATCHES "^    runs-on: (.+)$")
@@ -72,18 +74,20 @@ function(gbl_ci_workflow source workflow)
     message(FATAL_ERROR "ci-preflight: workflow-job-set-mismatch")
   endif()
   set(expected_rows
-    "build|runner=ubuntu-26.04,cc=gcc,id=GNU,minutes=4"
-    "build|runner=macos-26,cc=cc,id=AppleClang,minutes=5"
-    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=arm,cc=gcc,id=GNU,minutes=3"
-    "diagnostics|runner=macos-26,host=darwin-arm64,group=arm,cc=cc,id=AppleClang,minutes=5"
-    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=thumb,cc=gcc,id=GNU,minutes=3"
-    "diagnostics|runner=macos-26,host=darwin-arm64,group=thumb,cc=cc,id=AppleClang,minutes=3")
+    "build|runner=ubuntu-26.04,cc=gcc,id=GNU,minutes=8"
+    "build|runner=macos-26,cc=cc,id=AppleClang,minutes=14"
+    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=arm,cc=gcc,id=GNU,minutes=6"
+    "diagnostics|runner=macos-26,host=darwin-arm64,group=arm,cc=cc,id=AppleClang,minutes=8"
+    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=thumb,cc=gcc,id=GNU,minutes=4"
+    "diagnostics|runner=macos-26,host=darwin-arm64,group=thumb,cc=cc,id=AppleClang,minutes=6")
   if(NOT rows STREQUAL expected_rows)
     message(FATAL_ERROR "ci-preflight: workflow-budget-matrix-mismatch")
   endif()
   foreach(job IN LISTS expected_jobs)
     set(expected 3)
-    if(job MATCHES "^(build|diagnostics)$")
+    if(job STREQUAL "asan")
+      set(expected 6)
+    elseif(job MATCHES "^(build|diagnostics)$")
       set(expected [=[${{ matrix.minutes }}]=])
     endif()
     if(NOT "${timeout_${job}}" STREQUAL expected)
@@ -106,6 +110,9 @@ function(gbl_ci_workflow source workflow)
     message(FATAL_ERROR "ci-preflight: workflow-producer-pin-mismatch")
   endif()
   foreach(job IN ITEMS build asan diagnostics)
+    if(NOT "${needs_${job}}" STREQUAL "[changes, hygiene]")
+      message(FATAL_ERROR "ci-preflight: workflow-hygiene-gate-missing:${job}")
+    endif()
     if(NOT "${depth_${job}}" STREQUAL "0")
       message(FATAL_ERROR "ci-preflight: workflow-full-history-required:${job}")
     endif()
@@ -114,6 +121,13 @@ endfunction()
 
 function(gbl_ci_preflight source require_authority)
   gbl_ci_policy("${source}")
+  execute_process(COMMAND sh "${source}/scripts/check-traps.sh"
+    WORKING_DIRECTORY "${source}"
+    RESULT_VARIABLE traps_rc OUTPUT_VARIABLE traps_out ERROR_VARIABLE traps_err)
+  if(NOT traps_rc STREQUAL "0")
+    message(FATAL_ERROR "ci-preflight: shell-trap-policy-invalid:${traps_out}${traps_err}")
+  endif()
+  message(STATUS "ci-preflight: shell signal handling verified")
   gbl_ci_admission_presets("${source}/CMakePresets.json")
   gbl_ci_workflow("${source}" "${source}/.github/workflows/ci.yml")
   if(GBL_DIAGNOSTIC_STAGE STREQUAL "proof" AND

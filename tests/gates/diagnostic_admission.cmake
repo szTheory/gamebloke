@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.25)
 get_filename_component(source_root "${SRC}" ABSOLUTE)
 get_filename_component(binary_root "${BIN}" ABSOLUTE)
 include("${source_root}/cmake/PathContainment.cmake")
+include("${source_root}/tests/gates/diagnostic_cycle_budget.cmake")
 gbl_resolve_path(binary_root_real binary_root_status "${binary_root}")
 if(NOT binary_root_status STREQUAL "ok")
   message(FATAL_ERROR "diagnostics-case: binary-root-${binary_root_status}")
@@ -67,6 +68,7 @@ foreach(fid IN LISTS selected_ids)
   else()
     set(case_id 20481)
   endif()
+  gbl_diagnostic_cycle_budget(cycle_budget "${fid}")
   set(status PASS)
   set(state pass)
   set(reason guest-mailbox-pass)
@@ -89,7 +91,8 @@ foreach(fid IN LISTS selected_ids)
     math(EXPR positive "${positive}+1")
   endif()
   execute_process(COMMAND "${binary_root}/gamebloke-run" --rom
-    "${binary_root}/${M_ROW_${fid}_ARTIFACT_PATH}" --cycles 1000 --fixture "${fid}"
+    "${binary_root}/${M_ROW_${fid}_ARTIFACT_PATH}" --cycles "${cycle_budget}"
+    --fixture "${fid}"
     RESULT_VARIABLE rc OUTPUT_VARIABLE doc ERROR_VARIABLE error)
   set(result "${result_root}/${fid}.json")
   gbl_write_file_contained(write_status write_reason "${binary_root}"
@@ -124,7 +127,8 @@ foreach(fid IN LISTS selected_ids)
      actual_id EQUAL 0 OR NOT fixture_id STREQUAL fid OR NOT ran OR
      NOT actual_sha STREQUAL "${M_ROW_${fid}_SHA256}" OR
      NOT indexed_sha STREQUAL actual_sha OR NOT claim_sha STREQUAL actual_sha OR
-     NOT budget STREQUAL "1000" OR cycles LESS 1 OR instructions LESS 1 OR cycles GREATER budget)
+     NOT budget STREQUAL "${cycle_budget}" OR cycles LESS 1 OR
+     instructions LESS 1 OR cycles GREATER budget)
     message(FATAL_ERROR "diagnostics-case: admitted-semantics-identity-progress-mismatch:${fid}:${doc}")
   endif()
 endforeach()

@@ -37,8 +37,212 @@
   "time": {
     "cycles": "24",
     "instructions": "12",
-    "budget_cycles": "24"
+    "budget_cycles": "24",
+    "model": "gamebloke-timer-model-1",
+    "qualification": "project-model-only",
+    "bus_cycles": "24",
+    "internal_cycles": "0",
+    "wait_cycles": "0",
+    "dma_startup_cycles": "0",
+    "dma_source_cycles": "0",
+    "dma_destination_cycles": "0",
+    "dma_completed_units": "0",
+    "dma_pause_cycles": "0"
   },
   "termination": "mailbox-complete",
-  "trace": null
+  "trace": null,
+  "timer0": {
+    "if_request": false
+  },
+  "phase8": {
+    "model": "gamebloke-irq-input-model-1",
+    "qualification": "project-model-only",
+    "observed": true,
+    "irq": {
+      "if": 0,
+      "ie": 0,
+      "ime": 0,
+      "sample": {
+        "cycle": "4",
+        "if": 0,
+        "ie": 0,
+        "ime": 0,
+        "eligible_sources": 0,
+        "eligible": false,
+        "cpsr_i_masked": false,
+        "accepted": false,
+        "entered": false
+      }
+    },
+    "last_exception": "none",
+    "power": {
+      "state": "running",
+      "cause": "none",
+      "wake_source_mask": null,
+      "wake_cycle": null
+    },
+    "keypad": {
+      "keyinput": 1023,
+      "keycnt": 0,
+      "condition": false,
+      "irq_condition": false,
+      "applied_events": 0,
+      "pending_events": 0
+    },
+    "wait_cycles": "0"
+  },
+  "phase9": {
+    "model": "gamebloke-dma-observation-1",
+    "observed": true,
+    "waitcnt": 0,
+    "bus_owner": "cpu",
+    "cpu_paused": false,
+    "machine_cycles": "24",
+    "channels": [
+      {
+        "channel": 0,
+        "source_address": "0x00000000",
+        "destination_address": "0x00000000",
+        "current_source": "0x00000000",
+        "current_destination": "0x00000000",
+        "read_latch": "0x00000000",
+        "count": 0,
+        "control": 0,
+        "remaining": 0,
+        "completed_units": "0",
+        "pending": false,
+        "armed": false,
+        "active": false,
+        "startup_complete": false
+      },
+      {
+        "channel": 1,
+        "source_address": "0x00000000",
+        "destination_address": "0x00000000",
+        "current_source": "0x00000000",
+        "current_destination": "0x00000000",
+        "read_latch": "0x00000000",
+        "count": 0,
+        "control": 0,
+        "remaining": 0,
+        "completed_units": "0",
+        "pending": false,
+        "armed": false,
+        "active": false,
+        "startup_complete": false
+      },
+      {
+        "channel": 2,
+        "source_address": "0x00000000",
+        "destination_address": "0x00000000",
+        "current_source": "0x00000000",
+        "current_destination": "0x00000000",
+        "read_latch": "0x00000000",
+        "count": 0,
+        "control": 0,
+        "remaining": 0,
+        "completed_units": "0",
+        "pending": false,
+        "armed": false,
+        "active": false,
+        "startup_complete": false
+      },
+      {
+        "channel": 3,
+        "source_address": "0x00000000",
+        "destination_address": "0x00000000",
+        "current_source": "0x00000000",
+        "current_destination": "0x00000000",
+        "read_latch": "0x00000000",
+        "count": 0,
+        "control": 0,
+        "remaining": 0,
+        "completed_units": "0",
+        "pending": false,
+        "armed": false,
+        "active": false,
+        "startup_complete": false
+      }
+    ],
+    "timing": {
+      "dma_startup_cycles": "0",
+      "dma_source_cycles": "0",
+      "dma_destination_cycles": "0",
+      "dma_completed_units": "0",
+      "dma_pause_cycles": "0"
+    },
+    "waitcnt_policy": {
+      "manual_waits": "nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2",
+      "other_region_costs": "project-selected",
+      "128k_boundary_source": "gbatek-3.06-community-documentation",
+      "hardware_qualification": "UNKNOWN"
+    },
+    "startup_policy": {
+      "cycles_per_request": "2",
+      "provenance": "project-selected",
+      "manual_activation_delay": "described; conversion is selected",
+      "hardware_qualification": "UNKNOWN"
+    },
+    "latch_policy": {
+      "policy": "per-channel-retained-latch",
+      "provenance": "project-selected",
+      "fallback_observed": false,
+      "classification": null,
+      "dispute_id": null,
+      "hardware_qualification": "UNKNOWN"
+    },
+    "prefetch": "unmodeled"
+  },
+  "phase10": {
+    "model": "gamebloke-ppu-observation-1",
+    "observed": true,
+    "raster": {
+      "line": 0,
+      "line_cycle": "24",
+      "machine_cycle": "24",
+      "frame_epoch": "0"
+    },
+    "frame": {
+      "state": "invalid",
+      "reason": "unsupported-mode",
+      "supported_controls": false,
+      "epoch": null,
+      "sample_cycle": null,
+      "completion_cycle": null,
+      "width": 240,
+      "height": 160,
+      "stride_bytes": 480,
+      "format": "bgr555-le",
+      "byte_length": 76800,
+      "source": "canonical-vram",
+      "latch_policy": "row-start"
+    },
+    "controls": {
+      "supported": false
+    },
+    "timing": {
+      "model": "gamebloke-ppu-model-1",
+      "hblank_offset_cycles": "1006",
+      "policy": "project-selected",
+      "evidence_class": "REF",
+      "evidence": "GBATEK direct reference candidate; exact hardware edge unresolved",
+      "classification": "disputed",
+      "dispute_id": "disp-hblank-flag-edge",
+      "hardware_qualification": "UNKNOWN"
+    },
+    "hblank_trigger_dependency": {
+      "observed": false,
+      "classification": null,
+      "dispute_id": null,
+      "hardware_qualification": "UNKNOWN"
+    }
+  },
+  "raw_video": {
+    "requested": false,
+    "status": "not-requested",
+    "emitted": false,
+    "byte_length": null,
+    "sha256": null,
+    "failure": null
+  }
 }

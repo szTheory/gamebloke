@@ -1,0 +1,729 @@
+# Cheap profile/runtime/dispute gate for the selected PPU model.
+# This consumes existing selectors only; it never configures or builds.
+cmake_minimum_required(VERSION 3.25)
+
+foreach(required IN ITEMS SRC BIN)
+  if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+    message(FATAL_ERROR "phase10-policy: missing-${required}")
+  endif()
+endforeach()
+if(NOT DEFINED CASE)
+  set(CASE all)
+elseif("${CASE}" STREQUAL "")
+  message(FATAL_ERROR "phase10-policy: invalid-case")
+endif()
+if(NOT CASE MATCHES "^(all|verify|control)$")
+  message(FATAL_ERROR "phase10-policy: invalid-case")
+endif()
+
+get_filename_component(GBL_PHASE10_DEFAULT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." REALPATH)
+get_filename_component(GBL_PHASE10_SRC "${SRC}" REALPATH BASE_DIR "${GBL_PHASE10_DEFAULT_ROOT}")
+get_filename_component(GBL_PHASE10_BIN "${BIN}" REALPATH BASE_DIR "${GBL_PHASE10_SRC}")
+if(NOT IS_DIRECTORY "${GBL_PHASE10_SRC}" OR NOT IS_DIRECTORY "${GBL_PHASE10_BIN}" OR
+   NOT "${GBL_PHASE10_SRC}" STREQUAL "${GBL_PHASE10_DEFAULT_ROOT}")
+  message(FATAL_ERROR "phase10-policy: source-or-build-directory-missing-or-wrong-root")
+endif()
+
+set(cache_file "${GBL_PHASE10_BIN}/CMakeCache.txt")
+if(NOT EXISTS "${cache_file}" OR IS_DIRECTORY "${cache_file}")
+  message(FATAL_ERROR "phase10-policy: configured-build-cache-missing")
+endif()
+file(STRINGS "${cache_file}" source_root_line REGEX "^CMAKE_HOME_DIRECTORY:INTERNAL=")
+if("${source_root_line}" STREQUAL "")
+  message(FATAL_ERROR "phase10-policy: configured-source-root-missing")
+endif()
+string(REPLACE "CMAKE_HOME_DIRECTORY:INTERNAL=" "" configured_source "${source_root_line}")
+get_filename_component(configured_source "${configured_source}" REALPATH)
+if(NOT "${configured_source}" STREQUAL "${GBL_PHASE10_SRC}")
+  message(FATAL_ERROR "phase10-policy: configured-source-root-mismatch")
+endif()
+
+include("${GBL_PHASE10_SRC}/cmake/GblJson.cmake")
+find_program(CMAKE_PROGRAM NAMES cmake REQUIRED)
+set(profile_file "${GBL_PHASE10_SRC}/profiles/agb.json")
+set(doc_file "${GBL_PHASE10_SRC}/docs/profile-agb.md")
+set(registry_file "${GBL_PHASE10_SRC}/registry/disputes.json")
+set(vocab_file "${GBL_PHASE10_SRC}/contracts/evidence.json")
+set(checker_file "${GBL_PHASE10_SRC}/cmake/CheckProfile.cmake")
+set(bus_test "${GBL_PHASE10_BIN}/bus_test")
+set(GBL_PHASE10_AUTHORITY_FILES
+  "${profile_file}"
+  "${doc_file}"
+  "${registry_file}"
+  "${vocab_file}"
+  "${checker_file}"
+  "${GBL_PHASE10_SRC}/cmake/CheckRegistry.cmake"
+  "${GBL_PHASE10_SRC}/cmake/CheckContract.cmake"
+  "${GBL_PHASE10_SRC}/cmake/GblJson.cmake"
+  "${GBL_PHASE10_SRC}/tests/bus_test.c"
+  "${GBL_PHASE10_SRC}/tests/gates/phase10_policy.cmake"
+  "${bus_test}")
+set(GBL_PHASE10_AUTHORITY_HASHES)
+foreach(authority_file IN LISTS GBL_PHASE10_AUTHORITY_FILES)
+  if(NOT EXISTS "${authority_file}" OR IS_DIRECTORY "${authority_file}")
+    message(FATAL_ERROR "phase10-policy: authority-file-missing (${authority_file})")
+  endif()
+  file(SHA256 "${authority_file}" authority_hash)
+  list(APPEND GBL_PHASE10_AUTHORITY_HASHES "${authority_hash}")
+endforeach()
+
+function(gbl_phase10_assert_authority_unchanged)
+  list(LENGTH GBL_PHASE10_AUTHORITY_FILES authority_count)
+  if(authority_count EQUAL 0)
+    message(FATAL_ERROR "phase10-policy: authority-file-list-empty")
+  endif()
+  math(EXPR last_authority "${authority_count}-1")
+  foreach(authority_index RANGE 0 ${last_authority})
+    list(GET GBL_PHASE10_AUTHORITY_FILES ${authority_index} authority_file)
+    list(GET GBL_PHASE10_AUTHORITY_HASHES ${authority_index} expected_hash)
+    if(NOT EXISTS "${authority_file}" OR IS_DIRECTORY "${authority_file}")
+      message(FATAL_ERROR "phase10-policy: authority-file-removed (${authority_file})")
+    endif()
+    file(SHA256 "${authority_file}" actual_hash)
+    if(NOT "${actual_hash}" STREQUAL "${expected_hash}")
+      message(FATAL_ERROR "phase10-policy: authority-file-mutated (${authority_file})")
+    endif()
+  endforeach()
+endfunction()
+
+if(NOT EXISTS "${bus_test}" OR IS_DIRECTORY "${bus_test}")
+  message(FATAL_ERROR "phase10-policy: runtime-binary-missing")
+endif()
+
+function(gbl_phase10_json_type out json)
+  string(JSON value ERROR_VARIABLE error TYPE "${json}" ${ARGN})
+  if(NOT "${error}" STREQUAL "NOTFOUND" AND NOT "${error}" STREQUAL "")
+    set(value MISSING)
+  endif()
+  set(${out} "${value}" PARENT_SCOPE)
+endfunction()
+
+function(gbl_phase10_json out json)
+  string(JSON value ERROR_VARIABLE error GET "${json}" ${ARGN})
+  if(NOT "${error}" STREQUAL "NOTFOUND" AND NOT "${error}" STREQUAL "")
+    set(value "")
+  endif()
+  set(${out} "${value}" PARENT_SCOPE)
+endfunction()
+
+function(gbl_phase10_typed_value out_type out_value json)
+  string(JSON value_type ERROR_VARIABLE type_error TYPE "${json}" ${ARGN})
+  if(NOT "${type_error}" STREQUAL "NOTFOUND" AND NOT "${type_error}" STREQUAL "")
+    set(value_type MISSING)
+    set(value "")
+  else()
+    string(JSON value ERROR_VARIABLE value_error GET "${json}" ${ARGN})
+    if(NOT "${value_error}" STREQUAL "NOTFOUND" AND
+       NOT "${value_error}" STREQUAL "")
+      set(value_type MISSING)
+      set(value "")
+    endif()
+  endif()
+  set(${out_type} "${value_type}" PARENT_SCOPE)
+  set(${out_value} "${value}" PARENT_SCOPE)
+endfunction()
+
+function(gbl_phase10_expect_value out_reason json reason expected_type expected_value)
+  gbl_phase10_typed_value(actual_type actual_value "${json}" ${ARGN})
+  if(NOT "${actual_type}" STREQUAL "${expected_type}" OR
+     NOT "${actual_value}" STREQUAL "${expected_value}")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+  else()
+    set(${out_reason} "" PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(gbl_phase10_expect_object out_reason json reason expected_json)
+  set(path ${ARGN})
+  gbl_phase10_json_type(actual_type "${json}" ${path})
+  if(NOT "${actual_type}" STREQUAL "OBJECT")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON expected_count LENGTH "${expected_json}")
+  string(JSON actual_count ERROR_VARIABLE count_error LENGTH "${json}" ${path})
+  if(NOT "${count_error}" STREQUAL "NOTFOUND" OR
+     NOT "${actual_count}" EQUAL "${expected_count}")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON actual_json GET "${json}" ${path})
+  string(JSON matches EQUAL "${actual_json}" "${expected_json}")
+  if(NOT matches)
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+  else()
+    set(${out_reason} "" PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(gbl_phase10_collect_json out_record out_output selector expected_type)
+  execute_process(COMMAND "${bus_test}" "${selector}"
+    WORKING_DIRECTORY "${GBL_PHASE10_SRC}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT "${result}" STREQUAL "0")
+    message(FATAL_ERROR "phase10-policy: runtime-selector-${selector}-failed (${result})\n${output}${error}")
+  endif()
+
+  string(REPLACE "\r" "" normalized_output "${output}")
+  string(REPLACE "\n" ";" lines "${normalized_output}")
+  set(records)
+  foreach(line IN LISTS lines)
+    string(STRIP "${line}" line)
+    if(line MATCHES "^\\{.*\\}$")
+      list(APPEND records "${line}")
+    endif()
+  endforeach()
+  list(LENGTH records record_count)
+  if(NOT record_count EQUAL 1)
+    message(FATAL_ERROR "phase10-policy: runtime-observation-${selector}-count-${record_count}\n${output}")
+  endif()
+  list(GET records 0 record)
+  gbl_phase10_json_type(root_type "${record}")
+  gbl_phase10_json_type(observed_type "${record}" type)
+  if(NOT "${root_type}" STREQUAL "OBJECT" OR
+     NOT "${observed_type}" STREQUAL "STRING")
+    message(FATAL_ERROR "phase10-policy: runtime-observation-${selector}-malformed (${record})")
+  endif()
+  gbl_phase10_json(observed_kind "${record}" type)
+  if(NOT "${observed_kind}" STREQUAL "${expected_type}")
+    message(FATAL_ERROR "phase10-policy: runtime-observation-${selector}-wrong-type (${observed_kind})")
+  endif()
+  set(${out_record} "${record}" PARENT_SCOPE)
+  set(${out_output} "${normalized_output}" PARENT_SCOPE)
+endfunction()
+
+function(gbl_phase10_check_registers out_output)
+  execute_process(COMMAND "${bus_test}" ppu.registers
+    WORKING_DIRECTORY "${GBL_PHASE10_SRC}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  string(STRIP "${output}" summary)
+  if(NOT "${result}" STREQUAL "0" OR
+     NOT "${summary}" STREQUAL "ppu.registers: display lanes and requests follow project policy")
+    message(FATAL_ERROR "phase10-policy: runtime-selector-ppu.registers-failed (${result})\n${output}${error}")
+  endif()
+  set(${out_output} "${summary}" PARENT_SCOPE)
+endfunction()
+
+function(gbl_phase10_evaluate out_reason profile_json tracer_json boundary_json registers_summary)
+  if("${tracer_json}" STREQUAL "" OR "${boundary_json}" STREQUAL "")
+    set(${out_reason} "missing-observation" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_json_type(tracer_root_type "${tracer_json}")
+  gbl_phase10_json_type(boundary_root_type "${boundary_json}")
+  if(NOT "${tracer_root_type}" STREQUAL "OBJECT" OR
+     NOT "${boundary_root_type}" STREQUAL "OBJECT")
+    set(${out_reason} "malformed-observation" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_expect_value(reason "${tracer_json}" observation-type STRING ppu.tracer type)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${boundary_json}" observation-type STRING ppu.boundary type)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_json_type(profile_root_type "${profile_json}")
+  if(NOT "${profile_root_type}" STREQUAL "OBJECT")
+    set(${out_reason} "malformed-profile" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_json_type(policy_type "${profile_json}" ppu_policy)
+  if(NOT "${policy_type}" STREQUAL "OBJECT")
+    set(${out_reason} "missing-policy" PARENT_SCOPE)
+    return()
+  endif()
+
+  # This gate asserts the Phase 15 PPU contract, which remains active when
+  # later profile versions add unrelated capabilities such as audio.
+  gbl_phase10_typed_value(profile_version_type profile_version_value
+    "${profile_json}" profile_version)
+  if(NOT "${profile_version_type}" STREQUAL "NUMBER" OR
+     NOT "${profile_version_value}" MATCHES "^[1-9][0-9]*$" OR
+     "${profile_version_value}" LESS 15)
+    set(${out_reason} "profile-version" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_expect_value(reason "${profile_json}" policy-classification STRING project-selected ppu_policy policy_classification)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" qualification-claim STRING UNKNOWN ppu_policy hardware_qualification)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_json_type(object_policy_type "${profile_json}"
+    ppu_policy object_policy)
+  if(NOT "${object_policy_type}" STREQUAL "OBJECT")
+    set(${out_reason} "object-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON object_policy_fields LENGTH "${profile_json}"
+    ppu_policy object_policy)
+  if(NOT object_policy_fields EQUAL 14)
+    set(${out_reason} "object-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_object_policy [=[{"regular_shapes":"square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64","character_windows":"modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read","index_zero_transparency":true,"affine_quantization":"signed-8.8;wide-products;floor-by-256","affine_field":"centered;double-size-destination-only;out-of-source-transparent","coordinate_wrap":"x-modulo-512;y-modulo-256;clip-240x160","unsupported_modes":"prohibited","work_budget_units":1226,"regular_cost":"source-width","affine_cost":"10+2*destination-field-width","eligibility":"enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund","admission_order":"ascending-oam;full-cost-fit;stop-at-first-nonfit","overflow_policy":"valid-partial-scene;omit-all-later-eligible","observation_scope":"internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"}]=])
+  string(JSON actual_object_policy GET "${profile_json}"
+    ppu_policy object_policy)
+  string(JSON object_policy_matches EQUAL
+    "${actual_object_policy}" "${expected_object_policy}")
+  if(NOT object_policy_matches)
+    set(${out_reason} "object-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_json_type(composition_policy_type "${profile_json}"
+    ppu_policy composition_policy)
+  if(NOT "${composition_policy_type}" STREQUAL "OBJECT")
+    set(${out_reason} "composition-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  string(JSON composition_policy_fields LENGTH "${profile_json}"
+    ppu_policy composition_policy)
+  if(NOT composition_policy_fields EQUAL 5)
+    set(${out_reason} "composition-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_composition_policy [=[{"priority_order":"ascending-numeric-0-3","bg_tie":"lower-bg-number","obj_tie":"lower-oam-index","obj_bg_tie":"obj-in-front-project-policy","backdrop":"pram-color-zero;behind-all-enabled-opaque-candidates"}]=])
+  string(JSON actual_composition_policy GET "${profile_json}"
+    ppu_policy composition_policy)
+  string(JSON composition_policy_matches EQUAL
+    "${actual_composition_policy}" "${expected_composition_policy}")
+  if(NOT composition_policy_matches)
+    set(${out_reason} "composition-policy-value" PARENT_SCOPE)
+    return()
+  endif()
+
+  set(expected_window_policy [=[{"region_order":"win0;win1;obj-window;outside","rectangle_bounds":"half-open;equal-or-reversed-empty;no-wrap","layer_stage":"filter-before-priority;dispcnt-master-gates","disabled_masters":"bypass-winin-winout","obj_coverage":"admitted-nonzero-source-index;no-color;shared-obj-budget","mask_bits":"bg0-bg3;obj;effects;reserved-ignored"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" window-policy-value
+    "${expected_window_policy}" ppu_policy window_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_effect_policy [=[{"pair":"top-and-immediate-next-visible;no-deeper-search","alpha":"mode1;first-target;second-target;region-effects-enabled","semitransparent_obj":"alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness","coefficient_max":16,"coefficient_input":"low-five-bits;clamp-to-16","channel_arithmetic":"wide-integer;divide16-truncate;clamp0-31","brighten":"c+floor((31-c)*evy/16)","darken":"c-floor(c*evy/16)"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" effect-policy-value
+    "${expected_effect_policy}" ppu_policy effect_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_mosaic_policy [=[{"dimensions":"field-plus-one;independent-bg-obj","anchors":"visible-screen-origin;x-x%w;y-y%h","sampling":"current-row-captured-registers-and-memory;no-old-row-cache","affine_origin":"current-origin-minus-pb-pd-times-row-anchor-delta","stage":"source-before-destination-window-and-effects","obj_field":"existing-destination-field;anchor-outside-transparent;no-field-growth"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" mosaic-policy-value
+    "${expected_mosaic_policy}" ppu_policy mosaic_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_forced_blank_policy [=[{"color_bgr555":32767,"raw_bytes":"FF 7F","transitions":"next-captured-visible-row;no-extra-delay-or-restart","frame_validity":"normal-epoch-row-coverage;publish-line160","precedence":"bypass-scene-decode;retain-structural-transaction-validation","access_policy":"unchanged-existing-bus-behavior"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" forced-blank-policy-value
+    "${expected_forced_blank_policy}" ppu_policy forced_blank_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" capability-model STRING
+    gamebloke-display-capabilities-2 ppu_policy display_capabilities model)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  set(expected_composition_features [=[{"rectangular_windows":true,"object_windows":true,"alpha_blending":true,"brightness":true,"bg_mosaic":true,"obj_mosaic":true,"forced_blank":true,"classification":"project-selected","hardware_qualification":"UNKNOWN"}]=])
+  gbl_phase10_expect_object(reason "${profile_json}" composition-feature-value
+    "${expected_composition_features}"
+    ppu_policy display_capabilities composition_features)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+
+  foreach(mode RANGE 0 5)
+    gbl_phase10_expect_value(reason "${profile_json}" capability-status STRING
+      partial ppu_policy display_capabilities modes ${mode} implementation_status)
+    if(NOT "${reason}" STREQUAL "")
+      set(${out_reason} "${reason}" PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+
+  gbl_phase10_json(supported_controls "${profile_json}"
+    ppu_policy supported_controls)
+  gbl_phase10_json(unmodeled_controls "${profile_json}"
+    ppu_policy unmodeled_controls)
+  if("${supported_controls}" MATCHES "exactly one enabled background|BG2 disabled in modes 3-5|BG priority/composition|OBJ disabled" OR
+     NOT "${supported_controls}" MATCHES "regular and affine OBJ rendering" OR
+     NOT "${supported_controls}" MATCHES "shared BG/OBJ/backdrop priority composition" OR
+     NOT "${supported_controls}" MATCHES "rectangular WIN0/WIN1 half-open regions" OR
+     NOT "${supported_controls}" MATCHES "top-and-immediate-next-visible alpha" OR
+     NOT "${supported_controls}" MATCHES "current row" OR
+     NOT "${supported_controls}" MATCHES "forced-blank white rows" OR
+     "${unmodeled_controls}" MATCHES "zero or multiple enabled background sources|BG2 disabled in modes 3-5|BG priority/composition, forced blank, OBJ")
+    set(${out_reason} "support-exclusions" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" line-cycle-policy NUMBER 1232 ppu_policy line_cycles)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" visible-dot-policy NUMBER 960 ppu_policy nominal_visible_dot_cycles)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" event-priority NUMBER 9 ppu_policy event_priority)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" hblank-offset-policy NUMBER 1006 ppu_policy hblank_event_offset_cycles)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" hblank-source STRING REF ppu_policy hblank_source)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" hblank-provenance STRING project-selected ppu_policy hblank_provenance)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" dispute-classification STRING disputed ppu_policy hblank_dependent_classification)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_json_type(dispute_type "${profile_json}" ppu_policy hblank_dispute)
+  if("${dispute_type}" STREQUAL "MISSING")
+    set(${out_reason} "missing-dispute" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" dispute-link STRING disp-hblank-flag-edge ppu_policy hblank_dispute)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" qualification-claim STRING UNKNOWN ppu_policy hblank_hardware_qualification)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" row-sample-point STRING visible-line-start ppu_policy row_sample_point)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" pixel-format STRING "BGR555 little-endian" ppu_policy pixel_format)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" row-latch-order STRING "PPU sample precedes a bus write completing on the sample cycle" ppu_policy row_same_cycle_write_policy)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "${reason}" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_typed_value(hardware_edge_type ignored "${profile_json}" timing hblank_flag_edge_cycle value)
+  if(NOT "${hardware_edge_type}" STREQUAL "NULL")
+    set(${out_reason} "hardware-edge-not-unknown" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${profile_json}" hardware-edge-dispute STRING disp-hblank-flag-edge timing hblank_flag_edge_cycle dispute)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "hardware-edge-dispute" PARENT_SCOPE)
+    return()
+  endif()
+
+  gbl_phase10_expect_value(reason "${tracer_json}" boundary-cycle NUMBER 1232 boundary_cycle)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "boundary-cycle" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${boundary_json}" boundary-cycle NUMBER 1232 line_cycles)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "boundary-cycle" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${tracer_json}" hblank-offset NUMBER 1006 hblank_offset)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "hblank-offset" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${boundary_json}" hblank-offset NUMBER 1006 hblank_offset)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "hblank-offset" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${tracer_json}" hblank-provenance STRING "project-selected/REF" hblank_provenance)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "hblank-provenance" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_expect_value(reason "${boundary_json}" hblank-provenance STRING "project-selected/REF" hblank_provenance)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "hblank-provenance" PARENT_SCOPE)
+    return()
+  endif()
+  foreach(observation IN ITEMS tracer boundary)
+    if(observation STREQUAL "tracer")
+      set(record "${tracer_json}")
+    else()
+      set(record "${boundary_json}")
+    endif()
+    gbl_phase10_expect_value(reason "${record}" dispute-link STRING disp-hblank-flag-edge hblank_dispute)
+    if(NOT "${reason}" STREQUAL "")
+      set(${out_reason} "dispute-link" PARENT_SCOPE)
+      return()
+    endif()
+    gbl_phase10_expect_value(reason "${record}" qualification-claim STRING UNKNOWN hardware_qualification)
+    if(NOT "${reason}" STREQUAL "")
+      set(${out_reason} "qualification-claim" PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+  gbl_phase10_expect_value(reason "${tracer_json}" semantic-pixel NUMBER 4660 semantic_pixel)
+  if(NOT "${reason}" STREQUAL "")
+    set(${out_reason} "semantic-pixel" PARENT_SCOPE)
+    return()
+  endif()
+  gbl_phase10_json_type(cpu_cycle_type "${tracer_json}" cpu_cycle)
+  gbl_phase10_json(cpu_cycle "${tracer_json}" cpu_cycle)
+  if(NOT "${cpu_cycle_type}" STREQUAL "NUMBER" OR NOT cpu_cycle GREATER 1232)
+    set(${out_reason} "cpu-path-observation" PARENT_SCOPE)
+    return()
+  endif()
+  if(NOT "${registers_summary}" STREQUAL
+      "ppu.registers: display lanes and requests follow project policy")
+    set(${out_reason} "register-selector" PARENT_SCOPE)
+    return()
+  endif()
+  set(${out_reason} "" PARENT_SCOPE)
+endfunction()
+
+function(gbl_phase10_check_profile_document candidate_profile candidate_doc out_status out_output)
+  set(profile_check_args "")
+  if(ARGC GREATER 4 AND "${ARGV4}" STREQUAL "ppu")
+    list(APPEND profile_check_args -DGBL_PROFILE_PPU_ONLY=ON)
+  endif()
+  execute_process(COMMAND "${CMAKE_PROGRAM}"
+    "-DPROFILE=${candidate_profile}" "-DDOC=${candidate_doc}"
+    "-DREGISTRY=${registry_file}" "-DVOCAB=${vocab_file}"
+    ${profile_check_args} -P "${checker_file}" WORKING_DIRECTORY "${GBL_PHASE10_SRC}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT "${error}" STREQUAL "")
+    string(APPEND output "${error}")
+  endif()
+  set(${out_status} "${result}" PARENT_SCOPE)
+  set(${out_output} "${output}" PARENT_SCOPE)
+endfunction()
+
+function(gbl_phase10_control name expected kind path operation encoded_value)
+  set(control_dir "${GBL_PHASE10_BIN}/nc/phase10-policy/${name}")
+  set(candidate_dir "${control_dir}/candidate")
+  file(REMOVE_RECURSE "${control_dir}")
+  file(MAKE_DIRECTORY "${candidate_dir}")
+  file(COPY_FILE "${profile_file}" "${candidate_dir}/profile.json")
+  file(COPY_FILE "${doc_file}" "${candidate_dir}/profile.md")
+  file(WRITE "${candidate_dir}/tracer.json" "${GBL_PHASE10_TRACER_RECORD}\n")
+  file(WRITE "${candidate_dir}/boundary.json" "${GBL_PHASE10_BOUNDARY_RECORD}\n")
+  file(WRITE "${candidate_dir}/registers.txt" "${GBL_PHASE10_REGISTERS_SUMMARY}\n")
+
+  if(kind STREQUAL "doc")
+    file(READ "${candidate_dir}/profile.md" candidate_doc_text)
+    string(REPLACE "${path}" "${encoded_value}" mutated_doc_text "${candidate_doc_text}")
+    if("${mutated_doc_text}" STREQUAL "${candidate_doc_text}")
+      message(FATAL_ERROR "phase10-policy: control-${name}-stale-mutation")
+    endif()
+    file(WRITE "${candidate_dir}/profile.md" "${mutated_doc_text}")
+    gbl_phase10_check_profile_document("${candidate_dir}/profile.json"
+      "${candidate_dir}/profile.md" candidate_result candidate_output ppu)
+    if("${candidate_result}" STREQUAL "0" OR
+       NOT "${candidate_output}" MATCHES "profile: ${expected}")
+      message(FATAL_ERROR "phase10-policy: control-${name}-wrong-reason (${candidate_result})\n${candidate_output}")
+    endif()
+  else()
+    if(kind STREQUAL "malformed")
+      file(WRITE "${candidate_dir}/tracer.json" "{not-json}\n")
+    elseif(kind STREQUAL "missing")
+      file(WRITE "${candidate_dir}/boundary.json" "")
+    else()
+      if(kind STREQUAL "profile")
+        set(candidate_file "${candidate_dir}/profile.json")
+      elseif(kind STREQUAL "tracer")
+        set(candidate_file "${candidate_dir}/tracer.json")
+      elseif(kind STREQUAL "boundary")
+        set(candidate_file "${candidate_dir}/boundary.json")
+      else()
+        message(FATAL_ERROR "phase10-policy: control-${name}-invalid-kind-${kind}")
+      endif()
+      file(READ "${candidate_file}" candidate_json)
+      string(REPLACE "." ";" json_path "${path}")
+      if(operation STREQUAL "remove")
+        string(JSON candidate_json ERROR_VARIABLE mutation_error
+          REMOVE "${candidate_json}" ${json_path})
+      else()
+        string(JSON candidate_json ERROR_VARIABLE mutation_error
+          SET "${candidate_json}" ${json_path} "${encoded_value}")
+      endif()
+      if(NOT "${mutation_error}" STREQUAL "NOTFOUND" AND
+         NOT "${mutation_error}" STREQUAL "")
+        message(FATAL_ERROR "phase10-policy: control-${name}-stale-mutation (${mutation_error})")
+      endif()
+      file(WRITE "${candidate_file}" "${candidate_json}\n")
+    endif()
+
+    file(READ "${candidate_dir}/profile.json" candidate_profile)
+    file(READ "${candidate_dir}/tracer.json" candidate_tracer)
+    file(READ "${candidate_dir}/boundary.json" candidate_boundary)
+    file(READ "${candidate_dir}/registers.txt" candidate_registers)
+    string(STRIP "${candidate_registers}" candidate_registers)
+    gbl_phase10_evaluate(candidate_reason "${candidate_profile}"
+      "${candidate_tracer}" "${candidate_boundary}" "${candidate_registers}")
+    if(NOT "${candidate_reason}" STREQUAL "${expected}")
+      message(FATAL_ERROR "phase10-policy: control-${name}-wrong-reason (${candidate_reason}) expected ${expected}")
+    endif()
+  endif()
+  message(STATUS "phase10-policy: control-${name} rejected with ${expected}; clean baseline passed")
+endfunction()
+
+gbl_phase10_collect_json(GBL_PHASE10_TRACER_RECORD GBL_PHASE10_TRACER_OUTPUT
+  ppu.tracer ppu.tracer)
+gbl_phase10_collect_json(GBL_PHASE10_BOUNDARY_RECORD GBL_PHASE10_BOUNDARY_OUTPUT
+  ppu.boundary ppu.boundary)
+gbl_phase10_check_registers(GBL_PHASE10_REGISTERS_SUMMARY)
+file(READ "${profile_file}" GBL_PHASE10_PROFILE_JSON)
+
+if(NOT CASE STREQUAL "control")
+  gbl_phase10_check_profile_document("${profile_file}" "${doc_file}"
+    profile_result profile_output)
+  if(NOT "${profile_result}" STREQUAL "0")
+    message(FATAL_ERROR "phase10-policy: profile-document-policy-failed (${profile_result})\n${profile_output}")
+  endif()
+  gbl_phase10_evaluate(policy_reason "${GBL_PHASE10_PROFILE_JSON}"
+    "${GBL_PHASE10_TRACER_RECORD}" "${GBL_PHASE10_BOUNDARY_RECORD}"
+    "${GBL_PHASE10_REGISTERS_SUMMARY}")
+  if(NOT "${policy_reason}" STREQUAL "")
+    message(FATAL_ERROR "phase10-policy: ${policy_reason}")
+  endif()
+  message(STATUS "phase10-policy: runtime boundaries, register assertions, and profile evidence passed")
+endif()
+
+if(NOT CASE STREQUAL "verify")
+  if(CASE STREQUAL "control")
+    # One canonical full-profile/document pass covers the identical clean
+    # input shared by every PPU document mutation below.
+    gbl_phase10_check_profile_document("${profile_file}" "${doc_file}"
+      control_clean_result control_clean_output)
+    if(NOT "${control_clean_result}" STREQUAL "0")
+      message(FATAL_ERROR
+        "phase10-policy: control-clean-document-${control_clean_result}\n${control_clean_output}")
+    endif()
+    gbl_phase10_evaluate(control_clean_reason "${GBL_PHASE10_PROFILE_JSON}"
+      "${GBL_PHASE10_TRACER_RECORD}" "${GBL_PHASE10_BOUNDARY_RECORD}"
+      "${GBL_PHASE10_REGISTERS_SUMMARY}")
+    if(NOT "${control_clean_reason}" STREQUAL "")
+      message(FATAL_ERROR
+        "phase10-policy: control-clean-runtime-${control_clean_reason}")
+    endif()
+  endif()
+  gbl_phase10_control(runtime-edge hblank-offset tracer hblank_offset set 1007)
+  gbl_phase10_control(qualification-claim qualification-claim profile
+    ppu_policy.hblank_hardware_qualification set [=["QUALIFIED"]=])
+  gbl_phase10_control(missing-dispute missing-dispute profile
+    ppu_policy.hblank_dispute remove "")
+  gbl_phase10_control(false-nondisputed dispute-classification profile
+    ppu_policy.hblank_dependent_classification set [=["source-backed"]=])
+  gbl_phase10_control(source-label hblank-provenance tracer
+    hblank_provenance set [=["project-selected/SRC"]=])
+  gbl_phase10_control(row-sample row-sample-point profile
+    ppu_policy.row_sample_point set [=["frame-end"]=])
+  gbl_phase10_control(pixel-format pixel-format profile
+    ppu_policy.pixel_format set [=["RGB565"]=])
+  gbl_phase10_control(row-latch-order row-latch-order profile
+    ppu_policy.row_same_cycle_write_policy set [=["bus write precedes PPU sample"]=])
+  gbl_phase10_control(malformed-observation malformed-observation malformed
+    "" "" "")
+  gbl_phase10_control(missing-observation missing-observation missing
+    "" "" "")
+  gbl_phase10_control(stale-document ppu-policy-doc doc
+    "| `ppu_policy.row_sample_point` | visible-line-start |"
+    replace "| `ppu_policy.row_sample_point` | after-line-end |")
+  gbl_phase10_control(object-work-budget object-policy-value profile
+    ppu_policy.object_policy.work_budget_units set 1225)
+  gbl_phase10_control(object-admission object-policy-value profile
+    ppu_policy.object_policy.admission_order set [=["ascending-oam;continue-after-nonfit"]=])
+  gbl_phase10_control(object-regular-charge object-policy-value profile
+    ppu_policy.object_policy.regular_cost set [=["pixel-count"]=])
+  gbl_phase10_control(object-affine-charge object-policy-value profile
+    ppu_policy.object_policy.affine_cost set [=["source-width"]=])
+  gbl_phase10_control(composition-tie composition-policy-value profile
+    ppu_policy.composition_policy.obj_bg_tie set [=["bg-in-front-project-policy"]=])
+  gbl_phase10_control(capability-complete capability-status profile
+    ppu_policy.display_capabilities.modes.0.implementation_status set [=["complete"]=])
+  gbl_phase10_control(qualification-removed qualification-claim profile
+    ppu_policy.hardware_qualification remove "")
+  gbl_phase10_control(stale-support support-exclusions profile
+    ppu_policy.supported_controls set [=["exactly one enabled background;OBJ disabled"]=])
+  gbl_phase10_control(stale-object-document ppu-object-policy-doc doc
+    "| `ppu_policy.object_policy.work_budget_units` | 1226 |"
+    replace "| `ppu_policy.object_policy.work_budget_units` | 1225 |")
+  gbl_phase10_control(window-precedence window-policy-value profile
+    ppu_policy.window_policy.region_order set [=["win1;win0;obj-window;outside"]=])
+  gbl_phase10_control(window-wrap window-policy-value profile
+    ppu_policy.window_policy.rectangle_bounds set [=["half-open;wraparound"]=])
+  gbl_phase10_control(effect-deeper-search effect-policy-value profile
+    ppu_policy.effect_policy.pair set [=["top-and-any-later-target;deeper-search"]=])
+  gbl_phase10_control(effect-unclamped effect-policy-value profile
+    ppu_policy.effect_policy.coefficient_input set [=["low-five-bits;no-clamp"]=])
+  gbl_phase10_control(mosaic-stale-row mosaic-policy-value profile
+    ppu_policy.mosaic_policy.sampling set [=["previous-row-cache;anchor-pixel"]=])
+  gbl_phase10_control(blank-invalid-output forced-blank-policy-value profile
+    ppu_policy.forced_blank_policy.color_bgr555 set 0)
+  gbl_phase10_control(blank-access-change forced-blank-policy-value profile
+    ppu_policy.forced_blank_policy.access_policy set [=["denied-during-drawing"]=])
+  gbl_phase10_control(capability-model-stale capability-model profile
+    ppu_policy.display_capabilities.model set [=["gamebloke-display-capabilities-1"]=])
+  gbl_phase10_control(feature-missing composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.forced_blank remove "")
+  gbl_phase10_control(feature-null composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.forced_blank set null)
+  gbl_phase10_control(feature-extra composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.scanline_dma set true)
+  gbl_phase10_control(feature-disabled composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.obj_mosaic set false)
+  gbl_phase10_control(feature-qualified composition-feature-value profile
+    ppu_policy.display_capabilities.composition_features.hardware_qualification set [=["QUALIFIED"]=])
+  gbl_phase10_control(stale-window-document ppu-window-policy-doc doc
+    "| `ppu_policy.window_policy.rectangle_bounds` | half-open;equal-or-reversed-empty;no-wrap |"
+    replace "| `ppu_policy.window_policy.rectangle_bounds` | half-open;wrap |")
+  gbl_phase10_control(stale-effect-document ppu-effect-policy-doc doc
+    "| `ppu_policy.effect_policy.pair` | top-and-immediate-next-visible;no-deeper-search |"
+    replace "| `ppu_policy.effect_policy.pair` | top-and-any-target;deeper-search |")
+  gbl_phase10_control(stale-mosaic-document ppu-mosaic-policy-doc doc
+    "| `ppu_policy.mosaic_policy.sampling` | current-row-captured-registers-and-memory;no-old-row-cache |"
+    replace "| `ppu_policy.mosaic_policy.sampling` | previous-row-cache |")
+  gbl_phase10_control(stale-forced-blank-document ppu-forced-blank-policy-doc doc
+    "| `ppu_policy.forced_blank_policy.raw_bytes` | FF 7F |"
+    replace "| `ppu_policy.forced_blank_policy.raw_bytes` | 00 00 |")
+  gbl_phase10_control(stale-feature-document ppu-capability-doc doc
+    "| `ppu_policy.display_capabilities.composition_features.hardware_qualification` | UNKNOWN |"
+    replace "| `ppu_policy.display_capabilities.composition_features.hardware_qualification` | QUALIFIED |")
+  message(STATUS "phase10-policy: PPU policy controls and clean twins passed")
+endif()
+
+gbl_phase10_assert_authority_unchanged()
+message(STATUS "phase10-policy: canonical profile, document, registry, vocabulary, checker, test source and runtime binary unchanged")

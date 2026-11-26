@@ -23,6 +23,14 @@ set(GBL_HYGIENE_DRIVER
   "${CMAKE_COMMAND}" "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}")
 set(GBL_HYGIENE_CASE "${CMAKE_SOURCE_DIR}/tests/gates/hygiene_case.cmake")
 
+gbl_add_test(
+  NAME audio.guest.local-exclusion
+  LABELS audio control
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=public_exclusion
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/audio_guest.cmake")
+
 # ---- hygiene (VERIF-07) ---------------------------------------------------
 # The real tree must be clean. Runs from the source root because --tree lists
 # files with git.
@@ -246,12 +254,12 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckProfile.cmake")
 
 foreach(case IN ITEMS
-    bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
+    audio_mix audio_policy bad_bios_provider bad_boot bad_cart bad_machine bad_schema bad_source_label bad_version
     bus_policy_doc bus_policy_missing bus_policy_source bus_policy_value
     cpu_policy_doc cpu_policy_value
-    dispute_unknown doc_extra_id doc_missing_id doc_no_section doc_version_mismatch
+    dispute_unknown dma_sound_trigger doc_extra_id doc_missing_id doc_no_section doc_version_mismatch
     hblank_edge_hardcoded init_policy missing_field missing_source read_policy timing_arithmetic
-    unmodeled_bad_entry unmodeled_missing usage)
+    ppu_policy unmodeled_bad_entry unmodeled_missing usage)
   gbl_add_test(
     NAME profile.nc.${case}
     LABELS control profile
@@ -384,7 +392,7 @@ gbl_add_test(
     -P "${CMAKE_SOURCE_DIR}/cmake/CheckResult.cmake")
 
 foreach(case IN ITEMS
-    bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_label
+    audio_policy bad_bios_provider bad_boot bad_cart bad_evidence bad_input_timeline bad_label
     bad_machine bad_schema claim_mismatch empty_limits label_without_dispute manifest_digest
     missing_digest missing_field missing_reason missing_refusal pass_without_digest pass_without_run
     ran_state_mismatch semantic_time undisclosed_dispute unknown_dispute unknown_fixture
@@ -395,6 +403,11 @@ foreach(case IN ITEMS
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
 endforeach()
 
+gbl_add_test(
+  NAME result.nc.phase8
+  LABELS control result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase_negative" -P "${GBL_RESULT_CASE}")
+
 foreach(case IN ITEMS
     all_states bios_provider_forms disputed instruction_reasons)
   gbl_add_test(
@@ -402,6 +415,43 @@ foreach(case IN ITEMS
     LABELS positive result
     COMMAND ${GBL_EVID_DRIVER} "-DCASE=${case}" -P "${GBL_RESULT_CASE}")
 endforeach()
+
+gbl_add_test(
+  NAME result.pos.phase8
+  LABELS positive result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase_positive" -P "${GBL_RESULT_CASE}")
+
+gbl_add_test(
+  NAME result.nc.phase9
+  LABELS control result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase9_negative" -P "${GBL_RESULT_CASE}")
+gbl_add_test(
+  NAME result.pos.phase9
+  LABELS positive result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase9" -P "${GBL_RESULT_CASE}")
+
+gbl_add_test(
+  NAME result.nc.phase10
+  LABELS control result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase10_negative" -P "${GBL_RESULT_CASE}")
+gbl_add_test(
+  NAME result.pos.phase10
+  LABELS positive result
+  COMMAND ${GBL_EVID_DRIVER} "-DCASE=phase10" -P "${GBL_RESULT_CASE}")
+
+set(GBL_PHASE10_CLI_GATE "${CMAKE_SOURCE_DIR}/tests/gates/phase10_cli.cmake")
+gbl_add_test(
+  NAME phase10.cli
+  LABELS gate integration ppu runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=verify -P "${GBL_PHASE10_CLI_GATE}")
+gbl_add_test(
+  NAME phase10.cli.control
+  LABELS control ppu runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${GBL_PHASE10_CLI_GATE}")
 
 # ---- strict JSON loader (Phase 2) -------------------------------------------
 # One negative control per loader reason code, plus the two helper controls

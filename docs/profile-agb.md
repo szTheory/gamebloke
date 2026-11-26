@@ -15,7 +15,10 @@ Synchronized tables require both outer pipes on every row, the documented
 headers and separators, and a blank line or heading after the table (or end of
 document). Every Unmodeled ID must occur exactly once.
 
-profile_version: 5
+profile_version: 16
+
+`profile_version` tracks the capability-policy contract; it is independent of
+the software package version.
 
 Every timing constant carries exactly one source label: REF (a reference
 document), SRC (a secondary or community source), IMPL (another implementation),
@@ -77,31 +80,602 @@ lines per frame give the cycles per frame, and the clock is 2 to the power 24.
 The printed refresh rate is a derived figure: 16,777,216 divided by 280,896 is
 about 59.7275 Hz (INF). Rates printed in other sources are not used here.
 
-The cycle at which the HBlank flag changes is not recorded. Sources disagree
-(1,006, 1,007, and 1,008 cycles appear), and 960 cycles is the visible drawing
-time, not the flag edge. The constant stays null with label UNK until the dispute
-is settled by evidence.
+The hardware cycle at which the HBlank flag changes remains unrecorded: sources
+disagree (1,006, 1,007, and 1,008 cycles appear), and 960 cycles is nominal
+visible-dot time, not the flag edge. The profile keeps
+`timing.hblank_flag_edge_cycle.value` null with label UNK. The separate
+project-selected model event is at 1,006 cycles, remains disputed under
+`disp-hblank-flag-edge`, and has hardware qualification UNKNOWN.
+
+## PPU behavior policy
+
+The source-backed geometry and selected Gamebloke model behavior are recorded
+separately. These values describe the supported deterministic subset; they do
+not qualify the PPU against hardware.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.policy_classification` | project-selected |
+| `ppu_policy.hardware_qualification` | UNKNOWN |
+| `ppu_policy.hardware_source_reference` | Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5, 6.1.7, 6.3.1–6.3.4 and 6.4, printed pp. 58–72 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| `ppu_policy.geometry` | 240x160 visible pixels, 308 dots per line, 228 lines per frame |
+| `ppu_policy.line_cycles` | 1232 |
+| `ppu_policy.nominal_visible_dot_cycles` | 960 |
+| `ppu_policy.recurrence` | one recurring priority-9 event alternates line-start and HBlank boundaries |
+| `ppu_policy.event_priority` | 9 |
+| `ppu_policy.line_transitions` | VCOUNT advances 0-227 modulo 228, visible lines are 0-159, VBlank sets at 160 and clears at 0 |
+| `ppu_policy.same_cycle_order` | due machine events precede timed bus effects, row sample precedes a bus write completing on the same cycle |
+| `ppu_policy.dispcnt_writable_mask` | 0xFFFF |
+| `ppu_policy.dispstat_writable_mask` | 0xFF38 |
+| `ppu_policy.vcount_write_policy` | ignored |
+| `ppu_policy.compare_write_policy` | recompute at write completion after due events |
+| `ppu_policy.hblank_event_offset_cycles` | 1006 |
+| `ppu_policy.hblank_source` | REF |
+| `ppu_policy.hblank_source_reference` | GBATEK, LCD I/O Interrupts and Status, states the flag is 0 for 1,006 cycles, source text is not a project hardware measurement |
+| `ppu_policy.hblank_provenance` | project-selected |
+| `ppu_policy.hblank_dependent_classification` | disputed |
+| `ppu_policy.hblank_dispute` | disp-hblank-flag-edge |
+| `ppu_policy.hblank_hardware_qualification` | UNKNOWN |
+| `ppu_policy.row_sample_point` | visible-line-start |
+| `ppu_policy.row_same_cycle_write_policy` | PPU sample precedes a bus write completing on the sample cycle |
+| `ppu_policy.pixel_format` | BGR555 little-endian |
+| `ppu_policy.frame_validity` | complete coverage of 160 supported rows in one frame epoch, published at line 160 |
+| `ppu_policy.supported_controls` | mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition, rectangular WIN0/WIN1 half-open regions, admitted OBJ-window masks and region-specific layer/effect masks, top-and-immediate-next-visible alpha and semitransparent OBJ effects, clamped 5-bit brightness, independent BG/OBJ screen-origin mosaic resampled from the current row, and forced-blank white rows with normal frame coverage |
+| `ppu_policy.unmodeled_controls` | prohibited OBJ mode/shape encodings and unsupported background-control encodings |
+| `ppu_policy.interrupt_if_bits` | VBlank 0, HBlank 1, VCOUNT-match 2 |
+| `ppu_policy.blank_dma_eligibility` | HBlank on visible lines 0-159, VBlank at the line 160 transition |
+
+## PPU object policy
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.object_policy.regular_shapes` | square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64 |
+| `ppu_policy.object_policy.character_windows` | modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read |
+| `ppu_policy.object_policy.index_zero_transparency` | true |
+| `ppu_policy.object_policy.affine_quantization` | signed-8.8;wide-products;floor-by-256 |
+| `ppu_policy.object_policy.affine_field` | centered;double-size-destination-only;out-of-source-transparent |
+| `ppu_policy.object_policy.coordinate_wrap` | x-modulo-512;y-modulo-256;clip-240x160 |
+| `ppu_policy.object_policy.unsupported_modes` | prohibited |
+| `ppu_policy.object_policy.work_budget_units` | 1226 |
+| `ppu_policy.object_policy.regular_cost` | source-width |
+| `ppu_policy.object_policy.affine_cost` | 10+2*destination-field-width |
+| `ppu_policy.object_policy.eligibility` | enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund |
+| `ppu_policy.object_policy.admission_order` | ascending-oam;full-cost-fit;stop-at-first-nonfit |
+| `ppu_policy.object_policy.overflow_policy` | valid-partial-scene;omit-all-later-eligible |
+| `ppu_policy.object_policy.observation_scope` | internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api |
+
+D-01 supports normal regular shapes and sizes, horizontal and vertical flips,
+4bpp and 8bpp palettes, and 1D and 2D character mappings. D-02 confines tile
+reads to the mode-dependent physical character window and validates a complete
+tile span before any sampled-memory read. D-03 makes source index zero
+transparent; palette-resolved black remains opaque. D-04 wraps OAM coordinates
+then clips to 240x160 and refuses prohibited or Phase 14 OBJ controls
+deterministically. The manual source for OBJ formats and addressing is cited
+by section and page only; this profile does not reproduce its wording.
+[Nintendo AGB Programming Manual v1.1 §§6.3.1–6.3.3, printed pp. 58–69](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+D-05 uses signed 8.8 matrix values, wide integer products, and mathematical
+floor division by 256 as Gamebloke policy. D-06 centers affine sampling in the
+destination field; double-size expands only that field, and source coordinates
+outside the object are transparent. D-07 is covered by semantic vectors for
+shape and mapping selectors, matrix transforms, clipping, physical tile bounds,
+palette transparency, opaque black, and wrong-pixel controls. These are
+deterministic software rules, not hardware measurements.
+[Nintendo AGB Programming Manual v1.1 §6.3.4, printed pp. 70–71](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+D-11 sets a fixed budget of 1,226 abstract work units per visible row. It does
+not alter master cycles, HBlank duration, or the event schedule. D-12 charges
+regular objects by source width and affine objects by 10 plus twice their
+destination-field width. Only enabled supported objects whose vertical field
+intersects the row are eligible; horizontal clipping and transparent texels do
+not refund work. D-13 scans eligible entries in ascending OAM order, admits
+only a full-cost fit, stops at the first non-fit, and records selected, omitted,
+and used-work values through an internal row-capture seam without defining a
+stable public C API. D-14 overflow preserves valid partial-scene output and
+omits all later eligible objects. The work budget and admission behavior are
+project policy; silicon cost and exhaustion behavior remain unknown.
+[Nintendo AGB Programming Manual v1.1 §6.3.1, printed pp. 58–59](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+## PPU composition policy
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.composition_policy.priority_order` | ascending-numeric-0-3 |
+| `ppu_policy.composition_policy.bg_tie` | lower-bg-number |
+| `ppu_policy.composition_policy.obj_tie` | lower-oam-index |
+| `ppu_policy.composition_policy.obj_bg_tie` | obj-in-front-project-policy |
+| `ppu_policy.composition_policy.backdrop` | pram-color-zero;behind-all-enabled-opaque-candidates |
+
+D-08 gives lower numeric priority precedence, then uses the lower BG number or
+lower OAM index within the same class. D-09 selects OBJ in front of BG for an
+equal-priority cross-class tie as deterministic Gamebloke policy. D-10 keeps
+ascending-OAM admission separate from per-pixel priority composition. The
+manual's reversed-OAM-order/priority OBJ-BG sandwich remains a semantic case;
+its outcome does not establish a silicon comparator or hardware ordering.
+[Nintendo AGB Programming Manual v1.1 §6.4, printed p. 72](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+## PPU window policy
+
+The manual describes display-window controls and masks in §7.3, printed
+pp. 76–79. Precedence among overlapping windows and edge handling below are
+selected Gamebloke policy. Secondary sources disagree on reversed endpoints:
+gbadoc describes wraparound while GBATEK describes clamping. The manual does
+not settle this detail, so equal or reversed intervals are empty and never wrap.
+The manual copy is third-party hosted and marked confidential; this document
+cites it without reproducing its text or figures.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.window_policy.region_order` | win0;win1;obj-window;outside |
+| `ppu_policy.window_policy.rectangle_bounds` | half-open;equal-or-reversed-empty;no-wrap |
+| `ppu_policy.window_policy.layer_stage` | filter-before-priority;dispcnt-master-gates |
+| `ppu_policy.window_policy.disabled_masters` | bypass-winin-winout |
+| `ppu_policy.window_policy.obj_coverage` | admitted-nonzero-source-index;no-color;shared-obj-budget |
+| `ppu_policy.window_policy.mask_bits` | bg0-bg3;obj;effects;reserved-ignored |
+
+WIN0 takes precedence over WIN1, then the OBJ window, then outside. Each active
+region filters BG0–BG3 and OBJ candidates before priority composition and
+separately controls whether effects may run. DISPCNT layer bits remain master
+gates. If all window master bits are clear, stale WININ/WINOUT values are
+bypassed. The OBJ window covers only admitted OBJ-window pixels whose sampled
+source index is nonzero; it contributes no color and consumes the existing
+shared OBJ row-work budget. These overlap and endpoint rules are deterministic
+software choices, not hardware qualifications.
+
+## PPU color-effects policy
+
+The manual documents target selection and color effects in §§8.1–8.2, printed
+pp. 80–83. The immediate-next-layer rule, coefficient clamp, arithmetic
+rounding, and uniform 5-bit channel behavior below are explicit Gamebloke
+policy; the manual does not settle all of those details for this output path.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.effect_policy.pair` | top-and-immediate-next-visible;no-deeper-search |
+| `ppu_policy.effect_policy.alpha` | mode1;first-target;second-target;region-effects-enabled |
+| `ppu_policy.effect_policy.semitransparent_obj` | alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness |
+| `ppu_policy.effect_policy.coefficient_max` | 16 |
+| `ppu_policy.effect_policy.coefficient_input` | low-five-bits;clamp-to-16 |
+| `ppu_policy.effect_policy.channel_arithmetic` | wide-integer;divide16-truncate;clamp0-31 |
+| `ppu_policy.effect_policy.brighten` | c+floor((31-c)*evy/16) |
+| `ppu_policy.effect_policy.darken` | c-floor(c*evy/16) |
+
+Ordinary alpha blends only the top visible layer and its immediate next visible
+layer when their first/second target bits and the destination region's effect
+permission allow it. The renderer does not skip a nearer non-target layer to
+search deeper. A top semitransparent OBJ uses its selected alpha path with an
+eligible next layer and region permission, even when ordinary first-target
+selection would not trigger it; this path does not brighten or darken. Brighten
+and darken apply per 5-bit BGR channel using the recorded formulas and clamp
+after wide-integer division. These are software-model rules, not silicon
+measurement.
+
+## PPU mosaic policy
+
+The manual documents BG and OBJ mosaic controls in §§9.1–9.2, printed pp. 82–83.
+The visible-screen anchor, current-row resampling after writes, affine origin
+projection, and placement before destination masks are selected Gamebloke
+policies. The cited mirror cannot establish their hardware pipeline ordering.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.mosaic_policy.dimensions` | field-plus-one;independent-bg-obj |
+| `ppu_policy.mosaic_policy.anchors` | visible-screen-origin;x-x%w;y-y%h |
+| `ppu_policy.mosaic_policy.sampling` | current-row-captured-registers-and-memory;no-old-row-cache |
+| `ppu_policy.mosaic_policy.affine_origin` | current-origin-minus-pb-pd-times-row-anchor-delta |
+| `ppu_policy.mosaic_policy.stage` | source-before-destination-window-and-effects |
+| `ppu_policy.mosaic_policy.obj_field` | existing-destination-field;anchor-outside-transparent;no-field-growth |
+
+Each size field means field value plus one, independently for BG and OBJ. Groups
+anchor to the visible screen origin at `(x - x % w, y - y % h)`. A later row
+re-samples that source coordinate through the current row's captured registers
+and memory; it does not reuse an older row or committed frame pixel. Window
+visibility and effects are evaluated at the destination pixel after source
+sampling. OBJ mosaic uses the existing destination field, and out-of-field
+anchors remain transparent without expanding it.
+
+## Forced blank policy
+
+The two available manual revisions disagree on forced-blank transition wording:
+the B4 mirror describes delayed resume while the B6 mirror describes different
+on/off transitions. Both copies are third-party mirrors; this conflict does not
+establish physical behavior. Gamebloke selects the sampled-row rule below and
+leaves hardware transition timing UNKNOWN. The policy cites §5, printed
+pp. 29–30, without reproducing manual text or figures.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.forced_blank_policy.color_bgr555` | 32767 |
+| `ppu_policy.forced_blank_policy.raw_bytes` | FF 7F |
+| `ppu_policy.forced_blank_policy.transitions` | next-captured-visible-row;no-extra-delay-or-restart |
+| `ppu_policy.forced_blank_policy.frame_validity` | normal-epoch-row-coverage;publish-line160 |
+| `ppu_policy.forced_blank_policy.precedence` | bypass-scene-decode;retain-structural-transaction-validation |
+| `ppu_policy.forced_blank_policy.access_policy` | unchanged-existing-bus-behavior |
+
+A forced-blank sampled row emits 240 white BGR555 pixels (`0x7FFF`, bytes
+`FF 7F`) without BG/OBJ/effect scene decoding. The shared clock and ordinary row
+coverage continue; a complete all-white frame is valid, and a partial frame is
+still incomplete. The sampled bit changes output on the next captured visible
+row. Structural capture validation and transactional refusal remain in force.
+This transition is a project policy, not qualified hardware behavior.
+
+## PPU display capabilities
+
+The mode table describes available background source layouts and their source
+extents. Implementation status records the current Gamebloke renderer; `partial`
+is a static capability label and is separate from per-frame validity. The mode
+and background layouts are summarized from the cited AGB manual sections, not
+reproduced from its tables. The mode families and text tile/map formats are
+described in §§5.1.1 and 6.1.3–6.1.5. Bitmap formats and page layouts are
+described in §§6.2.1–6.2.4, and palette behavior in §7.1. [Nintendo AGB
+Programming Manual v1.1 §§5.1.1, 6.1.3–6.1.5, 6.2.1–6.2.4, and 7.1](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)
+
+Modes 0, 1, and 2 render any enabled supported background sources per sampled
+row. Mode 0 admits text BG0–BG3; mode 1 admits text BG0/BG1 or affine BG2;
+mode 2 admits affine BG2/BG3. The text subset uses the four listed map
+extents, scrolling, tile flips, 4bpp/8bpp selection, tile and palette selection,
+and transparent color-index samples resolved to the declared backdrop in raw
+output. The affine subset uses the listed square map extents and sampled VRAM,
+with signed 8.8 matrix coefficients and programmed 28-bit reference values.
+Programmed references are sign-extended; coordinate quantization uses
+mathematical floor division by 256 and horizontal calculations use `int64_t`
+intermediates; internal reference updates wrap to signed 28-bit two's-complement
+values. These arithmetic, rounding, overflow, and reference-update rules are
+selected deterministic software policy, not measured hardware behavior. The
+manual documents affine formats and registers (§6.1.7); GBATEK is secondary
+evidence for internal-reference reload and accumulation details. Modes 3, 4,
+and 5 admit BG2 direct-color 240x160, indexed 240x160, and direct-color 160x128
+sources, respectively. Modes 4 and 5 have two pages selected by DISPCNT; mode 3
+uses one page. The mode and page selection are captured with the sampled row
+state. Bitmap reads are bounded to each declared source extent, and samples
+outside it resolve to the backdrop. Mode-4 index zero resolves to the backdrop
+under the secondary-source policy; mode-3 and mode-5 direct-color zero is opaque
+black. The manual documents bitmap formats, extents, and pages in §§6.2.1–6.2.4.
+Mode-4 index-zero transparency follows secondary-source evidence as selected
+project policy. The explicit rounding/overflow behavior above is software policy,
+not a hardware measurement.
+Background, regular/affine OBJ, window, effect, mosaic, forced-blank, and
+backdrop samples use the same captured row state and canonical sampled video
+memory. The shared compositor preserves transparency and source identity until
+priority selection. These implemented features expand the selected software
+subset, not hardware qualification: every mode remains `partial`, and PPU
+hardware qualification remains `UNKNOWN`. Unsupported background-control
+encodings and prohibited OBJ mode/shape encodings still invalidate the sampled
+frame deterministically.
+
+| Mode | Implementation status | Background sources and dimensions |
+| --- | --- | --- |
+| `ppu_policy.display_capabilities.modes[0]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 text: 256x256, 512x256, 256x512, 512x512; BG3 text: 256x256, 512x256, 256x512, 512x512 |
+| `ppu_policy.display_capabilities.modes[1]` | partial | BG0 text: 256x256, 512x256, 256x512, 512x512; BG1 text: 256x256, 512x256, 256x512, 512x512; BG2 affine: 128x128, 256x256, 512x512, 1024x1024 |
+| `ppu_policy.display_capabilities.modes[2]` | partial | BG2 affine: 128x128, 256x256, 512x512, 1024x1024; BG3 affine: 128x128, 256x256, 512x512, 1024x1024 |
+| `ppu_policy.display_capabilities.modes[3]` | partial | BG2 direct-color-bitmap: 240x160 |
+| `ppu_policy.display_capabilities.modes[4]` | partial | BG2 indexed-bitmap: 240x160 |
+| `ppu_policy.display_capabilities.modes[5]` | partial | BG2 direct-color-bitmap: 160x128 |
+
+## PPU composition features
+
+The model-2 tuple identifies implemented software composition features and
+their qualification boundary. It does not upgrade any mode from `partial`.
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.display_capabilities.model` | gamebloke-display-capabilities-2 |
+| `ppu_policy.display_capabilities.composition_features.rectangular_windows` | true |
+| `ppu_policy.display_capabilities.composition_features.object_windows` | true |
+| `ppu_policy.display_capabilities.composition_features.alpha_blending` | true |
+| `ppu_policy.display_capabilities.composition_features.brightness` | true |
+| `ppu_policy.display_capabilities.composition_features.bg_mosaic` | true |
+| `ppu_policy.display_capabilities.composition_features.obj_mosaic` | true |
+| `ppu_policy.display_capabilities.composition_features.forced_blank` | true |
+| `ppu_policy.display_capabilities.composition_features.classification` | project-selected |
+| `ppu_policy.display_capabilities.composition_features.hardware_qualification` | UNKNOWN |
+
+## PPU raw output
+
+The raw output keeps the existing 240x160 display geometry. Public Nintendo
+technical information also identifies a 240x160 display; this citation and the
+profile do not imply hardware qualification. [Nintendo Game Boy Advance
+technical history](https://www.nintendo.com/en-gb/Hardware/Nintendo-History/Game-Boy-Advance/Game-Boy-Advance-627139.html)
+
+| Setting | Value |
+| --- | --- |
+| `ppu_policy.display_capabilities.raw_output.format` | BGR555_LE |
+| `ppu_policy.display_capabilities.raw_output.width` | 240 |
+| `ppu_policy.display_capabilities.raw_output.height` | 160 |
+| `ppu_policy.display_capabilities.raw_output.stride_bytes` | 480 |
+| `ppu_policy.display_capabilities.raw_output.byte_length` | 76800 |
+
+## Video memory access policy
+
+For CPU and DMA reads and writes to palette RAM, VRAM, and OAM, Gamebloke keeps
+the existing bus behavior in drawing, HBlank, VBlank, and forced blank. The
+policy adds no PPU denial or cycles; bus request costs remain owned by
+`bus_policy.request_cycles`. This is selected project behavior, with hardware
+qualification `UNKNOWN`. The selected 1006-cycle HBlank point and visible-line-
+start row sampling remain in force. The HBlank-edge, DMA-latch, and within-line
+visibility disputes remain open.
+
+| Setting | Classification | Hardware qualification | Masters | Regions | States | Availability | PPU extra cycles | Cost reference |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ppu_policy.video_memory_access.matrix` | project-selected | UNKNOWN | cpu, dma | pram, vram, oam | drawing, hblank, vblank, forced-blank | existing-bus-behavior | 0 | `bus_policy.request_cycles` |
+
+Phase 15 binds this matrix to real CPU instructions and DMA transfers, with
+before/on/after sampled-row observations and a production-runner scene. The
+source selectors, exercised cells, measured guest receipt, and remaining
+hardware limits are listed in the [Phase 15 evidence ledger](../.planning/phases/15-production-access-and-runner-evidence/15-EVIDENCE.md).
+
+## Timing model scope
+
+Model ID: gamebloke-timer-model-1
+
+Qualification: project-model-only
+
+Non-ROM requests use one project-selected master cycle per successful access. Game Pak ROM quotes are contextual: the address selects WS0, WS1, or WS2; WAITCNT chooses the documented N/S wait states; each 16-bit beat adds one base cycle. A word access is two halfword beats, and each beat address is checked for the 128 KiB transition. These values describe the implemented quote path; they do not establish hardware qualification.
+
+[Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) supplies WAITCNT wait choices. [Arm ARM7TDMI TRM DDI 0210C §§3.3 and 6.20](https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819) supplies CPU N/S/I composition rules; it does not qualify GBA DMA startup conversion or Game Pak boundary behavior. The 128 KiB sequential transition is supported by GBATEK 3.06 as a secondary/community observation; hardware qualification remains UNKNOWN.
+
+## Timing model costs
+
+ROM rows are parameterized by the physical window selected from each beat address and the current WAITCNT value. Non-ROM project-selected rows retain their fixed one-cycle cost. Hardware cost remains null and hardware qualification remains UNKNOWN.
+
+| Key | Execution class | Execution cycles / formula | Execution citation | Hardware-cost class | Hardware cycles | Hardware citation | Unmodeled limits |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `timing_model.read/bios/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/bios/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/ewram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/iwram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/io/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/pram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/vram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/oam/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/rom/1/n/fetch` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt, prefetch |
+| `timing_model.read/rom/1/n/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.read/rom/1/s/fetch` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt, prefetch |
+| `timing_model.read/rom/1/s/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.read/rom/2/n/fetch` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt, prefetch |
+| `timing_model.read/rom/2/n/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.read/rom/2/s/fetch` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt, prefetch |
+| `timing_model.read/rom/2/s/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.read/rom/4/n/fetch` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt, prefetch |
+| `timing_model.read/rom/4/n/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.read/rom/4/s/fetch` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt, prefetch |
+| `timing_model.read/rom/4/s/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.read/unmapped/1/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/1/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/2/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/2/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/4/n/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/4/s/fetch` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.read/unmapped/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/bios/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/bios/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/bios/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/bios/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/bios/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/bios/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/ewram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/ewram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/ewram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/ewram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/ewram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/ewram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/iwram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/iwram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/iwram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/iwram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/iwram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/iwram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/io/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/io/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/io/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/io/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/io/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/io/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/pram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/pram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/pram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/pram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/pram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/pram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/vram/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/vram/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/vram/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/vram/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/vram/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/vram/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/oam/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/oam/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/oam/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/oam/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/oam/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/oam/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/rom/1/n/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.write/rom/1/s/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.write/rom/2/n/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.write/rom/2/s/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.write/rom/4/n/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.write/rom/4/s/data` | source-backed | formula: sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. | bus-costs, waitcnt |
+| `timing_model.write/unmapped/1/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/unmapped/1/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/unmapped/2/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/unmapped/2/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/unmapped/4/n/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+| `timing_model.write/unmapped/4/s/data` | project-selected | 1 | Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified. | unmodeled | null | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. | bus-costs |
+
+## WAITCNT policy
+
+Wait selection follows the Nintendo manual. The register reset value and retained mask are Gamebloke project policy. The 128 KiB transition is secondary/community evidence, and the quoted path remains hardware-unqualified. Prefetch bit state does not model prefetch execution.
+
+| Key | Value | Classification | Evidence |
+| --- | --- | --- | --- |
+| waitcnt_policy.register | address 0x04000204; retained mask 0x5FFF; reset 0x0000 (project-selected); prefetch bit 14 retained as state | project-selected | Gamebloke WAITCNT register implementation in src/machine.c and src/bus.c; the retained mask and reset initialization are project policy. |
+| waitcnt_policy.window.ws0 | 0x08000000–0x09FFFFFF; N bits [2,3] select waits [4,3,2,8]; S bit 4 selects waits [2,1] | source-backed | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| waitcnt_policy.window.ws1 | 0x0A000000–0x0BFFFFFF; N bits [5,6] select waits [4,3,2,8]; S bit 7 selects waits [4,1] | source-backed | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| waitcnt_policy.window.ws2 | 0x0C000000–0x0DFFFFFF; N bits [8,9] select waits [4,3,2,8]; S bit 10 selects waits [8,1] | source-backed | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| waitcnt_policy.beat_policy | 16-bit bus; access widths [1,2,4] bytes; beat width 2 bytes; byte/halfword beats 1; word beats 2; second word beat sequential; sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle) | source-backed | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 plus the tested Gamebloke 16-bit quote path. |
+| waitcnt_policy.boundary | 131072 bytes; address-aligned beat at a 128 KiB boundary forces effective nonsequential timing; GBATEK 3.06, Game Pak 128 KiB sequential boundary; secondary/community source only.; qualification UNKNOWN | secondary-community | GBATEK 3.06, Game Pak 128 KiB sequential boundary; secondary/community source only. |
+| waitcnt_policy.prefetch | bit 14 register state retained; execution unmodeled; hardware qualification UNKNOWN | unmodeled | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2; execution remains intentionally unmodeled. |
+| waitcnt_policy.hardware_qualification | UNKNOWN | unmodeled | No physical hardware evidence was produced by this plan; qualification remains UNKNOWN. |
+
+## DMA policy
+
+The register fields and source-backed hardware rules are separated from Gamebloke choices. Startup conversion, unit-boundary arbitration, and per-channel latch selection remain project policy. The latch dispute stays open, and all hardware qualification remains UNKNOWN. VBlank, HBlank, audio, and DRQ trigger producers are deferred.
+
+| Key | Value | Classification | Evidence |
+| --- | --- | --- | --- |
+| dma_policy.registers | 0x040000B0–0x040000DF; 4 channels; stride 12 bytes; control mask 0xFFE0 | source-backed | Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| dma_policy.source_facts | source masks ["0x07FFFFFF","0x0FFFFFFF","0x0FFFFFFF","0x0FFFFFFF"]; destination masks ["0x07FFFFFF","0x07FFFFFF","0x07FFFFFF","0x0FFFFFFF"]; count masks ["0x3FFF","0x3FFF","0x3FFF","0xFFFF"]; zero-count expansions [16384,16384,16384,65536]; width bit 10 and widths [2,4]; source modes ["increment","decrement","fixed","unsupported"]; destination modes ["increment","decrement","fixed","increment-and-reload-channel-3-only"]; completion IF bits [8,9,10,11] | source-backed | Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| dma_policy.trigger_policy | enable bit 15; immediate mode 0 starts on rising enable edge and is one-shot; delayed modes [1,2,3] remain armed; Direct Sound FIFO A/B uses DMA1/DMA2 special timing; VBlank/HBlank retain their specialized PPU routes; DRQ and other trigger producers remain deferred; channel 0 mode 3 is refused | project-selected | Gamebloke DMA model in src/machine.c; Direct Sound FIFO and the existing specialized VBlank/HBlank PPU routes are implemented; DRQ and other trigger producers remain deferred. |
+| dma_policy.completion_policy | cleared on completion; remain armed and reload count; channel 3 mode 3 only; set the channel IF bit when control bit 14 is enabled | source-backed | Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| dma_policy.startup_policy | 2 master cycles; conversion project-selected; hardware qualification UNKNOWN | project-selected | Gamebloke project mapping in include/gamebloke/gamebloke.h; manual activation wording does not qualify a master-cycle conversion. |
+| dma_policy.arbitration_policy | priority [0,1,2,3]; active DMA pauses CPU execution; unit is one source access plus one destination access; reconsider after each complete transfer unit; resume sequence nonsequential; event order ["timer0-3","keypad","dma-ready0-3"]; finer boundary unmodeled; hardware qualification UNKNOWN | project-selected | Gamebloke selected DMA policy in src/machine.c; project tests establish implementation behavior only. |
+| dma_policy.latch_policy | per-channel selected; latch-dependent results disputed; disp-dma-latch status open; hardware qualification UNKNOWN | disputed | registry/disputes.json entry disp-dma-latch; competing observations remain unresolved. |
+| dma_policy.hardware_qualification | UNKNOWN | unmodeled | No physical hardware evidence was produced by this plan; qualification remains UNKNOWN. |
+
+## CPU cycle composition
+
+| Key | Classification | Rule | Citation |
+| --- | --- | --- | --- |
+| `timing_model.arm7tdmi-nsi-patterns` | source-backed | The ARM7TDMI timing summary expresses bus work as N/S/I/C cycles and accounts for pipeline overlap; examples are LDR 1S+1N+1I, STR 2N, and B/BL 2S+1N. | Arm ARM7TDMI Technical Reference Manual DDI 0210C §§3.3 and 6.20 Table 6-23 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819) |
+| `timing_model.arm7tdmi-internal-cycle-rules` | source-backed | Instruction-specific internal-cycle contributions follow the ARM7TDMI timing summary and remain separate from memory wait costs. | Arm ARM7TDMI Technical Reference Manual DDI 0210C §§3.3 and 6.20 Table 6-23 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819) |
+| `timing_model.gba-waitcnt-wait-selection` | source-backed | The WAITCNT register selects the documented nonsequential and sequential wait states for three Game Pak windows; each quoted halfword beat adds one base cycle. Prefetch execution is separate and remains unmodeled. | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| `timing_model.gba-prefetch-execution` | unmodeled | Game Pak prefetch fill/hit execution remains unmodeled. The WAITCNT prefetch bit is retained as register state only; no hardware qualification is claimed. | Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+
+## Timer edge policy
+
+These exact edge choices are project-selected conventions; the hardware result for each remains UNKNOWN.
+
+| Key | Classification | Selected rule | Hardware qualification | Citation |
+| --- | --- | --- | --- | --- |
+| `timing_model.first-tick-after-enable` | project-selected | Disabled-to-enabled loads reload and resets divider phase; the first tick follows one complete selected divisor. | UNKNOWN | Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source. |
+| `timing_model.live-reload` | project-selected | A reload write while running affects the next overflow; it does not replace the current counter. | UNKNOWN | Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source. |
+| `timing_model.enabled-control-write` | project-selected | An enabled control write synchronizes at transaction completion and resets the selected divider phase. | UNKNOWN | Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source. |
+| `timing_model.same-cycle-register-access` | project-selected | Drain scheduled timer events through bus transaction completion before sampling reads or committing writes. | UNKNOWN | Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source. |
+| `timing_model.equal-cycle-order` | project-selected | Timer index orders equal-cycle overflows; insertion sequence breaks remaining ties. | UNKNOWN | Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source. |
+| `timing_model.timer0-cascade` | project-selected | Timer 0 cascade is ignored by this model. | UNKNOWN | Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source. |
+
+## Timer 0 guest-path coverage
+
+The original BIOS-free guest ROM fetch and literal reads resolve to contextual WAITCNT formula rows; Timer 0/IF I/O and IWRAM markers retain their non-ROM project-selected rows.
+
+| Key | Guest access shape | Resolved cost key |
+| --- | --- | --- |
+| `timing_model.timer0-initial-rom-fetch` | Initial/refill ARM instruction fetch | `read/rom/4/n/fetch` |
+| `timing_model.timer0-sequential-rom-fetch` | Sequential ARM instruction fetch | `read/rom/4/s/fetch` |
+| `timing_model.timer0-rom-literal-read` | ARM literal data read from the ROM instruction pool | `read/rom/4/n/data` |
+| `timing_model.timer0-reload-control-write` | Word write containing Timer 0 reload and control fields | `write/io/4/n/data` |
+| `timing_model.timer0-if-halfword-read` | Halfword read polling Timer 0's IF request bit | `read/io/2/n/data` |
+| `timing_model.timer0-iwram-marker-write` | Word write publishing the guest overflow marker/mailbox | `write/iwram/4/n/data` |
+
+## Unmodeled hardware cost gaps
+
+These are residual hardware-qualification gaps, not missing deterministic quote rows.
+
+| Key | Classification | Hardware qualification | Affected shapes | Citation |
+| --- | --- | --- | --- | --- |
+| `timing_model.bus-costs` | unmodeled | UNKNOWN | Non-ROM rows remain project-selected one-cycle policy; all modeled and contextual bus values remain unqualified on hardware. | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role. |
+| `timing_model.waitcnt` | unmodeled | UNKNOWN | ROM read/write values are computed from source-backed WAITCNT choices and beat formulas; the resulting implementation and boundary mapping have no hardware qualification. | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. |
+| `timing_model.prefetch` | unmodeled | UNKNOWN | Game Pak prefetch fill/hit execution; bit 14 may be retained as register state but does not enable modeled prefetch. | Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled. |
 
 ## Bus policy
 
-The following one-cycle request costs are Gamebloke project policy. They are
-not measured hardware timing, do not model WAITCNT or prefetch, and do not
-establish hardware accuracy or broad compatibility.
+Non-ROM raw requests use one project-selected cycle. ROM costs use the WAITCNT window and halfword-beat formula above; no prefetch execution is modeled.
 
 | Setting | Value | Label | Citation |
 | ------- | ----- | ----- | -------- |
-| bus_policy.request_cycles.bios | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.ewram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.iwram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.io | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.pram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.vram | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.oam | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.rom | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.widths_bytes | [1, 2, 4] | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.access_classes | [nonsequential, sequential] | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
-| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim. |
+| bus_policy.request_cycles.bios | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.ewram | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.iwram | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.io | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.pram | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.vram | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.oam | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.rom | contextual-waitcnt-halfword-beats | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.request_cycles.unmapped | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.widths_bytes | [1, 2, 4] | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.access_classes | [nonsequential, sequential] | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
+| bus_policy.internal_cycle_unit | 1 | IMPL | Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled. |
 
 ## Initialization policy
 
@@ -119,8 +693,7 @@ contents remain unknown. CPU direct-start state is specified separately below.
 ## Read policy
 
 The choices below are unverified Gamebloke project behavior for the current
-minimal bus. BIOS protection, active I/O devices, WAITCNT, and prefetch remain
-unmodeled. The actual behavior of reads beyond a short ROM image remains
+minimal bus. BIOS protection and unsupported I/O remain incomplete; WAITCNT wait selection is modeled, while prefetch execution remains unmodeled. The actual behavior of reads beyond a short ROM image remains
 unverified; the current-latch response is only a placeholder and says nothing
 about the physical cartridge bus.
 
@@ -134,7 +707,7 @@ about the physical cartridge bus.
 
 ## Header diagnostics
 
-Profile version 5 retains the configured logo-window comparison using the
+Profile version 6 retains the configured logo-window comparison using the
 owner-authorized SHA-256 row in `tests/signatures/logo.sha256`. The loader hashes
 only the copied candidate window `[0x04, 0xA0)` and reports checked match or checked
 mismatch. A mismatch, missing-window convention, checksum finding or unusual
@@ -292,6 +865,56 @@ attempted write payload. Inspect memory for stored data. BIOS/device execution,
 physical controllers, hardware/game accuracy, licensing and release qualification
 remain outside this profile's evidence.
 
+## IRQ, input, and power policy
+
+The following IRQ, keypad, and power behavior is the selected Gamebloke
+deterministic model. The values do not qualify GBA interrupt latency, a BIOS
+handler, or physical keypad behavior. The event priority and cycle observations
+are checked by the focused Phase 8 CPU and timer selectors.
+
+| Setting | Value | Label | Citation |
+| ------- | ----- | ----- | -------- |
+| irq_input_power_policy.if_ie_mask | 16383 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.ime_mask | 1 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.cpsr_i_mask | 128 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timer0_if_bit | 8 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keypad_if_bit | 4096 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keyinput_mask | 1023 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keycnt_mask | 50175 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.sample_boundary | completed-instruction-effects-and-events-before-next-instruction | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.initial_boundary | after-refill-before-first-instruction | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.entry_internal_cycles | 1 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.no_bios_irq_stop | after-entry-before-vector-fetch | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timer_event_priorities | [0, 1, 2, 3] | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keypad_event_priority | 4 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.input_event_capacity | 256 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.key_polarity | active-low | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keycnt_empty_selection | false | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.keycnt_effective_edge | false-to-true | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.if_ack_while_held | stays-clear-until-condition-falls-then-rises | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.halt_wake_condition | IF-and-IE | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.halt_wake_mask_independent | [IME, CPSR.I] | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.power_transition_cost | internal-only | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.stop_policy | terminal-guest-stop-no-bios-wake | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.stop_cause_code | 3 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.deadlock_policy | distinct-guest-stop | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.deadlock_cause_code | 4 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timeout_policy | cycle-budget-timeout | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.timeout_reason_code | 2 | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+| irq_input_power_policy.qualification | project-model-only | IMPL | Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification. |
+
+## IRQ/input/power policy sources
+
+These cited hardware facts remain separate from the project-selected policy
+above. ARM7TDMI exception state and core cycles do not specify GBA bus waits or
+total GBA interrupt latency. Nintendo's manual describes device behavior; it
+does not qualify this implementation's timing.
+
+| Fact | Evidence | Label | Citation |
+| ---- | -------- | ----- | -------- |
+| irq_input_power_policy.source_facts.arm_exception_entry | ARM7TDMI exception state and entry behavior | REF | Arm ARM7TDMI Technical Reference Manual DDI 0210C §§2.8.1–2.8.5 and 6.12 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819) |
+| irq_input_power_policy.source_facts.gba_devices_and_power | GBA keypad, IRQ, HALT, and STOP behavior | REF | Nintendo AGB Programming Manual v1.1 §§14.1–14.2.1, 15, 16.1–16.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+
 ## SP and AGS naming
 
 The only profile id is `agb`. The SP is `agb` plus a host presentation preset, and
@@ -309,6 +932,276 @@ until owner hardware exists.
 
 This profile does not state that the SP is identical to the AGB.
 
+## Audio behavior policy
+
+The audio profile is the `gamebloke-audio-model-4` project-selected software
+contract. It mixes four modeled PSG sources and two signed Direct Sound FIFO
+latches into stereo PCM before PWM. PSG uses independent left/right routes and
+side levels, with the SOUNDCNT_H group ratio; Direct Sound A/B use independent
+routes and half/full gains without the PSG side-level control. Each source is
+centered and scaled by the explicit project policy below. The mixer sums
+independent signed 64-bit side numerators over denominator 28, rounds once to
+nearest with ties away from zero, then saturates to signed 16-bit. Master
+disable silences both sides and reserved PSG ratio code 3 mutes the PSG group.
+PCM is interleaved left then right, signed 16-bit little-endian, at 32,768
+frames per second. The global grid starts at reset cycle 0 and emits its first
+frame at cycle 512, then every 512 master cycles. Capture intervals are
+start-exclusive and end-inclusive, bounded to 32,768 frames (one second).
+SOUNDBIAS remains accessible under its register policy but does not retime the
+grid or quantize samples.
+
+Amplitudes, rounding, and clipping are Gamebloke software policy and have
+independent expected-sample tests; they do not claim the exact hardware
+transfer function. PSG noise behavior and other listed partial or unsupported
+edges remain model limits. This profile grants no transfer, redistribution, or
+other content rights. `hardware_qualification` remains `UNKNOWN`; no physical
+hardware qualification or broad game-compatibility claim is made.
+
+| Setting | Value |
+| --- | --- |
+| `audio_policy.model` | gamebloke-audio-model-4 |
+| `audio_policy.classification` | project-selected |
+| `audio_policy.hardware_qualification` | UNKNOWN |
+| `audio_policy.tap` | pre-pwm |
+| `audio_policy.encoding` | signed-s16le |
+| `audio_policy.channel_layout` | stereo-interleaved-left-first |
+| `audio_policy.sample_rate_hz` | 32768 |
+| `audio_policy.bytes_per_frame` | 4 |
+| `audio_policy.master_cycles_per_frame` | 512 |
+| `audio_policy.reset_epoch_cycle` | 0 |
+| `audio_policy.first_sample_cycle` | 512 |
+| `audio_policy.interval` | start-exclusive-end-inclusive |
+| `audio_policy.sample_value` | six-source-mixed-signed-s16le |
+| `audio_policy.psg_channel_count` | 4 |
+| `audio_policy.direct_sound_channel_count` | 2 |
+| `audio_policy.psg_source_centering` | per-channel-(2*unsigned-level-15)*2048 |
+| `audio_policy.psg_route_gain_policy` | SOUNDCNT_L-independent-left-right-routes,side-level-0-through-7-over-7-applies-only-to-PSG |
+| `audio_policy.psg_group_ratio_policy` | SOUNDCNT_H-code-0-quarter,code-1-half,code-2-full,code-3-mutes-PSG |
+| `audio_policy.direct_sound_route_gain_policy` | FIFO-A/B-independent-left-right-routes,signed-S8-times-256,half-or-full-gain,SOUNDCNT_L-side-level-excluded |
+| `audio_policy.master_mute_policy` | SOUNDCNT_X-master-off-silences-both-sides |
+| `audio_policy.mix_accumulator_policy` | left-and-right-independent-signed-64-bit-numerators,common-denominator-28 |
+| `audio_policy.mix_rounding_policy` | one-final-nearest-ties-away-from-zero-after-summing |
+| `audio_policy.mix_clipping_policy` | round-then-saturate-to-signed-16-bit |
+| `audio_policy.modeled_sources` | psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples |
+| `audio_policy.direct_sound_fifo_ports` | A=0x040000A0,B=0x040000A4 |
+| `audio_policy.direct_sound_fifo_capacity_bytes` | 32 |
+| `audio_policy.direct_sound_sample_encoding` | signed-s8 |
+| `audio_policy.direct_sound_write_policy` | widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-consuming-one-word |
+| `audio_policy.direct_sound_overflow_policy` | flush-queue-and-cursors-then-accept-whole-current-write |
+| `audio_policy.direct_sound_underflow_policy` | hold-last-signed-sample,reset-latch-zero |
+| `audio_policy.direct_sound_fifo_reset_policy` | selected-queue-cursors-latch-and-pending-request-only,timers-unaffected |
+| `audio_policy.direct_sound_master_disable_policy` | both-queues-cursors-latches-and-pending-requests,timers-continue |
+| `audio_policy.direct_sound_timer_policy` | actual-selected-timer-overflow-only,timer1-cascade-pops-only-on-real-wrap,each-matching-fifo-pops-once |
+| `audio_policy.direct_sound_same_cycle_order` | timer-pop-and-readiness,PSG-progression,sample-old-route,completing-bus-write |
+| `audio_policy.direct_sound_fifo_request_threshold_bytes` | 16 |
+| `audio_policy.direct_sound_fifo_request_policy` | post-pop-exactly-16,no-duplicate-pending-or-active-request |
+| `audio_policy.direct_sound_dma_channel_map` | fifo-a-dma1,fifo-b-dma2 |
+| `audio_policy.direct_sound_dma_transfer_policy` | four-32-bit-words,fixed-mapped-fifo-destination,ignore-programmed-count-width-and-destination-mode |
+| `audio_policy.direct_sound_dma_source_policy` | align-programmed-source-to-word,increment-decrement-or-fixed-in-4-byte-units,validate-all-four-lanes-in-one-modeled-region |
+| `audio_policy.direct_sound_dma_supported_setup` | enabled-special-audio-timing-only |
+| `audio_policy.direct_sound_dma_unsupported_policy` | consume-sample-ignore-refill,no-programmed-destination-fallback |
+| `audio_policy.direct_sound_dma_rearm_policy` | later-threshold-independent-of-repeat-bit,preserve-source-progression |
+| `audio_policy.direct_sound_dma_irq_policy` | set-matching-channel-if-on-completion-only-when-control-irq-enabled |
+| `audio_policy.direct_sound_dma_priority_policy` | reselect-after-startup-and-each-sound-word,higher-priority-runs-at-next-boundary-before-resume |
+| `audio_policy.direct_sound_dma_publication_policy` | whole-private-machine-candidate,all-interleaved-effects-and-sound-words-commit-or-refuse |
+| `audio_policy.direct_sound_primary_source` | AGB Programming Manual v1.1 §§10.2, 10.3, 10.7 and 12.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf) |
+| `audio_policy.direct_sound_supplemental_source` | GBATEK Sound and DMA (community reverse-engineered supplement, https://mgba-emu.github.io/gbatek/) |
+| `audio_policy.direct_sound_secondary_report` | mGBA issue #1847, maintainer report with hedged empty and overflow observations (https://github.com/mgba-emu/mgba/issues/1847) |
+| `audio_policy.direct_sound_policy_classification` | project-selected |
+| `audio_policy.direct_sound_hardware_qualification` | UNKNOWN |
+| `audio_policy.capture_bound_scope` | caller-owned-session |
+| `audio_policy.capture_session_start` | explicit-current-machine-cycle |
+| `audio_policy.capture_session_progress` | accepted-contiguous-operations |
+| `audio_policy.capture_session_global_grid` | unchanged |
+| `audio_policy.max_capture_cycles` | 16777216 |
+| `audio_policy.max_capture_frames` | 32768 |
+| `audio_policy.max_capture_bytes` | 131072 |
+| `audio_policy.refusal_postcondition` | machine-output-session-progress-unchanged |
+| `audio_policy.event_dispatch_limit_per_operation` | 4096 |
+| `audio_policy.same_cycle_order` | ordered-device-effects-including-timer-overflow-and-dma-readiness,then-PSG-progression,then-sample-old-route,then-completing-bus-write-including-dma-data-write |
+| `audio_policy.psg_primary_source` | AGB Programming Manual v1.1 §§10.3-10.6 consulted via third-party-hosted copy |
+| `audio_policy.psg_supplemental_source` | GBATEK 3.06 community reverse-engineered supplement |
+| `audio_policy.psg_sequencer_period_cycles` | 32768 |
+| `audio_policy.psg_sequencer_rate_hz` | 512 |
+| `audio_policy.psg_sequencer_epoch` | reset-cycle-zero |
+| `audio_policy.psg_sequencer_first_tick_cycle` | 32768 |
+| `audio_policy.psg_sequencer_first_step` | 0 |
+| `audio_policy.psg_sequencer_steps` | length-0-2-4-6,sweep-channel-1-steps-2-and-6,envelope-7 |
+| `audio_policy.psg_sequencer_master_off_phase` | reset-anchored-cycle-phase-continues |
+| `audio_policy.psg_trigger_policy` | completion-anchored-trigger,resets-source-phase,square-phase-zero-high,requires-channel-DAC |
+| `audio_policy.psg_ch1_frequency_policy` | effective-frequency-and-sweep-controls-latch-on-trigger,guest-readback-remains-programmed |
+| `audio_policy.psg_reset_policy` | machine-reset-clears-channel-state-status-and-both-Wave-RAM-banks |
+| `audio_policy.psg_master_off_policy` | clears-channel-registers-and-source-state,retains-Wave-RAM,keeps-sequencer-reset-anchor |
+| `audio_policy.psg_dac_disable_policy` | clears-that-channel-source-state-and-status,CH3-Wave-RAM-aperture-remains-accessible |
+| `audio_policy.psg_channel_status_policy` | separate-from-trigger-and-length-enable,trigger-sets-when-DAC-enabled,length-expiry-or-DAC-disable-clears |
+| `audio_policy.psg_length_policy` | trigger-loads-maximum-minus-register,next-eligible-clock-decrements,zero-register-loads-full-maximum,enabled-only |
+| `audio_policy.psg_length_maxima` | ch1=64,ch2=64,ch3=256,ch4=64 |
+| `audio_policy.psg_envelope_policy` | channels-1-2-4,trigger-latches-volume-direction-period,step-7,period-zero-disabled,saturates-at-0-or-15 |
+| `audio_policy.psg_square_period_cycles` | 128*(2048-fdat) |
+| `audio_policy.psg_square_duty_policy` | duty-high-ratios-1-2-4-6-eighths |
+| `audio_policy.psg_ch1_sweep_policy` | trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,subtract-delta-bounded-by-current-frequency,zero-stays-zero,overflow-above-2047-clears-active-status |
+| `audio_policy.psg_noise_divider_formula` | 32*r*2^(shift+1),ratio-zero-r=1/2 |
+| `audio_policy.psg_noise_width_bits` | 15-or-7 |
+| `audio_policy.psg_noise_seeds` | 15-bit=0x4000,7-bit=0x40 |
+| `audio_policy.psg_noise_feedback_masks` | 15-bit=0x6000,7-bit=0x60 |
+| `audio_policy.psg_noise_lfsr_step` | right-shift-xor-feedback-using-width-specific-mask |
+| `audio_policy.psg_noise_prohibited_shifts` | 14,15 |
+| `audio_policy.psg_noise_prohibited_behavior` | holds-LFSR-phase-and-noise-bit,length-and-envelope-clocks-continue |
+| `audio_policy.psg_wave_bank_count` | 2 |
+| `audio_policy.psg_wave_bank_bytes` | 16 |
+| `audio_policy.psg_wave_samples_per_bank` | 32 |
+| `audio_policy.psg_wave_total_bytes` | 32 |
+| `audio_policy.psg_wave_guest_aperture` | 0x04000090-0x0400009F |
+| `audio_policy.psg_wave_guest_widths` | 1,2,4 |
+| `audio_policy.psg_wave_guest_lane_order` | little-endian |
+| `audio_policy.psg_wave_guest_bank_policy` | bank-opposite-SOUND3CNT_L-front-bank |
+| `audio_policy.psg_wave_pattern_length_nibbles` | 32-or-64 |
+| `audio_policy.psg_wave_64_nibble_order` | selected-front-bank-then-other-bank |
+| `audio_policy.psg_wave_nibble_order` | high-then-low |
+| `audio_policy.psg_wave_nibble_period_cycles` | 4*(2048-fdat) |
+| `audio_policy.psg_wave_volume_policy` | field-0-mute-1-full-2-half-3-quarter,force-bit-three-quarter |
+| `audio_policy.psg_live_update_policy` | CH1-frequency-and-sweep-controls-trigger-latched,CH2-frequency-keeps-square-phase-modulo-new-period,CH3-frequency-normalizes-nibble-cycle-remainder-and-pattern-write-normalizes-index,CH4-width-change-reseeds,supported-divider-frequency-writes-normalize-noise-cycle-remainder,same-width-prohibited-divider-writes-preserve-noise-phase-and-remainder |
+| `audio_policy.psg_ch3_rate_policy` | manual-whole-pattern-derived-4*(2048-fdat)-cycles-per-nibble |
+| `audio_policy.psg_ch3_rate_conflict` | GBATEK-nibble-rate-interpretation-differs-by-factor-of-two |
+| `audio_policy.psg_ch3_length_source_note` | AGB-manual-CH3-expiration-paragraph-names-CH2-status-bit,model-uses-CH3-status |
+| `audio_policy.psg_wave_retrigger_corruption` | unmodeled |
+
+The capture cap is cumulative across one explicitly started caller-owned
+session and accepted contiguous operations; starting a session records the
+current machine cycle without moving the global sample grid. Refusal preserves
+the machine, caller output, and session progress. The existing 4,096
+event-dispatch limit remains per operation. One second at the capture cap
+contains more than 59 periods of the existing 280,896-cycle video frame, so
+later audio edge and FIFO-refill probes can use bounded windows without
+replacing existing headless cycle budgets. The production runner accepts a
+bounded audio request, reports capture and artifact outcomes separately from
+general runner status, and writes raw PCM only after the complete requested
+interval is available.
+
+Same-cycle order is project policy: ordered device effects (including timer
+overflow and DMA readiness) and PSG progression settle first, the sample
+observes that state and the old sound route, and the completing bus write
+follows. A DMA data write uses the same completing-write rule; DMA
+readiness/arbitration is not itself a data write.
+
+Direct Sound uses independent 32-byte signed-sample FIFOs at `0x040000A0` and
+`0x040000A4`. Widths 1, 2, and 4 are accepted; bytes are processed in increasing
+address order. Narrow writes merge addressed lanes into the next ring word,
+preserve other lanes, and consume one four-byte queue word per accepted access.
+Overflow flushes that queue and
+accepts the whole write; underflow holds the last signed sample, initialized to
+zero. Actual selected timer overflows pop the FIFO before the same-cycle sample
+edge; a Timer 1 cascade pops only when Timer 1 itself wraps. A post-pop depth of
+exactly 16 requests one refill through the shared arbiter (A uses DMA1, B uses
+DMA2). Each request uses four aligned 32-bit source reads and fixed FIFO writes,
+while preserving programmed readback and source stepping. Priority is selected
+again after startup and every sound word; ordinary interleaved effects remain
+inside the same checked candidate as the full sound refill. Invalid bounds or
+work limits refuse the candidate atomically. These exact queue edges, lane
+merging, overflow/latch behavior, timer mapping, channel mapping, and arbitration
+are Gamebloke policy. The manual is primary for FIFO capacity, signed samples,
+timer selection, threshold, and forced transfer shape; GBATEK is supplementary,
+and the cited mGBA report is secondary implementation evidence. None establishes
+hardware qualification, which remains UNKNOWN. The modeled FIFO source is not
+routed into the signed-zero PCM capture until later mixing work.
+
+### PSG source behavior policy
+
+The sequencer is reset-anchored at cycle 0 with its first 512 Hz tick at cycle
+32,768, step 0. Length clocks run on steps 0, 2, 4, and 6; channel 1 sweep
+runs on steps 2 and 6; envelopes run on step 7. The step is derived from the
+absolute machine cycle, so master-off time does not rephase it. A trigger is
+applied at the completing write, resets the channel source phase, and sets
+active status only when that channel's DAC is enabled. Length, DAC enable, and
+active status are separate state. Trigger loads the channel's maximum length
+minus its length register; a zero length register loads the full maximum, and
+only enabled lengths decrement at eligible sequencer clocks. Envelopes for
+channels 1, 2, and 4 latch initial volume, direction, and period on trigger,
+clock on step 7, and stop at 0 or 15; period zero disables envelope clocks.
+
+Channels 1 and 2 use a square period of `128 * (2048 - fdat)` master cycles.
+The eight-part duty choices have 1/8, 2/8, 4/8, or 6/8 high time; trigger
+starts phase zero high, and live frequency writes retain elapsed phase modulo
+the new period. Channel 1 latches its sweep controls and effective frequency
+on trigger. Sweep clocks on steps 2 and 6; shift zero leaves frequency
+unchanged and time zero disables sweep. For a valid 11-bit frequency and
+nonzero shift, the subtract delta is bounded by the current frequency, so zero
+stays zero; a result above 2047 clears channel 1 activity. The effective
+frequency and sweep controls are trigger-latched; guest frequency readback
+continues to report the programmed value.
+
+Channel 4 uses the selected divider equation `32 * r * 2^(shift + 1)`, where
+ratio zero selects `r = 1/2`. The 15-bit and 7-bit LFSRs seed to `0x4000` and
+`0x40`, use feedback masks `0x6000` and `0x60`, and shift right before XORing
+the width-specific mask when the feedback bit is set. Shift codes 14 and 15
+hold the LFSR phase and output bit; shared length and envelope clocks continue.
+Same-width writes with those prohibited divider shifts preserve the LFSR phase
+and noise cycle remainder; supported divider writes normalize the remainder
+to the new period. A width change reseeds the LFSR and clears the remainder.
+
+Channel 3 has two 16-byte banks, each storing 32 packed four-bit samples. Its
+16-byte guest window at `0x04000090–0x0400009F` supports byte, halfword, and
+word lanes in little-endian order and always exposes the bank opposite the
+selected front bank. Playback reads the high nibble then low nibble, starts
+with the selected bank, and appends the other bank in 64-nibble mode. Volume
+fields select mute, full, half, or quarter level; the force-volume bit selects
+three-quarter level. The selected rate is `4 * (2048 - fdat)` master cycles
+per nibble for both pattern lengths.
+
+The selected formulas follow Nintendo's *AGB Programming Manual* v1.1
+§§10.3–10.6, consulted through a [third-party-hosted copy](https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf).
+[GBATEK 3.06](https://problemkaputt.de/gbatek.htm) is supplementary
+community reverse-engineered evidence. Its channel 3 nibble-rate reading
+differs from the manual-derived selection by a factor of two. The manual's
+channel 3 expiration paragraph names the channel 2 status bit; this model
+uses channel 3's own status. Undocumented channel 3 retrigger corruption is
+unmodeled. These are software policy and source limitations, not hardware
+qualification; hardware qualification remains UNKNOWN.
+
+## Audio register policy
+
+| Setting | Register | Address | Retained mask | Read mask | Action mask | Projected effect |
+| --- | --- | --- | --- | --- | --- | --- |
+| `audio_policy.registers.SOUND1CNT_L` | `SOUND1CNT_L` | `0x04000060` | `0x007F` | `0x007F` | `0x0000` | sweep-control |
+| `audio_policy.registers.SOUND1CNT_H` | `SOUND1CNT_H` | `0x04000062` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
+| `audio_policy.registers.SOUND1CNT_X` | `SOUND1CNT_X` | `0x04000064` | `0x47FF` | `0x47FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
+| `audio_policy.registers.SOUND2CNT_L` | `SOUND2CNT_L` | `0x04000068` | `0xFFFF` | `0xFFC0` | `0x0000` | length-envelope-duty-control |
+| `audio_policy.registers.SOUND2CNT_H` | `SOUND2CNT_H` | `0x0400006C` | `0x47FF` | `0x47FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
+| `audio_policy.registers.SOUND3CNT_L` | `SOUND3CNT_L` | `0x04000070` | `0x00E0` | `0x00E0` | `0x0000` | DAC-bank-and-dimension-control |
+| `audio_policy.registers.SOUND3CNT_H` | `SOUND3CNT_H` | `0x04000072` | `0xE0FF` | `0xE000` | `0x0000` | length-data-and-volume-control |
+| `audio_policy.registers.SOUND3CNT_X` | `SOUND3CNT_X` | `0x04000074` | `0x47FF` | `0x47FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
+| `audio_policy.registers.SOUND4CNT_L` | `SOUND4CNT_L` | `0x04000078` | `0xFF3F` | `0xFF00` | `0x0000` | length-and-envelope-control |
+| `audio_policy.registers.SOUND4CNT_H` | `SOUND4CNT_H` | `0x0400007C` | `0x40FF` | `0x40FF` | `0x8000` | length-enable-retained-trigger-self-clears-separate-status |
+| `audio_policy.registers.SOUNDCNT_L` | `SOUNDCNT_L` | `0x04000080` | `0xFF77` | `0xFF77` | `0x0000` | psg-routing-and-volume-state |
+| `audio_policy.registers.SOUNDCNT_H` | `SOUNDCNT_H` | `0x04000082` | `0x770F` | `0x770F` | `0x8800` | direct-sound-routing-and-volume-state-fifo-reset-actions |
+| `audio_policy.registers.SOUNDCNT_X` | `SOUNDCNT_X` | `0x04000084` | `0x0080` | `0x008F` | `0x0000` | master-enable-dynamic-channel-status-disable-clears-channel-state |
+
+Bit 14 in each channel frequency/noise control register is the retained sound
+length flag. Active channel status is reported separately in `SOUNDCNT_X`
+bits 0–3.
+
+`SOUNDCNT_X` master enable gates channel-register writes; disabling it clears
+the channel register/activity state. SOUNDBIAS remains accessible while audio
+master enable is off and is outside that reset subset.
+
+## SOUNDBIAS policy
+
+| Setting | Value |
+| --- | --- |
+| `audio_policy.soundbias.address` | 0x04000088-0x04000089 |
+| `audio_policy.soundbias.writable_mask` | 0xC3FF |
+| `audio_policy.soundbias.reset_value` | 0x0200 |
+| `audio_policy.soundbias.master_off_access` | available |
+| `audio_policy.soundbias.cadence_effect` | none |
+| `audio_policy.soundbias.capture_quantization` | none |
+
+PCM routing and mixing, PWM carrier, and analog output are unmodeled. PSG source
+calculations, Wave RAM access, and Direct Sound FIFO source/refill behavior are
+implemented as software model behavior, but are not routed to capture. Hardware
+qualification remains UNKNOWN. A
+digest establishes byte identity/replay equality only, not source correctness,
+hardware accuracy, compatibility, or rights.
+
 ## Unmodeled
 
 Each entry below is listed in `profiles/agb.json` with status `unmodeled`. A result
@@ -317,13 +1210,15 @@ must not claim the behavior of anything in this table.
 | Id | What is not modeled |
 | -- | ------------------- |
 | `sp-micro-differences` | SP and Micro differences. Includes the EWRAM wait register at 0x04000800 (its fastest setting is reported to lock up the Micro, REF) and the Micro's missing cartridge switch (REF). |
-| `prefetch` | The cartridge prefetch buffer and cartridge wait-state timing. |
-| `hblank-flag-edge` | The cycle at which the HBlank flag changes; disputed, see disp-hblank-flag-edge. |
-| `ppu` | Picture processing. |
-| `audio` | Sound. |
-| `dma` | DMA transfers and their timing. |
-| `timers` | Hardware timers. |
-| `irq-controller` | The interrupt controller. |
+| `prefetch` | Game Pak prefetch fill/hit execution is unmodeled; WAITCNT bit 14 is register state only. |
+| `waitcnt` | Documented wait choices drive contextual ROM beat quotes, but hardware qualification remains UNKNOWN and the 128 KiB mapping has secondary provenance. |
+| `bus-costs` | Non-ROM values remain project-selected and all modeled bus costs remain hardware-unqualified. |
+| `hblank-flag-edge` | Hardware timing for the HBlank flag change remains unknown and disputed under disp-hblank-flag-edge; the selected 1,006-cycle model event is in ppu_policy and is not a hardware resolution. |
+| `ppu` | The deterministic partial modes, OBJ, window, effect, mosaic, and forced-blank subset is described in `ppu_policy` as project-selected software behavior; all six mode statuses remain partial and hardware qualification remains UNKNOWN. Prohibited OBJ mode/shape encodings and unsupported background-control encodings remain unmodeled. |
+| `audio` | Four PSG source calculations, bounded Wave RAM access, Direct Sound FIFO A/B source and DMA refill behavior, sound-control state, and signed-zero pre-PWM capture are described by `audio_policy`; PCM routing/mixing, PWM carrier, and analog output remain unmodeled, and hardware qualification remains UNKNOWN. |
+| `dma` | The deterministic project DMA subset, Direct Sound FIFO A/B routes, and existing VBlank plus visible-line HBlank PPU paths are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode, DRQ, and other deferred producers remain unmodeled. |
+| `timer-edge-qualification` | Exact hardware qualification for first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering. The deterministic timer model is implemented; these edges remain UNKNOWN on hardware. |
+| `irq-controller` | A complete hardware-qualified GBA interrupt controller. The deterministic IF/IE/IME and CPU-boundary subset is implemented under `irq_input_power_policy`; exact GBA IRQ latency and BIOS-handler behavior remain unqualified. |
 | `backup-media` | Cartridge backup storage (save memory). |
 | `bios-protection` | CPU fetches participate in BIOS protection checks, but region/state-specific open-bus behavior and Game Pak prefetch are not qualified or emulated. |
-| `io-devices` | I/O device register semantics. |
+| `io-devices` | I/O register semantics remain incomplete and hardware-unqualified. Timer, IF/IE/IME, KEYINPUT/KEYCNT, and the VCOUNT/DISPSTAT/DISPCNT subset is described by the timer, `irq_input_power_policy`, and `ppu_policy` entries; unsupported reads still use the project-policy placeholder. |

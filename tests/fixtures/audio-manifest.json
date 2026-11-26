@@ -1,0 +1,35 @@
+{
+  "schema": "gamebloke.manifest/1",
+  "fixtures": [
+    {
+      "id": "owned-audio-mix",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/szTheory/gamebloke",
+        "commit": "36bff0a5df21445d3648b6776be7172c562a0e98"
+      },
+      "license": {
+        "spdx": "LicenseRef-Gamebloke-Audio-Diagnostic-Local-Use",
+        "notices": ["tests/fixtures/audio-NOTICE.md"],
+        "redistributable": "unknown"
+      },
+      "build": {
+        "recipe": "CMake local-audio lane; gbl_audio_guest_image tests/fixtures/audio_image.c <local-build>/generated/fixtures; C17 direct-start 0x400-byte ARM image; source_sha256=2c39d1d57d3d92f8b0aa48ed20cd35e013df9daf20ff31fc794dc3073da7e508; output only in ignored local build tree",
+        "toolchain": {
+          "identity": "AppleClang 21.0.0.21000101; CMake 4.4.3; C17 host generator",
+          "sha256": null
+        },
+        "artifact": {
+          "path": "generated/fixtures/owned-audio-mix.gba",
+          "sha256": "68f25764b70d59a6c898c7c4a7610c701588f6722582319097f634bc1ab04d82"
+        }
+      },
+      "bios_requirement": "none",
+      "expected": {
+        "provenance_class": "project-authored",
+        "dispute": null
+      },
+      "permitted_use": ["local-only"]
+    }
+  ]
+}

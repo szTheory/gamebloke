@@ -17,7 +17,7 @@ if(NOT COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
   message(FATAL_ERROR "mutation: unsupported compiler id '${COMPILER_ID}'")
 endif()
 
-function(gbl__mutate_bus bus_source mutation)
+function(gbl__mutate_bus bus_source machine_source mutation)
   if(mutation STREQUAL "ewram_mirror")
     gbl_text_mutate("${bus_source}" "#define GBL_EWRAM_MASK 0x3FFFFu"
       "#define GBL_EWRAM_MASK 0x3FFFDu")
@@ -28,24 +28,21 @@ function(gbl__mutate_bus bus_source mutation)
     gbl_text_mutate("${bus_source}" "#define GBL_VRAM_MASK 0x1FFFFu"
       "#define GBL_VRAM_MASK 0x1FFFDu")
   elseif(mutation STREQUAL "video_bg_obj")
-    gbl_text_mutate("${bus_source}" "if (index < obj_base) {"
-      "if (index >= obj_base) {")
+    gbl_text_mutate("${bus_source}"
+      [=[(mode <= 2u ? UINT32_C(0x10000)
+                                 : UINT32_C(0x14000))]=]
+      [=[(mode <= 2u ? UINT32_C(0x14000)
+                                 : UINT32_C(0x10000))]=])
   elseif(mutation STREQUAL "video_oam_byte")
-    set(find [=[        if (request_width == 1u) {
-            return GBL_BUS_OUTCOME_RAM;
-        }
+    set(find [=[        ignored_lane = request_width == 1u;
 ]=])
-    set(replace [=[        if (request_width == 1u) {
-            memory_byte = gbl_bus_memory_byte(machine, region, address);
-            *memory_byte = value;
-            return GBL_BUS_OUTCOME_RAM;
-        }
+    set(replace [=[        ignored_lane = false;
 ]=])
     gbl_text_mutate("${bus_source}" "${find}" "${replace}")
   elseif(mutation STREQUAL "clock_overflow")
-    gbl_text_mutate("${bus_source}"
-      "if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {"
-      "if (machine->master_cycles < UINT64_MAX && UINT64_C(1) > UINT64_MAX - machine->master_cycles) {")
+    gbl_text_mutate("${machine_source}"
+      "if (operation->cycles > UINT64_MAX - candidate.master_cycles) {"
+      "if (candidate.master_cycles < UINT64_MAX && operation->cycles > UINT64_MAX - candidate.master_cycles) {")
   else()
     message(FATAL_ERROR "mutation: unknown case '${mutation}'")
   endif()
@@ -54,11 +51,17 @@ endfunction()
 function(gbl__copy_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
+  foreach(source IN ITEMS version.c machine.c audio.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
+  file(COPY_FILE "${SRC}/src/dma_internal.h"
+    "${sandbox}/src/dma_internal.h")
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
+  file(COPY_FILE "${SRC}/src/ppu_internal.h"
+    "${sandbox}/src/ppu_internal.h")
+  file(COPY_FILE "${SRC}/src/audio_internal.h"
+    "${sandbox}/src/audio_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/bus_test.c" "${sandbox}/tests/bus_test.c")
@@ -70,8 +73,13 @@ endfunction()
 function(gbl__compile_bus sandbox mutation output_executable)
   gbl__copy_inputs("${sandbox}")
   if(NOT mutation STREQUAL "")
-    gbl__mutate_bus("${sandbox}/src/bus.c" "${mutation}")
-    set(changed_source src/bus.c)
+    gbl__mutate_bus("${sandbox}/src/bus.c" "${sandbox}/src/machine.c"
+      "${mutation}")
+    if(mutation STREQUAL "clock_overflow")
+      set(changed_source src/machine.c)
+    else()
+      set(changed_source src/bus.c)
+    endif()
   else()
     set(changed_source "")
   endif()
@@ -95,7 +103,8 @@ function(gbl__compile_bus sandbox mutation output_executable)
       ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
-      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/audio.c" "${sandbox}/src/bus.c"
+      "${sandbox}/src/loader.c"
       "${sandbox}/src/cpu.c"
       "${sandbox}/tests/bus_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}
@@ -166,11 +175,17 @@ endfunction()
 function(gbl__copy_loader_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c)
+  foreach(source IN ITEMS version.c machine.c audio.c bus.c loader.c cpu.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
+  file(COPY_FILE "${SRC}/src/ppu_internal.h"
+    "${sandbox}/src/ppu_internal.h")
+  file(COPY_FILE "${SRC}/src/audio_internal.h"
+    "${sandbox}/src/audio_internal.h")
+  file(COPY_FILE "${SRC}/src/dma_internal.h"
+    "${sandbox}/src/dma_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   file(COPY_FILE "${SRC}/tests/loader_test.c" "${sandbox}/tests/loader_test.c")
@@ -288,11 +303,18 @@ endfunction()
 function(gbl__copy_cpu_inputs sandbox)
   file(MAKE_DIRECTORY "${sandbox}/src" "${sandbox}/include/gamebloke"
     "${sandbox}/tests")
-  foreach(source IN ITEMS version.c machine.c bus.c loader.c cpu.c inspect.c)
+  foreach(source IN ITEMS version.c machine.c audio.c bus.c loader.c cpu.c
+      inspect.c)
     file(COPY_FILE "${SRC}/src/${source}" "${sandbox}/src/${source}")
   endforeach()
   file(COPY_FILE "${SRC}/src/logo_sha256.h" "${sandbox}/src/logo_sha256.h")
   file(COPY_FILE "${SRC}/src/cpu_helpers.h" "${sandbox}/src/cpu_helpers.h")
+  file(COPY_FILE "${SRC}/src/ppu_internal.h"
+    "${sandbox}/src/ppu_internal.h")
+  file(COPY_FILE "${SRC}/src/audio_internal.h"
+    "${sandbox}/src/audio_internal.h")
+  file(COPY_FILE "${SRC}/src/dma_internal.h"
+    "${sandbox}/src/dma_internal.h")
   file(COPY_FILE "${SRC}/include/gamebloke/gamebloke.h"
     "${sandbox}/include/gamebloke/gamebloke.h")
   foreach(test_header IN ITEMS check.h state_check.h)
@@ -353,7 +375,8 @@ function(gbl__compile_cpu sandbox mutation output_executable)
       ${warning_flags} ${core_flags} "-DGBL_VERSION_STRING=\"${VERSION}\""
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
-      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/audio.c" "${sandbox}/src/bus.c"
+      "${sandbox}/src/loader.c"
       "${sandbox}/src/cpu.c" "${sandbox}/src/inspect.c"
       "${sandbox}/tests/cpu_test.c"
       -o "${executable}" ${link_flags} ${link_config_flags}
@@ -470,7 +493,8 @@ function(gbl__compile_cpu_reused_pair root mutation output_mutant
   # above covers every copied input except cpu.c, including all headers and the
   # real cpu_test.c. The two CPU objects and links remain independent.
   set(shared_objects "")
-  foreach(source IN ITEMS src/version.c src/machine.c src/bus.c src/loader.c)
+  foreach(source IN ITEMS src/version.c src/machine.c src/audio.c src/bus.c
+      src/loader.c)
     get_filename_component(object_name "${source}" NAME_WE)
     gbl__compile_cpu_object("${clean_sandbox}" "${source}"
       "${root}/objects/shared" "${object_name}" object)
@@ -508,7 +532,7 @@ function(gbl__compile_cpu_reused_pair root mutation output_mutant
       "mutation: reuse-control: mutant and clean executables are not isolated")
   endif()
   message(STATUS
-    "mutation: reuse-control passed for '${mutation}': six common objects shared; CPU objects and executables are separate")
+    "mutation: reuse-control passed for '${mutation}': seven common objects shared; CPU objects and executables are separate")
 
   set(${output_mutant} "${mutant_executable}" PARENT_SCOPE)
   set(${output_clean} "${clean_executable}" PARENT_SCOPE)
@@ -535,7 +559,7 @@ function(gbl__run_cpu_pair mutation label selector)
   elseif(mutation STREQUAL "bank_alias")
     set(failure_regex "not ok 1 - all seven modes select shared and private physical registers")
   elseif(mutation STREQUAL "exception_lr")
-    set(failure_regex "not ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
+    set(failure_regex "not ok 12 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
   elseif(mutation STREQUAL "vector_fetch")
     set(failure_regex "not ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
   elseif(mutation STREQUAL "peek_effect")
@@ -547,7 +571,7 @@ function(gbl__run_cpu_pair mutation label selector)
   elseif(mutation STREQUAL "block_effect_order")
     set(failure_regex "not ok 5 - LDM\\^ PC returns from FIQ using captured banked destinations and Thumb SPSR")
   elseif(mutation STREQUAL "loaded_pc")
-    set(failure_regex "not ok 1 - LDR PC refills from the actual BIOS-absent word result")
+    set(failure_regex "not ok [0-9]+ - LDR PC refills from the actual BIOS-absent word result")
   elseif(mutation STREQUAL "maximum_trace")
     set(failure_regex "not ok 1 - sixteen-register LDM uses the final bus result for PC and fits 19 trace records")
   elseif(mutation STREQUAL "multiply_flags")
@@ -571,7 +595,7 @@ function(gbl__run_cpu_pair mutation label selector)
   elseif(selector STREQUAL "modes")
     set(clean_regex "ok 1 - all seven modes select shared and private physical registers")
   elseif(selector STREQUAL "exceptions")
-    set(clean_regex "ok 8 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
+    set(clean_regex "ok 12 - ARM and Thumb exceptions use exact address bases, masks, SPSRs, banks and vectors")
   elseif(selector STREQUAL "no_bios")
     set(clean_regex "ok 1 - ARM and Thumb SWI/undefined guests stop with named BIOS-none causes")
   elseif(selector STREQUAL "peek")
@@ -651,7 +675,8 @@ function(gbl__compile_loader sandbox mutation output_executable expectation_mode
       ${logo_flags}
       "-I${sandbox}/include" "-I${sandbox}/tests"
       "${sandbox}/src/version.c" "${sandbox}/src/machine.c"
-      "${sandbox}/src/bus.c" "${sandbox}/src/loader.c"
+      "${sandbox}/src/audio.c" "${sandbox}/src/bus.c"
+      "${sandbox}/src/loader.c"
       "${sandbox}/src/cpu.c"
       "${sandbox}/tests/loader_test.c" -o "${executable}"
       ${link_flags} ${link_config_flags}

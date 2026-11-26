@@ -68,6 +68,15 @@
         "GBL_DIAGNOSTIC_STAGE": "admitted",
         "GBL_DIAGNOSTIC_GROUP": "thumb"
       }
+    },
+    {
+      "name": "local-playable0",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "GBL_LANE": "local-playable0"
+      }
     }
   ],
   "buildPresets": [
@@ -82,6 +91,10 @@
     {
       "name": "diagnostics-thumb",
       "configurePreset": "diagnostics-thumb"
+    },
+    {
+      "name": "local-playable0",
+      "configurePreset": "local-playable0"
     }
   ],
   "testPresets": [
@@ -93,7 +106,7 @@
         "outputJUnitFile": "${sourceDir}/build/ci/junit.xml"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "jobs": 4, "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "ci-post",
@@ -109,8 +122,8 @@
         "outputOnFailure": true,
         "outputJUnitFile": "${sourceDir}/build/hygiene/junit.xml"
       },
-      "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "filter": { "include": { "label": "^(hygiene|signature|manifest|pins)$" } },
+      "execution": { "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "hygiene-post",
@@ -128,7 +141,7 @@
         "outputJUnitFile": "${sourceDir}/build/asan/junit.xml"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "jobs": 2, "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "asan-post",
@@ -146,7 +159,7 @@
         "verbosity": "verbose"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "jobs": 2, "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "diagnostics-post",
@@ -169,7 +182,9 @@
         }
       },
       "execution": {
-        "noTestsAction": "error"
+        "jobs": 2,
+        "noTestsAction": "error",
+        "stopOnFailure": true
       }
     },
     {
@@ -201,7 +216,9 @@
         }
       },
       "execution": {
-        "noTestsAction": "error"
+        "jobs": 2,
+        "noTestsAction": "error",
+        "stopOnFailure": true
       }
     },
     {
@@ -235,8 +252,7 @@
       "steps": [
         { "type": "configure", "name": "hygiene" },
         { "type": "build", "name": "hygiene" },
-        { "type": "test", "name": "hygiene" },
-        { "type": "test", "name": "hygiene-post" }
+        { "type": "test", "name": "hygiene" }
       ]
     },
     {

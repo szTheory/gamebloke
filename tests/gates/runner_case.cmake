@@ -16,32 +16,6 @@ set(production "${BIN}/gamebloke-run")
 set(unit_test "${BIN}/runner_test")
 set(fixtures "${BIN}/generated/fixtures")
 set(scratch "${BIN}/runner-cases")
-foreach(path IN ITEMS "${control}" "${production}" "${unit_test}"
-    "${fixtures}/owned-arm-pass.gba" "${fixtures}/owned-arm-fail.gba"
-    "${fixtures}/owned-arm-pass-zero-case.gba"
-    "${fixtures}/owned-arm-partial.gba" "${fixtures}/owned-arm-pass-mutated.gba"
-    "${fixtures}/owned-arm-loop.gba" "${fixtures}/owned-arm-swi.gba"
-    "${fixtures}/owned-arm-undefined.gba"
-    "${fixtures}/owned-arm-coprocessor.gba")
-  if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
-    message(FATAL_ERROR "runner-case: required generated input is missing")
-  endif()
-endforeach()
-
-file(MAKE_DIRECTORY "${scratch}")
-execute_process(
-  COMMAND "${unit_test}" prepare "${scratch}/refusals"
-  RESULT_VARIABLE prepare_result
-  OUTPUT_VARIABLE prepare_stdout
-  ERROR_VARIABLE prepare_stderr)
-if(NOT "${prepare_result}" STREQUAL "0" OR
-    NOT EXISTS "${scratch}/refusals/empty.gba" OR
-    NOT EXISTS "${scratch}/refusals/short.gba" OR
-    NOT EXISTS "${scratch}/refusals/odd.gba" OR
-    NOT EXISTS "${scratch}/refusals/oversized.gba")
-  message(FATAL_ERROR "runner-case: refusal-input-generation-failed")
-endif()
-
 function(expect_json_field json expected)
   string(JSON actual ERROR_VARIABLE json_error GET "${json}" ${ARGN})
   if(NOT "${json_error}" STREQUAL "NOTFOUND" OR
@@ -68,6 +42,446 @@ function(expect_json_boolean json expected)
   else()
     message(FATAL_ERROR "runner-case: invalid boolean expectation")
   endif()
+endfunction()
+
+function(expect_json_type json expected)
+  string(JSON actual ERROR_VARIABLE json_error TYPE "${json}" ${ARGN})
+  if(NOT "${json_error}" STREQUAL "NOTFOUND" OR
+      NOT "${actual}" STREQUAL "${expected}")
+    message(FATAL_ERROR
+      "runner-case: expected JSON type ${ARGN}=${expected}; got ${actual}; ${json_error}")
+  endif()
+endfunction()
+
+function(expect_audio_result_valid label json)
+  set(result_path "${audio_scratch}/${label}.json")
+  file(WRITE "${result_path}" "${json}\n")
+  execute_process(COMMAND "${CMAKE_COMMAND}"
+    "-DRESULT=${result_path}" "-DMANIFEST=${audio_manifest}"
+    "-DREGISTRY=${SRC}/registry/disputes.json"
+    "-DVOCAB=${SRC}/contracts/evidence.json" -DGBL_RESULT_REQUIRE_AUDIO=ON
+    -P "${SRC}/cmake/CheckResult.cmake"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT "${result}" STREQUAL "0" OR
+      NOT "${output}${error}" MATCHES "result: ok \\(")
+    message(FATAL_ERROR
+      "runner-case: ${label} producer audio receipt failed validation: ${output}${error}")
+  endif()
+endfunction()
+
+if(DEFINED CASE AND CASE STREQUAL "audio_controls")
+  set(audio_scratch "${BIN}/runner-audio-controls")
+  set(audio_manifest "${BIN}/generated/control/manifest.json")
+  set(failure_receipt
+    "${audio_scratch}/audio-capture-allocation-failure.json")
+  if(NOT EXISTS "${unit_test}" OR NOT EXISTS "${audio_manifest}")
+    message(FATAL_ERROR "runner-case: audio controls validation inputs are missing")
+  endif()
+  file(MAKE_DIRECTORY "${audio_scratch}")
+  file(REMOVE "${failure_receipt}")
+  execute_process(
+    COMMAND "${unit_test}" audio.controls "${audio_scratch}"
+    RESULT_VARIABLE controls_result
+    OUTPUT_VARIABLE controls_stdout
+    ERROR_VARIABLE controls_stderr)
+  if(NOT "${controls_result}" STREQUAL "0")
+    message(FATAL_ERROR
+      "runner-case: runner_test audio.controls failed: ${controls_stdout}${controls_stderr}")
+  endif()
+  if(NOT EXISTS "${failure_receipt}")
+    message(FATAL_ERROR
+      "runner-case: allocation-failure producer receipt was not written")
+  endif()
+  file(READ "${failure_receipt}" failure_json)
+  expect_audio_result_valid("failed-capture-setup" "${failure_json}")
+  expect_json_field("${failure_json}" HARNESS_FAIL status)
+  expect_json_field("${failure_json}" audio-capture-allocation-failed reason)
+  expect_json_boolean("${failure_json}" false fixture ran)
+  expect_json_boolean("${failure_json}" true audio requested)
+  expect_json_field("${failure_json}" failed audio capture_state)
+  expect_json_field("${failure_json}" not-written audio artifact state)
+  expect_json_type("${failure_json}" NULL audio artifact error)
+  file(REMOVE "${failure_receipt}"
+    "${audio_scratch}/failed-capture-setup.json")
+  message(STATUS
+    "runner-case: capture-allocation failure receipt passed strict audio validation")
+  return()
+endif()
+
+if(DEFINED CASE AND CASE STREQUAL "audio_cli")
+  set(audio_runner "${production}")
+  set(audio_runner_label production)
+  set(audio_rom "${BIN}/generated/diagnostics/armv4t/arm/roms/arm-268640271.gba")
+  set(audio_fixture_id arm-268640271)
+  set(audio_manifest "${SRC}/tests/fixtures/manifest.json")
+  if(CONTROL_INDEX)
+    set(audio_runner "${control}")
+    set(audio_runner_label synthetic-control)
+    set(audio_rom "${fixtures}/owned-arm-pass.gba")
+    set(audio_fixture_id synthetic-control-pass)
+    set(audio_manifest "${BIN}/generated/control/manifest.json")
+  endif()
+  if(NOT EXISTS "${audio_runner}" OR NOT EXISTS "${audio_rom}" OR
+      NOT EXISTS "${unit_test}" OR NOT EXISTS "${audio_manifest}")
+    message(FATAL_ERROR "runner-case: ${audio_runner_label} audio_cli inputs are missing")
+  endif()
+  set(audio_scratch "${scratch}/audio-cli")
+  file(MAKE_DIRECTORY "${audio_scratch}")
+  set(audio_output "${audio_scratch}/empty.raw")
+  file(REMOVE "${audio_output}")
+
+  execute_process(
+    COMMAND "${audio_runner}" --rom "${audio_rom}" --fixture "${audio_fixture_id}"
+      --cycles 1000 --audio-output "${audio_output}" --audio-cycles 1
+    RESULT_VARIABLE audio_rc OUTPUT_VARIABLE audio_json ERROR_VARIABLE audio_error)
+  if(NOT "${audio_rc}" STREQUAL "0")
+    message(FATAL_ERROR
+      "runner-case: ${audio_runner_label} audio CLI failed (${audio_rc}): ${audio_error}; ${audio_json}")
+  endif()
+  expect_audio_result_valid("empty-audio" "${audio_json}")
+  expect_json_field("${audio_json}" PASS status)
+  expect_json_field("${audio_json}" mailbox-complete termination)
+  expect_json_field("${audio_json}" gamebloke-audio-model-4 audio model)
+  expect_json_field("${audio_json}" agb audio profile id)
+  expect_json_field("${audio_json}" 16 audio profile version)
+  expect_json_field("${audio_json}" project-selected audio policy_classification)
+  expect_json_field("${audio_json}" UNKNOWN audio hardware_qualification)
+  expect_json_field("${audio_json}" pre-pwm audio policy tap)
+  expect_json_field("${audio_json}" fixed-reset-anchored-grid audio policy tap_policy)
+  expect_json_field("${audio_json}" signed-s16le audio policy encoding)
+  expect_json_field("${audio_json}" 32768 audio policy sample_rate_hz)
+  expect_json_field("${audio_json}" 512 audio policy sample_cycles)
+  expect_json_boolean("${audio_json}" true audio requested)
+  expect_json_field("${audio_json}" 1 audio requested_interval end_cycle)
+  expect_json_field("${audio_json}" 1 audio actual_interval end_cycle)
+  expect_json_field("${audio_json}" complete audio capture_state)
+  expect_json_boolean("${audio_json}" true audio interval_complete)
+  expect_json_field("${audio_json}" 0 audio frame_count)
+  expect_json_field("${audio_json}" 0 audio byte_count)
+  expect_json_field("${audio_json}" emitted audio artifact state)
+  expect_json_field("${audio_json}" e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 audio artifact sha256)
+  file(SIZE "${audio_output}" audio_size)
+  file(SHA256 "${audio_output}" audio_digest)
+  if(NOT audio_size EQUAL 0 OR
+      NOT audio_digest STREQUAL "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    message(FATAL_ERROR "runner-case: exact empty audio file evidence differs")
+  endif()
+  string(JSON source_count LENGTH "${audio_json}" audio policy implemented_sources)
+  if(NOT source_count EQUAL 6)
+    message(FATAL_ERROR "runner-case: audio implementation source inventory is incomplete")
+  endif()
+
+  set(existing_audio_output "${audio_scratch}/existing.raw")
+  file(WRITE "${existing_audio_output}" "preserve-this-audio")
+  execute_process(
+    COMMAND "${audio_runner}" --rom "${audio_rom}" --fixture "${audio_fixture_id}"
+      --cycles 1000 --audio-output "${existing_audio_output}" --audio-cycles 1
+    RESULT_VARIABLE existing_rc OUTPUT_VARIABLE existing_json
+    ERROR_VARIABLE existing_error)
+  if(NOT "${existing_rc}" STREQUAL "1")
+    message(FATAL_ERROR
+      "runner-case: PASS guest with refused artifact must return nonzero: ${existing_error}")
+  endif()
+  expect_audio_result_valid("failed-artifact-audio" "${existing_json}")
+  expect_json_field("${existing_json}" PASS status)
+  expect_json_field("${existing_json}" mailbox-complete termination)
+  expect_json_field("${existing_json}" complete audio capture_state)
+  expect_json_boolean("${existing_json}" true audio interval_complete)
+  expect_json_field("${existing_json}" failed audio artifact state)
+  expect_json_field("${existing_json}" audio-output-already-exists audio artifact error)
+  expect_json_type("${existing_json}" NULL audio artifact byte_count)
+  expect_json_type("${existing_json}" NULL audio artifact sha256)
+  file(READ "${existing_audio_output}" existing_audio_bytes)
+  if(NOT existing_audio_bytes STREQUAL "preserve-this-audio")
+    message(FATAL_ERROR "runner-case: exclusive output failure changed existing bytes")
+  endif()
+
+  function(expect_audio_usage name)
+    execute_process(COMMAND "${audio_runner}" ${ARGN}
+      RESULT_VARIABLE usage_rc OUTPUT_VARIABLE usage_stdout ERROR_VARIABLE usage_stderr)
+    if(NOT "${usage_rc}" STREQUAL "2" OR NOT "${usage_stdout}" STREQUAL "" OR
+        NOT "${usage_stderr}" MATCHES "^usage: gamebloke-run")
+      message(FATAL_ERROR
+        "runner-case: audio ${name} was not refused before execution (${usage_rc}): ${usage_stdout}${usage_stderr}")
+    endif()
+    if(name MATCHES "alias" AND
+        NOT "${usage_stderr}" MATCHES
+          "gamebloke-run: audio-output-path-conflict")
+      message(FATAL_ERROR
+        "runner-case: audio ${name} did not report the stable path-conflict reason: ${usage_stderr}")
+    endif()
+  endfunction()
+
+  expect_audio_usage(duplicate-output --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/a.raw" --audio-output "${audio_scratch}/b.raw")
+  expect_audio_usage(empty-output --rom "${audio_rom}" --cycles 1000 --audio-output "")
+  expect_audio_usage(cycles-require-output --rom "${audio_rom}" --cycles 1000
+    --audio-cycles 1)
+  expect_audio_usage(empty-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/empty-cycles.raw" --audio-cycles "")
+  expect_audio_usage(duplicate-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/dup.raw" --audio-cycles 1 --audio-cycles 2)
+  expect_audio_usage(overflow-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/overflow.raw" --audio-cycles 18446744073709551616)
+  expect_audio_usage(signed-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/signed.raw" --audio-cycles +1)
+  expect_audio_usage(negative-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/negative.raw" --audio-cycles -1)
+  expect_audio_usage(malformed-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/malformed.raw" --audio-cycles 1x)
+  expect_audio_usage(zero-cycles --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_scratch}/zero.raw" --audio-cycles 0)
+  expect_audio_usage(oversized-cycles --rom "${audio_rom}" --cycles 20000000
+    --audio-output "${audio_scratch}/large.raw" --audio-cycles 16777217)
+  expect_audio_usage(outside-run-budget --rom "${audio_rom}" --cycles 10
+    --audio-output "${audio_scratch}/outside.raw" --audio-cycles 11)
+  expect_audio_usage(default-outside-bound --rom "${audio_rom}" --cycles 16777217
+    --audio-output "${audio_scratch}/default-large.raw")
+  expect_audio_usage(duplicate-rom-alias --rom "${audio_rom}" --cycles 1000
+    --audio-output "${audio_rom}" --audio-cycles 1)
+  expect_audio_usage(stdout-alias --rom "${audio_rom}" --cycles 1000
+    --audio-output /dev/stdout --audio-cycles 1)
+
+  set(audio_script "${audio_scratch}/input.script")
+  file(WRITE "${audio_script}" "not-loaded-before-alias-check")
+  expect_audio_usage(input-alias --rom "${audio_rom}" --cycles 1000
+    --input-script "${audio_script}" --audio-output "${audio_script}" --audio-cycles 1)
+  expect_audio_usage(trace-alias --rom "${audio_rom}" --cycles 1000
+    --trace-output "${audio_scratch}/trace.jsonl"
+    --audio-output "${audio_scratch}/trace.jsonl" --audio-cycles 1)
+  expect_audio_usage(video-alias --rom "${audio_rom}" --cycles 1000
+    --video-output "${audio_scratch}/video.raw"
+    --audio-output "${audio_scratch}/video.raw" --audio-cycles 1)
+
+  set(audio_hardlink "${audio_scratch}/rom-hardlink.gba")
+  set(audio_symlink "${audio_scratch}/rom-symlink.gba")
+  file(REMOVE "${audio_hardlink}" "${audio_symlink}")
+  file(CREATE_LINK "${audio_rom}" "${audio_hardlink}" RESULT hardlink_result)
+  file(CREATE_LINK "${audio_rom}" "${audio_symlink}" SYMBOLIC RESULT symlink_result)
+  if(hardlink_result STREQUAL "0")
+    expect_audio_usage(hardlink-alias --rom "${audio_rom}" --cycles 1000
+      --audio-output "${audio_hardlink}" --audio-cycles 1)
+  endif()
+  if(symlink_result STREQUAL "0")
+    expect_audio_usage(symlink-alias --rom "${audio_rom}" --cycles 1000
+      --audio-output "${audio_symlink}" --audio-cycles 1)
+  endif()
+
+  set(missing_script "${audio_scratch}/missing.script")
+  file(REMOVE "${missing_script}")
+  execute_process(
+    COMMAND "${audio_runner}" --rom "${audio_rom}" --cycles 1000
+      --input-script "${missing_script}" --audio-output "${audio_scratch}/missing-script.raw"
+      --audio-cycles 1
+    RESULT_VARIABLE missing_rc OUTPUT_VARIABLE missing_json ERROR_VARIABLE missing_error)
+  if(NOT "${missing_rc}" STREQUAL "1")
+    message(FATAL_ERROR "runner-case: missing script did not return its structured failure")
+  endif()
+  expect_json_field("${missing_json}" MISSING status)
+  expect_json_boolean("${missing_json}" true audio requested)
+  expect_json_field("${missing_json}" unavailable audio capture_state)
+  expect_json_field("${missing_json}" not-written audio artifact state)
+  expect_json_field("${missing_json}" 1 audio requested_interval end_cycle)
+
+  file(REMOVE "${audio_output}" "${existing_audio_output}" "${audio_script}"
+    "${audio_hardlink}" "${audio_symlink}" "${missing_script}"
+    "${audio_scratch}/a.raw" "${audio_scratch}/b.raw"
+    "${audio_scratch}/dup.raw" "${audio_scratch}/overflow.raw"
+    "${audio_scratch}/signed.raw" "${audio_scratch}/negative.raw"
+    "${audio_scratch}/malformed.raw" "${audio_scratch}/zero.raw"
+    "${audio_scratch}/large.raw" "${audio_scratch}/outside.raw"
+    "${audio_scratch}/default-large.raw" "${audio_scratch}/trace.jsonl"
+    "${audio_scratch}/video.raw" "${audio_scratch}/missing-script.raw"
+    "${audio_scratch}/empty-cycles.raw")
+  message(STATUS "runner-case: ${audio_runner_label} audio CLI controls passed")
+  return()
+endif()
+foreach(path IN ITEMS "${control}" "${production}" "${unit_test}"
+    "${fixtures}/owned-arm-pass.gba" "${fixtures}/owned-arm-fail.gba"
+    "${fixtures}/owned-arm-pass-zero-case.gba"
+    "${fixtures}/owned-arm-partial.gba" "${fixtures}/owned-arm-pass-mutated.gba"
+    "${fixtures}/owned-arm-loop.gba" "${fixtures}/owned-arm-swi.gba"
+    "${fixtures}/owned-arm-undefined.gba"
+    "${fixtures}/owned-arm-coprocessor.gba")
+  if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+    message(FATAL_ERROR "runner-case: required generated input is missing")
+  endif()
+endforeach()
+
+file(MAKE_DIRECTORY "${scratch}")
+execute_process(
+  COMMAND "${unit_test}" prepare "${scratch}/refusals"
+  RESULT_VARIABLE prepare_result
+  OUTPUT_VARIABLE prepare_stdout
+  ERROR_VARIABLE prepare_stderr)
+if(NOT "${prepare_result}" STREQUAL "0" OR
+    NOT EXISTS "${scratch}/refusals/empty.gba" OR
+    NOT EXISTS "${scratch}/refusals/short.gba" OR
+    NOT EXISTS "${scratch}/refusals/odd.gba" OR
+    NOT EXISTS "${scratch}/refusals/oversized.gba")
+  message(FATAL_ERROR "runner-case: refusal-input-generation-failed")
+endif()
+
+function(expect_active_result_extension json)
+  expect_json_type("${json}" OBJECT timer0)
+  expect_json_type("${json}" STRING time model)
+  expect_json_field("${json}" gamebloke-timer-model-1 time model)
+  expect_json_type("${json}" STRING time qualification)
+  expect_json_field("${json}" project-model-only time qualification)
+  foreach(field IN ITEMS cycles instructions budget_cycles bus_cycles internal_cycles
+      wait_cycles
+      dma_startup_cycles dma_source_cycles dma_destination_cycles
+      dma_completed_units dma_pause_cycles)
+    expect_json_type("${json}" STRING time ${field})
+  endforeach()
+  expect_json_type("${json}" OBJECT phase9)
+  expect_json_field("${json}" gamebloke-dma-observation-1 phase9 model)
+  expect_json_type("${json}" BOOLEAN phase9 observed)
+  expect_json_type("${json}" OBJECT phase9 timing)
+  string(JSON cycles GET "${json}" time cycles)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    expect_json_type("${json}" STRING phase9 timing ${field})
+    string(JSON time_component GET "${json}" time ${field})
+    string(JSON phase9_component GET "${json}" phase9 timing ${field})
+    if(NOT "${time_component}" STREQUAL "${phase9_component}")
+      message(FATAL_ERROR "runner-case: phase9 timing differs from time.${field}")
+    endif()
+  endforeach()
+  string(JSON phase9_observed GET "${json}" phase9 observed)
+  if(phase9_observed)
+    expect_json_type("${json}" NUMBER phase9 waitcnt)
+    expect_json_type("${json}" STRING phase9 bus_owner)
+    expect_json_type("${json}" BOOLEAN phase9 cpu_paused)
+    expect_json_type("${json}" STRING phase9 machine_cycles)
+    expect_json_type("${json}" ARRAY phase9 channels)
+    string(JSON channel_count LENGTH "${json}" phase9 channels)
+    if(NOT channel_count EQUAL 4)
+      message(FATAL_ERROR "runner-case: phase9 must expose all four DMA channels")
+    endif()
+    string(JSON phase9_machine_cycles GET "${json}" phase9 machine_cycles)
+    if(NOT "${phase9_machine_cycles}" STREQUAL "${cycles}")
+      message(FATAL_ERROR
+        "runner-case: phase9 machine time ${phase9_machine_cycles} differs from total cycles ${cycles}")
+    endif()
+  else()
+    foreach(path IN ITEMS waitcnt bus_owner cpu_paused machine_cycles channels)
+      string(REPLACE "/" ";" keys "${path}")
+      expect_json_type("${json}" NULL phase9 ${keys})
+    endforeach()
+  endif()
+  expect_json_field("${json}" nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2
+    phase9 waitcnt_policy manual_waits)
+  expect_json_field("${json}" project-selected phase9 waitcnt_policy other_region_costs)
+  expect_json_field("${json}" gbatek-3.06-community-documentation
+    phase9 waitcnt_policy 128k_boundary_source)
+  expect_json_field("${json}" UNKNOWN phase9 waitcnt_policy hardware_qualification)
+  expect_json_field("${json}" 2 phase9 startup_policy cycles_per_request)
+  expect_json_field("${json}" project-selected phase9 startup_policy provenance)
+  expect_json_field("${json}" "described; conversion is selected"
+    phase9 startup_policy manual_activation_delay)
+  expect_json_field("${json}" UNKNOWN phase9 startup_policy hardware_qualification)
+  expect_json_field("${json}" per-channel-retained-latch phase9 latch_policy policy)
+  expect_json_field("${json}" project-selected phase9 latch_policy provenance)
+  expect_json_field("${json}" UNKNOWN phase9 latch_policy hardware_qualification)
+  expect_json_field("${json}" unmodeled phase9 prefetch)
+  string(JSON fallback_type TYPE "${json}" phase9 latch_policy fallback_observed)
+  if(NOT fallback_type STREQUAL "BOOLEAN" AND NOT fallback_type STREQUAL "NULL")
+    message(FATAL_ERROR "runner-case: latch fallback observation must be boolean or null")
+  endif()
+  if(fallback_type STREQUAL "BOOLEAN")
+    string(JSON fallback_observed GET "${json}" phase9 latch_policy fallback_observed)
+    if(fallback_observed)
+      expect_json_field("${json}" disputed phase9 latch_policy classification)
+      expect_json_field("${json}" disp-dma-latch phase9 latch_policy dispute_id)
+    else()
+      expect_json_type("${json}" NULL phase9 latch_policy classification)
+      expect_json_type("${json}" NULL phase9 latch_policy dispute_id)
+    endif()
+  else()
+    expect_json_type("${json}" NULL phase9 latch_policy classification)
+    expect_json_type("${json}" NULL phase9 latch_policy dispute_id)
+  endif()
+  string(JSON ran GET "${json}" fixture ran)
+  string(JSON cycles GET "${json}" time cycles)
+  string(JSON instructions GET "${json}" time instructions)
+  string(JSON request_type ERROR_VARIABLE request_error TYPE
+    "${json}" timer0 if_request)
+  if(NOT "${request_error}" STREQUAL "NOTFOUND")
+    message(FATAL_ERROR
+      "runner-case: active producer omitted timer0.if_request: ${request_error}")
+  endif()
+  if(NOT ran OR (cycles STREQUAL "0" AND instructions STREQUAL "0"))
+    if(NOT request_type STREQUAL "NULL")
+      message(FATAL_ERROR
+        "runner-case: not-run result requires timer0.if_request null; got ${request_type}")
+    endif()
+  elseif(NOT request_type STREQUAL "BOOLEAN")
+    message(FATAL_ERROR
+      "runner-case: executed result requires boolean timer0.if_request; got ${request_type}")
+  endif()
+
+  expect_json_type("${json}" OBJECT phase10)
+  expect_json_field("${json}" gamebloke-ppu-observation-2 phase10 model)
+  expect_json_type("${json}" BOOLEAN phase10 observed)
+  expect_json_type("${json}" OBJECT phase10 timing)
+  expect_json_field("${json}" gamebloke-ppu-model-1 phase10 timing model)
+  expect_json_field("${json}" 1006 phase10 timing hblank_offset_cycles)
+  expect_json_field("${json}" project-selected phase10 timing policy)
+  expect_json_field("${json}" REF phase10 timing evidence_class)
+  expect_json_field("${json}" disputed phase10 timing classification)
+  expect_json_field("${json}" disp-hblank-flag-edge phase10 timing dispute_id)
+  expect_json_field("${json}" UNKNOWN phase10 timing hardware_qualification)
+  string(JSON ppu_observed GET "${json}" phase10 observed)
+  if(ppu_observed)
+    expect_json_type("${json}" OBJECT phase10 raster)
+    expect_json_type("${json}" OBJECT phase10 frame)
+    expect_json_type("${json}" OBJECT phase10 controls)
+    expect_json_type("${json}" OBJECT phase10 hblank_trigger_dependency)
+    foreach(field IN ITEMS line line_cycle machine_cycle)
+      if(field STREQUAL "line")
+        expect_json_type("${json}" NUMBER phase10 raster ${field})
+      else()
+        expect_json_type("${json}" STRING phase10 raster ${field})
+      endif()
+    endforeach()
+    string(JSON frame_epoch_type TYPE "${json}" phase10 raster frame_epoch)
+    if(NOT frame_epoch_type STREQUAL "STRING" AND
+        NOT frame_epoch_type STREQUAL "NULL")
+      message(FATAL_ERROR
+        "runner-case: Phase 10 raster frame epoch must be string or null")
+    endif()
+    foreach(pair IN ITEMS "width;240" "height;160" "stride_bytes;480"
+        "byte_length;76800")
+      list(GET pair 0 field)
+      list(GET pair 1 value)
+      expect_json_field("${json}" "${value}" phase10 frame ${field})
+    endforeach()
+    expect_json_field("${json}" bgr555-le phase10 frame format)
+    expect_json_field("${json}" canonical-vram phase10 frame source)
+    expect_json_field("${json}" row-start phase10 frame latch_policy)
+    expect_json_type("${json}" BOOLEAN phase10 frame supported_controls)
+    expect_json_type("${json}" BOOLEAN phase10 controls supported)
+    expect_json_field("${json}" UNKNOWN
+      phase10 hblank_trigger_dependency hardware_qualification)
+    string(JSON ppu_cycle GET "${json}" phase10 raster machine_cycle)
+    string(JSON total_cycles GET "${json}" time cycles)
+    if(NOT "${ppu_cycle}" STREQUAL "${total_cycles}")
+      message(FATAL_ERROR
+        "runner-case: Phase 10 machine cycle differs from total machine time")
+    endif()
+  else()
+    foreach(path IN ITEMS raster frame controls hblank_trigger_dependency)
+      expect_json_type("${json}" NULL phase10 ${path})
+    endforeach()
+  endif()
+  expect_json_type("${json}" OBJECT raw_video)
+  expect_json_boolean("${json}" false raw_video requested)
+  expect_json_field("${json}" not-requested raw_video status)
+  expect_json_boolean("${json}" false raw_video emitted)
+  expect_json_type("${json}" NULL raw_video byte_length)
+  expect_json_type("${json}" NULL raw_video sha256)
+  expect_json_type("${json}" NULL raw_video failure)
 endfunction()
 
 function(run_json output_variable name cli expected_exit expected_status
@@ -102,6 +516,7 @@ function(run_json output_variable name cli expected_exit expected_status
   if(NOT "${one_json_line}" STREQUAL "${output}")
     message(FATAL_ERROR "runner-case: ${name} did not write exactly one JSON line")
   endif()
+  expect_active_result_extension("${output}")
   string(FIND "${output}" "${SRC}" source_path_offset)
   string(FIND "${output}" "${BIN}" build_path_offset)
   if(NOT source_path_offset EQUAL -1 OR NOT build_path_offset EQUAL -1)
@@ -439,7 +854,7 @@ set(request_file "${scratch}/result-requests.json")
 file(WRITE "${request_file}" "${requests}\n")
 set(batch "${SRC}/tests/gates/runner_result_batch.cmake")
 execute_process(COMMAND "${CMAKE_COMMAND}" "-DSRC=${SRC}"
-  "-DREQUESTS=${request_file}" -P "${batch}"
+  "-DREQUESTS=${request_file}" -DGBL_RESULT_REQUIRE_AUDIO=ON -P "${batch}"
   RESULT_VARIABLE batch_rc OUTPUT_VARIABLE batch_output ERROR_VARIABLE batch_error)
 if(NOT batch_rc STREQUAL "0")
   message(FATAL_ERROR "runner-case: result batch failed: ${batch_output}${batch_error}")

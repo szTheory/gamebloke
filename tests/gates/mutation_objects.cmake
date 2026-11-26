@@ -6,7 +6,9 @@ function(gbl__mutation_identity output)
   set(material "${compiler_path}|${compiler_sha}|${COMPILER_ID}|${VERSION}|${C_FLAGS}|${C_FLAGS_CONFIG}|${LINKER_FLAGS}|${LINKER_FLAGS_CONFIG}")
   foreach(input IN ITEMS tests/gates/core_mutation.cmake
       tests/gates/mutation_objects.cmake src/version.c src/machine.c src/bus.c
-      src/loader.c src/cpu.c src/inspect.c src/logo_sha256.h src/cpu_helpers.h
+      src/audio.c src/audio_internal.h src/dma_internal.h src/loader.c
+      src/cpu.c src/inspect.c
+      src/logo_sha256.h src/cpu_helpers.h src/ppu_internal.h
       include/gamebloke/gamebloke.h tests/check.h tests/state_check.h
       tests/bus_test.c tests/loader_test.c tests/cpu_test.c)
     file(SHA256 "${SRC}/${input}" sha)
@@ -39,7 +41,8 @@ function(gbl__mutation_reuse_controls)
 endfunction()
 
 function(gbl__mutation_sources family output)
-  set(sources src/version.c src/machine.c src/bus.c src/loader.c src/cpu.c)
+  set(sources src/version.c src/machine.c src/audio.c src/bus.c src/loader.c
+    src/cpu.c)
   if(family STREQUAL "cpu")
     list(APPEND sources src/inspect.c)
   endif()

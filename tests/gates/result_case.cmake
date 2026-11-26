@@ -18,7 +18,7 @@ foreach(var CASE SRC BIN)
     message(FATAL_ERROR "result-case: -D${var}= is required")
   endif()
 endforeach()
-if(NOT CASE MATCHES "^[a-z_]+$")
+if(NOT CASE MATCHES "^[a-z0-9_]+$")
   message(FATAL_ERROR "result-case: bad case name: ${CASE}")
 endif()
 
@@ -40,6 +40,21 @@ set(VOCAB_COPY "${dir}/evidence.json")
 function(result_copy out variant)
   set(path "${dir}/result_${variant}.json")
   file(COPY_FILE "${dir}/result.json" "${path}")
+  # Older contract cases intentionally exercise the pre-Phase-10 result shape.
+  gbl_json_mutate_remove("${path}" phase10)
+  gbl_json_mutate_remove("${path}" raw_video)
+  set(${out} "${path}" PARENT_SCOPE)
+endfunction()
+
+function(result_copy_phase10 out variant)
+  set(path "${dir}/result_${variant}.json")
+  file(COPY_FILE "${dir}/result.json" "${path}")
+  set(${out} "${path}" PARENT_SCOPE)
+endfunction()
+
+function(result_copy_current_producer_phase10 out variant)
+  set(path "${dir}/result_${variant}.json")
+  file(COPY_FILE "${dir}/result_actual_producer.json" "${path}")
   set(${out} "${path}" PARENT_SCOPE)
 endfunction()
 
@@ -52,10 +67,44 @@ endfunction()
 
 # result_command(<out-var> <result> <manifest>): the validator command line.
 function(result_command out result manifest)
-  set(${out}
+  set(command
     "${CMAKE_COMMAND}" "-DRESULT=${result}" "-DMANIFEST=${manifest}"
-    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}" -P "${CHECK}"
-    PARENT_SCOPE)
+    "-DREGISTRY=${REGISTRY_COPY}" "-DVOCAB=${VOCAB_COPY}")
+  if(GBL_RESULT_REQUIRE_AUDIO)
+    list(APPEND command -DGBL_RESULT_REQUIRE_AUDIO=ON)
+  endif()
+  list(APPEND command -P "${CHECK}")
+  set(${out} "${command}" PARENT_SCOPE)
+endfunction()
+
+function(result_add_audio path)
+  gbl_json_mutate_set("${path}" [=[{
+    "model":"gamebloke-audio-model-4",
+    "profile":{"id":"agb","version":16},
+    "policy_classification":"project-selected",
+    "hardware_qualification":"UNKNOWN",
+    "policy":{
+      "tap":"pre-pwm",
+      "tap_policy":"fixed-reset-anchored-grid",
+      "encoding":"signed-s16le",
+      "channel_layout":"stereo-interleaved-left-first",
+      "sample_rate_hz":32768,
+      "sample_cycles":"512",
+      "interval_policy":"start-exclusive-end-inclusive",
+      "implemented_sources":["psg-channel-1","psg-channel-2","psg-channel-3","psg-channel-4","direct-sound-fifo-a-signed-latch","direct-sound-fifo-b-signed-latch"],
+      "unsupported":["pwm-carrier","bias-quantization","analog-output","host-resampling","host-playback"],
+      "evidence_limits":["software-model-output-only","no-physical-hardware-qualification","no-broad-game-compatibility-claim","sha256-proves-byte-identity-not-semantic-correctness-or-rights"]
+    },
+    "requested":true,
+    "requested_interval":{"start_cycle":"0","end_cycle":"1"},
+    "actual_interval":{"start_cycle":"0","end_cycle":"1"},
+    "cadence":{"sample_cycles":"512","format":"s16le-stereo"},
+    "capture_state":"complete",
+    "interval_complete":true,
+    "frame_count":0,
+    "byte_count":0,
+    "artifact":{"state":"emitted","byte_count":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","error":null}
+  }]=] audio)
 endfunction()
 
 # expect_code(<code> <result> [<manifest>]): the validator fails with <code>.
@@ -88,6 +137,243 @@ function(expect_ok status result)
   endif()
   result_command(cmd "${result}" "${manifest}")
   gbl_expect_pass(COMMAND ${cmd} REGEX "result: ok \\(${status}\\)")
+endfunction()
+
+function(phase10_report_failure detail)
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "1..1")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo
+    "not ok 1 - Phase 10 result validator rejects malformed PPU and video claims")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "# ${detail}")
+  message(FATAL_ERROR "result-case: phase10: ${detail}")
+endfunction()
+
+function(phase10_report_success)
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "1..1")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo
+    "ok 1 - Phase 10 result validator rejects malformed PPU and video claims")
+endfunction()
+
+function(phase10_expect_ok result_path)
+  set(expected_status "PASS")
+  if(NOT "${ARGV1}" STREQUAL "")
+    set(expected_status "${ARGV1}")
+  endif()
+  result_command(cmd "${result_path}" "${dir}/manifest.json")
+  execute_process(COMMAND ${cmd} RESULT_VARIABLE result
+    OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  set(combined "${output}${error}")
+  if(NOT "${result}" STREQUAL "0" OR
+      NOT combined MATCHES "result: ok \\(${expected_status}\\)")
+    phase10_report_failure("expected valid ${expected_status} Phase 10 result; exit=${result}; output=${combined}")
+  endif()
+endfunction()
+
+function(phase10_expect_code code result_path)
+  result_command(cmd "${result_path}" "${dir}/manifest.json")
+  execute_process(COMMAND ${cmd} RESULT_VARIABLE result
+    OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  set(combined "${output}${error}")
+  string(FIND "${combined}" "result: ${code}" code_offset)
+  if("${result}" STREQUAL "0" OR code_offset EQUAL -1)
+    phase10_report_failure("expected ${code}; exit=${result}; output=${combined}")
+  endif()
+endfunction()
+
+function(result_add_phase10_valid_video result)
+  # One complete visible epoch ends at line 160: 160 * 1232 cycles.
+  gbl_json_mutate_set("${result}" "\"197120\"" time cycles)
+  gbl_json_mutate_set("${result}" "\"197120\"" time budget_cycles)
+  gbl_json_mutate_set("${result}" "\"197120\"" time bus_cycles)
+  gbl_json_mutate_set("${result}" "\"197120\"" phase9 machine_cycles)
+  gbl_json_mutate_set("${result}" "160" phase10 raster line)
+  gbl_json_mutate_set("${result}" "\"0\"" phase10 raster line_cycle)
+  gbl_json_mutate_set("${result}" "\"197120\"" phase10 raster machine_cycle)
+  gbl_json_mutate_set("${result}" "\"valid\"" phase10 frame state)
+  gbl_json_mutate_set("${result}" "\"none\"" phase10 frame reason)
+  gbl_json_mutate_set("${result}" "true" phase10 frame supported_controls)
+  gbl_json_mutate_set("${result}" "\"0\"" phase10 frame epoch)
+  gbl_json_mutate_set("${result}" "\"0\"" phase10 frame sample_cycle)
+  gbl_json_mutate_set("${result}" "\"197120\"" phase10 frame completion_cycle)
+  gbl_json_mutate_set("${result}" "true" phase10 controls supported)
+  gbl_json_mutate_set("${result}" "true" raw_video requested)
+  gbl_json_mutate_set("${result}" "\"emitted\"" raw_video status)
+  gbl_json_mutate_set("${result}" "true" raw_video emitted)
+  gbl_json_mutate_set("${result}" "76800" raw_video byte_length)
+  gbl_json_mutate_set("${result}" "\"abababababababababababababababababababababababababababababababab\"" raw_video sha256)
+endfunction()
+
+function(result_add_phase10_output_failure result)
+  gbl_json_mutate_set("${result}" "\"HARNESS_FAIL\"" status)
+  gbl_json_mutate_set("${result}" "\"video-output-failed\"" reason)
+  gbl_json_mutate_set("${result}" "true" raw_video requested)
+  gbl_json_mutate_set("${result}" "\"failed\"" raw_video status)
+  gbl_json_mutate_set("${result}" "\"video-frame-unavailable\"" raw_video failure)
+endfunction()
+
+function(result_add_phase10_hblank_dependency result)
+  gbl_json_mutate_set("${result}" "true" phase10 hblank_trigger_dependency observed)
+  gbl_json_mutate_set("${result}" "\"disputed\"" phase10 hblank_trigger_dependency classification)
+  gbl_json_mutate_set("${result}" "\"disp-hblank-flag-edge\"" phase10 hblank_trigger_dependency dispute_id)
+  gbl_json_mutate_set("${result}" "[\"disp-hblank-flag-edge\"]" disputes)
+  gbl_json_mutate_set("${result}" "[\"disputed\"]" labels)
+endfunction()
+
+function(result_add_phase10_capabilities result)
+  file(READ "${SRC}/profiles/agb.json" profile_doc)
+  string(JSON profile_version GET "${profile_doc}" profile_version)
+  string(JSON display_capabilities GET "${profile_doc}"
+    ppu_policy display_capabilities)
+  string(JSON video_memory_access GET "${profile_doc}"
+    ppu_policy video_memory_access)
+  gbl_json_mutate_set("${result}" "\"gamebloke-ppu-observation-2\""
+    phase10 model)
+  gbl_json_mutate_set("${result}" "${profile_version}"
+    phase10 profile_version)
+  gbl_json_mutate_set("${result}" "${display_capabilities}"
+    phase10 display_capabilities)
+  gbl_json_mutate_set("${result}" "${video_memory_access}"
+    phase10 video_memory_access)
+  gbl_json_mutate_set("${result}" "\"bgr555-le\"" raw_video format)
+endfunction()
+
+function(result_copy_production_phase10_observation result)
+  set(control "${BIN}/gamebloke-run-control")
+  set(rom "${BIN}/generated/fixtures/owned-arm-pass.gba")
+  if(NOT EXISTS "${control}" OR NOT EXISTS "${rom}")
+    phase10_report_failure("production observation prerequisites are missing")
+  endif()
+  execute_process(COMMAND "${control}" --rom "${rom}"
+      --fixture synthetic-control-pass --cycles 1000
+    RESULT_VARIABLE producer_result OUTPUT_VARIABLE producer_json
+    ERROR_VARIABLE producer_error)
+  if(NOT "${producer_result}" STREQUAL "0" OR
+      NOT "${producer_error}" STREQUAL "")
+    phase10_report_failure(
+      "production capture failed; exit=${producer_result}; stderr=${producer_error}")
+  endif()
+  string(JSON producer_model GET "${producer_json}" phase10 model)
+  if(NOT producer_model STREQUAL "gamebloke-ppu-observation-2")
+    phase10_report_failure("production capture did not emit observation model 2")
+  endif()
+
+  # The runner's synthetic fixture identity is not in the public result manifest.
+  # Keep the manifest-owned contract identity from result-pass.json and copy the
+  # complete machine observation group from the real serialized producer output.
+  file(READ "${result}" result_doc)
+  foreach(field IN ITEMS semantic time phase8 phase9 phase10 raw_video)
+    string(JSON value GET "${producer_json}" ${field})
+    string(JSON result_doc ERROR_VARIABLE set_error SET
+      "${result_doc}" ${field} "${value}")
+    if(NOT "${set_error}" STREQUAL "NOTFOUND" AND
+        NOT "${set_error}" STREQUAL "")
+      phase10_report_failure("could not copy production field ${field}")
+    endif()
+  endforeach()
+  file(WRITE "${result}" "${result_doc}\n")
+endfunction()
+
+function(result_add_time_extension result)
+  gbl_json_mutate_remove("${result}" phase8)
+  gbl_json_mutate_remove("${result}" phase9)
+  gbl_json_mutate_remove("${result}" time wait_cycles)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${result}" time ${field})
+  endforeach()
+  foreach(field IN ITEMS model qualification bus_cycles internal_cycles)
+    gbl_json_mutate_remove("${result}" time ${field})
+  endforeach()
+  gbl_json_mutate_set("${result}" "{}" timer0)
+  gbl_json_mutate_set("${result}" "\"gamebloke-timer-model-1\"" time model)
+  gbl_json_mutate_set("${result}" "\"project-model-only\"" time qualification)
+  gbl_json_mutate_set("${result}" "\"10\"" time bus_cycles)
+  gbl_json_mutate_set("${result}" "\"14\"" time internal_cycles)
+  gbl_json_mutate_set("${result}" "true" timer0 if_request)
+endfunction()
+
+function(result_add_phase8_extension result)
+  result_add_time_extension("${result}")
+  gbl_json_mutate_set("${result}" "\"24\"" time bus_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time internal_cycles)
+  gbl_json_mutate_set("${result}"
+    "{\"model\":\"gamebloke-irq-input-model-1\",\"qualification\":\"project-model-only\",\"observed\":true,\"irq\":{\"if\":8,\"ie\":8,\"ime\":1,\"sample\":{\"cycle\":\"4\",\"if\":0,\"ie\":8,\"ime\":1,\"eligible_sources\":0,\"eligible\":false,\"cpsr_i_masked\":false,\"accepted\":false,\"entered\":false}},\"last_exception\":\"none\",\"power\":{\"state\":\"running\",\"cause\":\"wake_event\",\"wake_source_mask\":8,\"wake_cycle\":\"5\"},\"keypad\":{\"keyinput\":1022,\"keycnt\":0,\"condition\":false,\"irq_condition\":false,\"applied_events\":1,\"pending_events\":0},\"wait_cycles\":\"4\"}"
+    phase8)
+  gbl_json_mutate_set("${result}" "\"0\"" phase8 wait_cycles)
+endfunction()
+
+function(result_add_phase9_extension result)
+  result_add_phase8_extension("${result}")
+  gbl_json_mutate_set("${result}" "\"0\"" time wait_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_startup_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_source_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_destination_cycles)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_completed_units)
+  gbl_json_mutate_set("${result}" "\"0\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${result}"
+    "{\"model\":\"gamebloke-dma-observation-1\",\"observed\":true,\"waitcnt\":0,\"bus_owner\":\"cpu\",\"cpu_paused\":false,\"machine_cycles\":\"24\",\"channels\":[{\"channel\":0,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false},{\"channel\":1,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false},{\"channel\":2,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false},{\"channel\":3,\"source_address\":\"0x00000000\",\"destination_address\":\"0x00000000\",\"current_source\":\"0x00000000\",\"current_destination\":\"0x00000000\",\"read_latch\":\"0x00000000\",\"count\":0,\"control\":0,\"remaining\":0,\"completed_units\":\"0\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false}],\"timing\":{\"dma_startup_cycles\":\"0\",\"dma_source_cycles\":\"0\",\"dma_destination_cycles\":\"0\",\"dma_completed_units\":\"0\",\"dma_pause_cycles\":\"0\"},\"waitcnt_policy\":{\"manual_waits\":\"nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2\",\"other_region_costs\":\"project-selected\",\"128k_boundary_source\":\"gbatek-3.06-community-documentation\",\"hardware_qualification\":\"UNKNOWN\"},\"startup_policy\":{\"cycles_per_request\":\"2\",\"provenance\":\"project-selected\",\"manual_activation_delay\":\"described; conversion is selected\",\"hardware_qualification\":\"UNKNOWN\"},\"latch_policy\":{\"policy\":\"per-channel-retained-latch\",\"provenance\":\"project-selected\",\"fallback_observed\":false,\"classification\":null,\"dispute_id\":null,\"hardware_qualification\":\"UNKNOWN\"},\"prefetch\":\"unmodeled\"}"
+    phase9)
+endfunction()
+
+function(result_add_phase9_dma_transfer result)
+  result_add_phase9_extension("${result}")
+  gbl_json_mutate_set("${result}" "\"32\"" time cycles)
+  gbl_json_mutate_set("${result}" "\"32\"" time budget_cycles)
+  gbl_json_mutate_set("${result}" "\"2\"" time dma_startup_cycles)
+  gbl_json_mutate_set("${result}" "\"5\"" time dma_source_cycles)
+  gbl_json_mutate_set("${result}" "\"1\"" time dma_destination_cycles)
+  gbl_json_mutate_set("${result}" "\"1\"" time dma_completed_units)
+  gbl_json_mutate_set("${result}" "\"8\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${result}" "\"32\"" phase9 machine_cycles)
+  foreach(pair IN ITEMS
+      "dma_startup_cycles;2" "dma_source_cycles;5" "dma_destination_cycles;1"
+      "dma_completed_units;1" "dma_pause_cycles;8")
+    list(GET pair 0 field)
+    list(GET pair 1 value)
+    gbl_json_mutate_set("${result}" "\"${value}\"" phase9 timing "${field}")
+  endforeach()
+  gbl_json_mutate_set("${result}"
+    "{\"channel\":3,\"source_address\":\"0x08000200\",\"destination_address\":\"0x03000020\",\"current_source\":\"0x08000202\",\"current_destination\":\"0x03000022\",\"read_latch\":\"0xBEEFBEEF\",\"count\":1,\"control\":0,\"remaining\":0,\"completed_units\":\"1\",\"pending\":false,\"armed\":false,\"active\":false,\"startup_complete\":false}"
+    phase9 channels 3)
+endfunction()
+
+function(result_add_phase9_latch_observation result)
+  result_add_phase9_dma_transfer("${result}")
+  gbl_json_mutate_set("${result}" "true" phase9 latch_policy fallback_observed)
+  gbl_json_mutate_set("${result}" "\"disputed\"" phase9 latch_policy classification)
+  gbl_json_mutate_set("${result}" "\"disp-dma-latch\"" phase9 latch_policy dispute_id)
+  gbl_json_mutate_set("${result}" "[\"disp-dma-latch\"]" disputes)
+  gbl_json_mutate_set("${result}" "[\"disputed\"]" labels)
+  gbl_json_mutate_set("${result}"
+    "{\"mask\":\"8\",\"count\":\"4\",\"capacity\":\"4\",\"complete\":true,\"emitted\":true}"
+    trace)
+endfunction()
+
+function(result_phase8_set_not_run result)
+  gbl_json_mutate_set("${result}" "false" phase8 observed)
+  foreach(path IN ITEMS irq/if irq/ie irq/ime irq/sample last_exception
+      power/state power/cause power/wake_source_mask power/wake_cycle
+      keypad/keyinput keypad/keycnt keypad/condition keypad/irq_condition
+      keypad/applied_events keypad/pending_events wait_cycles)
+    string(REPLACE "/" ";" keys "${path}")
+    file(READ "${result}" phase8_json)
+    string(JSON phase8_field_type ERROR_VARIABLE phase8_field_error TYPE
+      "${phase8_json}" phase8 ${keys})
+    if(NOT "${phase8_field_error}" STREQUAL "NOTFOUND")
+      message(FATAL_ERROR "result-case: not-run phase8 field missing: ${path}")
+    endif()
+    if(NOT phase8_field_type STREQUAL "NULL")
+      gbl_json_mutate_set("${result}" "null" phase8 ${keys})
+    endif()
+  endforeach()
+endfunction()
+
+function(result_phase9_set_not_run result)
+  gbl_json_mutate_set("${result}" "false" phase9 observed)
+  gbl_json_mutate_set("${result}" "null" phase9 latch_policy fallback_observed)
+  foreach(path IN ITEMS waitcnt bus_owner cpu_paused machine_cycles channels)
+    string(REPLACE "/" ";" keys "${path}")
+    gbl_json_mutate_set("${result}" "null" phase9 ${keys})
+  endforeach()
 endfunction()
 
 # hex(<out-var> <fragment> <times>): a synthesized hex string.
@@ -142,12 +428,16 @@ elseif(CASE STREQUAL "all_states")
       gbl_json_mutate_set("${r}" "\"cycle-budget\"" reason)
       gbl_json_mutate_set("${r}" "\"timeout\"" termination)
       gbl_json_mutate_set("${r}" "\"23\"" time cycles)
+      gbl_json_mutate_set("${r}" "\"23\"" time bus_cycles)
+      gbl_json_mutate_set("${r}" "\"23\"" phase9 machine_cycles)
     elseif(state STREQUAL "CANCELLED")
       gbl_json_mutate_set("${r}" "\"pending\"" semantic state)
       gbl_json_mutate_set("${r}" "\"3\"" semantic case_id)
       gbl_json_mutate_set("${r}" "\"cancelled\"" reason)
       gbl_json_mutate_set("${r}" "\"cancelled\"" termination)
       gbl_json_mutate_set("${r}" "\"1\"" time cycles)
+      gbl_json_mutate_set("${r}" "\"1\"" time bus_cycles)
+      gbl_json_mutate_set("${r}" "\"1\"" phase9 machine_cycles)
     endif()
     if(state STREQUAL "MISSING" OR state STREQUAL "SKIPPED" OR state STREQUAL "REFUSED")
       gbl_json_mutate_set("${r}" "false" fixture ran)
@@ -158,6 +448,10 @@ elseif(CASE STREQUAL "all_states")
       gbl_json_mutate_set("${r}" "\"0\"" time cycles)
       gbl_json_mutate_set("${r}" "\"0\"" time instructions)
       gbl_json_mutate_set("${r}" "\"0\"" time budget_cycles)
+      gbl_json_mutate_set("${r}" "\"0\"" time bus_cycles)
+      gbl_json_mutate_set("${r}" "null" timer0 if_request)
+      result_phase8_set_not_run("${r}")
+      result_phase9_set_not_run("${r}")
       if(state STREQUAL "MISSING")
         gbl_json_mutate_set("${r}" "\"rom-file-not-found\"" reason)
         gbl_json_mutate_set("${r}" "\"not-started\"" termination)
@@ -189,7 +483,110 @@ elseif(CASE STREQUAL "semantic_time")
   result_copy(r max_uint64_boundary)
   gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time cycles)
   gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" phase9 machine_cycles)
   expect_ok(PASS "${r}")
+
+  # Historical result/1 remains valid with no extension. Present extensions are
+  # all-or-nothing and carry independently typed model, component, and IF fields.
+  result_copy(r model_extension_valid)
+  result_add_time_extension("${r}")
+  expect_ok(PASS "${r}")
+  result_copy(r model_extension_missing_model)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_remove("${r}" time model)
+  expect_detail(missing-field "time.model" "${r}")
+  result_copy(r model_extension_missing_request)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_remove("${r}" timer0 if_request)
+  expect_detail(missing-field "timer0.if_request" "${r}")
+
+  result_copy(r model_extension_max_uint64)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time internal_cycles)
+  expect_ok(PASS "${r}")
+  result_copy(r model_extension_bus_overflow)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551616\"" time bus_cycles)
+  expect_detail(time-overflow "time.bus_cycles" "${r}")
+  result_copy(r model_extension_sum_overflow)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"1\"" time internal_cycles)
+  expect_detail(time-sum-overflow "time.bus_cycles \\+ time.internal_cycles" "${r}")
+  result_copy(r model_extension_mismatched_total)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"11\"" time bus_cycles)
+  expect_detail(bad-time-components "time.cycles does not equal" "${r}")
+  result_copy(r model_extension_numeric_bus)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "10" time bus_cycles)
+  expect_detail(bad-time "time.bus_cycles must be a decimal string" "${r}")
+  result_copy(r model_extension_internal_overflow)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551616\"" time internal_cycles)
+  expect_detail(time-overflow "time.internal_cycles" "${r}")
+  result_copy(r wrong_time_model)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"hardware-gba-v1\"" time model)
+  expect_detail(bad-time-model "time.model" "${r}")
+  result_copy(r inflated_time_qualification)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"hardware-qualified\"" time qualification)
+  expect_detail(bad-time-qualification "time.qualification" "${r}")
+  result_copy(r wrong_if_request_type)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "0" timer0 if_request)
+  expect_detail(bad-timer0-request "timer0.if_request must be boolean or null" "${r}")
+
+  result_copy(r zero_budget_request_null)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"TIMEOUT\"" status)
+  gbl_json_mutate_set("${r}" "\"cycle-budget\"" reason)
+  gbl_json_mutate_set("${r}" "\"timeout\"" termination)
+  gbl_json_mutate_set("${r}" "\"absent\"" semantic state)
+  gbl_json_mutate_set("${r}" "\"0\"" semantic case_id)
+  gbl_json_mutate_set("${r}" "\"0\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time instructions)
+  gbl_json_mutate_set("${r}" "\"0\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time internal_cycles)
+  gbl_json_mutate_set("${r}" "null" timer0 if_request)
+  expect_ok(TIMEOUT "${r}")
+
+  result_copy(r real_timeout_request_clear)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"TIMEOUT\"" status)
+  gbl_json_mutate_set("${r}" "\"cycle-budget\"" reason)
+  gbl_json_mutate_set("${r}" "\"timeout\"" termination)
+  gbl_json_mutate_set("${r}" "\"pending\"" semantic state)
+  gbl_json_mutate_set("${r}" "\"3\"" semantic case_id)
+  gbl_json_mutate_set("${r}" "false" timer0 if_request)
+  expect_ok(TIMEOUT "${r}")
+
+  result_copy(r not_run_request_boolean)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"CANCELLED\"" status)
+  gbl_json_mutate_set("${r}" "false" fixture ran)
+  gbl_json_mutate_set("${r}" "null" fixture rom_sha256)
+  gbl_json_mutate_set("${r}" "null" claim cart rom_sha256)
+  gbl_json_mutate_set("${r}" "\"not-started\"" termination)
+  gbl_json_mutate_set("${r}" "\"absent\"" semantic state)
+  gbl_json_mutate_set("${r}" "null" semantic case_id)
+  gbl_json_mutate_set("${r}" "\"0\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time instructions)
+  gbl_json_mutate_set("${r}" "\"0\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time internal_cycles)
+  expect_detail(bad-timer0-request "not-run results require null" "${r}")
+
+  result_copy(r request_does_not_complete_semantics)
+  result_add_time_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"pending\"" semantic state)
+  expect_detail(status-semantic-mismatch "PASS requires semantic.state pass" "${r}")
 
   result_copy(r pending_pass)
   gbl_json_mutate_set("${r}" "\"pending\"" semantic state)
@@ -260,6 +657,710 @@ elseif(CASE STREQUAL "semantic_time")
   gbl_json_mutate_set("${r}" "{\"complete\": false}" trace)
   expect_detail(incomplete-trace
     "incomplete trace requires trace-output-full HARNESS_FAIL" "${r}")
+
+elseif(CASE STREQUAL "phase9")
+  # Historical result/1 remains valid when the whole optional DMA extension is absent.
+  result_copy(r historical_without_phase9)
+  gbl_json_mutate_remove("${r}" phase9)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${r}" time ${field})
+  endforeach()
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9)
+  result_add_phase9_extension("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9_dma_transfer)
+  result_add_phase9_dma_transfer("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9_reactivated_channel)
+  result_add_phase9_dma_transfer("${r}")
+  # The final channel snapshot describes its latest activation, while the
+  # run-level total includes both activations of the same channel.
+  gbl_json_mutate_set("${r}" "\"2\"" time dma_completed_units)
+  gbl_json_mutate_set("${r}" "\"2\"" phase9 timing dma_completed_units)
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9_pending_dma_startup)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "32768" phase9 channels 3 control)
+  gbl_json_mutate_set("${r}" "1" phase9 channels 3 remaining)
+  gbl_json_mutate_set("${r}" "true" phase9 channels 3 pending)
+  expect_ok(PASS "${r}")
+
+  result_copy(r current_phase9_with_disputed_latch)
+  result_add_phase9_latch_observation("${r}")
+  expect_ok(PASS "${r}")
+
+elseif(CASE STREQUAL "phase9_negative")
+  result_copy(r phase9_missing_model)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_remove("${r}" phase9 model)
+  expect_detail(missing-field "phase9.model" "${r}")
+
+  result_copy(r phase9_wrong_waitcnt_type)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"0\"" phase9 waitcnt)
+  expect_detail(bad-phase9-type "phase9.waitcnt" "${r}")
+
+  result_copy(r phase9_time_overflow)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551616\""
+    time dma_startup_cycles)
+  expect_detail(time-overflow "time.dma_startup_cycles" "${r}")
+
+  result_copy(r phase9_total_overflow)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"1\"" time internal_cycles)
+  expect_detail(time-sum-overflow "CPU, HALT, and DMA timing components" "${r}")
+
+  result_copy(r phase9_pause_exceeds_elapsed)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"33\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${r}" "\"33\"" phase9 timing dma_pause_cycles)
+  expect_detail(bad-phase9-timing "time.dma_pause_cycles exceeds time.cycles" "${r}")
+
+  result_copy(r phase9_pause_component_mismatch)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"7\"" time dma_pause_cycles)
+  gbl_json_mutate_set("${r}" "\"7\"" phase9 timing dma_pause_cycles)
+  expect_detail(bad-phase9-timing
+    "time.dma_pause_cycles differs from DMA timing components" "${r}")
+
+  result_copy(r phase9_wrong_total)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"31\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"31\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"31\"" phase9 machine_cycles)
+  expect_detail(bad-time-components "time.cycles does not equal" "${r}")
+
+  result_copy(r phase9_unknown_owner)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"host\"" phase9 bus_owner)
+  expect_detail(bad-phase9-owner "phase9.bus_owner" "${r}")
+
+  result_copy(r phase9_owner_pause_mismatch)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"dma\"" phase9 bus_owner)
+  expect_detail(bad-phase9-owner "phase9.cpu_paused must match the bus owner" "${r}")
+
+  result_copy(r phase9_invalid_channel)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "4" phase9 channels 3 channel)
+  expect_detail(bad-phase9-channel "phase9.channels" "${r}")
+
+  result_copy(r phase9_inconsistent_progress)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "true" phase9 channels 3 active)
+  expect_detail(bad-phase9-progress "phase9.channels" "${r}")
+
+  result_copy(r phase9_completed_unit_total_mismatch)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"2\"" time dma_completed_units)
+  gbl_json_mutate_set("${r}" "\"3\"" phase9 timing dma_completed_units)
+  expect_detail(bad-phase9-timing
+    "phase9.timing.dma_completed_units differs from time.dma_completed_units" "${r}")
+
+  result_copy(r phase9_final_channel_total_exceeds_run)
+  result_add_phase9_dma_transfer("${r}")
+  gbl_json_mutate_set("${r}" "\"0\"" time dma_completed_units)
+  gbl_json_mutate_set("${r}" "\"0\"" phase9 timing dma_completed_units)
+  expect_detail(bad-phase9-progress
+    "final channel activation completions exceed time.dma_completed_units" "${r}")
+
+  result_copy(r phase9_inconsistent_component)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"6\"" phase9 timing dma_source_cycles)
+  expect_detail(bad-phase9-timing "phase9.timing.dma_source_cycles" "${r}")
+
+  result_copy(r phase9_wait_component_mismatch)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"1\"" time wait_cycles)
+  expect_detail(bad-phase9-timing "time.wait_cycles differs from phase8.wait_cycles" "${r}")
+
+  result_copy(r phase9_missing_latch_link)
+  result_add_phase9_latch_observation("${r}")
+  gbl_json_mutate_set("${r}" "[]" disputes)
+  gbl_json_mutate_set("${r}" "[]" labels)
+  expect_detail(undisclosed-dispute "disp-dma-latch" "${r}")
+
+  result_copy(r phase9_settled_latch)
+  result_add_phase9_latch_observation("${r}")
+  gbl_json_mutate_set("${r}" "\"settled\"" phase9 latch_policy classification)
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\"" phase9 latch_policy hardware_qualification)
+  expect_detail(bad-phase9-latch "latch fallback must remain disputed and UNKNOWN" "${r}")
+
+  result_copy(r phase9_modeled_prefetch)
+  result_add_phase9_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"modeled\"" phase9 prefetch)
+  expect_detail(bad-phase9-prefetch "phase9.prefetch" "${r}")
+
+  result_copy(r phase9_partial_without_object)
+  gbl_json_mutate_remove("${r}" phase9)
+  foreach(field IN ITEMS dma_startup_cycles dma_source_cycles
+      dma_destination_cycles dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${r}" time ${field})
+  endforeach()
+  gbl_json_mutate_set("${r}" "\"0\"" time dma_startup_cycles)
+  expect_detail(partial-phase9-extension "time DMA fields require phase9" "${r}")
+
+elseif(CASE STREQUAL "audio_policy")
+  # A historical result/1 receipt without audio remains valid by default.
+  expect_ok(PASS "${dir}/result.json")
+  set(GBL_RESULT_REQUIRE_AUDIO ON)
+  expect_code(bad-audio "${dir}/result.json")
+
+  result_copy(r current_audio_policy)
+  result_add_audio("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r incomplete_audio_capture)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"30\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"25\"" audio requested_interval end_cycle)
+  gbl_json_mutate_set("${r}" "\"24\"" audio actual_interval end_cycle)
+  gbl_json_mutate_set("${r}" "\"incomplete\"" audio capture_state)
+  gbl_json_mutate_set("${r}" "false" audio interval_complete)
+  gbl_json_mutate_set("${r}" "\"not-written\"" audio artifact state)
+  gbl_json_mutate_set("${r}" "null" audio artifact byte_count)
+  gbl_json_mutate_set("${r}" "null" audio artifact sha256)
+  expect_ok(PASS "${r}")
+
+  result_copy(r failed_audio_setup)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"30\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"25\"" audio requested_interval end_cycle)
+  gbl_json_mutate_set("${r}" "null" audio actual_interval)
+  gbl_json_mutate_set("${r}" "\"failed\"" audio capture_state)
+  gbl_json_mutate_set("${r}" "null" audio interval_complete)
+  gbl_json_mutate_set("${r}" "null" audio frame_count)
+  gbl_json_mutate_set("${r}" "null" audio byte_count)
+  gbl_json_mutate_set("${r}" "\"not-written\"" audio artifact state)
+  gbl_json_mutate_set("${r}" "null" audio artifact byte_count)
+  gbl_json_mutate_set("${r}" "null" audio artifact sha256)
+  expect_ok(PASS "${r}")
+
+  result_copy(r wrong_audio_profile)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "15" audio profile version)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r qualified_audio_claim)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\"" audio hardware_qualification)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_interval_over_budget)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"25\"" audio requested_interval end_cycle)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_frame_count_mismatch)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "1" audio frame_count)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_bad_digest)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"not-a-sha256\"" audio artifact sha256)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_wrong_artifact_state)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"not-written\"" audio artifact state)
+  expect_code(bad-audio "${r}")
+
+  result_copy(r audio_wrong_empty_digest)
+  result_add_audio("${r}")
+  gbl_json_mutate_set("${r}" "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"" audio artifact sha256)
+  expect_detail(bad-audio "empty artifact" "${r}")
+
+elseif(CASE STREQUAL "phase10")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy(r historical_without_phase10)
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r historical_model1_with_complete_capabilities)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"gamebloke-ppu-observation-1\""
+    phase10 model)
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r current_profile_model2)
+  result_add_phase10_capabilities("${r}")
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r current_production_observation)
+  result_copy_production_phase10_observation("${r}")
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r partial_without_raw_video)
+  gbl_json_mutate_remove("${r}" raw_video)
+  phase10_expect_code(partial-phase10-extension "${r}")
+
+  result_copy_phase10(r partial_without_ppu)
+  gbl_json_mutate_remove("${r}" phase10)
+  phase10_expect_code(partial-phase10-extension "${r}")
+
+  result_copy_phase10(r complete_video_output)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_valid_video("${r}")
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r classified_output_failure)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_output_failure("${r}")
+  phase10_expect_ok("${r}" HARNESS_FAIL)
+
+  result_copy_phase10(r disputed_hblank_dependency)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_hblank_dependency("${r}")
+  phase10_expect_ok("${r}")
+
+  phase10_report_success()
+
+elseif(CASE STREQUAL "phase10_negative")
+  file(COPY_FILE "${dir}/result.json" "${dir}/result_actual_producer.json")
+  result_copy_production_phase10_observation(
+    "${dir}/result_actual_producer.json")
+  phase10_expect_ok("${dir}/result_actual_producer.json")
+
+  result_copy_phase10(r missing_current_display_capabilities)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_remove("${r}" phase10 display_capabilities)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r missing_current_capability_member)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_remove("${r}" phase10 display_capabilities modes 0 implementation_status)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_current_producer_phase10(r missing_current_composition_features)
+  gbl_json_mutate_remove("${r}" phase10 display_capabilities composition_features)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  foreach(feature IN ITEMS rectangular_windows object_windows alpha_blending
+      brightness bg_mosaic obj_mosaic forced_blank)
+    result_copy_current_producer_phase10(r false_current_feature_${feature})
+    gbl_json_mutate_set("${r}" "false"
+      phase10 display_capabilities composition_features ${feature})
+    phase10_expect_code(bad-phase10-capability "${r}")
+  endforeach()
+
+  result_copy_current_producer_phase10(r wrong_current_feature_classification)
+  gbl_json_mutate_set("${r}" "\"hardware-qualified\""
+    phase10 display_capabilities composition_features classification)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_current_producer_phase10(r overstated_current_feature_qualification)
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\""
+    phase10 display_capabilities composition_features hardware_qualification)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r missing_current_profile_version)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_remove("${r}" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_profile_version_type)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"10\"" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r stale_current_profile_version)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "12" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_observation_model_type)
+  gbl_json_mutate_set("${r}" "2" phase10 model)
+  phase10_expect_code(bad-phase10-type "${r}")
+
+  result_copy_phase10(r wrong_current_capability_object_type)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "[]" phase10 video_memory_access)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode_id)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "2" phase10 display_capabilities modes 3 mode)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"affine\""
+    phase10 display_capabilities modes 3 backgrounds 0 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_text_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"affine\""
+    phase10 display_capabilities modes 0 backgrounds 0 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode1_affine_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"text\""
+    phase10 display_capabilities modes 1 backgrounds 2 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode2_affine_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"text\""
+    phase10 display_capabilities modes 2 backgrounds 1 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "241"
+    phase10 display_capabilities modes 3 backgrounds 0 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode4_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"direct-color-bitmap\""
+    phase10 display_capabilities modes 4 backgrounds 0 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode5_source)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"indexed-bitmap\""
+    phase10 display_capabilities modes 5 backgrounds 0 source)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode4_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "239"
+    phase10 display_capabilities modes 4 backgrounds 0 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode5_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "159"
+    phase10 display_capabilities modes 5 backgrounds 0 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_text_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "255"
+    phase10 display_capabilities modes 1 backgrounds 0 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode1_affine_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "255"
+    phase10 display_capabilities modes 1 backgrounds 2 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_mode2_affine_dimension)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "255"
+    phase10 display_capabilities modes 2 backgrounds 1 dimensions 0 width)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  foreach(mode IN ITEMS 0 1 2 3 4 5)
+    result_copy_phase10(r stale_supported_mode_${mode}_status)
+    result_add_phase10_capabilities("${r}")
+    gbl_json_mutate_set("${r}" "\"not-implemented\""
+      phase10 display_capabilities modes ${mode} implementation_status)
+    phase10_expect_code(bad-phase10-capability "${r}")
+  endforeach()
+
+  result_copy_current_producer_phase10(r complete_current_mode_overclaim)
+  gbl_json_mutate_set("${r}" "\"complete\""
+    phase10 display_capabilities modes 3 implementation_status)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_implementation_status)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"not-implemented\""
+    phase10 display_capabilities modes 3 implementation_status)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_raw_format)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"RGB555\""
+    phase10 display_capabilities raw_output format)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r wrong_current_artifact_format)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"RGB555\"" raw_video format)
+  phase10_expect_code(bad-phase10-video-output "${r}")
+
+  result_copy_phase10(r wrong_current_artifact_format_type)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "555" raw_video format)
+  phase10_expect_code(bad-phase10-video-output "${r}")
+
+  result_copy_phase10(r wrong_current_raw_byte_length)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "76799"
+    phase10 display_capabilities raw_output byte_length)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r escalated_current_qualification)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\""
+    phase10 video_memory_access hardware_qualification)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r added_current_ppu_cycles)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "1"
+    phase10 video_memory_access ppu_extra_cycles)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r current_model_partial_capabilities)
+  gbl_json_mutate_set("${r}" "\"gamebloke-ppu-observation-2\""
+    phase10 model)
+  gbl_json_mutate_set("${r}" "14" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_current_producer_phase10(r stale_current_producer_profile_14)
+  gbl_json_mutate_set("${r}" "14" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r historical_model1_partial_capabilities)
+  gbl_json_mutate_set("${r}" "10" phase10 profile_version)
+  phase10_expect_code(bad-phase10-capability "${r}")
+
+  result_copy_phase10(r unknown_observation_model)
+  gbl_json_mutate_set("${r}" "\"gamebloke-ppu-observation-99\""
+    phase10 model)
+  phase10_expect_code(bad-phase10-type "${r}")
+
+  result_copy_phase10(r wrong_width)
+  gbl_json_mutate_set("${r}" "239" phase10 frame width)
+  phase10_expect_code(bad-phase10-frame "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r wrong_observed_type)
+  gbl_json_mutate_set("${r}" "\"true\"" phase10 observed)
+  phase10_expect_code(bad-phase10-type "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r wrong_stride)
+  gbl_json_mutate_set("${r}" "481" phase10 frame stride_bytes)
+  phase10_expect_code(bad-phase10-frame "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r wrong_byte_count)
+  gbl_json_mutate_set("${r}" "76799" phase10 frame byte_length)
+  phase10_expect_code(bad-phase10-frame "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r raster_time_mismatch)
+  gbl_json_mutate_set("${r}" "\"23\"" phase10 raster machine_cycle)
+  phase10_expect_code(bad-phase10-machine-time "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r valid_frame_missing_completion)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_valid_video("${r}")
+  gbl_json_mutate_set("${r}" "null" phase10 frame completion_cycle)
+  phase10_expect_code(bad-phase10-frame-validity "${r}")
+  result_copy_phase10(r valid_frame_clean_twin)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_valid_video("${r}")
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r emitted_from_invalid_frame)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "true" raw_video requested)
+  gbl_json_mutate_set("${r}" "\"emitted\"" raw_video status)
+  gbl_json_mutate_set("${r}" "true" raw_video emitted)
+  gbl_json_mutate_set("${r}" "76800" raw_video byte_length)
+  gbl_json_mutate_set("${r}" "\"abababababababababababababababababababababababababababababababab\"" raw_video sha256)
+  phase10_expect_code(bad-phase10-video-output "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r malformed_video_digest)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_valid_video("${r}")
+  gbl_json_mutate_set("${r}" "\"ABAB\"" raw_video sha256)
+  phase10_expect_code(bad-phase10-video-digest "${r}")
+  result_copy_phase10(r valid_digest_clean_twin)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_valid_video("${r}")
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r wrong_video_length)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_valid_video("${r}")
+  gbl_json_mutate_set("${r}" "76799" raw_video byte_length)
+  phase10_expect_code(bad-phase10-video-output "${r}")
+  result_copy_phase10(r valid_length_clean_twin)
+  result_add_phase10_capabilities("${r}")
+  result_add_phase10_valid_video("${r}")
+  phase10_expect_ok("${r}")
+
+  result_copy_phase10(r false_hardware_qualification)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"QUALIFIED\"" phase10 timing hardware_qualification)
+  phase10_expect_code(bad-phase10-policy "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r wrong_hblank_offset)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "\"1008\"" phase10 timing hblank_offset_cycles)
+  phase10_expect_code(bad-phase10-policy "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r undisclosed_hblank_dependency)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "true" phase10 hblank_trigger_dependency observed)
+  gbl_json_mutate_set("${r}" "\"disputed\"" phase10 hblank_trigger_dependency classification)
+  gbl_json_mutate_set("${r}" "\"disp-hblank-flag-edge\"" phase10 hblank_trigger_dependency dispute_id)
+  phase10_expect_code(bad-phase10-dependency "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  result_copy_phase10(r unobserved_with_raster)
+  result_add_phase10_capabilities("${r}")
+  gbl_json_mutate_set("${r}" "false" phase10 observed)
+  phase10_expect_code(bad-phase10-not-observed "${r}")
+  phase10_expect_ok("${dir}/result.json")
+
+  phase10_report_success()
+
+elseif(CASE STREQUAL "phase_positive")
+  result_copy(r legacy_without_phase8)
+  foreach(field IN ITEMS model qualification bus_cycles internal_cycles wait_cycles
+      dma_startup_cycles dma_source_cycles dma_destination_cycles
+      dma_completed_units dma_pause_cycles)
+    gbl_json_mutate_remove("${r}" time ${field})
+  endforeach()
+  gbl_json_mutate_remove("${r}" timer0)
+  gbl_json_mutate_remove("${r}" phase8)
+  gbl_json_mutate_remove("${r}" phase9)
+  expect_ok(PASS "${r}")
+
+  result_copy(r complete_phase8_tuple)
+  result_add_phase8_extension("${r}")
+  expect_ok(PASS "${r}")
+
+  result_copy(r phase8_wait_cycles_in_total)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"20\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"4\"" phase8 wait_cycles)
+  expect_ok(PASS "${r}")
+
+  hex(h64 "a" 64)
+  result_copy(r phase8_with_script_identity)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"script\"" claim input_timeline kind)
+  gbl_json_mutate_set("${r}" "\"${h64}\"" claim input_timeline sha256)
+  expect_ok(PASS "${r}")
+
+  result_copy(r phase8_zero_budget_nulls)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"TIMEOUT\"" status)
+  gbl_json_mutate_set("${r}" "\"cycle-budget\"" reason)
+  gbl_json_mutate_set("${r}" "\"timeout\"" termination)
+  gbl_json_mutate_set("${r}" "\"absent\"" semantic state)
+  gbl_json_mutate_set("${r}" "\"0\"" semantic case_id)
+  gbl_json_mutate_set("${r}" "\"0\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time instructions)
+  gbl_json_mutate_set("${r}" "\"0\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"0\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "null" timer0 if_request)
+  result_phase8_set_not_run("${r}")
+  expect_ok(TIMEOUT "${r}")
+
+  result_copy(r phase8_uint64_max_boundary)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551614\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"1\"" phase8 wait_cycles)
+  expect_ok(PASS "${r}")
+
+elseif(CASE STREQUAL "phase_negative")
+  result_copy(r missing_phase8_field)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_remove("${r}" phase8 irq ime)
+  expect_detail(missing-field "phase8.irq.ime" "${r}")
+
+  result_copy(r phase8_wrong_type)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "0" phase8 keypad condition)
+  expect_detail(bad-phase8-type "phase8.keypad.condition" "${r}")
+
+  result_copy(r entered_without_acceptance)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample entered)
+  expect_detail(bad-phase8-entry "entered requires accepted IRQ exception" "${r}")
+
+  result_copy(r accepted_while_sample_masked)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample if)
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample eligible_sources)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample eligible)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample cpsr_i_masked)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample accepted)
+  expect_detail(bad-phase8-eligibility "accepted conflicts with sampled" "${r}")
+
+  result_copy(r wake_without_source)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "null" phase8 power wake_source_mask)
+  expect_detail(bad-phase8-wake "wake cause requires source and cycle" "${r}")
+
+  result_copy(r not_run_observations)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "false" phase8 observed)
+  expect_detail(bad-phase8-not-run "unobserved phase8 requires null" "${r}")
+
+  hex(h10 "a" 10)
+  result_copy(r phase8_bad_script_digest)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"script\"" claim input_timeline kind)
+  gbl_json_mutate_set("${r}" "\"${h10}\"" claim input_timeline sha256)
+  expect_detail(bad-input-timeline "claim.input_timeline.sha256" "${r}")
+
+  result_copy(r lost_wait_cycles)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"20\"" time bus_cycles)
+  gbl_json_mutate_set("${r}" "\"4\"" phase8 wait_cycles)
+  expect_ok(PASS "${r}")
+  gbl_json_mutate_set("${r}" "\"0\"" phase8 wait_cycles)
+  expect_detail(bad-time-components
+    "time.cycles does not equal time.bus_cycles \\+ time.internal_cycles \\+ phase8.wait_cycles" "${r}")
+
+  result_copy(r phase8_wait_overflow)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551616\"" phase8 wait_cycles)
+  expect_detail(time-overflow "phase8.wait_cycles" "${r}")
+
+  result_copy(r phase8_sum_overflow)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time budget_cycles)
+  gbl_json_mutate_set("${r}" "\"18446744073709551615\"" time bus_cycles)
+  expect_ok(PASS "${r}")
+  gbl_json_mutate_set("${r}" "\"1\"" phase8 wait_cycles)
+  expect_detail(time-sum-overflow
+    "time.bus_cycles \\+ time.internal_cycles \\+ phase8.wait_cycles exceeds UINT64_MAX" "${r}")
+
+  result_copy(r inflated_phase8_qualification)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "\"hardware-qualified\"" phase8 qualification)
+  expect_detail(bad-phase8-qualification "phase8.qualification" "${r}")
+
+  result_copy(r handler_success_claim)
+  result_add_phase8_extension("${r}")
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample if)
+  gbl_json_mutate_set("${r}" "8" phase8 irq sample eligible_sources)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample eligible)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample accepted)
+  gbl_json_mutate_set("${r}" "true" phase8 irq sample entered)
+  gbl_json_mutate_set("${r}" "\"irq\"" phase8 last_exception)
+  expect_detail(bad-phase8-handler-claim
+    "entered IRQ must remain GUEST_STOP with no-bios-irq" "${r}")
 
 elseif(CASE STREQUAL "usage")
   # No RESULT, and no MANIFEST.

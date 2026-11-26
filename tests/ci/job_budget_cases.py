@@ -53,9 +53,15 @@ def main():
     for label, change, reason in (
         ("raised-policy", lambda doc: doc["jobs"][0].update(seconds=300), "unauthorized-job-budget"),
         ("typed-policy", lambda doc: doc["jobs"][0].update(seconds="180"), "unauthorized-job-budget"),
-        ("raised-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=300), "unauthorized-job-budget"),
-        ("old-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=180), "unauthorized-job-budget"),
-        ("typed-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds="240"), "unauthorized-job-budget"),
+        ("raised-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=600), "unauthorized-job-budget"),
+        ("old-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds=240), "unauthorized-job-budget"),
+        ("typed-linux-native-policy", lambda doc: doc["jobs"][5].update(seconds="480"), "unauthorized-job-budget"),
+        ("raised-macos-native-policy", lambda doc: doc["jobs"][6].update(seconds=900), "unauthorized-job-budget"),
+        ("old-macos-native-policy", lambda doc: doc["jobs"][6].update(seconds=480), "unauthorized-job-budget"),
+        ("raised-macos-arm-policy", lambda doc: doc["jobs"][9].update(seconds=600), "unauthorized-job-budget"),
+        ("old-macos-arm-policy", lambda doc: doc["jobs"][9].update(seconds=360), "unauthorized-job-budget"),
+        ("raised-macos-thumb-policy", lambda doc: doc["jobs"][10].update(seconds=480), "unauthorized-job-budget"),
+        ("old-macos-thumb-policy", lambda doc: doc["jobs"][10].update(seconds=240), "unauthorized-job-budget"),
         ("duplicate-policy", lambda doc: doc["jobs"][0].update(name="title"), "unauthorized-job-budget"),
         ("historical-policy", lambda doc: doc.update(producer_head="c3af6debd2f162c8eb91dc96906cf6f6a5ed5d16"), "policy-authority-mismatch")):
         changed = copy.deepcopy(policy)

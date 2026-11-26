@@ -24,11 +24,33 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Lane selection. Each lane has its own sorted test inventory under
 # tests/inventory/<lane>.txt. Later plans add each lane's content.
 set(GBL_LANE "ci" CACHE STRING
-  "Verification lane: ci | asan | hygiene | diagnostics")
-set_property(CACHE GBL_LANE PROPERTY STRINGS ci asan hygiene diagnostics)
-if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics)$")
+  "Verification lane: ci | asan | hygiene | diagnostics | local-timer0 | local-playable0 | local-audio")
+set_property(CACHE GBL_LANE PROPERTY STRINGS
+  ci asan hygiene diagnostics local-timer0 local-playable0 local-audio)
+if(NOT GBL_LANE MATCHES "^(ci|asan|hygiene|diagnostics|local-timer0|local-playable0|local-audio)$")
   message(FATAL_ERROR
-    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, or diagnostics)")
+    "gamebloke: unknown-lane: '${GBL_LANE}' (expected ci, asan, hygiene, diagnostics, local-timer0, local-playable0, or local-audio)")
+endif()
+if(GBL_LANE MATCHES "^local-(timer0|playable0|audio)$" AND "$ENV{CI}")
+  message(FATAL_ERROR
+    "gamebloke: ${GBL_LANE} lane is prohibited when CI=true")
+endif()
+
+# Host-only determinism is the reversible local default. A nonempty environment
+# value seeds a fresh cache; once cached, the explicit CMake cache value wins.
+if(NOT DEFINED CACHE{GBL_DETERMINISM_MODE})
+  if(NOT "$ENV{GBL_DETERMINISM_MODE}" STREQUAL "")
+    set(GBL_DETERMINISM_MODE "$ENV{GBL_DETERMINISM_MODE}" CACHE STRING
+      "Determinism compiler coverage: host | two-compilers")
+  else()
+    set(GBL_DETERMINISM_MODE "host" CACHE STRING
+      "Determinism compiler coverage: host | two-compilers")
+  endif()
+endif()
+set_property(CACHE GBL_DETERMINISM_MODE PROPERTY STRINGS host two-compilers)
+if(NOT GBL_DETERMINISM_MODE MATCHES "^(host|two-compilers)$")
+  message(FATAL_ERROR
+    "gamebloke: invalid-determinism-mode: '${GBL_DETERMINISM_MODE}' (expected host or two-compilers)")
 endif()
 
 set(GBL_DIAGNOSTIC_STAGE "admitted" CACHE STRING
@@ -108,7 +130,10 @@ file(REMOVE "${CMAKE_BINARY_DIR}/junit.xml")
 include(cmake/GblTests.cmake)
 
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
-   GBL_LANE STREQUAL "diagnostics")
+   GBL_LANE STREQUAL "diagnostics" OR
+   GBL_LANE STREQUAL "local-timer0" OR
+   GBL_LANE STREQUAL "local-playable0" OR
+   GBL_LANE STREQUAL "local-audio")
   include(cmake/ReadLogoDigest.cmake)
   set(GBL_LOGO_AUTHORITY "${CMAKE_SOURCE_DIR}/tests/signatures/logo.sha256")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -131,23 +156,88 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
 
   # Both targets compile the same host-independent core sources and options;
   # only their private configure-time expectation differs.
-  set(GBL_CORE_SOURCES src/version.c src/machine.c src/bus.c src/loader.c
-    src/cpu.c src/inspect.c)
+  set(GBL_CORE_SOURCES src/version.c src/machine.c src/audio.c src/bus.c
+    src/loader.c src/cpu.c src/inspect.c)
   function(gbl__add_core_target target expected_digest)
     add_library(${target} STATIC ${GBL_CORE_SOURCES})
-    target_include_directories(${target} PUBLIC include)
+    target_include_directories(${target} PUBLIC
+      "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+      "$<INSTALL_INTERFACE:include>")
     target_compile_definitions(${target} PRIVATE
       "GBL_VERSION_STRING=\"${PROJECT_VERSION}\"")
     target_compile_definitions(${target} PRIVATE
       "GBL_LOGO_EXPECTED_SHA256=\"${expected_digest}\"")
     target_compile_options(${target} PRIVATE
       "$<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-fno-stack-protector;-U_FORTIFY_SOURCE>")
-    target_link_libraries(${target} PRIVATE gbl_warnings)
+    target_link_libraries(${target} PRIVATE "$<BUILD_INTERFACE:gbl_warnings>")
   endfunction()
 
   gbl__add_core_target(gamebloke_core "${GBL_LOGO_EXPECTED_SHA256}")
+  target_sources(gamebloke_core PRIVATE src/api_v1.c)
+  add_library(gamebloke::api ALIAS gamebloke_core)
+  set_target_properties(gamebloke_core PROPERTIES EXPORT_NAME api)
+  set(GBL_AGB_PROFILE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/profiles/agb.json")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${GBL_AGB_PROFILE_PATH}")
+  file(READ "${GBL_AGB_PROFILE_PATH}" GBL_AGB_PROFILE_JSON)
+  string(JSON GBL_AGB_PROFILE_VERSION ERROR_VARIABLE GBL_AGB_PROFILE_VERSION_ERROR
+    GET "${GBL_AGB_PROFILE_JSON}" profile_version)
+  if(NOT "${GBL_AGB_PROFILE_VERSION_ERROR}" STREQUAL "NOTFOUND" OR
+     NOT GBL_AGB_PROFILE_VERSION MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "gamebloke: invalid-agb-profile-version")
+  endif()
+  target_compile_definitions(gamebloke_core PRIVATE
+    "GBL_AGB_PROFILE_VERSION=${GBL_AGB_PROFILE_VERSION}")
+  if(NOT GBL_LANE STREQUAL "asan")
+    install(TARGETS gamebloke_core EXPORT GameblokeCoreApiTargets
+      ARCHIVE DESTINATION lib COMPONENT GameblokeCoreApi EXCLUDE_FROM_ALL)
+    install(FILES include/gamebloke/gamebloke_v1.h
+      DESTINATION include/gamebloke COMPONENT GameblokeCoreApi
+      EXCLUDE_FROM_ALL)
+    install(EXPORT GameblokeCoreApiTargets
+      FILE gameblokeTargets.cmake
+      NAMESPACE gamebloke::
+      DESTINATION lib/cmake/gamebloke
+      COMPONENT GameblokeCoreApi EXCLUDE_FROM_ALL)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gameblokeConfig.cmake"
+      "include(\"\${CMAKE_CURRENT_LIST_DIR}/gameblokeTargets.cmake\")\n")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/gameblokeConfig.cmake"
+      DESTINATION lib/cmake/gamebloke COMPONENT GameblokeCoreApi
+      EXCLUDE_FROM_ALL)
+  endif()
   gbl__add_core_target(gamebloke_core_logo_synthetic
     "${GBL_LOGO_SYNTHETIC_SHA256}")
+
+  # The Libretro target is a thin dynamic adapter over the one canonical
+  # machine. Local guest execution remains opt-in and is never registered in
+  # the public CI/ASAN inventories.
+  set_target_properties(gamebloke_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  add_library(gamebloke_libretro MODULE adapters/libretro/gamebloke_libretro.c)
+  target_include_directories(gamebloke_libretro PRIVATE
+    include third_party/libretro)
+  target_compile_options(gamebloke_libretro PRIVATE
+    "$<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-fvisibility=hidden>")
+  target_link_libraries(gamebloke_libretro PRIVATE gamebloke_core gbl_warnings)
+  set_target_properties(gamebloke_libretro PROPERTIES PREFIX "")
+  if(APPLE)
+    set_target_properties(gamebloke_libretro PROPERTIES SUFFIX ".dylib")
+  else()
+    set_target_properties(gamebloke_libretro PROPERTIES SUFFIX ".so")
+  endif()
+
+  add_executable(libretro_frontend_test tests/libretro_frontend_test.c)
+  target_include_directories(libretro_frontend_test PRIVATE third_party/libretro)
+  target_link_libraries(libretro_frontend_test PRIVATE gbl_warnings ${CMAKE_DL_LIBS})
+
+  add_executable(gamebloke-terminal frontends/terminal/main.c)
+  target_include_directories(gamebloke-terminal PRIVATE third_party/libretro)
+  target_link_libraries(gamebloke-terminal PRIVATE gbl_warnings ${CMAKE_DL_LIBS})
+
+  if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+    add_executable(api_v1_test tests/api_v1_test.c)
+    target_link_libraries(api_v1_test PRIVATE gamebloke::api gbl_warnings)
+  endif()
+
   if(GBL_LOGO_EXPECTED_SHA256 STREQUAL "")
     set(GBL_PRODUCTION_LOGO_TEST_MODE 0)
   else()
@@ -166,9 +256,79 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
   set(GBL_PRODUCTION_INDEX "${GBL_PRODUCTION_INDEX_DIR}/fixture_index.h")
   set(GBL_CONTROL_INDEX "${GBL_CONTROL_INDEX_DIR}/fixture_index.h")
   set(GBL_CONTROL_MANIFEST "${GBL_CONTROL_INDEX_DIR}/manifest.json")
+  set(GBL_MANIFEST_INPUT "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json")
+  set(GBL_FIXTURE_INDEX_EXTRA_DEPENDS "")
+  if(GBL_LANE STREQUAL "local-audio")
+    set(GBL_AUDIO_MANIFEST
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/audio-manifest.json")
+    set(GBL_AUDIO_NOTICE "${CMAKE_SOURCE_DIR}/tests/fixtures/audio-NOTICE.md")
+    set(GBL_AUDIO_MERGED_MANIFEST
+      "${GBL_PRODUCTION_INDEX_DIR}/audio-manifest.json")
+    set(GBL_LOCAL_AUDIO_IMAGE
+      "${GBL_FIXTURE_DIR}/owned-audio-mix.gba")
+    file(READ "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      GBL_STANDARD_MANIFEST_TEXT)
+    file(READ "${GBL_AUDIO_MANIFEST}" GBL_AUDIO_MANIFEST_TEXT)
+    string(JSON GBL_AUDIO_SCHEMA ERROR_VARIABLE GBL_AUDIO_SCHEMA_ERROR
+      GET "${GBL_AUDIO_MANIFEST_TEXT}" schema)
+    string(JSON GBL_AUDIO_ROW_COUNT ERROR_VARIABLE GBL_AUDIO_ROWS_ERROR
+      LENGTH "${GBL_AUDIO_MANIFEST_TEXT}" fixtures)
+    if(NOT "${GBL_AUDIO_SCHEMA_ERROR}" STREQUAL "NOTFOUND" OR
+        NOT GBL_AUDIO_SCHEMA STREQUAL "gamebloke.manifest/1" OR
+        NOT "${GBL_AUDIO_ROWS_ERROR}" STREQUAL "NOTFOUND" OR
+        NOT GBL_AUDIO_ROW_COUNT EQUAL 1)
+      message(FATAL_ERROR "gamebloke: audio-manifest: invalid local row shape")
+    endif()
+    string(JSON GBL_AUDIO_ROW GET "${GBL_AUDIO_MANIFEST_TEXT}" fixtures 0)
+    string(JSON GBL_AUDIO_ID GET "${GBL_AUDIO_ROW}" id)
+    string(JSON GBL_STANDARD_ROW_COUNT LENGTH
+      "${GBL_STANDARD_MANIFEST_TEXT}" fixtures)
+    if(GBL_STANDARD_ROW_COUNT GREATER 0)
+      math(EXPR GBL_STANDARD_ROW_LAST "${GBL_STANDARD_ROW_COUNT}-1")
+      foreach(index RANGE 0 ${GBL_STANDARD_ROW_LAST})
+        string(JSON GBL_STANDARD_ID GET
+          "${GBL_STANDARD_MANIFEST_TEXT}" fixtures ${index} id)
+        if(GBL_STANDARD_ID STREQUAL GBL_AUDIO_ID)
+          message(FATAL_ERROR
+            "gamebloke: audio-manifest: duplicate id ${GBL_AUDIO_ID}")
+        endif()
+      endforeach()
+    endif()
+    string(JSON GBL_AUDIO_MERGED_TEXT SET "${GBL_STANDARD_MANIFEST_TEXT}"
+      fixtures ${GBL_STANDARD_ROW_COUNT} "${GBL_AUDIO_ROW}")
+    file(WRITE "${GBL_AUDIO_MERGED_MANIFEST}" "${GBL_AUDIO_MERGED_TEXT}\n")
+    set(GBL_MANIFEST_INPUT "${GBL_AUDIO_MERGED_MANIFEST}")
+    set(GBL_AUDIO_TOOLCHAIN_IDENTITY
+      "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}; CMake ${CMAKE_VERSION}; C${CMAKE_C_STANDARD} host generator")
+    file(WRITE "${GBL_GENERATED_ROOT}/local-audio-toolchain.txt"
+      "${GBL_AUDIO_TOOLCHAIN_IDENTITY}\n")
+    list(APPEND GBL_FIXTURE_INDEX_EXTRA_DEPENDS
+      "${GBL_AUDIO_MANIFEST}" "${GBL_AUDIO_NOTICE}"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/audio_image.c"
+      "${GBL_LOCAL_AUDIO_IMAGE}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+      "${GBL_AUDIO_MANIFEST}" "${GBL_AUDIO_NOTICE}"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/audio_image.c")
+  endif()
 
   add_executable(gbl_instruction_image tests/fixtures/instruction_image.c)
   target_link_libraries(gbl_instruction_image PRIVATE gbl_warnings)
+
+  if(GBL_LANE STREQUAL "local-audio")
+    add_executable(gbl_audio_guest_image tests/fixtures/audio_image.c)
+    target_link_libraries(gbl_audio_guest_image PRIVATE gbl_warnings)
+    target_compile_definitions(gbl_audio_guest_image PRIVATE
+      "GBL_AUDIO_GUEST_OUTPUT_DIR=\"${GBL_FIXTURE_DIR}\"")
+    add_custom_command(
+      OUTPUT "${GBL_LOCAL_AUDIO_IMAGE}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${GBL_FIXTURE_DIR}"
+      COMMAND "$<TARGET_FILE:gbl_audio_guest_image>" "${GBL_FIXTURE_DIR}"
+      DEPENDS gbl_audio_guest_image
+        "${CMAKE_SOURCE_DIR}/tests/fixtures/audio_image.c"
+      COMMENT "Generating the original local audio guest under the build tree"
+      VERBATIM)
+    add_custom_target(gbl_local_audio_image DEPENDS "${GBL_LOCAL_AUDIO_IMAGE}")
+  endif()
 
   set(GBL_OWNED_FIXTURE_NAMES
     owned-arm-pass.gba
@@ -179,8 +339,26 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     owned-arm-swi.gba
     owned-arm-undefined.gba
     owned-arm-coprocessor.gba
+    owned-register-arm-zero.gba
+    owned-register-arm-fail.gba
+    owned-register-arm-stop.gba
+    owned-register-thumb-zero.gba
+    owned-register-thumb-fail.gba
     owned-arm-thumb-bx-pass.gba
     owned-arm-pass-mutated.gba)
+  if(GBL_LANE STREQUAL "local-timer0")
+    list(APPEND GBL_OWNED_FIXTURE_NAMES
+      owned-timer0-pass.gba
+      owned-timer0-disabled.gba)
+    set(GBL_LOCAL_GUEST_GENERATOR_ARGS --include-local-timer0)
+  elseif(GBL_LANE STREQUAL "local-playable0")
+    list(APPEND GBL_OWNED_FIXTURE_NAMES
+      owned-playable0.gba
+      owned-playable0-input-disabled.gba
+      owned-playable0-wrong-color.gba
+      owned-playable0-wrong-address.gba)
+    set(GBL_LOCAL_GUEST_GENERATOR_ARGS --include-local-playable0)
+  endif()
   set(GBL_OWNED_FIXTURE_FILES "")
   foreach(fixture IN LISTS GBL_OWNED_FIXTURE_NAMES)
     list(APPEND GBL_OWNED_FIXTURE_FILES "${GBL_FIXTURE_DIR}/${fixture}")
@@ -189,6 +367,7 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     OUTPUT ${GBL_OWNED_FIXTURE_FILES}
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${GBL_FIXTURE_DIR}"
     COMMAND "$<TARGET_FILE:gbl_instruction_image>" "${GBL_FIXTURE_DIR}"
+      ${GBL_LOCAL_GUEST_GENERATOR_ARGS}
     DEPENDS gbl_instruction_image
     COMMENT "Generating original owned instruction images under the build tree"
     VERBATIM)
@@ -305,6 +484,13 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
     endif()
   endif()
 
+  set(GBL_LOCAL_TIMER0_INDEX_ARGS "")
+  if(GBL_LANE STREQUAL "local-timer0")
+    set(GBL_LOCAL_TIMER0_INDEX_ARGS
+      "-DGBL_CONTROL_TIMER0_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-pass.gba"
+      "-DGBL_CONTROL_TIMER0_DISABLED_IMAGE=${GBL_FIXTURE_DIR}/owned-timer0-disabled.gba"
+      "-DGBL_CONTROL_TIMER0_GENERATOR_COMPILER=${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
+  endif()
   set(GBL_FIXTURE_INDEX_COMMAND "${CMAKE_COMMAND}"
       "-DGBL_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
       "-DGBL_PROOF_METADATA=$<IF:$<STREQUAL:${GBL_DIAGNOSTIC_STAGE},proof>,ON,OFF>"
@@ -314,12 +500,18 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "-DGBL_CONTROL_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-fail.gba"
       "-DGBL_CONTROL_SKIP_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass.gba"
       "-DGBL_CONTROL_ZERO_CASE_IMAGE=${GBL_FIXTURE_DIR}/owned-arm-pass-zero-case.gba"
+      "-DGBL_CONTROL_REGISTER_ARM_ZERO_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-zero.gba"
+      "-DGBL_CONTROL_REGISTER_ARM_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-fail.gba"
+      "-DGBL_CONTROL_REGISTER_ARM_STOP_IMAGE=${GBL_FIXTURE_DIR}/owned-register-arm-stop.gba"
+      "-DGBL_CONTROL_REGISTER_THUMB_ZERO_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-zero.gba"
+      "-DGBL_CONTROL_REGISTER_THUMB_FAIL_IMAGE=${GBL_FIXTURE_DIR}/owned-register-thumb-fail.gba"
       "-DGBL_CONTROL_MANIFEST_OUTPUT=${GBL_CONTROL_MANIFEST}"
-      "-DGBL_MANIFEST=${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      "-DGBL_MANIFEST=${GBL_MANIFEST_INPUT}"
       "-DGBL_REGISTRY=${CMAKE_SOURCE_DIR}/registry/disputes.json"
       "-DGBL_VOCAB=${CMAKE_SOURCE_DIR}/contracts/evidence.json"
       "-DGBL_OUT_PRODUCTION=${GBL_PRODUCTION_INDEX}"
       "-DGBL_OUT_CONTROL=${GBL_CONTROL_INDEX}"
+      ${GBL_LOCAL_TIMER0_INDEX_ARGS}
       -P "${CMAKE_SOURCE_DIR}/cmake/GenerateFixtureIndex.cmake")
   if(GBL_LANE STREQUAL "diagnostics" AND GBL_DIAGNOSTIC_STAGE STREQUAL "admitted")
     set(GBL_FIXTURE_INDEX_COMMAND "${CMAKE_COMMAND}"
@@ -333,7 +525,10 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "${GBL_CONTROL_MANIFEST}" ${GBL_DIAGNOSTIC_INDEX_EXTRA_OUTPUTS}
     COMMAND ${GBL_FIXTURE_INDEX_COMMAND}
     DEPENDS ${GBL_OWNED_FIXTURE_FILES} ${GBL_DIAGNOSTIC_INDEX_DEPENDS}
+      ${GBL_FIXTURE_INDEX_EXTRA_DEPENDS}
       "${CMAKE_SOURCE_DIR}/tests/fixtures/manifest.json"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/timer0-NOTICE.md"
+      "${CMAKE_SOURCE_DIR}/tests/fixtures/playable0-NOTICE.md"
       "${CMAKE_SOURCE_DIR}/cmake/CheckDiagnosticAuthority.cmake"
       "${CMAKE_SOURCE_DIR}/cmake/PathContainment.cmake"
       "${CMAKE_SOURCE_DIR}/registry/disputes.json"
@@ -352,23 +547,35 @@ if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan" OR
       "${GBL_CONTROL_MANIFEST}")
 
   add_executable(gamebloke-run ${GBL_RUNNER_SOURCES})
-  target_include_directories(gamebloke-run PRIVATE "${GBL_PRODUCTION_INDEX_DIR}")
+  target_include_directories(gamebloke-run PRIVATE src "${GBL_PRODUCTION_INDEX_DIR}")
   target_link_libraries(gamebloke-run PRIVATE gamebloke_core gbl_warnings)
   add_dependencies(gamebloke-run gbl_fixture_indexes)
+  if(GBL_LANE STREQUAL "local-audio")
+    add_dependencies(gamebloke-run gbl_local_audio_image)
+  endif()
   install(TARGETS gamebloke-run RUNTIME DESTINATION bin)
 
   add_executable(gamebloke-run-control ${GBL_RUNNER_SOURCES})
-  target_include_directories(gamebloke-run-control PRIVATE "${GBL_CONTROL_INDEX_DIR}")
+  target_include_directories(gamebloke-run-control PRIVATE src "${GBL_CONTROL_INDEX_DIR}")
   target_link_libraries(gamebloke-run-control PRIVATE gamebloke_core gbl_warnings)
   add_dependencies(gamebloke-run-control gbl_fixture_indexes)
 
   # Exercise the actual host runner modules against the build-only synthetic
-  # index. The production CLI remains bound to the canonical empty index.
+  # index, except for the separately selected local Playable 0 CLI mode.
   add_executable(runner_test tests/runner_test.c runner/run.c runner/result.c
     runner/sha256.c)
-  target_include_directories(runner_test PRIVATE runner
+  target_include_directories(runner_test PRIVATE runner src
     "${GBL_CONTROL_INDEX_DIR}")
+  if(GBL_LANE STREQUAL "local-playable0")
+    # Keep ordinary runner_test on its synthetic index. The explicit local
+    # guest mode exercises the production runner, which owns the local row.
+    target_compile_definitions(runner_test PRIVATE
+      GBL_RUNNER_TEST_LOCAL_PLAYABLE0=1
+      "GBL_RUNNER_TEST_PLAYABLE_CLI=\"$<TARGET_FILE:gamebloke-run>\"")
+    add_dependencies(runner_test gamebloke-run)
+  endif()
   target_compile_definitions(runner_test PRIVATE
+    GBL_RUNNER_TESTING=1
     "GBL_RUNNER_TEST_FIXTURE_DIR=\"${GBL_FIXTURE_DIR}\""
     "GBL_RUNNER_TEST_SCRATCH_DIR=\"${CMAKE_BINARY_DIR}/runner-test\""
     "GBL_RUNNER_TEST_CLI=\"$<TARGET_FILE:gamebloke-run-control>\"")
@@ -420,7 +627,37 @@ endif()
 #                      hygiene lanes
 if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
   include(tests/core.cmake)
+  include(tests/determinism.cmake)
+elseif(GBL_LANE STREQUAL "diagnostics")
+  include(tests/determinism.cmake)
+elseif(GBL_LANE STREQUAL "local-timer0")
+  include(tests/determinism.cmake)
+  gbl_add_test(
+    NAME timer0.guest.cli
+    LABELS core integration timer
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/timer0_guest.cmake")
+elseif(GBL_LANE STREQUAL "local-playable0")
+  foreach(case IN ITEMS admission verify control)
+    gbl_add_test(
+      NAME "playable0_${case}"
+      LABELS core integration playable0 local
+      COMMAND "${CMAKE_COMMAND}"
+        "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+        "-DCASE=${case}"
+        "-DGENERATOR=$<TARGET_FILE:gbl_instruction_image>"
+        -P "${CMAKE_SOURCE_DIR}/tests/gates/playable0_guest.cmake")
+  endforeach()
+elseif(GBL_LANE STREQUAL "local-audio")
+  gbl_add_test(
+    NAME audio.guest.local
+    LABELS audio core integration local
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/audio_guest.cmake")
 endif()
+
 if(GBL_LANE STREQUAL "ci")
   include(tests/harness.cmake)
 endif()
@@ -439,4 +676,282 @@ if(GBL_LANE STREQUAL "diagnostics")
 endif()
 if(GBL_LANE MATCHES "^(ci|asan|diagnostics)$")
   include(tests/diagnostics.cmake)
+endif()
+
+# A CTest fixture makes the exact cheap time boundary set a prerequisite of
+# every longer timer/guest and CPU/runner/determinism test. CTest still runs
+# those tests in parallel after all five setup checks succeed.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase7_fast_setup_tests
+    time.events.order
+    time.events.boundary
+    time.events.refusal
+    timer0.model.boundary
+    phase7.selection.control)
+  foreach(test_name IN LISTS gbl_phase7_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase7_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase7_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu|runner|determinism|timer|timer0)[.]"
+        OR test_name MATCHES "^time[.]events[.]"
+        OR test_name STREQUAL "bus.timing"
+        OR test_name MATCHES "^bus[.]time_authority[.]"
+        OR test_name STREQUAL "phase7.order")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase7_fast)
+    endif()
+  endforeach()
+endif()
+
+# The Phase 8 exact boundary set is a second staged prerequisite for longer
+# IRQ/input/HALT, runner, determinism, and profile-policy checks. Its setup
+# tests retain their Phase 7 prerequisite, while Phase 7 setup tests remain
+# independent of Phase 8.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase8_fast_setup_tests
+    cpu.irq.boundary
+    keypad.timeline
+    keypad.refusal
+    time.halt.boundary
+    phase8.selection.control)
+  foreach(test_name IN LISTS gbl_phase8_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase8_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase8_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu[.](irq[.]refusal|power[.]boundary)|bus[.](irq|keypad)[.]registers|keypad[.]condition|time[.]halt[.]refusal|runner[.](input[.]cli|unit|result_contract)|determinism[.]phase8([.]controls)?|phase8[.](order|policy))$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase8_fast)
+    endif()
+  endforeach()
+endif()
+
+# The Phase 9 exact WAITCNT/DMA policy checks gate all longer Phase 9 CPU,
+# DMA, result, and determinism cases. Keep the earlier Phase 7/8 fixture graph
+# intact; this adds a third causal prerequisite without repeating its setup.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase9_fast_setup_tests
+    phase9.policy
+    phase9.dispute
+    bus.waitcnt.matrix
+    bus.waitcnt.boundary
+    dma.registers
+    dma.events
+    phase9.selection.control)
+  foreach(test_name IN LISTS gbl_phase9_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase9_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase9_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(bus[.]waitcnt[.].*|cpu[.]dma[.].*|cpu[.]waitcnt|dma[.].*|phase9[.].*|determinism[.]phase9([.]controls)?|result[.](nc|pos)[.]phase9)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase9_fast)
+    endif()
+  endforeach()
+endif()
+
+# The exact Phase 10 PPU baseline gates longer PPU, CPU/DMA trigger, runner,
+# result, and synthetic replay checks. Keep setup tests independent of their
+# own fixture and preserve the earlier Phase 7/8/9 prerequisite chain.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase10_fast_setup_tests
+    phase10.policy
+    phase10.policy.control
+    ppu.boundary
+    ppu.registers
+    ppu.refusal
+    phase10.selection.control)
+  foreach(test_name IN LISTS gbl_phase10_fast_setup_tests)
+    set_tests_properties("${test_name}" PROPERTIES
+      FIXTURES_SETUP phase10_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase10_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(ppu[.](tracer|latch|frame|controls)|cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|phase10[.](cli([.]control)?|selection[.](verify|order))|determinism[.]phase10([.]controls)?|result[.](nc|pos)[.]phase10)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase10_fast)
+    endif()
+  endforeach()
+endif()
+
+# Phase 11 cheap sampled-row and profile checks gate the affected CPU/DMA,
+# runner, result, and deterministic replay integration tests. Reused Phase 10
+# setup tests keep their existing ownership while also setting phase11_fast.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase11_fast_setup_tests
+    ppu.latch
+    ppu.registers
+    ppu.refusal
+    phase11.selection.control)
+  if(GBL_LANE STREQUAL "ci")
+    list(APPEND gbl_phase11_fast_setup_tests
+      profile.lint
+      profile.nc.ppu_policy)
+  endif()
+  foreach(test_name IN LISTS gbl_phase11_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase11_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase11_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|ppu[.](tracer|frame|controls)|result[.](nc|pos)[.]phase10|determinism[.]phase10([.]controls)?|phase11[.]selection[.](verify|order))$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase11_fast)
+    endif()
+  endforeach()
+endif()
+
+# Phase 12 background sampling checks gate the next integration slice while
+# keeping the established Phase 7–11 fixture chain intact. Reuse the bounded
+# tracer/refusal prefix and select profile checks only in CI.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase12_fast_setup_tests
+    ppu.tracer
+    ppu.bg.tracer
+    ppu.bg.text
+    ppu.bg.affine
+    ppu.bg.bitmap
+    ppu.bg.controls
+    ppu.refusal
+    phase12.selection.control)
+  if(GBL_LANE STREQUAL "ci")
+    list(APPEND gbl_phase12_fast_setup_tests
+      profile.lint
+      profile.nc.ppu_policy)
+  endif()
+  foreach(test_name IN LISTS gbl_phase12_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase12_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase12_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(ppu[.]bg[.].*|ppu[.](frame|controls)|cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|phase12[.]selection[.](verify|order)|determinism[.]phase10([.]controls)?|result[.](nc|pos)[.]phase10)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase12_fast)
+    endif()
+  endforeach()
+endif()
+
+# Phase 13 OBJ and composition checks gate only their own verification graph.
+# Keep Phase 7–12 selectors outside this prerequisite so predecessor helpers
+# do not inherit or duplicate the new setup closure.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase13_fast_setup_tests
+    ppu.obj.tracer
+    ppu.obj.regular
+    ppu.obj.affine
+    ppu.obj.budget
+    ppu.obj.boundary
+    ppu.obj.controls
+    ppu.composition
+    ppu.refusal
+    determinism.phase13
+    determinism.phase13.controls
+    phase13.selection.control)
+  if(GBL_LANE STREQUAL "ci")
+    list(APPEND gbl_phase13_fast_setup_tests
+      profile.lint
+      profile.nc.ppu_policy)
+  endif()
+  foreach(test_name IN LISTS gbl_phase13_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase13_fast)
+  endforeach()
+  foreach(test_name IN ITEMS phase13.selection.verify phase13.selection.order)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_REQUIRED phase13_fast)
+  endforeach()
+endif()
+
+# Phase 14's exact display-effects manifest is the cheap prerequisite for
+# longer CPU/DMA/runner/result PPU consumers. The Phase 14 helper runs this
+# setup explicitly before its single inherited closure.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase14_fast_setup_tests
+    ppu.effects.tracer
+    ppu.blank
+    ppu.window.rect
+    ppu.window.obj
+    ppu.effects.alpha
+    ppu.effects.brightness
+    ppu.mosaic.bg
+    ppu.mosaic.obj
+    ppu.effects.boundary
+    ppu.effects.controls
+    determinism.phase14
+    determinism.phase14.controls
+    phase14.selection.control)
+  foreach(test_name IN LISTS gbl_phase14_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase14_fast)
+  endforeach()
+  foreach(test_name IN ITEMS phase14.selection.verify phase14.selection.order)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_REQUIRED phase14_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase14_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES
+        "^(cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*|result[.](nc|pos)[.]phase10|phase10[.]cli([.]control)?)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase14_fast)
+    endif()
+  endforeach()
+endif()
+
+# Phase 15's access/production selectors receive a cheap, acyclic gate before
+# longer CPU/DMA/runner PPU checks. Keep only the three selector gates in the
+# setup fixture; every earlier-phase prerequisite remains appended as before.
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  set(gbl_phase15_fast_setup_tests
+    phase15.selection.verify
+    phase15.selection.control
+    phase15.selection.order)
+  foreach(test_name IN LISTS gbl_phase15_fast_setup_tests)
+    set_property(TEST "${test_name}" APPEND PROPERTY
+      FIXTURES_SETUP phase15_fast)
+  endforeach()
+
+  get_property(gbl_registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(test_name IN LISTS gbl_registered_tests)
+    if(test_name IN_LIST gbl_phase15_fast_setup_tests)
+      continue()
+    endif()
+    if(test_name MATCHES "^(cpu[.]ppu[.].*|dma[.]ppu[.].*|runner[.]ppu[.].*)$")
+      set_property(TEST "${test_name}" APPEND PROPERTY
+        FIXTURES_REQUIRED phase15_fast)
+    endif()
+  endforeach()
 endif()

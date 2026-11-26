@@ -39,6 +39,26 @@ violations.
 Distinct machine instances have independent backing arrays and clocks. The
 host is responsible for synchronizing all access to a single instance.
 
+## Short-lived DMA scratch
+
+The same optional allocator callbacks also provide private DMA scratch storage:
+the sound-refill candidate machine and staged DMA observations. Each request
+uses the exact byte size, and the matching release callback runs before the DMA
+call returns. These blocks must be fresh, suitably aligned, disjoint from the
+machine and its ROM, and must not be retained or used to reenter the machine.
+The core never falls back to a default heap. If a DMA operation needs scratch
+and the allocator is absent or allocation fails, it returns the existing
+`UNIT_REFUSAL` status with machine state, result, and caller observations
+unchanged. Ordinary non-sound DMA without an observation buffer needs no
+scratch and remains available without an allocator.
+
+One observed DMA service accepts at most `GBL_DMA_OBSERVATION_CAPACITY` (4096)
+records. A larger requested capacity returns `OUTPUT_REFUSAL` before allocation
+or mutation. CPU DMA tracing limits staging to caller trace capacity, available
+sequence values, and this bound; converted records are copied to caller-owned
+slots only after the full DMA service succeeds. Capacity or sequence exhaustion
+therefore leaves that service and all prior trace slots unchanged.
+
 ## Bus requests and results
 
 `gbl_bus_read`, `gbl_bus_write`, and `gbl_bus_internal` are the only ordinary
@@ -55,7 +75,7 @@ The result fields are:
 | Field | Meaning |
 |---|---|
 | `status` | `OK`, `INVALID_ARGUMENT`, or `TIME_OVERFLOW` |
-| `outcome` | `NONE`, `RAM`, `BIOS_ABSENT`, `IO_UNIMPLEMENTED`, `IO_MODE_SUBSET`, `ROM`, `ROM_TAIL`, `UNMAPPED`, or `VIDEO_INVALID_MODE_POLICY` |
+| `outcome` | `NONE`, `RAM`, `BIOS_ABSENT`, `IO_UNIMPLEMENTED`, `IO_MODE_SUBSET`, `IO_AUDIO_SUBSET`, `ROM`, `ROM_TAIL`, `UNMAPPED`, or `VIDEO_INVALID_MODE_POLICY` |
 | `value` | Read value; zero for writes and refusals |
 | `cycles` | Cost charged to the machine clock; zero for refusals |
 | `access_class` | Requested class for a valid read/write, or non-sequential for internal cycles |
@@ -79,7 +99,7 @@ documentation or physical hardware qualification.
 | `0x00000000–0x00003FFF` BIOS | No BIOS provider is installed. | Reads return the saved latch and report `BIOS_ABSENT`; writes are ignored. | GBATEK's “GBA Memory Map” and “Memory Mirrors” describe the window and say BIOS is not mirrored. Current-latch behavior is an unverified project placeholder, not BIOS protection. |
 | `0x02000000–0x02FFFFFF` EWRAM | 256 KiB backing, `address & 0x3FFFF`. | Raw 8/16/32-bit reads and writes. | GBATEK's “GBA Memory Map” and “Memory Mirrors”; one-cycle cost is Gamebloke project policy. |
 | `0x03000000–0x03FFFFFF` IWRAM | 32 KiB backing, `address & 0x7FFF`. | Raw 8/16/32-bit reads and writes. | GBATEK's “GBA Memory Map” and “Memory Mirrors”; one-cycle cost is Gamebloke project policy. |
-| `0x04000000–0x040003FF` I/O | The byte-address window is decoded. Only DISPCNT bytes `0x04000000–0x04000001` are modeled; all other registers are unsupported. | DISPCNT exposes only bits 0–2 (BG mode) and reports `IO_MODE_SUBSET`. Unsupported reads return the saved latch and report `IO_UNIMPLEMENTED`; unsupported writes are ignored. | GBATEK's “GBA I/O Map” and “LCD I/O Display Control”. This is a mode selector for bus classification, not a PPU or full DISPCNT implementation. |
+| `0x04000000–0x040003FF` I/O | The byte-address window is decoded. DISPCNT mode bits, sound-control halfwords at `0x04000060–0x04000085`, Wave RAM at `0x04000090–0x0400009F`, SOUNDBIAS at `0x04000088–0x04000089`, and write-only Direct Sound FIFOs at `0x040000A0–0x040000A7` are modeled subsets. | DISPCNT exposes BG mode and reports `IO_MODE_SUBSET`; implemented audio-control, Wave RAM, SOUNDBIAS, and FIFO writes report `IO_AUDIO_SUBSET`. FIFO reads and other unsupported I/O reads return the saved latch and report `IO_UNIMPLEMENTED`; unsupported writes are ignored. | GBATEK's “GBA I/O Map” identifies the device windows. Gamebloke's exact audio masks, FIFO access rules, timer pops, and DMA refill policy are project-selected in `profiles/agb.json`; this is not hardware qualification. |
 | `0x04000800–0x04FFFFFF` port aliases | The special port is recognized at each 64 KiB alias whose low 16 bits are `0x0800–0x0803`. | Reads use the current-latch placeholder and report `IO_UNIMPLEMENTED`; writes have no effect. | GBATEK's “Memory Mirrors” calls this port undocumented and says it repeats every 64 KiB. Gamebloke does not model its internal-memory-control effect. |
 | `0x05000000–0x05FFFFFF` palette RAM | 1 KiB backing, `address & 0x3FF`. | Reads and 16/32-bit writes are raw. A byte write duplicates its value to both bytes of the containing aligned halfword. | GBATEK's “GBA Memory Map”, “Memory Mirrors”, and “Writing 8bit Data to Video Memory”. |
 | `0x06000000–0x06FFFFFF` VRAM | 128 KiB address period: `address & 0x1FFFF`, then offsets `0x18000–0x1FFFF` subtract `0x8000` into the preceding physical 32 KiB. | Reads and 16/32-bit writes use raw little-endian lanes. In modes 0–2 byte writes duplicate below physical `0x10000` and are ignored at/above it. In modes 3–5 the threshold is `0x14000`. Modes 6–7 use the same `0x14000` threshold as explicit project policy; byte writes report `VIDEO_INVALID_MODE_POLICY`. | GBATEK's “Memory Mirrors”, “LCD VRAM Overview”, “LCD I/O Display Control”, and “Writing 8bit Data to Video Memory” support the mirror and valid-mode threshold cases. Modes 6–7 are not claimed as hardware behavior. |
@@ -108,6 +128,62 @@ The per-request access contract is independent of that map:
   policy outcome. Supported memory lanes in a mixed write still take effect;
   unsupported lanes are ignored. Cost remains one cycle for the request.
 
+## Wave RAM guest aperture
+
+Channel 3 exposes two 16-byte packed Wave RAM banks (32 four-bit samples per
+bank, 32 bytes total) through the 16-byte window at
+`0x04000090–0x0400009F`. Byte, halfword, and word requests are supported when
+the complete span stays inside the aperture; lane bytes use little-endian bus
+order. The guest window addresses the bank opposite the front-bank selector in
+`SOUND3CNT_L`. Playback reads each packed byte high nibble first, then low
+nibble; 64-nibble mode continues into the other bank after the selected
+32-nibble pattern.
+
+Wave RAM requests advance through the canonical machine-time transaction. At a
+shared cycle, ordered device effects and PSG progression occur first, a due
+capture sample observes the old Wave RAM contents, and then the completing bus
+write is applied. A request overlapping the aperture but crossing either edge
+is refused with `GBL_BUS_STATUS_INVALID_ARGUMENT` before machine time, the bus
+latch, or Wave RAM changes. This is the declared software model, not hardware
+qualification.
+
+## Direct Sound FIFO bus behavior
+
+FIFO A is the write-only four-byte data port at `0x040000A0–0x040000A3`; FIFO B
+is at `0x040000A4–0x040000A7`. Writes accept widths 1, 2, or 4. The full span
+must stay within one four-byte port word. A crossing span is refused with
+`GBL_BUS_STATUS_INVALID_ARGUMENT` before machine time, open bus, or FIFO state
+changes. Reads retain the existing unsupported-I/O fallback and return the
+saved bus latch with `IO_UNIMPLEMENTED`.
+
+Accepted writes process byte lanes in increasing address order. Each access
+uses one four-byte queue word. A byte or halfword write merges only its
+addressed lanes into that next ring word, retains the other lanes, and advances
+the write cursor by one word. If the queue cannot accept another whole word,
+the model clears its queue/cursors and accepts the complete current access;
+there is no partial append. These lane and overflow rules are project policy,
+not hardware-qualified behavior.
+
+Each actual selected Timer 0/1 overflow pops one signed byte from the matching
+FIFO; an empty FIFO keeps its previous signed sample, initialized to zero. A
+Timer 1 cascade carry pops only if Timer 1 itself wraps. If both FIFOs select
+one timer, each pops once on that overflow. The timer pop and any refill
+readiness are ordered before a due sample at that cycle; PSG progression and
+the old-route sample follow, then the completing bus write applies.
+
+When a pop leaves exactly 16 bytes, FIFO A requests DMA1 and FIFO B requests
+DMA2 through the shared arbiter. One eligible sound request performs four
+aligned 32-bit source reads with the programmed source stepping mode and four
+fixed-destination writes to its FIFO. The programmed count, width, and
+destination mode remain readback state and do not change the sound transfer.
+Priority is reconsidered after startup and each completed sound word, so any
+higher-priority DMA channel receives its normal startup or transfer unit at the
+next boundary before the sound request resumes. All sound words and interleaved
+DMA effects publish through one checked candidate; invalid source extents or
+bounded work refuse the entire candidate with no transferred prefix. These are explicit
+Gamebloke model rules. The A/B channel mapping and edge choices remain
+hardware-unqualified, and the FIFO sample state is not mixed into PCM here.
+
 ## Deferred CPU and device behavior
 
 The bus contract does not imply the following behavior:
@@ -117,9 +193,11 @@ The bus contract does not imply the following behavior:
 - WAITCNT region-specific sequential/non-sequential timing, Game Pak
   prefetch, and CPU pipeline-dependent open-bus values.
 - BIOS protection and access rules beyond the absent-provider placeholder.
-- I/O behavior other than the DISPCNT mode bits: display-control bits other
-  than mode, PPU registers and rendering, audio, timers, DMA, interrupts,
-  keypad input, and other peripherals.
+- I/O behavior beyond the implemented DISPCNT mode bits, four PSG source
+  calculations, bounded Wave RAM aperture, Direct Sound FIFO source/refill,
+  and the described timer/DMA subsets: display-control bits other than mode,
+  PCM routing/mixing, PWM/analog output, unsupported timer/DMA triggers,
+  interrupts, keypad input, and other peripherals.
 - PPU display-period access restrictions, bus contention, and scanline timing.
 - The undocumented `0x04000800` port's internal-memory-control behavior.
 - Game Pak SRAM, flash/EEPROM, save devices, and other cartridge peripherals.

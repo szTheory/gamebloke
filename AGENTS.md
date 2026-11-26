@@ -44,15 +44,36 @@ question without materially new collision evidence.
 
 ## GSD discussion and project learning
 
-At each milestone discussion, read current project-owned state, roadmap,
-requirements, prior decisions, and lessons. Fan out around the actual open
-decision using relevant GBA hardware, CPU/bus, graphics, audio, cartridge,
-security/rights, API/host, product, QA, performance, and DevOps lenses. Use
-subagents for independent questions when parallel work saves time or context.
-Prefer primary and authoritative sources, compare options and failure modes,
-include an adversarial pass, then synthesize one recommended path. Stop when
-further passes no longer change the recommendation, material risk, or evidence
-plan.
+Use Codex for OpenGSD until the owner explicitly switches runtimes. The owner
+switches between Codex and Claude regularly; preserve both runtime model mappings
+in `.planning/config.json`, which is the source of truth for model and effort
+routing. Resolve each agent's model and effort together before dispatch.
+
+At each new-milestone boundary, first refresh the rolling roadmap across near-,
+mid-, and long-term horizons, with concrete next-scope alternatives and the
+evidence that could promote or defer them. Read current project-owned state,
+requirements, prior decisions, and lessons. Fan out around the actual decision
+using the relevant stakeholder and technical lenses (for this project as
+applicable: GBA hardware, CPU/bus, graphics, audio, cartridge, security/rights,
+API/host, product, QA, performance, design, and DevOps). Use subagents for
+independent questions when that saves time or context. Prefer primary and
+authoritative sources, compare options and failure modes, include an adversarial
+pass, then synthesize one recommended path. Stop when another pass is unlikely
+to change the recommendation, material risk, or evidence plan.
+
+After the owner selects or confirms a direction, carry the accepted scope into
+formal OpenGSD requirements and roadmap work; do not repeat settled research or
+take over downstream phase execution. Update the rolling roadmap and retain
+only high-signal takeaways in `.planning/`, with provenance and clear labels
+for owner decisions, source observations, measurements, inferences,
+recommendations, and unknowns. Keep these durable instructions aligned with
+the owner's corrections and standing preferences.
+
+Apply the same decision-specific research standard to each phase discussion:
+use only relevant lenses, include an adversarial pass when it can change the
+scope or evidence plan, and return one recommendation with exclusions and an
+automated verification direction. Carry verification into phase planning early
+so repeatable behavior is automated before implementation expands.
 
 Keep accepted owner decisions, source observations, measured results,
 historical reports, inferences, recommendations, and unknowns distinct. Refresh
@@ -69,10 +90,22 @@ approval requests.
 
 ## Verification, CI, and releases
 
+- Target zero owner UAT for objectively machine-checkable behavior. Run and inspect useful local CLI/API checks; add integration, guest, installed-consumer, host, or smoke checks only when each proves a distinct boundary. Use throwaway local checks when they provide useful feedback without recurring CI value. Do not ask the owner to run commands or builds the agent can run safely.
+- Keep human verification for judgments or authority the agent cannot establish, such as subjective playability, physical hardware, rights, publication, credentials, or a required human action. Explain why each remaining check needs a human and preserve it as a `blocking-human` gate so auto-advance cannot silently approve it. Do not manufacture UAT for behavior already established by automated evidence.
+- When a required compiler, SDK, or verification tool is missing on the host,
+  check whether a pinned Docker lane can provide it before installing host
+  dependencies. Keep the container path easy to invoke and use it as a normal
+  developer workflow where practical.
 - Automate useful verification as early as it gives trustworthy feedback.
   Maintain one canonical local command aligned with the fast required CI path.
   Give important gates a meaningful negative control; missing and skipped
   checks must be visible.
+- Before waiting on a long or costly hosted CI/CD run, run the canonical local
+  workflow and cheap deterministic consistency/selection checks first. Use
+  `act` as a best-effort local GitHub Actions replay when it supports the
+  relevant workflow path and materially shortens feedback; record unsupported
+  runner, event, service, and secret differences. Local emulation does not
+  replace host-specific or hosted qualification.
 - Put cheap, deterministic consistency and dependency checks before long suites
   when they can reject a known failure early. Check final-scale bottlenecks,
   shared policy fields, evidence bindings and actual changed inputs before
@@ -88,10 +121,19 @@ approval requests.
   boundaries when each exists. A virtual host or adapter check does not claim
   physical-controller behavior.
 - Add CI work only for a distinct recurring failure class at useful
-  runtime/maintenance cost. After every CI run, inspect measured critical-path
-  time for duplicate setup/builds or other low-risk savings without weakening
-  evidence. Benchmark emulator throughput separately from CI wait/build/test
-  time; hold correct output constant while measuring.
+  runtime/maintenance cost. After every CI or release (CD) run, inspect
+  measured critical-path time across setup, configure, build, test, packaging,
+  and artifact steps. Look for duplicate work and low-risk savings without
+  weakening evidence, and record useful lessons. Benchmark emulator throughput
+  separately from CI/CD wait and processing time; hold correct output constant
+  while measuring.
+- For Docker- or `act`-based CI/CD reproduction or release checks, give
+  task-owned images, containers, networks, and temporary volumes a clear
+  `gamebloke-<task>-` name (and project/task labels where supported). Avoid
+  generic names. Afterwards, inspect and remove only resources created for
+  that run, including disposable images and volumes; never use broad prune
+  commands that could delete shared caches or owner data. Record resources
+  intentionally kept.
 - At milestone close, keep main green, triage open pull requests, update the
   rolling roadmap and lessons, and target a release of the exact tested
   artifact when its contents, rights, package readiness, qualification, and
@@ -109,3 +151,11 @@ before allocation or state mutation. Refused operations should have documented
 status and state/buffer postconditions. Never infer permission from a public
 download, a test-suite license, or a digest. Review source and license terms
 for each redistributed fixture or dependency.
+
+## Owner-authorized local content
+
+The owner authorized agent-managed local copies of the two supplied GBA files
+and agent-run logo-digest extraction/verification. Keep them under the existing
+ignored `/private/owner-roms/` directory. This local permission supersedes the
+earlier owner-must-run-the-helper procedure for these files; it grants no
+permission to commit or upload their bytes or use them in public CI.

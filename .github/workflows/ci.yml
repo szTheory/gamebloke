@@ -20,7 +20,9 @@ permissions:
   contents: read
 
 # Only a pull request's runs supersede each other; every push to main keeps a
-# result.
+# result. Per-job ceilings are shared with cmake/CiJobBudgets.json and checked
+# against this matrix by cmake/CiPreflight.cmake; change them together only from
+# measured complete-lane timings and cutoff evidence.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -91,7 +93,7 @@ jobs:
 
   build:
     name: build (${{ matrix.runner }}, ${{ matrix.cc }}, ${{ matrix.id }})
-    needs: changes
+    needs: [changes, hygiene]
     if: needs.changes.outputs.heavy == 'true'
     strategy:
       fail-fast: false
@@ -100,11 +102,11 @@ jobs:
           - runner: ubuntu-26.04
             cc: gcc
             id: GNU
-            minutes: 4
+            minutes: 8
           - runner: macos-26
             cc: cc
             id: AppleClang
-            minutes: 5
+            minutes: 14
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.minutes }}
     env:
@@ -124,10 +126,10 @@ jobs:
           path: build/ci/junit.xml
 
   asan:
-    needs: changes
+    needs: [changes, hygiene]
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 3  # 2 x slowest of runs 42737527955#1,42737527955#2 (10s)
+    timeout-minutes: 6  # 189s pinned Linux ASan lane; margin covers hosted setup variance
     env:
       GBL_EXPECT_C_ID: Clang
     steps:
@@ -144,7 +146,7 @@ jobs:
   # the immutable producer ancestor before generating admitted metadata.
   diagnostics:
     name: diagnostics (${{ matrix.host }}, ${{ matrix.group }})
-    needs: changes
+    needs: [changes, hygiene]
     if: needs.changes.outputs.heavy == 'true'
     strategy:
       fail-fast: false
@@ -155,25 +157,25 @@ jobs:
             group: arm
             cc: gcc
             id: GNU
-            minutes: 3
+            minutes: 6
           - runner: macos-26
             host: darwin-arm64
             group: arm
             cc: cc
             id: AppleClang
-            minutes: 5
+            minutes: 8
           - runner: ubuntu-26.04
             host: linux-x64
             group: thumb
             cc: gcc
             id: GNU
-            minutes: 3
+            minutes: 4
           - runner: macos-26
             host: darwin-arm64
             group: thumb
             cc: cc
             id: AppleClang
-            minutes: 3
+            minutes: 6
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.minutes }}
     env:

@@ -102,12 +102,217 @@ these fields:
   `absent`, `pending`, `pass`, `fail`, or `malformed`. `case_id` is a canonical decimal
   string in uint32 range, or null when no case id is available. An absent observation may
   serialize its zero case id as `"0"`. Completed pass/fail mailboxes need a nonzero case id.
-- `time`: `{cycles, instructions, budget_cycles}`. All three are canonical decimal strings
-  in uint64 range (`"0"` or a nonzero digit followed by digits). They are strings so JSON
-  consumers do not round values above their exact integer range. The observed cycles must
-  be less than or equal to the requested cycle budget. A bounded run may stop short when its
-  next whole instruction or refill unit cannot fit; equality with the budget is not required
-  for TIMEOUT, and exact-boundary mailbox completion is valid.
+- `observation`: present only when the fixture's manifest row selects `register-eval`.
+  It has exactly `kind` (`register-eval`), `observed` (boolean), `source_commit`, canonical
+  `entry_address`, `instruction_set`, `register_index`, and `value`. The checker binds the
+  identity fields to that manifest row and the result's exact runtime ROM digest. Before the
+  evaluator entry is observed, `value` is null; afterward it is a raw uint32 JSON number.
+  This is separate from `semantic`, which always reports the actual mailbox observation.
+- `time`: `{cycles, instructions, budget_cycles, model, qualification, bus_cycles,
+  internal_cycles, wait_cycles, dma_startup_cycles, dma_source_cycles,
+  dma_destination_cycles, dma_completed_units, dma_pause_cycles}` for current producers.
+  Counters are canonical decimal strings in uint64 range (`"0"` or a nonzero digit followed
+  by digits), so JSON consumers do not round values above their exact integer range. With
+  the phase 9 extension, elapsed cycles equal CPU `bus_cycles` plus CPU `internal_cycles`,
+  `phase8.wait_cycles` when phase 8 is present, and DMA startup, source, and destination
+  cycles. Current producer `time.wait_cycles` mirrors `phase8.wait_cycles` and is validated
+  as the same observation; it is not added a second time. `dma_pause_cycles` equals the sum
+  of DMA startup, source, and destination costs, describes the CPU pause window, and is not
+  added to elapsed cycles a second time.
+  The checker uses checked decimal arithmetic without converting the uint64 values to a
+  floating point or signed machine integer. `model` is `gamebloke-timer-model-1` and
+  `qualification` is `project-model-only`; these values describe implementation evidence,
+  not a hardware timing claim. Observed cycles must not exceed the requested cycle budget.
+  A bounded run may stop short when its next whole instruction or refill unit cannot fit;
+  equality with the budget is not required for TIMEOUT, and exact-boundary mailbox completion
+  is valid.
+- `audio`: an optional additive observation in `gamebloke.result/1`. Historical receipts may
+  omit it. Current producer validation opts into requiring it with
+  `-DGBL_RESULT_REQUIRE_AUDIO=ON`; a present object is always checked against the AGB
+  profile. Its model is the literal `gamebloke-audio-model-4`; its profile revision,
+  project-selected classification, `UNKNOWN`
+  qualification, PCM format, fixed cadence, implemented sources, unsupported edges, and
+  evidence limits are closed and profile-bound. Requested and actual intervals use canonical
+  decimal cycle strings, start at reset cycle zero, and are bounded by the run budget and the
+  profile's one-second capture limit. Numeric frame and byte counts must match the interval
+  grid and four-byte stereo frame size.
+  `capture_state` describes PCM capture (`not-requested`, `unavailable`, `incomplete`,
+  `complete`, or `failed`); `artifact.state` separately describes file publication
+  (`not-requested`, `not-written`, `failed`, or `emitted`). Setup or capture failure is
+  reported by `capture_state=failed` with `artifact.state=not-written` and
+  `artifact.error=null`; `artifact.error` is reserved for a file-publication failure after
+  complete capture. An emitted file requires a complete interval, matching byte count, and
+  lowercase SHA-256. A complete request shorter
+  than one sample may emit an exact empty file; a non-frame-aligned end emits only complete
+  S16LE stereo frames on the fixed 512-cycle grid, without padding. The digest identifies
+  bytes only: it does not prove semantic correctness, rights, hardware behavior, or broad
+  game compatibility.
+- `phase9`: the complete additive DMA observation. A present extension identifies model
+  `gamebloke-dma-observation-1`, reports whether a machine snapshot was observed, and when
+  observed carries WAITCNT, bus owner, CPU paused state, machine cycles, and four channels in
+  channel order. Each channel reports programmed/current addresses, retained read latch,
+  count/control, remaining units, completed units, and pending/armed/active/startup flags.
+  Current `phase9` results also require the phase 8 timing observation; duplicated
+  `time.wait_cycles` and `phase8.wait_cycles` must agree.
+  When no machine execution was observed, those snapshot fields are null. The timing object
+  repeats the five DMA counters in `time`; duplicate values must match and machine cycles must
+  equal `time.cycles`. `time.dma_completed_units` counts every completed transfer in the run;
+  each channel's `completed_units` is progress for its latest activation, so reactivating a
+  channel can make the run total larger than the sum of the final channel snapshots. Channel
+  count, bounds, and progress flags are checked together.
+  The terminal `cpu_paused` and owner fields describe the observed machine state; instruction
+  totals do not claim CPU retirement during paused DMA cycles.
+- Phase 9 provenance stays explicit. Documented Game Pak wait values point to
+  `nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2`; values for other regions are
+  `project-selected`. The 128 KiB Game Pak boundary cites
+  `gbatek-3.06-community-documentation`, which is community documentation rather than
+  hardware qualification. The two-master-cycle startup value and retained-latch behavior are
+  selected project policy, and hardware qualification remains `UNKNOWN`. A latch fallback
+  observation is `disputed`, links `disp-dma-latch` in the result's top-level dispute list,
+  and must remain open in the registry. DMA Prefetch is explicitly `unmodeled`.
+- Whole-extension absence is the historical result/1 compatibility path. A current producer
+  emits the complete `phase9` object and all `time.dma_*` fields, including zero values. If
+  `phase9` is present, every required observation, policy, timing, and provenance field must
+  have its declared type. Any `time.dma_*` field without `phase9`, or a partial `phase9`
+  object, is rejected. The illustrative `result-pass.json` shows a current producer shape;
+  tests remove the whole extension and its DMA time fields to verify historical compatibility.
+- `phase10` and `raw_video` are a paired additive result extension. Historical result/1
+  records may omit both; a record with only one is rejected. Current producers include both,
+  including runs where PPU state was not observed or raw output was not requested. The
+  historical `gamebloke-ppu-observation-1` model keeps its prior fields and validation
+  when the capability tuple is absent. If any `profile_version`, `display_capabilities`, or
+  `video_memory_access` member appears on that model, the complete tuple is required and checked.
+  Current producers use `gamebloke-ppu-observation-2`, bind `profile_version` to the AGB
+  profile, and require complete `display_capabilities` and `video_memory_access` objects.
+  The validator compares every nested field and record against the selected profile, including
+  all six mode source/dimension/status records, canonical `BGR555_LE` raw layout, and the
+  selected CPU/DMA access matrix. Current `raw_video` records also require the matching
+  `bgr555-le` artifact format. Implementation status stays independent from the concrete
+  capture state and reason. Unknown PPU observation models are rejected. PPU observations bind
+  their raster machine cycle to `time.cycles`, constrain line and pixel layout to the AGB
+  profile, and keep unavailable frame epoch/sample/completion values null. A valid frame
+  requires a supported configured display source, reason `none`, one started epoch, all 160 visible row samples, and a
+  completion cycle 160 profile line lengths after the sample cycle. Unsupported controls
+  cannot yield a valid frame. Row sampling follows the profile's visible-line-start point;
+  serialized pixels use a 480-byte row stride.
+- Phase 10 HBlank evidence stays qualified as a reference candidate, with selected event
+  offset 1006, source class `REF`, project-selected policy, dispute
+  `disp-hblank-flag-edge`, and hardware qualification `UNKNOWN`. If an observation depends
+  on an HBlank trigger, its classification and dispute id must match the profile and the
+  result must disclose that dispute. This timing evidence is separate from Phase 9 DMA latch
+  evidence. Automated PASS remains a fixture result; playable acceptance stays pending for
+  owner evaluation and is not inferred from automation.
+- Modes 3, 4 and 5 sample the enabled BG2 bitmap source through the captured
+  BG2 matrix and 28-bit signed references. Source coordinates use mathematical
+  floor for signed 8.8 values. This is the deterministic `agb` software policy;
+  the transform's hardware qualification remains `UNKNOWN`. Mode 3 is 240x160
+  direct BGR555 in one 0x12C00-byte source and ignores page select. Mode 4 is
+  240x160 indexed color with 0x9600 bytes per page at bases 0 and 0xA000; palette
+  RAM supplies colors, and index zero resolves to backdrop palette entry zero.
+  Mode 5 is 160x128 direct BGR555 with 0xA000 bytes per page at the same bases.
+  Direct colors mask bit 15; a direct-color zero remains opaque black. A source
+  coordinate outside the mode's declared width/height resolves to backdrop
+  palette entry zero before page arithmetic, so it cannot read an adjacent page
+  or unused tail. The mode-3 identity output remains the regression anchor.
+  Modes 3–5 sample bitmap BG2 only when enabled; mode 3 with BG2 disabled may
+  still produce a valid backdrop-only frame. Capability model 2 advertises
+  rectangular windows, object windows, alpha blending, brightness, BG and OBJ
+  mosaic, and forced blank as implemented software features. Their feature
+  classification is `project-selected`; hardware qualification is `UNKNOWN`.
+  All six display modes remain `partial`, independent of these composition flags.
+  The profile is the exact source for the mode/source/dimension rows and selected
+  composition policies; the feature tuple is not a hardware compatibility claim.
+  WIN0/WIN1 bounds are half-open, equal or reversed bounds are empty, and bounds
+  do not wrap. Region order is WIN0, WIN1, OBJ window, then outside. Layer and
+  effect masks are applied before priority; an admitted nonzero OBJ source index
+  supplies OBJ-window coverage without supplying its color, within the shared OBJ
+  budget. Color effects consider the top candidate and its immediately next visible
+  candidate, without searching deeper. Alpha follows the profile's mode and target
+  eligibility plus region effect mask. Semitransparent OBJ uses alpha only when the
+  next candidate is eligible in that region; ordinary first-target mode and
+  brightness do not override it. Coefficients use the low five bits, clamp at 16,
+  and channel math uses wide integers, division by 16 with truncation, and clamping
+  to 0–31. Brightness uses `c + floor((31-c)*EVY/16)` or
+  `c - floor(c*EVY/16)`.
+  BG and OBJ mosaic dimensions are the programmed field plus one and are
+  independent. Anchors use the visible screen origin (`x-x%width`, `y-y%height`);
+  each sampled row uses that row's captured registers and memory, with no cached
+  prior-row samples. Affine sampling projects the current origin backward by PB/PD
+  times the vertical anchor delta. Forced blank bypasses scene decoding after
+  structural transaction validation and emits BGR555 `0x7FFF` (`FF 7F`) on every
+  pixel. Its transitions apply at the next captured visible row without an extra
+  delay or frame restart; normal row coverage still validates the frame and
+  publishes at line 160. Its video-memory access policy remains the selected
+  existing-bus behavior.
+  Frame `state` is `valid`, `incomplete`, or `invalid`; `incomplete` has reason
+  `incomplete`, while current invalid frames name a genuinely unsupported mode or
+  control such as `unsupported-mode` or `unsupported-obj-control`. Supported
+  forced blank, windows, effects, and mosaic do not make a current frame invalid.
+  Disabled BG2 is not itself an invalid control; in mode 3 it selects backdrop-only
+  composition. Historical model-1 records keep their prior reason mapping,
+  including the superseded `obj-enabled` name. A non-valid frame keeps
+  epoch/sample/completion fields null and cannot emit stale or partial bytes. For
+  requested output, incomplete and
+  invalid frame statuses match the frame state and carry no artifact; a valid frame
+  without an output artifact is `not-emitted`. Writer failure is `HARNESS_FAIL`
+  with reason `video-output-failed` and a named failure, and does not claim a
+  complete artifact. When output is not requested, the status is `not-requested`
+  with no artifact.
+- Visible rows are sampled from canonical VRAM at line start. At a shared cycle,
+  scheduled machine/PPU events run before the timed write's memory/register effect,
+  so the sample observes the prior value. This is project policy; it does not claim
+  a hardware latch point. The selected 1006-cycle HBlank edge remains disputed and
+  hardware qualification remains `UNKNOWN`.
+- The affine row renderer uses a declared Gamebloke arithmetic policy. It sign-extends
+  programmed 28-bit reference values, interprets PA/PB/PC/PD as signed 8.8 values,
+  evaluates horizontal source coordinates with `int64_t`, and quantizes by
+  mathematical floor division by 256, including negative fractions. Internal
+  reference updates wrap to signed 28-bit two's-complement values using unsigned
+  arithmetic. The model reloads internal origins from programmed references at the
+  modeled VBlank frame transition. These choices define deterministic software
+  output; they are not hardware qualification. Nintendo's AGB Programming Manual
+  describes the affine register formats, row progression, and HBlank reference-write
+  exception (§6.1.7, pp. 49–51; [available copy](https://mutantstargoat.com/~nuclear/tmp/gba_prog_manual.pdf)).
+  GBATEK is secondary support for copying programmed references into internal
+  origins at VBlank and reloading an axis after a non-VBlank write
+  ([LCD video controller](https://problemkaputt.de/gbatek.htm)). Under Gamebloke's
+  selected +1006-cycle HBlank event, PB/PD advances each visible-row origin once;
+  a BGxY write after that event replaces the already advanced vertical origin for
+  the next sampled row, and line start performs no second increment. A same-cycle
+  row event still precedes the completing register write. The exact HBlank edge,
+  DMA latch point, and within-line pixel visibility remain disputed or unresolved;
+  hardware qualification remains `UNKNOWN`.
+- Each affine source adds a 28-byte compact state value; the two-source PPU state
+  therefore adds 56 bytes to the machine and each row capture. A full 160-row
+  preview carries 9,016 additional fixed bytes (56 bytes of PPU state plus 160
+  row captures of 56 bytes each). The projector uses the existing 480-byte output
+  row and an 8-byte affine tile-row scratch buffer. It reads through the existing
+  sampled-memory path and does not snapshot VRAM or add a dependency.
+- Raw video is headerless: the layout is 160 rows of 240 little-endian BGR555 pixels,
+  480 bytes per row and 76,800 bytes total. The capability descriptor uses `BGR555_LE`;
+  the retained `raw_video.format` spelling `bgr555-le` names the same little-endian layout.
+  Only a complete supported frame with exact storage can be emitted. Incomplete, invalid,
+  or refused output carries no fresh digest or artifact bytes, even when an earlier frame
+  epoch in the same run was complete. The output
+  digest is SHA-256 over those raw video bytes, independent from the ROM digest and input
+  script digest. `requested: false` requires `not-requested`, `emitted: false`, and null
+  artifact/failure metadata. `emitted` requires a valid frame, the exact byte count, and a
+  lowercase SHA-256 digest. A named writer failure is reported as `HARNESS_FAIL` with
+  `reason: video-output-failed`; no incomplete file is claimed as emitted. The writer uses
+  exclusive create and removes a partial file after a write/close failure when cleanup
+  succeeds. The result may retain a digest computed before an output-open failure, but its
+  byte length remains null because no artifact was emitted. CLI argument/path refusals occur
+  before guest execution and before file creation.
+- A repeatable raw-video digest establishes byte repeatability for the same inputs and
+  machine state. It does not establish that the pixels match physical GBA behavior; that
+  needs a separately identified semantic oracle or hardware observation.
+- `timer0`: `{if_request}` reports Timer 0's device interrupt-request bit independently from
+  the semantic mailbox and CPU state. It is a boolean after at least one committed CPU unit;
+  `false` means the executed machine was observed with the request bit clear. It is `null`
+  when no CPU unit committed or execution was skipped, refused, or stopped before a request
+  observation. A true IF request does not establish CPU interrupt eligibility, exception
+  entry, or handler execution. A raw unregistered guest can therefore carry a semantic
+  mailbox observation while retaining diagnostic `GUEST_STOP` status.
 - `termination`: a named lowercase token describing why bounded execution stopped.
 - `trace`: null when no trace is selected, or a trace object with a boolean `complete` field.
 
@@ -130,15 +335,20 @@ carries a dispute id, the result's `disputes` list must contain it, and a non-em
 is rejected. Every id in `disputes` must exist in the registry. `disputed` is the only
 label; a new label would arrive with its own rule and a `gamebloke.result/2` bump.
 
-The result validator also requires semantic, time, termination, and trace fields. A PASS
-requires `semantic.state` to be `pass`, a nonzero decimal-string `semantic.case_id`, positive
-guest progress, `termination: "mailbox-complete"`, and cycles within budget. A GUEST_FAIL
-requires `semantic.state: "fail"` and the same complete-mailbox termination. These checks
-bind status to the producer's observed semantic result; a raw diagnostic cannot become PASS
-by changing only its `status`. For `GUEST_STOP` no-BIOS exceptions, `reason` and `termination`
-must name the same stop. `HARNESS_FAIL` with `reason: "trace-output-full"` must use the same
-termination and report `trace.complete: false`. An incomplete trace cannot be PASS. Other
-optional top-level notes remain informational.
+The result validator also requires semantic, time, termination, and trace fields. For a
+mailbox fixture, PASS still requires `semantic.state: "pass"`, a nonzero decimal-string
+`semantic.case_id`, positive guest progress, `termination: "mailbox-complete"`, and cycles
+within budget. GUEST_FAIL still requires `semantic.state: "fail"` and the same
+complete-mailbox termination. A register fixture instead requires an observed register
+result bound to its manifest source revision, exact runtime digest, entry address, instruction
+set, and register index. Zero with positive guest progress and
+`termination: "register-eval-complete"` is PASS; a nonzero uint32 value with the same
+termination and progress is GUEST_FAIL. An unobserved value is pending and cannot produce
+either verdict. The manifest selects the route, so adding an observation object cannot relax
+the legacy mailbox rules. For both routes, `GUEST_STOP` no-BIOS exceptions require `reason`
+and `termination` to name the same stop. `HARNESS_FAIL` with `reason: "trace-output-full"`
+must use the same termination and report `trace.complete: false`. An incomplete trace cannot
+be PASS. Other optional top-level notes remain informational.
 
 The semantic/time/termination findings are:
 
@@ -147,11 +357,29 @@ The semantic/time/termination findings are:
   and the documented no-case-id forms).
 - `bad-semantic`: semantic object/state/case id has the wrong type, unknown value, or an
   invalid uint32 decimal representation.
-- `status-semantic-mismatch`: PASS lacks a completed PASS mailbox and positive guest
-  progress, or GUEST_FAIL does not carry a completed FAIL mailbox.
+- `status-semantic-mismatch`: a mailbox PASS lacks a completed PASS mailbox and positive
+  guest progress, or mailbox GUEST_FAIL does not carry a completed FAIL mailbox.
+- `bad-observation`: register observation is missing, malformed, unbound to the manifest
+  channel or exact ROM digest, or contradicts the observed value, status, progress, or
+  termination; mailbox rows cannot carry a register observation.
 - `bad-time`: a counter is not a canonical decimal string or `time` is not an object.
 - `time-overflow`: a canonical decimal time counter is greater than
   `18446744073709551615`.
+- `partial-phase9-extension`: one or more `time.dma_*` fields is present without `phase9`.
+- `bad-phase9-type`, `bad-phase9-owner`, `bad-phase9-channel`, `bad-phase9-progress`,
+  `bad-phase9-timing`, `bad-phase9-policy`, `bad-phase9-latch`, and
+  `bad-phase9-prefetch`: a current DMA extension has an incomplete or ill-typed observation,
+  inconsistent ownership/channel state, mismatched timing contributions, unsupported
+  provenance/qualification, missing dispute disclosure, or a modeled Prefetch claim.
+- `partial-phase10-extension`: `phase10` and `raw_video` do not appear together.
+- `bad-phase10-type`, `bad-phase10-capability`, `bad-phase10-raster`, `bad-phase10-machine-time`,
+  `bad-phase10-frame`, `bad-phase10-frame-validity`, `bad-phase10-policy`,
+  `bad-phase10-dependency`, `bad-phase10-video-output`, and `bad-phase10-video-digest`:
+  Phase 10 has an incomplete or ill-typed PPU/video observation, inconsistent raster/frame
+  timing, unsupported policy or hardware claims, missing HBlank dispute disclosure, or
+  contradictory raw artifact metadata.
+- `time-sum-overflow` and `bad-time-components`: the checked CPU/HALT/DMA sum exceeds uint64
+  or differs from `time.cycles`.
 - `cycles-exceed-budget`: `time.cycles` is greater than `time.budget_cycles`.
 - `bad-termination`: the token is non-string/invalid or conflicts with status; a missing
   top-level token is `missing-field`. A no-BIOS GUEST_STOP needs a reason equal to its
@@ -167,17 +395,45 @@ The installed `gamebloke-run` interface is:
 ```text
 gamebloke-run --rom PATH (--cycles DECIMAL | --frames DECIMAL) \
   [--fixture ID] [--trace-mask INTEGER] [--trace-capacity INTEGER] \
-  [--trace-output PATH]
+  [--trace-output PATH] [--video-output PATH] \
+  [--audio-output PATH [--audio-cycles N]]
 ```
 
 `--rom` supplies one bounded input file. Exactly one of `--cycles` or `--frames` is
 required; decimal arguments are checked uint64 values, and frame budgets convert using the
 profile frame-cycle constant. `--fixture` selects validated metadata embedded at build time.
 The trace flags select implemented instruction, bus, or exception records, cap storage at
-65,536 records, and optionally write JSON Lines to the explicit output path. Usage errors
-exit 2, PASS exits 0, and valid non-PASS results exit 1. The executable does not accept a
-runtime CMake, manifest, or fixture-index path and does not need the source tree after it is
-built.
+65,536 records, and optionally write JSON Lines to the explicit output path. `--video-output`
+requests the raw BGR555 frame at the explicit path; it follows the same whole-cycle/frame
+budget and input script as guest execution, with no host-clock pacing. Repeating the flag or
+providing it without a path is rejected before execution, as are aliases to the ROM, input,
+trace, or JSON result destination. Output is created exclusively. Usage errors exit 2, PASS exits 0, and valid
+non-PASS results exit 1. The executable does not accept a runtime CMake, manifest, or
+fixture-index path and does not need the source tree after it is built.
+
+`--audio-output PATH` requests bounded signed 16-bit little-endian stereo PCM. Its optional
+`--audio-cycles N` end cycle requires `--audio-output`; when omitted, the cycle budget is the
+requested end. The positive end must fit both the run budget and profile's 16,777,216-cycle
+capture limit. The writer stages bytes in a mode-0700 temporary directory beside the
+destination and uses its held directory descriptor for the payload and publication. It
+publishes the complete file with no-replace semantics only after the requested interval is
+captured and the full write, flush, and close succeed. A failed write removes only the staged
+payload; cleanup never removes a path that appeared at the requested destination after the
+attempt began. If the destination parent is not owned by the effective user or root, or it is
+writable by group/others without sticky protection, the runner may retain an empty
+`.gamebloke-audio-*` staging directory rather than remove an entry it cannot safely identify.
+A staging-file identity failure is cleaned through the held private-directory descriptor. If
+the host cannot provide a safe exclusive publish operation, the artifact fails with
+`audio-output-exclusive-publish-unsupported`. An incomplete interval has no PCM artifact. A complete
+interval emits all grid samples in `(0, end]`, so a short request may produce an exact empty
+file and a non-aligned end produces the corresponding complete-frame prefix. JSON reports
+capture and artifact status independently of process exit, guest mailbox status, and overall
+result status. The result validator checks the emitted byte count and digest shape; consumers
+that need artifact integrity must hash the file bytes themselves.
+
+For example, `gamebloke-run --rom PATH --cycles 280896 --video-output frame.raw` requests a
+single bounded frame's raw bytes. The selected guest must reach a complete supported frame;
+unsupported modes remain a reported output failure rather than a successful empty capture.
 
 The production fixture index is generated only from `tests/fixtures/manifest.json`, which
 now admits the source-owned ARMv4T diagnostics against their exact artifact hashes
@@ -209,7 +465,7 @@ and incomplete trace are rejected for their named reasons. This proves the confi
 producer/checker path only; synthetic metadata remains an artificial validator input.
 
 Current evidence is limited to the direct-start profile and the implemented
-ARM7TDMI ARMv4T families in the version 5 scope/policy tables in
+ARM7TDMI ARMv4T families in the version 6 scope/policy tables in
 [profile-agb.md](profile-agb.md#cpu-instruction-scope). The original ARM/Thumb
 corpus has admitted production fixtures and actual local execution receipts;
 current-source verification, hosted qualification and owner acceptance are
@@ -218,9 +474,30 @@ and the current Phase 5 final-check record for their exact status. Unpredictable
 stops, recognized later extensions, reserved UND and absent-coprocessor UND have
 separate causes. Explicit executing project policies and static target refusals
 are listed in the profile. Public unsupported values remain compatible without
-inventing a legal unimplemented instruction. No BIOS execution/HLE, timers, DMA,
-active I/O, WAITCNT/prefetch, display/audio, physical input or host presentation
-is modeled. Bus timing and latch behavior remain unqualified.
+inventing a legal unimplemented instruction. There is no BIOS execution/HLE,
+physical-controller discovery or host presentation. Audio has a fixed-grid software PCM
+model for four PSG channels and two Direct Sound latches, with source routing and gains
+recorded in the profile. PWM carrier behavior, SOUNDBIAS quantization, analog output, host
+resampling, and playback are unsupported. PCM modeling and independent semantic tests do not
+qualify hardware behavior or broad compatibility; hardware qualification remains `UNKNOWN`.
+DMA, WAITCNT timing, and the
+partial Mode 0–5 background display paths and OBJ/composition features have
+deterministic project-selected software behavior. The profile records selected
+window, effect, mosaic, and forced-blank policies; their hardware qualification is
+`UNKNOWN`, and every display mode is still partial. DMA Prefetch remains unmodeled.
+Phase 15 now has a bounded source-generated production-scene receipt: it records
+the measured 3,072-byte guest image digest, mailbox PASS separately from the
+top-level unregistered-content stop, actual machine-cycle components, complete
+frame sample/completion epochs, six literal pixel expectations, serialized
+metadata, and raw-frame digest. The source-bound coverage map and local-only
+rights boundary are in the [Phase 15 evidence ledger](../.planning/phases/15-production-access-and-runner-evidence/15-EVIDENCE.md).
+That evidence and any physical hardware qualification are separate: it does not
+establish silicon accuracy, broad compatibility, or redistribution rights, and
+a repeatable frame digest alone remains a determinism observation.
+The selected 1006-cycle HBlank point, DMA latch behavior, within-line visibility,
+affine transform behavior, and all display timing remain hardware-unqualified.
+Timer 0 and bus cycle observations use project-selected model behavior;
+region-specific hardware waits and physical-device behavior remain unqualified.
 
 The CPU exception API, shared run-reason classifier, and JSON mapping cover reset,
 undefined, SWI, prefetch abort, data abort, IRQ, FIQ, and coprocessor stop reasons. Under the
@@ -378,4 +655,6 @@ Fetched bytes land in `.fixtures/`, which git ignores. The gate `fetch.untracked
 ## Reading further
 
 - [verify.md](verify.md): the verify command, lanes, and every reason code.
+- [verification.md](verification.md): Phase 10's exact fast gates, local Playable 0
+  input, raw frame layout, and model/evidence limits.
 - [profile-agb.md](profile-agb.md): the profile narrative and its sync check.

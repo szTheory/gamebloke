@@ -1,0 +1,2 @@
+audio.guest.local audio,core,integration,local
+inventory.junit post

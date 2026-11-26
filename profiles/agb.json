@@ -1,6 +1,6 @@
 {
   "schema": "gamebloke.profile/1",
-  "profile_version": 5,
+  "profile_version": 16,
   "id": "agb",
   "machine": "agb",
   "boot": "direct-start",
@@ -65,9 +65,178 @@
       "dispute": "disp-hblank-flag-edge"
     }
   },
+  "ppu_policy": {
+    "policy_classification": "project-selected",
+    "hardware_qualification": "UNKNOWN",
+    "hardware_source_reference": "Nintendo AGB Programming Manual v1.1 §§4.1.1–4.1.2, 5.1.1, 6.1.3–6.1.5, 6.1.7, 6.3.1–6.3.4 and 6.4, printed pp. 58–72 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+    "geometry": "240x160 visible pixels, 308 dots per line, 228 lines per frame",
+    "line_cycles": 1232,
+    "nominal_visible_dot_cycles": 960,
+    "recurrence": "one recurring priority-9 event alternates line-start and HBlank boundaries",
+    "event_priority": 9,
+    "line_transitions": "VCOUNT advances 0-227 modulo 228, visible lines are 0-159, VBlank sets at 160 and clears at 0",
+    "same_cycle_order": "due machine events precede timed bus effects, row sample precedes a bus write completing on the same cycle",
+    "dispcnt_writable_mask": "0xFFFF",
+    "dispstat_writable_mask": "0xFF38",
+    "vcount_write_policy": "ignored",
+    "compare_write_policy": "recompute at write completion after due events",
+    "hblank_event_offset_cycles": 1006,
+    "hblank_source": "REF",
+    "hblank_source_reference": "GBATEK, LCD I/O Interrupts and Status, states the flag is 0 for 1,006 cycles, source text is not a project hardware measurement",
+    "hblank_provenance": "project-selected",
+    "hblank_dependent_classification": "disputed",
+    "hblank_dispute": "disp-hblank-flag-edge",
+    "hblank_hardware_qualification": "UNKNOWN",
+    "row_sample_point": "visible-line-start",
+    "row_same_cycle_write_policy": "PPU sample precedes a bus write completing on the sample cycle",
+    "pixel_format": "BGR555 little-endian",
+    "frame_validity": "complete coverage of 160 supported rows in one frame epoch, published at line 160",
+    "supported_controls": "mode 3/4/5 BG2 bitmap sources (mode 3 direct-color 240x160 single page, mode 4 indexed 240x160 two DISPCNT-selected pages, mode 5 direct-color 160x128 two DISPCNT-selected pages), captured BG2 affine transform/reference progression, out-of-extent samples to backdrop, mode-4 index zero transparent and direct-color zero opaque black, non-BG2 background enable bits ignored in bitmap modes, any enabled supported backgrounds per sampled row in modes 0-2 (mode 0 text BG0-BG3, mode 1 text BG0/BG1 or affine BG2, mode 2 affine BG2/BG3), text scroll, four map dimensions, affine transforms and reference progression, 4bpp/8bpp tiles, flips, palette and transparent-index backdrop, regular and affine OBJ rendering, shared BG/OBJ/backdrop priority composition, rectangular WIN0/WIN1 half-open regions, admitted OBJ-window masks and region-specific layer/effect masks, top-and-immediate-next-visible alpha and semitransparent OBJ effects, clamped 5-bit brightness, independent BG/OBJ screen-origin mosaic resampled from the current row, and forced-blank white rows with normal frame coverage",
+    "unmodeled_controls": "prohibited OBJ mode/shape encodings and unsupported background-control encodings",
+    "interrupt_if_bits": "VBlank 0, HBlank 1, VCOUNT-match 2",
+    "blank_dma_eligibility": "HBlank on visible lines 0-159, VBlank at the line 160 transition",
+    "object_policy": {
+      "regular_shapes": "square:8x8,16x16,32x32,64x64;horizontal:16x8,32x8,32x16,64x32;vertical:8x16,8x32,16x32,32x64",
+      "character_windows": "modes0-2:[0x10000,0x18000);modes3-5:[0x14000,0x18000);full-tile-span-before-read",
+      "index_zero_transparency": true,
+      "affine_quantization": "signed-8.8;wide-products;floor-by-256",
+      "affine_field": "centered;double-size-destination-only;out-of-source-transparent",
+      "coordinate_wrap": "x-modulo-512;y-modulo-256;clip-240x160",
+      "unsupported_modes": "prohibited",
+      "work_budget_units": 1226,
+      "regular_cost": "source-width",
+      "affine_cost": "10+2*destination-field-width",
+      "eligibility": "enabled-supported-object;vertical-field-intersects-row;no-horizontal-or-transparency-refund",
+      "admission_order": "ascending-oam;full-cost-fit;stop-at-first-nonfit",
+      "overflow_policy": "valid-partial-scene;omit-all-later-eligible",
+      "observation_scope": "internal-row-capture;selected-mask;selected-count;omitted-count;used-work;no-stable-c-api"
+    },
+    "composition_policy": {
+      "priority_order": "ascending-numeric-0-3",
+      "bg_tie": "lower-bg-number",
+      "obj_tie": "lower-oam-index",
+      "obj_bg_tie": "obj-in-front-project-policy",
+      "backdrop": "pram-color-zero;behind-all-enabled-opaque-candidates"
+    },
+    "window_policy": {
+      "region_order": "win0;win1;obj-window;outside",
+      "rectangle_bounds": "half-open;equal-or-reversed-empty;no-wrap",
+      "layer_stage": "filter-before-priority;dispcnt-master-gates",
+      "disabled_masters": "bypass-winin-winout",
+      "obj_coverage": "admitted-nonzero-source-index;no-color;shared-obj-budget",
+      "mask_bits": "bg0-bg3;obj;effects;reserved-ignored"
+    },
+    "effect_policy": {
+      "pair": "top-and-immediate-next-visible;no-deeper-search",
+      "alpha": "mode1;first-target;second-target;region-effects-enabled",
+      "semitransparent_obj": "alpha-with-eligible-next-and-region;ignore-ordinary-first-target-and-mode;no-brightness",
+      "coefficient_max": 16,
+      "coefficient_input": "low-five-bits;clamp-to-16",
+      "channel_arithmetic": "wide-integer;divide16-truncate;clamp0-31",
+      "brighten": "c+floor((31-c)*evy/16)",
+      "darken": "c-floor(c*evy/16)"
+    },
+    "mosaic_policy": {
+      "dimensions": "field-plus-one;independent-bg-obj",
+      "anchors": "visible-screen-origin;x-x%w;y-y%h",
+      "sampling": "current-row-captured-registers-and-memory;no-old-row-cache",
+      "affine_origin": "current-origin-minus-pb-pd-times-row-anchor-delta",
+      "stage": "source-before-destination-window-and-effects",
+      "obj_field": "existing-destination-field;anchor-outside-transparent;no-field-growth"
+    },
+    "forced_blank_policy": {
+      "color_bgr555": 32767,
+      "raw_bytes": "FF 7F",
+      "transitions": "next-captured-visible-row;no-extra-delay-or-restart",
+      "frame_validity": "normal-epoch-row-coverage;publish-line160",
+      "precedence": "bypass-scene-decode;retain-structural-transaction-validation",
+      "access_policy": "unchanged-existing-bus-behavior"
+    },
+    "display_capabilities": {
+      "model": "gamebloke-display-capabilities-2",
+      "composition_features": {
+        "rectangular_windows": true,
+        "object_windows": true,
+        "alpha_blending": true,
+        "brightness": true,
+        "bg_mosaic": true,
+        "obj_mosaic": true,
+        "forced_blank": true,
+        "classification": "project-selected",
+        "hardware_qualification": "UNKNOWN"
+      },
+      "raw_output": {
+        "format": "BGR555_LE",
+        "width": 240,
+        "height": 160,
+        "stride_bytes": 480,
+        "byte_length": 76800
+      },
+      "modes": [
+        {
+          "mode": 0,
+          "implementation_status": "partial",
+          "backgrounds": [
+            {"bg": 0, "source": "text", "dimensions": [{"width": 256, "height": 256}, {"width": 512, "height": 256}, {"width": 256, "height": 512}, {"width": 512, "height": 512}]},
+            {"bg": 1, "source": "text", "dimensions": [{"width": 256, "height": 256}, {"width": 512, "height": 256}, {"width": 256, "height": 512}, {"width": 512, "height": 512}]},
+            {"bg": 2, "source": "text", "dimensions": [{"width": 256, "height": 256}, {"width": 512, "height": 256}, {"width": 256, "height": 512}, {"width": 512, "height": 512}]},
+            {"bg": 3, "source": "text", "dimensions": [{"width": 256, "height": 256}, {"width": 512, "height": 256}, {"width": 256, "height": 512}, {"width": 512, "height": 512}]}
+          ]
+        },
+        {
+          "mode": 1,
+          "implementation_status": "partial",
+          "backgrounds": [
+            {"bg": 0, "source": "text", "dimensions": [{"width": 256, "height": 256}, {"width": 512, "height": 256}, {"width": 256, "height": 512}, {"width": 512, "height": 512}]},
+            {"bg": 1, "source": "text", "dimensions": [{"width": 256, "height": 256}, {"width": 512, "height": 256}, {"width": 256, "height": 512}, {"width": 512, "height": 512}]},
+            {"bg": 2, "source": "affine", "dimensions": [{"width": 128, "height": 128}, {"width": 256, "height": 256}, {"width": 512, "height": 512}, {"width": 1024, "height": 1024}]}
+          ]
+        },
+        {
+          "mode": 2,
+          "implementation_status": "partial",
+          "backgrounds": [
+            {"bg": 2, "source": "affine", "dimensions": [{"width": 128, "height": 128}, {"width": 256, "height": 256}, {"width": 512, "height": 512}, {"width": 1024, "height": 1024}]},
+            {"bg": 3, "source": "affine", "dimensions": [{"width": 128, "height": 128}, {"width": 256, "height": 256}, {"width": 512, "height": 512}, {"width": 1024, "height": 1024}]}
+          ]
+        },
+        {
+          "mode": 3,
+          "implementation_status": "partial",
+          "backgrounds": [
+            {"bg": 2, "source": "direct-color-bitmap", "dimensions": [{"width": 240, "height": 160}]}
+          ]
+        },
+        {
+          "mode": 4,
+          "implementation_status": "partial",
+          "backgrounds": [
+            {"bg": 2, "source": "indexed-bitmap", "dimensions": [{"width": 240, "height": 160}]}
+          ]
+        },
+        {
+          "mode": 5,
+          "implementation_status": "partial",
+          "backgrounds": [
+            {"bg": 2, "source": "direct-color-bitmap", "dimensions": [{"width": 160, "height": 128}]}
+          ]
+        }
+      ]
+    },
+    "video_memory_access": {
+      "classification": "project-selected",
+      "hardware_qualification": "UNKNOWN",
+      "masters": ["cpu", "dma"],
+      "regions": ["pram", "vram", "oam"],
+      "states": ["drawing", "hblank", "vblank", "forced-blank"],
+      "availability": "existing-bus-behavior",
+      "ppu_extra_cycles": 0,
+      "cost_reference": "bus_policy.request_cycles"
+    }
+  },
   "bus_policy": {
     "source": "IMPL",
-    "cite": "Gamebloke project policy: one master cycle per raw request; no WAITCNT or prefetch timing claim.",
+    "cite": "Gamebloke policy: one master cycle per non-ROM request; ROM costs use contextual WAITCNT halfword-beat quotes; prefetch execution is unmodeled.",
     "request_cycles": {
       "bios": 1,
       "ewram": 1,
@@ -76,7 +245,7 @@
       "pram": 1,
       "vram": 1,
       "oam": 1,
-      "rom": 1,
+      "rom": "contextual-waitcnt-halfword-beats",
       "unmapped": 1
     },
     "widths_bytes": [
@@ -147,6 +316,56 @@
     "extension_encoding": "later-architecture-stop",
     "address_arithmetic": "data-modulo32-static-fetch-checked"
   },
+  "irq_input_power_policy": {
+    "source": "IMPL",
+    "cite": "Gamebloke deterministic Phase 8 IRQ/input/power policy; project-model behavior only, with no GBA IRQ latency qualification.",
+    "source_facts": {
+      "arm_exception_entry": {
+        "source": "REF",
+        "cite": "Arm ARM7TDMI Technical Reference Manual DDI 0210C §§2.8.1–2.8.5 and 6.12 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819)"
+      },
+      "gba_devices_and_power": {
+        "source": "REF",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§14.1–14.2.1, 15, 16.1–16.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      }
+    },
+    "if_ie_mask": 16383,
+    "ime_mask": 1,
+    "cpsr_i_mask": 128,
+    "timer0_if_bit": 8,
+    "keypad_if_bit": 4096,
+    "keyinput_mask": 1023,
+    "keycnt_mask": 50175,
+    "sample_boundary": "completed-instruction-effects-and-events-before-next-instruction",
+    "initial_boundary": "after-refill-before-first-instruction",
+    "entry_internal_cycles": 1,
+    "no_bios_irq_stop": "after-entry-before-vector-fetch",
+    "timer_event_priorities": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "keypad_event_priority": 4,
+    "input_event_capacity": 256,
+    "key_polarity": "active-low",
+    "keycnt_empty_selection": false,
+    "keycnt_effective_edge": "false-to-true",
+    "if_ack_while_held": "stays-clear-until-condition-falls-then-rises",
+    "halt_wake_condition": "IF-and-IE",
+    "halt_wake_mask_independent": [
+      "IME",
+      "CPSR.I"
+    ],
+    "power_transition_cost": "internal-only",
+    "stop_policy": "terminal-guest-stop-no-bios-wake",
+    "stop_cause_code": 3,
+    "deadlock_policy": "distinct-guest-stop",
+    "deadlock_cause_code": 4,
+    "timeout_policy": "cycle-budget-timeout",
+    "timeout_reason_code": 2,
+    "qualification": "project-model-only"
+  },
   "read_policy": {
     "source": "IMPL",
     "cite": "Unverified Gamebloke project behavior: current-latch placeholders for absent BIOS, unsupported I/O, and ROM tails.",
@@ -155,6 +374,137 @@
     "rom_tail": "current-open-bus",
     "latch_update": "mapped-read-width-replicated",
     "write_latch": "preserve"
+  },
+  "audio_policy": {
+    "model": "gamebloke-audio-model-4",
+    "classification": "project-selected",
+    "hardware_qualification": "UNKNOWN",
+    "tap": "pre-pwm",
+    "encoding": "signed-s16le",
+    "channel_layout": "stereo-interleaved-left-first",
+    "sample_rate_hz": 32768,
+    "bytes_per_frame": 4,
+    "master_cycles_per_frame": 512,
+    "reset_epoch_cycle": 0,
+    "first_sample_cycle": 512,
+    "interval": "start-exclusive-end-inclusive",
+    "sample_value": "six-source-mixed-signed-s16le",
+    "psg_channel_count": 4,
+    "direct_sound_channel_count": 2,
+    "psg_source_centering": "per-channel-(2*unsigned-level-15)*2048",
+    "psg_route_gain_policy": "SOUNDCNT_L-independent-left-right-routes,side-level-0-through-7-over-7-applies-only-to-PSG",
+    "psg_group_ratio_policy": "SOUNDCNT_H-code-0-quarter,code-1-half,code-2-full,code-3-mutes-PSG",
+    "direct_sound_route_gain_policy": "FIFO-A/B-independent-left-right-routes,signed-S8-times-256,half-or-full-gain,SOUNDCNT_L-side-level-excluded",
+    "master_mute_policy": "SOUNDCNT_X-master-off-silences-both-sides",
+    "mix_accumulator_policy": "left-and-right-independent-signed-64-bit-numerators,common-denominator-28",
+    "mix_rounding_policy": "one-final-nearest-ties-away-from-zero-after-summing",
+    "mix_clipping_policy": "round-then-saturate-to-signed-16-bit",
+    "modeled_sources": "psg-channel-sources-1-2-3-4,direct-sound-fifo-a-b-signed-samples",
+    "direct_sound_fifo_ports": "A=0x040000A0,B=0x040000A4",
+    "direct_sound_fifo_capacity_bytes": 32,
+    "direct_sound_sample_encoding": "signed-s8",
+    "direct_sound_write_policy": "widths-1-2-4,increasing-address-lane-order,narrow-write-merges-into-next-ring-word-retaining-untouched-lanes-and-consuming-one-word",
+    "direct_sound_overflow_policy": "flush-queue-and-cursors-then-accept-whole-current-write",
+    "direct_sound_underflow_policy": "hold-last-signed-sample,reset-latch-zero",
+    "direct_sound_fifo_reset_policy": "selected-queue-cursors-latch-and-pending-request-only,timers-unaffected",
+    "direct_sound_master_disable_policy": "both-queues-cursors-latches-and-pending-requests,timers-continue",
+    "direct_sound_timer_policy": "actual-selected-timer-overflow-only,timer1-cascade-pops-only-on-real-wrap,each-matching-fifo-pops-once",
+    "direct_sound_same_cycle_order": "timer-pop-and-readiness,PSG-progression,sample-old-route,completing-bus-write",
+    "direct_sound_fifo_request_threshold_bytes": 16,
+    "direct_sound_fifo_request_policy": "post-pop-exactly-16,no-duplicate-pending-or-active-request",
+    "direct_sound_dma_channel_map": "fifo-a-dma1,fifo-b-dma2",
+    "direct_sound_dma_transfer_policy": "four-32-bit-words,fixed-mapped-fifo-destination,ignore-programmed-count-width-and-destination-mode",
+    "direct_sound_dma_source_policy": "align-programmed-source-to-word,increment-decrement-or-fixed-in-4-byte-units,validate-all-four-lanes-in-one-modeled-region",
+    "direct_sound_dma_supported_setup": "enabled-special-audio-timing-only",
+    "direct_sound_dma_unsupported_policy": "consume-sample-ignore-refill,no-programmed-destination-fallback",
+    "direct_sound_dma_rearm_policy": "later-threshold-independent-of-repeat-bit,preserve-source-progression",
+    "direct_sound_dma_irq_policy": "set-matching-channel-if-on-completion-only-when-control-irq-enabled",
+    "direct_sound_dma_priority_policy": "reselect-after-startup-and-each-sound-word,higher-priority-runs-at-next-boundary-before-resume",
+    "direct_sound_dma_publication_policy": "whole-private-machine-candidate,all-interleaved-effects-and-sound-words-commit-or-refuse",
+    "direct_sound_primary_source": "AGB Programming Manual v1.1 §§10.2, 10.3, 10.7 and 12.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+    "direct_sound_supplemental_source": "GBATEK Sound and DMA (community reverse-engineered supplement, https://mgba-emu.github.io/gbatek/)",
+    "direct_sound_secondary_report": "mGBA issue #1847, maintainer report with hedged empty and overflow observations (https://github.com/mgba-emu/mgba/issues/1847)",
+    "direct_sound_policy_classification": "project-selected",
+    "direct_sound_hardware_qualification": "UNKNOWN",
+    "capture_bound_scope": "caller-owned-session",
+    "capture_session_start": "explicit-current-machine-cycle",
+    "capture_session_progress": "accepted-contiguous-operations",
+    "capture_session_global_grid": "unchanged",
+    "max_capture_cycles": 16777216,
+    "max_capture_frames": 32768,
+    "max_capture_bytes": 131072,
+    "refusal_postcondition": "machine-output-session-progress-unchanged",
+    "event_dispatch_limit_per_operation": 4096,
+    "same_cycle_order": "ordered-device-effects-including-timer-overflow-and-dma-readiness,then-PSG-progression,then-sample-old-route,then-completing-bus-write-including-dma-data-write",
+    "psg_primary_source": "AGB Programming Manual v1.1 §§10.3-10.6 consulted via third-party-hosted copy",
+    "psg_supplemental_source": "GBATEK 3.06 community reverse-engineered supplement",
+    "psg_sequencer_period_cycles": 32768,
+    "psg_sequencer_rate_hz": 512,
+    "psg_sequencer_epoch": "reset-cycle-zero",
+    "psg_sequencer_first_tick_cycle": 32768,
+    "psg_sequencer_first_step": 0,
+    "psg_sequencer_steps": "length-0-2-4-6,sweep-channel-1-steps-2-and-6,envelope-7",
+    "psg_sequencer_master_off_phase": "reset-anchored-cycle-phase-continues",
+    "psg_trigger_policy": "completion-anchored-trigger,resets-source-phase,square-phase-zero-high,requires-channel-DAC",
+    "psg_ch1_frequency_policy": "effective-frequency-and-sweep-controls-latch-on-trigger,guest-readback-remains-programmed",
+    "psg_reset_policy": "machine-reset-clears-channel-state-status-and-both-Wave-RAM-banks",
+    "psg_master_off_policy": "clears-channel-registers-and-source-state,retains-Wave-RAM,keeps-sequencer-reset-anchor",
+    "psg_dac_disable_policy": "clears-that-channel-source-state-and-status,CH3-Wave-RAM-aperture-remains-accessible",
+    "psg_channel_status_policy": "separate-from-trigger-and-length-enable,trigger-sets-when-DAC-enabled,length-expiry-or-DAC-disable-clears",
+    "psg_length_policy": "trigger-loads-maximum-minus-register,next-eligible-clock-decrements,zero-register-loads-full-maximum,enabled-only",
+    "psg_length_maxima": "ch1=64,ch2=64,ch3=256,ch4=64",
+    "psg_envelope_policy": "channels-1-2-4,trigger-latches-volume-direction-period,step-7,period-zero-disabled,saturates-at-0-or-15",
+    "psg_square_period_cycles": "128*(2048-fdat)",
+    "psg_square_duty_policy": "duty-high-ratios-1-2-4-6-eighths",
+    "psg_ch1_sweep_policy": "trigger-latched-controls-and-effective-frequency,step-2-and-6,shift-zero-no-change,period-zero-disabled,subtract-delta-bounded-by-current-frequency,zero-stays-zero,overflow-above-2047-clears-active-status",
+    "psg_noise_divider_formula": "32*r*2^(shift+1),ratio-zero-r=1/2",
+    "psg_noise_width_bits": "15-or-7",
+    "psg_noise_seeds": "15-bit=0x4000,7-bit=0x40",
+    "psg_noise_feedback_masks": "15-bit=0x6000,7-bit=0x60",
+    "psg_noise_lfsr_step": "right-shift-xor-feedback-using-width-specific-mask",
+    "psg_noise_prohibited_shifts": "14,15",
+    "psg_noise_prohibited_behavior": "holds-LFSR-phase-and-noise-bit,length-and-envelope-clocks-continue",
+    "psg_wave_bank_count": 2,
+    "psg_wave_bank_bytes": 16,
+    "psg_wave_samples_per_bank": 32,
+    "psg_wave_total_bytes": 32,
+    "psg_wave_guest_aperture": "0x04000090-0x0400009F",
+    "psg_wave_guest_widths": "1,2,4",
+    "psg_wave_guest_lane_order": "little-endian",
+    "psg_wave_guest_bank_policy": "bank-opposite-SOUND3CNT_L-front-bank",
+    "psg_wave_pattern_length_nibbles": "32-or-64",
+    "psg_wave_64_nibble_order": "selected-front-bank-then-other-bank",
+    "psg_wave_nibble_order": "high-then-low",
+    "psg_wave_nibble_period_cycles": "4*(2048-fdat)",
+    "psg_wave_volume_policy": "field-0-mute-1-full-2-half-3-quarter,force-bit-three-quarter",
+    "psg_live_update_policy": "CH1-frequency-and-sweep-controls-trigger-latched,CH2-frequency-keeps-square-phase-modulo-new-period,CH3-frequency-normalizes-nibble-cycle-remainder-and-pattern-write-normalizes-index,CH4-width-change-reseeds,supported-divider-frequency-writes-normalize-noise-cycle-remainder,same-width-prohibited-divider-writes-preserve-noise-phase-and-remainder",
+    "psg_ch3_rate_policy": "manual-whole-pattern-derived-4*(2048-fdat)-cycles-per-nibble",
+    "psg_ch3_rate_conflict": "GBATEK-nibble-rate-interpretation-differs-by-factor-of-two",
+    "psg_ch3_length_source_note": "AGB-manual-CH3-expiration-paragraph-names-CH2-status-bit,model-uses-CH3-status",
+    "psg_wave_retrigger_corruption": "unmodeled",
+    "soundbias": {
+      "address": "0x04000088-0x04000089",
+      "writable_mask": "0xC3FF",
+      "reset_value": "0x0200",
+      "master_off_access": "available",
+      "cadence_effect": "none",
+      "capture_quantization": "none"
+    },
+    "registers": [
+      {"name":"SOUND1CNT_L","address":"0x04000060","retained_mask":"0x007F","read_mask":"0x007F","action_mask":"0x0000","effect":"sweep-control"},
+      {"name":"SOUND1CNT_H","address":"0x04000062","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
+      {"name":"SOUND1CNT_X","address":"0x04000064","retained_mask":"0x47FF","read_mask":"0x47FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
+      {"name":"SOUND2CNT_L","address":"0x04000068","retained_mask":"0xFFFF","read_mask":"0xFFC0","action_mask":"0x0000","effect":"length-envelope-duty-control"},
+      {"name":"SOUND2CNT_H","address":"0x0400006C","retained_mask":"0x47FF","read_mask":"0x47FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
+      {"name":"SOUND3CNT_L","address":"0x04000070","retained_mask":"0x00E0","read_mask":"0x00E0","action_mask":"0x0000","effect":"DAC-bank-and-dimension-control"},
+      {"name":"SOUND3CNT_H","address":"0x04000072","retained_mask":"0xE0FF","read_mask":"0xE000","action_mask":"0x0000","effect":"length-data-and-volume-control"},
+      {"name":"SOUND3CNT_X","address":"0x04000074","retained_mask":"0x47FF","read_mask":"0x47FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
+      {"name":"SOUND4CNT_L","address":"0x04000078","retained_mask":"0xFF3F","read_mask":"0xFF00","action_mask":"0x0000","effect":"length-and-envelope-control"},
+      {"name":"SOUND4CNT_H","address":"0x0400007C","retained_mask":"0x40FF","read_mask":"0x40FF","action_mask":"0x8000","effect":"length-enable-retained-trigger-self-clears-separate-status"},
+      {"name":"SOUNDCNT_L","address":"0x04000080","retained_mask":"0xFF77","read_mask":"0xFF77","action_mask":"0x0000","effect":"psg-routing-and-volume-state"},
+      {"name":"SOUNDCNT_H","address":"0x04000082","retained_mask":"0x770F","read_mask":"0x770F","action_mask":"0x8800","effect":"direct-sound-routing-and-volume-state-fifo-reset-actions"},
+      {"name":"SOUNDCNT_X","address":"0x04000084","retained_mask":"0x0080","read_mask":"0x008F","action_mask":"0x0000","effect":"master-enable-dynamic-channel-status-disable-clears-channel-state"}
+    ]
   },
   "unmodeled": [
     {
@@ -169,38 +519,53 @@
     {
       "id": "prefetch",
       "status": "unmodeled",
-      "reason": "The cartridge prefetch buffer is not emulated in v1.0; no result may claim cartridge wait-state or prefetch timing."
+      "reason": "The Game Pak prefetch buffer is not modeled; ROM fetch hardware costs remain UNKNOWN and no prefetch timing claim is made."
+    },
+    {
+      "id": "waitcnt",
+      "status": "unmodeled",
+      "reason": "The implementation applies documented WAITCNT wait choices to Game Pak halfword beats, but hardware timing qualification remains UNKNOWN; the 128 KiB boundary mapping also has secondary/community provenance."
+    },
+    {
+      "id": "bus-costs",
+      "status": "unmodeled",
+      "reason": "Non-ROM bus costs remain project-selected one-cycle values; contextual Game Pak quotes use documented WAITCNT choices but the complete profile remains hardware-unqualified."
     },
     {
       "id": "hblank-flag-edge",
       "status": "unmodeled",
-      "reason": "Sources disagree on the cycle at which the HBlank flag changes: values of 1,006, 1,007, and 1,008 cycles appear in different sources, and 960 is the visible drawing time, not the flag edge. The profile carries no number for it.",
+      "reason": "The hardware HBlank flag edge remains unknown and disputed across 1,006, 1,007, and 1,008 cycle reports; 960 is nominal visible-dot time. The selected 1,006-cycle model event is in ppu_policy, not a hardware resolution.",
       "dispute": "disp-hblank-flag-edge"
     },
     {
       "id": "ppu",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim PPU behavior."
+      "reason": "The deterministic partial mode, OBJ, window, effect, mosaic, and forced-blank subset is described in ppu_policy as project-selected software behavior; all six mode statuses remain partial and hardware qualification remains UNKNOWN. Prohibited OBJ mode/shape encodings and unsupported background-control encodings remain unmodeled."
     },
     {
       "id": "audio",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim audio behavior."
+      "reason": "The gamebloke-audio-model-3 project policy includes four PSG source calculations, bounded Wave RAM guest access, and Direct Sound FIFO A/B source, timer-pop, and DMA-refill behavior, while PCM remains signed zero pending Phase 19 routing and gain; PCM mixing, PWM carrier, and analog output remain unmodeled, and hardware qualification remains UNKNOWN."
     },
     {
       "id": "dma",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim DMA behavior or DMA timing."
+      "reason": "The deterministic project DMA subset, Direct Sound FIFO A/B routes, and existing VBlank plus visible-line HBlank PPU paths are selected policy; hardware qualification remains UNKNOWN, latch interpretation is disputed, and DMA3 display-synchronized mode, DRQ, and other deferred producers remain unmodeled."
     },
     {
-      "id": "timers",
+      "id": "timer-edge-qualification",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim timer behavior."
+      "reason": "Selected deterministic timer edge rules do not establish their exact hardware timing; first tick, live reload, divider phase, enabled-control writes, same-cycle register access and equal-cycle ordering remain UNKNOWN on hardware.",
+      "details": [
+        "First tick after enable and divider phase are selected model conventions; exact hardware edge is UNKNOWN.",
+        "Live reload behavior and enabled-control-write phase reset are selected model conventions; exact hardware edge is UNKNOWN.",
+        "Same-cycle register access ordering and equal-cycle timer ordering are selected model conventions; exact hardware edge is UNKNOWN."
+      ]
     },
     {
       "id": "irq-controller",
       "status": "unmodeled",
-      "reason": "Not emulated in v1.0; no result may claim interrupt controller behavior."
+      "reason": "A complete hardware-qualified GBA interrupt controller is not modeled. The deterministic IF/IE/IME and CPU-boundary subset is implemented under irq_input_power_policy; exact GBA IRQ latency and BIOS-handler behavior remain unqualified."
     },
     {
       "id": "backup-media",
@@ -215,7 +580,3829 @@
     {
       "id": "io-devices",
       "status": "unmodeled",
-      "reason": "I/O device register semantics are not implemented; unsupported reads use a project-policy placeholder."
+      "reason": "I/O register semantics remain incomplete and hardware-unqualified. Timer, IF/IE/IME, KEYINPUT/KEYCNT, and the VCOUNT/DISPSTAT/DISPCNT subset is described by the timer, irq_input_power_policy, and ppu_policy entries; unsupported reads still use the project-policy placeholder."
     }
-  ]
+  ],
+  "timing_model": {
+    "id": "gamebloke-timer-model-1",
+    "qualification": "project-model-only",
+    "bus_access_costs": [
+      {
+        "key": "read/bios/1/n/fetch",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/1/n/data",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/1/s/fetch",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/1/s/data",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/2/n/fetch",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/2/n/data",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/2/s/fetch",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/2/s/data",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/4/n/fetch",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/4/n/data",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/4/s/fetch",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/bios/4/s/data",
+        "direction": "read",
+        "region": "bios",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/1/n/fetch",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/1/n/data",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/1/s/fetch",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/1/s/data",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/2/n/fetch",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/2/n/data",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/2/s/fetch",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/2/s/data",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/4/n/fetch",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/4/n/data",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/4/s/fetch",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/ewram/4/s/data",
+        "direction": "read",
+        "region": "ewram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/1/n/fetch",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/1/n/data",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/1/s/fetch",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/1/s/data",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/2/n/fetch",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/2/n/data",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/2/s/fetch",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/2/s/data",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/4/n/fetch",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/4/n/data",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/4/s/fetch",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/iwram/4/s/data",
+        "direction": "read",
+        "region": "iwram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/1/n/fetch",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/1/n/data",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/1/s/fetch",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/1/s/data",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/2/n/fetch",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/2/n/data",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/2/s/fetch",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/2/s/data",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/4/n/fetch",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/4/n/data",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/4/s/fetch",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/io/4/s/data",
+        "direction": "read",
+        "region": "io",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/1/n/fetch",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/1/n/data",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/1/s/fetch",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/1/s/data",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/2/n/fetch",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/2/n/data",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/2/s/fetch",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/2/s/data",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/4/n/fetch",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/4/n/data",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/4/s/fetch",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/pram/4/s/data",
+        "direction": "read",
+        "region": "pram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/1/n/fetch",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/1/n/data",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/1/s/fetch",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/1/s/data",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/2/n/fetch",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/2/n/data",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/2/s/fetch",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/2/s/data",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/4/n/fetch",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/4/n/data",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/4/s/fetch",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/vram/4/s/data",
+        "direction": "read",
+        "region": "vram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/1/n/fetch",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/1/n/data",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/1/s/fetch",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/1/s/data",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/2/n/fetch",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/2/n/data",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/2/s/fetch",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/2/s/data",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/4/n/fetch",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/4/n/data",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/4/s/fetch",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/oam/4/s/data",
+        "direction": "read",
+        "region": "oam",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/1/n/fetch",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt",
+            "prefetch"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/1/n/data",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/1/s/fetch",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt",
+            "prefetch"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/1/s/data",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/2/n/fetch",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt",
+            "prefetch"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/2/n/data",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/2/s/fetch",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt",
+            "prefetch"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/2/s/data",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/4/n/fetch",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt",
+            "prefetch"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/4/n/data",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/4/s/fetch",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt",
+            "prefetch"
+          ]
+        }
+      },
+      {
+        "key": "read/rom/4/s/data",
+        "direction": "read",
+        "region": "rom",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/1/n/fetch",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/1/n/data",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/1/s/fetch",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/1/s/data",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/2/n/fetch",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/2/n/data",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/2/s/fetch",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/2/s/data",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/4/n/fetch",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/4/n/data",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/4/s/fetch",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "fetch",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "read/unmapped/4/s/data",
+        "direction": "read",
+        "region": "unmapped",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/bios/1/n/data",
+        "direction": "write",
+        "region": "bios",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/bios/1/s/data",
+        "direction": "write",
+        "region": "bios",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/bios/2/n/data",
+        "direction": "write",
+        "region": "bios",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/bios/2/s/data",
+        "direction": "write",
+        "region": "bios",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/bios/4/n/data",
+        "direction": "write",
+        "region": "bios",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/bios/4/s/data",
+        "direction": "write",
+        "region": "bios",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/ewram/1/n/data",
+        "direction": "write",
+        "region": "ewram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/ewram/1/s/data",
+        "direction": "write",
+        "region": "ewram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/ewram/2/n/data",
+        "direction": "write",
+        "region": "ewram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/ewram/2/s/data",
+        "direction": "write",
+        "region": "ewram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/ewram/4/n/data",
+        "direction": "write",
+        "region": "ewram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/ewram/4/s/data",
+        "direction": "write",
+        "region": "ewram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/iwram/1/n/data",
+        "direction": "write",
+        "region": "iwram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/iwram/1/s/data",
+        "direction": "write",
+        "region": "iwram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/iwram/2/n/data",
+        "direction": "write",
+        "region": "iwram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/iwram/2/s/data",
+        "direction": "write",
+        "region": "iwram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/iwram/4/n/data",
+        "direction": "write",
+        "region": "iwram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/iwram/4/s/data",
+        "direction": "write",
+        "region": "iwram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/io/1/n/data",
+        "direction": "write",
+        "region": "io",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/io/1/s/data",
+        "direction": "write",
+        "region": "io",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/io/2/n/data",
+        "direction": "write",
+        "region": "io",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/io/2/s/data",
+        "direction": "write",
+        "region": "io",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/io/4/n/data",
+        "direction": "write",
+        "region": "io",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/io/4/s/data",
+        "direction": "write",
+        "region": "io",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/pram/1/n/data",
+        "direction": "write",
+        "region": "pram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/pram/1/s/data",
+        "direction": "write",
+        "region": "pram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/pram/2/n/data",
+        "direction": "write",
+        "region": "pram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/pram/2/s/data",
+        "direction": "write",
+        "region": "pram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/pram/4/n/data",
+        "direction": "write",
+        "region": "pram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/pram/4/s/data",
+        "direction": "write",
+        "region": "pram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/vram/1/n/data",
+        "direction": "write",
+        "region": "vram",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/vram/1/s/data",
+        "direction": "write",
+        "region": "vram",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/vram/2/n/data",
+        "direction": "write",
+        "region": "vram",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/vram/2/s/data",
+        "direction": "write",
+        "region": "vram",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/vram/4/n/data",
+        "direction": "write",
+        "region": "vram",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/vram/4/s/data",
+        "direction": "write",
+        "region": "vram",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/oam/1/n/data",
+        "direction": "write",
+        "region": "oam",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/oam/1/s/data",
+        "direction": "write",
+        "region": "oam",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/oam/2/n/data",
+        "direction": "write",
+        "region": "oam",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/oam/2/s/data",
+        "direction": "write",
+        "region": "oam",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/oam/4/n/data",
+        "direction": "write",
+        "region": "oam",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/oam/4/s/data",
+        "direction": "write",
+        "region": "oam",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/rom/1/n/data",
+        "direction": "write",
+        "region": "rom",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "write/rom/1/s/data",
+        "direction": "write",
+        "region": "rom",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "write/rom/2/n/data",
+        "direction": "write",
+        "region": "rom",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "write/rom/2/s/data",
+        "direction": "write",
+        "region": "rom",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "write/rom/4/n/data",
+        "direction": "write",
+        "region": "rom",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "write/rom/4/s/data",
+        "direction": "write",
+        "region": "rom",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "source-backed",
+          "cost_cycles": null,
+          "formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf); WAITCNT window and effective beat context select the runtime value; hardware qualification remains UNKNOWN."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled.",
+          "unmodeled_ids": [
+            "bus-costs",
+            "waitcnt"
+          ]
+        }
+      },
+      {
+        "key": "write/unmapped/1/n/data",
+        "direction": "write",
+        "region": "unmapped",
+        "width_bytes": 1,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/unmapped/1/s/data",
+        "direction": "write",
+        "region": "unmapped",
+        "width_bytes": 1,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/unmapped/2/n/data",
+        "direction": "write",
+        "region": "unmapped",
+        "width_bytes": 2,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/unmapped/2/s/data",
+        "direction": "write",
+        "region": "unmapped",
+        "width_bytes": 2,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/unmapped/4/n/data",
+        "direction": "write",
+        "region": "unmapped",
+        "width_bytes": 4,
+        "sequence": "nonsequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      },
+      {
+        "key": "write/unmapped/4/s/data",
+        "direction": "write",
+        "region": "unmapped",
+        "width_bytes": 4,
+        "sequence": "sequential",
+        "role": "data",
+        "execution": {
+          "classification": "project-selected",
+          "cost_cycles": 1,
+          "citation": "Gamebloke policy: one model cycle per successful supported non-ROM bus request in gamebloke-timer-model-1; project-selected, not hardware-qualified."
+        },
+        "hardware_cost": {
+          "classification": "unmodeled",
+          "cost_cycles": null,
+          "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role.",
+          "unmodeled_ids": [
+            "bus-costs"
+          ]
+        }
+      }
+    ],
+    "cpu_composition": [
+      {
+        "id": "arm7tdmi-nsi-patterns",
+        "classification": "source-backed",
+        "rule": "The ARM7TDMI timing summary expresses bus work as N/S/I/C cycles and accounts for pipeline overlap; examples are LDR 1S+1N+1I, STR 2N, and B/BL 2S+1N.",
+        "citation": "Arm ARM7TDMI Technical Reference Manual DDI 0210C §§3.3 and 6.20 Table 6-23 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819)"
+      },
+      {
+        "id": "arm7tdmi-internal-cycle-rules",
+        "classification": "source-backed",
+        "rule": "Instruction-specific internal-cycle contributions follow the ARM7TDMI timing summary and remain separate from memory wait costs.",
+        "citation": "Arm ARM7TDMI Technical Reference Manual DDI 0210C §§3.3 and 6.20 Table 6-23 (https://documentation-service.arm.com/static/5f4786a179ff4c392c0ff819)"
+      },
+      {
+        "id": "gba-waitcnt-wait-selection",
+        "classification": "source-backed",
+        "rule": "The WAITCNT register selects the documented nonsequential and sequential wait states for three Game Pak windows; each quoted halfword beat adds one base cycle. Prefetch execution is separate and remains unmodeled.",
+        "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      },
+      {
+        "id": "gba-prefetch-execution",
+        "classification": "unmodeled",
+        "rule": "Game Pak prefetch fill/hit execution remains unmodeled. The WAITCNT prefetch bit is retained as register state only; no hardware qualification is claimed.",
+        "citation": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      }
+    ],
+    "timer_edge_policies": [
+      {
+        "id": "first-tick-after-enable",
+        "classification": "project-selected",
+        "selected_rule": "Disabled-to-enabled loads reload and resets divider phase; the first tick follows one complete selected divisor.",
+        "hardware_qualification": "UNKNOWN",
+        "citation": "Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source."
+      },
+      {
+        "id": "live-reload",
+        "classification": "project-selected",
+        "selected_rule": "A reload write while running affects the next overflow; it does not replace the current counter.",
+        "hardware_qualification": "UNKNOWN",
+        "citation": "Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source."
+      },
+      {
+        "id": "enabled-control-write",
+        "classification": "project-selected",
+        "selected_rule": "An enabled control write synchronizes at transaction completion and resets the selected divider phase.",
+        "hardware_qualification": "UNKNOWN",
+        "citation": "Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source."
+      },
+      {
+        "id": "same-cycle-register-access",
+        "classification": "project-selected",
+        "selected_rule": "Drain scheduled timer events through bus transaction completion before sampling reads or committing writes.",
+        "hardware_qualification": "UNKNOWN",
+        "citation": "Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source."
+      },
+      {
+        "id": "equal-cycle-order",
+        "classification": "project-selected",
+        "selected_rule": "Timer index orders equal-cycle overflows; insertion sequence breaks remaining ties.",
+        "hardware_qualification": "UNKNOWN",
+        "citation": "Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source."
+      },
+      {
+        "id": "timer0-cascade",
+        "classification": "project-selected",
+        "selected_rule": "Timer 0 cascade is ignored by this model.",
+        "hardware_qualification": "UNKNOWN",
+        "citation": "Gamebloke timer-model policy in src/machine.c and include/gamebloke/gamebloke.h; not a hardware source."
+      }
+    ],
+    "guest_path_coverage": [
+      {
+        "id": "timer0-initial-rom-fetch",
+        "description": "Initial/refill ARM instruction fetch",
+        "key": "read/rom/4/n/fetch"
+      },
+      {
+        "id": "timer0-sequential-rom-fetch",
+        "description": "Sequential ARM instruction fetch",
+        "key": "read/rom/4/s/fetch"
+      },
+      {
+        "id": "timer0-rom-literal-read",
+        "description": "ARM literal data read from the ROM instruction pool",
+        "key": "read/rom/4/n/data"
+      },
+      {
+        "id": "timer0-reload-control-write",
+        "description": "Word write containing Timer 0 reload and control fields",
+        "key": "write/io/4/n/data"
+      },
+      {
+        "id": "timer0-if-halfword-read",
+        "description": "Halfword read polling Timer 0's IF request bit",
+        "key": "read/io/2/n/data"
+      },
+      {
+        "id": "timer0-iwram-marker-write",
+        "description": "Word write publishing the guest overflow marker/mailbox",
+        "key": "write/iwram/4/n/data"
+      }
+    ],
+    "unmodeled_hardware": [
+      {
+        "id": "bus-costs",
+        "classification": "unmodeled",
+        "hardware_qualification": "UNKNOWN",
+        "affected_shapes": "Non-ROM rows remain project-selected one-cycle policy; all modeled and contextual bus values remain unqualified on hardware.",
+        "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): no complete hardware-cost mapping is modeled for this region, width, sequence and role."
+      },
+      {
+        "id": "waitcnt",
+        "classification": "unmodeled",
+        "hardware_qualification": "UNKNOWN",
+        "affected_shapes": "ROM read/write values are computed from source-backed WAITCNT choices and beat formulas; the resulting implementation and boundary mapping have no hardware qualification.",
+        "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled."
+      },
+      {
+        "id": "prefetch",
+        "classification": "unmodeled",
+        "hardware_qualification": "UNKNOWN",
+        "affected_shapes": "Game Pak prefetch fill/hit execution; bit 14 may be retained as register state but does not enable modeled prefetch.",
+        "citation": "Nintendo AGB Programming Manual v1.1 §§3.2–3.3 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf): Game Pak accesses use configurable waits; this row's exact hardware cost is unmodeled."
+      }
+    ]
+  },
+  "waitcnt_policy": {
+    "register": {
+      "address": "0x04000204",
+      "retained_mask": "0x5FFF",
+      "reset_value": "0x0000",
+      "classification": "project-selected",
+      "prefetch_bit": 14,
+      "cite": "Gamebloke WAITCNT register implementation in src/machine.c and src/bus.c; the retained mask and reset initialization are project policy."
+    },
+    "windows": [
+      {
+        "id": "ws0",
+        "first": "0x08000000",
+        "last": "0x09FFFFFF",
+        "nonsequential_bits": [
+          2,
+          3
+        ],
+        "nonsequential_wait_choices": [
+          4,
+          3,
+          2,
+          8
+        ],
+        "sequential_bit": 4,
+        "sequential_wait_choices": [
+          2,
+          1
+        ],
+        "classification": "source-backed",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      },
+      {
+        "id": "ws1",
+        "first": "0x0A000000",
+        "last": "0x0BFFFFFF",
+        "nonsequential_bits": [
+          5,
+          6
+        ],
+        "nonsequential_wait_choices": [
+          4,
+          3,
+          2,
+          8
+        ],
+        "sequential_bit": 7,
+        "sequential_wait_choices": [
+          4,
+          1
+        ],
+        "classification": "source-backed",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      },
+      {
+        "id": "ws2",
+        "first": "0x0C000000",
+        "last": "0x0DFFFFFF",
+        "nonsequential_bits": [
+          8,
+          9
+        ],
+        "nonsequential_wait_choices": [
+          4,
+          3,
+          2,
+          8
+        ],
+        "sequential_bit": 10,
+        "sequential_wait_choices": [
+          8,
+          1
+        ],
+        "classification": "source-backed",
+        "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+      }
+    ],
+    "beat_policy": {
+      "bus_width_bits": 16,
+      "supported_access_widths_bytes": [
+        1,
+        2,
+        4
+      ],
+      "beat_width_bytes": 2,
+      "byte_or_halfword_beats": 1,
+      "word_beats": 2,
+      "word_second_beat_sequence": "sequential",
+      "base_cycles_per_beat": 1,
+      "cycle_formula": "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)",
+      "role_scope": [
+        "fetch",
+        "data"
+      ],
+      "direction_scope": [
+        "read",
+        "write"
+      ],
+      "effective_sequence_rule": "first beat uses requested N/S; later word beats request S; each beat address is checked independently for a 128 KiB boundary",
+      "classification": "source-backed",
+      "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2 plus the tested Gamebloke 16-bit quote path."
+    },
+    "boundary": {
+      "bytes": 131072,
+      "rule": "address-aligned beat at a 128 KiB boundary forces effective nonsequential timing",
+      "classification": "secondary-community",
+      "source_label": "SRC",
+      "provenance": "GBATEK 3.06, Game Pak 128 KiB sequential boundary; secondary/community source only.",
+      "hardware_qualification": "UNKNOWN"
+    },
+    "prefetch": {
+      "bit": 14,
+      "register_state": "retained",
+      "execution": "unmodeled",
+      "hardware_qualification": "UNKNOWN",
+      "classification": "unmodeled",
+      "cite": "Nintendo AGB Programming Manual v1.1 §§3.3–3.3.2; execution remains intentionally unmodeled."
+    },
+    "hardware_qualification": "UNKNOWN",
+    "hardware_qualification_cite": "No physical hardware evidence was produced by this plan; qualification remains UNKNOWN."
+  },
+  "dma_policy": {
+    "registers": {
+      "base": "0x040000B0",
+      "last": "0x040000DF",
+      "channel_count": 4,
+      "channel_stride_bytes": 12,
+      "control_mask": "0xFFE0",
+      "classification": "source-backed",
+      "cite": "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+    },
+    "source_facts": {
+      "source_address_masks": [
+        "0x07FFFFFF",
+        "0x0FFFFFFF",
+        "0x0FFFFFFF",
+        "0x0FFFFFFF"
+      ],
+      "destination_address_masks": [
+        "0x07FFFFFF",
+        "0x07FFFFFF",
+        "0x07FFFFFF",
+        "0x0FFFFFFF"
+      ],
+      "count_masks": [
+        "0x3FFF",
+        "0x3FFF",
+        "0x3FFF",
+        "0xFFFF"
+      ],
+      "zero_count_expansions": [
+        16384,
+        16384,
+        16384,
+        65536
+      ],
+      "transfer_width_bit": 10,
+      "transfer_width_bytes": [
+        2,
+        4
+      ],
+      "source_modes": [
+        "increment",
+        "decrement",
+        "fixed",
+        "unsupported"
+      ],
+      "destination_modes": [
+        "increment",
+        "decrement",
+        "fixed",
+        "increment-and-reload-channel-3-only"
+      ],
+      "repeat_bit": 9,
+      "completion_irq_bit": 14,
+      "completion_if_bits": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "cite": "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)",
+      "classification": "source-backed"
+    },
+    "trigger_policy": {
+      "enable_bit": 15,
+      "immediate_mode": 0,
+      "immediate_start": "rising enable edge",
+      "immediate_repeat": "one-shot",
+      "deferred_modes": [
+        1,
+        2,
+        3
+      ],
+      "deferred_behavior": "Direct Sound FIFO A/B uses DMA1/DMA2 special timing; VBlank/HBlank retain their specialized PPU routes; DRQ and other trigger producers remain deferred",
+      "channel0_mode3": "refused",
+      "classification": "project-selected",
+      "cite": "Gamebloke DMA model in src/machine.c; Direct Sound FIFO and the existing specialized VBlank/HBlank PPU routes are implemented; DRQ and other trigger producers remain deferred."
+    },
+    "completion_policy": {
+      "one_shot_enable": "cleared on completion",
+      "delayed_repeat": "remain armed and reload count",
+      "destination_reload": "channel 3 mode 3 only",
+      "completion_irq": "set the channel IF bit when control bit 14 is enabled",
+      "classification": "source-backed",
+      "cite": "Nintendo AGB Programming Manual v1.1 Chapter 12 (https://www.manuallib.com/download/2023-10-17/AGB%20Programming%20Manual.pdf)"
+    },
+    "startup_policy": {
+      "source_statement": "manual describes a startup wait; conversion to the project master-cycle clock is a separate mapping",
+      "master_cycles": 2,
+      "classification": "project-selected",
+      "hardware_qualification": "UNKNOWN",
+      "cite": "Gamebloke project mapping in include/gamebloke/gamebloke.h; manual activation wording does not qualify a master-cycle conversion."
+    },
+    "arbitration_policy": {
+      "priority_order": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "ownership": "active DMA pauses CPU execution",
+      "unit_boundary": "one source access plus one destination access",
+      "reconsider_priority": "after each complete transfer unit",
+      "sequence_restart_after_suspension": "nonsequential",
+      "event_order": [
+        "timer0-3",
+        "keypad",
+        "dma-ready0-3"
+      ],
+      "finer_boundary": "unmodeled",
+      "classification": "project-selected",
+      "hardware_qualification": "UNKNOWN",
+      "cite": "Gamebloke selected DMA policy in src/machine.c; project tests establish implementation behavior only."
+    },
+    "latch_policy": {
+      "selection": "per-channel",
+      "selection_classification": "project-selected",
+      "result_classification": "disputed",
+      "dispute_id": "disp-dma-latch",
+      "dispute_status": "open",
+      "hardware_qualification": "UNKNOWN",
+      "cite": "registry/disputes.json entry disp-dma-latch; competing observations remain unresolved."
+    },
+    "hardware_qualification": "UNKNOWN",
+    "hardware_qualification_cite": "No physical hardware evidence was produced by this plan; qualification remains UNKNOWN."
+  }
 }

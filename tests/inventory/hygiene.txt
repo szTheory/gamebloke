@@ -1,6 +1,7 @@
 # Line format: <name> <label,label>[ skip-ok]. Single spaces. Labels sorted.
 # Sorted (byte order) expected-test inventory for the hygiene lane.
 artifact.admission.controls control,manifest
+audio.guest.local-exclusion audio,control
 ci.actions.pinned ci,gate
 ci.yml.policy ci,gate
 contract.lint contract,gate
@@ -98,6 +99,8 @@ manifest.pos.complete_row manifest,positive
 manifest.pos.empty manifest,positive
 manifest.pos.public_ci_ok manifest,positive
 manifest.pos.source_kinds manifest,positive
+phase10.cli gate,integration,ppu,runner
+phase10.cli.control control,ppu,runner
 pins.nc.bad_dest control,pins
 pins.nc.bad_digest control,pins
 pins.nc.bad_row control,pins
@@ -107,6 +110,8 @@ pins.nc.missing_file control,pins
 pins.nc.missing_header control,pins
 pins.pos.rows pins,positive
 profile.lint gate,profile
+profile.nc.audio_mix control,profile
+profile.nc.audio_policy control,profile
 profile.nc.bad_bios_provider control,profile
 profile.nc.bad_boot control,profile
 profile.nc.bad_cart control,profile
@@ -121,6 +126,7 @@ profile.nc.bus_policy_value control,profile
 profile.nc.cpu_policy_doc control,profile
 profile.nc.cpu_policy_value control,profile
 profile.nc.dispute_unknown control,profile
+profile.nc.dma_sound_trigger control,profile
 profile.nc.doc_extra_id control,profile
 profile.nc.doc_missing_id control,profile
 profile.nc.doc_no_section control,profile
@@ -129,6 +135,7 @@ profile.nc.hblank_edge_hardcoded control,profile
 profile.nc.init_policy control,profile
 profile.nc.missing_field control,profile
 profile.nc.missing_source control,profile
+profile.nc.ppu_policy control,profile
 profile.nc.read_policy control,profile
 profile.nc.timing_arithmetic control,profile
 profile.nc.unmodeled_bad_entry control,profile
@@ -150,6 +157,7 @@ registry.nc.usage control,registry
 registry.pos.copy positive,registry
 registry.pos.extra_entry positive,registry
 result.example gate,result
+result.nc.audio_policy control,result
 result.nc.bad_bios_provider control,result
 result.nc.bad_boot control,result
 result.nc.bad_cart control,result
@@ -168,6 +176,9 @@ result.nc.missing_reason control,result
 result.nc.missing_refusal control,result
 result.nc.pass_without_digest control,result
 result.nc.pass_without_run control,result
+result.nc.phase10 control,result
+result.nc.phase8 control,result
+result.nc.phase9 control,result
 result.nc.ran_state_mismatch control,result
 result.nc.semantic_time control,result
 result.nc.undisclosed_dispute control,result
@@ -179,6 +190,9 @@ result.pos.all_states positive,result
 result.pos.bios_provider_forms positive,result
 result.pos.disputed positive,result
 result.pos.instruction_reasons positive,result
+result.pos.phase10 positive,result
+result.pos.phase8 positive,result
+result.pos.phase9 positive,result
 signature.digests.wellformed signature,unit
 signature.logo.real_digest signature,unit skip-ok
 signature.nc.bad_digest_row control,signature

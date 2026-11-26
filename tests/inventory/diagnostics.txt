@@ -743,6 +743,7 @@ diagnostics.case.thumb-stop-737278802 diagnostics,integration
 diagnostics.coverage.final control,diagnostics,gate
 diagnostics.dependency.controls control,diagnostics
 diagnostics.dependency.pipeline control,diagnostics
+diagnostics.determinism determinism,diagnostics,gate
 diagnostics.execute diagnostics,integration
 diagnostics.execution_set diagnostics,gate,integration
 diagnostics.final.budget control,diagnostics

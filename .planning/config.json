@@ -51,7 +51,9 @@
     "security_block_on": "high",
     "tdd_mode": false,
     "ui_review": true,
-    "use_worktrees": false
+    "use_worktrees": false,
+    "_auto_chain_active": false,
+    "test_command": "sh scripts/verify-phase12-fast.sh"
   },
   "ship": {
     "pr_body_sections": []
@@ -86,14 +88,14 @@
     "default": "medium",
     "routing_tier_defaults": {
       "light": "xhigh",
-      "standard": "high",
+      "standard": "xhigh",
       "heavy": "high"
     }
   },
   "resolve_model_ids": false,
   "model_profile_overrides": {
     "codex": {
-      "opus": "gpt-6.1-sol",
+      "opus": "gpt-6.2-sol",
       "sonnet": "gpt-6-luna",
       "haiku": "gpt-6-luna"
     },
@@ -103,6 +105,6 @@
       "haiku": "claude-haiku-5-5"
     }
   },
-  "runtime": "claude",
+  "runtime": "codex",
   "granularity": "standard"
 }

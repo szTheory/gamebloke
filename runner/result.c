@@ -1,7 +1,35 @@
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
+#define _POSIX_C_SOURCE 200809L
+#define _DARWIN_C_SOURCE
 #include "run.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <sys/stdio.h>
+#elif defined(__linux__)
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
+
+#if defined(GBL_RUNNER_TESTING)
+static gbl_runner_audio_writer_test_fault gbl_runner_audio_writer_fault;
+
+void gbl_runner_test_set_audio_writer_fault(
+    gbl_runner_audio_writer_test_fault fault)
+{
+    gbl_runner_audio_writer_fault = fault;
+}
+#endif
 
 static const char *gbl_runner_status_name(gbl_runner_status status)
 {
@@ -29,6 +57,123 @@ static const char *gbl_runner_mailbox_name(gbl_mailbox_status status)
     case GBL_MAILBOX_MALFORMED: return "malformed";
     }
     return "malformed";
+}
+
+static const char *gbl_runner_exception_name(gbl_exception_kind kind)
+{
+    switch (kind) {
+    case GBL_EXCEPTION_NONE: return "none";
+    case GBL_EXCEPTION_RESET: return "reset";
+    case GBL_EXCEPTION_UNDEFINED: return "undefined";
+    case GBL_EXCEPTION_SWI: return "swi";
+    case GBL_EXCEPTION_PREFETCH_ABORT: return "prefetch_abort";
+    case GBL_EXCEPTION_DATA_ABORT: return "data_abort";
+    case GBL_EXCEPTION_IRQ: return "irq";
+    case GBL_EXCEPTION_FIQ: return "fiq";
+    case GBL_EXCEPTION_COPROCESSOR: return "coprocessor";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_power_state_name(gbl_machine_power_state state)
+{
+    switch (state) {
+    case GBL_MACHINE_POWER_RUNNING: return "running";
+    case GBL_MACHINE_POWER_HALTED: return "halted";
+    case GBL_MACHINE_POWER_STOPPED: return "stopped";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_power_cause_name(gbl_cpu_power_cause cause)
+{
+    switch (cause) {
+    case GBL_CPU_POWER_CAUSE_NONE: return "none";
+    case GBL_CPU_POWER_CAUSE_WAKE_PENDING: return "wake_pending";
+    case GBL_CPU_POWER_CAUSE_WAKE_EVENT: return "wake_event";
+    case GBL_CPU_POWER_CAUSE_STOP_REQUESTED: return "stop_requested";
+    case GBL_CPU_POWER_CAUSE_HALT_DEADLOCK: return "halt_deadlock";
+    case GBL_CPU_POWER_CAUSE_WAIT_TIMEOUT: return "wait_timeout";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_bus_owner_name(gbl_machine_bus_owner owner)
+{
+    switch (owner) {
+    case GBL_MACHINE_BUS_OWNER_CPU: return "cpu";
+    case GBL_MACHINE_BUS_OWNER_DMA: return "dma";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_status_name(gbl_dma_status status)
+{
+    switch (status) {
+    case GBL_DMA_STATUS_NONE: return "none";
+    case GBL_DMA_STATUS_OK: return "ok";
+    case GBL_DMA_STATUS_IDLE: return "idle";
+    case GBL_DMA_STATUS_BUDGET_REFUSAL: return "budget_refusal";
+    case GBL_DMA_STATUS_INVALID_ARGUMENT: return "invalid_argument";
+    case GBL_DMA_STATUS_UNSUPPORTED: return "unsupported";
+    case GBL_DMA_STATUS_TIME_OVERFLOW: return "time_overflow";
+    case GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT: return "event_dispatch_limit";
+    case GBL_DMA_STATUS_UNIT_REFUSAL: return "unit_refusal";
+    case GBL_DMA_STATUS_OUTPUT_REFUSAL: return "output_refusal";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_bus_class_name(gbl_bus_access_class access_class)
+{
+    switch (access_class) {
+    case GBL_BUS_CLASS_NONSEQUENTIAL: return "nonsequential";
+    case GBL_BUS_CLASS_SEQUENTIAL: return "sequential";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_provenance_name(
+    gbl_dma_value_provenance provenance)
+{
+    switch (provenance) {
+    case GBL_DMA_VALUE_PROVENANCE_NONE: return "none";
+    case GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED:
+        return "project-selected";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_classification_name(
+    gbl_dma_result_classification classification)
+{
+    switch (classification) {
+    case GBL_DMA_RESULT_CLASSIFICATION_NONE: return "none";
+    case GBL_DMA_RESULT_CLASSIFICATION_DISPUTED: return "disputed";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_dma_dispute_name(gbl_dma_dispute_id dispute)
+{
+    switch (dispute) {
+    case GBL_DMA_DISPUTE_NONE: return NULL;
+    case GBL_DMA_DISPUTE_LATCH: return "disp-dma-latch";
+    case GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE:
+        return "disp-hblank-flag-edge";
+    }
+    return NULL;
+}
+
+static const char *gbl_runner_qualification_name(
+    gbl_hardware_qualification qualification)
+{
+    switch (qualification) {
+    case GBL_HARDWARE_QUALIFICATION_UNSPECIFIED: return "UNSPECIFIED";
+    case GBL_HARDWARE_QUALIFICATION_UNKNOWN: return "UNKNOWN";
+    case GBL_HARDWARE_QUALIFICATION_QUALIFIED: return "QUALIFIED";
+    }
+    return NULL;
 }
 
 static bool gbl_runner_json_string(FILE *output, const char *value)
@@ -71,23 +216,255 @@ static bool gbl_runner_json_string(FILE *output, const char *value)
     return fputc('"', output) != EOF;
 }
 
+typedef struct gbl_runner_capability_dimension {
+    unsigned int width;
+    unsigned int height;
+} gbl_runner_capability_dimension;
+
+typedef struct gbl_runner_capability_background {
+    unsigned int bg;
+    const char *source;
+    const gbl_runner_capability_dimension *dimensions;
+    size_t dimension_count;
+} gbl_runner_capability_background;
+
+typedef struct gbl_runner_display_mode {
+    unsigned int mode;
+    const char *implementation_status;
+    const gbl_runner_capability_background *backgrounds;
+    size_t background_count;
+} gbl_runner_display_mode;
+
+static const gbl_runner_capability_dimension gbl_runner_text_dimensions[] = {
+    { 256u, 256u }, { 512u, 256u }, { 256u, 512u }, { 512u, 512u }
+};
+static const gbl_runner_capability_dimension gbl_runner_affine_dimensions[] = {
+    { 128u, 128u }, { 256u, 256u }, { 512u, 512u }, { 1024u, 1024u }
+};
+static const gbl_runner_capability_dimension gbl_runner_bitmap_dimensions[] = {
+    { 240u, 160u }
+};
+static const gbl_runner_capability_dimension gbl_runner_mode5_dimensions[] = {
+    { 160u, 128u }
+};
+
+#define GBL_RUNNER_CAPABILITY_COUNT(items) \
+    (sizeof(items) / sizeof((items)[0]))
+
+static const gbl_runner_capability_background gbl_runner_mode0_backgrounds[] = {
+    { 0u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 1u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 2u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 3u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode1_backgrounds[] = {
+    { 0u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 1u, "text", gbl_runner_text_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_text_dimensions) },
+    { 2u, "affine", gbl_runner_affine_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_affine_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode2_backgrounds[] = {
+    { 2u, "affine", gbl_runner_affine_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_affine_dimensions) },
+    { 3u, "affine", gbl_runner_affine_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_affine_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode3_backgrounds[] = {
+    { 2u, "direct-color-bitmap", gbl_runner_bitmap_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_bitmap_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode4_backgrounds[] = {
+    { 2u, "indexed-bitmap", gbl_runner_bitmap_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_bitmap_dimensions) }
+};
+static const gbl_runner_capability_background gbl_runner_mode5_backgrounds[] = {
+    { 2u, "direct-color-bitmap", gbl_runner_mode5_dimensions,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode5_dimensions) }
+};
+
+static const gbl_runner_display_mode gbl_runner_display_modes[] = {
+    { 0u, "partial", gbl_runner_mode0_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode0_backgrounds) },
+    { 1u, "partial", gbl_runner_mode1_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode1_backgrounds) },
+    { 2u, "partial", gbl_runner_mode2_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode2_backgrounds) },
+    { 3u, "partial", gbl_runner_mode3_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode3_backgrounds) },
+    { 4u, "partial", gbl_runner_mode4_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode4_backgrounds) },
+    { 5u, "partial", gbl_runner_mode5_backgrounds,
+      GBL_RUNNER_CAPABILITY_COUNT(gbl_runner_mode5_backgrounds) }
+};
+
+#undef GBL_RUNNER_CAPABILITY_COUNT
+
+static bool gbl_runner_write_phase10_capabilities(FILE *output)
+{
+    size_t mode_index;
+
+    if (fputs(",\"display_capabilities\":{"
+              "\"model\":\"gamebloke-display-capabilities-2\","
+              "\"composition_features\":{"
+              "\"rectangular_windows\":true,"
+              "\"object_windows\":true,"
+              "\"alpha_blending\":true,"
+              "\"brightness\":true,"
+              "\"bg_mosaic\":true,"
+              "\"obj_mosaic\":true,"
+              "\"forced_blank\":true,"
+              "\"classification\":\"project-selected\","
+              "\"hardware_qualification\":\"UNKNOWN\"},"
+              "\"raw_output\":{\"format\":\"BGR555_LE\","
+              "\"width\":240,\"height\":160,\"stride_bytes\":480,"
+              "\"byte_length\":76800},\"modes\":[",
+              output) == EOF) {
+        return false;
+    }
+    for (mode_index = 0u;
+         mode_index < sizeof gbl_runner_display_modes /
+                          sizeof gbl_runner_display_modes[0];
+         ++mode_index) {
+        const gbl_runner_display_mode *mode =
+            &gbl_runner_display_modes[mode_index];
+        size_t background_index;
+
+        if (fprintf(output, "%s{\"mode\":%u,\"implementation_status\":",
+                    mode_index == 0u ? "" : ",", mode->mode) < 0 ||
+            !gbl_runner_json_string(output, mode->implementation_status) ||
+            fputs(",\"backgrounds\":[", output) == EOF) {
+            return false;
+        }
+        for (background_index = 0u;
+             background_index < mode->background_count;
+             ++background_index) {
+            const gbl_runner_capability_background *background =
+                &mode->backgrounds[background_index];
+            size_t dimension_index;
+
+            if (fprintf(output, "%s{\"bg\":%u,\"source\":",
+                        background_index == 0u ? "" : ",",
+                        background->bg) < 0 ||
+                !gbl_runner_json_string(output, background->source) ||
+                fputs(",\"dimensions\":[", output) == EOF) {
+                return false;
+            }
+            for (dimension_index = 0u;
+                 dimension_index < background->dimension_count;
+                 ++dimension_index) {
+                const gbl_runner_capability_dimension *dimension =
+                    &background->dimensions[dimension_index];
+
+                if (fprintf(output,
+                            "%s{\"width\":%u,\"height\":%u}",
+                            dimension_index == 0u ? "" : ",",
+                            dimension->width, dimension->height) < 0) {
+                    return false;
+                }
+            }
+            if (fputs("]}", output) == EOF) {
+                return false;
+            }
+        }
+        if (fputs("]}", output) == EOF) {
+            return false;
+        }
+    }
+    return fputs("]},\"video_memory_access\":{"
+                 "\"classification\":\"project-selected\","
+                 "\"hardware_qualification\":\"UNKNOWN\","
+                 "\"masters\":[\"cpu\",\"dma\"],"
+                 "\"regions\":[\"pram\",\"vram\",\"oam\"],"
+                 "\"states\":[\"drawing\",\"hblank\",\"vblank\","
+                 "\"forced-blank\"],"
+                 "\"availability\":\"existing-bus-behavior\","
+                 "\"ppu_extra_cycles\":0,"
+                 "\"cost_reference\":\"bus_policy.request_cycles\"}}",
+                 output) != EOF;
+}
+
 static bool gbl_runner_trace_record_write(FILE *output,
                                           const gbl_trace_record *record)
 {
+    const char *dma_status = gbl_runner_dma_status_name(record->dma_status);
+    const char *owner = gbl_runner_bus_owner_name(record->bus_owner);
+    const char *source_sequence =
+        gbl_runner_bus_class_name(record->dma_source_sequence);
+    const char *destination_sequence =
+        gbl_runner_bus_class_name(record->dma_destination_sequence);
+    const char *provenance =
+        gbl_runner_dma_provenance_name(record->dma_value_provenance);
+    const char *classification =
+        gbl_runner_dma_classification_name(
+            record->dma_result_classification);
+    const char *dispute = gbl_runner_dma_dispute_name(record->dma_dispute);
+    const char *qualification = gbl_runner_qualification_name(
+        record->dma_hardware_qualification);
     const int written = fprintf(
         output,
         "{\"sequence\":\"%" PRIu64 "\",\"guest_cycle\":\"%" PRIu64
         "\",\"category\":%u,\"instruction_address\":\"0x%08" PRIx32
         "\",\"opcode\":\"0x%08" PRIx32 "\",\"address\":\"0x%08" PRIx32
         "\",\"value\":\"0x%08" PRIx32 "\",\"width\":%u,"
-        "\"access_class\":%u,\"bus_outcome\":%u,\"exception_kind\":%u}\n",
+        "\"access_class\":%u,\"bus_outcome\":%u,\"exception_kind\":%u",
         record->sequence, record->guest_cycle, (unsigned int)record->category,
         record->instruction_address, record->opcode, record->address,
         record->value, (unsigned int)record->width,
         (unsigned int)record->access_class, (unsigned int)record->bus_outcome,
         (unsigned int)record->exception_kind);
 
-    return written >= 0;
+    if (written < 0) {
+        return false;
+    }
+    if (record->category == GBL_TRACE_DMA) {
+        if (owner == NULL || dma_status == NULL || source_sequence == NULL ||
+            destination_sequence == NULL || provenance == NULL ||
+            classification == NULL || qualification == NULL ||
+            record->dma_channel >= GBL_DMA_CHANNEL_COUNT ||
+            fprintf(output,
+                    ",\"dma\":{\"owner\":\"%s\",\"channel\":%u,"
+                    "\"status\":\"%s\",\"source_address\":\"0x%08" PRIX32
+                    "\",\"destination_address\":\"0x%08" PRIX32
+                    "\",\"value\":\"0x%08" PRIX32
+                    "\",\"width\":%u,\"startup_cycles\":\"%" PRIu64
+                    "\",\"source_cycles\":\"%" PRIu64
+                    "\",\"destination_cycles\":\"%" PRIu64
+                    "\",\"source_sequence\":\"%s\","
+                    "\"destination_sequence\":\"%s\","
+                    "\"remaining\":%" PRIu32 ",\"completed\":\"%" PRIu64
+                    "\",\"used_channel_latch\":%s,"
+                    "\"value_provenance\":\"%s\","
+                    "\"classification\":\"%s\",\"dispute_id\":",
+                    owner, (unsigned int)record->dma_channel, dma_status,
+                    record->dma_source_address,
+                    record->dma_destination_address, record->dma_value,
+                    (unsigned int)record->dma_width,
+                    record->dma_startup_cycles, record->dma_source_cycles,
+                    record->dma_destination_cycles, source_sequence,
+                    destination_sequence, record->dma_remaining,
+                    record->dma_completed,
+                    record->dma_used_channel_latch ? "true" : "false",
+                    provenance, classification) < 0) {
+            return false;
+        }
+        if (dispute == NULL) {
+            if (fputs("null", output) == EOF) return false;
+        } else if (!gbl_runner_json_string(output, dispute)) {
+            return false;
+        }
+        if (fputs(",\"hardware_qualification\":", output) == EOF ||
+            !gbl_runner_json_string(output, qualification) ||
+            fputc('}', output) == EOF) {
+            return false;
+        }
+    }
+    return fputs("}\n", output) != EOF;
 }
 
 bool gbl_runner_write_trace(const char *path,
@@ -119,6 +496,629 @@ bool gbl_runner_write_trace(const char *path,
     return okay;
 }
 
+static void gbl_runner_set_video_error(gbl_runner_result *result,
+                                      const char *error)
+{
+    const size_t length = strlen(error);
+
+    if (length >= sizeof result->phase10.video_output_error) {
+        return;
+    }
+    memcpy(result->phase10.video_output_error, error, length + 1u);
+}
+
+bool gbl_runner_write_video(const char *path, gbl_runner_result *result)
+{
+    FILE *output;
+    bool write_okay;
+    bool close_okay;
+    const char *failure;
+    const uint64_t completion_offset =
+        (uint64_t)GBL_PPU_VISIBLE_LINES * GBL_PPU_LINE_CYCLES;
+    uint64_t expected_sample_cycle;
+
+    if (result == NULL) {
+        return false;
+    }
+    result->phase10.video_emitted = false;
+    result->phase10.has_video_sha256 = false;
+    result->phase10.video_output_error[0] = '\0';
+    if (path == NULL) {
+        gbl_runner_set_video_error(result, "video-output-path-null");
+        return false;
+    }
+    if (path[0] == '\0') {
+        gbl_runner_set_video_error(result, "video-output-path-empty");
+        return false;
+    }
+    if (!result->phase10.video_requested || !result->phase10.observed ||
+        !result->phase10.frame_started ||
+        !result->phase10.has_frame_epoch ||
+        result->phase10.capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        result->phase10.capture_reason != GBL_VIDEO_INVALID_REASON_NONE ||
+        !result->phase10.supported_controls ||
+        !result->phase10.has_sample_cycle ||
+        !result->phase10.has_completion_cycle ||
+        result->phase10.frame_epoch > UINT64_MAX / GBL_PPU_FRAME_CYCLES) {
+        gbl_runner_set_video_error(result, "video-frame-unavailable");
+        return false;
+    }
+    expected_sample_cycle = result->phase10.frame_epoch *
+                            GBL_PPU_FRAME_CYCLES;
+    if (result->phase10.sample_cycle != expected_sample_cycle ||
+        result->phase10.completion_cycle < result->phase10.sample_cycle ||
+        result->phase10.completion_cycle - result->phase10.sample_cycle !=
+            completion_offset ||
+        result->phase10.machine_cycles < result->phase10.completion_cycle) {
+        gbl_runner_set_video_error(result, "video-frame-unavailable");
+        return false;
+    }
+    if (result->phase10.video_bytes == NULL ||
+        result->phase10.video_length != GBL_RUNNER_VIDEO_BYTES) {
+        gbl_runner_set_video_error(result, "video-frame-invalid");
+        return false;
+    }
+    if (!gbl_sha256_span(result->phase10.video_bytes,
+                         result->phase10.video_length,
+                         result->phase10.video_sha256)) {
+        result->phase10.has_video_sha256 = false;
+        gbl_runner_set_video_error(result, "video-digest-failed");
+        return false;
+    }
+    result->phase10.has_video_sha256 = true;
+
+    errno = 0;
+    output = fopen(path, "wbx");
+    if (output == NULL) {
+        gbl_runner_set_video_error(
+            result, errno == EEXIST ? "video-output-already-exists"
+                                    : "video-output-open-failed");
+        return false;
+    }
+    write_okay = fwrite(result->phase10.video_bytes, 1u,
+                        result->phase10.video_length, output) ==
+                     result->phase10.video_length &&
+                 ferror(output) == 0;
+    if (write_okay && fflush(output) != 0) {
+        write_okay = false;
+    }
+    close_okay = fclose(output) == 0;
+    if (!write_okay || !close_okay) {
+        failure = write_okay ? "video-output-close-failed"
+                             : "video-output-write-failed";
+        if (remove(path) != 0) {
+            gbl_runner_set_video_error(result,
+                                       "video-output-cleanup-failed");
+        } else {
+            gbl_runner_set_video_error(result, failure);
+        }
+        return false;
+    }
+    result->phase10.video_emitted = true;
+    return true;
+}
+
+static void gbl_runner_set_audio_artifact_error(gbl_runner_result *result,
+                                                const char *error)
+{
+    size_t length;
+
+    if (result == NULL || error == NULL) {
+        return;
+    }
+    length = strlen(error);
+    if (length >= sizeof result->audio.artifact_error) {
+        return;
+    }
+    memcpy(result->audio.artifact_error, error, length + 1u);
+}
+
+static bool gbl_runner_audio_path_parts(const char *path,
+                                        char **directory_path,
+                                        const char **file_name)
+{
+    const char *slash;
+    size_t directory_length;
+
+    slash = strrchr(path, '/');
+    *file_name = slash == NULL ? path : slash + 1;
+    if ((*file_name)[0] == '\0') {
+        return false;
+    }
+    if (slash == NULL) {
+        *directory_path = malloc(sizeof ".");
+        if (*directory_path != NULL) {
+            memcpy(*directory_path, ".", sizeof ".");
+        }
+        return *directory_path != NULL;
+    }
+    directory_length = slash == path ? 1u : (size_t)(slash - path);
+    if (directory_length > SIZE_MAX - sizeof "") {
+        return false;
+    }
+    *directory_path = malloc(directory_length + sizeof "");
+    if (*directory_path == NULL) {
+        return false;
+    }
+    memcpy(*directory_path, path, directory_length);
+    (*directory_path)[directory_length] = '\0';
+    return true;
+}
+
+static bool gbl_runner_audio_parent_cleanup_is_safe(
+    const struct stat *directory_stat)
+{
+    mode_t mode = directory_stat->st_mode;
+    bool trusted_owner = directory_stat->st_uid == geteuid() ||
+                         directory_stat->st_uid == (uid_t)0;
+
+    /* Only the effective user or root may own the parent we remove from. A
+     * private parent or a sticky shared parent then protects our entry. */
+    return trusted_owner &&
+           ((mode & (S_IWGRP | S_IWOTH)) == 0 || (mode & S_ISVTX) != 0);
+}
+
+static bool gbl_runner_create_audio_stage_directory(int parent_fd,
+                                                    char *name,
+                                                    size_t name_capacity)
+{
+    unsigned int attempt;
+
+    for (attempt = 0u; attempt < 128u; ++attempt) {
+        struct timespec now;
+        uint64_t stamp;
+        int written;
+
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+            return false;
+        }
+        stamp = (uint64_t)now.tv_sec * UINT64_C(1000000000) +
+                (uint64_t)now.tv_nsec;
+        written = snprintf(name, name_capacity,
+                           ".gamebloke-audio-%ld-%016" PRIx64 "-%u",
+                           (long)getpid(), stamp, attempt);
+        if (written < 0 || (size_t)written >= name_capacity) {
+            errno = ENAMETOOLONG;
+            return false;
+        }
+        if (mkdirat(parent_fd, name, 0700) == 0) {
+            return true;
+        }
+        if (errno != EEXIST) {
+            return false;
+        }
+    }
+    errno = EEXIST;
+    return false;
+}
+
+static bool gbl_runner_remove_audio_stage_directory(int parent_fd,
+                                                    const char *name,
+                                                    bool parent_cleanup_safe)
+{
+    if (!parent_cleanup_safe) {
+        return false;
+    }
+    return unlinkat(parent_fd, name, AT_REMOVEDIR) == 0 || errno == ENOENT;
+}
+
+static bool gbl_runner_cleanup_audio_stage(int parent_fd,
+                                           int *stage_directory_fd,
+                                           const char *stage_directory_name,
+                                           bool parent_cleanup_safe,
+                                           bool remove_payload)
+{
+    bool okay = true;
+
+    if (remove_payload &&
+        unlinkat(*stage_directory_fd, "audio.pcm", 0) != 0 &&
+        errno != ENOENT) {
+        okay = false;
+    }
+    if (close(*stage_directory_fd) != 0) {
+        okay = false;
+    }
+    *stage_directory_fd = -1;
+    if (parent_cleanup_safe &&
+        !gbl_runner_remove_audio_stage_directory(
+            parent_fd, stage_directory_name, parent_cleanup_safe)) {
+        okay = false;
+    }
+    /* In a non-sticky shared parent, retain the now-empty private directory
+     * rather than risk removing a different directory by its pathname. */
+    return okay;
+}
+
+static int gbl_runner_publish_audio_temp(int temporary_directory_fd,
+                                         int destination_directory_fd,
+                                         const char *destination_name)
+{
+#if defined(__APPLE__)
+    return renameatx_np(temporary_directory_fd, "audio.pcm",
+                        destination_directory_fd, destination_name,
+                        RENAME_EXCL);
+#elif defined(__linux__)
+    return (int)syscall(SYS_renameat2, temporary_directory_fd, "audio.pcm",
+                        destination_directory_fd, destination_name,
+                        RENAME_NOREPLACE);
+#else
+    (void)temporary_directory_fd;
+    (void)destination_directory_fd;
+    (void)destination_name;
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+
+static bool gbl_runner_publish_unavailable_error(int error)
+{
+    if (error == ENOSYS || error == EINVAL) {
+        return true;
+    }
+#if defined(ENOTSUP)
+    if (error == ENOTSUP) {
+        return true;
+    }
+#endif
+#if defined(EOPNOTSUPP) && (!defined(ENOTSUP) || EOPNOTSUPP != ENOTSUP)
+    if (error == EOPNOTSUPP) {
+        return true;
+    }
+#endif
+    return false;
+}
+
+bool gbl_runner_write_audio(const char *path, gbl_runner_result *result)
+{
+    gbl_runner_audio_observation *observation;
+    FILE *output;
+    char *destination_directory_path = NULL;
+    const char *destination_name = NULL;
+    char stage_directory_name[96];
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    struct stat destination_directory_stat;
+    struct stat existing_stat;
+    struct stat stage_directory_stat;
+    struct stat temporary_stat;
+    uint64_t expected_frames;
+    size_t expected_bytes;
+    int destination_directory_fd = -1;
+    int stage_directory_fd = -1;
+    int temporary_fd;
+    bool parent_cleanup_safe = false;
+    bool write_okay;
+    bool flush_okay;
+    bool close_okay;
+    const char *failure;
+#if defined(GBL_RUNNER_TESTING)
+    gbl_runner_audio_writer_test_fault test_fault =
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT;
+#endif
+
+    if (result == NULL) {
+        return false;
+    }
+    observation = &result->audio;
+    observation->artifact_emitted = false;
+    observation->has_artifact_byte_count = false;
+    observation->artifact_byte_count = 0u;
+    observation->has_sha256 = false;
+    observation->sha256[0] = '\0';
+    observation->artifact_error[0] = '\0';
+    if (!observation->requested) {
+        observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED;
+        return false;
+    }
+    observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_FAILED;
+    if (path == NULL) {
+        gbl_runner_set_audio_artifact_error(result, "audio-output-path-null");
+        return false;
+    }
+    if (path[0] == '\0') {
+        gbl_runner_set_audio_artifact_error(result, "audio-output-path-empty");
+        return false;
+    }
+    if (observation->capture_state != GBL_RUNNER_AUDIO_CAPTURE_COMPLETE ||
+        !observation->interval_complete ||
+        !observation->has_requested_interval ||
+        !observation->has_actual_interval ||
+        !observation->has_frame_count || !observation->has_byte_count ||
+        observation->actual_start_cycle != observation->requested_start_cycle ||
+        observation->actual_end_cycle != observation->requested_end_cycle ||
+        observation->requested_start_cycle != 0u ||
+        observation->requested_end_cycle > GBL_RUNNER_AUDIO_MAX_CYCLES ||
+        observation->pcm_capacity > GBL_RUNNER_AUDIO_MAX_BYTES ||
+        observation->byte_count > observation->pcm_capacity ||
+        observation->byte_count > GBL_RUNNER_AUDIO_MAX_BYTES ||
+        observation->byte_count % GBL_RUNNER_AUDIO_FRAME_BYTES != 0u) {
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-capture-unavailable");
+        return false;
+    }
+    expected_frames = observation->requested_end_cycle /
+                      GBL_RUNNER_AUDIO_SAMPLE_CYCLES;
+    if (expected_frames > SIZE_MAX / GBL_RUNNER_AUDIO_FRAME_BYTES) {
+        gbl_runner_set_audio_artifact_error(result, "audio-count-overflow");
+        return false;
+    }
+    expected_bytes = (size_t)expected_frames * GBL_RUNNER_AUDIO_FRAME_BYTES;
+    if (observation->frame_count != expected_frames ||
+        observation->byte_count != expected_bytes ||
+        (expected_bytes != 0u && observation->pcm_bytes == NULL)) {
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-capture-count-invalid");
+        return false;
+    }
+    if (!gbl_sha256_span(observation->pcm_bytes, observation->byte_count,
+                         digest)) {
+        gbl_runner_set_audio_artifact_error(result, "audio-digest-failed");
+        return false;
+    }
+    if (!gbl_runner_audio_path_parts(path, &destination_directory_path,
+                                    &destination_name)) {
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-output-path-empty");
+        return false;
+    }
+
+#if defined(__linux__)
+    destination_directory_fd = open(
+        destination_directory_path, O_PATH | O_DIRECTORY | O_CLOEXEC);
+#elif defined(__APPLE__)
+    destination_directory_fd = open(destination_directory_path,
+                                    O_SEARCH | O_CLOEXEC);
+#else
+    destination_directory_fd = open(destination_directory_path,
+                                    O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+#endif
+    if (destination_directory_fd < 0 ||
+        fstat(destination_directory_fd, &destination_directory_stat) != 0) {
+        if (destination_directory_fd >= 0) {
+            (void)close(destination_directory_fd);
+        }
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, "audio-output-open-failed");
+        return false;
+    }
+    parent_cleanup_safe = gbl_runner_audio_parent_cleanup_is_safe(
+        &destination_directory_stat);
+    errno = 0;
+    if (fstatat(destination_directory_fd, destination_name, &existing_stat,
+                AT_SYMLINK_NOFOLLOW) == 0) {
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, "audio-output-already-exists");
+        return false;
+    }
+    if (errno != ENOENT) {
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(result,
+                                             "audio-output-open-failed");
+        return false;
+    }
+    if (!gbl_runner_create_audio_stage_directory(
+            destination_directory_fd, stage_directory_name,
+            sizeof stage_directory_name)) {
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, "audio-output-open-failed");
+        return false;
+    }
+    stage_directory_fd = openat(destination_directory_fd,
+                                stage_directory_name,
+                                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (stage_directory_fd < 0 ||
+        fstat(stage_directory_fd, &stage_directory_stat) != 0 ||
+        !S_ISDIR(stage_directory_stat.st_mode) ||
+        stage_directory_stat.st_uid != geteuid() ||
+        fchmod(stage_directory_fd, 0700) != 0) {
+        bool cleanup_okay = false;
+
+        if (stage_directory_fd >= 0) {
+            (void)close(stage_directory_fd);
+            stage_directory_fd = -1;
+        }
+        cleanup_okay = gbl_runner_remove_audio_stage_directory(
+            destination_directory_fd, stage_directory_name,
+            parent_cleanup_safe);
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, cleanup_okay ? "audio-output-open-failed"
+                                 : "audio-output-cleanup-unverified");
+        return false;
+    }
+    temporary_fd = openat(stage_directory_fd, "audio.pcm",
+                          O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW |
+                              O_CLOEXEC,
+                          0600);
+    if (temporary_fd < 0) {
+        int saved_errno = errno;
+        bool cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, false);
+
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, !cleanup_okay
+                        ? "audio-output-cleanup-unverified"
+                        : (saved_errno == EEXIST
+                               ? "audio-output-already-exists"
+                               : "audio-output-open-failed"));
+        return false;
+    }
+#if defined(GBL_RUNNER_TESTING)
+    test_fault = gbl_runner_audio_writer_fault;
+    gbl_runner_audio_writer_fault = GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT;
+#endif
+    {
+        int stat_result;
+
+#if defined(GBL_RUNNER_TESTING)
+        if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_FSTAT_FAILURE) {
+            stat_result = -1;
+            errno = EIO;
+        } else
+#endif
+        {
+            do {
+                stat_result = fstat(temporary_fd, &temporary_stat);
+            } while (stat_result != 0 && errno == EINTR);
+        }
+        if (stat_result == 0 &&
+            (!S_ISREG(temporary_stat.st_mode) ||
+             temporary_stat.st_uid != geteuid() ||
+             (temporary_stat.st_mode & (S_IRWXG | S_IRWXO)) != 0 ||
+             temporary_stat.st_dev != stage_directory_stat.st_dev ||
+             temporary_stat.st_nlink != 1)) {
+            stat_result = -1;
+            errno = EPERM;
+        }
+        if (stat_result != 0) {
+            int saved_errno = errno;
+            bool cleanup_okay;
+
+            (void)close(temporary_fd);
+            cleanup_okay = gbl_runner_cleanup_audio_stage(
+                destination_directory_fd, &stage_directory_fd,
+                stage_directory_name, parent_cleanup_safe, true);
+            (void)close(destination_directory_fd);
+            free(destination_directory_path);
+            gbl_runner_set_audio_artifact_error(
+                result, !cleanup_okay
+                            ? "audio-output-cleanup-failed"
+                            : (saved_errno == EEXIST
+                                   ? "audio-output-already-exists"
+                                   : "audio-output-open-failed"));
+            return false;
+        }
+    }
+    output = fdopen(temporary_fd, "wb");
+    if (output == NULL) {
+        int saved_errno = errno;
+        bool cleanup_okay;
+
+        (void)close(temporary_fd);
+        cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, true);
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, cleanup_okay
+                        ? (saved_errno == EEXIST ? "audio-output-already-exists"
+                                                 : "audio-output-open-failed")
+                        : "audio-output-cleanup-failed");
+        return false;
+    }
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_REPLACED) {
+        (void)gbl_runner_test_replace_audio_destination(path);
+    }
+#endif
+    {
+        size_t write_length = observation->byte_count;
+
+#if defined(GBL_RUNNER_TESTING)
+        if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_SHORT_WRITE &&
+            write_length != 0u) {
+            write_length--;
+        }
+#endif
+        write_okay = fwrite(observation->pcm_bytes, 1u, write_length,
+                            output) == observation->byte_count &&
+                     ferror(output) == 0;
+    }
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_REPLACED) {
+        write_okay = false;
+    }
+#endif
+    flush_okay = fflush(output) == 0;
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_FLUSH_FAILURE) {
+        flush_okay = false;
+    }
+#endif
+    close_okay = fclose(output) == 0;
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault == GBL_RUNNER_AUDIO_WRITER_TEST_CLOSE_FAILURE) {
+        close_okay = false;
+    }
+#endif
+    if (!write_okay || !flush_okay || !close_okay) {
+        bool cleanup_okay;
+
+        failure = !write_okay ? "audio-output-write-failed"
+                              : (!flush_okay ? "audio-output-flush-failed"
+                                             : "audio-output-close-failed");
+        cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, true);
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, cleanup_okay ? failure : "audio-output-cleanup-failed");
+        return false;
+    }
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault ==
+        GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_APPEARS_BEFORE_PUBLISH) {
+        (void)gbl_runner_test_replace_audio_destination(path);
+    }
+#endif
+#if defined(GBL_RUNNER_TESTING)
+    if (test_fault ==
+        GBL_RUNNER_AUDIO_WRITER_TEST_PUBLISH_UNSUPPORTED) {
+        errno = ENOTSUP;
+        write_okay = false;
+    } else
+#endif
+    {
+        errno = 0;
+        write_okay = gbl_runner_publish_audio_temp(
+                         stage_directory_fd, destination_directory_fd,
+                         destination_name) == 0;
+    }
+    if (!write_okay) {
+        int saved_errno = errno;
+        bool cleanup_okay = gbl_runner_cleanup_audio_stage(
+            destination_directory_fd, &stage_directory_fd,
+            stage_directory_name, parent_cleanup_safe, true);
+
+        (void)close(destination_directory_fd);
+        free(destination_directory_path);
+        gbl_runner_set_audio_artifact_error(
+            result, !cleanup_okay ? "audio-output-cleanup-failed"
+                                 : (saved_errno == EEXIST
+                                        ? "audio-output-already-exists"
+                                        : (gbl_runner_publish_unavailable_error(
+                                               saved_errno)
+                                               ? "audio-output-exclusive-publish-unsupported"
+                                               : "audio-output-open-failed")));
+        return false;
+    }
+    /* The no-replace rename moved the complete file from the held private
+     * directory. Never remove the published destination during cleanup. */
+    (void)gbl_runner_cleanup_audio_stage(
+        destination_directory_fd, &stage_directory_fd,
+        stage_directory_name, parent_cleanup_safe, true);
+    (void)close(destination_directory_fd);
+    free(destination_directory_path);
+    observation->artifact_state = GBL_RUNNER_AUDIO_ARTIFACT_EMITTED;
+    observation->artifact_emitted = true;
+    observation->has_artifact_byte_count = true;
+    observation->artifact_byte_count = observation->byte_count;
+    observation->has_sha256 = true;
+    memcpy(observation->sha256, digest, sizeof observation->sha256);
+    return true;
+}
+
 static bool gbl_runner_write_evidence(FILE *output,
                                      const gbl_runner_result *result)
 {
@@ -142,10 +1142,13 @@ static bool gbl_runner_write_limits(FILE *output,
                                     const gbl_runner_result *result)
 {
     static const char *const base_limits[] = {
-        "profile version 5 direct-start defaults are project policy, not a BIOS handoff",
+        "profile version 6 direct-start defaults are project policy, not a BIOS handoff",
         "ARM7TDMI ARMv4T instruction families implemented with explicit project policies; full original diagnostics pending",
-        "bus costs use project placeholder timing policy",
-        "BIOS provider none; timers, DMA, active display and audio, physical input, and host presentation are not modeled",
+        "bus costs and Timer 0 behavior use project-selected model policy, not hardware-qualified timing",
+        "Timer 0 IF is a device request; CPU IRQ samples and entry are project-model observations, while BIOS handlers and exact GBA IRQ latency are unqualified",
+        "BIOS provider none; DMA, PPU/display, and audio are selected partial software models, while physical input and host presentation are not modeled",
+        "WAITCNT Game Pak rules are manual-backed; other region costs are project-selected, the 128 KiB boundary is community-sourced, and hardware qualification is UNKNOWN",
+        "Immediate DMA is modeled; PPU/audio trigger producers and Prefetch are unmodeled, while startup conversion and retained-channel-latch behavior remain project-selected",
         "result does not establish hardware accuracy or broad game compatibility",
         "SHA-256 establishes byte identity only, not permission or redistribution rights"
     };
@@ -190,13 +1193,569 @@ static bool gbl_runner_write_limits(FILE *output,
     return fputc(']', output) != EOF;
 }
 
+static bool gbl_runner_write_phase8(FILE *output,
+                                    const gbl_runner_phase8_observation *obs)
+{
+    const char *exception = obs->observed
+                                ? gbl_runner_exception_name(obs->last_exception)
+                                : NULL;
+    const char *power_state = obs->observed
+                                  ? gbl_runner_power_state_name(obs->power_state)
+                                  : NULL;
+    const char *power_cause = obs->observed
+                                  ? gbl_runner_power_cause_name(obs->power_cause)
+                                  : NULL;
+
+    if (obs->observed &&
+        (exception == NULL || power_state == NULL || power_cause == NULL)) {
+        return false;
+    }
+    if (fputs("{\"model\":\"gamebloke-irq-input-model-1\","
+              "\"qualification\":\"project-model-only\",\"observed\":",
+              output) == EOF ||
+        fputs(obs->observed ? "true" : "false", output) == EOF ||
+        fputs(",\"irq\":{\"if\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (fprintf(output, "%u,\"ie\":%u,\"ime\":%u,\"sample\":",
+                    (unsigned int)obs->interrupt_flags,
+                    (unsigned int)obs->interrupt_enable,
+                    (unsigned int)obs->interrupt_master_enable) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"ie\":null,\"ime\":null,\"sample\":",
+                     output) == EOF) {
+        return false;
+    }
+    if (obs->observed && obs->has_irq_sample) {
+        const gbl_cpu_irq_observation *sample = &obs->irq_sample;
+
+        if (fprintf(output,
+                    "{\"cycle\":\"%" PRIu64 "\",\"if\":%u,"
+                    "\"ie\":%u,\"ime\":%u,\"eligible_sources\":%u,"
+                    "\"eligible\":%s,\"cpsr_i_masked\":%s,"
+                    "\"accepted\":%s,\"entered\":%s}",
+                    sample->sample_cycle,
+                    (unsigned int)sample->interrupt_flags,
+                    (unsigned int)sample->interrupt_enable,
+                    (unsigned int)sample->interrupt_master_enable,
+                    (unsigned int)sample->eligible_sources,
+                    sample->eligible ? "true" : "false",
+                    sample->cpu_masked ? "true" : "false",
+                    sample->accepted ? "true" : "false",
+                    sample->entered ? "true" : "false") < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs("},\"last_exception\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (!gbl_runner_json_string(output, exception)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"power\":{\"state\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (!gbl_runner_json_string(output, power_state) ||
+            fputs(",\"cause\":", output) == EOF ||
+            !gbl_runner_json_string(output, power_cause)) {
+            return false;
+        }
+    } else if (fputs("null,\"cause\":null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"wake_source_mask\":", output) == EOF) return false;
+    if (obs->observed && obs->has_wake) {
+        if (fprintf(output, "%u,\"wake_cycle\":\"%" PRIu64 "\"",
+                    (unsigned int)obs->wake_source_mask,
+                    obs->wake_cycle) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"wake_cycle\":null", output) == EOF) {
+        return false;
+    }
+    if (fputs("},\"keypad\":{\"keyinput\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (fprintf(output, "%u,\"keycnt\":%u,\"condition\":%s,"
+                            "\"irq_condition\":%s,\"applied_events\":%zu,"
+                            "\"pending_events\":%zu},\"wait_cycles\":\"%"
+                            PRIu64 "\"}",
+                    (unsigned int)obs->keyinput,
+                    (unsigned int)obs->key_control,
+                    obs->key_condition ? "true" : "false",
+                    obs->key_irq_condition ? "true" : "false",
+                    obs->applied_input_events, obs->pending_input_events,
+                    obs->wait_cycles) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"keycnt\":null,\"condition\":null,"
+                     "\"irq_condition\":null,\"applied_events\":null,"
+                     "\"pending_events\":null},\"wait_cycles\":null}",
+                     output) == EOF) {
+        return false;
+    }
+    return true;
+}
+
+static bool gbl_runner_write_phase9(
+    FILE *output, const gbl_runner_result *result)
+{
+    const gbl_runner_phase9_observation *obs = &result->phase9;
+    size_t index;
+
+    if (fputs("{\"model\":\"gamebloke-dma-observation-1\",\"observed\":",
+              output) == EOF ||
+        fputs(obs->observed ? "true" : "false", output) == EOF ||
+        fputs(",\"waitcnt\":", output) == EOF) {
+        return false;
+    }
+    if (obs->observed) {
+        if (fprintf(output, "%u", (unsigned int)obs->waitcnt) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"bus_owner\":", output) == EOF) return false;
+    if (obs->observed) {
+        const char *owner = gbl_runner_bus_owner_name(obs->bus_owner);
+
+        if (owner == NULL || !gbl_runner_json_string(output, owner)) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"cpu_paused\":", output) == EOF) return false;
+    if (obs->observed) {
+        if (fputs(obs->bus_owner == GBL_MACHINE_BUS_OWNER_DMA ? "true"
+                                                               : "false",
+                  output) == EOF ||
+            fprintf(output, ",\"machine_cycles\":\"%" PRIu64 "\"",
+                    obs->machine_cycles) < 0) {
+            return false;
+        }
+    } else if (fputs("null,\"machine_cycles\":null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"channels\":", output) == EOF) return false;
+    if (obs->observed) {
+        if (fputc('[', output) == EOF) return false;
+        for (index = 0u; index < GBL_DMA_CHANNEL_COUNT; ++index) {
+            const gbl_dma_channel_state *channel = &obs->channels[index];
+
+            if ((index != 0u && fputc(',', output) == EOF) ||
+                fprintf(output,
+                        "{\"channel\":%zu,\"source_address\":\"0x%08" PRIX32
+                        "\",\"destination_address\":\"0x%08" PRIX32
+                        "\",\"current_source\":\"0x%08" PRIX32
+                        "\",\"current_destination\":\"0x%08" PRIX32
+                        "\",\"read_latch\":\"0x%08" PRIX32
+                        "\",\"count\":%u,\"control\":%u,"
+                        "\"remaining\":%" PRIu32
+                        ",\"completed_units\":\"%" PRIu64
+                        "\",\"pending\":%s,\"armed\":%s,"
+                        "\"active\":%s,\"startup_complete\":%s}",
+                        index, channel->source_address,
+                        channel->destination_address, channel->current_source,
+                        channel->current_destination, channel->read_latch,
+                        (unsigned int)channel->count,
+                        (unsigned int)channel->control, channel->remaining,
+                        channel->completed_units,
+                        channel->pending ? "true" : "false",
+                        channel->armed ? "true" : "false",
+                        channel->active ? "true" : "false",
+                        channel->startup_complete ? "true" : "false") < 0) {
+                return false;
+            }
+        }
+        if (fputc(']', output) == EOF) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fprintf(output,
+                ",\"timing\":{\"dma_startup_cycles\":\"%" PRIu64
+                "\",\"dma_source_cycles\":\"%" PRIu64
+                "\",\"dma_destination_cycles\":\"%" PRIu64
+                "\",\"dma_completed_units\":\"%" PRIu64
+                "\",\"dma_pause_cycles\":\"%" PRIu64 "\"},"
+                "\"waitcnt_policy\":{\"manual_waits\":"
+                "\"nintendo-agb-programming-manual-v1.1-sections-3.3-3.3.2\","
+                "\"other_region_costs\":\"project-selected\","
+                "\"128k_boundary_source\":\"gbatek-3.06-community-documentation\","
+                "\"hardware_qualification\":\"UNKNOWN\"},"
+                "\"startup_policy\":{\"cycles_per_request\":\"2\","
+                "\"provenance\":\"project-selected\","
+                "\"manual_activation_delay\":\"described; conversion is selected\","
+                "\"hardware_qualification\":\"UNKNOWN\"},"
+                "\"latch_policy\":{\"policy\":\"per-channel-retained-latch\","
+                "\"provenance\":\"project-selected\","
+                "\"fallback_observed\":",
+                result->dma_startup_cycles, result->dma_source_cycles,
+                result->dma_destination_cycles, result->dma_completed_units,
+                result->dma_pause_cycles) < 0) {
+        return false;
+    }
+    if (obs->latch_fallback_known) {
+        if (fputs(obs->latch_fallback_observed ? "true" : "false",
+                  output) == EOF) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"classification\":", output) == EOF) return false;
+    if (obs->latch_fallback_known && obs->latch_fallback_observed) {
+        if (fputs("\"disputed\",\"dispute_id\":\"disp-dma-latch\","
+                  "\"hardware_qualification\":\"UNKNOWN\"},"
+                  "\"prefetch\":\"unmodeled\"}",
+                  output) == EOF) {
+            return false;
+        }
+    } else if (fputs("null,\"dispute_id\":null,"
+                     "\"hardware_qualification\":\"UNKNOWN\"},"
+                     "\"prefetch\":\"unmodeled\"}",
+                     output) == EOF) {
+        return false;
+    }
+    return true;
+}
+
+static const char *gbl_runner_video_state_name(gbl_video_capture_state state)
+{
+    switch (state) {
+    case GBL_VIDEO_CAPTURE_INVALID: return "invalid";
+    case GBL_VIDEO_CAPTURE_INCOMPLETE: return "incomplete";
+    case GBL_VIDEO_CAPTURE_VALID: return "valid";
+    }
+    return "invalid";
+}
+
+static const char *gbl_runner_video_reason_name(gbl_video_invalid_reason reason)
+{
+    switch (reason) {
+    case GBL_VIDEO_INVALID_REASON_NONE: return "none";
+    case GBL_VIDEO_INVALID_REASON_INCOMPLETE: return "incomplete";
+    case GBL_VIDEO_INVALID_REASON_UNSUPPORTED_MODE: return "unsupported-mode";
+    case GBL_VIDEO_INVALID_REASON_BG2_DISABLED: return "bg2-disabled";
+    case GBL_VIDEO_INVALID_REASON_FORCED_BLANK: return "forced-blank";
+    case GBL_VIDEO_INVALID_REASON_OBJ_ENABLED:
+        return "unsupported-obj-control";
+    case GBL_VIDEO_INVALID_REASON_WINDOW_ENABLED: return "window-enabled";
+    case GBL_VIDEO_INVALID_REASON_EFFECT_ENABLED: return "effect-enabled";
+    case GBL_VIDEO_INVALID_REASON_BG2_TRANSFORM_UNMODELED:
+        return "bg2-transform-unmodeled";
+    }
+    return "unknown";
+}
+
+static bool gbl_runner_write_phase10(FILE *output,
+                                     const gbl_runner_result *result)
+{
+    const gbl_runner_phase10_observation *obs = &result->phase10;
+
+    if (fprintf(output,
+                "{\"model\":\"gamebloke-ppu-observation-2\","
+                "\"profile_version\":%u,\"observed\":",
+                (unsigned int)obs->profile_version) < 0 ||
+        fputs(obs->observed ? "true" : "false", output) == EOF) {
+        return false;
+    }
+    if (!obs->observed) {
+        if (fputs(",\"raster\":null,\"frame\":null,\"controls\":null,"
+                  "\"timing\":{\"model\":\"gamebloke-ppu-model-1\","
+                  "\"hblank_offset_cycles\":\"1006\","
+                  "\"policy\":\"project-selected\","
+                  "\"evidence_class\":\"REF\","
+                  "\"classification\":\"disputed\","
+                  "\"dispute_id\":\"disp-hblank-flag-edge\","
+                  "\"hardware_qualification\":\"UNKNOWN\"},"
+                  "\"hblank_trigger_dependency\":null",
+                  output) == EOF) {
+            return false;
+        }
+        return gbl_runner_write_phase10_capabilities(output);
+    }
+    if (fprintf(output,
+                ",\"raster\":{\"line\":%u,\"line_cycle\":\"%" PRIu64
+                "\",\"machine_cycle\":\"%" PRIu64 "\",\"frame_epoch\":",
+                (unsigned int)obs->line, obs->line_cycle,
+                obs->machine_cycles) < 0) {
+        return false;
+    }
+    if (obs->has_frame_epoch) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->frame_epoch) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fprintf(output,
+                "},\"frame\":{\"state\":\"%s\",\"reason\":\"%s\","
+                "\"supported_controls\":%s,\"epoch\":",
+                gbl_runner_video_state_name(obs->capture_state),
+                gbl_runner_video_reason_name(obs->capture_reason),
+                obs->supported_controls ? "true" : "false") < 0) {
+        return false;
+    }
+    if (obs->capture_state == GBL_VIDEO_CAPTURE_VALID &&
+        obs->has_frame_epoch) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->frame_epoch) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"sample_cycle\":", output) == EOF) return false;
+    if (obs->has_sample_cycle) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->sample_cycle) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"completion_cycle\":", output) == EOF) return false;
+    if (obs->has_completion_cycle) {
+        if (fprintf(output, "\"%" PRIu64 "\"", obs->completion_cycle) < 0) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"width\":240,\"height\":160,\"stride_bytes\":480,"
+              "\"format\":\"bgr555-le\",\"byte_length\":76800,"
+              "\"source\":\"canonical-vram\","
+              "\"latch_policy\":\"row-start\"},\"controls\":{"
+              "\"supported\":",
+              output) == EOF ||
+        fputs(obs->supported_controls ? "true" : "false", output) == EOF ||
+        fputs("},\"timing\":{\"model\":\"gamebloke-ppu-model-1\","
+              "\"hblank_offset_cycles\":\"1006\","
+              "\"policy\":\"project-selected\","
+              "\"evidence_class\":\"REF\","
+              "\"evidence\":\"GBATEK direct reference candidate; exact hardware edge unresolved\","
+              "\"classification\":\"disputed\","
+              "\"dispute_id\":\"disp-hblank-flag-edge\","
+              "\"hardware_qualification\":\"UNKNOWN\"},"
+              "\"hblank_trigger_dependency\":{\"observed\":",
+              output) == EOF ||
+        fputs(obs->hblank_trigger_dependency ? "true" : "false", output) == EOF) {
+        return false;
+    }
+    if (obs->hblank_trigger_dependency) {
+        if (fputs(",\"classification\":\"disputed\","
+                  "\"dispute_id\":\"disp-hblank-flag-edge\","
+                  "\"hardware_qualification\":\"UNKNOWN\"}",
+                  output) == EOF) {
+            return false;
+        }
+    } else if (fputs(",\"classification\":null,\"dispute_id\":null,"
+                     "\"hardware_qualification\":\"UNKNOWN\"}",
+                     output) == EOF) {
+        return false;
+    }
+    return gbl_runner_write_phase10_capabilities(output);
+}
+
+static bool gbl_runner_write_raw_video(FILE *output,
+                                       const gbl_runner_result *result)
+{
+    const gbl_runner_phase10_observation *obs = &result->phase10;
+    const char *status = !obs->video_requested
+                             ? "not-requested"
+                             : (obs->video_output_error[0] != '\0'
+                                    ? "failed"
+                                    : (obs->video_emitted
+                                           ? "emitted"
+                                           : (obs->capture_state ==
+                                                      GBL_VIDEO_CAPTURE_VALID
+                                                  ? "not-emitted"
+                                                  : gbl_runner_video_state_name(
+                                                        obs->capture_state))));
+
+    if (fputs("{\"requested\":", output) == EOF ||
+        fputs(obs->video_requested ? "true" : "false", output) == EOF ||
+        fputs(",\"status\":", output) == EOF ||
+        !gbl_runner_json_string(output, status) ||
+        fputs(",\"emitted\":", output) == EOF ||
+        fputs(obs->video_emitted ? "true" : "false", output) == EOF ||
+        fputs(",\"byte_length\":", output) == EOF) {
+        return false;
+    }
+    if (obs->video_emitted) {
+        if (fprintf(output, "%zu", obs->video_length) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"sha256\":", output) == EOF) return false;
+    if (obs->has_video_sha256) {
+        if (!gbl_runner_json_string(output, obs->video_sha256)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"failure\":", output) == EOF) return false;
+    if (obs->video_output_error[0] != '\0') {
+        if (!gbl_runner_json_string(output, obs->video_output_error)) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    return fputs(",\"format\":\"bgr555-le\"}", output) != EOF;
+}
+
+static const char *gbl_runner_audio_capture_name(
+    gbl_runner_audio_capture_state state)
+{
+    switch (state) {
+    case GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED: return "not-requested";
+    case GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE: return "unavailable";
+    case GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE: return "incomplete";
+    case GBL_RUNNER_AUDIO_CAPTURE_COMPLETE: return "complete";
+    case GBL_RUNNER_AUDIO_CAPTURE_FAILED: return "failed";
+    default: return "failed";
+    }
+}
+
+static const char *gbl_runner_audio_artifact_name(
+    gbl_runner_audio_artifact_state state)
+{
+    switch (state) {
+    case GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED: return "not-requested";
+    case GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN: return "not-written";
+    case GBL_RUNNER_AUDIO_ARTIFACT_FAILED: return "failed";
+    case GBL_RUNNER_AUDIO_ARTIFACT_EMITTED: return "emitted";
+    default: return "failed";
+    }
+}
+
+static bool gbl_runner_write_audio_interval(
+    FILE *output, bool present, uint64_t start_cycle, uint64_t end_cycle)
+{
+    if (!present) {
+        return fputs("null", output) != EOF;
+    }
+    return fprintf(output,
+                   "{\"start_cycle\":\"%" PRIu64
+                   "\",\"end_cycle\":\"%" PRIu64 "\"}",
+                   start_cycle, end_cycle) >= 0;
+}
+
+static bool gbl_runner_write_audio_observation(
+    FILE *output, const gbl_runner_audio_observation *obs)
+{
+    if (fputs("{\"model\":\"gamebloke-audio-model-4\","
+              "\"profile\":{\"id\":\"agb\",\"version\":16},"
+              "\"policy_classification\":\"project-selected\","
+              "\"hardware_qualification\":\"UNKNOWN\","
+              "\"policy\":{\"tap\":\"pre-pwm\","
+              "\"tap_policy\":\"fixed-reset-anchored-grid\","
+              "\"encoding\":\"signed-s16le\","
+              "\"channel_layout\":\"stereo-interleaved-left-first\","
+              "\"sample_rate_hz\":32768,\"sample_cycles\":\"512\","
+              "\"interval_policy\":\"start-exclusive-end-inclusive\","
+              "\"implemented_sources\":[\"psg-channel-1\","
+              "\"psg-channel-2\",\"psg-channel-3\",\"psg-channel-4\","
+              "\"direct-sound-fifo-a-signed-latch\","
+              "\"direct-sound-fifo-b-signed-latch\"],"
+              "\"unsupported\":[\"pwm-carrier\",\"bias-quantization\","
+              "\"analog-output\",\"host-resampling\",\"host-playback\"],"
+              "\"evidence_limits\":[\"software-model-output-only\","
+              "\"no-physical-hardware-qualification\","
+              "\"no-broad-game-compatibility-claim\","
+              "\"sha256-proves-byte-identity-not-semantic-correctness-or-rights\"]},"
+              "\"requested\":", output) == EOF ||
+        fputs(obs->requested ? "true" : "false", output) == EOF ||
+        fputs(",\"requested_interval\":", output) == EOF ||
+        !gbl_runner_write_audio_interval(output, obs->has_requested_interval,
+                                         obs->requested_start_cycle,
+                                         obs->requested_end_cycle) ||
+        fputs(",\"actual_interval\":", output) == EOF ||
+        !gbl_runner_write_audio_interval(output, obs->has_actual_interval,
+                                         obs->actual_start_cycle,
+                                         obs->actual_end_cycle) ||
+        fprintf(output,
+                ",\"cadence\":{\"sample_cycles\":\"%" PRIu64
+                "\",\"format\":\"s16le-stereo\"},\"capture_state\":",
+                GBL_RUNNER_AUDIO_SAMPLE_CYCLES) < 0 ||
+        !gbl_runner_json_string(
+            output, gbl_runner_audio_capture_name(obs->capture_state)) ||
+        fputs(",\"interval_complete\":", output) == EOF) {
+        return false;
+    }
+    if (obs->has_actual_interval) {
+        if (fputs(obs->interval_complete ? "true" : "false", output) == EOF) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"frame_count\":", output) == EOF) return false;
+    if (obs->has_frame_count) {
+        if (fprintf(output, "%" PRIu64, obs->frame_count) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"byte_count\":", output) == EOF) return false;
+    if (obs->has_byte_count) {
+        if (fprintf(output, "%zu", obs->byte_count) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"artifact\":{\"state\":", output) == EOF ||
+        !gbl_runner_json_string(
+            output, gbl_runner_audio_artifact_name(obs->artifact_state)) ||
+        fputs(",\"byte_count\":", output) == EOF) {
+        return false;
+    }
+    if (obs->artifact_emitted && obs->has_artifact_byte_count) {
+        if (fprintf(output, "%zu", obs->artifact_byte_count) < 0) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"sha256\":", output) == EOF) return false;
+    if (obs->artifact_emitted && obs->has_sha256) {
+        if (!gbl_runner_json_string(output, obs->sha256)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"error\":", output) == EOF) return false;
+    if (obs->artifact_error[0] != '\0') {
+        if (!gbl_runner_json_string(output, obs->artifact_error)) return false;
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    return fputs("}}", output) != EOF;
+}
+
 bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
 {
     const char *reason;
     size_t index;
+    bool latch_dispute;
+    bool metadata_has_latch_dispute = false;
 
     if (output == NULL || result == NULL) {
         return false;
+    }
+    latch_dispute = result->phase9.latch_fallback_known &&
+                    result->phase9.latch_fallback_observed;
+    if (result->metadata != NULL) {
+        for (index = 0u; index < result->metadata->dispute_count; ++index) {
+            if (strcmp(result->metadata->dispute_ids[index],
+                       "disp-dma-latch") == 0) {
+                metadata_has_latch_dispute = true;
+                break;
+            }
+        }
     }
     reason = result->reason[0] == '\0' ? NULL : result->reason;
     if (fputs("{\"schema\":\"gamebloke.result/1\",\"fixture\":{\"id\":",
@@ -252,8 +1811,21 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
     } else if (fputs("null", output) == EOF) {
         return false;
     }
-    if (fputs("},\"input_timeline\":{\"kind\":\"none\"},\"evidence\":",
-              output) == EOF ||
+    if (fputs("},\"input_timeline\":", output) == EOF) {
+        return false;
+    }
+    if (result->input_timeline_present) {
+        if (!result->has_input_timeline_sha256 ||
+            fputs("{\"kind\":\"script\",\"sha256\":", output) == EOF ||
+            !gbl_runner_json_string(output,
+                                    result->input_timeline_sha256) ||
+            fputc('}', output) == EOF) {
+            return false;
+        }
+    } else if (fputs("{\"kind\":\"none\"}", output) == EOF) {
+        return false;
+    }
+    if (fputs(",\"evidence\":", output) == EOF ||
         !gbl_runner_write_evidence(output, result) ||
         fputs("},\"disputes\":[", output) == EOF) {
         return false;
@@ -267,22 +1839,100 @@ bool gbl_runner_write_json(FILE *output, const gbl_runner_result *result)
             }
         }
     }
+    if (latch_dispute && !metadata_has_latch_dispute) {
+        if ((result->metadata != NULL &&
+             result->metadata->dispute_count != 0u &&
+             fputc(',', output) == EOF) ||
+            !gbl_runner_json_string(output, "disp-dma-latch")) {
+            return false;
+        }
+    }
     if (fputs("],\"labels\":", output) == EOF) return false;
-    if (result->metadata != NULL && result->metadata->dispute_count != 0u) {
+    if ((result->metadata != NULL &&
+         result->metadata->dispute_count != 0u) || latch_dispute) {
         if (fputs("[\"disputed\"]", output) == EOF) return false;
     } else if (fputs("[]", output) == EOF) {
         return false;
     }
     if (fputs(",\"limits\":", output) == EOF ||
         !gbl_runner_write_limits(output, result) ||
-        fputs(",\"semantic\":{\"state\":", output) == EOF ||
+        ferror(output) != 0) {
+        return false;
+    }
+    if (result->register_observation.present) {
+        const gbl_runner_register_observation *observation =
+            &result->register_observation;
+
+        if (fputs(",\"observation\":{\"kind\":\"register-eval\","
+                  "\"observed\":",
+                  output) == EOF ||
+            fputs(observation->observed ? "true" : "false", output) == EOF ||
+            fputs(",\"source_commit\":", output) == EOF ||
+            !gbl_runner_json_string(output, observation->source_commit) ||
+            fprintf(output, ",\"entry_address\":\"0x%08" PRIX32
+                            "\",\"instruction_set\":",
+                    observation->entry_address) < 0 ||
+            !gbl_runner_json_string(output, observation->instruction_set) ||
+            fprintf(output, ",\"register_index\":%u,\"value\":",
+                    (unsigned int)observation->register_index) < 0) {
+            return false;
+        }
+        if (observation->has_value) {
+            if (fprintf(output, "%" PRIu32, observation->value) < 0) {
+                return false;
+            }
+        } else if (fputs("null", output) == EOF) {
+            return false;
+        }
+        if (fputc('}', output) == EOF) {
+            return false;
+        }
+    }
+    if (fputs(",\"semantic\":{\"state\":", output) == EOF ||
         !gbl_runner_json_string(
             output, gbl_runner_mailbox_name(result->semantic.status)) ||
         fprintf(output, ",\"case_id\":\"%" PRIu32 "\"},\"time\":{"
                        "\"cycles\":\"%" PRIu64 "\",\"instructions\":\"%" PRIu64
-                       "\",\"budget_cycles\":\"%" PRIu64 "\"},\"termination\":",
+                       "\",\"budget_cycles\":\"%" PRIu64 "\",\"model\":",
                 result->semantic.case_id, result->cycles,
                 result->instructions, result->budget_cycles) < 0 ||
+        !gbl_runner_json_string(output, GBL_TIMER_MODEL_NAME) ||
+        fputs(",\"qualification\":", output) == EOF ||
+        !gbl_runner_json_string(output, "project-model-only") ||
+        fprintf(output, ",\"bus_cycles\":\"%" PRIu64
+                       "\",\"internal_cycles\":\"%" PRIu64
+                       "\",\"wait_cycles\":\"%" PRIu64
+                       "\",\"dma_startup_cycles\":\"%" PRIu64
+                       "\",\"dma_source_cycles\":\"%" PRIu64
+                       "\",\"dma_destination_cycles\":\"%" PRIu64
+                       "\",\"dma_completed_units\":\"%" PRIu64
+                       "\",\"dma_pause_cycles\":\"%" PRIu64
+                       "\"},\"timer0\":{\"if_request\":",
+                result->bus_cycles, result->internal_cycles,
+                result->wait_cycles, result->dma_startup_cycles,
+                result->dma_source_cycles, result->dma_destination_cycles,
+                result->dma_completed_units, result->dma_pause_cycles) < 0) {
+        return false;
+    }
+    if (result->has_timer0_if_request) {
+        if (fputs(result->timer0_if_request ? "true" : "false", output) ==
+            EOF) {
+            return false;
+        }
+    } else if (fputs("null", output) == EOF) {
+        return false;
+    }
+    if (fputs("},\"phase8\":", output) == EOF ||
+        !gbl_runner_write_phase8(output, &result->phase8) ||
+        fputs(",\"phase9\":", output) == EOF ||
+        !gbl_runner_write_phase9(output, result) ||
+        fputs(",\"phase10\":", output) == EOF ||
+        !gbl_runner_write_phase10(output, result) ||
+        fputs(",\"raw_video\":", output) == EOF ||
+        !gbl_runner_write_raw_video(output, result) ||
+        fputs(",\"audio\":", output) == EOF ||
+        !gbl_runner_write_audio_observation(output, &result->audio) ||
+        fputs(",\"termination\":", output) == EOF ||
         !gbl_runner_json_string(output, result->termination)) {
         return false;
     }
@@ -319,6 +1969,24 @@ void gbl_runner_result_dispose(gbl_runner_result *result)
         result->allocator.release(
             result->allocator.context, result->trace_records,
             result->trace_capacity * sizeof(*result->trace_records));
+    }
+    if (result->phase10.video_bytes != NULL &&
+        result->allocator.release != NULL) {
+        result->allocator.release(result->allocator.context,
+                                  result->phase10.video_bytes,
+                                  result->phase10.video_length);
+    }
+    if (result->audio.pcm_bytes != NULL &&
+        result->allocator.release != NULL) {
+        result->allocator.release(result->allocator.context,
+                                  result->audio.pcm_bytes,
+                                  result->audio.pcm_capacity);
+    }
+    if (result->audio.scratch_bytes != NULL &&
+        result->allocator.release != NULL) {
+        result->allocator.release(result->allocator.context,
+                                  result->audio.scratch_bytes,
+                                  result->audio.scratch_capacity);
     }
     memset(result, 0, sizeof *result);
 }

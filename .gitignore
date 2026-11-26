@@ -25,3 +25,4 @@ compile_commands.json
 *.key
 .claude/settings.local.json
 .DS_Store
+.planning/research/.cache/

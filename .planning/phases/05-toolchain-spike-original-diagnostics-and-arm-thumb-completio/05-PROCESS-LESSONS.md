@@ -206,3 +206,41 @@ only that agent, preserved its returned findings with explicit authorship,
 rechecked the cheap artifact/schema gates, and persisted the report without
 repeating a runtime matrix or inventing an agent completion. This is a measured
 workflow bottleneck; a report handoff should be smaller than the audit itself.
+
+
+## Measure and narrow repeated profile validation before hosted CI
+
+On 2026-11-25, hosted PR run45687393831 passed hygiene, title and change
+classification; Linux Thumb passed, while other build, sanitizer and admitted
+diagnostic jobs were cancelled before their required checks completed. Do not
+raise their fixed budgets from this evidence. The local canonical workflow had
+already exposed a missing admitted-ROM prerequisite in `runner.audio.cli`;
+CI/ASan have no admitted ARM ROMs, so that test now selects the generated
+control index used by the identical production runner sources.
+
+Local CTest elapsed observations identify repeat work inside mutation gates:
+`timer.costs.contract` moved from 143.96s to 68.87s after its value negatives
+were routed to the owning timing-model validator; `phase8.policy` moved from
+74.91s to 33.34s after its value negatives used the owning IRQ-policy
+validator; and the PPU mutation test now passes in 38.96s with section-scoped
+checks (an earlier section-focused run measured 37.95s versus a 48.74s
+baseline). These are local test times from separate runs, not paired hosted
+speedup guarantees. The phase10 policy control also removed the repeated clean
+runtime/profile evaluation: retain one complete clean baseline and every
+distinct mutation's exact failure oracle.
+
+For future data-only mutation gates, prefer the production validator that owns
+the changed section. Keep a full clean-profile/document pass, full mutated
+document checks where synchronization is under test, exact negative reason
+assertions, and fail-closed section selection. Avoid rerunning an identical
+clean positive for every mutation when one canonical baseline establishes the
+same precondition. Run those focused controls and cheap consistency checks
+before the complete CTest lane.
+
+The admitted ARM setup still runs fixture executions serially. Moving each
+fixture's execution into its existing independent CTest case is a promising
+parallelism experiment, but the hosted run did not establish full-lane margin;
+the estimated savings are not proof of cap fit. `act` was not useful for the
+CMake/CTest compute bottleneck or macOS qualification, and no Docker resources
+were created. Keep the existing task-named cleanup rule for any future local
+reproduction and do not claim hosted green until `CI required` passes.

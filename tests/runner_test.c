@@ -2,6 +2,7 @@
 
 #include "run.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -19,7 +20,7 @@
 #include <unistd.h>
 
 enum {
-    GBL_RUNNER_TEST_COUNT = 24u,
+    GBL_RUNNER_TEST_COUNT = 41u,
     GBL_RUNNER_TEST_PATH_CAPACITY = 1024u,
     GBL_RUNNER_TEST_WATCHDOG_TICKS = 300u
 };
@@ -29,6 +30,9 @@ typedef struct gbl_test_allocator_state {
     size_t successes;
     size_t releases;
     size_t fail_at;
+    gbl_machine *tracked_machine;
+    gbl_machine *machine_snapshot;
+    bool machine_snapshot_available;
 } gbl_test_allocator_state;
 
 typedef struct gbl_test_cancel_state {
@@ -93,26 +97,77 @@ static bool gbl_test_write_file(const char *path, size_t length,
     return okay;
 }
 
+static bool gbl_test_no_audio_temporary_files(const char *directory_path)
+{
+    static const char prefix[] = ".gamebloke-audio-";
+    DIR *directory;
+    struct dirent *entry;
+    bool okay = true;
+
+    directory = opendir(directory_path);
+    if (directory == NULL) {
+        return false;
+    }
+    while ((entry = readdir(directory)) != NULL) {
+        if (strncmp(entry->d_name, prefix, sizeof prefix - 1u) == 0) {
+            okay = false;
+            break;
+        }
+    }
+    if (closedir(directory) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+bool gbl_runner_test_replace_audio_destination(const char *path)
+{
+    static const unsigned char replacement[] = "RACEFILE";
+    FILE *file;
+    bool okay;
+
+    if (path == NULL ||
+        (remove(path) != 0 && errno != ENOENT)) {
+        return false;
+    }
+    file = fopen(path, "wbx");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(replacement, 1u, sizeof replacement - 1u, file) ==
+           sizeof replacement - 1u;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
 static bool gbl_test_guest_stop_json_matrix(void)
 {
     static const struct {
         gbl_exception_kind kind;
         gbl_cpu_stop_reason stop_reason;
         const char *json_reason;
+        bool direct_stop;
     } cases[] = {
         { GBL_EXCEPTION_RESET, GBL_CPU_STOP_RESET_NO_BIOS,
-          "no-bios-reset" },
+          "no-bios-reset", false },
         { GBL_EXCEPTION_UNDEFINED, GBL_CPU_STOP_UNDEFINED_NO_BIOS,
-          "no-bios-undefined" },
-        { GBL_EXCEPTION_SWI, GBL_CPU_STOP_SWI_NO_BIOS, "no-bios-swi" },
+          "no-bios-undefined", false },
+        { GBL_EXCEPTION_SWI, GBL_CPU_STOP_SWI_NO_BIOS, "no-bios-swi", false },
         { GBL_EXCEPTION_PREFETCH_ABORT,
-          GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS, "no-bios-prefetch-abort" },
+          GBL_CPU_STOP_PREFETCH_ABORT_NO_BIOS, "no-bios-prefetch-abort",
+          false },
         { GBL_EXCEPTION_DATA_ABORT, GBL_CPU_STOP_DATA_ABORT_NO_BIOS,
-          "no-bios-data-abort" },
-        { GBL_EXCEPTION_IRQ, GBL_CPU_STOP_IRQ_NO_BIOS, "no-bios-irq" },
-        { GBL_EXCEPTION_FIQ, GBL_CPU_STOP_FIQ_NO_BIOS, "no-bios-fiq" },
+          "no-bios-data-abort", false },
+        { GBL_EXCEPTION_IRQ, GBL_CPU_STOP_IRQ_NO_BIOS, "no-bios-irq", false },
+        { GBL_EXCEPTION_FIQ, GBL_CPU_STOP_FIQ_NO_BIOS, "no-bios-fiq", false },
         { GBL_EXCEPTION_COPROCESSOR,
-          GBL_CPU_STOP_COPROCESSOR_NO_BIOS, "no-bios-coprocessor" }
+          GBL_CPU_STOP_COPROCESSOR_NO_BIOS, "no-bios-coprocessor", false },
+        { GBL_EXCEPTION_NONE, GBL_CPU_STOP_STOP_REQUESTED,
+          "stop-requested", true },
+        { GBL_EXCEPTION_NONE, GBL_CPU_STOP_HALT_DEADLOCK,
+          "halt-deadlock", true }
     };
     const gbl_cpu_exception_context context = {
         UINT32_C(0x08000100), UINT32_C(0x08000104), UINT32_C(0x08000200),
@@ -129,11 +184,17 @@ static bool gbl_test_guest_stop_json_matrix(void)
         bool okay = gbl_machine_init(&machine, NULL) == GBL_BUS_STATUS_OK;
 
         if (okay) {
-            okay = gbl_cpu_set_cpsr(&machine, UINT32_C(0x13)) ==
-                       GBL_CPU_STATUS_OK &&
-                   gbl_cpu_enter_exception(&machine, cases[index].kind,
-                                           &context) == GBL_CPU_STATUS_OK &&
-                   machine.cpu.stopped &&
+            if (cases[index].direct_stop) {
+                machine.cpu.stopped = true;
+                machine.cpu.stop_reason = cases[index].stop_reason;
+            } else {
+                okay = gbl_cpu_set_cpsr(&machine, UINT32_C(0x13)) ==
+                           GBL_CPU_STATUS_OK &&
+                       gbl_cpu_enter_exception(&machine, cases[index].kind,
+                                               &context) ==
+                           GBL_CPU_STATUS_OK;
+            }
+            okay = okay && machine.cpu.stopped &&
                    machine.cpu.stop_reason == cases[index].stop_reason;
         }
         output = okay ? tmpfile() : NULL;
@@ -193,7 +254,7 @@ static bool gbl_test_instruction_stop_json(const char *directory)
         uint8_t image[192] = { 0 };
         gbl_machine machine = { 0 };
         gbl_run_result run = { 0 };
-        gbl_run_options options = { .cycle_budget = 10u };
+        gbl_run_options options = { .cycle_budget = 100u };
         gbl_runner_result result = { 0 };
         gbl_test_allocator_state allocator_state = { 0 };
         const gbl_allocator allocator = {
@@ -216,7 +277,9 @@ static bool gbl_test_instruction_stop_json(const char *directory)
             gbl_cpu_run(&machine, &options, &run) == GBL_RUN_STATUS_OK &&
             run.termination == GBL_RUN_STOPPED &&
             run.instructions == cases[index].instructions &&
-            run.cycles == 2u + cases[index].instructions;
+            run.cycles == run.bus_cycles + run.internal_cycles +
+                run.wait_cycles + run.dma_startup_cycles +
+                run.dma_source_cycles + run.dma_destination_cycles;
         if (!okay) { gbl_machine_dispose(&machine); return false; }
         result.ran = true;
         result.trace_complete = true;
@@ -244,7 +307,7 @@ static bool gbl_test_instruction_stop_json(const char *directory)
                 strstr(json, cases[index].reason) != NULL &&
                 strstr(json, time) != NULL &&
                 strstr(json, "\"machine\":\"agb\",\"boot\":\"direct-start\",\"bios_provider\":\"none\"") != NULL &&
-                strstr(json, "profile version 5 direct-start") != NULL &&
+                strstr(json, "profile version 6 direct-start") != NULL &&
                 strstr(json, "full original diagnostics pending") != NULL &&
                 strstr(json, "hardware accuracy or broad game compatibility") != NULL;
         }
@@ -267,6 +330,9 @@ static void *gbl_test_allocate(void *context, size_t size)
     pointer = malloc(size);
     if (pointer != NULL) {
         state->successes++;
+        if (size == sizeof(gbl_machine) && state->machine_snapshot != NULL) {
+            state->tracked_machine = pointer;
+        }
     }
     return pointer;
 }
@@ -277,6 +343,11 @@ static void gbl_test_release(void *context, void *pointer, size_t size)
 
     (void)size;
     if (pointer != NULL) {
+        if (pointer == state->tracked_machine &&
+            state->machine_snapshot != NULL) {
+            memcpy(state->machine_snapshot, pointer, sizeof(gbl_machine));
+            state->machine_snapshot_available = true;
+        }
         state->releases++;
         free(pointer);
     }
@@ -309,6 +380,4702 @@ static gbl_runner_status gbl_test_execute(
     options.cancel_context = cancel_context;
     options.allocator = allocator;
     return gbl_runner_execute(&options, result);
+}
+
+static gbl_runner_status gbl_test_execute_timeline(
+    const char *rom_path, const char *fixture_id, uint64_t budget,
+    bool timeline_present, const gbl_input_event *events, size_t event_count,
+    gbl_runner_cancelled_fn cancelled, void *cancel_context,
+    gbl_runner_allocator allocator, gbl_runner_result *result)
+{
+    gbl_runner_options options;
+
+    memset(&options, 0, sizeof options);
+    options.rom_path = rom_path;
+    options.fixture_id = fixture_id;
+    options.cycle_budget = budget;
+    options.input_timeline_present = timeline_present;
+    options.input_events = events;
+    options.input_event_count = event_count;
+    options.cancelled = cancelled;
+    options.cancel_context = cancel_context;
+    options.allocator = allocator;
+    return gbl_runner_execute(&options, result);
+}
+
+typedef struct gbl_test_timer0_observations {
+    bool semantic_completed;
+    bool request_observed;
+    bool model_contract;
+    bool component_sum;
+    bool disabled_timeout;
+    bool not_run_request_null;
+} gbl_test_timer0_observations;
+
+static void gbl_test_write_le32(uint8_t *bytes, size_t offset,
+                                uint32_t value)
+{
+    bytes[offset] = (uint8_t)(value & UINT32_C(0xFF));
+    bytes[offset + 1u] = (uint8_t)((value >> 8u) & UINT32_C(0xFF));
+    bytes[offset + 2u] = (uint8_t)((value >> 16u) & UINT32_C(0xFF));
+    bytes[offset + 3u] = (uint8_t)(value >> 24u);
+}
+
+static bool gbl_test_serialize_result(const gbl_runner_result *result,
+                                      char *json, size_t capacity);
+static bool gbl_test_read_file(const char *path, char *output,
+                               size_t capacity);
+
+static bool gbl_test_write_runner_json(const char *path,
+                                       const gbl_runner_result *result)
+{
+    FILE *output;
+    bool okay;
+
+    if (path == NULL || result == NULL) {
+        return false;
+    }
+    output = fopen(path, "wb");
+    if (output == NULL) {
+        return false;
+    }
+    okay = gbl_runner_write_json(output, result) && fputc('\n', output) != EOF;
+    if (fclose(output) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static void gbl_test_emit_arm_word(uint8_t *image, size_t *offset,
+                                   uint32_t opcode)
+{
+    gbl_test_write_le32(image, *offset, opcode);
+    *offset += 4u;
+}
+
+static void gbl_test_emit_arm_ldr_literal(uint8_t *image, size_t *offset,
+                                          unsigned int destination,
+                                          size_t literal_offset)
+{
+    const size_t instruction_offset = *offset;
+    const size_t pc = instruction_offset + 8u;
+    const uint32_t displacement = (uint32_t)(literal_offset - pc);
+
+    gbl_test_emit_arm_word(image, offset,
+                           UINT32_C(0xE59F0000) |
+                               ((uint32_t)destination << 12u) |
+                               displacement);
+}
+
+static void gbl_test_emit_dma_start(uint8_t *image, size_t *offset,
+                                    size_t literal_offset,
+                                    size_t source_index,
+                                    size_t destination_index)
+{
+    gbl_test_emit_arm_ldr_literal(image, offset, 0u,
+                                  literal_offset + source_index * 4u);
+    gbl_test_emit_arm_ldr_literal(image, offset, 1u,
+                                  literal_offset + destination_index * 4u);
+    gbl_test_emit_arm_ldr_literal(image, offset, 2u,
+                                  literal_offset + 2u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5800000) |
+                                            (2u << 16u));
+    gbl_test_emit_arm_ldr_literal(image, offset, 2u,
+                                  literal_offset + 3u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5800000) |
+                                            (2u << 16u) | (1u << 12u));
+    gbl_test_emit_arm_ldr_literal(image, offset, 0u,
+                                  literal_offset + 4u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, offset, 2u,
+                                  literal_offset + 5u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1C000B0) |
+                                            (2u << 16u));
+    gbl_test_emit_arm_ldr_literal(image, offset, 0u,
+                                  literal_offset + 6u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, offset, 2u,
+                                  literal_offset + 7u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1C000B0) |
+                                            (2u << 16u));
+}
+
+static void gbl_test_emit_mailbox(uint8_t *image, size_t *offset,
+                                  size_t literal_offset,
+                                  size_t state_index)
+{
+    gbl_test_emit_arm_ldr_literal(image, offset, 0u,
+                                  literal_offset + 9u * 4u);
+    gbl_test_emit_arm_ldr_literal(image, offset, 1u,
+                                  literal_offset + 10u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, offset, 1u,
+                                  literal_offset + 11u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5801004));
+    gbl_test_emit_arm_ldr_literal(image, offset, 1u,
+                                  literal_offset + state_index * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5801008));
+    gbl_test_emit_arm_ldr_literal(image, offset, 1u,
+                                  literal_offset + 13u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE580100C));
+    gbl_test_emit_arm_ldr_literal(image, offset, 1u,
+                                  literal_offset + 14u * 4u);
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5801010));
+}
+
+static bool gbl_test_write_dma_guest(const char *path)
+{
+    uint8_t image[0x220u] = { 0u };
+    static const uint32_t literals[] = {
+        UINT32_C(0x08000200), UINT32_C(0x03000020), UINT32_C(0x040000D4),
+        UINT32_C(0x040000D8), UINT32_C(1), UINT32_C(0x040000DC),
+        UINT32_C(0x8000), UINT32_C(0x040000DE), UINT32_C(0xBEEF),
+        UINT32_C(0x03007FC0), UINT32_C(0x47424C4B), UINT32_C(1),
+        UINT32_C(2), UINT32_C(9), UINT32_C(0x434F4D50), UINT32_C(3),
+        UINT32_C(0), UINT32_C(0x03000022)
+    };
+    const size_t literal_offset = 0x100u;
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    /* Program DMA3 twice: a ROM halfword seeds its latch, then source zero
+     * exercises the explicitly disputed retained-channel fallback. */
+    gbl_test_emit_dma_start(image, &offset, literal_offset, 0u, 1u);
+    gbl_test_emit_dma_start(image, &offset, literal_offset, 16u, 17u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 1u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u,
+                                  literal_offset + 8u * 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1510002));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x1A00000B));
+    gbl_test_emit_mailbox(image, &offset, literal_offset, 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEA00000B));
+    gbl_test_emit_mailbox(image, &offset, literal_offset, 15u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFF));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, literal_offset + index * 4u,
+                            literals[index]);
+    }
+    image[0x200u] = UINT8_C(0xEF);
+    image[0x201u] = UINT8_C(0xBE);
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_write_ppu_guest_with_dispcnt(const char *path,
+                                                   uint32_t dispcnt)
+{
+    uint8_t image[0xC0u] = { 0u };
+    const size_t literal_offset = 0x80u;
+    const uint32_t literals[] = {
+        UINT32_C(0x04000000), dispcnt,
+        UINT32_C(0x04000130), UINT32_C(0x06000000),
+        UINT32_C(0x001F), UINT32_C(0x03E0)
+    };
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset + 8u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5900000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3100001));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 3u, literal_offset + 12u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 16u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u, literal_offset + 20u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x15831000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x05832000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, literal_offset + index * 4u,
+                            literals[index]);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_write_ppu_guest(const char *path)
+{
+    return gbl_test_write_ppu_guest_with_dispcnt(path, UINT32_C(0x0403));
+}
+
+static bool gbl_test_write_audio_guest(const char *path)
+{
+    enum {
+        IMAGE_BYTES = 0x800u,
+        LITERAL_OFFSET = 0x600u,
+        NOP_COUNT = 160u
+    };
+    static const uint32_t literals[] = {
+        UINT32_C(0x04000084), UINT32_C(0x0080),
+        UINT32_C(0x04000080), UINT32_C(0x00022070),
+        UINT32_C(0x04000068), UINT32_C(0xF0C0),
+        UINT32_C(0x0400006C), UINT32_C(0x87F8),
+        0u,
+        UINT32_C(0x03007FC0), UINT32_C(0x47424C4B), UINT32_C(1),
+        UINT32_C(2), UINT32_C(9), UINT32_C(0x434F4D50)
+    };
+    uint8_t image[IMAGE_BYTES] = { 0u };
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, LITERAL_OFFSET);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  LITERAL_OFFSET + 8u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  LITERAL_OFFSET + 16u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 20u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  LITERAL_OFFSET + 24u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  LITERAL_OFFSET + 28u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    for (index = 0u; index < NOP_COUNT; ++index) {
+        gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1A00000));
+    }
+    gbl_test_emit_mailbox(image, &offset, LITERAL_OFFSET, 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    if (offset > LITERAL_OFFSET) {
+        return false;
+    }
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, LITERAL_OFFSET + index * 4u,
+                            literals[index]);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_write_audio_halt_guest(const char *path)
+{
+    enum { IMAGE_BYTES = 0x800u, LITERAL_OFFSET = 0x200u };
+    uint8_t image[IMAGE_BYTES] = { 0u };
+    size_t offset = 0u;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, LITERAL_OFFSET);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3A01000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5C01000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    if (offset > LITERAL_OFFSET) {
+        return false;
+    }
+    gbl_test_write_le32(image, LITERAL_OFFSET, UINT32_C(0x04000301));
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_audio_file_matches(const char *path,
+                                        const uint8_t *expected,
+                                        size_t expected_length)
+{
+    FILE *file;
+    uint8_t actual[4];
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (path == NULL || expected == NULL ||
+        expected_length > sizeof actual) {
+        return false;
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) {
+        return false;
+    }
+    length = fread(actual, 1u, expected_length, file);
+    extra = fgetc(file);
+    okay = length == expected_length && extra == EOF &&
+           ferror(file) == 0 &&
+           (expected_length == 0u ||
+            memcmp(actual, expected, expected_length) == 0);
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_runner_audio_output(const char *scratch_directory)
+{
+    static const uint8_t expected_frame[4] = {
+        UINT8_C(0x00), UINT8_C(0x78), UINT8_C(0x00), UINT8_C(0x00)
+    };
+    gbl_runner_options options = { 0 };
+    gbl_runner_result complete = { 0 };
+    gbl_runner_result early = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char early_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[16384];
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    gbl_test_cancel_state early_cancel = { 0u, 2u };
+    bool guest_okay;
+    bool artifact_okay;
+    bool early_guest_okay;
+    bool early_artifact_okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "audio-output.gba") ||
+        !gbl_test_path(output_path, sizeof output_path, scratch_directory,
+                       "audio-output.raw") ||
+        !gbl_test_path(early_path, sizeof early_path, scratch_directory,
+                       "audio-output-early.raw") ||
+        !gbl_test_write_audio_guest(rom_path)) {
+        return false;
+    }
+    (void)remove(output_path);
+    (void)remove(early_path);
+
+    options.rom_path = rom_path;
+    options.cycle_budget = UINT64_C(4096);
+    options.audio_output_path = output_path;
+    options.audio_end_cycles = UINT64_C(512);
+    guest_okay =
+        gbl_runner_execute(&options, &complete) == complete.status &&
+        complete.ran && complete.status == GBL_RUNNER_GUEST_STOP &&
+        complete.semantic.status == GBL_MAILBOX_PASS &&
+        complete.cycles > options.audio_end_cycles;
+    artifact_okay = complete.audio.requested &&
+                    complete.audio.capture_state ==
+                        GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+                    complete.audio.has_requested_interval &&
+                    complete.audio.requested_start_cycle == 0u &&
+                    complete.audio.requested_end_cycle ==
+                        options.audio_end_cycles &&
+                    complete.audio.has_actual_interval &&
+                    complete.audio.actual_start_cycle == 0u &&
+                    complete.audio.actual_end_cycle ==
+                        options.audio_end_cycles &&
+                    complete.audio.interval_complete &&
+                    complete.audio.has_frame_count &&
+                    complete.audio.frame_count == 1u &&
+                    complete.audio.has_byte_count &&
+                    complete.audio.byte_count == sizeof expected_frame &&
+                    complete.audio.pcm_bytes != NULL &&
+                    complete.audio.pcm_capacity >= sizeof expected_frame &&
+                    memcmp(complete.audio.pcm_bytes, expected_frame,
+                           sizeof expected_frame) == 0 &&
+                    complete.audio.artifact_state ==
+                        GBL_RUNNER_AUDIO_ARTIFACT_EMITTED &&
+                    complete.audio.artifact_emitted &&
+                    complete.audio.has_artifact_byte_count &&
+                    complete.audio.artifact_byte_count ==
+                        sizeof expected_frame &&
+                    complete.audio.has_sha256 &&
+                    gbl_sha256_span(expected_frame, sizeof expected_frame,
+                                    digest) &&
+                    strcmp(digest, complete.audio.sha256) == 0 &&
+                    gbl_test_audio_file_matches(output_path, expected_frame,
+                                                sizeof expected_frame) &&
+                    gbl_test_serialize_result(&complete, json,
+                                              sizeof json) &&
+                    strstr(json,
+                           "\"audio\":{\"model\":\"gamebloke-audio-model-4\"") != NULL &&
+                    strstr(json, "\"requested\":true") != NULL &&
+                    strstr(json, "\"capture_state\":\"complete\"") !=
+                        NULL &&
+                    strstr(json, complete.audio.sha256) != NULL;
+
+    gbl_runner_result_dispose(&complete);
+    artifact_okay = artifact_okay &&
+                    gbl_test_audio_file_matches(output_path, expected_frame,
+                                                sizeof expected_frame);
+
+    memset(&options, 0, sizeof options);
+    options.rom_path = rom_path;
+    options.cycle_budget = UINT64_C(4096);
+    options.audio_output_path = early_path;
+    options.audio_end_cycles = UINT64_C(512);
+    options.cancelled = gbl_test_cancel_at_boundary;
+    options.cancel_context = &early_cancel;
+    early_guest_okay =
+        gbl_runner_execute(&options, &early) == GBL_RUNNER_CANCELLED &&
+        early.status == GBL_RUNNER_CANCELLED &&
+        early.cycles < options.audio_end_cycles &&
+        early.semantic.status != GBL_MAILBOX_PASS;
+    early_artifact_okay = early.audio.requested &&
+                          early.audio.capture_state ==
+                              GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+                          !early.audio.interval_complete &&
+                          !early.audio.artifact_emitted &&
+                          early.audio.artifact_state ==
+                              GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN &&
+                          access(early_path, F_OK) != 0 && errno == ENOENT;
+
+    gbl_runner_result_dispose(&early);
+    gbl_test_case(guest_okay,
+                  "runner-audio-output: guest advances beyond the requested capture window and reaches its mailbox marker");
+    gbl_test_case(artifact_okay,
+                  "runner-audio-output: complete window writes exact literal PCM and digest");
+    gbl_test_case(early_guest_okay,
+                  "runner-audio-output: cancellation stops before the guest mailbox marker");
+    gbl_test_case(early_artifact_okay,
+                  "runner-audio-output: early stop leaves capture incomplete and creates no artifact");
+    return guest_okay && artifact_okay && early_guest_okay &&
+           early_artifact_okay;
+}
+
+static bool gbl_test_audio_json_contract(
+    const gbl_runner_result *result, bool requested,
+    const char *capture_state, const char *artifact_state,
+    bool requested_interval, bool actual_interval, bool counts, bool emitted)
+{
+    char json[16384];
+    char expected[160];
+    const char *audio_json;
+    const char *artifact_json;
+    const char *top_byte_count;
+    const char *artifact_byte_count;
+    const char *interval_complete;
+
+    if (!gbl_test_serialize_result(result, json, sizeof json) ||
+        (audio_json = strstr(json, "\"audio\":{")) == NULL) {
+        return false;
+    }
+    (void)snprintf(expected, sizeof expected, "\"requested\":%s",
+                   requested ? "true" : "false");
+    if (strstr(audio_json, expected) == NULL) return false;
+    (void)snprintf(expected, sizeof expected, "\"capture_state\":\"%s\"",
+                   capture_state);
+    if (strstr(audio_json, expected) == NULL) return false;
+    (void)snprintf(expected, sizeof expected, "\"state\":\"%s\"",
+                   artifact_state);
+    if (strstr(audio_json, expected) == NULL) return false;
+    if ((strstr(audio_json, "\"requested_interval\":null") == NULL) !=
+        requested_interval) return false;
+    if ((strstr(audio_json, "\"actual_interval\":null") == NULL) !=
+        actual_interval) return false;
+    artifact_json = strstr(audio_json, "\"artifact\":{");
+    top_byte_count = strstr(audio_json, "\"byte_count\":");
+    if (artifact_json == NULL || top_byte_count == NULL ||
+        top_byte_count >= artifact_json ||
+        (strncmp(strstr(audio_json, "\"frame_count\":"),
+                 "\"frame_count\":null",
+                 strlen("\"frame_count\":null")) == 0) == counts ||
+        (strncmp(top_byte_count, "\"byte_count\":null",
+                 strlen("\"byte_count\":null")) == 0) == counts) {
+        return false;
+    }
+    artifact_byte_count = strstr(artifact_json, "\"byte_count\":");
+    if (artifact_byte_count == NULL ||
+        (strncmp(artifact_byte_count, "\"byte_count\":null",
+                 strlen("\"byte_count\":null")) == 0) == emitted) {
+        return false;
+    }
+    interval_complete = strstr(audio_json, "\"interval_complete\":");
+    if (interval_complete == NULL) return false;
+    if (actual_interval) {
+        const bool expected_complete = strcmp(capture_state, "complete") == 0;
+        const char *expected_interval = expected_complete
+                                           ? "\"interval_complete\":true"
+                                           : "\"interval_complete\":false";
+
+        if (strncmp(interval_complete, expected_interval,
+                    strlen(expected_interval)) != 0) {
+            return false;
+        }
+    } else if (strncmp(interval_complete, "\"interval_complete\":null",
+                       strlen("\"interval_complete\":null")) != 0) {
+        return false;
+    }
+    if (emitted) {
+        if (strstr(artifact_json, "\"sha256\":null") != NULL) return false;
+    } else if (strstr(artifact_json, "\"sha256\":null") == NULL) {
+        return false;
+    }
+    if (strcmp(artifact_state, "failed") == 0) {
+        if (result->audio.artifact_error[0] == '\0') return false;
+        (void)snprintf(expected, sizeof expected, "\"error\":\"%s\"",
+                       result->audio.artifact_error);
+        if (strstr(audio_json, expected) == NULL) return false;
+    } else if (strstr(artifact_json, "\"error\":null") == NULL) {
+        return false;
+    }
+    return true;
+}
+
+static void gbl_test_audio_options_init(gbl_runner_options *options,
+                                        const char *rom_path,
+                                        const char *output_path,
+                                        uint64_t budget, uint64_t end_cycle)
+{
+    memset(options, 0, sizeof *options);
+    options->rom_path = rom_path;
+    options->cycle_budget = budget;
+    options->audio_output_path = output_path;
+    options->audio_end_cycles = end_cycle;
+}
+
+static bool gbl_test_read_exact_file(const char *path, uint8_t *bytes,
+                                     size_t capacity, size_t expected_length)
+{
+    FILE *file;
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (path == NULL || expected_length > capacity ||
+        (expected_length != 0u && bytes == NULL)) {
+        return false;
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) return false;
+    length = fread(bytes, 1u, expected_length, file);
+    extra = fgetc(file);
+    okay = length == expected_length && extra == EOF && ferror(file) == 0;
+    if (fclose(file) != 0) okay = false;
+    return okay;
+}
+
+typedef struct gbl_test_audio_allocator_state {
+    size_t calls;
+    size_t successes;
+    size_t releases;
+    size_t bounded_buffer_calls;
+    size_t bounded_buffer_successes;
+    size_t bounded_buffer_releases;
+    size_t fail_bounded_buffer_call;
+    void *bounded_buffers[2];
+    bool bad_bounded_buffer_release_size;
+} gbl_test_audio_allocator_state;
+
+static void *gbl_test_audio_allocate(void *context, size_t size)
+{
+    gbl_test_audio_allocator_state *state = context;
+
+    state->calls++;
+    if (size == GBL_RUNNER_AUDIO_MAX_BYTES) {
+        state->bounded_buffer_calls++;
+        if (state->fail_bounded_buffer_call != 0u &&
+            state->bounded_buffer_calls == state->fail_bounded_buffer_call) {
+            return NULL;
+        }
+    }
+    {
+        void *pointer = malloc(size);
+
+        if (pointer != NULL) {
+            state->successes++;
+            if (size == GBL_RUNNER_AUDIO_MAX_BYTES &&
+                state->bounded_buffer_successes <
+                    sizeof state->bounded_buffers /
+                        sizeof state->bounded_buffers[0]) {
+                state->bounded_buffers[state->bounded_buffer_successes++] =
+                    pointer;
+            }
+        }
+        return pointer;
+    }
+}
+
+static void gbl_test_audio_release(void *context, void *pointer, size_t size)
+{
+    gbl_test_audio_allocator_state *state = context;
+
+    if (pointer != NULL) {
+        size_t index;
+
+        state->releases++;
+        for (index = 0u; index <
+             sizeof state->bounded_buffers / sizeof state->bounded_buffers[0];
+             ++index) {
+            if (pointer == state->bounded_buffers[index]) {
+                if (size != GBL_RUNNER_AUDIO_MAX_BYTES) {
+                    state->bad_bounded_buffer_release_size = true;
+                }
+                state->bounded_buffers[index] = NULL;
+                state->bounded_buffer_releases++;
+                break;
+            }
+        }
+        free(pointer);
+    }
+}
+
+static bool gbl_test_runner_audio_controls(const char *scratch_directory)
+{
+    static const uint8_t expected_frame[4] = {
+        UINT8_C(0x00), UINT8_C(0x78), UINT8_C(0x00), UINT8_C(0x00)
+    };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char halt_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char pass_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char fail_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char missing_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char output_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char existing_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char search_only_directory[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char search_only_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char missing_parent_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char fault_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char failure_json_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_options options = { 0 };
+    gbl_runner_result result = { 0 };
+    gbl_runner_result other = { 0 };
+    uint8_t existing[32];
+    size_t saved_audio_capacity;
+    bool okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "audio-controls.gba") ||
+        !gbl_test_path(halt_rom_path, sizeof halt_rom_path, scratch_directory,
+                       "audio-controls-halt.gba") ||
+        !gbl_test_path(pass_rom_path, sizeof pass_rom_path,
+                       GBL_RUNNER_TEST_FIXTURE_DIR, "owned-arm-pass.gba") ||
+        !gbl_test_path(fail_rom_path, sizeof fail_rom_path,
+                       GBL_RUNNER_TEST_FIXTURE_DIR, "owned-arm-fail.gba") ||
+        !gbl_test_path(missing_rom_path, sizeof missing_rom_path,
+                       scratch_directory, "audio-controls-missing.gba") ||
+        !gbl_test_path(output_path, sizeof output_path, scratch_directory,
+                       "audio-controls.raw") ||
+        !gbl_test_path(existing_path, sizeof existing_path, scratch_directory,
+                       "audio-controls-existing.raw") ||
+        !gbl_test_path(search_only_directory, sizeof search_only_directory,
+                       scratch_directory, "audio-controls-search-only") ||
+        !gbl_test_path(search_only_path, sizeof search_only_path,
+                       search_only_directory, "audio.raw") ||
+        !gbl_test_path(missing_parent_path, sizeof missing_parent_path,
+                       scratch_directory,
+                       "audio-controls-no-parent/audio.raw") ||
+        !gbl_test_path(fault_path, sizeof fault_path, scratch_directory,
+                       "audio-controls-fault.raw") ||
+        !gbl_test_path(failure_json_path, sizeof failure_json_path,
+                       scratch_directory,
+                       "audio-capture-allocation-failure.json") ||
+        !gbl_test_write_audio_guest(rom_path) ||
+        !gbl_test_write_audio_halt_guest(halt_rom_path)) {
+        return false;
+    }
+    (void)remove(output_path);
+    (void)remove(missing_rom_path);
+    (void)remove(failure_json_path);
+
+    gbl_test_audio_options_init(&options, rom_path, NULL, UINT64_C(4096), 0u);
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           !result.audio.requested &&
+           result.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_NOT_REQUESTED &&
+           result.audio.artifact_state ==
+               GBL_RUNNER_AUDIO_ARTIFACT_NOT_REQUESTED &&
+           result.audio.pcm_bytes == NULL &&
+           gbl_test_audio_json_contract(&result, false, "not-requested",
+                                        "not-requested", false, false, false,
+                                        false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: unrequested result has explicit null capture and artifact evidence");
+
+    {
+        gbl_test_allocator_state allocator_state = { 0 };
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    GBL_RUNNER_AUDIO_MAX_CYCLES + 1u,
+                                    GBL_RUNNER_AUDIO_MAX_CYCLES + 1u);
+        options.allocator = (gbl_runner_allocator){
+            &allocator_state, gbl_test_allocate, gbl_test_release
+        };
+        okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_REFUSED &&
+               result.status == GBL_RUNNER_REFUSED && !result.ran &&
+               result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_FAILED &&
+               !result.audio.has_requested_interval &&
+               allocator_state.calls == 0u && access(output_path, F_OK) != 0 &&
+               errno == ENOENT &&
+               gbl_test_audio_json_contract(&result, true, "failed",
+                                            "not-written", false, false,
+                                            false, false);
+        gbl_runner_result_dispose(&result);
+    }
+    gbl_test_case(okay,
+                  "audio controls: beyond-bound request refuses before allocation or output creation");
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                GBL_RUNNER_AUDIO_MAX_CYCLES,
+                                GBL_RUNNER_AUDIO_MAX_CYCLES);
+    options.fixture_id = "synthetic-control-pass";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_PASS &&
+           result.audio.requested_end_cycle == GBL_RUNNER_AUDIO_MAX_CYCLES &&
+           result.audio.pcm_capacity == GBL_RUNNER_AUDIO_MAX_BYTES &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           result.audio.has_actual_interval &&
+           result.audio.actual_end_cycle < GBL_RUNNER_AUDIO_MAX_CYCLES &&
+           result.audio.has_frame_count && result.audio.frame_count == 0u &&
+           result.audio.has_byte_count && result.audio.byte_count == 0u &&
+           !result.audio.artifact_emitted && access(output_path, F_OK) != 0 &&
+           errno == ENOENT;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: maximum request derives bounded storage and exits on the early guest terminal");
+
+    gbl_test_audio_options_init(&options, missing_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_MISSING &&
+           result.status == GBL_RUNNER_MISSING && !result.ran &&
+           result.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE &&
+           !result.audio.has_actual_interval && !result.audio.has_frame_count &&
+           !result.audio.has_byte_count && !result.audio.artifact_emitted &&
+           gbl_test_audio_json_contract(&result, true, "unavailable",
+                                        "not-written", true, false, false,
+                                        false);
+    gbl_runner_result_dispose(&result);
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.fixture_id = "synthetic-control-bios-required";
+    okay = okay &&
+           gbl_runner_execute(&options, &other) == GBL_RUNNER_SKIPPED &&
+           other.status == GBL_RUNNER_SKIPPED && !other.ran &&
+           other.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_UNAVAILABLE &&
+           !other.audio.has_actual_interval && !other.audio.artifact_emitted &&
+           gbl_test_audio_json_contract(&other, true, "unavailable",
+                                        "not-written", true, false, false,
+                                        false);
+    gbl_runner_result_dispose(&other);
+    gbl_test_case(okay,
+                  "audio controls: missing and skipped runs retain unavailable capture without artifact evidence");
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.fixture_id = "synthetic-control-pass";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_PASS &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.cycles < options.audio_end_cycles &&
+           result.audio.capture_state ==
+               GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           result.audio.has_actual_interval &&
+           result.audio.actual_end_cycle == result.cycles &&
+           result.audio.has_frame_count && result.audio.frame_count == 0u &&
+           !result.audio.interval_complete &&
+           result.audio.artifact_state ==
+               GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN &&
+           !result.audio.artifact_emitted && access(output_path, F_OK) != 0 &&
+           errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "incomplete",
+                                        "not-written", true, true, true,
+                                        false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: early guest PASS cannot publish the longer requested interval");
+
+    gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(1));
+    options.fixture_id = "synthetic-control-pass";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_PASS &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.actual_end_cycle == UINT64_C(1) &&
+           result.audio.interval_complete && result.audio.frame_count == 0u &&
+           result.audio.byte_count == 0u && result.audio.artifact_emitted &&
+           result.audio.artifact_byte_count == 0u && result.audio.has_sha256 &&
+           strcmp(result.audio.sha256,
+                  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") == 0 &&
+           gbl_test_audio_file_matches(output_path, expected_frame, 0u) &&
+           gbl_test_audio_json_contract(&result, true, "complete", "emitted",
+                                        true, true, true, true);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: late guest PASS retains a complete exact empty artifact");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete && result.audio.artifact_emitted &&
+           result.audio.has_frame_count && result.audio.frame_count == 1u &&
+           result.audio.byte_count == sizeof expected_frame &&
+           memcmp(result.audio.pcm_bytes, expected_frame,
+                  sizeof expected_frame) == 0 &&
+           result.audio.has_sha256 &&
+           gbl_test_audio_file_matches(output_path, expected_frame,
+                                       sizeof expected_frame) &&
+           gbl_test_audio_json_contract(&result, true, "complete", "emitted",
+                                        true, true, true, true);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: guest stop after the horizon retains literal PCM and exact file evidence");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.byte_count == sizeof expected_frame &&
+           gbl_test_audio_file_matches(output_path, expected_frame,
+                                       sizeof expected_frame);
+    (void)remove(output_path);
+    saved_audio_capacity = result.audio.pcm_capacity;
+    result.audio.pcm_capacity = sizeof expected_frame - 1u;
+    okay = okay && !gbl_runner_write_audio(output_path, &result) &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-capture-unavailable") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           access(output_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    result.audio.pcm_capacity = saved_audio_capacity;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: reduced destination capacity cannot publish a previously captured prefix");
+
+    gbl_test_audio_options_init(&options, fail_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.fixture_id = "synthetic-control-fail";
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_FAIL &&
+           result.semantic.status == GBL_MAILBOX_FAIL &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           !result.audio.interval_complete && !result.audio.artifact_emitted &&
+           access(output_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "incomplete",
+                                        "not-written", true, true, true,
+                                        false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: early guest failure stays distinct from incomplete capture");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(700), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete && result.audio.artifact_emitted &&
+           result.audio.byte_count == sizeof expected_frame &&
+           gbl_test_audio_file_matches(output_path, expected_frame,
+                                       sizeof expected_frame);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: timeout after the horizon preserves valid complete PCM evidence");
+
+    gbl_test_audio_options_init(&options, halt_rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           result.semantic.status != GBL_MAILBOX_PASS &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete && result.audio.artifact_emitted &&
+           result.audio.byte_count == sizeof expected_frame &&
+           memcmp(result.audio.pcm_bytes, (uint8_t[4]){ 0u, 0u, 0u, 0u },
+                  sizeof expected_frame) == 0 &&
+           gbl_test_audio_file_matches(output_path,
+                                       (uint8_t[4]){ 0u, 0u, 0u, 0u },
+                                       sizeof expected_frame);
+    gbl_runner_result_dispose(&result);
+    (void)remove(output_path);
+    gbl_test_case(okay,
+                  "audio controls: HALT wait cycles advance capture without a guest terminal");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path, UINT64_C(4),
+                                UINT64_C(4));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT && result.cycles < 4u &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           result.audio.has_actual_interval &&
+           result.audio.actual_end_cycle < UINT64_C(4) &&
+           result.audio.has_frame_count && result.audio.frame_count == 0u &&
+           !result.audio.artifact_emitted && access(output_path, F_OK) != 0 &&
+           errno == ENOENT;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: whole-unit budget underfill reports only the accepted prefix");
+
+    gbl_test_audio_options_init(&options, rom_path, output_path,
+                                UINT64_C(4096), UINT64_C(512));
+    options.trace_mask = GBL_TRACE_INSTRUCTION;
+    options.trace_capacity = 1u;
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(result.reason, "trace-output-full") == 0 &&
+           result.trace_count == 1u && !result.trace_complete &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+           !result.audio.interval_complete && !result.audio.artifact_emitted &&
+           access(output_path, F_OK) != 0 && errno == ENOENT;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: trace exhaustion preserves only an incomplete accepted prefix");
+
+    {
+        gbl_test_cancel_state cancel_before = { 0u, 1u };
+        gbl_test_cancel_state cancel_after = { 0u, 2u };
+        gbl_test_cancel_state cancel_late = { 0u, 0u };
+        size_t late_cancel_call = 0u;
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(4096), UINT64_C(512));
+        options.cancelled = gbl_test_cancel_at_boundary;
+        options.cancel_context = &cancel_before;
+        okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_CANCELLED &&
+               result.status == GBL_RUNNER_CANCELLED && result.ran &&
+               result.cycles == 0u &&
+               result.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+               result.audio.actual_end_cycle == 0u &&
+               !result.audio.artifact_emitted;
+        gbl_runner_result_dispose(&result);
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(4096), UINT64_C(512));
+        options.cancelled = gbl_test_cancel_at_boundary;
+        options.cancel_context = &cancel_after;
+        okay = okay &&
+               gbl_runner_execute(&options, &other) == GBL_RUNNER_CANCELLED &&
+               other.status == GBL_RUNNER_CANCELLED && other.ran &&
+               other.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+               other.audio.actual_end_cycle < UINT64_C(512) &&
+               !other.audio.artifact_emitted;
+        gbl_runner_result_dispose(&other);
+
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(700), UINT64_C(512));
+        okay = okay &&
+               gbl_runner_execute(&options, &result) == GBL_RUNNER_TIMEOUT &&
+               result.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+               result.instructions <= (uint64_t)(SIZE_MAX / 2u) &&
+               result.instructions > 0u && result.cycles > UINT64_C(512) &&
+               result.cycles < UINT64_C(1024);
+        if (okay) {
+            late_cancel_call = (size_t)(result.instructions * UINT64_C(2));
+        }
+        gbl_runner_result_dispose(&result);
+        (void)remove(output_path);
+
+        cancel_late.cancel_at = late_cancel_call;
+        gbl_test_audio_options_init(&options, rom_path, output_path,
+                                    UINT64_C(4096), UINT64_C(1024));
+        options.cancelled = gbl_test_cancel_at_boundary;
+        options.cancel_context = &cancel_late;
+        okay = okay && late_cancel_call != 0u &&
+               gbl_runner_execute(&options, &result) == GBL_RUNNER_CANCELLED &&
+               result.status == GBL_RUNNER_CANCELLED &&
+               result.cycles > UINT64_C(512) &&
+               result.cycles < UINT64_C(1024) &&
+               result.audio.capture_state ==
+                   GBL_RUNNER_AUDIO_CAPTURE_INCOMPLETE &&
+               result.audio.actual_end_cycle > UINT64_C(512) &&
+               result.audio.actual_end_cycle < UINT64_C(1024) &&
+               result.audio.has_frame_count && result.audio.frame_count == 1u &&
+               result.audio.has_byte_count &&
+               result.audio.byte_count == sizeof expected_frame &&
+               memcmp(result.audio.pcm_bytes, expected_frame,
+                      sizeof expected_frame) == 0 &&
+               !result.audio.interval_complete &&
+               !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+               access(output_path, F_OK) != 0 && errno == ENOENT;
+        gbl_runner_result_dispose(&result);
+    }
+    gbl_test_case(okay,
+                  "audio controls: early and post-sample cancellation retain distinct prefixes and never publish incomplete bytes");
+
+    {
+        gbl_test_audio_allocator_state allocator_state = { 0 };
+        const gbl_runner_allocator allocator = {
+            &allocator_state, gbl_test_audio_allocate, gbl_test_audio_release
+        };
+        size_t fail_at;
+        bool allocations_okay = true;
+        bool failure_receipt_written = false;
+
+        for (fail_at = 1u; fail_at <= 2u; ++fail_at) {
+            allocator_state = (gbl_test_audio_allocator_state){ 0 };
+            allocator_state.fail_bounded_buffer_call = fail_at;
+            gbl_test_audio_options_init(&options, pass_rom_path, output_path,
+                                        UINT64_C(4096), UINT64_C(512));
+            options.fixture_id = "synthetic-control-pass";
+            options.allocator = allocator;
+            allocations_okay =
+                gbl_runner_execute(&options, &result) ==
+                    GBL_RUNNER_HARNESS_FAIL &&
+                result.audio.capture_state ==
+                    GBL_RUNNER_AUDIO_CAPTURE_FAILED &&
+                result.audio.artifact_state ==
+                    GBL_RUNNER_AUDIO_ARTIFACT_NOT_WRITTEN &&
+                !result.audio.artifact_emitted &&
+                result.audio.artifact_error[0] == '\0' &&
+                gbl_test_audio_json_contract(&result, true, "failed",
+                                             "not-written", true, false,
+                                             false, false) &&
+                allocator_state.bounded_buffer_calls == fail_at;
+            if (allocations_okay && fail_at == 1u) {
+                failure_receipt_written =
+                    gbl_test_write_runner_json(failure_json_path, &result);
+                allocations_okay = failure_receipt_written;
+            }
+            gbl_runner_result_dispose(&result);
+            allocations_okay = allocations_okay &&
+                                allocator_state.successes ==
+                                    allocator_state.releases &&
+                                allocator_state.bounded_buffer_releases ==
+                                    fail_at - 1u &&
+                                !allocator_state.bad_bounded_buffer_release_size;
+            if (!allocations_okay) break;
+        }
+        okay = allocations_okay && failure_receipt_written;
+    }
+    gbl_test_case(okay,
+                  "audio controls: allocation failures keep artifact errors null and release owned buffers");
+
+    okay = gbl_test_write_file(existing_path, 8u, (unsigned char)'K') &&
+           gbl_test_read_exact_file(existing_path, existing,
+                                    sizeof existing, 8u) &&
+           memcmp(existing, "KKKKKKKK", 8u) == 0;
+    gbl_test_audio_options_init(&options, rom_path, existing_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = okay &&
+           gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-already-exists") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           gbl_test_read_exact_file(existing_path, existing,
+                                    sizeof existing, 8u) &&
+           memcmp(existing, "KKKKKKKK", 8u) == 0 &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: exclusive existing output leaves prior bytes unchanged");
+
+    (void)remove(search_only_path);
+    if (mkdir(search_only_directory, 0700) != 0 && errno != EEXIST) {
+        return false;
+    }
+    okay = chmod(search_only_directory, S_IWUSR | S_IXUSR) == 0;
+    gbl_test_audio_options_init(&options, rom_path, search_only_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = okay &&
+           gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_EMITTED &&
+           result.audio.artifact_emitted && result.audio.has_sha256 &&
+           result.audio.has_artifact_byte_count &&
+           result.audio.artifact_byte_count == sizeof expected_frame;
+    gbl_runner_result_dispose(&result);
+    (void)chmod(search_only_directory, 0700);
+    okay = okay &&
+           gbl_test_read_exact_file(search_only_path, existing,
+                                    sizeof existing,
+                                    sizeof expected_frame) &&
+           memcmp(existing, expected_frame, sizeof expected_frame) == 0 &&
+           gbl_test_no_audio_temporary_files(search_only_directory);
+    gbl_test_case(okay,
+                  "audio controls: output works in a write-search parent without directory-list permission");
+    (void)remove(search_only_path);
+    (void)rmdir(search_only_directory);
+
+    gbl_test_audio_options_init(&options, rom_path, missing_parent_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-open-failed") == 0 &&
+           !result.audio.has_sha256 && !result.audio.has_artifact_byte_count &&
+           access(missing_parent_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "audio controls: missing output parent preserves capture but has no artifact evidence");
+
+    {
+        static const gbl_runner_audio_writer_test_fault faults[] = {
+            GBL_RUNNER_AUDIO_WRITER_TEST_SHORT_WRITE,
+            GBL_RUNNER_AUDIO_WRITER_TEST_FLUSH_FAILURE,
+            GBL_RUNNER_AUDIO_WRITER_TEST_CLOSE_FAILURE
+        };
+        static const char *const errors[] = {
+            "audio-output-write-failed", "audio-output-flush-failed",
+            "audio-output-close-failed"
+        };
+        size_t index;
+        bool faults_okay = true;
+
+        for (index = 0u; index < sizeof faults / sizeof faults[0]; ++index) {
+            (void)remove(fault_path);
+            gbl_runner_test_set_audio_writer_fault(faults[index]);
+            gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                        UINT64_C(4096), UINT64_C(512));
+            faults_okay =
+                gbl_runner_execute(&options, &result) ==
+                    GBL_RUNNER_GUEST_STOP &&
+                result.audio.capture_state ==
+                    GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+                result.audio.interval_complete &&
+                result.audio.artifact_state ==
+                    GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+                strcmp(result.audio.artifact_error, errors[index]) == 0 &&
+                !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+                !result.audio.has_artifact_byte_count &&
+                access(fault_path, F_OK) != 0 && errno == ENOENT &&
+                gbl_test_audio_json_contract(&result, true, "complete",
+                                             "failed", true, true, true,
+                                             false);
+            gbl_runner_result_dispose(&result);
+            if (!faults_okay) break;
+        }
+        gbl_runner_test_set_audio_writer_fault(
+            GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+        okay = faults_okay;
+    }
+    gbl_test_case(okay,
+                  "audio controls: short write, flush, and close failure remove only attempt-owned files");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_FSTAT_FAILURE);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-open-failed") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           access(fault_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_no_audio_temporary_files(scratch_directory) &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: fstat failure cleans the payload through its held private directory");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_REPLACED);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-write-failed") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           gbl_test_read_exact_file(fault_path, existing, sizeof existing,
+                                    8u) &&
+           memcmp(existing, "RACEFILE", 8u) == 0 &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: failed writer preserves a concurrently replaced destination");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_DESTINATION_APPEARS_BEFORE_PUBLISH);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-already-exists") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           gbl_test_read_exact_file(fault_path, existing, sizeof existing,
+                                    8u) &&
+           memcmp(existing, "RACEFILE", 8u) == 0 &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: no-replace publication preserves a destination that appears at commit");
+
+    (void)remove(fault_path);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_PUBLISH_UNSUPPORTED);
+    gbl_test_audio_options_init(&options, rom_path, fault_path,
+                                UINT64_C(4096), UINT64_C(512));
+    okay = gbl_runner_execute(&options, &result) == GBL_RUNNER_GUEST_STOP &&
+           result.audio.capture_state == GBL_RUNNER_AUDIO_CAPTURE_COMPLETE &&
+           result.audio.interval_complete &&
+           result.audio.artifact_state == GBL_RUNNER_AUDIO_ARTIFACT_FAILED &&
+           strcmp(result.audio.artifact_error,
+                  "audio-output-exclusive-publish-unsupported") == 0 &&
+           !result.audio.artifact_emitted && !result.audio.has_sha256 &&
+           !result.audio.has_artifact_byte_count &&
+           access(fault_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_audio_json_contract(&result, true, "complete", "failed",
+                                        true, true, true, false);
+    gbl_runner_result_dispose(&result);
+    gbl_runner_test_set_audio_writer_fault(
+        GBL_RUNNER_AUDIO_WRITER_TEST_NO_FAULT);
+    gbl_test_case(okay,
+                  "audio controls: unsupported exclusive publication reports a stable failure and cleans staging");
+    gbl_test_case(gbl_test_no_audio_temporary_files(scratch_directory),
+                  "audio controls: staged files are removed after success and failure");
+
+    (void)remove(rom_path);
+    (void)remove(halt_rom_path);
+    (void)remove(missing_rom_path);
+    (void)remove(output_path);
+    (void)remove(existing_path);
+    (void)remove(missing_parent_path);
+    (void)remove(fault_path);
+
+    return true;
+}
+
+enum {
+    GBL_PRODUCTION_IMAGE_BYTES = 0xC00u,
+    GBL_PRODUCTION_LITERAL_OFFSET = 0x600u,
+    GBL_PRODUCTION_OAM_OFFSET = 0x800u,
+    GBL_PRODUCTION_OAM_ENTRIES = 128u,
+    GBL_PRODUCTION_CYCLE_BUDGET = 600000u,
+    GBL_PRODUCTION_WITHHELD_BUDGET = 500000u,
+    GBL_PRODUCTION_CASE_ID = 0x15A1u
+};
+
+typedef enum gbl_test_production_guest_variant {
+    GBL_PRODUCTION_GUEST_NORMAL = 0,
+    GBL_PRODUCTION_GUEST_WITHHOLD_MARKER,
+    GBL_PRODUCTION_GUEST_GREEN_BACKGROUND
+} gbl_test_production_guest_variant;
+
+typedef enum gbl_test_production_reason {
+    GBL_PRODUCTION_ACCEPTED = 0,
+    GBL_PRODUCTION_FRAME_INCOMPLETE,
+    GBL_PRODUCTION_COMPLETION_MISSING,
+    GBL_PRODUCTION_PROGRESS_WRONG,
+    GBL_PRODUCTION_CYCLES_INCONSISTENT,
+    GBL_PRODUCTION_PIXEL_MISMATCH,
+    GBL_PRODUCTION_METADATA_WRONG
+} gbl_test_production_reason;
+
+typedef struct gbl_test_production_pixel {
+    uint16_t x;
+    uint16_t y;
+    uint16_t bgr555;
+} gbl_test_production_pixel;
+
+typedef struct gbl_test_production_store {
+    uint32_t address;
+    uint32_t value;
+    uint8_t width_bytes;
+} gbl_test_production_store;
+
+static const gbl_test_production_pixel gbl_test_production_oracle[] = {
+    { 20u, 12u, UINT16_C(0x001F) }, /* transparent OBJ reveals red BG */
+    { 21u, 12u, UINT16_C(0x3C0F) }, /* 8/8 blue OBJ over red BG */
+    { 23u, 12u, UINT16_C(0x3C0F) }, /* last pixel inside half-open WIN0 */
+    { 24u, 12u, UINT16_C(0x7C00) }, /* immediately outside WIN0 */
+    { 28u, 12u, UINT16_C(0x001F) }, /* immediately outside the OBJ */
+    { 20u, 20u, UINT16_C(0x001F) }  /* immediately below WIN0 and OBJ */
+};
+
+static bool gbl_test_production_emit_load(uint8_t *image, size_t *offset,
+                                          size_t *literal_count,
+                                          unsigned int destination,
+                                          uint32_t value)
+{
+    size_t literal;
+
+    if (image == NULL || offset == NULL || literal_count == NULL ||
+        *offset + 4u > GBL_PRODUCTION_LITERAL_OFFSET) {
+        return false;
+    }
+    literal = GBL_PRODUCTION_LITERAL_OFFSET +
+              *literal_count * sizeof(uint32_t);
+    if (literal + sizeof(uint32_t) > GBL_PRODUCTION_OAM_OFFSET) {
+        return false;
+    }
+    gbl_test_emit_arm_ldr_literal(image, offset, destination, literal);
+    gbl_test_write_le32(image, literal, value);
+    (*literal_count)++;
+    return true;
+}
+
+static bool gbl_test_production_emit_store16(uint8_t *image, size_t *offset,
+                                             size_t *literal_count,
+                                             uint32_t address,
+                                             uint16_t value)
+{
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 0u,
+                                       address) ||
+        !gbl_test_production_emit_load(image, offset, literal_count, 1u,
+                                       value) ||
+        *offset + 4u > GBL_PRODUCTION_LITERAL_OFFSET) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1C010B0));
+    return true;
+}
+
+static bool gbl_test_production_emit_store32(uint8_t *image, size_t *offset,
+                                             size_t *literal_count,
+                                             uint32_t address,
+                                             uint32_t value)
+{
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 0u,
+                                       address) ||
+        !gbl_test_production_emit_load(image, offset, literal_count, 1u,
+                                       value) ||
+        *offset + 4u > GBL_PRODUCTION_LITERAL_OFFSET) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE5801000));
+    return true;
+}
+
+static bool gbl_test_production_emit_stores(
+    uint8_t *image, size_t *offset, size_t *literal_count,
+    const gbl_test_production_store *stores, size_t store_count)
+{
+    size_t index;
+
+    if (stores == NULL || store_count == 0u) {
+        return false;
+    }
+    for (index = 0u; index < store_count; ++index) {
+        bool stored;
+
+        if (stores[index].width_bytes == 2u) {
+            stored = gbl_test_production_emit_store16(
+                image, offset, literal_count, stores[index].address,
+                (uint16_t)stores[index].value);
+        } else if (stores[index].width_bytes == 4u) {
+            stored = gbl_test_production_emit_store32(
+                image, offset, literal_count, stores[index].address,
+                stores[index].value);
+        } else {
+            return false;
+        }
+        if (!stored) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void gbl_test_production_patch_branch(uint8_t *image,
+                                             size_t instruction_offset,
+                                             size_t target_offset,
+                                             unsigned int condition)
+{
+    const int64_t distance = (int64_t)target_offset -
+                             (int64_t)(instruction_offset + 8u);
+    const int64_t words = distance / 4;
+    const uint32_t opcode = ((uint32_t)condition << 28u) |
+                            UINT32_C(0x0A000000) |
+                            ((uint32_t)words & UINT32_C(0x00FFFFFF));
+
+    gbl_test_write_le32(image, instruction_offset, opcode);
+}
+
+static bool gbl_test_production_emit_compare16(
+    uint8_t *image, size_t *offset, size_t *literal_count, uint32_t address,
+    uint16_t expected, size_t *branch_offset)
+{
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 0u,
+                                       address)) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1D010B0)); /* LDRH */
+    if (!gbl_test_production_emit_load(image, offset, literal_count, 2u,
+                                       expected)) {
+        return false;
+    }
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1510002)); /* CMP */
+    *branch_offset = *offset;
+    gbl_test_emit_arm_word(image, offset, UINT32_C(0xE1A00000)); /* patched BNE */
+    return true;
+}
+
+static bool gbl_test_write_production_guest(
+    const char *path, gbl_test_production_guest_variant variant)
+{
+    const gbl_test_production_store background_stores[] = {
+        { UINT32_C(0x04000008), UINT32_C(0x1C01), 2u },
+        { UINT32_C(0x0600E000), 0u, 2u },
+        { UINT32_C(0x05000002), 0u, 2u },
+        { UINT32_C(0x05000204), UINT32_C(0x7C00), 2u }
+    };
+    const gbl_test_production_store window_stores[] = {
+        { UINT32_C(0x04000040), UINT32_C(0x1418), 2u },
+        { UINT32_C(0x04000044), UINT32_C(0x0C14), 2u },
+        { UINT32_C(0x04000048), UINT32_C(0x0031), 2u },
+        { UINT32_C(0x0400004A), UINT32_C(0x0011), 2u },
+        { UINT32_C(0x04000050), UINT32_C(0x0150), 2u },
+        { UINT32_C(0x04000052), UINT32_C(0x0808), 2u }
+    };
+    const gbl_test_production_store dma_stores[] = {
+        { UINT32_C(0x040000D4), UINT32_C(0x08000800), 4u },
+        { UINT32_C(0x040000D8), UINT32_C(0x07000000), 4u },
+        { UINT32_C(0x040000DC), UINT32_C(512), 2u },
+        { UINT32_C(0x040000DE), UINT32_C(0x8000), 2u }
+    };
+    const gbl_test_production_store mailbox_stores[] = {
+        { UINT32_C(0x03007FC0), UINT32_C(0x47424C4B), 4u },
+        { UINT32_C(0x03007FC4), 1u, 4u },
+        { UINT32_C(0x03007FC8), 1u, 4u },
+        { UINT32_C(0x03007FCC), GBL_PRODUCTION_CASE_ID, 4u },
+        { UINT32_C(0x03007FD0), 0u, 4u }
+    };
+    uint8_t image[GBL_PRODUCTION_IMAGE_BYTES] = { 0u };
+    const uint16_t background_color =
+        variant == GBL_PRODUCTION_GUEST_GREEN_BACKGROUND
+            ? UINT16_C(0x03E0)
+            : UINT16_C(0x001F);
+    size_t offset = 0u;
+    size_t literal_count = 0u;
+    size_t mismatch_branches[3];
+    size_t mismatch_count = 0u;
+    size_t first_vblank_loop;
+    size_t leave_vblank_loop;
+    size_t next_vblank_loop;
+    size_t withheld_loop;
+    size_t withheld_exit_branch;
+    size_t failure_loop;
+    size_t object;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    /* Keep DISPCNT forced blank while the original guest writes its scene. */
+    if (!gbl_test_production_emit_store16(
+            image, &offset, &literal_count, UINT32_C(0x04000000),
+            UINT16_C(0x31C0))) {
+        return false;
+    }
+
+    /* Mode 0, BG0 text map at screen base 28, BG priority below the OBJ. */
+    {
+        gbl_test_production_store initial_writes[4];
+
+        memcpy(initial_writes, background_stores,
+               sizeof background_stores);
+        initial_writes[2].value = background_color;
+        if (!gbl_test_production_emit_stores(
+                image, &offset, &literal_count, initial_writes,
+                sizeof initial_writes / sizeof initial_writes[0])) {
+            return false;
+        }
+    }
+    for (index = 0u; index < 16u; ++index) {
+        if (!gbl_test_production_emit_store16(
+                image, &offset, &literal_count,
+                UINT32_C(0x06000000) + (uint32_t)(index * 2u),
+                UINT16_C(0x1111))) {
+            return false;
+        }
+        if (!gbl_test_production_emit_store16(
+                image, &offset, &literal_count,
+                UINT32_C(0x06010000) + (uint32_t)(index * 2u),
+                index == 0u ? UINT16_C(0x2220) : UINT16_C(0x2222))) {
+            return false;
+        }
+    }
+
+    /* WIN0 is [20,24) x [12,20); effects are enabled only inside it. */
+    if (!gbl_test_production_emit_stores(
+            image, &offset, &literal_count, window_stores,
+            sizeof window_stores / sizeof window_stores[0])) {
+        return false;
+    }
+
+    /* DMA3 copies all 128 OAM entries from the guest image. */
+    if (!gbl_test_production_emit_stores(
+            image, &offset, &literal_count, dma_stores,
+            sizeof dma_stores / sizeof dma_stores[0])) {
+        return false;
+    }
+
+    /* Publish progress before enabling the scene; completion remains last. */
+    if (!gbl_test_production_emit_stores(
+            image, &offset, &literal_count, mailbox_stores,
+            sizeof mailbox_stores / sizeof mailbox_stores[0]) ||
+        !gbl_test_production_emit_store16(
+            image, &offset, &literal_count, UINT32_C(0x04000000),
+            UINT16_C(0x3140))) {
+        return false;
+    }
+
+    if (!gbl_test_production_emit_load(image, &offset, &literal_count, 0u,
+                                       UINT32_C(0x04000004))) {
+        return false;
+    }
+    first_vblank_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3110001)); /* TST */
+    gbl_test_production_patch_branch(image, offset, first_vblank_loop, 0u);
+    offset += 4u;
+
+    leave_vblank_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3110001));
+    gbl_test_production_patch_branch(image, offset, leave_vblank_loop, 1u);
+    offset += 4u;
+
+    next_vblank_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3110001));
+    gbl_test_production_patch_branch(image, offset, next_vblank_loop, 0u);
+    offset += 4u;
+
+    /* Read back one CPU-written palette witness and both OAM DMA edges. */
+    if (!gbl_test_production_emit_compare16(
+            image, &offset, &literal_count, UINT32_C(0x05000002),
+            background_color, &mismatch_branches[mismatch_count++]) ||
+        !gbl_test_production_emit_compare16(
+            image, &offset, &literal_count, UINT32_C(0x07000000),
+            UINT16_C(0x040C), &mismatch_branches[mismatch_count++]) ||
+        !gbl_test_production_emit_compare16(
+            image, &offset, &literal_count, UINT32_C(0x070003F8),
+            UINT16_C(0x0200), &mismatch_branches[mismatch_count++]) ||
+        !gbl_test_production_emit_store32(
+            image, &offset, &literal_count, UINT32_C(0x03007FC8), 2u) ||
+        (variant != GBL_PRODUCTION_GUEST_WITHHOLD_MARKER &&
+         !gbl_test_production_emit_store32(
+             image, &offset, &literal_count, UINT32_C(0x03007FD0),
+             UINT32_C(0x434F4D50)))) {
+        return false;
+    }
+    if (variant == GBL_PRODUCTION_GUEST_WITHHOLD_MARKER) {
+        if (!gbl_test_production_emit_load(image, &offset, &literal_count, 0u,
+                                           UINT32_C(0x04000004))) {
+            return false;
+        }
+        withheld_loop = offset;
+        gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1D010B0));
+        gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3110001));
+        gbl_test_production_patch_branch(image, offset, withheld_loop, 1u);
+        offset += 4u;
+        withheld_exit_branch = offset;
+        gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1A00000));
+        gbl_test_production_patch_branch(image, withheld_exit_branch,
+                                         withheld_loop, 0u);
+    } else {
+        gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    }
+    failure_loop = offset;
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    for (index = 0u; index < mismatch_count; ++index) {
+        gbl_test_production_patch_branch(image, mismatch_branches[index],
+                                         failure_loop, 1u);
+    }
+    if (offset >= GBL_PRODUCTION_LITERAL_OFFSET ||
+        GBL_PRODUCTION_LITERAL_OFFSET + literal_count * sizeof(uint32_t) >
+            GBL_PRODUCTION_OAM_OFFSET) {
+        return false;
+    }
+
+    for (object = 0u; object < GBL_PRODUCTION_OAM_ENTRIES; ++object) {
+        const uint32_t attr0 = object == 0u ? UINT32_C(0x040C)
+                                            : UINT32_C(0x0200);
+        const uint32_t attr1 = object == 0u ? UINT32_C(20) : 0u;
+        const size_t entry = GBL_PRODUCTION_OAM_OFFSET + object * 8u;
+
+        gbl_test_write_le32(image, entry, attr0 | (attr1 << 16u));
+        gbl_test_write_le32(image, entry + 4u, 0u);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_write_ppu_invalid_obj_guest(const char *path)
+{
+    uint8_t image[0xC0u] = { 0u };
+    const size_t literal_offset = 0x80u;
+    const uint32_t literals[] = {
+        UINT32_C(0x04000000), UINT32_C(0x1000),
+        UINT32_C(0x07000000), UINT32_C(0x0C00)
+    };
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u,
+                                  literal_offset + 8u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 12u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE1C010B0));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFFE));
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, literal_offset + index * 4u,
+                            literals[index]);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_write_ppu_transition_guest(const char *path)
+{
+    uint8_t image[0xC0u] = { 0u };
+    const size_t literal_offset = 0xA0u;
+    const uint32_t literals[] = {
+        UINT32_C(0x04000000), UINT32_C(0x0403),
+        UINT32_C(0x04000130), UINT32_C(0x06000000),
+        UINT32_C(0x001F), UINT32_C(0x03E0)
+    };
+    size_t offset = 0u;
+    size_t index;
+    FILE *file;
+    bool okay;
+
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u, literal_offset + 4u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5801000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 0u, literal_offset + 8u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE5900000));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 4u, literal_offset);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3100002));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x03A01003));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x05841000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xE3100001));
+    gbl_test_emit_arm_ldr_literal(image, &offset, 3u,
+                                  literal_offset + 12u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 1u,
+                                  literal_offset + 16u);
+    gbl_test_emit_arm_ldr_literal(image, &offset, 2u,
+                                  literal_offset + 20u);
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x15831000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0x05832000));
+    gbl_test_emit_arm_word(image, &offset, UINT32_C(0xEAFFFFF2));
+    for (index = 0u; index < sizeof literals / sizeof literals[0]; ++index) {
+        gbl_test_write_le32(image, literal_offset + index * 4u,
+                            literals[index]);
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_runner_ppu_observation(const char *scratch_directory)
+{
+    static const char expected_display_capabilities[] =
+        "\"display_capabilities\":{\"model\":\"gamebloke-display-capabilities-2\","
+        "\"composition_features\":{\"rectangular_windows\":true,"
+        "\"object_windows\":true,\"alpha_blending\":true,\"brightness\":true,"
+        "\"bg_mosaic\":true,\"obj_mosaic\":true,\"forced_blank\":true,"
+        "\"classification\":\"project-selected\","
+        "\"hardware_qualification\":\"UNKNOWN\"},"
+        "\"raw_output\":{\"format\":\"BGR555_LE\",\"width\":240,"
+        "\"height\":160,\"stride_bytes\":480,\"byte_length\":76800},"
+        "\"modes\":["
+        "{\"mode\":0,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":0,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":1,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":2,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":3,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]}]},"
+        "{\"mode\":1,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":0,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":1,\"source\":\"text\",\"dimensions\":[{\"width\":256,\"height\":256},{\"width\":512,\"height\":256},{\"width\":256,\"height\":512},{\"width\":512,\"height\":512}]},"
+        "{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]}]},"
+        "{\"mode\":2,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]},"
+        "{\"bg\":3,\"source\":\"affine\",\"dimensions\":[{\"width\":128,\"height\":128},{\"width\":256,\"height\":256},{\"width\":512,\"height\":512},{\"width\":1024,\"height\":1024}]}]},"
+        "{\"mode\":3,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]}]},"
+        "{\"mode\":4,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"indexed-bitmap\",\"dimensions\":[{\"width\":240,\"height\":160}]}]},"
+        "{\"mode\":5,\"implementation_status\":\"partial\",\"backgrounds\":["
+        "{\"bg\":2,\"source\":\"direct-color-bitmap\",\"dimensions\":[{\"width\":160,\"height\":128}]}]}]}";
+    const gbl_input_event input_event = { 0u, UINT16_C(0x0001) };
+    gbl_runner_options options = { 0 };
+    gbl_runner_result result = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[16384];
+    size_t json_length = 0u;
+    bool okay;
+    const char *capabilities;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "ppu-observation.gba") ||
+        !gbl_test_write_ppu_guest_with_dispcnt(rom_path,
+                                               UINT32_C(0x1100))) {
+        return false;
+    }
+    options.rom_path = rom_path;
+    options.cycle_budget = UINT64_C(500000);
+    options.input_timeline_present = true;
+    options.input_events = &input_event;
+    options.input_event_count = 1u;
+    okay = gbl_runner_execute(&options, &result) == result.status &&
+           result.ran && result.cycles > 0u &&
+           result.phase8.observed &&
+           result.phase8.applied_input_events == 1u &&
+           result.semantic.status != GBL_MAILBOX_PASS &&
+           gbl_test_serialize_result(&result, json, sizeof json) &&
+           (json_length = strlen(json)) > 0u;
+    if (okay) {
+        json[json_length] = '\0';
+        capabilities = strstr(json, "\"display_capabilities\":");
+        okay = strstr(json, "\"phase10\":{") != NULL &&
+               strstr(json,
+                      "\"model\":\"gamebloke-ppu-observation-2\",\"profile_version\":16") != NULL &&
+               strstr(json, "\"line_cycle\":") != NULL &&
+               strstr(json, "\"frame_epoch\":") != NULL &&
+               strstr(json, "\"state\":\"valid\"") != NULL &&
+               result.phase10.capture_reason == GBL_VIDEO_INVALID_REASON_NONE &&
+               result.phase10.supported_controls &&
+               strstr(json,
+                      "\"reason\":\"none\",\"supported_controls\":true") != NULL &&
+               strstr(json, "\"completion_cycle\":\"") != NULL &&
+               capabilities != NULL &&
+               strncmp(capabilities, expected_display_capabilities,
+                       sizeof expected_display_capabilities - 1u) == 0 &&
+               capabilities[sizeof expected_display_capabilities - 1u] == ',' &&
+               strstr(json,
+                      "\"video_memory_access\":{\"classification\":\"project-selected\",\"hardware_qualification\":\"UNKNOWN\",\"masters\":[\"cpu\",\"dma\"],\"regions\":[\"pram\",\"vram\",\"oam\"],\"states\":[\"drawing\",\"hblank\",\"vblank\",\"forced-blank\"],\"availability\":\"existing-bus-behavior\",\"ppu_extra_cycles\":0,\"cost_reference\":\"bus_policy.request_cycles\"}") != NULL &&
+               strstr(json, "\"classification\":\"disputed\"") != NULL &&
+               strstr(json, "\"dispute_id\":\"disp-hblank-flag-edge\"") != NULL &&
+               strstr(json, "\"hardware_qualification\":\"UNKNOWN\"") != NULL &&
+               strstr(json, "\"raw_video\":") != NULL &&
+               strstr(json, "\"cycles\":") != NULL &&
+               strstr(json,
+                      "\"input_timeline\":{\"kind\":\"script\",\"sha256\":") != NULL;
+    }
+    if (okay) {
+        gbl_runner_result unsupported_obj = result;
+
+        unsupported_obj.phase10.capture_state = GBL_VIDEO_CAPTURE_INVALID;
+        unsupported_obj.phase10.capture_reason =
+            GBL_VIDEO_INVALID_REASON_OBJ_ENABLED;
+        unsupported_obj.phase10.supported_controls = false;
+        okay = gbl_test_serialize_result(&unsupported_obj, json,
+                                         sizeof json) &&
+               strstr(json,
+                      "\"state\":\"invalid\",\"reason\":\"unsupported-obj-control\",\"supported_controls\":false") != NULL;
+    }
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static gbl_runner_status gbl_test_execute_ppu(
+    const char *rom_path, const char *video_path,
+    const gbl_input_event *events, size_t event_count,
+    bool timeline_present, uint64_t budget,
+    gbl_runner_allocator allocator, gbl_runner_result *result)
+{
+    gbl_runner_options options = { 0 };
+
+    options.rom_path = rom_path;
+    options.cycle_budget = budget;
+    options.input_timeline_present = timeline_present;
+    options.input_events = events;
+    options.input_event_count = event_count;
+    options.video_output_path = video_path;
+    options.allocator = allocator;
+    return gbl_runner_execute(&options, result);
+}
+
+static bool gbl_test_video_file_matches(const char *path,
+                                       const uint8_t *expected,
+                                       size_t expected_length)
+{
+    FILE *file;
+    uint8_t *actual;
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (path == NULL || expected == NULL || expected_length == 0u) {
+        return false;
+    }
+    actual = malloc(expected_length);
+    if (actual == NULL) {
+        return false;
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) {
+        free(actual);
+        return false;
+    }
+    length = fread(actual, 1u, expected_length, file);
+    extra = fgetc(file);
+    okay = length == expected_length && extra == EOF && ferror(file) == 0 &&
+           memcmp(actual, expected, expected_length) == 0;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    free(actual);
+    return okay;
+}
+
+static bool gbl_test_production_pixels_match(
+    const uint8_t *video, size_t video_length,
+    const gbl_test_production_pixel *expected, size_t expected_count)
+{
+    size_t index;
+
+    if (video == NULL || video_length != GBL_RUNNER_VIDEO_BYTES ||
+        expected == NULL || expected_count == 0u) {
+        return false;
+    }
+    for (index = 0u; index < expected_count; ++index) {
+        size_t offset;
+        uint16_t actual;
+
+        if (expected[index].x >= 240u || expected[index].y >= 160u) {
+            return false;
+        }
+        offset = ((size_t)expected[index].y * 240u + expected[index].x) * 2u;
+        actual = (uint16_t)((uint16_t)video[offset] |
+                            ((uint16_t)video[offset + 1u] << 8u));
+        if (actual != expected[index].bgr555) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static size_t gbl_test_count_substring(const char *text,
+                                       const char *needle)
+{
+    size_t count = 0u;
+    size_t length;
+    const char *found;
+
+    if (text == NULL || needle == NULL || needle[0] == '\0') {
+        return 0u;
+    }
+    length = strlen(needle);
+    found = text;
+    while ((found = strstr(found, needle)) != NULL) {
+        ++count;
+        found += length;
+    }
+    return count;
+}
+
+static bool gbl_test_u64_add(uint64_t left, uint64_t right,
+                            uint64_t *sum_out)
+{
+    if (sum_out == NULL || right > UINT64_MAX - left) {
+        return false;
+    }
+    *sum_out = left + right;
+    return true;
+}
+
+static bool gbl_test_production_metadata_matches(const char *json)
+{
+    static const char access_policy[] =
+        "\"video_memory_access\":{\"classification\":\"project-selected\","
+        "\"hardware_qualification\":\"UNKNOWN\",\"masters\":[\"cpu\",\"dma\"],"
+        "\"regions\":[\"pram\",\"vram\",\"oam\"],"
+        "\"states\":[\"drawing\",\"hblank\",\"vblank\",\"forced-blank\"],"
+        "\"availability\":\"existing-bus-behavior\",\"ppu_extra_cycles\":0,"
+        "\"cost_reference\":\"bus_policy.request_cycles\"}";
+    unsigned int mode;
+
+    if (json == NULL ||
+        strstr(json,
+               "\"machine\":\"agb\",\"boot\":\"direct-start\","
+               "\"bios_provider\":\"none\",\"cart\":{\"kind\":\"rom-only\"") ==
+            NULL ||
+        strstr(json, access_policy) == NULL ||
+        strstr(json, "\"hardware_qualification\":\"UNKNOWN\"") == NULL ||
+        strstr(json, "\"state\":\"valid\",\"reason\":\"none\"") ==
+            NULL ||
+        strstr(json, "\"format\":\"bgr555-le\"") == NULL ||
+        strstr(json, "\"width\":240,\"height\":160,\"stride_bytes\":480,") ==
+            NULL ||
+        strstr(json, "\"byte_length\":76800") == NULL ||
+        strstr(json, "\"sample_cycle\":\"") == NULL ||
+        strstr(json, "\"completion_cycle\":\"") == NULL ||
+        gbl_test_count_substring(json,
+                                 "\"implementation_status\":\"partial\"") !=
+            6u) {
+        return false;
+    }
+    for (mode = 0u; mode <= 5u; ++mode) {
+        char expected_mode[64];
+
+        if (snprintf(expected_mode, sizeof expected_mode,
+                     "\"mode\":%u,\"implementation_status\":\"partial\"",
+                     mode) < 0 || strstr(json, expected_mode) == NULL) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static gbl_test_production_reason gbl_test_production_evaluate(
+    const gbl_runner_result *result, const uint8_t *video,
+    const char *serialized_json,
+    const gbl_test_production_pixel *expected_pixels,
+    size_t expected_pixel_count)
+{
+    const gbl_runner_phase10_observation *frame;
+    uint64_t computed_cycles;
+    uint64_t computed_dma_pause;
+
+    if (result == NULL) {
+        return GBL_PRODUCTION_FRAME_INCOMPLETE;
+    }
+    frame = &result->phase10;
+    if (!frame->observed || !frame->frame_started ||
+        frame->capture_state != GBL_VIDEO_CAPTURE_VALID ||
+        frame->capture_reason != GBL_VIDEO_INVALID_REASON_NONE ||
+        !frame->supported_controls || !frame->has_sample_cycle ||
+        !frame->has_completion_cycle ||
+        frame->sample_cycle > frame->completion_cycle ||
+        frame->completion_cycle > result->cycles ||
+        !frame->video_requested || !frame->video_emitted ||
+        frame->video_bytes == NULL ||
+        frame->video_length != GBL_RUNNER_VIDEO_BYTES || video == NULL ||
+        video != frame->video_bytes) {
+        return GBL_PRODUCTION_FRAME_INCOMPLETE;
+    }
+    if (result->semantic.status != GBL_MAILBOX_PASS) {
+        return GBL_PRODUCTION_COMPLETION_MISSING;
+    }
+    if (result->semantic.case_id != GBL_PRODUCTION_CASE_ID) {
+        return GBL_PRODUCTION_PROGRESS_WRONG;
+    }
+    /* DMA pause is a reported subtotal. Reconcile it with the DMA components,
+     * then account for those components exactly once in total machine time. */
+    if (!result->ran || result->budget_cycles == 0u ||
+        result->budget_cycles > GBL_PRODUCTION_CYCLE_BUDGET ||
+        result->cycles == 0u || result->cycles > result->budget_cycles ||
+        result->instructions == 0u ||
+        result->bus_cycles > result->cycles ||
+        result->internal_cycles > result->cycles ||
+        result->dma_pause_cycles > result->cycles ||
+        !result->phase8.observed ||
+        result->phase8.wait_cycles != result->wait_cycles ||
+        !gbl_test_u64_add(result->dma_startup_cycles,
+                          result->dma_source_cycles,
+                          &computed_dma_pause) ||
+        !gbl_test_u64_add(computed_dma_pause,
+                          result->dma_destination_cycles,
+                          &computed_dma_pause) ||
+        computed_dma_pause != result->dma_pause_cycles ||
+        !gbl_test_u64_add(result->bus_cycles, result->internal_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->wait_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->dma_startup_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->dma_source_cycles,
+                          &computed_cycles) ||
+        !gbl_test_u64_add(computed_cycles, result->dma_destination_cycles,
+                          &computed_cycles) ||
+        computed_cycles != result->cycles ||
+        result->phase10.machine_cycles != result->cycles ||
+        !result->phase9.observed ||
+        result->phase9.machine_cycles != result->cycles ||
+        result->phase9.bus_owner != GBL_MACHINE_BUS_OWNER_CPU ||
+        result->dma_completed_units != GBL_PRODUCTION_OAM_ENTRIES * 4u ||
+        result->phase9.channels[3].completed_units !=
+            GBL_PRODUCTION_OAM_ENTRIES * 4u ||
+        result->phase9.channels[3].remaining != 0u ||
+        result->dma_startup_cycles == 0u || result->dma_source_cycles == 0u ||
+        result->dma_destination_cycles == 0u) {
+        return GBL_PRODUCTION_CYCLES_INCONSISTENT;
+    }
+    if (!gbl_test_production_pixels_match(video, frame->video_length,
+                                          expected_pixels,
+                                          expected_pixel_count)) {
+        return GBL_PRODUCTION_PIXEL_MISMATCH;
+    }
+    if (result->status != GBL_RUNNER_GUEST_STOP ||
+        strcmp(result->reason, "unregistered-content") != 0 ||
+        strcmp(result->termination, "unregistered-content") != 0 ||
+        result->has_fixture_id ||
+        !gbl_test_production_metadata_matches(serialized_json)) {
+        return GBL_PRODUCTION_METADATA_WRONG;
+    }
+    return GBL_PRODUCTION_ACCEPTED;
+}
+
+static const char *gbl_test_production_reason_name(
+    gbl_test_production_reason reason)
+{
+    switch (reason) {
+    case GBL_PRODUCTION_ACCEPTED: return "accepted";
+    case GBL_PRODUCTION_FRAME_INCOMPLETE: return "frame-incomplete";
+    case GBL_PRODUCTION_COMPLETION_MISSING: return "semantic-completion";
+    case GBL_PRODUCTION_PROGRESS_WRONG: return "progress";
+    case GBL_PRODUCTION_CYCLES_INCONSISTENT: return "cycle-accounting";
+    case GBL_PRODUCTION_PIXEL_MISMATCH: return "pixel-oracle";
+    case GBL_PRODUCTION_METADATA_WRONG: return "metadata";
+    }
+    return "unknown";
+}
+
+static bool gbl_test_production_replay_matches(
+    const gbl_runner_result *left, const gbl_runner_result *right)
+{
+    char left_digest[GBL_SHA256_HEX_CAPACITY];
+    char right_digest[GBL_SHA256_HEX_CAPACITY];
+
+    return left != NULL && right != NULL && left->ran && right->ran &&
+           left->status == GBL_RUNNER_GUEST_STOP &&
+           right->status == GBL_RUNNER_GUEST_STOP &&
+           left->semantic.status == GBL_MAILBOX_PASS &&
+           right->semantic.status == GBL_MAILBOX_PASS &&
+           left->semantic.case_id == right->semantic.case_id &&
+           left->cycles == right->cycles &&
+           left->instructions == right->instructions &&
+           left->budget_cycles == right->budget_cycles &&
+           left->bus_cycles == right->bus_cycles &&
+           left->internal_cycles == right->internal_cycles &&
+           left->wait_cycles == right->wait_cycles &&
+           left->dma_startup_cycles == right->dma_startup_cycles &&
+           left->dma_source_cycles == right->dma_source_cycles &&
+           left->dma_destination_cycles == right->dma_destination_cycles &&
+           left->dma_completed_units == right->dma_completed_units &&
+           left->dma_pause_cycles == right->dma_pause_cycles &&
+           left->phase10.capture_state == right->phase10.capture_state &&
+           left->phase10.sample_cycle == right->phase10.sample_cycle &&
+           left->phase10.completion_cycle == right->phase10.completion_cycle &&
+           left->phase10.video_bytes != NULL &&
+           right->phase10.video_bytes != NULL &&
+           left->phase10.video_length == GBL_RUNNER_VIDEO_BYTES &&
+           right->phase10.video_length == GBL_RUNNER_VIDEO_BYTES &&
+           memcmp(left->phase10.video_bytes, right->phase10.video_bytes,
+                  GBL_RUNNER_VIDEO_BYTES) == 0 &&
+           gbl_sha256_span(left->phase10.video_bytes,
+                           left->phase10.video_length, left_digest) &&
+           gbl_sha256_span(right->phase10.video_bytes,
+                           right->phase10.video_length, right_digest) &&
+           strcmp(left_digest, right_digest) == 0 &&
+           left->phase10.has_video_sha256 &&
+           right->phase10.has_video_sha256 &&
+           strcmp(left_digest, left->phase10.video_sha256) == 0 &&
+           strcmp(right_digest, right->phase10.video_sha256) == 0;
+}
+
+static bool gbl_test_runner_production(const char *scratch_directory)
+{
+    gbl_runner_result result = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char video_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char rom_bytes[GBL_PRODUCTION_IMAGE_BYTES + 1u];
+    char source_rom_sha256[GBL_SHA256_HEX_CAPACITY];
+    char video_sha256[GBL_SHA256_HEX_CAPACITY];
+    char json[16384];
+    struct stat rom_status;
+    gbl_test_production_reason reason = GBL_PRODUCTION_FRAME_INCOMPLETE;
+    bool setup;
+
+    setup = gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                          "ppu-production.gba") &&
+            gbl_test_path(video_path, sizeof video_path, scratch_directory,
+                          "ppu-production.raw");
+    if (!setup) {
+        return false;
+    }
+    (void)remove(rom_path);
+    (void)remove(video_path);
+    setup = gbl_test_write_production_guest(
+            rom_path, GBL_PRODUCTION_GUEST_NORMAL) &&
+            stat(rom_path, &rom_status) == 0 &&
+            rom_status.st_size == (off_t)GBL_PRODUCTION_IMAGE_BYTES &&
+            gbl_test_read_file(rom_path, rom_bytes, sizeof rom_bytes) &&
+            gbl_sha256_span((const uint8_t *)rom_bytes,
+                            GBL_PRODUCTION_IMAGE_BYTES,
+                            source_rom_sha256);
+    if (setup) {
+        (void)gbl_test_execute_ppu(
+            rom_path, video_path, NULL, 0u, false,
+            GBL_PRODUCTION_CYCLE_BUDGET, (gbl_runner_allocator){ 0 },
+            &result);
+        setup = result.has_rom_sha256 &&
+                strcmp(source_rom_sha256, result.rom_sha256) == 0 &&
+                gbl_test_serialize_result(&result, json, sizeof json);
+    }
+    if (setup) {
+        reason = gbl_test_production_evaluate(
+            &result, result.phase10.video_bytes, json,
+            gbl_test_production_oracle,
+            sizeof gbl_test_production_oracle /
+                sizeof gbl_test_production_oracle[0]);
+        setup = result.budget_cycles == GBL_PRODUCTION_CYCLE_BUDGET &&
+                reason == GBL_PRODUCTION_ACCEPTED &&
+                result.phase10.has_video_sha256 &&
+                gbl_sha256_span(result.phase10.video_bytes,
+                                result.phase10.video_length, video_sha256) &&
+                strcmp(video_sha256, result.phase10.video_sha256) == 0 &&
+                gbl_test_video_file_matches(video_path,
+                                            result.phase10.video_bytes,
+                                            GBL_RUNNER_VIDEO_BYTES);
+    }
+    if (setup) {
+        printf("# ppu.production.receipt "
+               "source=tests/runner_test.c:gbl_test_write_production_guest "
+               "image_bytes=%u rom_sha256=%s profile=agb "
+               "boot=direct-start bios=none fixture=none mode=0 "
+               "raw_format=BGR555_LE width=240 height=160 "
+               "status=GUEST_STOP reason=unregistered-content "
+               "termination=unregistered-content mailbox=PASS "
+               "case_id=0x%04X pixel_oracle=passed pixel_count=%zu ran=%s "
+               "cycles=%" PRIu64 " budget_cycles=%" PRIu64 " "
+               "instructions=%" PRIu64 " bus_cycles=%" PRIu64 " "
+               "internal_cycles=%" PRIu64 " wait_cycles=%" PRIu64 " "
+               "dma_startup_cycles=%" PRIu64 " dma_source_cycles=%" PRIu64
+               " dma_destination_cycles=%" PRIu64 " "
+               "dma_completed_units=%" PRIu64 " dma_pause_cycles=%" PRIu64
+               " capture=VALID capture_reason=none sample_cycle=%" PRIu64 " "
+               "completion_cycle=%" PRIu64 " video_bytes=%zu "
+               "video_sha256=%s\n",
+               (unsigned int)GBL_PRODUCTION_IMAGE_BYTES, source_rom_sha256,
+               (unsigned int)GBL_PRODUCTION_CASE_ID,
+               sizeof gbl_test_production_oracle /
+                   sizeof gbl_test_production_oracle[0],
+               result.ran ? "true" : "false", result.cycles,
+               result.budget_cycles, result.instructions, result.bus_cycles,
+               result.internal_cycles, result.wait_cycles,
+               result.dma_startup_cycles, result.dma_source_cycles,
+               result.dma_destination_cycles, result.dma_completed_units,
+               result.dma_pause_cycles, result.phase10.sample_cycle,
+               result.phase10.completion_cycle, result.phase10.video_length,
+               video_sha256);
+    }
+    gbl_test_case(setup,
+                  "ppu.production: bounded CPU/DMA scene reaches mailbox PASS, full frame and independent literal pixels; top-level GUEST_STOP remains unregistered-content");
+    if (!setup) {
+        fprintf(stderr,
+                "runner_test: production evaluator returned %s: status=%d reason=%s termination=%s semantic=%d case=%u cycles=%llu budget=%llu instructions=%llu bus=%llu internal=%llu phase10=%llu phase9=%llu dma=%llu channel3=%llu remaining=%u startup=%llu source=%llu destination=%llu pause=%llu\n",
+                gbl_test_production_reason_name(reason), (int)result.status,
+                result.reason, result.termination,
+                (int)result.semantic.status, result.semantic.case_id,
+                (unsigned long long)result.cycles,
+                (unsigned long long)result.budget_cycles,
+                (unsigned long long)result.instructions,
+                (unsigned long long)result.bus_cycles,
+                (unsigned long long)result.internal_cycles,
+                (unsigned long long)result.phase10.machine_cycles,
+                (unsigned long long)result.phase9.machine_cycles,
+                (unsigned long long)result.dma_completed_units,
+                (unsigned long long)result.phase9.channels[3].completed_units,
+                result.phase9.channels[3].remaining,
+                (unsigned long long)result.dma_startup_cycles,
+                (unsigned long long)result.dma_source_cycles,
+                (unsigned long long)result.dma_destination_cycles,
+                (unsigned long long)result.dma_pause_cycles);
+    }
+    gbl_runner_result_dispose(&result);
+    (void)remove(rom_path);
+    (void)remove(video_path);
+    return true;
+}
+
+static bool gbl_test_runner_production_controls(
+    const char *scratch_directory)
+{
+    gbl_runner_result clean = { 0 };
+    gbl_runner_result repeated = { 0 };
+    gbl_runner_result withheld = { 0 };
+    gbl_runner_result early = { 0 };
+    gbl_runner_result altered = { 0 };
+    gbl_runner_result damaged_progress = { 0 };
+    gbl_runner_result inconsistent_cycles = { 0 };
+    gbl_runner_result inconsistent_wait = { 0 };
+    gbl_runner_result inconsistent_dma_source = { 0 };
+    char clean_rom[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char altered_rom[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char withheld_rom[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char clean_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char repeated_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char withheld_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char altered_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char clean_json[16384];
+    char repeated_json[16384];
+    char withheld_json[16384];
+    char early_json[16384];
+    char altered_json[16384];
+    char tampered_json[16384];
+    gbl_test_production_pixel wrong_expected[
+        sizeof gbl_test_production_oracle /
+        sizeof gbl_test_production_oracle[0]];
+    gbl_test_production_reason clean_reason = GBL_PRODUCTION_FRAME_INCOMPLETE;
+    gbl_test_production_reason repeated_reason = GBL_PRODUCTION_FRAME_INCOMPLETE;
+    gbl_test_production_reason withheld_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason early_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason altered_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason progress_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason cycles_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason metadata_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason wait_cycles_reason = GBL_PRODUCTION_ACCEPTED;
+    gbl_test_production_reason dma_source_reason = GBL_PRODUCTION_ACCEPTED;
+    bool setup;
+    bool clean_okay;
+    bool replay_okay;
+    bool withheld_okay;
+    bool early_okay;
+    bool wrong_expected_okay;
+    bool altered_okay;
+    bool progress_okay;
+    bool cycles_okay;
+    bool wait_cycles_okay;
+    bool dma_source_okay;
+    bool metadata_okay;
+    char *changed_access;
+
+    setup = gbl_test_path(clean_rom, sizeof clean_rom, scratch_directory,
+                          "ppu-production-controls.gba") &&
+            gbl_test_path(withheld_rom, sizeof withheld_rom,
+                          scratch_directory,
+                          "ppu-production-controls-withheld.gba") &&
+            gbl_test_path(altered_rom, sizeof altered_rom, scratch_directory,
+                          "ppu-production-controls-green.gba") &&
+            gbl_test_path(clean_path, sizeof clean_path, scratch_directory,
+                          "ppu-production-controls-first.raw") &&
+            gbl_test_path(repeated_path, sizeof repeated_path,
+                          scratch_directory,
+                          "ppu-production-controls-repeat.raw") &&
+            gbl_test_path(withheld_path, sizeof withheld_path,
+                          scratch_directory,
+                          "ppu-production-controls-withheld.raw") &&
+            gbl_test_path(altered_path, sizeof altered_path, scratch_directory,
+                          "ppu-production-controls-green.raw");
+    if (!setup) {
+        return false;
+    }
+    (void)remove(clean_rom);
+    (void)remove(withheld_rom);
+    (void)remove(altered_rom);
+    (void)remove(clean_path);
+    (void)remove(repeated_path);
+    (void)remove(withheld_path);
+    (void)remove(altered_path);
+
+    setup = gbl_test_write_production_guest(
+                clean_rom, GBL_PRODUCTION_GUEST_NORMAL) &&
+            gbl_test_write_production_guest(
+                withheld_rom, GBL_PRODUCTION_GUEST_WITHHOLD_MARKER) &&
+            gbl_test_write_production_guest(
+                altered_rom, GBL_PRODUCTION_GUEST_GREEN_BACKGROUND);
+    if (!setup) {
+        goto cleanup;
+    }
+
+    (void)gbl_test_execute_ppu(
+        clean_rom, clean_path, NULL, 0u, false, GBL_PRODUCTION_CYCLE_BUDGET,
+        (gbl_runner_allocator){ 0 }, &clean);
+    (void)gbl_test_execute_ppu(
+        clean_rom, repeated_path, NULL, 0u, false,
+        GBL_PRODUCTION_CYCLE_BUDGET, (gbl_runner_allocator){ 0 }, &repeated);
+    setup = gbl_test_serialize_result(&clean, clean_json, sizeof clean_json) &&
+            gbl_test_serialize_result(&repeated, repeated_json,
+                                      sizeof repeated_json);
+    if (!setup) {
+        goto cleanup;
+    }
+    clean_reason = gbl_test_production_evaluate(
+        &clean, clean.phase10.video_bytes, clean_json,
+        gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    repeated_reason = gbl_test_production_evaluate(
+        &repeated, repeated.phase10.video_bytes, repeated_json,
+        gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    clean_okay = clean_reason == GBL_PRODUCTION_ACCEPTED &&
+                 repeated_reason == GBL_PRODUCTION_ACCEPTED;
+    replay_okay = clean_okay &&
+                  gbl_test_production_replay_matches(&clean, &repeated) &&
+                  gbl_test_video_file_matches(clean_path,
+                                              clean.phase10.video_bytes,
+                                              GBL_RUNNER_VIDEO_BYTES) &&
+                  gbl_test_video_file_matches(repeated_path,
+                                              repeated.phase10.video_bytes,
+                                              GBL_RUNNER_VIDEO_BYTES);
+    gbl_test_case(replay_okay,
+                  "fresh clean twins pass semantic, accounting, literal-pixel and metadata checks and reproduce all raw frame bytes");
+
+    (void)gbl_test_execute_ppu(
+        withheld_rom, withheld_path, NULL, 0u, false,
+        GBL_PRODUCTION_WITHHELD_BUDGET, (gbl_runner_allocator){ 0 },
+        &withheld);
+    setup = gbl_test_serialize_result(&withheld, withheld_json,
+                                      sizeof withheld_json);
+    if (setup) {
+        withheld_reason = gbl_test_production_evaluate(
+            &withheld, withheld.phase10.video_bytes, withheld_json,
+            gbl_test_production_oracle,
+            sizeof gbl_test_production_oracle /
+                sizeof gbl_test_production_oracle[0]);
+    }
+    withheld_okay = setup && withheld.status == GBL_RUNNER_TIMEOUT &&
+                    withheld.budget_cycles == GBL_PRODUCTION_WITHHELD_BUDGET &&
+                    withheld.cycles <= GBL_PRODUCTION_WITHHELD_BUDGET &&
+                    withheld.semantic.status == GBL_MAILBOX_PENDING &&
+                    withheld.semantic.case_id == GBL_PRODUCTION_CASE_ID &&
+                    withheld.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+                    withheld.phase10.video_emitted &&
+                    gbl_test_video_file_matches(
+                        withheld_path, withheld.phase10.video_bytes,
+                        GBL_RUNNER_VIDEO_BYTES) &&
+                    withheld_reason == GBL_PRODUCTION_COMPLETION_MISSING;
+    if (!withheld_okay) {
+        fprintf(stderr,
+                "runner_test: withheld marker status=%d reason=%s termination=%s semantic=%d case=%u frame=%d frame_reason=%d emitted=%d length=%zu eval=%s setup=%d\n",
+                (int)withheld.status, withheld.reason, withheld.termination,
+                (int)withheld.semantic.status, withheld.semantic.case_id,
+                (int)withheld.phase10.capture_state,
+                (int)withheld.phase10.capture_reason,
+                withheld.phase10.video_emitted ? 1 : 0,
+                withheld.phase10.video_length,
+                gbl_test_production_reason_name(withheld_reason),
+                setup ? 1 : 0);
+    }
+    gbl_test_case(withheld_okay,
+                  "full frame after timeout cannot substitute for a missing terminal mailbox marker");
+
+    (void)gbl_test_execute_ppu(
+        clean_rom, NULL, NULL, 0u, false, UINT64_C(100000),
+        (gbl_runner_allocator){ 0 }, &early);
+    setup = gbl_test_serialize_result(&early, early_json, sizeof early_json);
+    if (setup) {
+        early_reason = gbl_test_production_evaluate(
+            &early, early.phase10.video_bytes, early_json,
+            gbl_test_production_oracle,
+            sizeof gbl_test_production_oracle /
+                sizeof gbl_test_production_oracle[0]);
+    }
+    early_okay = setup && early.status == GBL_RUNNER_TIMEOUT &&
+                 early.phase10.capture_state == GBL_VIDEO_CAPTURE_INCOMPLETE &&
+                 early.phase10.capture_reason == GBL_VIDEO_INVALID_REASON_INCOMPLETE &&
+                 early.phase10.video_bytes == NULL &&
+                 early_reason == GBL_PRODUCTION_FRAME_INCOMPLETE;
+    gbl_test_case(early_okay,
+                  "bounded pre-frame execution is rejected for incomplete capture without treating filesystem output as machine refusal");
+
+    memcpy(wrong_expected, gbl_test_production_oracle,
+           sizeof wrong_expected);
+    wrong_expected[1].bgr555 ^= UINT16_C(1);
+    wrong_expected_okay = clean_okay &&
+        gbl_test_production_evaluate(
+            &clean, clean.phase10.video_bytes, clean_json, wrong_expected,
+            sizeof wrong_expected / sizeof wrong_expected[0]) ==
+            GBL_PRODUCTION_PIXEL_MISMATCH;
+    gbl_test_case(wrong_expected_okay,
+                  "one-fault literal expected-pixel mutation is rejected at the pixel oracle");
+
+    (void)gbl_test_execute_ppu(
+        altered_rom, altered_path, NULL, 0u, false,
+        GBL_PRODUCTION_CYCLE_BUDGET, (gbl_runner_allocator){ 0 }, &altered);
+    setup = gbl_test_serialize_result(&altered, altered_json,
+                                      sizeof altered_json);
+    if (setup) {
+        altered_reason = gbl_test_production_evaluate(
+            &altered, altered.phase10.video_bytes, altered_json,
+            gbl_test_production_oracle,
+            sizeof gbl_test_production_oracle /
+                sizeof gbl_test_production_oracle[0]);
+    }
+    altered_okay = setup && altered.semantic.status == GBL_MAILBOX_PASS &&
+                   altered_reason == GBL_PRODUCTION_PIXEL_MISMATCH &&
+                   altered.phase10.video_bytes != NULL &&
+                   altered.phase10.video_bytes[0] == UINT8_C(0xE0) &&
+                   altered.phase10.video_bytes[1] == UINT8_C(0x03);
+    gbl_test_case(altered_okay,
+                  "real CPU palette write changes the literal captured pixel and fails the independent red-background oracle");
+
+    damaged_progress = clean;
+    damaged_progress.semantic.case_id ^= UINT32_C(1);
+    progress_reason = gbl_test_production_evaluate(
+        &damaged_progress, damaged_progress.phase10.video_bytes, clean_json,
+        gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    progress_okay = progress_reason == GBL_PRODUCTION_PROGRESS_WRONG;
+    gbl_test_case(progress_okay,
+                  "one-fault mailbox progress mutation is rejected independently");
+
+    inconsistent_cycles = clean;
+    inconsistent_cycles.bus_cycles += 1u;
+    cycles_reason = gbl_test_production_evaluate(
+        &inconsistent_cycles, inconsistent_cycles.phase10.video_bytes,
+        clean_json, gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    cycles_okay = cycles_reason == GBL_PRODUCTION_CYCLES_INCONSISTENT;
+    gbl_test_case(cycles_okay,
+                  "one-fault bus-cycle mutation is rejected by the machine accounting equation");
+
+    inconsistent_wait = clean;
+    inconsistent_wait.wait_cycles += 1u;
+    wait_cycles_reason = gbl_test_production_evaluate(
+        &inconsistent_wait, inconsistent_wait.phase10.video_bytes, clean_json,
+        gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    wait_cycles_okay =
+        wait_cycles_reason == GBL_PRODUCTION_CYCLES_INCONSISTENT;
+    gbl_test_case(wait_cycles_okay,
+                  "one-fault wait-cycle mutation is rejected against phase-8 observations and elapsed cycles");
+
+    inconsistent_dma_source = clean;
+    inconsistent_dma_source.dma_source_cycles += 1u;
+    dma_source_reason = gbl_test_production_evaluate(
+        &inconsistent_dma_source,
+        inconsistent_dma_source.phase10.video_bytes, clean_json,
+        gbl_test_production_oracle,
+        sizeof gbl_test_production_oracle /
+            sizeof gbl_test_production_oracle[0]);
+    dma_source_okay =
+        dma_source_reason == GBL_PRODUCTION_CYCLES_INCONSISTENT;
+    gbl_test_case(dma_source_okay,
+                  "one-fault DMA-source mutation with the pause subtotal held fixed is rejected");
+
+    memcpy(tampered_json, clean_json, strlen(clean_json) + 1u);
+    changed_access = strstr(tampered_json, "\"ppu_extra_cycles\":0");
+    if (changed_access != NULL) {
+        changed_access[strlen("\"ppu_extra_cycles\":")] = '1';
+    }
+    metadata_reason = changed_access == NULL
+                          ? GBL_PRODUCTION_ACCEPTED
+                          : gbl_test_production_evaluate(
+                                &clean, clean.phase10.video_bytes,
+                                tampered_json, gbl_test_production_oracle,
+                                sizeof gbl_test_production_oracle /
+                                    sizeof gbl_test_production_oracle[0]);
+    metadata_okay = changed_access != NULL &&
+                    metadata_reason == GBL_PRODUCTION_METADATA_WRONG;
+    gbl_test_case(metadata_okay,
+                  "one-fault serialized PPU-access cost mutation is rejected at the metadata contract");
+
+cleanup:
+    gbl_runner_result_dispose(&clean);
+    gbl_runner_result_dispose(&repeated);
+    gbl_runner_result_dispose(&withheld);
+    gbl_runner_result_dispose(&early);
+    gbl_runner_result_dispose(&altered);
+    (void)remove(clean_rom);
+    (void)remove(withheld_rom);
+    (void)remove(altered_rom);
+    (void)remove(clean_path);
+    (void)remove(repeated_path);
+    (void)remove(withheld_path);
+    (void)remove(altered_path);
+    return setup || gbl_test_number == 0u;
+}
+
+static bool gbl_test_video_is_forced_blank_white(const uint8_t *video,
+                                                size_t video_length)
+{
+    size_t byte;
+
+    if (video == NULL || video_length != GBL_RUNNER_VIDEO_BYTES) {
+        return false;
+    }
+    for (byte = 0u; byte < video_length; byte += 2u) {
+        if (video[byte] != UINT8_C(0xFF) ||
+            video[byte + 1u] != UINT8_C(0x7F)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool gbl_test_ppu_write_limit(const char *rom_path,
+                                     const char *video_path)
+{
+    const gbl_input_event pressed_a = { 0u, UINT16_C(0x0001) };
+    struct rlimit limit;
+    pid_t child;
+    int child_status;
+
+    (void)remove(video_path);
+    child = fork();
+    if (child < 0) {
+        return false;
+    }
+    if (child == 0) {
+        gbl_runner_result result = { 0 };
+        gbl_runner_status status;
+        bool okay;
+
+        limit.rlim_cur = (rlim_t)0;
+        limit.rlim_max = (rlim_t)0;
+        if (setrlimit(RLIMIT_FSIZE, &limit) != 0 ||
+            signal(SIGXFSZ, SIG_IGN) == SIG_ERR) {
+            _exit(2);
+        }
+        status = gbl_test_execute_ppu(
+            rom_path, video_path, &pressed_a, 1u, true, UINT64_C(500000),
+            (gbl_runner_allocator){ 0 }, &result);
+        okay = status == GBL_RUNNER_HARNESS_FAIL &&
+               result.status == GBL_RUNNER_HARNESS_FAIL &&
+               result.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+               !result.phase10.video_emitted &&
+               (strcmp(result.phase10.video_output_error,
+                       "video-output-write-failed") == 0 ||
+                strcmp(result.phase10.video_output_error,
+                       "video-output-close-failed") == 0) &&
+               access(video_path, F_OK) != 0 && errno == ENOENT;
+        gbl_runner_result_dispose(&result);
+        _exit(okay ? 0 : 1);
+    }
+    if (waitpid(child, &child_status, 0) != child) {
+        return false;
+    }
+    return WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0;
+}
+
+static bool gbl_test_runner_ppu_output(const char *scratch_directory)
+{
+    const gbl_input_event pressed_a = { 0u, UINT16_C(0x0001) };
+    const gbl_input_event pressed_b = { 0u, UINT16_C(0x0002) };
+    gbl_runner_result first = { 0 };
+    gbl_runner_result repeated = { 0 };
+    gbl_runner_result changed = { 0 };
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char first_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char repeated_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char changed_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[16384];
+    char digest[GBL_SHA256_HEX_CAPACITY];
+    bool okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "ppu-output.gba") ||
+        !gbl_test_path(first_path, sizeof first_path, scratch_directory,
+                       "ppu-output-first.raw") ||
+        !gbl_test_path(repeated_path, sizeof repeated_path, scratch_directory,
+                       "ppu-output-repeat.raw") ||
+        !gbl_test_path(changed_path, sizeof changed_path, scratch_directory,
+                       "ppu-output-changed.raw") ||
+        !gbl_test_write_ppu_guest(rom_path)) {
+        return false;
+    }
+    (void)remove(first_path);
+    (void)remove(repeated_path);
+    (void)remove(changed_path);
+    okay = gbl_test_execute_ppu(rom_path, first_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &first) ==
+               first.status &&
+           first.ran && first.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           first.phase10.video_requested && first.phase10.video_emitted &&
+           first.phase10.video_bytes != NULL &&
+           first.phase10.video_length == GBL_RUNNER_VIDEO_BYTES &&
+           first.phase10.has_video_sha256 && first.phase8.observed &&
+           first.phase8.applied_input_events == 1u &&
+           first.semantic.status != GBL_MAILBOX_PASS &&
+           first.phase10.video_bytes[0] == UINT8_C(0xE0) &&
+           first.phase10.video_bytes[1] == UINT8_C(0x03) &&
+           gbl_test_video_file_matches(first_path, first.phase10.video_bytes,
+                                       GBL_RUNNER_VIDEO_BYTES) &&
+           gbl_sha256_span(first.phase10.video_bytes,
+                           first.phase10.video_length, digest) &&
+           strcmp(digest, first.phase10.video_sha256) == 0 &&
+           gbl_test_serialize_result(&first, json, sizeof json) &&
+           strstr(json, "\"raw_video\":{\"requested\":true,"
+                        "\"status\":\"emitted\",\"emitted\":true,") != NULL &&
+           strstr(json,
+                  "\"failure\":null,\"format\":\"bgr555-le\"}") != NULL &&
+           strstr(json, first.phase10.video_sha256) != NULL &&
+           strstr(json, "\"pixels\":") == NULL;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, repeated_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &repeated) ==
+               repeated.status &&
+           repeated.phase10.video_emitted &&
+           repeated.phase10.video_bytes != NULL &&
+           repeated.phase10.video_length == GBL_RUNNER_VIDEO_BYTES &&
+           repeated.phase10.has_video_sha256 &&
+           strcmp(first.phase10.video_sha256,
+                  repeated.phase10.video_sha256) == 0 &&
+           memcmp(first.phase10.video_bytes, repeated.phase10.video_bytes,
+                  GBL_RUNNER_VIDEO_BYTES) == 0 &&
+           gbl_test_video_file_matches(repeated_path,
+                                       repeated.phase10.video_bytes,
+                                       GBL_RUNNER_VIDEO_BYTES);
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, changed_path, &pressed_b, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &changed) ==
+               changed.status &&
+           changed.phase10.video_emitted &&
+           changed.phase10.video_bytes != NULL &&
+           changed.phase10.video_bytes[0] == UINT8_C(0x1F) &&
+           changed.phase10.video_bytes[1] == UINT8_C(0x00) &&
+           changed.phase10.has_video_sha256 &&
+           strcmp(first.phase10.video_sha256,
+                  changed.phase10.video_sha256) != 0 &&
+           memcmp(first.phase10.video_bytes, changed.phase10.video_bytes,
+                  GBL_RUNNER_VIDEO_BYTES) != 0 &&
+           gbl_test_video_file_matches(changed_path,
+                                       changed.phase10.video_bytes,
+                                       GBL_RUNNER_VIDEO_BYTES);
+
+    gbl_runner_result_dispose(&first);
+    gbl_runner_result_dispose(&repeated);
+    gbl_runner_result_dispose(&changed);
+    return okay;
+}
+
+static bool gbl_test_runner_ppu_output_controls(const char *scratch_directory)
+{
+    const gbl_input_event pressed_a = { 0u, UINT16_C(0x0001) };
+    const gbl_input_event unsupported_events[] = {
+        { 0u, UINT16_C(0x0001) },
+        { UINT64_C(220000), UINT16_C(0x0003) }
+    };
+    const uint8_t sentinel[] = { UINT8_C(0x71), UINT8_C(0x22), UINT8_C(0xA5) };
+    uint8_t caller_storage[] = { UINT8_C(0x31), UINT8_C(0x72), UINT8_C(0xA4) };
+    gbl_runner_result existing = { 0 };
+    gbl_runner_result bad_parent = { 0 };
+    gbl_runner_result allocation = { 0 };
+    gbl_runner_result incomplete = { 0 };
+    gbl_runner_result next_epoch_incomplete = { 0 };
+    gbl_runner_result unsupported = { 0 };
+    gbl_runner_status unsupported_status;
+    gbl_runner_result fresh = { 0 };
+    gbl_runner_result forced_blank = { 0 };
+    gbl_runner_result invalid_obj = { 0 };
+    gbl_runner_result invalid_path = { 0 };
+    gbl_runner_result not_requested = { 0 };
+    gbl_runner_result owned = { 0 };
+    gbl_runner_result writer_guard = { 0 };
+    gbl_test_allocator_state allocator_state = { 0 };
+    gbl_runner_allocator allocator;
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char existing_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char bad_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char allocation_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char incomplete_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char next_epoch_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char unsupported_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char unsupported_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char forced_blank_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char forced_blank_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char invalid_obj_rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char invalid_obj_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char fresh_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char writer_guard_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char write_limit_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char owned_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[16384];
+    char existing_bytes[8] = { 0 };
+    FILE *file;
+    bool okay;
+    bool unsupported_okay;
+    bool forced_blank_okay;
+    bool invalid_obj_okay;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "ppu-output-controls.gba") ||
+        !gbl_test_path(existing_path, sizeof existing_path, scratch_directory,
+                       "ppu-output-existing.raw") ||
+        !gbl_test_path(bad_path, sizeof bad_path, scratch_directory,
+                       "ppu-output-no-parent/output.raw") ||
+        !gbl_test_path(allocation_path, sizeof allocation_path,
+                       scratch_directory, "ppu-output-allocation.raw") ||
+        !gbl_test_path(incomplete_path, sizeof incomplete_path,
+                       scratch_directory, "ppu-output-incomplete.raw") ||
+        !gbl_test_path(next_epoch_path, sizeof next_epoch_path,
+                       scratch_directory, "ppu-output-next-epoch.raw") ||
+        !gbl_test_path(unsupported_rom_path, sizeof unsupported_rom_path,
+                       scratch_directory, "ppu-output-unsupported.gba") ||
+        !gbl_test_path(unsupported_path, sizeof unsupported_path,
+                       scratch_directory, "ppu-output-unsupported.raw") ||
+        !gbl_test_path(forced_blank_rom_path, sizeof forced_blank_rom_path,
+                       scratch_directory, "ppu-output-forced-blank.gba") ||
+        !gbl_test_path(forced_blank_path, sizeof forced_blank_path,
+                       scratch_directory, "ppu-output-forced-blank.raw") ||
+        !gbl_test_path(invalid_obj_rom_path, sizeof invalid_obj_rom_path,
+                       scratch_directory, "ppu-output-invalid-obj.gba") ||
+        !gbl_test_path(invalid_obj_path, sizeof invalid_obj_path,
+                       scratch_directory, "ppu-output-invalid-obj.raw") ||
+        !gbl_test_path(fresh_path, sizeof fresh_path, scratch_directory,
+                       "ppu-output-fresh.raw") ||
+        !gbl_test_path(writer_guard_path, sizeof writer_guard_path,
+                       scratch_directory, "ppu-output-writer-guard.raw") ||
+        !gbl_test_path(write_limit_path, sizeof write_limit_path,
+                       scratch_directory, "ppu-output-write-limit.raw") ||
+        !gbl_test_path(owned_path, sizeof owned_path, scratch_directory,
+                       "ppu-output-owned.raw") ||
+        !gbl_test_write_ppu_guest(rom_path) ||
+        !gbl_test_write_ppu_guest_with_dispcnt(forced_blank_rom_path,
+                                               UINT32_C(0x0080)) ||
+        !gbl_test_write_ppu_invalid_obj_guest(invalid_obj_rom_path) ||
+        !gbl_test_write_ppu_transition_guest(unsupported_rom_path)) {
+        return false;
+    }
+    (void)remove(existing_path);
+    (void)remove(bad_path);
+    (void)remove(allocation_path);
+    (void)remove(incomplete_path);
+    (void)remove(next_epoch_path);
+    (void)remove(unsupported_path);
+    (void)remove(forced_blank_path);
+    (void)remove(invalid_obj_path);
+    (void)remove(fresh_path);
+    (void)remove(writer_guard_path);
+    (void)remove(write_limit_path);
+    (void)remove(owned_path);
+    if (!gbl_test_write_file(existing_path, 0u, 0u)) {
+        return false;
+    }
+    file = fopen(existing_path, "wb");
+    if (file == NULL || fwrite(sentinel, 1u, sizeof sentinel, file) !=
+                            sizeof sentinel) {
+        if (file != NULL) (void)fclose(file);
+        return false;
+    }
+    if (fclose(file) != 0) return false;
+
+    okay = gbl_test_execute_ppu(rom_path, existing_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &existing) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           existing.status == GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(existing.reason, "video-output-failed") == 0 &&
+           strcmp(existing.termination, "timeout") == 0 &&
+           strcmp(existing.phase10.video_output_error,
+                  "video-output-already-exists") == 0 &&
+           existing.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           !existing.phase10.video_emitted &&
+           gbl_test_read_file(existing_path, existing_bytes,
+                              sizeof existing_bytes) &&
+           memcmp(existing_bytes, sentinel, sizeof sentinel) == 0;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, bad_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &bad_parent) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(bad_parent.phase10.video_output_error,
+                  "video-output-open-failed") == 0 &&
+           !bad_parent.phase10.video_emitted &&
+           access(bad_path, F_OK) != 0 && errno == ENOENT;
+
+    {
+        const gbl_runner_status forced_blank_status = gbl_test_execute_ppu(
+            forced_blank_rom_path, forced_blank_path, &pressed_a, 1u, true,
+            UINT64_C(500000), (gbl_runner_allocator){ 0 }, &forced_blank);
+
+        forced_blank_okay =
+            forced_blank_status == GBL_RUNNER_TIMEOUT && forced_blank.ran &&
+            forced_blank.cycles > 0u && forced_blank.phase10.frame_started &&
+            forced_blank.phase10.has_sample_cycle &&
+            forced_blank.phase10.has_completion_cycle &&
+            forced_blank.phase10.sample_cycle <=
+                forced_blank.phase10.completion_cycle &&
+            forced_blank.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+            forced_blank.phase10.capture_reason ==
+                GBL_VIDEO_INVALID_REASON_NONE &&
+            forced_blank.phase10.supported_controls &&
+            forced_blank.phase10.video_emitted &&
+            gbl_test_video_is_forced_blank_white(
+                forced_blank.phase10.video_bytes,
+                forced_blank.phase10.video_length) &&
+            gbl_test_video_file_matches(forced_blank_path,
+                                         forced_blank.phase10.video_bytes,
+                                         GBL_RUNNER_VIDEO_BYTES) &&
+            gbl_test_serialize_result(&forced_blank, json, sizeof json) &&
+            strstr(json, "\"frame\":{\"state\":\"valid\","
+                         "\"reason\":\"none\"") != NULL &&
+            strstr(json, "\"raw_video\":{\"requested\":true,"
+                         "\"status\":\"emitted\",\"emitted\":true,") !=
+                NULL;
+        if (!forced_blank_okay) {
+            fprintf(stderr,
+                    "runner_test: forced-blank result status=%d ran=%d "
+                    "cycles=%llu frame=%d reason=%d supported=%d emitted=%d "
+                    "length=%zu white=%d file=%d sample=%llu completion=%llu\n",
+                    (int)forced_blank_status, forced_blank.ran ? 1 : 0,
+                    (unsigned long long)forced_blank.cycles,
+                    (int)forced_blank.phase10.capture_state,
+                    (int)forced_blank.phase10.capture_reason,
+                    forced_blank.phase10.supported_controls ? 1 : 0,
+                    forced_blank.phase10.video_emitted ? 1 : 0,
+                    forced_blank.phase10.video_length,
+                    gbl_test_video_is_forced_blank_white(
+                        forced_blank.phase10.video_bytes,
+                        forced_blank.phase10.video_length) ? 1 : 0,
+                    gbl_test_video_file_matches(
+                        forced_blank_path, forced_blank.phase10.video_bytes,
+                        GBL_RUNNER_VIDEO_BYTES) ? 1 : 0,
+                    (unsigned long long)forced_blank.phase10.sample_cycle,
+                    (unsigned long long)forced_blank.phase10.completion_cycle);
+        }
+    }
+
+    {
+        const gbl_runner_status invalid_obj_status = gbl_test_execute_ppu(
+            invalid_obj_rom_path, invalid_obj_path, NULL, 0u, false,
+            UINT64_C(500000), (gbl_runner_allocator){ 0 }, &invalid_obj);
+
+        invalid_obj_okay =
+            invalid_obj_status == GBL_RUNNER_HARNESS_FAIL &&
+            invalid_obj.status == GBL_RUNNER_HARNESS_FAIL &&
+            strcmp(invalid_obj.termination, "timeout") == 0 &&
+            invalid_obj.ran && invalid_obj.cycles > 0u &&
+            invalid_obj.phase10.capture_state == GBL_VIDEO_CAPTURE_INVALID &&
+            invalid_obj.phase10.capture_reason ==
+                GBL_VIDEO_INVALID_REASON_OBJ_ENABLED &&
+            !invalid_obj.phase10.supported_controls &&
+            !invalid_obj.phase10.video_emitted &&
+            invalid_obj.phase10.video_bytes == NULL &&
+            invalid_obj.phase10.video_length == 0u &&
+            strcmp(invalid_obj.phase10.video_output_error,
+                   "video-frame-unavailable") == 0 &&
+            access(invalid_obj_path, F_OK) != 0 && errno == ENOENT &&
+            gbl_test_serialize_result(&invalid_obj, json, sizeof json) &&
+            strstr(json,
+                   "\"state\":\"invalid\",\"reason\":"
+                   "\"unsupported-obj-control\","
+                   "\"supported_controls\":false") != NULL;
+        if (!invalid_obj_okay) {
+            fprintf(stderr,
+                    "runner_test: invalid-OBJ result status=%d actual=%d "
+                    "termination=%s ran=%d cycles=%llu frame=%d reason=%d "
+                    "supported=%d emitted=%d length=%zu error=%s file=%d\n",
+                    (int)invalid_obj_status, (int)invalid_obj.status,
+                    invalid_obj.termination, invalid_obj.ran ? 1 : 0,
+                    (unsigned long long)invalid_obj.cycles,
+                    (int)invalid_obj.phase10.capture_state,
+                    (int)invalid_obj.phase10.capture_reason,
+                    invalid_obj.phase10.supported_controls ? 1 : 0,
+                    invalid_obj.phase10.video_emitted ? 1 : 0,
+                    invalid_obj.phase10.video_length,
+                    invalid_obj.phase10.video_output_error,
+                    access(invalid_obj_path, F_OK) != 0 ? errno : 0);
+        }
+    }
+    okay = okay && forced_blank_okay && invalid_obj_okay;
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator_state.fail_at = 4u;
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, allocation_path, &pressed_a, 1u,
+                                true, UINT64_C(500000), allocator,
+                                &allocation) == GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(allocation.phase10.video_output_error,
+                  "video-buffer-allocation-failed") == 0 &&
+           allocation.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           !allocation.phase10.video_emitted &&
+           access(allocation_path, F_OK) != 0 && errno == ENOENT &&
+           allocator_state.successes == allocator_state.releases;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, incomplete_path, &pressed_a, 1u,
+                                true, UINT64_C(100),
+                                (gbl_runner_allocator){ 0 }, &incomplete) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           strcmp(incomplete.phase10.video_output_error,
+                  "video-frame-unavailable") == 0 &&
+           !incomplete.phase10.video_emitted &&
+           access(incomplete_path, F_OK) != 0 && errno == ENOENT;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, next_epoch_path, &pressed_a, 1u,
+                                true, UINT64_C(300000),
+                                (gbl_runner_allocator){ 0 },
+                                &next_epoch_incomplete) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           next_epoch_incomplete.phase10.frame_epoch == UINT64_C(1) &&
+           next_epoch_incomplete.phase10.capture_state ==
+               GBL_VIDEO_CAPTURE_INCOMPLETE &&
+           next_epoch_incomplete.phase10.capture_reason ==
+               GBL_VIDEO_INVALID_REASON_INCOMPLETE &&
+           next_epoch_incomplete.phase10.video_bytes == NULL &&
+           next_epoch_incomplete.phase10.video_length == 0u &&
+           !next_epoch_incomplete.phase10.video_emitted &&
+           strcmp(next_epoch_incomplete.phase10.video_output_error,
+                  "video-frame-unavailable") == 0 &&
+           access(next_epoch_path, F_OK) != 0 && errno == ENOENT &&
+           gbl_test_serialize_result(&next_epoch_incomplete, json,
+                                     sizeof json) &&
+           strstr(json,
+                  "\"frame\":{\"state\":\"incomplete\","
+                  "\"reason\":\"incomplete\"") != NULL &&
+           strstr(json,
+                  "\"video_memory_access\":{\"classification\":"
+                  "\"project-selected\"") != NULL &&
+           strstr(json,
+                  "\"raw_video\":{\"requested\":true,"
+                  "\"status\":\"failed\",\"emitted\":false,"
+                  "\"byte_length\":null,\"sha256\":null,"
+                  "\"failure\":\"video-frame-unavailable\","
+                  "\"format\":\"bgr555-le\"}") != NULL;
+
+    unsupported_status = gbl_test_execute_ppu(
+        unsupported_rom_path, unsupported_path, unsupported_events,
+        sizeof unsupported_events / sizeof unsupported_events[0], true,
+        UINT64_C(500000), (gbl_runner_allocator){ 0 }, &unsupported);
+    unsupported_okay = unsupported_status == GBL_RUNNER_TIMEOUT &&
+                       unsupported.phase8.applied_input_events == 2u &&
+                       unsupported.phase10.frame_epoch == UINT64_C(1) &&
+                       unsupported.phase10.capture_state ==
+                           GBL_VIDEO_CAPTURE_VALID &&
+                       unsupported.phase10.capture_reason ==
+                           GBL_VIDEO_INVALID_REASON_NONE &&
+                       unsupported.phase10.video_bytes != NULL &&
+                       unsupported.phase10.video_length ==
+                           GBL_RUNNER_VIDEO_BYTES &&
+                       unsupported.phase10.video_emitted &&
+                       unsupported.phase10.video_bytes[0] == 0u &&
+                       unsupported.phase10.video_bytes[1] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           (80u * GBL_PPU_WIDTH + 120u) * 2u] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           (80u * GBL_PPU_WIDTH + 120u) * 2u + 1u] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           GBL_RUNNER_VIDEO_BYTES - 2u] == 0u &&
+                       unsupported.phase10.video_bytes[
+                           GBL_RUNNER_VIDEO_BYTES - 1u] == 0u &&
+                       gbl_test_video_file_matches(
+                           unsupported_path, unsupported.phase10.video_bytes,
+                           GBL_RUNNER_VIDEO_BYTES) &&
+                       gbl_test_serialize_result(&unsupported, json,
+                                                 sizeof json) &&
+                       strstr(json,
+                              "\"frame\":{\"state\":\"valid\","
+                              "\"reason\":\"none\"") != NULL &&
+                       strstr(json,
+                              "\"mode\":3,\"implementation_status\":\"partial\"") != NULL &&
+                       strstr(json,
+                              "\"raw_video\":{\"requested\":true,"
+                  "\"status\":\"emitted\",\"emitted\":true,") != NULL &&
+           strstr(json, "\"format\":\"bgr555-le\"}") != NULL;
+    if (!unsupported_okay) {
+        fprintf(stderr,
+                "runner_test: backdrop transition mismatch: status=%d "
+                "events=%zu epoch=%llu state=%d reason=%d emitted=%d "
+                "length=%zu pixel0=%02x%02x pixel_mid=%02x%02x "
+                "pixel_last=%02x%02x file=%d\n",
+                (int)unsupported_status,
+                unsupported.phase8.applied_input_events,
+                (unsigned long long)unsupported.phase10.frame_epoch,
+                (int)unsupported.phase10.capture_state,
+                (int)unsupported.phase10.capture_reason,
+                unsupported.phase10.video_emitted ? 1 : 0,
+                unsupported.phase10.video_length,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[0]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[1]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          (80u * GBL_PPU_WIDTH + 120u) * 2u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          (80u * GBL_PPU_WIDTH + 120u) * 2u + 1u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          GBL_RUNNER_VIDEO_BYTES - 2u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? unsupported.phase10.video_bytes[
+                          GBL_RUNNER_VIDEO_BYTES - 1u]
+                    : 0u,
+                unsupported.phase10.video_bytes != NULL
+                    ? gbl_test_video_file_matches(
+                          unsupported_path, unsupported.phase10.video_bytes,
+                          GBL_RUNNER_VIDEO_BYTES)
+                    : 0);
+    }
+    okay = okay && unsupported_okay;
+
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, fresh_path, &pressed_a, 1u, true,
+                                UINT64_C(500000),
+                                (gbl_runner_allocator){ 0 }, &fresh) ==
+               GBL_RUNNER_TIMEOUT &&
+           fresh.phase10.capture_state == GBL_VIDEO_CAPTURE_VALID &&
+           fresh.phase10.video_emitted &&
+           fresh.phase10.video_bytes != NULL &&
+           fresh.phase10.video_length == GBL_RUNNER_VIDEO_BYTES &&
+           gbl_test_video_file_matches(fresh_path, fresh.phase10.video_bytes,
+                                       GBL_RUNNER_VIDEO_BYTES);
+
+    writer_guard.phase10.video_requested = true;
+    writer_guard.phase10.capture_state = GBL_VIDEO_CAPTURE_VALID;
+    writer_guard.phase10.capture_reason = GBL_VIDEO_INVALID_REASON_NONE;
+    writer_guard.phase10.frame_started = true;
+    writer_guard.phase10.has_frame_epoch = true;
+    writer_guard.phase10.supported_controls = true;
+    writer_guard.phase10.machine_cycles = UINT64_C(197120);
+    writer_guard.phase10.completion_cycle = UINT64_C(197120);
+    writer_guard.phase10.sample_cycle = 0u;
+    writer_guard.phase10.frame_epoch = 0u;
+    writer_guard.phase10.has_sample_cycle = true;
+    writer_guard.phase10.has_completion_cycle = true;
+    writer_guard.phase10.video_bytes = caller_storage;
+    writer_guard.phase10.video_length = sizeof caller_storage;
+    okay = okay && !gbl_runner_write_video(writer_guard_path, &writer_guard) &&
+           strcmp(writer_guard.phase10.video_output_error,
+                  "video-frame-unavailable") == 0 &&
+           !writer_guard.phase10.has_video_sha256 &&
+           memcmp(caller_storage,
+                  (const uint8_t[]){ UINT8_C(0x31), UINT8_C(0x72),
+                                     UINT8_C(0xA4) },
+                  sizeof caller_storage) == 0 &&
+           access(writer_guard_path, F_OK) != 0 && errno == ENOENT;
+
+    writer_guard.phase10.observed = true;
+    writer_guard.phase10.has_sample_cycle = false;
+    okay = okay && !gbl_runner_write_video(writer_guard_path, &writer_guard) &&
+           strcmp(writer_guard.phase10.video_output_error,
+                  "video-frame-unavailable") == 0 &&
+           access(writer_guard_path, F_OK) != 0 && errno == ENOENT;
+
+    writer_guard.phase10.has_sample_cycle = true;
+    writer_guard.phase10.has_completion_cycle = false;
+    okay = okay && !gbl_runner_write_video(writer_guard_path, &writer_guard) &&
+           strcmp(writer_guard.phase10.video_output_error,
+                  "video-frame-unavailable") == 0 &&
+           access(writer_guard_path, F_OK) != 0 && errno == ENOENT;
+
+    writer_guard.phase10.has_completion_cycle = true;
+    writer_guard.phase10.video_length = sizeof caller_storage - 1u;
+    okay = okay && !gbl_runner_write_video(writer_guard_path, &writer_guard) &&
+           strcmp(writer_guard.phase10.video_output_error,
+                  "video-frame-invalid") == 0 &&
+           memcmp(caller_storage,
+                  (const uint8_t[]){ UINT8_C(0x31), UINT8_C(0x72),
+                                     UINT8_C(0xA4) },
+                  sizeof caller_storage) == 0 &&
+           access(writer_guard_path, F_OK) != 0 && errno == ENOENT;
+
+    {
+        gbl_runner_options options = { 0 };
+        options.rom_path = rom_path;
+        options.cycle_budget = 100u;
+        options.video_output_path = "";
+        okay = okay &&
+               gbl_runner_execute(&options, &invalid_path) ==
+                   GBL_RUNNER_REFUSED &&
+               invalid_path.status == GBL_RUNNER_REFUSED &&
+               strcmp(invalid_path.reason, "invalid-runner-options") == 0 &&
+               strcmp(invalid_path.phase10.video_output_error,
+                      "video-output-path-empty") == 0 &&
+               !invalid_path.ran;
+    }
+    okay = okay &&
+           !gbl_runner_write_video(NULL, &invalid_path) &&
+           strcmp(invalid_path.phase10.video_output_error,
+                  "video-output-path-null") == 0 &&
+           !gbl_runner_write_video("", &invalid_path) &&
+           strcmp(invalid_path.phase10.video_output_error,
+                  "video-output-path-empty") == 0;
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator_state.fail_at = 4u;
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, NULL, &pressed_a, 1u, true,
+                                UINT64_C(100), allocator,
+                                &not_requested) == GBL_RUNNER_TIMEOUT &&
+           not_requested.ran && !not_requested.phase10.video_requested &&
+           not_requested.phase10.video_bytes == NULL &&
+           allocator_state.calls == 3u;
+    gbl_runner_result_dispose(&not_requested);
+    okay = okay &&
+           allocator_state.successes == allocator_state.releases &&
+           gbl_test_ppu_write_limit(rom_path, write_limit_path);
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    okay = okay &&
+           gbl_test_execute_ppu(rom_path, owned_path, &pressed_a, 1u, true,
+                                UINT64_C(500000), allocator, &owned) ==
+               GBL_RUNNER_TIMEOUT &&
+           owned.phase10.video_emitted && owned.phase10.video_bytes != NULL &&
+           allocator_state.successes == allocator_state.releases + 1u;
+    gbl_runner_result_dispose(&owned);
+    {
+        const size_t releases_after_dispose = allocator_state.releases;
+
+        okay = okay && allocator_state.successes == releases_after_dispose &&
+               owned.phase10.video_bytes == NULL;
+        gbl_runner_result_dispose(&owned);
+        okay = okay && allocator_state.releases == releases_after_dispose;
+    }
+
+    okay = okay && !existing.phase10.video_emitted &&
+           !bad_parent.phase10.video_emitted &&
+           !allocation.phase10.video_emitted &&
+           !incomplete.phase10.video_emitted &&
+           !next_epoch_incomplete.phase10.video_emitted;
+
+    gbl_runner_result_dispose(&existing);
+    gbl_runner_result_dispose(&bad_parent);
+    gbl_runner_result_dispose(&allocation);
+    gbl_runner_result_dispose(&incomplete);
+    gbl_runner_result_dispose(&next_epoch_incomplete);
+    gbl_runner_result_dispose(&unsupported);
+    gbl_runner_result_dispose(&fresh);
+    gbl_runner_result_dispose(&forced_blank);
+    gbl_runner_result_dispose(&invalid_obj);
+    gbl_runner_result_dispose(&invalid_path);
+    return okay;
+}
+
+#ifdef GBL_RUNNER_TEST_LOCAL_PLAYABLE0
+enum {
+    GBL_PLAYABLE0_JSON_CAPACITY = 16384u,
+    GBL_PLAYABLE0_WATCHDOG_TICKS = 3000u,
+    GBL_PLAYABLE0_TEST_CYCLES = 2808960u
+};
+
+typedef struct gbl_playable0_run {
+    char json[GBL_PLAYABLE0_JSON_CAPACITY];
+    char status[32];
+    char reason[96];
+    char fixture_id[GBL_RUNNER_FIXTURE_ID_CAPACITY];
+    char semantic_state[32];
+    char frame_state[32];
+    char video_sha256[GBL_SHA256_HEX_CAPACITY];
+    char input_sha256[GBL_SHA256_HEX_CAPACITY];
+    uint64_t case_id;
+    uint64_t cycles;
+    uint64_t instructions;
+    uint64_t applied_events;
+    uint64_t pending_events;
+    uint64_t keyinput;
+    uint64_t frame_epoch;
+    uint64_t sample_cycle;
+    uint64_t completion_cycle;
+    uint64_t frame_length;
+    int exit_code;
+    uint8_t *frame;
+    size_t frame_size;
+} gbl_playable0_run;
+
+static bool gbl_playable0_json_string(const char *json, const char *marker,
+                                      char *output, size_t capacity)
+{
+    const char *value = strstr(json, marker);
+    const char *end;
+    size_t length;
+
+    if (value == NULL || output == NULL || capacity == 0u) {
+        return false;
+    }
+    value += strlen(marker);
+    end = strchr(value, '"');
+    if (end == NULL) {
+        return false;
+    }
+    length = (size_t)(end - value);
+    if (length >= capacity) {
+        return false;
+    }
+    memcpy(output, value, length);
+    output[length] = '\0';
+    return true;
+}
+
+static bool gbl_playable0_json_unsigned(const char *json, const char *marker,
+                                       bool quoted, uint64_t *output)
+{
+    const char *value = strstr(json, marker);
+    char *end = NULL;
+    unsigned long long parsed;
+
+    if (value == NULL || output == NULL) {
+        return false;
+    }
+    value += strlen(marker);
+    if (quoted) {
+        if (*value != '"') {
+            return false;
+        }
+        value++;
+    }
+    if (*value < '0' || *value > '9') {
+        return false;
+    }
+    errno = 0;
+    parsed = strtoull(value, &end, 10);
+    if (errno != 0 || end == value || (quoted && *end != '"') ||
+        (!quoted && *end != ',' && *end != '}')) {
+        return false;
+    }
+    *output = (uint64_t)parsed;
+    return true;
+}
+
+static bool gbl_playable0_parse_result(gbl_playable0_run *run)
+{
+    const char *fixture = strstr(run->json, "\"fixture\":{");
+    const char *semantic = strstr(run->json, "\"semantic\":{");
+    const char *time = strstr(run->json, "\"time\":{");
+    const char *keypad = strstr(run->json, "\"keypad\":{");
+    const char *raster = strstr(run->json, "\"raster\":{");
+    const char *frame = strstr(run->json, "\"frame\":{");
+    const char *video = strstr(run->json, "\"raw_video\":{");
+    const char *input = strstr(run->json, "\"input_timeline\":{");
+
+    if (strstr(run->json, "\"schema\":\"gamebloke.result/1\"") == NULL ||
+        !gbl_playable0_json_string(run->json, "\"status\":\"",
+                                   run->status, sizeof run->status) ||
+        !gbl_playable0_json_string(run->json, "\"reason\":\"",
+                                   run->reason, sizeof run->reason)) {
+        return false;
+    }
+    if (fixture != NULL &&
+        !gbl_playable0_json_string(fixture, "\"id\":\"",
+                                   run->fixture_id,
+                                   sizeof run->fixture_id)) {
+        run->fixture_id[0] = '\0';
+    }
+    if (semantic != NULL) {
+        (void)gbl_playable0_json_string(semantic, "\"state\":\"",
+                                       run->semantic_state,
+                                       sizeof run->semantic_state);
+        (void)gbl_playable0_json_unsigned(semantic, "\"case_id\":", true,
+                                          &run->case_id);
+    }
+    if (time != NULL) {
+        (void)gbl_playable0_json_unsigned(time, "\"cycles\":", true,
+                                          &run->cycles);
+        (void)gbl_playable0_json_unsigned(time, "\"instructions\":", true,
+                                          &run->instructions);
+    }
+    if (keypad != NULL) {
+        (void)gbl_playable0_json_unsigned(keypad, "\"applied_events\":",
+                                          false, &run->applied_events);
+        (void)gbl_playable0_json_unsigned(keypad, "\"pending_events\":",
+                                          false, &run->pending_events);
+        (void)gbl_playable0_json_unsigned(keypad, "\"keyinput\":", false,
+                                          &run->keyinput);
+    }
+    if (raster != NULL) {
+        (void)gbl_playable0_json_unsigned(raster, "\"frame_epoch\":", true,
+                                          &run->frame_epoch);
+    }
+    if (frame != NULL) {
+        (void)gbl_playable0_json_string(frame, "\"state\":\"",
+                                       run->frame_state,
+                                       sizeof run->frame_state);
+        (void)gbl_playable0_json_unsigned(frame, "\"byte_length\":", false,
+                                          &run->frame_length);
+        (void)gbl_playable0_json_unsigned(frame, "\"sample_cycle\":", true,
+                                          &run->sample_cycle);
+        (void)gbl_playable0_json_unsigned(frame, "\"completion_cycle\":",
+                                          true, &run->completion_cycle);
+    }
+    if (video != NULL) {
+        (void)gbl_playable0_json_string(video, "\"sha256\":\"",
+                                       run->video_sha256,
+                                       sizeof run->video_sha256);
+    }
+    if (input != NULL) {
+        (void)gbl_playable0_json_string(input, "\"sha256\":\"",
+                                       run->input_sha256,
+                                       sizeof run->input_sha256);
+    }
+    return true;
+}
+
+static bool gbl_playable0_write_timeline(const char *path, bool final_right)
+{
+    FILE *file = fopen(path, "wb");
+    bool okay;
+
+    if (file == NULL) {
+        return false;
+    }
+    okay = fputs(final_right
+                     ? "0 0\n1450000 16\n1730000 17\n2010000 1\n2290000 16\n"
+                     : "0 0\n1450000 16\n1730000 17\n2010000 1\n2290000 0\n",
+                 file) >= 0;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_playable0_read_frame(gbl_playable0_run *run,
+                                     const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    size_t length;
+    int extra;
+    bool okay;
+
+    if (file == NULL) {
+        return false;
+    }
+    run->frame = malloc(GBL_RUNNER_VIDEO_BYTES);
+    if (run->frame == NULL) {
+        (void)fclose(file);
+        return false;
+    }
+    length = fread(run->frame, 1u, GBL_RUNNER_VIDEO_BYTES, file);
+    extra = fgetc(file);
+    okay = length == GBL_RUNNER_VIDEO_BYTES && extra == EOF &&
+           ferror(file) == 0;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    if (!okay) {
+        free(run->frame);
+        run->frame = NULL;
+        return false;
+    }
+    run->frame_size = length;
+    return true;
+}
+
+static bool gbl_playable0_run_guest(const char *scratch_directory,
+                                   const char *run_name,
+                                   const char *fixture_id,
+                                   const char *rom_name, bool final_right,
+                                   gbl_playable0_run *run)
+{
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char input_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char result_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char error_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char video_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    struct timespec poll_wait = { 0, 10000000L };
+    pid_t child;
+    int child_status = 0;
+    size_t tick;
+
+    memset(run, 0, sizeof *run);
+    if (!gbl_test_path(rom_path, sizeof rom_path, GBL_RUNNER_TEST_FIXTURE_DIR,
+                       rom_name) ||
+        !gbl_test_path(input_path, sizeof input_path, scratch_directory,
+                       run_name) ||
+        !gbl_test_path(result_path, sizeof result_path, scratch_directory,
+                       run_name) ||
+        !gbl_test_path(error_path, sizeof error_path, scratch_directory,
+                       run_name) ||
+        !gbl_test_path(video_path, sizeof video_path, scratch_directory,
+                       run_name) ||
+        strlen(input_path) + sizeof ".input" >= sizeof input_path ||
+        strlen(result_path) + sizeof ".json" >= sizeof result_path ||
+        strlen(error_path) + sizeof ".stderr" >= sizeof error_path ||
+        strlen(video_path) + sizeof ".raw" >= sizeof video_path) {
+        return false;
+    }
+    strcat(input_path, ".input");
+    strcat(result_path, ".json");
+    strcat(error_path, ".stderr");
+    strcat(video_path, ".raw");
+    if (!gbl_playable0_write_timeline(input_path, final_right)) {
+        return false;
+    }
+    (void)remove(result_path);
+    (void)remove(error_path);
+    (void)remove(video_path);
+
+    child = fork();
+    if (child < 0) {
+        return false;
+    }
+    if (child == 0) {
+        const int out_fd = open(result_path, O_CREAT | O_TRUNC | O_WRONLY,
+                                0600);
+        const int err_fd = open(error_path, O_CREAT | O_TRUNC | O_WRONLY,
+                                0600);
+
+        if (out_fd < 0 || err_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0 ||
+            dup2(err_fd, STDERR_FILENO) < 0) {
+            _exit(126);
+        }
+        (void)close(out_fd);
+        (void)close(err_fd);
+        execl(GBL_RUNNER_TEST_PLAYABLE_CLI, "gamebloke-run", "--rom",
+              rom_path, "--fixture", fixture_id, "--cycles", "2808960",
+              "--input-script", input_path, "--video-output", video_path,
+              (char *)NULL);
+        _exit(127);
+    }
+
+    for (tick = 0u; tick < GBL_PLAYABLE0_WATCHDOG_TICKS; ++tick) {
+        const pid_t waited = waitpid(child, &child_status, WNOHANG);
+
+        if (waited == child) {
+            if (!WIFEXITED(child_status) ||
+                (WEXITSTATUS(child_status) != 0 &&
+                 WEXITSTATUS(child_status) != 1) ||
+                !gbl_test_read_file(result_path, run->json,
+                                   sizeof run->json)) {
+                return false;
+            }
+            run->exit_code = WEXITSTATUS(child_status);
+            return gbl_playable0_parse_result(run);
+        }
+        if (waited < 0 && errno != EINTR) {
+            (void)kill(child, SIGKILL);
+            (void)waitpid(child, &child_status, 0);
+            return false;
+        }
+        (void)nanosleep(&poll_wait, NULL);
+    }
+    (void)kill(child, SIGKILL);
+    (void)waitpid(child, &child_status, 0);
+    return false;
+}
+
+static uint16_t gbl_playable0_pixel(const uint8_t *frame, unsigned x,
+                                   unsigned y)
+{
+    const size_t offset = ((size_t)y * 240u + (size_t)x) * 2u;
+
+    return (uint16_t)((uint16_t)frame[offset] |
+                      ((uint16_t)frame[offset + 1u] << 8u));
+}
+
+static bool gbl_playable0_region_is(const uint8_t *frame, unsigned x,
+                                    unsigned y, uint16_t color)
+{
+    unsigned row;
+    unsigned column;
+
+    if (frame == NULL || x > 232u || y > 152u) {
+        return false;
+    }
+    for (row = 0u; row < 8u; ++row) {
+        for (column = 0u; column < 8u; ++column) {
+            if (gbl_playable0_pixel(frame, x + column, y + row) != color) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool gbl_playable0_find_region(const uint8_t *frame, uint16_t color,
+                                      unsigned *found_x,
+                                      unsigned *found_y)
+{
+    unsigned y;
+
+    if (frame == NULL || found_x == NULL || found_y == NULL) {
+        return false;
+    }
+    for (y = 0u; y <= 152u; ++y) {
+        unsigned x;
+
+        for (x = 0u; x <= 232u; ++x) {
+            if (gbl_playable0_pixel(frame, x, y) == color &&
+                gbl_playable0_region_is(frame, x, y, color)) {
+                *found_x = x;
+                *found_y = y;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static size_t gbl_playable0_difference_count(const uint8_t *left,
+                                            const uint8_t *right,
+                                            size_t length)
+{
+    size_t index;
+    size_t differences = 0u;
+
+    for (index = 0u; index < length; ++index) {
+        if (left[index] != right[index]) {
+            differences++;
+        }
+    }
+    return differences;
+}
+
+static const char *gbl_playable0_evaluate(const gbl_playable0_run *run,
+                                         const char *expected_fixture,
+                                         const uint8_t *frame,
+                                         uint64_t expected_case,
+                                         unsigned expected_x,
+                                         uint16_t expected_color,
+                                         uint64_t expected_keyinput)
+{
+    unsigned actual_x;
+    unsigned actual_y;
+
+    if (run->exit_code != 0 || strcmp(run->status, "PASS") != 0 ||
+        strcmp(run->fixture_id, expected_fixture) != 0) {
+        return "fixture-status-or-registration";
+    }
+    if (strcmp(run->semantic_state, "pass") != 0) {
+        return "mailbox-not-pass";
+    }
+    actual_x = (unsigned)((run->case_id >> 13u) & UINT64_C(0xFF));
+    if (actual_x != expected_x) {
+        return "guest-position";
+    }
+    if (run->case_id != expected_case) {
+        return "mailbox-progress";
+    }
+    if (run->applied_events != 5u || run->pending_events != 0u ||
+        run->keyinput != expected_keyinput) {
+        return "input-observation";
+    }
+    if (run->cycles == 0u || run->cycles > GBL_PLAYABLE0_TEST_CYCLES ||
+        strcmp(run->frame_state, "valid") != 0 ||
+        run->frame_length != GBL_RUNNER_VIDEO_BYTES ||
+        run->frame_size != GBL_RUNNER_VIDEO_BYTES || frame == NULL) {
+        return "complete-raw-frame";
+    }
+    if (!gbl_playable0_region_is(frame, expected_x, 80u, expected_color)) {
+        if (gbl_playable0_find_region(frame, expected_color, &actual_x,
+                                      &actual_y)) {
+            return actual_x != expected_x || actual_y != 80u
+                       ? "guest-position"
+                       : "raw-frame-color";
+        }
+        return "raw-frame-color";
+    }
+    return NULL;
+}
+
+static bool gbl_playable0_hash_matches(const gbl_playable0_run *run)
+{
+    char actual[GBL_SHA256_HEX_CAPACITY];
+
+    return run->frame != NULL &&
+           gbl_sha256_span(run->frame, run->frame_size, actual) &&
+           strcmp(actual, run->video_sha256) == 0;
+}
+
+static bool gbl_playable0_replay_matches(const gbl_playable0_run *left,
+                                         const gbl_playable0_run *right)
+{
+    return strcmp(left->status, right->status) == 0 &&
+           strcmp(left->reason, right->reason) == 0 &&
+           strcmp(left->fixture_id, right->fixture_id) == 0 &&
+           strcmp(left->semantic_state, right->semantic_state) == 0 &&
+           left->case_id == right->case_id && left->cycles == right->cycles &&
+           left->instructions == right->instructions &&
+           left->applied_events == right->applied_events &&
+           left->pending_events == right->pending_events &&
+           left->keyinput == right->keyinput &&
+           left->frame_epoch == right->frame_epoch &&
+           left->sample_cycle == right->sample_cycle &&
+           left->completion_cycle == right->completion_cycle &&
+           left->frame_length == right->frame_length &&
+           strcmp(left->input_sha256, right->input_sha256) == 0 &&
+           strcmp(left->video_sha256, right->video_sha256) == 0 &&
+           left->frame_size == right->frame_size && left->frame != NULL &&
+           right->frame != NULL &&
+           memcmp(left->frame, right->frame, left->frame_size) == 0;
+}
+
+static void gbl_playable0_dispose(gbl_playable0_run *run)
+{
+    free(run->frame);
+    run->frame = NULL;
+    run->frame_size = 0u;
+}
+
+static bool gbl_test_runner_playable0_verify(const char *scratch_directory)
+{
+    gbl_playable0_run neutral = { 0 };
+    gbl_playable0_run repeated = { 0 };
+    gbl_playable0_run changed = { 0 };
+    gbl_playable0_run interleaved = { 0 };
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    const char *neutral_error;
+    const char *changed_error;
+    bool setup;
+    bool replay;
+
+    setup = gbl_playable0_run_guest(scratch_directory, "neutral",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &neutral) &&
+            gbl_playable0_run_guest(scratch_directory, "repeat",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &repeated) &&
+            gbl_playable0_run_guest(scratch_directory, "changed",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    true, &changed) &&
+            gbl_playable0_run_guest(scratch_directory, "interleaved",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &interleaved);
+    if (!setup) {
+        gbl_playable0_dispose(&neutral);
+        gbl_playable0_dispose(&repeated);
+        gbl_playable0_dispose(&changed);
+        gbl_playable0_dispose(&interleaved);
+        return false;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "neutral.raw");
+    if (!gbl_playable0_read_frame(&neutral, path)) {
+        neutral.frame = NULL;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "repeat.raw");
+    if (!gbl_playable0_read_frame(&repeated, path)) {
+        repeated.frame = NULL;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "changed.raw");
+    if (!gbl_playable0_read_frame(&changed, path)) {
+        changed.frame = NULL;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory,
+                        "interleaved.raw");
+    if (!gbl_playable0_read_frame(&interleaved, path)) {
+        interleaved.frame = NULL;
+    }
+
+    neutral_error = gbl_playable0_evaluate(
+        &neutral, "owned-playable0", neutral.frame, UINT64_C(0xABE80000), 64u,
+        UINT16_C(0x03E0), UINT64_C(1023));
+    gbl_test_case(neutral_error == NULL,
+                  "registered local guest returns PASS with five-word mailbox progress");
+    gbl_test_case(neutral_error == NULL && neutral.applied_events == 5u &&
+                      neutral.pending_events == 0u && neutral.keyinput == 1023u &&
+                      neutral.cycles <= GBL_PLAYABLE0_TEST_CYCLES,
+                  "neutral/right/hold/release input observations and cycle budget are separate");
+
+    replay = gbl_playable0_hash_matches(&neutral) &&
+             gbl_playable0_replay_matches(&neutral, &repeated) &&
+             gbl_playable0_replay_matches(&neutral, &interleaved);
+    gbl_test_case(replay,
+                  "fresh and interleaved baseline runs match metadata and all 76,800 raw bytes");
+    changed_error = gbl_playable0_evaluate(
+        &changed, "owned-playable0", changed.frame,
+        UINT64_C(0xABF00000), 128u,
+        UINT16_C(0x03E0), UINT64_C(1007));
+    gbl_test_case(changed_error == NULL && gbl_playable0_hash_matches(&changed) &&
+                      changed.frame != NULL && neutral.frame != NULL &&
+                      strcmp(neutral.video_sha256, changed.video_sha256) != 0 &&
+                      gbl_playable0_difference_count(
+                          neutral.frame, changed.frame,
+                          GBL_RUNNER_VIDEO_BYTES) == 256u,
+                  "final RIGHT moves the marker to x=128 and changes its two 8x8 regions");
+
+    gbl_playable0_dispose(&neutral);
+    gbl_playable0_dispose(&repeated);
+    gbl_playable0_dispose(&changed);
+    gbl_playable0_dispose(&interleaved);
+    return true;
+}
+
+static bool gbl_test_runner_playable0_control(const char *scratch_directory)
+{
+    gbl_playable0_run clean = { 0 };
+    gbl_playable0_run input_disabled = { 0 };
+    gbl_playable0_run wrong_color = { 0 };
+    gbl_playable0_run wrong_address = { 0 };
+    const char *input_reason;
+    const char *color_reason;
+    const char *address_reason;
+    uint8_t *tampered = NULL;
+    bool setup;
+    bool tampered_rejected = false;
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    size_t pixel_offset;
+
+    setup = gbl_playable0_run_guest(scratch_directory, "clean",
+                                    "owned-playable0", "owned-playable0.gba",
+                                    false, &clean) &&
+            gbl_playable0_run_guest(
+                scratch_directory, "input-disabled",
+                "owned-playable0-input-disabled",
+                "owned-playable0-input-disabled.gba", true,
+                &input_disabled) &&
+            gbl_playable0_run_guest(
+                scratch_directory, "wrong-color", "owned-playable0-wrong-color",
+                "owned-playable0-wrong-color.gba", false, &wrong_color) &&
+            gbl_playable0_run_guest(
+                scratch_directory, "wrong-address",
+                "owned-playable0-wrong-address",
+                "owned-playable0-wrong-address.gba", false, &wrong_address);
+    if (!setup) {
+        gbl_playable0_dispose(&clean);
+        gbl_playable0_dispose(&input_disabled);
+        gbl_playable0_dispose(&wrong_color);
+        gbl_playable0_dispose(&wrong_address);
+        return false;
+    }
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "clean.raw");
+    setup = gbl_playable0_read_frame(&clean, path);
+    (void)gbl_test_path(path, sizeof path, scratch_directory,
+                        "input-disabled.raw");
+    setup = setup && gbl_playable0_read_frame(&input_disabled, path);
+    (void)gbl_test_path(path, sizeof path, scratch_directory, "wrong-color.raw");
+    setup = setup && gbl_playable0_read_frame(&wrong_color, path);
+    (void)gbl_test_path(path, sizeof path, scratch_directory,
+                        "wrong-address.raw");
+    setup = setup && gbl_playable0_read_frame(&wrong_address, path);
+    if (!setup) {
+        gbl_playable0_dispose(&clean);
+        gbl_playable0_dispose(&input_disabled);
+        gbl_playable0_dispose(&wrong_color);
+        gbl_playable0_dispose(&wrong_address);
+        return false;
+    }
+
+    gbl_test_case(
+        gbl_playable0_evaluate(&clean, "owned-playable0", clean.frame,
+                               UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0),
+                               UINT64_C(1023)) == NULL,
+        "clean baseline twin passes the source-bound mailbox and pixel evaluator");
+    input_reason = gbl_playable0_evaluate(
+        &input_disabled, "owned-playable0-input-disabled",
+        input_disabled.frame, UINT64_C(0xABF00000), 128u, UINT16_C(0x03E0),
+        UINT64_C(1007));
+    gbl_test_case(input_reason != NULL &&
+                      strcmp(input_reason, "guest-position") == 0,
+                  "input-disabled guest is rejected for missing right-key movement");
+    color_reason = gbl_playable0_evaluate(
+        &wrong_color, "owned-playable0-wrong-color", wrong_color.frame,
+        UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0), UINT64_C(1023));
+    gbl_test_case(color_reason != NULL &&
+                      strcmp(color_reason, "raw-frame-color") == 0,
+                  "wrong-color guest is rejected by the named raw pixel check");
+    address_reason = gbl_playable0_evaluate(
+        &wrong_address, "owned-playable0-wrong-address", wrong_address.frame,
+        UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0), UINT64_C(1023));
+    gbl_test_case(address_reason != NULL &&
+                      strcmp(address_reason, "guest-position") == 0,
+                  "wrong-address guest is rejected by the named marker position check");
+
+    tampered = malloc(GBL_RUNNER_VIDEO_BYTES);
+    if (tampered != NULL) {
+        memcpy(tampered, clean.frame, GBL_RUNNER_VIDEO_BYTES);
+        pixel_offset = ((size_t)80u * 240u + 64u) * 2u;
+        tampered[pixel_offset] ^= UINT8_C(1);
+        tampered_rejected =
+            strcmp(gbl_playable0_evaluate(
+                       &clean, "owned-playable0", tampered,
+                       UINT64_C(0xABE80000), 64u, UINT16_C(0x03E0),
+                       UINT64_C(1023)),
+                   "raw-frame-color") == 0;
+    }
+    gbl_test_case(tampered_rejected,
+                  "one-byte frame tamper is rejected by semantic pixel inspection");
+
+    free(tampered);
+    gbl_playable0_dispose(&clean);
+    gbl_playable0_dispose(&input_disabled);
+    gbl_playable0_dispose(&wrong_color);
+    gbl_playable0_dispose(&wrong_address);
+    return true;
+}
+#endif
+
+static bool gbl_test_runner_dma_observation(const char *scratch_directory)
+{
+    char rom_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char hblank_trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[8192];
+    char trace[4096];
+    char hblank_trace[1024];
+    gbl_runner_result result = { 0 };
+    gbl_runner_result hblank_trace_result = { 0 };
+    gbl_runner_result full_trace_result = { 0 };
+    gbl_runner_result partial_latch_result = { 0 };
+    gbl_runner_result incomplete_trace_result = { 0 };
+    gbl_runner_result timeout_result = { 0 };
+    gbl_runner_result cancelled_result = { 0 };
+    gbl_runner_status status;
+    gbl_test_cancel_state cancel_probe = { 0u, SIZE_MAX };
+    gbl_test_cancel_state cancel_state = { 0u, 0u };
+    gbl_input_event input_event;
+    gbl_trace_record hblank_record = { 0 };
+    uint64_t total;
+    bool okay;
+    size_t latch_trace_index = SIZE_MAX;
+    size_t index;
+
+    if (!gbl_test_path(rom_path, sizeof rom_path, scratch_directory,
+                       "runner-dma-observation.gba") ||
+        !gbl_test_path(trace_path, sizeof trace_path, scratch_directory,
+                       "runner-dma-observation.jsonl") ||
+        !gbl_test_write_dma_guest(rom_path)) {
+        return false;
+    }
+    (void)remove(trace_path);
+    status = gbl_test_execute(rom_path, NULL, UINT64_C(1000),
+                              (uint32_t)GBL_TRACE_DMA, 64u, trace_path,
+                              NULL, NULL, (gbl_runner_allocator){ 0 },
+                              &result);
+    okay = status == GBL_RUNNER_GUEST_STOP &&
+           result.status == GBL_RUNNER_GUEST_STOP && result.ran &&
+           result.semantic.status == GBL_MAILBOX_PASS &&
+           result.trace_count == 4u &&
+           result.trace_records[0].category == GBL_TRACE_DMA &&
+           result.trace_records[0].bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+           result.trace_records[1].dma_source_address ==
+               UINT32_C(0x08000200) &&
+           result.trace_records[1].dma_destination_address ==
+               UINT32_C(0x03000020) &&
+           result.trace_records[1].dma_value == UINT32_C(0xBEEF) &&
+           result.trace_records[1].dma_width == 2u &&
+           result.trace_records[1].bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+           result.trace_records[3].dma_source_address == 0u &&
+           result.trace_records[3].dma_destination_address ==
+               UINT32_C(0x03000022) &&
+           result.trace_records[3].dma_value == UINT32_C(0xBEEF) &&
+           result.trace_records[3].dma_width == 2u &&
+           result.trace_records[2].bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+           result.trace_records[3].bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+           result.trace_records[3].dma_used_channel_latch &&
+           result.trace_records[3].dma_value_provenance ==
+               GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED &&
+           result.trace_records[3].dma_result_classification ==
+               GBL_DMA_RESULT_CLASSIFICATION_DISPUTED &&
+           result.trace_records[3].dma_dispute == GBL_DMA_DISPUTE_LATCH &&
+           result.trace_records[3].dma_hardware_qualification ==
+               GBL_HARDWARE_QUALIFICATION_UNKNOWN &&
+           result.phase9.observed && result.phase9.waitcnt == 0u &&
+           result.phase9.bus_owner == GBL_MACHINE_BUS_OWNER_CPU &&
+           result.phase9.machine_cycles == result.cycles &&
+           result.phase9.channels[3].completed_units == 1u &&
+           result.phase9.channels[3].remaining == 0u &&
+           result.phase9.channels[3].source_address == 0u &&
+           result.phase9.channels[3].destination_address ==
+               UINT32_C(0x03000022) &&
+           result.phase9.channels[3].read_latch == UINT32_C(0xBEEFBEEF) &&
+           result.dma_startup_cycles == 4u &&
+           result.dma_source_cycles == 6u &&
+           result.dma_destination_cycles == 2u &&
+           result.dma_completed_units == 2u && result.dma_pause_cycles == 12u &&
+           result.bus_cycles <= UINT64_MAX - result.internal_cycles &&
+           (total = result.bus_cycles + result.internal_cycles,
+            total <= UINT64_MAX - result.wait_cycles) &&
+           (total += result.wait_cycles,
+            total <= UINT64_MAX - result.dma_startup_cycles) &&
+           (total += result.dma_startup_cycles,
+            total <= UINT64_MAX - result.dma_source_cycles) &&
+           (total += result.dma_source_cycles,
+            total <= UINT64_MAX - result.dma_destination_cycles) &&
+           (total += result.dma_destination_cycles, total == result.cycles) &&
+           gbl_test_serialize_result(&result, json, sizeof json) &&
+           strstr(json, "\"phase9\"") != NULL &&
+           strstr(json,
+                  "\"fallback_observed\":true,\"classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\",\"hardware_qualification\":\"UNKNOWN\"") != NULL &&
+           strstr(json, "\"disputes\":[\"disp-dma-latch\"]") != NULL &&
+           strstr(json, "\"labels\":[\"disputed\"]") != NULL &&
+           gbl_test_read_file(trace_path, trace, sizeof trace) &&
+           strstr(trace,
+                  "\"source_address\":\"0x00000000\",\"destination_address\":\"0x03000022\",\"value\":\"0x0000BEEF\",\"width\":2") != NULL &&
+           strstr(trace,
+                  "\"used_channel_latch\":true,\"value_provenance\":\"project-selected\",\"classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\",\"hardware_qualification\":\"UNKNOWN\"") != NULL;
+    {
+        bool hblank_trace_okay = result.trace_records != NULL &&
+            result.trace_count > 3u &&
+            gbl_test_path(hblank_trace_path, sizeof hblank_trace_path,
+                          scratch_directory, "hblank-dma-dispute.jsonl");
+
+        if (hblank_trace_okay) {
+            hblank_record = result.trace_records[3];
+            hblank_record.dma_dispute = GBL_DMA_DISPUTE_HBLANK_FLAG_EDGE;
+            hblank_trace_result.trace_records = &hblank_record;
+            hblank_trace_result.trace_capacity = 1u;
+            hblank_trace_result.trace_count = 1u;
+            (void)remove(hblank_trace_path);
+            hblank_trace_okay = gbl_runner_write_trace(
+                                    hblank_trace_path,
+                                    &hblank_trace_result) &&
+                gbl_test_read_file(hblank_trace_path, hblank_trace,
+                                   sizeof hblank_trace) &&
+                strstr(hblank_trace,
+                    "\"dispute_id\":\"disp-hblank-flag-edge\",\"hardware_qualification\":\"UNKNOWN\"") != NULL;
+        }
+        okay = okay && hblank_trace_okay;
+    }
+    status = gbl_test_execute(rom_path, NULL, UINT64_C(1000),
+                              (uint32_t)GBL_TRACE_DMA, 1u, NULL, NULL, NULL,
+                              (gbl_runner_allocator){ 0 },
+                              &incomplete_trace_result);
+    okay = okay && status == GBL_RUNNER_HARNESS_FAIL &&
+           !incomplete_trace_result.trace_complete &&
+           incomplete_trace_result.phase9.observed &&
+           !incomplete_trace_result.phase9.latch_fallback_known &&
+           gbl_test_serialize_result(&incomplete_trace_result, json,
+                                     sizeof json) &&
+           strstr(json, "\"fallback_observed\":null") != NULL &&
+           strstr(json, "\"disputes\":[]") != NULL;
+    gbl_runner_result_dispose(&incomplete_trace_result);
+
+    status = gbl_test_execute(
+        rom_path, NULL, UINT64_C(1000),
+        (uint32_t)(GBL_TRACE_DMA | GBL_TRACE_INSTRUCTION), 256u, NULL, NULL,
+        NULL, (gbl_runner_allocator){ 0 }, &full_trace_result);
+    for (index = 0u; index < full_trace_result.trace_count; ++index) {
+        if (full_trace_result.trace_records[index].category == GBL_TRACE_DMA &&
+            full_trace_result.trace_records[index].dma_used_channel_latch) {
+            latch_trace_index = index;
+            break;
+        }
+    }
+    okay = okay && status == GBL_RUNNER_GUEST_STOP &&
+           full_trace_result.trace_complete && latch_trace_index != SIZE_MAX &&
+           full_trace_result.trace_count > latch_trace_index + 1u;
+    gbl_runner_result_dispose(&full_trace_result);
+
+    if (latch_trace_index != SIZE_MAX && latch_trace_index < SIZE_MAX - 1u) {
+        status = gbl_test_execute(
+            rom_path, NULL, UINT64_C(1000),
+            (uint32_t)(GBL_TRACE_DMA | GBL_TRACE_INSTRUCTION),
+            latch_trace_index + 1u, NULL, NULL, NULL,
+            (gbl_runner_allocator){ 0 }, &partial_latch_result);
+        okay = okay && status == GBL_RUNNER_HARNESS_FAIL &&
+               !partial_latch_result.trace_complete &&
+               partial_latch_result.phase9.latch_fallback_known &&
+               partial_latch_result.phase9.latch_fallback_observed &&
+               gbl_test_serialize_result(&partial_latch_result, json,
+                                         sizeof json) &&
+               strstr(json,
+                      "\"fallback_observed\":true,\"classification\":\"disputed\",\"dispute_id\":\"disp-dma-latch\"") != NULL &&
+               strstr(json, "\"disputes\":[\"disp-dma-latch\"]") != NULL;
+    } else {
+        okay = false;
+    }
+    gbl_runner_result_dispose(&partial_latch_result);
+    input_event = (gbl_input_event){ result.trace_records[1].guest_cycle, 1u };
+    status = gbl_test_execute_timeline(
+        rom_path, NULL, UINT64_C(1000), true, &input_event, 1u, NULL, NULL,
+        (gbl_runner_allocator){ 0 }, &timeout_result);
+    okay = okay && status == GBL_RUNNER_GUEST_STOP &&
+           timeout_result.phase8.applied_input_events == 1u &&
+           timeout_result.phase8.keyinput == UINT16_C(0x03FE);
+    gbl_runner_result_dispose(&timeout_result);
+
+    status = gbl_test_execute(rom_path, NULL,
+                              result.trace_records[0].guest_cycle,
+                              (uint32_t)GBL_TRACE_DMA, 64u, NULL, NULL, NULL,
+                              (gbl_runner_allocator){ 0 }, &timeout_result);
+    okay = okay && status == GBL_RUNNER_TIMEOUT &&
+           timeout_result.phase9.observed &&
+           timeout_result.phase9.bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+           timeout_result.phase9.channels[3].active &&
+           timeout_result.phase9.channels[3].startup_complete &&
+           timeout_result.phase9.channels[3].remaining == 1u &&
+           timeout_result.phase9.channels[3].completed_units == 0u &&
+           timeout_result.trace_count == 1u;
+    gbl_runner_result_dispose(&timeout_result);
+
+    status = gbl_test_execute(rom_path, NULL,
+                              result.trace_records[0].guest_cycle,
+                              (uint32_t)GBL_TRACE_DMA, 64u, NULL,
+                              gbl_test_cancel_at_boundary, &cancel_probe,
+                              (gbl_runner_allocator){ 0 },
+                              &cancelled_result);
+    okay = okay && status == GBL_RUNNER_TIMEOUT && cancel_probe.calls > 0u &&
+           cancelled_result.phase9.bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+           cancelled_result.phase9.channels[3].active &&
+           cancelled_result.phase9.channels[3].remaining == 1u &&
+           cancelled_result.trace_count == 1u;
+    gbl_runner_result_dispose(&cancelled_result);
+
+    cancel_state.cancel_at = cancel_probe.calls;
+    status = gbl_test_execute(rom_path, NULL,
+                              result.trace_records[0].guest_cycle,
+                              (uint32_t)GBL_TRACE_DMA, 64u, NULL,
+                              gbl_test_cancel_at_boundary, &cancel_state,
+                              (gbl_runner_allocator){ 0 },
+                              &cancelled_result);
+    okay = okay && status == GBL_RUNNER_CANCELLED &&
+           cancelled_result.phase9.observed &&
+           cancelled_result.phase9.bus_owner == GBL_MACHINE_BUS_OWNER_DMA &&
+           cancelled_result.phase9.channels[3].active &&
+           cancelled_result.phase9.channels[3].remaining == 1u &&
+           cancelled_result.phase9.channels[3].completed_units == 0u &&
+           cancelled_result.trace_count == 1u;
+    gbl_runner_result_dispose(&cancelled_result);
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static bool gbl_test_write_timer0_guest(const char *path, bool enabled)
+{
+    uint8_t image[0xC0u] = { 0u };
+    FILE *file;
+    bool okay;
+
+    /* Original ARM program: start Timer 0, poll its IF request, then write
+     * the five-word semantic mailbox with the completion marker last. */
+    gbl_test_write_le32(image, 0x00u, UINT32_C(0xE59F0054));
+    gbl_test_write_le32(image, 0x04u, UINT32_C(0xE59F1054));
+    gbl_test_write_le32(image, 0x08u, UINT32_C(0xE5801000));
+    gbl_test_write_le32(image, 0x0Cu, UINT32_C(0xE59F2050));
+    gbl_test_write_le32(image, 0x10u, UINT32_C(0xE3A04008));
+    gbl_test_write_le32(image, 0x14u, UINT32_C(0xE1D230B0));
+    gbl_test_write_le32(image, 0x18u, UINT32_C(0xE1130004));
+    gbl_test_write_le32(image, 0x1Cu, UINT32_C(0x1A000000));
+    gbl_test_write_le32(image, 0x20u, UINT32_C(0xEAFFFFFB));
+    gbl_test_write_le32(image, 0x24u, UINT32_C(0xE59F0028));
+    gbl_test_write_le32(image, 0x28u, UINT32_C(0xE59F1028));
+    gbl_test_write_le32(image, 0x2Cu, UINT32_C(0xE5801000));
+    gbl_test_write_le32(image, 0x30u, UINT32_C(0xE3A01001));
+    gbl_test_write_le32(image, 0x34u, UINT32_C(0xE5801004));
+    gbl_test_write_le32(image, 0x38u, UINT32_C(0xE3A01002));
+    gbl_test_write_le32(image, 0x3Cu, UINT32_C(0xE5801008));
+    gbl_test_write_le32(image, 0x40u, UINT32_C(0xE3A01001));
+    gbl_test_write_le32(image, 0x44u, UINT32_C(0xE580100C));
+    gbl_test_write_le32(image, 0x48u, UINT32_C(0xE59F1018));
+    gbl_test_write_le32(image, 0x4Cu, UINT32_C(0xE5801010));
+    gbl_test_write_le32(image, 0x50u, UINT32_C(0xEAFFFFFE));
+    gbl_test_write_le32(image, 0x54u, UINT32_C(0x03007FC0));
+    gbl_test_write_le32(image, 0x58u, UINT32_C(0x47424C4B));
+    gbl_test_write_le32(image, 0x5Cu, UINT32_C(0x04000100));
+    gbl_test_write_le32(image, 0x60u,
+                        enabled ? UINT32_C(0x00C0FFF0)
+                                : UINT32_C(0x0000FFF0));
+    gbl_test_write_le32(image, 0x64u, UINT32_C(0x04000202));
+    gbl_test_write_le32(image, 0x68u, UINT32_C(0x434F4D50));
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    okay = fwrite(image, 1u, sizeof image, file) == sizeof image;
+    if (fclose(file) != 0) {
+        okay = false;
+    }
+    return okay;
+}
+
+static bool gbl_test_serialize_result(const gbl_runner_result *result,
+                                      char *json, size_t capacity)
+{
+    FILE *stream;
+    size_t length;
+    bool okay;
+
+    if (result == NULL || json == NULL || capacity < 2u) {
+        return false;
+    }
+    stream = tmpfile();
+    if (stream == NULL) {
+        return false;
+    }
+    okay = gbl_runner_write_json(stream, result) && fflush(stream) == 0 &&
+           fseek(stream, 0L, SEEK_SET) == 0 &&
+           (length = fread(json, 1u, capacity - 1u, stream)) > 0u;
+    if (okay) {
+        json[length] = '\0';
+    }
+    (void)fclose(stream);
+    return okay;
+}
+
+static bool gbl_test_json_u64(const char *json, const char *member,
+                              uint64_t *value)
+{
+    char needle[64];
+    const char *digits;
+    char *end;
+    unsigned long long parsed;
+    int written;
+
+    if (json == NULL || member == NULL || value == NULL) {
+        return false;
+    }
+    written = snprintf(needle, sizeof needle, "\"%s\":\"", member);
+    if (written < 0 || (size_t)written >= sizeof needle) {
+        return false;
+    }
+    digits = strstr(json, needle);
+    if (digits == NULL) {
+        return false;
+    }
+    digits += (size_t)written;
+    if (digits[0] < '0' || digits[0] > '9' ||
+        (digits[0] == '0' && digits[1] != '\"')) {
+        return false;
+    }
+    errno = 0;
+    parsed = strtoull(digits, &end, 10);
+    if (errno != 0 || end == digits || *end != '\"' ||
+        parsed > (unsigned long long)UINT64_MAX) {
+        return false;
+    }
+    *value = (uint64_t)parsed;
+    return true;
+}
+
+static bool gbl_test_timer0_runner_observe(
+    const char *scratch_directory, gbl_test_timer0_observations *observed)
+{
+    char enabled_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char disabled_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char empty_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char json[8192];
+    gbl_runner_result result;
+    gbl_runner_status status;
+    uint64_t cycles;
+    uint64_t bus_cycles;
+    uint64_t internal_cycles;
+    bool okay = true;
+
+    if (observed == NULL ||
+        !gbl_test_path(enabled_path, sizeof enabled_path, scratch_directory,
+                       "runner-timer0-enabled.gba") ||
+        !gbl_test_path(disabled_path, sizeof disabled_path, scratch_directory,
+                       "runner-timer0-disabled.gba") ||
+        !gbl_test_path(empty_path, sizeof empty_path, scratch_directory,
+                       "runner-timer0-empty.gba") ||
+        !gbl_test_write_timer0_guest(enabled_path, true) ||
+        !gbl_test_write_timer0_guest(disabled_path, false) ||
+        !gbl_test_write_file(empty_path, 0u, 0u)) {
+        return false;
+    }
+    *observed = (gbl_test_timer0_observations){ 0 };
+
+    memset(&result, 0, sizeof result);
+    status = gbl_test_execute(enabled_path, NULL, UINT64_C(10000), 0u, 0u,
+                              NULL, NULL, NULL,
+                              (gbl_runner_allocator){ 0 }, &result);
+    observed->semantic_completed = status == GBL_RUNNER_GUEST_STOP &&
+        result.status == GBL_RUNNER_GUEST_STOP && result.ran &&
+        result.semantic.status == GBL_MAILBOX_PASS &&
+        result.semantic.case_id == UINT32_C(1) && result.cycles > 0u &&
+        strcmp(result.reason, "unregistered-content") == 0;
+    okay = gbl_test_serialize_result(&result, json, sizeof json);
+    observed->request_observed = okay &&
+        strstr(json, "\"timer0\":{\"if_request\":true}") != NULL;
+    observed->model_contract = okay &&
+        strstr(json, "\"model\":\"" GBL_TIMER_MODEL_NAME "\"") != NULL &&
+        strstr(json, "\"qualification\":\"project-model-only\"") != NULL;
+    observed->component_sum = okay &&
+        gbl_test_json_u64(json, "cycles", &cycles) &&
+        gbl_test_json_u64(json, "bus_cycles", &bus_cycles) &&
+        gbl_test_json_u64(json, "internal_cycles", &internal_cycles) &&
+        bus_cycles <= UINT64_MAX - internal_cycles &&
+        cycles == bus_cycles + internal_cycles;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    status = gbl_test_execute(disabled_path, NULL, UINT64_C(10000), 0u, 0u,
+                              NULL, NULL, NULL,
+                              (gbl_runner_allocator){ 0 }, &result);
+    okay = okay && gbl_test_serialize_result(&result, json, sizeof json);
+    observed->disabled_timeout = status == GBL_RUNNER_TIMEOUT &&
+        result.status == GBL_RUNNER_TIMEOUT && result.ran &&
+        result.semantic.status != GBL_MAILBOX_PASS &&
+        strcmp(result.reason, "cycle-budget") == 0 &&
+        strstr(json, "\"timer0\":{\"if_request\":false}") != NULL;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    status = gbl_test_execute(enabled_path, NULL, 0u, 0u, 0u, NULL, NULL,
+                              NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = okay && gbl_test_serialize_result(&result, json, sizeof json);
+    observed->not_run_request_null = status == GBL_RUNNER_TIMEOUT &&
+        result.status == GBL_RUNNER_TIMEOUT && result.ran &&
+        result.cycles == 0u &&
+        strstr(json, "\"timer0\":{\"if_request\":null}") != NULL;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    status = gbl_test_execute(empty_path, NULL, UINT64_C(100), 0u, 0u, NULL,
+                              NULL, NULL, (gbl_runner_allocator){ 0 },
+                              &result);
+    okay = okay && gbl_test_serialize_result(&result, json, sizeof json);
+    observed->not_run_request_null = observed->not_run_request_null &&
+        status == GBL_RUNNER_REFUSED && result.status == GBL_RUNNER_REFUSED &&
+        !result.ran && strstr(json, "\"timer0\":{\"if_request\":null}") !=
+                           NULL;
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static bool gbl_test_register_result_is(const gbl_runner_result *result,
+                                        gbl_runner_status expected_status,
+                                        uint32_t expected_value)
+{
+    return result->status == expected_status && result->ran &&
+           result->register_observation.present &&
+           result->register_observation.observed &&
+           result->register_observation.has_value &&
+           result->register_observation.value == expected_value &&
+           strcmp(result->termination, "register-eval-complete") == 0 &&
+           result->semantic.status == GBL_MAILBOX_ABSENT;
+}
+
+static bool gbl_test_machine_state_equal(const gbl_machine *left,
+                                         const gbl_machine *right)
+{
+    return left->master_cycles == right->master_cycles &&
+           left->open_bus == right->open_bus &&
+           left->dispcnt == right->dispcnt &&
+           left->initialized == right->initialized &&
+           memcmp(&left->header_diagnostics, &right->header_diagnostics,
+                  sizeof left->header_diagnostics) == 0 &&
+           memcmp(&left->cpu, &right->cpu, sizeof left->cpu) == 0 &&
+           memcmp(left->ewram, right->ewram, sizeof left->ewram) == 0 &&
+           memcmp(left->iwram, right->iwram, sizeof left->iwram) == 0 &&
+           memcmp(left->pram, right->pram, sizeof left->pram) == 0 &&
+           memcmp(left->vram, right->vram, sizeof left->vram) == 0 &&
+           memcmp(left->oam, right->oam, sizeof left->oam) == 0;
+}
+
+static bool gbl_test_register_fixture(
+    const char *fixture_directory, const char *rom_name,
+    const char *fixture_id, gbl_runner_status expected_status,
+    uint32_t expected_value)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_result discovered;
+    gbl_runner_result exact;
+    gbl_runner_result one_short;
+    gbl_runner_result baseline;
+    gbl_test_allocator_state exact_allocator_state = { 0 };
+    gbl_test_allocator_state baseline_allocator_state = { 0 };
+    uint64_t boundary_cycles;
+    bool okay;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory, rom_name)) {
+        return false;
+    }
+    memset(&discovered, 0, sizeof discovered);
+    if (gbl_test_execute(path, fixture_id, UINT64_C(100), 0u, 0u, NULL,
+                        NULL, NULL, (gbl_runner_allocator){ 0 },
+                        &discovered) != expected_status ||
+        !gbl_test_register_result_is(&discovered, expected_status,
+                                     expected_value)) {
+        gbl_runner_result_dispose(&discovered);
+        return false;
+    }
+    boundary_cycles = discovered.cycles;
+    gbl_runner_result_dispose(&discovered);
+    if (boundary_cycles == 0u) {
+        return false;
+    }
+
+    exact_allocator_state.machine_snapshot =
+        calloc(1u, sizeof *exact_allocator_state.machine_snapshot);
+    baseline_allocator_state.machine_snapshot =
+        calloc(1u, sizeof *baseline_allocator_state.machine_snapshot);
+    if (exact_allocator_state.machine_snapshot == NULL ||
+        baseline_allocator_state.machine_snapshot == NULL) {
+        free(exact_allocator_state.machine_snapshot);
+        free(baseline_allocator_state.machine_snapshot);
+        return false;
+    }
+    memset(&exact, 0, sizeof exact);
+    okay = gbl_test_execute(
+               path, fixture_id, boundary_cycles, 0u, 0u, NULL, NULL, NULL,
+               (gbl_runner_allocator){ &exact_allocator_state,
+                                       gbl_test_allocate, gbl_test_release },
+               &exact) == expected_status &&
+           gbl_test_register_result_is(&exact, expected_status,
+                                       expected_value) &&
+           exact.cycles == boundary_cycles &&
+           exact.budget_cycles == boundary_cycles &&
+           exact_allocator_state.machine_snapshot_available;
+    gbl_runner_result_dispose(&exact);
+
+    memset(&baseline, 0, sizeof baseline);
+    okay = okay &&
+           gbl_test_execute(
+               path, NULL, boundary_cycles, 0u, 0u, NULL, NULL, NULL,
+               (gbl_runner_allocator){ &baseline_allocator_state,
+                                       gbl_test_allocate, gbl_test_release },
+               &baseline) == GBL_RUNNER_TIMEOUT &&
+           baseline.status == GBL_RUNNER_TIMEOUT &&
+           baseline.cycles == boundary_cycles &&
+           baseline.semantic.status == GBL_MAILBOX_ABSENT &&
+           baseline_allocator_state.machine_snapshot_available &&
+           gbl_test_machine_state_equal(
+               exact_allocator_state.machine_snapshot,
+               baseline_allocator_state.machine_snapshot);
+    gbl_runner_result_dispose(&baseline);
+
+    memset(&one_short, 0, sizeof one_short);
+    okay = okay && boundary_cycles > 1u &&
+           gbl_test_execute(path, fixture_id, boundary_cycles - 1u, 0u, 0u,
+                            NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &one_short) ==
+               GBL_RUNNER_TIMEOUT &&
+           one_short.status == GBL_RUNNER_TIMEOUT &&
+           !one_short.register_observation.observed &&
+           !one_short.register_observation.has_value &&
+           one_short.cycles <= one_short.budget_cycles &&
+           one_short.semantic.status == GBL_MAILBOX_ABSENT;
+    gbl_runner_result_dispose(&one_short);
+    free(exact_allocator_state.machine_snapshot);
+    free(baseline_allocator_state.machine_snapshot);
+    return okay;
+}
+
+static bool gbl_test_register_rejection_controls(
+    const char *fixture_directory)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_result result;
+    bool okay = true;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-arm-pass.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(path, "synthetic-control-register-arm",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_REFUSED &&
+           strcmp(result.reason, "fixture-result-entry-out-of-range") == 0 &&
+           !result.ran && !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-register-arm-zero.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_REFUSED &&
+           strcmp(result.reason, "fixture-digest-mismatch") == 0 &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path,
+                            "synthetic-control-register-thumb-wrong-state",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           !result.register_observation.observed &&
+           !result.register_observation.has_value;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path,
+                            "synthetic-control-register-arm-never-entry",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           !result.register_observation.observed &&
+           !result.register_observation.has_value;
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static bool gbl_test_register_terminal_precedence(
+    const char *fixture_directory)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    gbl_runner_result result;
+    gbl_test_cancel_state cancel_state = { 0u, 5u };
+    gbl_test_allocator_state allocator_state = { 0 };
+    gbl_runner_allocator allocator;
+    bool okay;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-register-arm-stop.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(path, "synthetic-control-register-arm-stop",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_GUEST_STOP &&
+           result.status == GBL_RUNNER_GUEST_STOP &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-register-arm-zero.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm-zero",
+                            UINT64_C(100), 0u, 0u, NULL,
+                            gbl_test_cancel_at_boundary, &cancel_state,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_CANCELLED &&
+           result.status == GBL_RUNNER_CANCELLED && result.cycles > 0u &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+
+    allocator_state.fail_at = 2u;
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm-zero",
+                            UINT64_C(100), 0u, 0u, NULL, NULL, NULL,
+                            allocator, &result) == GBL_RUNNER_HARNESS_FAIL &&
+           result.status == GBL_RUNNER_HARNESS_FAIL && !result.ran &&
+           !result.register_observation.observed &&
+           !result.register_observation.has_value;
+    gbl_runner_result_dispose(&result);
+
+    memset(&result, 0, sizeof result);
+    okay = okay &&
+           gbl_test_execute(path, "synthetic-control-register-arm-zero",
+                            UINT64_C(100), UINT32_C(1), 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_HARNESS_FAIL &&
+           result.status == GBL_RUNNER_HARNESS_FAIL &&
+           !result.trace_complete &&
+           !result.register_observation.observed;
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static bool gbl_test_input_timeline_observations(
+    const char *fixture_directory)
+{
+    char pass_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char loop_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char first_digest[GBL_SHA256_HEX_CAPACITY];
+    char repeated_digest[GBL_SHA256_HEX_CAPACITY];
+    char released_digest[GBL_SHA256_HEX_CAPACITY];
+    char empty_digest[GBL_SHA256_HEX_CAPACITY];
+    const gbl_input_event pressed = { UINT64_C(0), UINT16_C(1) };
+    const gbl_input_event released = { UINT64_C(0), UINT16_C(0) };
+    gbl_runner_result result = { 0 };
+    gbl_runner_status status;
+    bool okay;
+
+    if (!gbl_test_path(pass_path, sizeof pass_path, fixture_directory,
+                       "owned-arm-pass.gba") ||
+        !gbl_test_path(loop_path, sizeof loop_path, fixture_directory,
+                       "owned-arm-loop.gba")) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), true,
+        &pressed, 1u, NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FE) &&
+           result.phase8.applied_input_events == 1u &&
+           result.phase8.pending_input_events == 0u &&
+           result.input_timeline_present &&
+           result.has_input_timeline_sha256;
+    if (okay) {
+        memcpy(first_digest, result.input_timeline_sha256,
+               sizeof first_digest);
+        okay = strcmp(first_digest,
+                      "c2cd3f19cdb7b22c37e53a6654b45c8a56f5dfb81040d984385e6e4ef2cdd328") == 0;
+    }
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        loop_path, NULL, UINT64_C(100), true, &pressed, 1u, NULL, NULL,
+        (gbl_runner_allocator){ 0 }, &result);
+    okay = status != GBL_RUNNER_MISSING && result.phase8.observed &&
+           result.has_input_timeline_sha256 &&
+           strcmp(first_digest, result.input_timeline_sha256) == 0;
+    if (okay) {
+        memcpy(repeated_digest, result.input_timeline_sha256,
+               sizeof repeated_digest);
+    }
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), true,
+        &released, 1u, NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FF) &&
+           result.has_input_timeline_sha256 &&
+           strcmp(first_digest, result.input_timeline_sha256) != 0;
+    if (okay) {
+        memcpy(released_digest, result.input_timeline_sha256,
+               sizeof released_digest);
+    }
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), false, NULL,
+        0u, NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FF) &&
+           !result.input_timeline_present &&
+           !result.has_input_timeline_sha256;
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    status = gbl_test_execute_timeline(
+        pass_path, "synthetic-control-pass", UINT64_C(1000), true, NULL, 0u,
+        NULL, NULL, (gbl_runner_allocator){ 0 }, &result);
+    okay = status == GBL_RUNNER_PASS && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FF) &&
+           result.input_timeline_present &&
+           result.has_input_timeline_sha256 &&
+           strcmp(released_digest, result.input_timeline_sha256) != 0 &&
+           strcmp(first_digest, result.input_timeline_sha256) != 0;
+    if (okay) {
+        memcpy(empty_digest, result.input_timeline_sha256,
+               sizeof empty_digest);
+    }
+    gbl_runner_result_dispose(&result);
+    return okay && strcmp(repeated_digest, first_digest) == 0 &&
+           strcmp(empty_digest, first_digest) != 0;
+}
+
+static bool gbl_test_input_timeline_preflight(void)
+{
+    const gbl_input_event reversed[2] = {
+        { UINT64_C(5), UINT16_C(0) },
+        { UINT64_C(4), UINT16_C(0) }
+    };
+    gbl_test_allocator_state allocator_state = { 0 };
+    const gbl_runner_allocator allocator = {
+        &allocator_state, gbl_test_allocate, gbl_test_release
+    };
+    gbl_runner_result result = { 0 };
+    gbl_runner_status status;
+    bool okay;
+
+    status = gbl_test_execute_timeline(
+        "/path/not-read/invalid-timeline.gba", NULL, UINT64_C(100), true,
+        reversed, 2u, NULL, NULL, allocator, &result);
+    okay = status == GBL_RUNNER_REFUSED && !result.ran &&
+           result.has_refusal &&
+           strcmp(result.refusal_code, "invalid-input-timeline") == 0 &&
+           allocator_state.calls == 0u;
+    gbl_runner_result_dispose(&result);
+    if (!okay) {
+        return false;
+    }
+
+    memset(&allocator_state, 0, sizeof allocator_state);
+    status = gbl_test_execute_timeline(
+        "/path/not-read/absent-with-pointer.gba", NULL, UINT64_C(100), false,
+        reversed, 1u, NULL, NULL, allocator, &result);
+    okay = status == GBL_RUNNER_REFUSED && !result.ran &&
+           result.has_refusal &&
+           strcmp(result.refusal_code, "invalid-input-timeline") == 0 &&
+           allocator_state.calls == 0u;
+    gbl_runner_result_dispose(&result);
+    return okay;
+}
+
+static bool gbl_test_input_timeline_cancellation(
+    const char *fixture_directory)
+{
+    char path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    const gbl_input_event pressed = { UINT64_C(0), UINT16_C(1) };
+    gbl_test_cancel_state cancel_state = { 0u, 2u };
+    gbl_runner_result result = { 0 };
+    bool okay;
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-arm-pass.gba")) {
+        return false;
+    }
+    okay = gbl_test_execute_timeline(
+               path, "synthetic-control-pass", UINT64_C(1000), true,
+               &pressed, 1u, gbl_test_cancel_at_boundary, &cancel_state,
+               (gbl_runner_allocator){ 0 }, &result) == GBL_RUNNER_CANCELLED &&
+           result.status == GBL_RUNNER_CANCELLED && result.phase8.observed &&
+           result.phase8.keyinput == UINT16_C(0x03FE) &&
+           result.phase8.applied_input_events == 1u;
+    gbl_runner_result_dispose(&result);
+    return okay;
 }
 
 static bool gbl_test_read_file(const char *path, char *output, size_t capacity)
@@ -484,7 +5251,7 @@ static bool gbl_test_cli_trace_write_limit(const char *runner_path,
                                            const char *directory)
 {
     char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
-    char output[8192];
+    char output[16384];
     struct rlimit limit;
     struct timespec poll_wait = { 0, 10000000L };
     pid_t child;
@@ -595,6 +5362,38 @@ static bool gbl_test_registered_result(const char *path, const char *fixture,
     return okay;
 }
 
+static bool gbl_test_runner_dma_output_refusal_status(
+    const char *scratch_directory)
+{
+    char trace_path[GBL_RUNNER_TEST_PATH_CAPACITY];
+    char trace[512];
+    gbl_trace_record record = { 0 };
+    gbl_runner_result result = { 0 };
+
+    if (!gbl_test_path(trace_path, sizeof trace_path, scratch_directory,
+                       "runner-dma-output-refusal.jsonl")) {
+        return false;
+    }
+    (void)remove(trace_path);
+    record.category = GBL_TRACE_DMA;
+    record.bus_owner = GBL_MACHINE_BUS_OWNER_DMA;
+    record.dma_status = GBL_DMA_STATUS_OUTPUT_REFUSAL;
+    record.dma_channel = 1u;
+    result.trace_records = &record;
+    result.trace_count = 1u;
+    result.trace_capacity = 1u;
+
+    if (!gbl_runner_write_trace(trace_path, &result)) {
+        (void)remove(trace_path);
+        return false;
+    }
+    const bool okay = gbl_test_read_file(trace_path, trace, sizeof trace) &&
+                      strstr(trace, "\"status\":\"output_refusal\"") !=
+                          NULL;
+    (void)remove(trace_path);
+    return okay;
+}
+
 static bool gbl_test_execute_all(const char *fixture_directory,
                                  const char *scratch_directory,
                                  const char *runner_path)
@@ -608,6 +5407,7 @@ static bool gbl_test_execute_all(const char *fixture_directory,
     gbl_runner_result result;
     gbl_test_allocator_state allocator_state;
     gbl_test_cancel_state cancel_state;
+    gbl_test_timer0_observations timer0_observations = { 0 };
     gbl_runner_allocator allocator;
     FILE *stream;
     size_t json_length;
@@ -626,11 +5426,40 @@ static bool gbl_test_execute_all(const char *fixture_directory,
 
     gbl_test_case(
         gbl_test_guest_stop_json_matrix(),
-        "all CPU exception stops share the production GUEST_STOP JSON mapping");
+        "IRQ, STOP, and deadlock share distinct production GUEST_STOP reasons");
+    gbl_test_case(
+        gbl_test_input_timeline_observations(fixture_directory),
+        "timeline identity is canonical and cycle-zero A state differs from release and absence");
+    gbl_test_case(gbl_test_input_timeline_preflight(),
+                  "malformed and inconsistent timeline options refuse before allocation or file access");
+    gbl_test_case(
+        gbl_test_input_timeline_cancellation(fixture_directory),
+        "cancellation retains the committed logical input observation");
     gbl_test_case(gbl_test_instruction_stop_json(scratch_directory),
         "executed instruction causes reach the shared real JSON writer with claim and time");
     gbl_test_case(gbl_test_cli_cancel(runner_path, path, scratch_directory),
                   "CLI converts SIGINT to CANCELLED before watchdog expiry");
+
+    okay = gbl_test_timer0_runner_observe(scratch_directory,
+                                          &timer0_observations);
+    gbl_test_case(okay && timer0_observations.semantic_completed,
+                  "timer0-runner-semantic: overflow mailbox is observed while raw input remains GUEST_STOP");
+    gbl_test_case(okay && timer0_observations.request_observed,
+                  "timer0-runner-request: Timer 0 IF request is independently true");
+    gbl_test_case(okay && timer0_observations.model_contract,
+                  "timer0-runner-model: time names the selected model and project-model-only qualification");
+    gbl_test_case(okay && timer0_observations.component_sum,
+                  "timer0-runner-components: bus and internal cycles equal total exactly");
+    gbl_test_case(okay && timer0_observations.disabled_timeout,
+                  "timer0-overflow-timeout: disabled timer cannot complete semantic mailbox PASS");
+    gbl_test_case(okay && timer0_observations.not_run_request_null,
+                  "timer0-not-run: zero-budget and pre-read refusal requests remain null");
+
+    gbl_test_case(gbl_test_runner_dma_observation(scratch_directory),
+                  "runner-dma-production: guest mailbox follows a real DMA transfer and result exposes phase9");
+    gbl_test_case(gbl_test_runner_dma_output_refusal_status(
+                      scratch_directory),
+                  "runner DMA trace serializes output refusal status");
 
     if (!gbl_test_path(path, sizeof path, fixture_directory,
                        "owned-arm-pass.gba")) {
@@ -656,6 +5485,48 @@ static bool gbl_test_execute_all(const char *fixture_directory,
         return false;
     }
     memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(path,
+                            "synthetic-control-register-mailbox-pass",
+                            UINT64_C(1000), 0u, 0u, NULL, NULL, NULL,
+                            (gbl_runner_allocator){ 0 }, &result) ==
+               GBL_RUNNER_TIMEOUT &&
+           result.status == GBL_RUNNER_TIMEOUT &&
+           result.semantic.status == GBL_MAILBOX_PASS;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "register channel cannot use a mailbox PASS away from eval");
+
+    okay = gbl_test_register_fixture(
+               fixture_directory, "owned-register-arm-zero.gba",
+               "synthetic-control-register-arm-zero", GBL_RUNNER_PASS, 0u) &&
+           gbl_test_register_fixture(
+               fixture_directory, "owned-register-arm-fail.gba",
+               "synthetic-control-register-arm-fail",
+               GBL_RUNNER_GUEST_FAIL, 1u);
+    gbl_test_case(okay,
+                  "ARM/R12 observes zero and nonzero only at exact eval entry");
+
+    okay = gbl_test_register_fixture(
+               fixture_directory, "owned-register-thumb-zero.gba",
+               "synthetic-control-register-thumb-zero", GBL_RUNNER_PASS,
+               0u) &&
+           gbl_test_register_fixture(
+               fixture_directory, "owned-register-thumb-fail.gba",
+               "synthetic-control-register-thumb-fail",
+               GBL_RUNNER_GUEST_FAIL, 1u);
+    gbl_test_case(okay,
+                  "Thumb/R7 observes zero and nonzero in Thumb pipeline state");
+
+    gbl_test_case(gbl_test_register_rejection_controls(fixture_directory),
+                  "digest, extent, state, and unreached-entry controls cannot PASS");
+    gbl_test_case(gbl_test_register_terminal_precedence(fixture_directory),
+                  "stop, cancellation, and trace failure precede register PASS");
+
+    if (!gbl_test_path(path, sizeof path, fixture_directory,
+                       "owned-arm-pass.gba")) {
+        return false;
+    }
+    memset(&result, 0, sizeof result);
     okay = gbl_test_execute(path, "synthetic-control-bios-required",
                             UINT64_C(1000), 0u, 0u, NULL, NULL, NULL,
                             (gbl_runner_allocator){ 0 }, &result) ==
@@ -665,6 +5536,30 @@ static bool gbl_test_execute_all(const char *fixture_directory,
            strcmp(result.reason, "required-bios-unavailable") == 0;
     gbl_runner_result_dispose(&result);
     gbl_test_case(okay, "required BIOS metadata yields SKIPPED before execution");
+
+    if (!gbl_test_path(scratch, sizeof scratch, scratch_directory,
+                       "official-bios-not-present.gba")) {
+        return false;
+    }
+    (void)remove(scratch);
+    memset(&allocator_state, 0, sizeof allocator_state);
+    allocator = (gbl_runner_allocator){ &allocator_state, gbl_test_allocate,
+                                        gbl_test_release };
+    memset(&result, 0, sizeof result);
+    okay = gbl_test_execute(
+               scratch, "synthetic-control-official-bios", UINT64_C(100),
+               0u, 0u, NULL, NULL, NULL, allocator, &result) ==
+               GBL_RUNNER_SKIPPED &&
+           result.status == GBL_RUNNER_SKIPPED && !result.ran &&
+           strcmp(result.reason, "official-bios-required") == 0 &&
+           strcmp(result.termination, "skipped-before-run") == 0 &&
+           result.has_fixture_id &&
+           !result.has_rom_sha256 && !result.has_expected_sha256 &&
+           result.semantic.status == GBL_MAILBOX_ABSENT &&
+           result.cycles == 0u && allocator_state.calls == 0u;
+    gbl_runner_result_dispose(&result);
+    gbl_test_case(okay,
+                  "official BIOS row skips before opening absent content or claiming a digest");
 
     memset(&result, 0, sizeof result);
     okay = gbl_test_execute(path, NULL, UINT64_C(1000), 0u, 0u, NULL, NULL,
@@ -981,10 +5876,159 @@ int main(int argc, char **argv)
         argv[2][0] != '\0') {
         return gbl_test_prepare_refusal_inputs(argv[2]) ? 0 : 1;
     }
+#ifdef GBL_RUNNER_TEST_LOCAL_PLAYABLE0
+    if (argc == 4 && strcmp(argv[1], "playable0") == 0 &&
+        (strcmp(argv[2], "verify") == 0 ||
+         strcmp(argv[2], "control") == 0) &&
+        argv[3][0] != '\0') {
+        bool setup;
+
+        if (mkdir(argv[3], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: Playable 0 scratch setup failed\n", stderr);
+            return 2;
+        }
+        if (stat(argv[3], &info) != 0 || !S_ISDIR(info.st_mode)) {
+            fputs("runner_test: Playable 0 scratch path is not a directory\n",
+                  stderr);
+            return 2;
+        }
+        if (strcmp(argv[2], "verify") == 0) {
+            printf("1..4\n");
+            setup = gbl_test_runner_playable0_verify(argv[3]);
+            if (!setup) {
+                fputs("runner_test: Playable 0 verification setup failed\n",
+                      stderr);
+                return 2;
+            }
+            return gbl_test_failures == 0u && gbl_test_number == 4u ? 0 : 1;
+        }
+        printf("1..5\n");
+        setup = gbl_test_runner_playable0_control(argv[3]);
+        if (!setup) {
+            fputs("runner_test: Playable 0 control setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 5u ? 0 : 1;
+    }
+#endif
+    if (argc == 3 && strcmp(argv[1], "dma") == 0 && argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: DMA scratch directory setup failed\n", stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(
+            gbl_test_runner_dma_observation(argv[2]),
+            "runner-dma-production: guest mailbox follows a real DMA transfer and result exposes phase9");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "ppu.observation") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: PPU scratch directory setup failed\n", stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(gbl_test_runner_ppu_observation(argv[2]),
+                      "runner-ppu-observation: emits profile-bound capabilities beside observed frame state");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "ppu.output") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: PPU output scratch directory setup failed\n",
+                  stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(gbl_test_runner_ppu_output(argv[2]),
+                      "runner-ppu-output: exact frame bytes persist after disposal, repeat identically, and respond to input");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "audio.output") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: audio output scratch setup failed\n", stderr);
+            return 2;
+        }
+        gbl_test_number = 0u;
+        gbl_test_failures = 0u;
+        printf("1..4\n");
+        (void)gbl_test_runner_audio_output(argv[2]);
+        if (gbl_test_number != 4u) {
+            fputs("runner_test: audio output setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 4u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "audio.controls") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: audio controls scratch setup failed\n", stderr);
+            return 2;
+        }
+        gbl_test_number = 0u;
+        gbl_test_failures = 0u;
+        printf("1..24\n");
+        if (!gbl_test_runner_audio_controls(argv[2])) {
+            fputs("runner_test: audio controls setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 24u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "ppu.output-controls") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: PPU output controls scratch setup failed\n",
+                  stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        gbl_test_case(
+            gbl_test_runner_ppu_output_controls(argv[2]),
+            "runner-ppu-output-controls: refusals preserve output, bitmap backdrop and forced blank emit, prohibited OBJ mode retains cause");
+        return gbl_test_failures == 0u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "ppu.production") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: production scratch directory setup failed\n",
+                  stderr);
+            return 2;
+        }
+        printf("1..1\n");
+        if (!gbl_test_runner_production(argv[2])) {
+            fputs("runner_test: production scene setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 1u ? 0 : 1;
+    }
+    if (argc == 3 && strcmp(argv[1], "ppu.production-controls") == 0 &&
+        argv[2][0] != '\0') {
+        if (mkdir(argv[2], 0700) != 0 && errno != EEXIST) {
+            fputs("runner_test: production controls scratch setup failed\n",
+                  stderr);
+            return 2;
+        }
+        printf("1..10\n");
+        if (!gbl_test_runner_production_controls(argv[2])) {
+            fputs("runner_test: production controls setup failed\n", stderr);
+            return 2;
+        }
+        return gbl_test_failures == 0u && gbl_test_number == 10u ? 0 : 1;
+    }
     if (argc != 5 || strcmp(argv[1], "all") != 0 ||
         argv[2][0] == '\0' || argv[3][0] == '\0' || argv[4][0] == '\0') {
         fputs("usage: runner_test all FIXTURE_DIR SCRATCH_DIR RUNNER_PATH | "
-              "runner_test prepare DIR\n",
+              "runner_test prepare DIR | runner_test dma SCRATCH_DIR | "
+              "runner_test playable0 {verify|control} SCRATCH_DIR | "
+              "runner_test ppu.observation SCRATCH_DIR | "
+              "runner_test ppu.output SCRATCH_DIR | "
+              "runner_test audio.output SCRATCH_DIR | "
+              "runner_test audio.controls SCRATCH_DIR | "
+              "runner_test ppu.output-controls SCRATCH_DIR | "
+              "runner_test ppu.production SCRATCH_DIR | "
+              "runner_test ppu.production-controls SCRATCH_DIR\n",
               stderr);
         return 2;
     }

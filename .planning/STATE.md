@@ -1,46 +1,43 @@
 ---
 gsd_state_version: "1.0"
-milestone: v1.0
-milestone_name: Evidence Spine
-current_phase: 6
-current_phase_name: Determinism Gates and Third-Party CPU Fixtures
-status: Phase5 accepted; approved acceptance CI and protected merge/main verification active; Phase6 NOT STARTED
-stopped_at: Finish only acceptance-records CI, protected merge commit and main CI; stop on red and stop before any Phase6 work
-last_updated: "2026-11-15T01:22:19.904Z"
-last_activity: 2026-11-14
-last_activity_desc: Owner accepted guide limits and one-time merge commit; six Phase5 requirements complete; all historical unknowns retained
-state_head: ab24e0138802133f2f4183f4107791a6eadfb1ac
+milestone: v6.0
+milestone_name: Public API Host Session Readiness
+status: Awaiting next milestone
+stopped_at: Phase 23 complete — all phases complete
+last_updated: "2026-11-25T16:53:27.639Z"
+last_activity: 2026-11-25
+last_activity_desc: Milestone v6.0 completed and archived
+state_head: 3ac48f41a8c07981256303e1b83421dbc092e4ea
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 63
-  completed_plans: 63
-  percent: 83
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 3
+  completed_plans: 3
+  percent: 100
+current_phase: 23
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-11)
+See: .planning/PROJECT.md (updated 2026-11-25)
 
 **Core value:** A fresh Gamebloke instance, given a named GBA profile, content, and timed logical input, produces deterministic, observable, evidence-backed machine behavior, and every result says exactly what it proves and what it does not.
-**Current milestone:** v1.0 Evidence Spine (a GSD milestone label, not a software version)
-**Current focus:** Phase 05 — Toolchain Spike, Original Diagnostics, and ARM/Thumb Completion
+**Most recent milestone:** v6.0 Public API Host Session Readiness (completed locally; a GSD milestone label, not a software version)
+**Current focus:** No next milestone scope is selected. Use the rolling horizon in `.planning/ROADMAP.md`; remote publication and merge remain owner-controlled.
 
 ## Current Position
 
-Phase: 6 — Determinism Gates and Third-Party CPU Fixtures
-Plan: Not started
-Status: Phase5 accepted; approved acceptance CI and protected merge/main verification active; Phase6 NOT STARTED
-Last activity: 2026-11-14 — Owner accepted guide limits and one-time merge commit; six Phase5 requirements complete; all historical unknowns retained
-
-Progress: [████████░░] 83%
+Phase: Milestone v6.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-25 — Milestone v6.0 completed and archived
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 63
+- Total plans completed: 130
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -53,6 +50,19 @@ Progress: [████████░░] 83%
 | 3 | 7 | - | - |
 | 4 | 13 | - | - |
 | 05 | 25 | - | - |
+| 7 | 7 | - | - |
+| 8 | 7 | - | - |
+| 9 | 8 | - | - |
+| 10 | 11 | - | - |
+| 12 | 8 | - | - |
+| 13 | 8 | - | - |
+| 15 | 5 | - | - |
+| 16 | 3 | - | - |
+| 17 | 4 | - | - |
+| 20 | 1 | - | - |
+| 21 | 2 | - | - |
+| 22 | 1 | - | - |
+| 23 | 2 | - | - |
 
 **Recent Trend:** Not enough data to calculate yet.
 
@@ -121,6 +131,90 @@ Progress: [████████░░] 83%
 | Phase 05 P21 | multi-resume; Task2 RED-to-code 22m43s; review and integration separate | 2 tasks | 43 files |
 | Phase 05 P22 | 23m40s through Task2 commit including review | 2 tasks | 7 files |
 | Phase 05 P23 | multi-resume; final admitted119.88s, native workflow185.02s | 2 tasks | 10 files |
+| Phase 06 P01 | 21 min | 2 tasks | 6 files |
+| Phase 06 P02 | 22 min | 2 tasks | 4 files |
+| Phase 06 P05 | 13 min | 2 tasks | 4 files |
+| Phase 6 P03 | 24 min | 2 tasks | 8 files |
+| Phase 06 P06 | 39m44s | 2 tasks | 10 files |
+| Phase 07 P01 | 46m | 2 tasks | 10 files |
+| Phase 07 P02 | 55 min | 2 tasks | 11 files |
+| Phase 07 P03 | 86 min | 1 tasks | 9 files |
+| Phase 07 P04 | 103 min | 1 tasks | 6 files |
+| Phase 07 P05 | 80min | 2 tasks | 11 files |
+| Phase 07 P06 | 117min | 2 tasks | 10 files |
+| Phase 07 P07 | 56m 10s | 2 tasks | 7 files |
+| Phase 08 P01 | at least 30min; initial read time not captured | 2 tasks | 10 files |
+| Phase 08 P02 | 32min | 2 tasks | 11 files |
+| Phase 08 P03 | 19 min | 2 tasks | 8 files |
+| Phase 08 P04 | 45m | 2 tasks | 11 files |
+| Phase 8 P5 | 37min | 2 tasks | 11 files |
+| Phase 8 P6 | 41m | 2 tasks | 10 files |
+| Phase 08 P07 | not measured | 2 tasks | 21 files |
+| Phase 09 P01 | 53m | 2 tasks | 13 files |
+| Phase 09 P02 | 190min | 2 tasks | 12 files |
+| Phase 09 P03 | 43m | 3 tasks | 9 files |
+| Phase 09 P04 | 81 min | 2 tasks | 9 files |
+| Phase 09 P05 | 51min | 2 tasks | 1 files |
+| Phase 09 P06 | 55min | 3 tasks | 8 files |
+| Phase 09 P07 | 31m from first task commit | 2 tasks | 8 files |
+| Phase 09 P08 | 2h | 2 tasks | 23 files |
+| Phase 10 P01 | 42min | 2 tasks | 7 files |
+| Phase 10 P02 | 38 min | 2 tasks | 11 files |
+| Phase 10 P3 | 39min | 2 tasks | 9 files |
+| Phase 10 P04 | 33 min from first task commit; start time unrecorded | 2 tasks | 5 files |
+| Phase 10 P05 | 40 min | 2 tasks | 8 files |
+| Phase 10 P06 | 44m | 2 tasks | 9 files |
+| Phase 10 P07 | 67m21s measured from first TDD RED commit; initial setup unmeasured | 2 tasks | 9 files |
+| Phase 10 P08 | 59m31s | 3 tasks | 11 files |
+| Phase 10 P9 | not measured | 2 tasks | 4 files |
+| Phase 10 P10 | >=45 min; exact start unavailable | 3 tasks | 14 files |
+| Phase 10 P11 | 84 min | 3 tasks | 9 files |
+| Phase 11 P01 | 54min | 3 tasks | 9 files |
+| Phase 11 P02 | 55 | 2 tasks | 7 files |
+| Phase 11 P03 | 40min | 2 tasks | 7 files |
+| Phase 11 P04 | 27m45s | 2 tasks | 2 files |
+| Phase 11 P6 | not measured | 3 tasks | 10 files |
+| Phase 11 P7 | not measured | 3 tasks | 12 files |
+| Phase 12 P01 | 50min | 2 tasks | 14 files |
+| Phase 12 P02 | 26min | 2 tasks | 12 files |
+| Phase 12 P3 | 27min | 2 tasks | 8 files |
+| Phase 12 P04 | about 45 min from first RED commit | 3 tasks | 13 files |
+| Phase 12 P05 | 27min | 2 tasks | 12 files |
+| Phase 12 P06 | 37 min | 3 tasks | 11 files |
+| Phase 12 P07 | 21m | 2 tasks | 8 files |
+| Phase 12 P08 | 71m minimum | 2 tasks | 9 files |
+| Phase 13 P01 | 37min | 2 tasks | 5 files |
+| Phase 13 P02 | 39m | 2 tasks | 5 files |
+| Phase 13 P03 | 25m 19s | 2 tasks | 5 files |
+| Phase 13 P04 | 21m12s | 2 tasks | 7 files |
+| Phase 13 P05 | 94 min | 2 tasks | 12 files |
+| Phase 13 P06 | 61m | 2 tasks | 7 files |
+| Phase 13 P07 | 41min | 2 tasks | 7 files |
+| Phase 13 P08 | 39min minimum | 2 tasks | 14 files |
+| Phase 15 P01 | not measured | 2 tasks | 1 files |
+| Phase 16 P01 | 35min | 3 tasks | 11 files |
+| Phase 16 P02 | 34m | 3 tasks | 10 files |
+| Phase 16 P03 | 74 min | 3 tasks | 13 files |
+| Phase 17 P01 | 42 min | 2 tasks | 8 files |
+| Phase 17 P02 | 37min from first RED; setup not measured | 2 tasks | 8 files |
+| Phase 17 P03 | 27m13s | 2 tasks | 10 files |
+| Phase 17 P04 | 120m | 3 tasks | 21 files |
+| Phase 18 P01 | 49min from first RED; setup before first task commit unmeasured | 3 tasks | 14 files |
+| Phase 18 P02 | 95min | 3 tasks | 19 files |
+| Phase 18 P03 | 19 min | 2 tasks | 5 files |
+| Phase 18 P04 | 3h33m20s | 2 tasks | 21 files |
+| Phase 19 P19-01 | 23m13s | 2 tasks | 3 files |
+| Phase 19 P2 | 53m | 3 tasks | 5 files |
+| Phase 19 P03 | 49min | 3 tasks | 7 files |
+| Phase 19 P04 | 27min | 2 tasks | 8 files |
+| Phase 19 P05 | 37min | 2 tasks | 6 files |
+| Phase 19 P06 | 1h 44m | 2 tasks | 20 files |
+| Phase 20 P01 | not measured | 3 tasks | 8 files |
+| Phase 21 P01 | 29m | 2 tasks | 9 files |
+| Phase 21 P02 | 51m+ lower bound; initial setup unmeasured | 2 tasks | 7 files |
+| Phase 22 P01 | 18 min | 2 tasks | 7 files |
+| Phase 23 P01 | 322min | 3 tasks | 5 files |
+| Phase 23 P02 | 1d | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -128,6 +222,23 @@ Progress: [████████░░] 83%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v5.0 Roadmap] Phase 20 proves the versioned, opaque Core API for the existing `agb` direct-start, ROM-only profile, including bounded advancement, A/V observations, and refusal postconditions. Phase 21 proves the same public boundary from a relocated C consumer with a rights-reviewed diagnostic and uses its results to assess LibFuturo fit. All nine requirements map to one phase each. Dependency adoption, Playstead changes, backup devices, compatibility-superiority claims, hardware qualification, and public release are outside this milestone.
+- [Phase 20 owner decisions] API v1 uses versioned `gbl_v1_*` symbols, sized extensible structs, and caller allocator callbacks. These choices shape the implemented public source contract; they do not promise long-term binary package compatibility.
+- [Phase 21 LibFuturo review] The owner-provided current-source assessment supports the four fit comparisons. Existing GabbaBoy frame bounds do not provide a caller-selected GBA cycle ceiling; preflight refusal guarantees do not imply rollback after a native run begins. The assessment does not approve adoption.
+
+- [v3.0 Roadmap]: Phase 11 owns the mode/output contract, sampled rows, and transactional visibility; Phase 12 delivers all text/affine/bitmap BG families; Phase 13 owns OBJ and shared priority; Phase 14 owns windows/effects/mosaic/blank; Phase 15 owns CPU/DMA video-memory policy enforcement and complete semantic/runner/replay evidence. All 18 current requirements have one owner phase; tests accompany each feature, with full coverage accepted in Phase 15.
+- [v3.0 Limits]: Preserve the selected 1006-cycle HBlank and line-sampling policy, open HBlank/DMA-latch/within-line disputes, UNKNOWN hardware qualification, fixture-rights limits, and every existing hosted/budget/no-retry stop. No new BIOS, third-party fixture, hosted rerun, publication, or implementation authority follows from roadmap creation. See ROADMAP.md and PROJECT.md for scope and horizon alternatives.
+- [Phase 12]: Modes 0–5 now render their declared text, affine, or bitmap background families from canonical video memory; mode capability remains partial until composition and display effects ship.
+- [Phase 12]: Preserve semantic pixel expectations and bounds/refusal checks. The review fixes and direct-preview regression passed focused checks and final local CI; no hardware qualification follows.
+- [Phase 12]: Keep two-worker CTest; the measured run showed no safe setting change. The exact fast helper caught a direct-preview regression before the long canonical workflow.
+- [Phase 13]: Regular/affine OBJ and the shared BG/OBJ/backdrop compositor passed semantic pixel, boundary, refusal, replay, exact-selector, and canonical CI checks. Equal-priority OBJ-over-BG and the 1,226-unit per-row budget are deterministic software policies; hardware qualification remains UNKNOWN.
+- [Phase 13]: The exact helper removed duplicate profile checks while retaining the required inherited closure. Canonical CTest measured 907.20 seconds; the slow profile mutation tests exercise distinct evidence, so no further safe coverage-preserving shortcut was identified.
+- [Phase 13]: The required L1 security audit recorded 25 distinct threats closed and zero blockers in `13-SECURITY.md`; no accepted risks were added.
+
+- [v2.0 Roadmap]: Phase 7 owns TIME-01, TIME-03, TIME-05, BUS-06, and VERIF-08: one machine time/event path, all four timers, explicit cycle-accounting scope, an original BIOS-free Timer 0 polling proof, and cheap event-boundary/test-selection checks. Model evidence must remain labeled until required timing costs are sourced and modeled.
+- [v2.0 Roadmap]: Phase 8 owns IRQ/HALT/timestamped input; Phase 9 owns WAITCNT/prefetch scope and DMA arbitration; Phase 10 owns PPU timing, raw mode-3 output, and polling Playable 0. Device requests remain distinct from CPU acceptance/entry and HALT wake.
+- [v2.0 Scope]: BIOS-01, CART-01/SRAM, and EVID-07 remain deferred. G4 approval is required before stub code; G6 belongs to the owner's Phase 10 judgment; G8 and fixture review precede any mGBA deep-lane promotion or fetch. The v1.0 DIAG-04 and DET-02 evidence gaps remain open and are not v2.0 passes or requirements.
 
 - [Phase 05]: Owner replied "yes" to the proposed isolated legacy-runner test compiler/flags/standard inheritance correction and bounded local/hosted verification on existing PR #8 after run 43115640150. Resume that correction without weakening sanitizers or other checks. A new red hosted result renews the stop; producer source and ROM admission remain independently gated.
 
@@ -262,12 +373,250 @@ Recent decisions affecting current work:
 - [Phase 05]: Owner sanity check prompted focused-per-change/earlyGNU checks and family review before full integration, matching05-VALIDATION SamplingRate. Full gates remain at ARM13, Thumb completion, explicit diagnostic/hosted and final source. See05-PROCESS-LESSONS.md.
 - [Phase 05]: Owner approved one stronger-executor trial for next Thumb ALU batch (Plan14): configured codex opus mapping gpt-6.1-sol with heavy-tier high effort; reviewer/fixer remain Luna/xhigh. Temporary pins live in config; restore previous routing after the one batch, preserving owner edits. See model-routing-trial.json.
 - [Phase 05]: Use Git Unix timestamps/UTC epochs for elapsed measurements. Plan13 mixed timezone duration corrected to2389seconds39min49s first committedRED→initialsummary; precommit initialization/review/integration are outside that interval.
+- [Phase 06]: Same-process comparison uses the production runner with the owned mailbox-pass ROM, direct-start defaults, no input timeline, a 1000-cycle bound, and all trace categories.
+- [Phase 06]: Fresh-process checks compare complete JSON and trace hashes for PASS, GUEST_FAIL, GUEST_STOP, and TIMEOUT while checking exact guest status and progress.
+- [Phase 06]: Determinism outputs use exclusive task-owned scratch paths; host duration and temporary paths stay outside result documents.
+- [Phase 06]: Use the existing gbl_cpu_run path with unit_limit=1; the harness only schedules units and observes outcomes.
+- [Phase 06]: Compare each machine with its own isolated baseline for mailbox outcome, exact progress, named state, memory, and canonical trace bytes.
+- [Phase 06]: Mutate a test-local copy of the owned Thumb-bearing synthetic image result literal to exercise the failure outcome.
+- [Phase 06]: Register lifecycle and trace-contamination controls in both ci and asan inventories.
+- [Phase 06]: Missing result_channel retains the five-word-v1-final-marker mailbox; register-eval rows require a complete typed binding.
+- [Phase 06]: Git source revisions bind to source.commit; URL revisions must appear in source.url, and register channels require an exact runtime ROM digest.
+- [Phase 06]: Synthetic controls preserve the pinned ARM/R12, Thumb/R7, and memory/R12 tuples using owned bytes and local-only rights metadata.
+- [Phase 6]: Batch all admitted owned diagnostic rows once per compiler and optimization variant, preserving existing artifact authority and timing limits.
+- [Phase 6]: Compare exact sorted canonical guest records and trace hashes; keep compiler metadata and host timing separate from guest observations.
+- [Phase 6]: Keep DET-02 pending until strict GNU GCC plus Clang evidence passes on Linux; local AppleClang host evidence does not qualify it.
+- [Phase 06]: The canonical fixture row selects the result channel; observation JSON cannot relax mailbox validation.
+- [Phase 06]: Keep semantic as the actual mailbox observation, independent from the register verdict.
+- [Phase 06]: Official-BIOS fixtures return a reasoned SKIPPED result before content access.
+- [Phase 06]: DIAG-04 remains pending until the later local-only plan runs the pinned third-party suites.
+- [Phase 06]: Before a long workflow, run shell/workflow checks and cheap policy controls, and use `ctest -N -R` to prove a focused filter selects tests. Measure the resulting JUnit critical path and avoid repeating unchanged producer matrices.
+- [Phase 07]: Keep gbl_machine as the single time authority and select gamebloke-timer-model-1 as project model evidence, not hardware qualification.
+- [Phase 07]: Keep device IF requests separate from CPU interrupt eligibility and exception entry; those remain later work.
+- [Phase 07]: Preserve the one-cycle successful bus-access rule as an explicitly project-selected placeholder.
+- [Phase 07]: Keep timer edge behavior in gamebloke-timer-model-1 as project policy; this plan does not qualify hardware timing.
+- [Phase 07]: Preview ordered bus, internal, timer, and IF operations before CPU effects; loaded-PC preparation never reads guest memory.
+- [Phase 07]: Keep device IF requests distinct from CPU eligibility and exception entry.
+- [Phase 07]: Keep all supported bus rows one cycle and explicitly project-selected under gamebloke-timer-model-1; do not treat them as hardware qualification.
+- [Phase 07]: Report CPU bus and internal cycles separately, and keep device interrupt requests distinct from CPU exception entry.
+- [Phase 07]: All 162 runtime cost rows remain one-cycle project-selected placeholders; hardware costs are unmodeled and null.
+- [Phase 07]: ARM7TDMI CPU cycle composition is source-backed separately from the unmodeled GBA region and wait mapping.
+- [Phase 07]: Timer edge policies remain project-selected with hardware qualification UNKNOWN; WAITCNT and prefetch remain out of scope.
+- [Phase 07]: Keep guest semantic completion, Timer 0 IF request, and model cycle costs as separate observations; IF does not imply CPU exception entry.
+- [Phase 07]: Preserve result/1 compatibility only when the complete additive timing extension is absent; require the full extension from current producers.
+- [Phase 07]: Label the selected cycle model project-model-only; it is not hardware timing qualification.
+- [Phase 07]: Keep gamebloke-timer-model-1 project-selected and label it project-model-only; passing tests do not establish hardware accuracy.
+- [Phase 07]: Keep device IF requests, guest semantic completion, model cycles, and CPU exception entry as separate observations.
+- [Phase 07]: Export a stable timer/event/IF time-state digest and retain full named canonical equality for in-process determinism comparisons.
+- [Phase 07]: Keep gamebloke-timer-model-1 project-model-only; tests establish selected model behavior, not hardware timing.
+- [Phase 07]: Keep the original Timer 0 images build-local, BIOS-free, local-only, and redistribution-unknown; distinguish guest completion, IF request, and CPU exception entry.
+- [Phase 07]: Require all five exact phase7_fast predecessors before dependent longer tests, with fixture-excluded selection and a causal failing-setup control.
+- [Phase 08]: Sample enabled requests at the completed instruction boundary and keep request, eligibility, acceptance, and exception entry separately observable.
+- [Phase 08]: Use the no-BIOS IRQ stop policy without vector fetch or a claim that a handler ran.
+- [Phase 08]: Keep the selected IRQ entry cycle as project-model evidence, not hardware timing qualification.
+- [Phase 08]: Keep the copied logical timeline bounded at 256 events and schedule only its next record, preserving the existing event queue limit.
+- [Phase 08]: Use timer priorities 0–3 followed by keypad priority 4 and completion-cycle bus effects; this is explicit project timing policy.
+- [Phase 08]: Treat active-low KEYINPUT, KEYCNT empty-selection behavior, and effective false-to-true request edges as model rules, not hardware qualification.
+- [Phase 08]: HALT wakes from IF & IE after same-cycle events settle, independently of IME and CPSR.I acceptance.
+- [Phase 08]: STOP is terminal in the guest-cycle-only, no-BIOS profile; no-live-event HALT is a distinct deadlock.
+- [Phase 08]: Wait cycles are reported separately from bus/internal cycles, and event advancement has deterministic budget/refusal bounds.
+- [Phase 08]: The Phase 8 result tuple remains an optional gamebloke.result/1 extension so historical documents remain valid.
+- [Phase 08]: Sampled IF/IE/IME/CPSR eligibility, current IRQ registers, wake, entry, and handler success remain distinct observations.
+- [Phase 08]: IRQ and timestamped input evidence remains project-model-only; exact GBA IRQ latency and BIOS handler behavior are unqualified.
+- [Phase 8]: Keep --input-script parsing in fixed local storage with a 16 KiB cap plus one-byte preflight probe and 256-record limit.
+- [Phase 8]: Describe Plan 08-05 replay results as deterministic model evidence, not hardware or physical-controller qualification.
+- [Phase 8]: Keep Phase 8 IRQ, keypad, HALT, and power values project-model-only; preserve source facts and hardware qualification as separate evidence.
+- [Phase 8]: Defer canonical CTest inventory and registered-graph evidence to Plan 08-07.
+- [Phase 08]: Keep deterministic IRQ, HALT, and keypad observations project-model evidence; preserve G4, physical qualification, hosted CI, and carryover stops.
+- [Phase 08]: Treat the sixth canonical local workflow as final evidence; retain earlier failed attempts and their bounded repairs as history.
+- [Phase 09]: Use a two-master-cycle DMA startup as explicit project policy; the hardware conversion remains UNKNOWN.
+- [Phase 09]: Use Nintendo AGB Programming Manual v1.1 section 3.3 for reset WS0 ROM quote; keep other region costs project-selected and label hardware mapping UNKNOWN.
+- [Phase 09]: Keep the transactional DMA coordinator in src/machine.c and refuse IO destinations before publishing source or device effects.
+- [Phase 09]: Use one contextual WAITCNT quote path for CPU and DMA, including physical beat composition.
+- [Phase 09]: Keep prefetch execution unmodeled; separate community 128 KiB provenance and retain UNKNOWN hardware qualification.
+- [Phase 09]: DMA readiness uses the canonical scheduler and reconsiders priority only at complete transfer-unit boundaries.
+- [Phase 09]: The two-master-cycle startup conversion is project-selected; its hardware mapping remains UNKNOWN and Prefetch remains unmodeled.
+- [Phase 09]: Per-channel DMA latches remain selected policy under open dispute disp-dma-latch; dependent results are disputed and hardware qualification UNKNOWN.
+- [Phase 09]: Elapsed machine time equals CPU bus, CPU internal, HALT wait, DMA startup, source and destination contributions; DMA pause remains informative and is not added.
+- [Phase 09]: DMA startup conversion remains project-selected at two master cycles; hardware mapping is UNKNOWN and prefetch remains unmodeled.
+- [Phase 09]: Per-channel retained latch behavior stays disputed under open disp-dma-latch, and four source-audit edge flags remain unresolved.
+- [Phase 09]: The existing canonical helper already includes WAITCNT, channel, event, and retained-latch fields; verify its coverage with direct mutations instead of duplicating it.
+- [Phase 09]: Check the 128 KiB forced-N boundary through the shared quote's effective beat sequence and measured DMA source cost; retain GBATEK provenance and UNKNOWN qualification.
+- [Phase 09]: Retained-latch state remains project-selected and disputed under disp-dma-latch; this plan does not qualify latch behavior on hardware.
+- [Phase 09]: ROM profile costs are contextual WAITCNT halfword-beat formulas; hardware qualification remains UNKNOWN.
+- [Phase 09]: DMA startup and whole-unit arbitration remain project-selected; per-channel latch results remain disputed under open disp-dma-latch.
+- [Phase 09]: Keep Phase 9 checks in the existing CI workflow and reuse its configured build.
+- [Phase 09]: Require the seven cheap Phase 9 checks as fixture predecessors for longer affected cases.
+- [Phase 09]: Scope Timer 0 fixture-dependent selectors to the guarded local-timer0 lane and exclude them from CI/ASAN.
+- [Phase 09]: Run the unchanged canonical local CI workflow once after all current inputs and cheap checks are settled.
+- [Phase 09]: Treat local passes as implementation evidence only; hardware, hosted, rights, and publication gates remain separate.
+- [Phase 10]: The PPU scheduler uses one recurring priority-9 event that alternates line starts and HBlank.
+- [Phase 10]: The 1006-cycle HBlank offset remains project-selected/REF and disputed; hardware qualification stays UNKNOWN.
+- [Phase 10]: Bounded row capture plans and ordered VRAM overlays materialize only on successful commit under caller-owned synchronization.
+- [Phase 10]: PPU-01 and PPU-02 remain pending until the remaining Phase 10 work satisfies their full requirements.
+- [Phase 10]: Keep the 1006-cycle HBlank edge project-selected/REF, preserve the open dispute, and retain UNKNOWN hardware qualification.
+- [Phase 10]: Keep VCOUNT and DISPSTAT status read-only; use DISPSTAT writable mask 0xFF38 and ignore VCOUNT writes.
+- [Phase 10]: Publish frame validity only at line 160 after complete coverage of 160 supported rows in one epoch.
+- [Phase 10]: Preserve full DISPCNT; this raw mode-3 renderer consumes mode, BG2, forced blank, OBJ, and window enables while leaving other bits unmodeled.
+- [Phase 10]: Keep PPU-01 and PPU-02 pending until remaining Phase 10 plans satisfy the full requirements.
+- [Phase 10]: VBlank requests at line 160 and selected HBlank requests at +1006 on visible lines use the shared event scheduler and existing DMA arbiter.
+- [Phase 10]: HBlank-dependent results remain linked to disp-hblank-flag-edge and hardware qualification UNKNOWN, independently of the DMA latch dispute.
+- [Phase 10]: Task 2 stayed test-only because its transactional refusal and collision behavior already passed after Task 1.
+- [Phase 10]: Keep the selected +1006-cycle HBlank event separate from the unknown hardware edge; retain the open disp-hblank-flag-edge dispute and UNKNOWN qualification.
+- [Phase 10]: Use typed ppu.tracer and ppu.boundary observations for runtime values, and require the ppu.registers selector's exact success summary.
+- [Phase 10]: Keep the +1006-cycle HBlank selection project-selected/REF, disputed under disp-hblank-flag-edge, with hardware qualification UNKNOWN.
+- [Phase 10]: Copy raw frame bytes only for a requested complete supported epoch; keep artifact status and digest separate from guest semantics and machine time.
+- [Phase 10]: Keep PLAY-01 and G6 Playable 0 acceptance pending; synthetic runner evidence does not satisfy the owner judgment gate.
+- [Phase 10]: Accept historical result/1 records only when both phase10 and raw_video are absent; require both for current producers.
+- [Phase 10]: Keep HBlank at the profile-selected +1006-cycle REF candidate, disputed under disp-hblank-flag-edge, with hardware qualification UNKNOWN.
+- [Phase 10]: Keep playable acceptance pending; automation does not supply the owner's G6 judgment.
+- [Phase 10]: Keep all four generated guests under ignored build/local-playable0; their manifest rows allow local-only use and leave redistribution unknown.
+- [Phase 10]: Preserve G6 as an owner judgment; the automated scenario and pixel checks do not record playability acceptance.
+- [Phase 10]: Treat the pinned Clang 21 Docker lane as supplementary compile-only evidence (56/56 targets; 30-second setup and 12-second workflow); it does not replace local guest verification or close G6.
+- [Phase 10]: Keep local Playable 0 guest evidence outside ordinary CI/ASAN inventories; G6 judgment stays pending.
+- [Phase 10]: Use the canonical machine comparator for complete PPU state and raw video bytes; make no hardware-qualification claim.
+- [Phase 10]: Use the official pinned Libretro ABI header directly; add no runtime dependency.
+- [Phase 10]: Generate the continuous original guest only under ignored local build output; redistribution remains unknown.
+- [Phase 10]: Keep PLAY-01 and G6 pending until a real interactive local host is available and the owner has tried it.
+- [Phase 10]: Use a dependency-free terminal Libretro frontend after managed RetroArch launch denial; benchmark preview/transaction copies before considering core redesign.
+- [Phase 10]: Use the existing dynamic Gamebloke Libretro module and canonical machine; add no second emulator implementation or runtime dependency.
+- [Phase 10]: Render a 60x20 ANSI RGB preview with explicit press/release controls and pace from validated Libretro AV timing.
+- [Phase 10]: Keep generated guest bytes under ignored local build output and retain local-only, redistribution-unknown limits.
+- [Phase 10]: Keep PLAY-01 and G6 pending until owner live play; the managed RetroArch denial remains historical with no retry or policy bypass.
+- [Phase 10 closeout]: The owner ran `scripts/play-playable0-terminal.sh` and accepted the visible original BIOS-free Playable 0 diagnostic demo on 2026-11-19. Acceptance is limited to that local terminal session; it does not establish hardware timing, retail compatibility, audio, saves, redistribution rights, or physical-controller behavior. RetroArch's managed launch denial remains historical and was not retried.
+- [Phase 11]: Keep the project-selected 1006-cycle HBlank and event-before-same-cycle-write ordering; hardware qualification remains unknown. — The phase preserves a deterministic row boundary while leaving the HBlank dispute and hardware qualification open.
+- [Phase 11]: Keep current VRAM, PRAM and OAM CPU/DMA bus behavior and costs, without PPU stalls or new access denial. — This preserves the tested bus contract while making no unverified hardware access-policy claim.
+- [Phase 11]: Keep the new sampled-memory seam private; do not establish a public C API in this phase. — Capability discovery remains through profile and runner metadata; stable public API design is reserved for the later API milestone.
+- [Phase 11]: Version 10 exposes all six display modes with implementation status and exact BG source dimensions.
+- [Phase 11]: The canonical output is BGR555_LE at 240x160 with 480-byte stride and 76800-byte length.
+- [Phase 11]: CPU/DMA PRAM, VRAM and OAM retain existing bus outcomes/costs; PPU adds zero cycles and hardware qualification remains UNKNOWN.
+- [Phase 11]: Current PPU model 2 binds profile version and capability objects to profiles/agb.json; model 1 remains accepted without a partial tuple.
+- [Phase 11]: Current raw_video format remains bgr555-le and must match the profile BGR555_LE layout.
+- [Phase 11]: PPU-03, PPU-04, and PPU-06 are verified complete for the declared deterministic software model; hardware qualification remains UNKNOWN and disputes stay open.
+- [Phase 12]: One text source is selected per sampled row: BG0-BG3 in mode 0 and BG0/BG1 in mode 1; Phase 13 owns composition.
+- [Phase 12]: Transparent index zero resolves through palette entry zero while the internal sample retains BG identity and transparency.
+- [Phase 12]: Mode 3 retains BG2 behavior and treats other BG enable bits as inert.
+- [Phase 12]: Text output is a deterministic software model; hardware qualification remains UNKNOWN.
+- [Phase 12]: Mode 0 and mode 1 are published as partial for the implemented text backgrounds only; mode 1 affine BG2 remains unavailable.
+- [Phase 12]: Profile version 11 is bound to matching runner capability metadata, with UNKNOWN hardware qualification and existing CPU/DMA video-memory access behavior preserved.
+- [Phase 12]: Mode capability metadata remains distinct from runtime frame validity and does not imply priority composition.
+- [Phase 12]: Phase 12 fast manifest is six selectors: ppu.tracer, three background selectors, ppu.refusal, and the selection control.
+- [Phase 12]: CI profile controls remain in the Phase 12 fixture setup but run once through the inherited Phase 11 helper.
+- [Phase 12]: Use the existing ppu.tracer Phase 11 dependency as the Phase 12 fixture bridge to preserve the Phase 11 exact graph.
+- [Phase 12]: Reuse the bus_test build from the Phase 11-to-10 helper chain; do not rebuild it for Phase 12.
+- [Phase 12]: Affine matrices use signed 8.8 values, mathematical floor by 256, and int64 horizontal intermediates; hardware qualification remains UNKNOWN.
+- [Phase 12]: Affine origins use unsigned signed-28 modular updates, modeled VBlank reload, and one PB/PD advance at the selected +1006 HBlank event; HBlank, DMA-latch, and within-line disputes remain open.
+- [Phase 12]: Profile v12 publishes the implemented affine capability family: mode 1 text BG0/BG1 or affine BG2, and mode 2 affine BG2/BG3.
+- [Phase 12]: Affine signed arithmetic and reference updates are deterministic software policy; hardware qualification remains UNKNOWN and HBlank, DMA-latch, and within-line disputes stay open.
+- [Phase 12]: Runner metadata matches the selected profile version and display tuple exactly; the existing result validator needed no code change.
+- [Phase 12]: Out-of-area bitmap coordinates resolve to backdrop palette entry zero before page arithmetic or reads.
+- [Phase 12]: Mode 4 index zero is transparent; direct-color zero in modes 3 and 5 is opaque black.
+- [Phase 12]: Bitmap transforms follow captured signed affine state as deterministic software policy; hardware qualification remains UNKNOWN.
+- [Phase 12]: All six display modes remain partial until shared composition and later display controls are implemented.
+- [Phase 12]: Static capability, runtime frame validity, sampled-memory observation, and hardware qualification stay separate; hardware qualification remains UNKNOWN.
+- [Phase 12]: Keep two-worker CTest; measured critical path is mutation-heavy tests and this run found no safe setting change.
+- [Phase 13]: D-01: Support all normal OBJ shape/size pairs, flips, 4bpp/8bpp, and 1D/2D mappings.
+- [Phase 13]: D-02: Validate complete OBJ tile spans inside the mode-dependent physical character window before reading.
+- [Phase 13]: D-03: Source index zero defines indexed transparency; palette-resolved black remains opaque.
+- [Phase 13]: D-04: Apply modulo OAM coordinates, clip to 240x160, and causally refuse unsupported OBJ encodings.
+- [Phase 13]: D-05: Signed 8.8 matrix arithmetic uses int64 intermediates and mathematical floor by 256 as Gamebloke policy; hardware qualification remains UNKNOWN.
+- [Phase 13]: D-06: Affine sampling is centered in the destination field; double-size expands that field only, and out-of-source pixels are transparent.
+- [Phase 13]: D-07: Affine OBJ semantic edge vectors cover selector and matrix identity, reflection/rotation/shear, source clipping, tile edges, palette transparency/black, and negative controls.
+- [Phase 13]: D-08: Lower numeric priority wins; same-class ties favor lower BG number or lower OAM index.
+- [Phase 13]: D-09: Equal-priority OBJ wins over BG as deterministic software policy; the manual sandwich is not a silicon comparator claim.
+- [Phase 13]: D-10: Admit OBJ candidates in ascending OAM order, but resolve visible pixels by priority first.
+- [Phase 13]: OBJ row work is a 1226-unit project policy and does not affect master cycles.
+- [Phase 13]: Admission scans eligible OAM entries in ascending order and stops selecting at the first full-cost non-fit.
+- [Phase 13]: Visible priority remains a compositor decision after OBJ admission.
+- [Phase 13]: Profile v14 encodes the exact 1226-unit OBJ budget, admission policy, and BG/OBJ composition while retaining partial modes and UNKNOWN qualification.
+- [Phase 13]: The current runner reports profile_version 14 and unsupported-obj-control for unsupported OBJ settings; historical obj-enabled results remain accepted under result/1.
+- [Phase 13]: CPU preview validation must mirror the compositor OBJ-aware digest and validate row captures in every supported display mode.
+- [Phase 13]: Existing row-capture revalidation and commit refusal already protected the tested OBJ observations, so Plan 13-06 needed no production source or model-header changes.
+- [Phase 13]: The time/HALT CTest fixture prerequisites remain required; the 17-test expansion retained phase7.selection.control as graph evidence.
+- [Phase 13]: The Plan 13-06 deterministic software checks preserve the 1226-unit work policy, existing video-memory access behavior, and UNKNOWN hardware qualification.
+- [Phase 13]: Keep both CI profile checks registered, inventoried, and fixture-validated; execute them once in the inherited same-build closure and require both in aggregate evidence.
+- [Phase 13]: Use independent semantic pixels and causal wrong-color/wrong-selection controls as correctness evidence; hashes are supplemental repeatability data.
+- [Phase 13]: Keep two-worker CTest and run the shared profile checks once in the inherited same-build closure; remove no quality gates.
+- [Phase 13]: Describe modes 0–5 and OBJ composition as partial software support with hardware qualification UNKNOWN; BG2-disabled mode 3 may emit valid backdrop-only output.
+- [Phase 15]: Keep semantic mailbox PASS distinct from the expected top-level GUEST_STOP for unregistered source-generated content.
+- [Phase 15]: Keep the runner result schema unchanged; named row-sample and event-before-write claims remain profile and source-test evidence.
+- [Phase 16]: Keep capture at fixed 32,768 Hz stereo signed-16 little-endian with one frame per 512 machine cycles, starting at cycle 512.
+- [Phase 16]: Keep capture output caller-owned and staged privately; publish only after checked time commit succeeds.
+- [Phase 16]: Drain all ordered same-cycle device events before a sample edge, then apply its completing bus write.
+- [Phase 16]: Keep the 32768 Hz stereo S16LE grid fixed at one frame per 512 machine cycles, first at cycle 512.
+- [Phase 16]: Keep the 4096 per-operation dispatch limit separate from the one-second cumulative caller capture bound.
+- [Phase 16]: At a shared cycle, drain event effects, sample the old route, then apply the completing bus write.
+- [Phase 16]: Keep profile v16 bound to the implemented fixed pre-PWM audio grid, signed-zero sources, and one-second capture bounds.
+- [Phase 16]: Keep SOUNDBIAS policy independent of cadence; sound sources and PWM/analog output remain unmodeled and hardware qualification UNKNOWN.
+- [Phase 16]: Allow later profile versions in the Phase 10 PPU gate while continuing to enforce the PPU policy.
+- [Phase 17]: CH2 uses period 128 * (2048 - fdat), phase zero starts high, and live frequency writes retain elapsed phase modulo the new period.
+- [Phase 17]: The shared sequencer is reset-anchored at cycle 32768; length clocks on steps 0/2/4/6 and envelope clocks on step 7.
+- [Phase 17]: At a shared cycle, device effects and PSG progression precede sampling, which precedes the completing sound-register write.
+- [Phase 17]: Keep capture PCM signed-zero and hardware qualification UNKNOWN; Wave, mixing, and playback remain later plan scope.
+- [Phase 17]: CH1 effective frequency and sweep controls are trigger-latched internal state; guest frequency readback remains programmed, with sweep clocks on sequencer steps 2 and 6.
+- [Phase 17]: CH4 follows the project-selected divider equation 32*r*2^(shift+1); with ratio-zero r=1/2, the minimum period is 32 master cycles.
+- [Phase 17]: Prohibited noise shifts 14 and 15 retain register controls and pause LFSR phase/output while shared length and envelope clocks continue.
+- [Phase 17]: The consulted AGB manual is third-party hosted and GBATEK is supplementary reverse-engineered evidence; hardware qualification remains UNKNOWN.
+- [Phase 17]: CH3 follows the selected manual whole-pattern rate: 4*(2048-fdat) master cycles per nibble in both 32- and 64-step modes; the competing source interpretation remains for profile documentation.
+- [Phase 17]: Guest Wave RAM accesses the bank opposite the selected front bank; 64-step playback appends the other bank after the selected pattern.
+- [Phase 17]: Undocumented retrigger corruption remains unmodeled, and PCM mixing stays deferred to Phase 19.
+- [Phase 17]: Scoped review corrected PSG frequency read masks, CH4 divider policy wording, the LFSR recurrence description, and the unreachable sweep-underflow branch; focused CI and ASan checks pass.
+- [Phase 17]: Keep hardware_qualification UNKNOWN and PCM output signed zero; this plan adds no fixture, hardware, hosted CI, or publication claim.
+- [Phase 17]: Preserve the CI preset worker count and checks; measured profile negative-control work dominates the local workflow critical path.
+- [Phase 18]: Narrow FIFO writes merge selected byte lanes into the next backing ring word, preserve untouched lanes, and advance one word cursor.
+- [Phase 18]: Only actual Timer 0/1 overflows, including a real Timer 1 cascade wrap, pop the selected FIFOs; an empty FIFO keeps its last signed sample.
+- [Phase 18]: Post-pop readiness at 16 bytes and transaction reset masks are exposed for Plan 18-02 DMA arbitration and cancellation.
+- [Phase 18]: Direct Sound refills reselect shared DMA priority after startup and each completed sound word, including nested sound preemption.
+- [Phase 18]: The private machine snapshot is the whole-service publication boundary for interleaved sound DMA and success-only result and trace output.
+- [Phase 18]: Audio model v3 describes Direct Sound FIFO source and refill state while PCM remains signed zero and hardware qualification remains UNKNOWN.
+- [Phase 18]: Direct Sound FIFO A/B use DMA1/DMA2; existing specialized VBlank/HBlank PPU routes remain, while DRQ and other producers stay deferred.
+- [Phase 18]: Manual facts, supplementary sources, secondary reports, and project-selected Direct Sound edge policies remain distinguished.
+- [Phase 18]: DMA scratch uses the existing machine allocator with exact-size release, preserving the no-default-heap core boundary.
+- [Phase 18]: CPU DMA trace slots are published only after complete service success and capacity/sequence preflight.
+- [Phase 18]: Keep the established two-worker CTest preset; no controlled evidence supports changing parallelism or weakening distinct profile mutation controls.
+- [Phase 19]: Keep capture private behind a CPU runner entry point while preserving the public runner interface.
+- [Phase 19]: Treat the capture horizon as an output limit while advancing machine time through the full accepted operation endpoint.
+- [Phase 19]: Stage ordinary DMA audio over its exact elapsed interval and use the full sound-DMA candidate as the commit boundary.
+- [Phase 19]: Keep gamebloke.result/1 compatible by adding audio observations without changing existing guest or runner fields.
+- [Phase 19]: Keep bounded capture interval, guest outcome, runner termination, and artifact publication as independent observations.
+- [Phase 19]: Compile deterministic short-write, flush, and close injection only into runner_test; production builds have no enabled test seam.
+- [Phase 19]: Report hardware qualification as UNKNOWN and retain the fixed pre-PWM capture policy and evidence limits.
+- [Phase 19]: Keep historical gamebloke.result/1 documents valid when audio is absent; current producers opt into requiring it.
+- [Phase 19]: Bind reported audio identity, format, cadence, sources, intervals, counts, and artifact state to the AGB profile and accepted run time.
+- [Phase 19]: Keep audio output software-only and hardware qualification UNKNOWN; a digest establishes byte identity, not correctness or rights.
+- [Phase 19]: Use a source-bound BIOS-free guest with PSG channel 2 left and signed FIFO A right for independent stereo observations.
+- [Phase 19]: Keep the original audio fixture local-only with redistribution unknown; do not select it in standard CI.
+- [Phase 19]: Stop Timer 0 and DMA before the completion marker so the final producer result has no pending refill request.
+- [Phase 19]: Use a generated synthetic runner control guest in the ASan lane so sanitizer coverage does not depend on the optional ARM diagnostics toolchain.
+- [Phase 19]: Keep the existing two-worker CI setting; the measured CTest critical path did not justify a quality-risking concurrency or coverage change.
+- [Phase 20]: API v1 uses versioned gbl_v1_* symbols with size-tagged extensible structs.
+- [Phase 20]: API v1 uses paired caller allocator callbacks for opaque instances and copied ROM storage.
+- [Phase 20]: The adapter stages advance and media work before publishing changes and keeps the canonical core as the single machine implementation.
+- [Phase 21]: Keep the Phase 21 diagnostic scoped to local verification; assert no public license or redistribution right.
+- [Phase 21]: Use the relocated gamebloke_DIR:PATH package and compare measured guest and raw media observations independently against the manifest.
+- [Phase 21]: Keep the raw audio classification pre-PWM and hardware qualification UNKNOWN.
+- [Phase 21]: Keep the Gamebloke v1 API as the only demonstrated GBA consumer route; the inspected LibFuturo registry has no GBA/AGB profile and the shared contract lacks the measured timed-input schedule and strict cycle ceiling.
+- [Phase 21]: Defer any LibFuturo dependency or contract change until a GBA-specific profile passes a second isolated installed-consumer proof.
+- [v6.0]: Keep the original Phase 21 witness under its local Phase 21 grant. Check the archived references without generating or loading that fixture. Use a newly authored and separately permitted fixture for the public API session.
+- [v6.0]: Keep the Playstead assessment read-only and label the inspected revision and working-tree state. The active managed mGBA route remains in service.
+- [Phase 22]: Retained the archived Phase 21 witness and its existing local-only fixture grant.
+- [Phase 22]: Kept Phase 22 verification limited to archive metadata; no fixture or guest run was performed.
+- [Phase 23]: The new Phase 23 diagnostic remains local-only; public CI, upload, packaging, and redistribution stay denied.
+- [Phase 23]: The installed public v1 static package is sufficient for the demonstrated host session; no core, API, or dependency change was required.
+- [Phase 23]: Guest state, cycles, logical input, and raw media stay separate from host timing and presentation in the local evidence.
+- [Phase 23]: Managed mGBA remains the active route; the source-cited fit report identifies gaps without claiming integration or compatibility advantage. — The inspected Playstead snapshot still reports managed mGBA 0.10.5. Gamebloke v1 has unqualified bridge and persistence behavior, and route changes are outside this phase.
 
 ### Pending Todos
 
 None yet.
 
 ### Blockers/Concerns
+
+No active blocker prevents v6.0 Phases 22–23. The following carryovers are
+historical or conditional gates from earlier phases. Preserve them if their
+exact scope is reopened, but do not treat them as authority to start new
+hosted runs, merge changes, author BIOS content, publish, or perform physical
+qualification during v6.0.
 
 - Before the Phase5 merge, owner must decide the [producer-ancestry merge exception](phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/05-MERGE-PROVENANCE.md). Cheap graph simulation proves squash would break the source guard; a merge commit preserves it and current rules permit that method. No merge is authorized yet; current PR verification can continue.
 
@@ -285,9 +634,13 @@ None yet.
 - Phase 1: runner image labels are verified live: `ubuntu-26.04` and `macos-26` (PR B runs 42737527955, 42737836505).
 - Phase 1 follow-up: the owner-authorized digest is activated on main through merged PR #6; main CI passes. No further owner file/helper task remains.
 - Phase 1 follow-up: the real-logo rule is active on main. Private inputs remain ignored and absent from public CI; its owner-local optional check remains visibly skipped there.
-- Next milestone (v2.0) needs G4 (stub authoring) approval before stub work begins.
+- G4 still requires owner approval before BIOS-stub authoring. BIOS-01 and the IRQ-driven playable variant are deferred. G6 was accepted for the scoped original local demo on 2026-11-19; this does not broaden accuracy or compatibility claims. G8 and per-fixture review still gate the deferred mGBA deep lane.
 
 - Phase 3 is complete and merged through PR #6, with required checks green on its final head and on main. No further owner input is needed for that accepted scope.
+
+- Phase 6 is archived with evidence gaps and remains incomplete. ARM and Thumb stop before their source-bound evaluators (`DIAG-04`); hosted Linux x64 GCC/Clang evidence is absent (`DET-02`). Do not relabel either as passed. No hosted run or publication is needed for the v2.0 planning handoff.
+- Phase 7 plan-path hygiene was resolved on 2026-11-16 by replacing local absolute paths with `$HOME` references. The canonical local workflow passed after the correction; see the Phase 7 Plan 01 deferred-items record.
+- macOS managed LaunchServices denied the installed RetroArch smoke with kLSNoLaunchPermissionErr; that result remains historical and was not retried. The owner ran the dependency-free terminal Libretro host and accepted the visible original demo; G6 is recorded as accepted for this scope. The terminal preview is downsampled and sub-real-time, and does not establish hardware qualification or broad compatibility.
 
 ## Deferred Items
 
@@ -300,9 +653,52 @@ None yet.
   warning for the portable `~/.codex` runtime reference is a prose-path scanner
   limitation, not a missing shipped artifact.
 
+- v4.0 audio hardware qualification remains UNKNOWN. The project-authored audio
+  diagnostic is authorized for local verification only and has unknown
+  redistribution rights. Hosted CI, external publication, release packaging,
+  and physical hardware qualification remain owner gates. See
+  `.planning/milestones/v4.0-MILESTONE-AUDIT.md`.
+
+### Acknowledged at milestone close
+
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| verification_gaps | 06/06-VERIFICATION.md | gaps_found | 2026-11-15 | v1.0 |
+
+
+## CI/CD Efficiency Record — 2026-11-25 (PR #9)
+
+- **Owner authorization:** One additional hosted CI run is authorized after the measured budget update. The run keeps every check and its selection intact. If this hosted run is red, stop and report the cause; another hosted attempt needs new authorization. This appends current authority and does not rewrite earlier stop records.
+- **Hosted observation:** GitHub run `45717026635` at head `f791aac8034057896322376d18316104f2863a31` was cancelled at existing job timeouts before its slow lanes completed. The fast title, hygiene, and routing work passed; no assertion failure caused those cancellations.
+- **Measured local result:** `cmake --workflow --preset ci` passed on Apple Silicon with AppleClang 21: 1,277 registered tests, one allowed owner-local skip, 340.32 s CTest wall and 352.45 s complete workflow wall. The ignored local xPack toolchain was present, so this run exercised diagnostic registrations that hosted `ci` may leave optional; dedicated hosted diagnostic jobs remain separate evidence.
+- **Measured local result:** `sh scripts/linux-lane.sh ci gcc` passed in the pinned Ubuntu 26.04 container on the host's native ARM64 architecture: 23 s setup, 343 s workflow, 366.64 s total. This exercises Linux/GCC behavior but is not an x86-64 runner measurement.
+- **Measured local result:** `sh scripts/linux-lane.sh asan clang` passed in the same pinned container: 24 s setup, 189 s workflow, 214.92 s total. Linux ASan/UBSan coverage and its inventory check passed; the local host architecture differs from hosted x86-64.
+- **Measured local result:** On Darwin ARM64 with xPack 15.2.1-1.1, `diagnostics-arm` passed 551/551 tests in 168.35 s end to end (111.66 s CTest); `diagnostics-thumb` passed 293/293 in 95.84 s (66.57 s CTest). The toolchain fetch/verification took 36 s before either workflow.
+- **Measured local result:** The standalone job-budget/source/collector controls passed in 25.50 s. Workflow preflight and hygiene also passed; hygiene reported only the expected owner-local logo skip.
+- **Implementation:** The profile timing validator now parses each timing row once; the measured `timer.costs.contract` case fell from 91.72 s to 36.33 s without reducing its controls. The Phase 10 ordering gate now requires the CLI checks only in the CI lane where they are registered; the Linux ASan selection/order control then passed in isolation and the full ASan workflow passed.
+- **Policy update:** Keep fast jobs at 180 s (3 min); builds at 480 s (8 min); ASan and ARM diagnostics at 360 s (6 min); Thumb diagnostics at 240 s (4 min). These are maximum wait budgets derived from complete local runs and the prior cutoff trace, not changes to test coverage. `cmake/CiJobBudgets.json` remains the seconds authority, cross-checked against workflow minutes, preflight, collector, and refusal controls.
+- **Resource cleanup:** The task-owned Linux lane and ASan debug containers and temporary source snapshots were removed. The pinned Ubuntu image existed before this work and remains as a shared cache.
+
+### Follow-up after the authorized hosted attempt — 2026-11-26
+
+- **Hosted outcome:** Run `45729432575` at `ad722109aabc5b45a2477345d59f06a75acb4111` ended with required-check failure because the AppleClang build and both macOS diagnostic jobs reached their job time limits. Their logs show cancellation, not a test assertion failure. Linux/GCC passed in 422 s; ASan in 193 s; Linux ARM diagnostics in 272 s; Linux Thumb diagnostics in 147 s; hygiene in 45 s. The Mac build ran for 498 s total (486 s workflow step) and reached 347/1,277 tests; Mac Thumb used 260 s total (223 s workflow step) and reached 246/293; Mac ARM used 380 s total (353 s workflow step) and reached 128/551.
+- **Measured scheduling improvement:** Re-running the complete local CI CTest inventory with four workers passed 1,277 tests with the same one allowed owner-local skip in 201.20 s, compared with 340.32 s under two workers, a 41% wall-time reduction. The canonical four-worker workflow then passed in 230.56 s total (221.01 s CTest). No tests or controls were removed. CTest still respects fixture dependencies and `RUN_SERIAL`.
+- **Linux lane verification:** After the final budget/preflight alignment, `sh scripts/linux-lane.sh ci gcc` passed with four workers in the pinned Ubuntu 26.04 container on native ARM64: 29 s setup and 307 s workflow, 337.72 s total. It ran 551 tests and recorded the expected 726 `arm-toolchain-absent` skips because this container lane does not fetch the optional ARM compiler; the dedicated ARM/Thumb lanes remain separate. This verifies Linux/GCC behavior, not hosted x86-64 timing.
+- **Locally prepared correction:** Budget authority, workflow matrix, refusal controls and `docs/verify.md` retain the Linux build at its passing 480 s cap and allow for the remaining observed Mac work: AppleClang build 840 s, Mac ARM diagnostics 480 s, and Mac Thumb diagnostics 360 s; other budgets are unchanged. The producer head, input digest, runner selection and test inventory remain unchanged.
+- **Authorization stop:** The one additional hosted attempt authorized for this change was consumed by run `45729432575`. The updated candidate passed the full four-worker CTest inventory, CI preflight and negative controls, hygiene, and canonical workflow locally. Do not push or start another hosted run without renewed owner authorization. A new red hosted result renews the stop.
+- **Historical CTest note:** The Phase 12 two-worker decision predates this measurement and remains accurate for that phase. The four-worker change is limited to the canonical `ci` test preset; ASan and other diagnostic presets retain their two-worker limit.
+- **Resource status:** The task-owned container, temporary snapshot, process and build outputs are removed. The pinned Ubuntu image predated this task and remains an intentionally retained shared cache. The named source-only scratch checkout is intentionally retained because it holds the locally verified, unpushed candidate; the owner is next to authorize or decline another hosted attempt.
 
 ## Session Continuity
 
-Last session: 2026-11-13T20:38:20.818Z
-Stopped at: Finish only acceptance-records CI, protected merge commit and main CI; stop on red and stop before any Phase6 work
-Resume file: .planning/phases/05-toolchain-spike-original-diagnostics-and-arm-thumb-completio/.continue-here.md
+Last session: 2026-11-25T14:40:08.658Z
+Stopped at: Phase 23 complete — all phases complete
+Resume file: None
+
+## Operator Next Steps
+
+
+
+
+
+- Start the next milestone with $gsd-new-milestone

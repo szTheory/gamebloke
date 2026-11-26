@@ -32,6 +32,8 @@
 #   build.toolchain.sha256     key required; null allowed; otherwise 64 lowercase hex
 #   build.artifact             optional git-only object with exactly `path` and `sha256`
 #                              keys; path is build-root-relative and SHA identifies output
+#   result_channel             optional typed observer binding; absent rows retain
+#                              five-word-v1-final-marker mailbox behavior
 #   bios_requirement           none | project-stub | hle | replacement | user-official
 #   expected.provenance_class  one of the vocabulary provenance classes
 #   expected.dispute           key required; null, or a registry dispute id
@@ -69,6 +71,8 @@
 #   rights-mismatch        `public-ci` in permitted_use while license.redistributable is
 #                          not `yes`, or while bios_requirement is `user-official` (a
 #                          matching hash proves identity, not redistribution rights)
+#   result-channel-*       malformed register-eval channel type, key, kind, source revision,
+#                          path, address, instruction state, register, or runtime digest
 #   pin-mismatch           MODE=all only: a row's pin_dest absent from pins.txt; a url row
 #                          whose sha256 or URL differs from its pin; a git row whose pinned
 #                          URL does not contain its commit or is not on the source.url host
@@ -185,6 +189,27 @@ function(gbl__manifest_req_object out doc where label)
   set(${out} ${ok} PARENT_SCOPE)
 endfunction()
 
+# Register-observation metadata has its own reason-code family so a bad binding
+# cannot look like an unrelated missing field in the fixture authority.
+function(gbl__manifest_result_string out doc where field)
+  gbl_json_type(ty "${doc}" result_channel "${field}")
+  set(value "<missing>")
+  if("${ty}" STREQUAL "MISSING" OR "${ty}" STREQUAL "NULL")
+    gbl_finding(manifest result-channel-missing-field
+      "${where}: result_channel.${field}")
+  elseif(NOT "${ty}" STREQUAL "STRING")
+    gbl_finding(manifest result-channel-wrong-type
+      "${where}: result_channel.${field}")
+  else()
+    gbl_json_string(value "${doc}" result_channel "${field}")
+    if("${value}" STREQUAL "<missing>")
+      gbl_finding(manifest result-channel-missing-field
+        "${where}: result_channel.${field}")
+    endif()
+  endif()
+  set(${out} "${value}" PARENT_SCOPE)
+endfunction()
+
 # gbl__manifest_row(<doc> <index> <registry-prefix> <vocab-prefix>): checks one row and
 # reports it to the caller through _gbl_row_* variables (set only for a well-formed id).
 function(gbl__manifest_row doc i registry vocab)
@@ -205,6 +230,12 @@ function(gbl__manifest_row doc i registry vocab)
   set(row_artifact_path "")
   set(row_artifact_sha256 "")
   set(row_artifact_ok FALSE)
+  set(row_channel_kind "mailbox")
+  set(row_channel_source_commit "")
+  set(row_channel_source_path "")
+  set(row_channel_entry_address "")
+  set(row_channel_instruction_set "")
+  set(row_channel_register_index "")
   set(row_pin_dest "")
   set(row_url "")
   set(redist "")
@@ -406,6 +437,142 @@ function(gbl__manifest_row doc i registry vocab)
     endif()
   endif()
 
+  # An absent channel is the historical five-word mailbox contract. A present
+  # channel is accepted only as a complete source-bound register observation.
+  gbl_json_type(channel_ty "${doc}" result_channel)
+  if(NOT "${channel_ty}" STREQUAL "MISSING")
+    if(NOT "${channel_ty}" STREQUAL "OBJECT")
+      gbl_finding(manifest result-channel-wrong-type
+        "${where}: result_channel must be an object")
+    else()
+      string(JSON channel_key_count LENGTH "${doc}" result_channel)
+      if(channel_key_count GREATER 0)
+        math(EXPR channel_key_last "${channel_key_count}-1")
+        foreach(channel_key_index RANGE ${channel_key_last})
+          string(JSON channel_key MEMBER "${doc}" result_channel
+            ${channel_key_index})
+          if(NOT "${channel_key}" MATCHES
+              "^(kind|source_commit|source_path|entry_address|instruction_set|register_index)$")
+            gbl_finding(manifest result-channel-bad-key
+              "${where}: result_channel.${channel_key}")
+          endif()
+        endforeach()
+      endif()
+
+      gbl__manifest_result_string(channel_kind "${doc}" "${where}" kind)
+      gbl__manifest_result_string(channel_source_commit "${doc}" "${where}"
+        source_commit)
+      gbl__manifest_result_string(channel_source_path "${doc}" "${where}"
+        source_path)
+      gbl__manifest_result_string(channel_entry_address "${doc}" "${where}"
+        entry_address)
+      gbl__manifest_result_string(channel_instruction_set "${doc}" "${where}"
+        instruction_set)
+      gbl_json_type(channel_register_type "${doc}" result_channel register_index)
+      set(channel_register_index "<missing>")
+      if("${channel_register_type}" STREQUAL "MISSING" OR
+          "${channel_register_type}" STREQUAL "NULL")
+        gbl_finding(manifest result-channel-missing-field
+          "${where}: result_channel.register_index")
+      elseif(NOT "${channel_register_type}" STREQUAL "NUMBER")
+        gbl_finding(manifest result-channel-wrong-type
+          "${where}: result_channel.register_index")
+      else()
+        string(JSON channel_register_index GET "${doc}" result_channel
+          register_index)
+        if(NOT "${channel_register_index}" MATCHES "^(0|[1-9][0-9]*)$" OR
+            channel_register_index GREATER 14)
+          gbl_finding(manifest result-channel-bad-register
+            "${where}: result_channel.register_index")
+        endif()
+      endif()
+
+      if(NOT "${channel_kind}" STREQUAL "<missing>")
+        if(NOT "${channel_kind}" STREQUAL "register-eval")
+          gbl_finding(manifest result-channel-bad-kind
+            "${where}: result_channel.kind")
+        else()
+          set(row_channel_kind "register-eval")
+        endif()
+      endif()
+      if(NOT "${channel_source_commit}" STREQUAL "<missing>")
+        gbl__manifest_is_hex(channel_commit_ok "${channel_source_commit}" 40)
+        if(NOT channel_commit_ok)
+          gbl_finding(manifest result-channel-bad-source-revision
+            "${where}: result_channel.source_commit")
+        elseif("${row_kind}" STREQUAL "git")
+          if(NOT "${channel_source_commit}" STREQUAL "${row_commit}")
+            gbl_finding(manifest result-channel-source-revision-mismatch
+              "${where}: result_channel.source_commit differs from source.commit")
+          endif()
+        elseif("${row_kind}" STREQUAL "url")
+          string(FIND "${row_url}" "${channel_source_commit}" source_revision_at)
+          if(source_revision_at EQUAL -1)
+            gbl_finding(manifest result-channel-source-revision-mismatch
+              "${where}: source.url does not bind result_channel.source_commit")
+          endif()
+        else()
+          gbl_finding(manifest result-channel-source-revision-mismatch
+            "${where}: source has no immutable revision")
+        endif()
+        set(row_channel_source_commit "${channel_source_commit}")
+      endif()
+      if(NOT "${channel_source_path}" STREQUAL "<missing>")
+        gbl__manifest_path_ok(channel_source_path_ok "${channel_source_path}")
+        if(NOT channel_source_path_ok)
+          gbl_finding(manifest result-channel-bad-source-path
+            "${where}: result_channel.source_path")
+        else()
+          set(row_channel_source_path "${channel_source_path}")
+        endif()
+      endif()
+      if(NOT "${channel_entry_address}" STREQUAL "<missing>")
+        if(NOT "${channel_entry_address}" MATCHES "^0x[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]$")
+          gbl_finding(manifest result-channel-bad-entry-address
+            "${where}: result_channel.entry_address must be canonical 0x plus eight uppercase hex digits")
+        else()
+          string(SUBSTRING "${channel_entry_address}" 2 8 channel_address_hex)
+          math(EXPR channel_address_value "0x${channel_address_hex}")
+          if(channel_address_value LESS 0x08000000 OR
+              channel_address_value GREATER_EQUAL 0x0A000000)
+            gbl_finding(manifest result-channel-bad-entry-address
+              "${where}: result_channel.entry_address is outside the GBA ROM window")
+          else()
+            set(row_channel_entry_address "${channel_entry_address}")
+          endif()
+        endif()
+      endif()
+      if(NOT "${channel_instruction_set}" STREQUAL "<missing>")
+        if(NOT "${channel_instruction_set}" MATCHES "^(arm|thumb)$")
+          gbl_finding(manifest result-channel-bad-instruction-set
+            "${where}: result_channel.instruction_set")
+        else()
+          set(row_channel_instruction_set "${channel_instruction_set}")
+          if(NOT "${row_channel_entry_address}" STREQUAL "")
+            math(EXPR channel_alignment "0x${channel_address_hex} % 4")
+            if("${channel_instruction_set}" STREQUAL "thumb")
+              math(EXPR channel_alignment "0x${channel_address_hex} % 2")
+            endif()
+            if(NOT channel_alignment EQUAL 0)
+              gbl_finding(manifest result-channel-bad-alignment
+                "${where}: result_channel.entry_address does not align for ${channel_instruction_set}")
+            endif()
+          endif()
+        endif()
+      endif()
+      if(NOT "${channel_register_index}" STREQUAL "<missing>" AND
+          "${channel_register_type}" STREQUAL "NUMBER" AND
+          "${channel_register_index}" MATCHES "^(0|[1-9][0-9]*)$" AND
+          channel_register_index LESS_EQUAL 14)
+        set(row_channel_register_index "${channel_register_index}")
+      endif()
+      if("${row_sha256}" STREQUAL "")
+        gbl_finding(manifest result-channel-missing-digest
+          "${where}: register-eval needs an exact runtime ROM digest")
+      endif()
+    endif()
+  endif()
+
   # bios_requirement
   gbl__manifest_req_string(bios "${doc}" "${where}" bios_requirement bios_requirement)
   if(NOT "${bios}" STREQUAL "<missing>" AND NOT "${bios}" IN_LIST GBL_MANIFEST_BIOS_REQUIREMENTS)
@@ -521,6 +688,12 @@ function(gbl__manifest_row doc i registry vocab)
     set(_gbl_row_artifact_path "${row_artifact_path}" PARENT_SCOPE)
     set(_gbl_row_artifact_sha256 "${row_artifact_sha256}" PARENT_SCOPE)
     set(_gbl_row_artifact_ok "${row_artifact_ok}" PARENT_SCOPE)
+    set(_gbl_row_channel_kind "${row_channel_kind}" PARENT_SCOPE)
+    set(_gbl_row_channel_source_commit "${row_channel_source_commit}" PARENT_SCOPE)
+    set(_gbl_row_channel_source_path "${row_channel_source_path}" PARENT_SCOPE)
+    set(_gbl_row_channel_entry_address "${row_channel_entry_address}" PARENT_SCOPE)
+    set(_gbl_row_channel_instruction_set "${row_channel_instruction_set}" PARENT_SCOPE)
+    set(_gbl_row_channel_register_index "${row_channel_register_index}" PARENT_SCOPE)
     set(_gbl_row_pin_dest "${row_pin_dest}" PARENT_SCOPE)
     set(_gbl_row_url "${row_url}" PARENT_SCOPE)
   endif()
@@ -567,6 +740,12 @@ function(gbl_manifest_read prefix manifest registry vocab)
             set(${prefix}_ROW_${id}_ARTIFACT_PATH "${_gbl_row_artifact_path}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_ARTIFACT_SHA256 "${_gbl_row_artifact_sha256}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_ARTIFACT_OK "${_gbl_row_artifact_ok}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_CHANNEL_KIND "${_gbl_row_channel_kind}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_CHANNEL_SOURCE_COMMIT "${_gbl_row_channel_source_commit}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_CHANNEL_SOURCE_PATH "${_gbl_row_channel_source_path}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_CHANNEL_ENTRY_ADDRESS "${_gbl_row_channel_entry_address}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_CHANNEL_INSTRUCTION_SET "${_gbl_row_channel_instruction_set}" PARENT_SCOPE)
+            set(${prefix}_ROW_${id}_CHANNEL_REGISTER_INDEX "${_gbl_row_channel_register_index}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_PIN_DEST "${_gbl_row_pin_dest}" PARENT_SCOPE)
             set(${prefix}_ROW_${id}_URL "${_gbl_row_url}" PARENT_SCOPE)
           endif()

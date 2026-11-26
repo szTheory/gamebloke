@@ -1,21 +1,12 @@
 #include "gamebloke/gamebloke.h"
+#include "audio_internal.h"
+#include "dma_internal.h"
+#include "ppu_internal.h"
 
 #define GBL_EWRAM_MASK 0x3FFFFu
 #define GBL_IWRAM_MASK 0x7FFFu
 #define GBL_VRAM_MASK 0x1FFFFu
 #define GBL_ROM_MASK 0x1FFFFFFu
-
-typedef enum gbl_bus_region {
-    GBL_BUS_REGION_BIOS,
-    GBL_BUS_REGION_EWRAM,
-    GBL_BUS_REGION_IWRAM,
-    GBL_BUS_REGION_IO,
-    GBL_BUS_REGION_PRAM,
-    GBL_BUS_REGION_VRAM,
-    GBL_BUS_REGION_OAM,
-    GBL_BUS_REGION_ROM,
-    GBL_BUS_REGION_UNMAPPED
-} gbl_bus_region;
 
 static bool gbl_bus_width_is_valid(uint8_t width)
 {
@@ -68,6 +59,10 @@ static gbl_bus_status gbl_bus_validate_request(
     if (address > UINT32_MAX - span) {
         return GBL_BUS_STATUS_INVALID_ARGUMENT;
     }
+    if (gbl_audio_wave_span_overlaps(address, width) &&
+        !gbl_audio_wave_span_valid(address, width)) {
+        return GBL_BUS_STATUS_INVALID_ARGUMENT;
+    }
     return GBL_BUS_STATUS_OK;
 }
 
@@ -79,7 +74,7 @@ static bool gbl_bus_is_special_io(uint32_t address)
            low_address >= 0x0800u && low_address <= 0x0803u;
 }
 
-static gbl_bus_region gbl_bus_region_for(uint32_t address)
+gbl_bus_region gbl_bus_region_for_address(uint32_t address)
 {
     if (address <= 0x00003FFFu) {
         return GBL_BUS_REGION_BIOS;
@@ -109,6 +104,190 @@ static gbl_bus_region gbl_bus_region_for(uint32_t address)
     return GBL_BUS_REGION_UNMAPPED;
 }
 
+static uint8_t gbl_bus_wait_window(uint32_t address)
+{
+    if (address >= UINT32_C(0x08000000) &&
+        address <= UINT32_C(0x09FFFFFF)) {
+        return 0u;
+    }
+    if (address >= UINT32_C(0x0A000000) &&
+        address <= UINT32_C(0x0BFFFFFF)) {
+        return 1u;
+    }
+    if (address >= UINT32_C(0x0C000000) &&
+        address <= UINT32_C(0x0DFFFFFF)) {
+        return 2u;
+    }
+    return UINT8_MAX;
+}
+
+static uint64_t gbl_bus_gamepak_beat_cycles(
+    uint16_t waitcnt, uint32_t address,
+    gbl_bus_access_class requested_sequence,
+    gbl_bus_access_class *effective_sequence_out, bool *boundary_out)
+{
+    static const uint8_t first_access_waits[4] = { 4u, 3u, 2u, 8u };
+    static const uint8_t sequential_waits[3] = { 2u, 4u, 8u };
+    uint8_t window = gbl_bus_wait_window(address);
+    const bool boundary = (address & UINT32_C(0x1FFFF)) == 0u;
+    const gbl_bus_access_class sequence =
+        boundary ? GBL_BUS_CLASS_NONSEQUENTIAL : requested_sequence;
+    uint8_t wait;
+
+    if (window == UINT8_MAX || effective_sequence_out == NULL ||
+        boundary_out == NULL) {
+        return 0u;
+    }
+    *effective_sequence_out = sequence;
+    *boundary_out = boundary;
+    if (sequence == GBL_BUS_CLASS_NONSEQUENTIAL) {
+        const uint8_t shift = (uint8_t)(2u + window * 3u);
+        wait = first_access_waits[(waitcnt >> shift) & UINT16_C(3)];
+    } else {
+        const uint8_t shift = (uint8_t)(4u + window * 3u);
+        const bool short_wait = ((waitcnt >> shift) & UINT16_C(1)) != 0u;
+        wait = short_wait ? 1u : sequential_waits[window];
+    }
+    return (uint64_t)wait + UINT64_C(1);
+}
+
+static bool gbl_bus_quote_with_waitcnt(
+    uint16_t waitcnt, uint32_t address, gbl_bus_region region,
+    gbl_bus_direction direction, uint8_t width,
+    gbl_bus_access_class sequence, gbl_bus_access_role role,
+    gbl_cycle_cost *cost_out,
+    gbl_phase9_bus_observation *observation_out)
+{
+    gbl_cycle_cost cost;
+    gbl_phase9_bus_observation observation = { 0 };
+
+    if (cost_out == NULL ||
+        (direction != GBL_BUS_DIRECTION_READ &&
+         direction != GBL_BUS_DIRECTION_WRITE) ||
+        region < GBL_BUS_REGION_BIOS || region >= GBL_BUS_REGION_COUNT ||
+        !gbl_bus_width_is_valid(width) ||
+        !gbl_bus_class_is_valid(sequence) ||
+        (role != GBL_BUS_ROLE_FETCH && role != GBL_BUS_ROLE_DATA) ||
+        (direction == GBL_BUS_DIRECTION_WRITE && role == GBL_BUS_ROLE_FETCH) ||
+        address > UINT32_MAX - ((uint32_t)width - 1u)) {
+        return false;
+    }
+    observation.waitcnt = waitcnt;
+    observation.address = address;
+    observation.width = width;
+    observation.window = UINT8_MAX;
+    observation.beat_windows[0] = UINT8_MAX;
+    observation.beat_windows[1] = UINT8_MAX;
+    observation.direction = direction;
+    observation.role = role;
+    observation.requested_sequence = sequence;
+    observation.boundary_provenance =
+        GBL_BUS_BOUNDARY_PROVENANCE_NONE;
+    observation.prefetch_modeled = false;
+    observation.hardware_qualified = false;
+    if (region == GBL_BUS_REGION_ROM) {
+        uint64_t cycles = 0u;
+        uint8_t beat_count = width == 4u ? 2u : 1u;
+        uint8_t beat;
+
+        observation.beat_count = beat_count;
+        for (beat = 0u; beat < beat_count; ++beat) {
+            const uint32_t beat_address = address + (uint32_t)beat * 2u;
+            const gbl_bus_access_class requested_beat_sequence =
+                beat == 0u ? sequence : GBL_BUS_CLASS_SEQUENTIAL;
+            gbl_bus_access_class effective_sequence;
+            bool boundary;
+            const uint64_t beat_cycles = gbl_bus_gamepak_beat_cycles(
+                waitcnt, beat_address, requested_beat_sequence,
+                &effective_sequence, &boundary);
+            const uint8_t beat_window = gbl_bus_wait_window(beat_address);
+
+            if (beat_cycles == 0u || beat_cycles > UINT64_MAX - cycles) {
+                return false;
+            }
+            observation.beat_cycles[beat] = beat_cycles;
+            observation.beat_sequences[beat] = effective_sequence;
+            observation.beat_windows[beat] = beat_window;
+            if (beat == 0u) {
+                observation.window = beat_window;
+            }
+            if (boundary) {
+                observation.boundary_provenance =
+                    GBL_BUS_BOUNDARY_PROVENANCE_GBATEK_3_06;
+            }
+            cycles += beat_cycles;
+        }
+        cost = (gbl_cycle_cost){
+            cycles, GBL_CYCLE_COST_SOURCE_BACKED,
+            "nintendo-agb-programming-manual-v1.1"
+        };
+    } else {
+        cost = (gbl_cycle_cost){
+            UINT64_C(1), GBL_CYCLE_COST_PROJECT_SELECTED,
+            GBL_TIMER_MODEL_NAME
+        };
+    }
+    observation.cycles = cost.cycles;
+    observation.cost_provenance = cost.provenance;
+    observation.cost_model = cost.model;
+    *cost_out = cost;
+    if (observation_out != NULL) {
+        *observation_out = observation;
+    }
+    return true;
+}
+
+bool gbl_bus_quote(const gbl_machine *machine, uint32_t address,
+                   gbl_bus_direction direction, uint8_t width,
+                   gbl_bus_access_class sequence,
+                   gbl_bus_access_role role, gbl_cycle_cost *cost_out)
+{
+    if (machine == NULL) {
+        return false;
+    }
+    return gbl_bus_quote_waitcnt(machine->waitcnt, address, direction, width,
+                                 sequence, role, cost_out);
+}
+
+bool gbl_bus_quote_waitcnt(uint16_t waitcnt, uint32_t address,
+                           gbl_bus_direction direction, uint8_t width,
+                           gbl_bus_access_class sequence,
+                           gbl_bus_access_role role,
+                           gbl_cycle_cost *cost_out)
+{
+    return gbl_bus_quote_with_waitcnt(
+        waitcnt, address, gbl_bus_region_for_address(address), direction,
+        width, sequence, role, cost_out, NULL);
+}
+
+bool gbl_bus_quote_observed(
+    const gbl_machine *machine, uint32_t address,
+    gbl_bus_direction direction, uint8_t width,
+    gbl_bus_access_class sequence, gbl_bus_access_role role,
+    gbl_cycle_cost *cost_out,
+    gbl_phase9_bus_observation *observation_out)
+{
+    if (machine == NULL || observation_out == NULL) {
+        return false;
+    }
+    return gbl_bus_quote_with_waitcnt(
+        machine->waitcnt, address, gbl_bus_region_for_address(address),
+        direction, width, sequence, role, cost_out, observation_out);
+}
+
+bool gbl_bus_cost_for(gbl_bus_direction direction, gbl_bus_region region,
+                      uint8_t width, gbl_bus_access_class sequence,
+                      gbl_bus_access_role role, gbl_cycle_cost *cost_out)
+{
+    uint32_t address = 0u;
+
+    if (region == GBL_BUS_REGION_ROM) {
+        address = UINT32_C(0x08000000);
+    }
+    return gbl_bus_quote_with_waitcnt(0u, address, region, direction, width,
+                                      sequence, role, cost_out, NULL);
+}
+
 static uint32_t gbl_bus_physical_vram_offset(uint32_t address)
 {
     uint32_t offset = address & GBL_VRAM_MASK;
@@ -117,6 +296,78 @@ static uint32_t gbl_bus_physical_vram_offset(uint32_t address)
         offset -= 0x8000u;
     }
     return offset;
+}
+
+gbl_bus_outcome gbl_bus_project_video_lane(
+    uint8_t *window, size_t window_length, uint32_t window_offset,
+    gbl_bus_region region, uint16_t dispcnt, uint32_t address,
+    uint8_t value, uint8_t request_width)
+{
+    uint32_t region_size;
+    uint32_t index;
+    uint32_t first;
+    uint32_t last;
+    gbl_bus_outcome outcome = GBL_BUS_OUTCOME_RAM;
+    bool ignored_lane = false;
+    uint64_t window_end;
+    uint32_t offset;
+
+    if (region == GBL_BUS_REGION_PRAM) {
+        region_size = GBL_PRAM_SIZE;
+        index = address & (GBL_PRAM_SIZE - 1u);
+    } else if (region == GBL_BUS_REGION_VRAM) {
+        const uint32_t mode = dispcnt & UINT16_C(0x0007);
+
+        region_size = GBL_VRAM_SIZE;
+        index = gbl_bus_physical_vram_offset(address);
+        if (request_width == 1u && mode >= 6u) {
+            outcome = GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY;
+        }
+        ignored_lane = request_width == 1u &&
+            index >= (mode <= 2u ? UINT32_C(0x10000)
+                                 : UINT32_C(0x14000));
+    } else if (region == GBL_BUS_REGION_OAM) {
+        region_size = GBL_OAM_SIZE;
+        index = address & (GBL_OAM_SIZE - 1u);
+        ignored_lane = request_width == 1u;
+    } else {
+        return GBL_BUS_OUTCOME_NONE;
+    }
+    if (window == NULL || gbl_bus_region_for_address(address) != region ||
+        (request_width != 1u && request_width != 2u &&
+         request_width != 4u) ||
+        window_offset > region_size ||
+        window_length > (size_t)(region_size - window_offset)) {
+        return GBL_BUS_OUTCOME_NONE;
+    }
+    if (ignored_lane) {
+        return outcome;
+    }
+    first = index;
+    last = index + 1u;
+    if ((region == GBL_BUS_REGION_PRAM ||
+         region == GBL_BUS_REGION_VRAM) && request_width == 1u) {
+        first = index & ~UINT32_C(1);
+        last = first + 2u;
+    }
+    window_end = (uint64_t)window_offset + (uint64_t)window_length;
+    for (offset = first; offset < last; ++offset) {
+        if ((uint64_t)offset >= (uint64_t)window_offset &&
+            (uint64_t)offset < window_end) {
+            window[offset - window_offset] = value;
+        }
+    }
+    return outcome;
+}
+
+gbl_bus_outcome gbl_bus_project_vram_lane(
+    uint8_t *window, size_t window_length, uint32_t window_offset,
+    uint16_t dispcnt, uint32_t address, uint8_t value,
+    uint8_t request_width)
+{
+    return gbl_bus_project_video_lane(
+        window, window_length, window_offset, GBL_BUS_REGION_VRAM,
+        dispcnt, address, value, request_width);
 }
 
 static uint8_t *gbl_bus_memory_byte(gbl_machine *machine,
@@ -138,6 +389,31 @@ static uint8_t *gbl_bus_memory_byte(gbl_machine *machine,
     case GBL_BUS_REGION_IO:
     case GBL_BUS_REGION_ROM:
     case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
+        break;
+    }
+    return NULL;
+}
+
+static const uint8_t *gbl_bus_memory_const_byte(
+    const gbl_machine *machine, gbl_bus_region region, uint32_t address)
+{
+    switch (region) {
+    case GBL_BUS_REGION_EWRAM:
+        return &machine->ewram[address & GBL_EWRAM_MASK];
+    case GBL_BUS_REGION_IWRAM:
+        return &machine->iwram[address & GBL_IWRAM_MASK];
+    case GBL_BUS_REGION_PRAM:
+        return &machine->pram[address & (GBL_PRAM_SIZE - 1u)];
+    case GBL_BUS_REGION_VRAM:
+        return &machine->vram[gbl_bus_physical_vram_offset(address)];
+    case GBL_BUS_REGION_OAM:
+        return &machine->oam[address & (GBL_OAM_SIZE - 1u)];
+    case GBL_BUS_REGION_BIOS:
+    case GBL_BUS_REGION_IO:
+    case GBL_BUS_REGION_ROM:
+    case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
         break;
     }
     return NULL;
@@ -178,6 +454,10 @@ static gbl_bus_outcome gbl_bus_fallback_priority(gbl_bus_outcome left,
         right == GBL_BUS_OUTCOME_UNMAPPED) {
         return GBL_BUS_OUTCOME_UNMAPPED;
     }
+    if (left == GBL_BUS_OUTCOME_IO_DMA_SUBSET ||
+        right == GBL_BUS_OUTCOME_IO_DMA_SUBSET) {
+        return GBL_BUS_OUTCOME_IO_DMA_SUBSET;
+    }
     return GBL_BUS_OUTCOME_NONE;
 }
 
@@ -198,6 +478,8 @@ static gbl_bus_outcome gbl_bus_region_outcome(gbl_bus_region region)
     case GBL_BUS_REGION_VRAM:
     case GBL_BUS_REGION_OAM:
         return GBL_BUS_OUTCOME_RAM;
+    case GBL_BUS_REGION_COUNT:
+        return GBL_BUS_OUTCOME_UNMAPPED;
     }
     return GBL_BUS_OUTCOME_UNMAPPED;
 }
@@ -207,10 +489,98 @@ static bool gbl_bus_is_dispcnt_byte(uint32_t address)
     return address == 0x04000000u || address == 0x04000001u;
 }
 
-static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
-                              uint8_t *value, gbl_bus_outcome *outcome)
+static bool gbl_bus_is_dispstat_byte(uint32_t address)
 {
-    gbl_bus_region region = gbl_bus_region_for(address);
+    return address == UINT32_C(0x04000004) ||
+           address == UINT32_C(0x04000005);
+}
+
+static bool gbl_bus_is_vcount_byte(uint32_t address)
+{
+    return address == UINT32_C(0x04000006) ||
+           address == UINT32_C(0x04000007);
+}
+
+static bool gbl_bus_is_timer_byte(uint32_t address)
+{
+    return address >= UINT32_C(0x04000100) &&
+           address <= UINT32_C(0x0400010F);
+}
+
+static bool gbl_bus_is_keypad_byte(uint32_t address)
+{
+    return address >= UINT32_C(0x04000130) &&
+           address <= UINT32_C(0x04000133);
+}
+
+static bool gbl_bus_is_interrupt_byte(uint32_t address)
+{
+    return (address >= UINT32_C(0x04000200) &&
+            address <= UINT32_C(0x04000203)) ||
+           address == UINT32_C(0x04000208) ||
+           address == UINT32_C(0x04000209);
+}
+
+static bool gbl_bus_is_dma_byte(uint32_t address)
+{
+    return address >= UINT32_C(0x040000B0) &&
+           address <= UINT32_C(0x040000DF);
+}
+
+static bool gbl_bus_is_waitcnt_byte(uint32_t address)
+{
+    return address == UINT32_C(0x04000204) ||
+           address == UINT32_C(0x04000205);
+}
+
+static uint8_t gbl_bus_dma_register_byte(
+    const gbl_machine_time_preview *preview, uint32_t address)
+{
+    const uint32_t offset = address - UINT32_C(0x040000B0);
+    const uint8_t channel_index = (uint8_t)(offset / UINT32_C(12));
+    const uint32_t register_offset = offset % UINT32_C(12);
+    const gbl_dma_channel_state *channel;
+    uint32_t value;
+
+    if (preview == NULL || channel_index >= GBL_DMA_CHANNEL_COUNT) {
+        return 0u;
+    }
+    channel = &preview->dma_channels[channel_index];
+    if (register_offset < 4u) {
+        value = channel->source_address;
+    } else if (register_offset < 8u) {
+        value = channel->destination_address;
+    } else if (register_offset < 10u) {
+        value = channel->count;
+    } else {
+        value = channel->control;
+    }
+    if (register_offset >= 10u) {
+        return (uint8_t)(value >> ((register_offset - 10u) * 8u));
+    }
+    return (uint8_t)(value >> ((register_offset % 4u) * 8u));
+}
+
+static gbl_bus_status gbl_bus_status_from_time(gbl_time_status status)
+{
+    if (status == GBL_TIME_STATUS_OK) {
+        return GBL_BUS_STATUS_OK;
+    }
+    if (status == GBL_TIME_STATUS_CYCLE_OVERFLOW) {
+        return GBL_BUS_STATUS_TIME_OVERFLOW;
+    }
+    if (status == GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT) {
+        return GBL_BUS_STATUS_EVENT_DISPATCH_LIMIT;
+    }
+    return GBL_BUS_STATUS_TIME_REFUSAL;
+}
+
+static bool gbl_bus_read_lane(
+    const gbl_machine *machine,
+    const gbl_machine_time_preview *time_preview,
+    uint32_t address, uint8_t *value, gbl_bus_outcome *outcome)
+{
+    gbl_bus_region region = gbl_bus_region_for_address(address);
 
     *outcome = gbl_bus_region_outcome(region);
     switch (region) {
@@ -219,7 +589,7 @@ static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
     case GBL_BUS_REGION_PRAM:
     case GBL_BUS_REGION_VRAM:
     case GBL_BUS_REGION_OAM:
-        *value = *gbl_bus_memory_byte(machine, region, address);
+        *value = *gbl_bus_memory_const_byte(machine, region, address);
         return true;
     case GBL_BUS_REGION_ROM: {
         uint32_t offset = address & GBL_ROM_MASK;
@@ -233,17 +603,111 @@ static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
         return false;
     }
     case GBL_BUS_REGION_IO:
+        if (gbl_audio_register_address(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+            *value = (uint8_t)(gbl_audio_read_register(
+                                   &time_preview->audio, address) >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
+        if (address >= GBL_AUDIO_WAVE_FIRST &&
+            address <= GBL_AUDIO_WAVE_LAST) {
+            *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+            return gbl_audio_wave_read_byte(&time_preview->audio, address,
+                                            value);
+        }
+        if (address == UINT32_C(0x04000088) ||
+            address == UINT32_C(0x04000089)) {
+            *outcome = GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+            *value = (uint8_t)(gbl_audio_read_soundbias(
+                                   &time_preview->audio) >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
         if (gbl_bus_is_dispcnt_byte(address)) {
             *outcome = GBL_BUS_OUTCOME_IO_MODE_SUBSET;
             *value = address == 0x04000000u
-                         ? (uint8_t)(machine->dispcnt & 0x0007u)
-                         : (uint8_t)(machine->dispcnt >> 8u);
+                         ? (uint8_t)time_preview->ppu.dispcnt
+                         : (uint8_t)(time_preview->ppu.dispcnt >> 8u);
+            return true;
+        }
+        if (gbl_bus_is_dispstat_byte(address)) {
+            const uint16_t value16 = (uint16_t)(
+                (time_preview->ppu.dispstat & UINT16_C(0x00FF)) |
+                (uint16_t)(time_preview->ppu.compare << 8u));
+
+            *outcome = GBL_BUS_OUTCOME_IO_PPU_SUBSET;
+            *value = (uint8_t)(value16 >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
+        if (gbl_bus_is_vcount_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_PPU_SUBSET;
+            *value = (uint8_t)(time_preview->ppu.line >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
+        if (gbl_bus_is_dma_byte(address)) {
+            const uint32_t offset = address - UINT32_C(0x040000B0);
+            const uint32_t register_offset = offset % UINT32_C(12);
+
+            *outcome = GBL_BUS_OUTCOME_IO_DMA_SUBSET;
+            if (register_offset < 10u) {
+                *value = 0u;
+                return false;
+            }
+            *value = gbl_bus_dma_register_byte(time_preview, address);
+            return true;
+        }
+        if (gbl_bus_is_waitcnt_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_WAITCNT_SUBSET;
+            *value = (uint8_t)(time_preview->waitcnt >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
+        if (gbl_bus_is_timer_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
+            *value = gbl_timer_read(time_preview, address);
+            return true;
+        }
+        if (gbl_bus_is_keypad_byte(address)) {
+            uint16_t register_value;
+
+            *outcome = GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET;
+            if (address <= UINT32_C(0x04000131)) {
+                register_value = (uint16_t)(
+                    (uint16_t)~time_preview->pressed_keys &
+                    UINT16_C(0x03FF));
+            } else {
+                register_value = time_preview->key_control;
+            }
+            *value = (uint8_t)(register_value >>
+                               ((address & UINT32_C(1)) * 8u));
+            return true;
+        }
+        if (gbl_bus_is_interrupt_byte(address)) {
+            *outcome = GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET;
+            if (address <= UINT32_C(0x04000201)) {
+                *value = (uint8_t)(
+                    (time_preview->interrupt_enable & UINT16_C(0x3FFF)) >>
+                    ((address & UINT32_C(1)) * 8u));
+            } else if (address <= UINT32_C(0x04000203)) {
+                *value = (uint8_t)(
+                    (time_preview->interrupt_flags & UINT16_C(0x3FFF)) >>
+                    ((address & UINT32_C(1)) * 8u));
+            } else {
+                *value = (uint8_t)(
+                    (time_preview->interrupt_master_enable &
+                     UINT16_C(0x0001)) >>
+                    ((address & UINT32_C(1)) * 8u));
+            }
             return true;
         }
         *value = 0u;
         return false;
     case GBL_BUS_REGION_BIOS:
     case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
         *value = 0u;
         return false;
     }
@@ -252,11 +716,103 @@ static bool gbl_bus_read_lane(gbl_machine *machine, uint32_t address,
     return false;
 }
 
+bool gbl_bus_dma_read_word_checked(
+    const gbl_machine *machine, const gbl_machine_time_preview *time_preview,
+    uint32_t address, gbl_bus_access_class sequence, uint32_t *value_out)
+{
+    const gbl_bus_region region = gbl_bus_region_for_address(address);
+    gbl_cycle_cost cost;
+    uint32_t value = 0u;
+    uint32_t lane;
+
+    if (machine == NULL || !machine->initialized || time_preview == NULL ||
+        value_out == NULL || (address & UINT32_C(3)) != 0u ||
+        address > UINT32_MAX - UINT32_C(3) ||
+        gbl_bus_region_for_address(address + UINT32_C(3)) != region ||
+        region == GBL_BUS_REGION_BIOS ||
+        region == GBL_BUS_REGION_UNMAPPED ||
+        region == GBL_BUS_REGION_COUNT ||
+        gbl_bus_validate_request(machine, address, 4u, sequence) !=
+            GBL_BUS_STATUS_OK ||
+        !gbl_bus_quote_waitcnt(time_preview->waitcnt, address,
+                               GBL_BUS_DIRECTION_READ, 4u, sequence,
+                               GBL_BUS_ROLE_DATA, &cost)) {
+        return false;
+    }
+    (void)cost;
+    for (lane = 0u; lane < 4u; ++lane) {
+        uint8_t byte_value;
+        gbl_bus_outcome outcome;
+
+        if (gbl_bus_region_for_address(address + lane) != region ||
+            !gbl_bus_read_lane(machine, time_preview, address + lane,
+                               &byte_value, &outcome)) {
+            return false;
+        }
+        value |= (uint32_t)byte_value << (lane * 8u);
+    }
+    *value_out = value;
+    return true;
+}
+
+bool gbl_bus_project_read(
+    const gbl_machine *machine,
+    const gbl_machine_time_preview *time_preview, uint32_t address,
+    uint8_t width, gbl_bus_access_class sequence, gbl_bus_access_role role,
+    uint32_t open_bus, gbl_bus_result *result_out,
+    uint32_t *open_bus_out)
+{
+    gbl_cycle_cost cost;
+    gbl_bus_result result;
+    uint32_t value = 0u;
+    uint32_t lane;
+    bool has_fallback = false;
+    gbl_bus_outcome first_outcome = GBL_BUS_OUTCOME_NONE;
+    gbl_bus_outcome fallback_outcome = GBL_BUS_OUTCOME_NONE;
+
+    if (machine == NULL || !machine->initialized || time_preview == NULL ||
+        result_out == NULL || open_bus_out == NULL ||
+        gbl_bus_validate_request(machine, address, width, sequence) !=
+            GBL_BUS_STATUS_OK ||
+        (role != GBL_BUS_ROLE_FETCH && role != GBL_BUS_ROLE_DATA) ||
+        !gbl_bus_quote_waitcnt(time_preview->waitcnt, address,
+                               GBL_BUS_DIRECTION_READ, width, sequence, role,
+                               &cost)) {
+        return false;
+    }
+    for (lane = 0u; lane < (uint32_t)width; ++lane) {
+        uint8_t byte_value;
+        gbl_bus_outcome lane_outcome;
+        const bool has_data = gbl_bus_read_lane(
+            machine, time_preview, address + lane, &byte_value,
+            &lane_outcome);
+
+        if (lane == 0u) {
+            first_outcome = lane_outcome;
+        }
+        if (!has_data) {
+            byte_value = gbl_bus_latch_byte(open_bus, lane);
+            has_fallback = true;
+            fallback_outcome = gbl_bus_fallback_priority(fallback_outcome,
+                                                         lane_outcome);
+        }
+        value |= (uint32_t)byte_value << (lane * 8u);
+    }
+    result = gbl_bus_make_result(
+        GBL_BUS_STATUS_OK,
+        has_fallback ? fallback_outcome : first_outcome, value,
+        cost.cycles, sequence);
+    *result_out = result;
+    *open_bus_out = has_fallback ? open_bus
+                                 : gbl_bus_latch_replication(value, width);
+    return true;
+}
+
 static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
                                           uint32_t address, uint8_t value,
                                           uint8_t request_width)
 {
-    gbl_bus_region region = gbl_bus_region_for(address);
+    gbl_bus_region region = gbl_bus_region_for_address(address);
     uint8_t *memory_byte;
 
     switch (region) {
@@ -266,69 +822,87 @@ static gbl_bus_outcome gbl_bus_write_lane(gbl_machine *machine,
         *memory_byte = value;
         return GBL_BUS_OUTCOME_RAM;
     case GBL_BUS_REGION_PRAM:
-        memory_byte = gbl_bus_memory_byte(machine, region, address);
-        if (request_width == 1u) {
-            uint32_t index = address & (GBL_PRAM_SIZE - 1u);
-            uint32_t halfword_index = index & ~1u;
-
-            machine->pram[halfword_index] = value;
-            machine->pram[halfword_index + 1u] = value;
-        } else {
-            *memory_byte = value;
-        }
-        return GBL_BUS_OUTCOME_RAM;
+        return gbl_bus_project_video_lane(
+            machine->pram, GBL_PRAM_SIZE, 0u, region, machine->dispcnt,
+            address, value, request_width);
     case GBL_BUS_REGION_VRAM:
-        memory_byte = gbl_bus_memory_byte(machine, region, address);
-        if (request_width == 1u) {
-            uint32_t mode = machine->dispcnt & 0x0007u;
-            uint32_t obj_base = mode <= 2u ? 0x10000u : 0x14000u;
-            uint32_t index = gbl_bus_physical_vram_offset(address);
-            gbl_bus_outcome outcome =
-                mode >= 6u ? GBL_BUS_OUTCOME_VIDEO_INVALID_MODE_POLICY
-                           : GBL_BUS_OUTCOME_RAM;
-
-            if (index < obj_base) {
-                uint32_t halfword_index = index & ~1u;
-
-                machine->vram[halfword_index] = value;
-                machine->vram[halfword_index + 1u] = value;
-            }
-            return outcome;
-        }
-        *memory_byte = value;
-        return GBL_BUS_OUTCOME_RAM;
+        return gbl_bus_project_video_lane(
+            machine->vram, GBL_VRAM_SIZE, 0u, region, machine->dispcnt,
+            address, value, request_width);
     case GBL_BUS_REGION_OAM:
-        if (request_width == 1u) {
-            return GBL_BUS_OUTCOME_RAM;
-        }
-        memory_byte = gbl_bus_memory_byte(machine, region, address);
-        *memory_byte = value;
-        return GBL_BUS_OUTCOME_RAM;
+        return gbl_bus_project_video_lane(
+            machine->oam, GBL_OAM_SIZE, 0u, region, machine->dispcnt,
+            address, value, request_width);
     case GBL_BUS_REGION_BIOS:
         return GBL_BUS_OUTCOME_BIOS_ABSENT;
     case GBL_BUS_REGION_IO:
+        if (gbl_audio_fifo_address(address)) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
+        if (gbl_audio_register_address(address)) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
+        if (address >= GBL_AUDIO_WAVE_FIRST &&
+            address <= GBL_AUDIO_WAVE_LAST) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
+        if (address == UINT32_C(0x04000088) ||
+            address == UINT32_C(0x04000089)) {
+            return GBL_BUS_OUTCOME_IO_AUDIO_SUBSET;
+        }
         if (gbl_bus_is_dispcnt_byte(address)) {
             if (address == 0x04000000u) {
-                machine->dispcnt = (uint16_t)(value & 0x07u);
+                machine->dispcnt = (uint16_t)(
+                    (machine->dispcnt & UINT16_C(0xFF00)) |
+                    (uint16_t)value);
+            } else if (address == 0x04000001u) {
+                machine->dispcnt = (uint16_t)(
+                    (machine->dispcnt & UINT16_C(0x00FF)) |
+                    (uint16_t)((uint16_t)value << 8u));
             }
+            machine->ppu.dispcnt = machine->dispcnt;
             return GBL_BUS_OUTCOME_IO_MODE_SUBSET;
+        }
+        if (gbl_bus_is_dispstat_byte(address) ||
+            gbl_bus_is_vcount_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_PPU_SUBSET;
+        }
+        if (gbl_bus_is_timer_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_TIMER_SUBSET;
+        }
+        if (gbl_bus_is_keypad_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_KEYPAD_SUBSET;
+        }
+        if (gbl_bus_is_interrupt_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_INTERRUPT_SUBSET;
+        }
+        if (gbl_bus_is_dma_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_DMA_SUBSET;
+        }
+        if (gbl_bus_is_waitcnt_byte(address)) {
+            return GBL_BUS_OUTCOME_IO_WAITCNT_SUBSET;
         }
         return GBL_BUS_OUTCOME_IO_UNIMPLEMENTED;
     case GBL_BUS_REGION_ROM:
         return GBL_BUS_OUTCOME_ROM;
     case GBL_BUS_REGION_UNMAPPED:
+    case GBL_BUS_REGION_COUNT:
         return GBL_BUS_OUTCOME_UNMAPPED;
     }
     return GBL_BUS_OUTCOME_UNMAPPED;
 }
 
-gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
-                            uint8_t width,
-                            gbl_bus_access_class access_class)
+static gbl_bus_result gbl_bus_read_role(gbl_machine *machine,
+                                        uint32_t address, uint8_t width,
+                                        gbl_bus_access_class access_class,
+                                        gbl_bus_access_role role)
 {
     gbl_bus_status status;
     gbl_bus_result result;
-    uint64_t next_cycles;
+    gbl_cycle_cost cost;
+    gbl_machine_time_preview time_preview;
+    gbl_time_status time_status;
+    gbl_time_operation time_operation;
     uint32_t value = 0u;
     uint32_t lane;
     bool has_fallback = false;
@@ -339,16 +913,27 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
     if (status != GBL_BUS_STATUS_OK) {
         return gbl_bus_error(status, access_class);
     }
-    if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {
-        return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW, access_class);
+    if (!gbl_bus_quote(machine, address, GBL_BUS_DIRECTION_READ, width,
+                       access_class, role, &cost)) {
+        return gbl_bus_error(GBL_BUS_STATUS_INVALID_ARGUMENT,
+                             access_class);
     }
-    next_cycles = machine->master_cycles + UINT64_C(1);
+    time_operation = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_READ, width, address, 0u, cost.cycles
+    };
+    time_status = gbl_machine_prepare_operations(
+        machine, &time_operation, 1u, &time_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        return gbl_bus_error(gbl_bus_status_from_time(time_status),
+                             access_class);
+    }
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         uint8_t byte_value;
         gbl_bus_outcome lane_outcome;
-        bool has_data = gbl_bus_read_lane(machine, address + lane,
-                                         &byte_value, &lane_outcome);
+        bool has_data = gbl_bus_read_lane(machine, &time_preview,
+                                          address + lane, &byte_value,
+                                          &lane_outcome);
 
         if (lane == 0u) {
             first_outcome = lane_outcome;
@@ -365,11 +950,28 @@ gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
     if (!has_fallback) {
         machine->open_bus = gbl_bus_latch_replication(value, width);
     }
-    machine->master_cycles = next_cycles;
+    gbl_machine_commit_time(machine, &time_preview);
+    machine->dma_stream_valid = false;
     result = gbl_bus_make_result(GBL_BUS_STATUS_OK,
                                  has_fallback ? fallback_outcome : first_outcome,
-                                 value, 1u, access_class);
+                                 value, cost.cycles, access_class);
     return result;
+}
+
+gbl_bus_result gbl_bus_read(gbl_machine *machine, uint32_t address,
+                            uint8_t width,
+                            gbl_bus_access_class access_class)
+{
+    return gbl_bus_read_role(machine, address, width, access_class,
+                             GBL_BUS_ROLE_DATA);
+}
+
+gbl_bus_result gbl_bus_read_fetch(gbl_machine *machine, uint32_t address,
+                                  uint8_t width,
+                                  gbl_bus_access_class access_class)
+{
+    return gbl_bus_read_role(machine, address, width, access_class,
+                             GBL_BUS_ROLE_FETCH);
 }
 
 gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
@@ -379,7 +981,10 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
 {
     gbl_bus_status status;
     gbl_bus_result result;
-    uint64_t next_cycles;
+    gbl_cycle_cost cost;
+    gbl_machine_time_preview time_preview;
+    gbl_time_status time_status;
+    gbl_time_operation time_operation;
     uint32_t lane;
     gbl_bus_outcome first_outcome = GBL_BUS_OUTCOME_NONE;
     gbl_bus_outcome fallback_outcome = GBL_BUS_OUTCOME_NONE;
@@ -388,10 +993,23 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
     if (status != GBL_BUS_STATUS_OK) {
         return gbl_bus_error(status, access_class);
     }
-    if (UINT64_C(1) > UINT64_MAX - machine->master_cycles) {
-        return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW, access_class);
+    if (!gbl_bus_quote(machine, address, GBL_BUS_DIRECTION_WRITE, width,
+                       access_class, GBL_BUS_ROLE_DATA, &cost)) {
+        return gbl_bus_error(GBL_BUS_STATUS_INVALID_ARGUMENT,
+                             access_class);
     }
-    next_cycles = machine->master_cycles + UINT64_C(1);
+    time_operation = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_WRITE, width, address, value, cost.cycles
+    };
+    time_status = gbl_machine_prepare_operations(
+        machine, &time_operation, 1u, &time_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        return gbl_bus_error(gbl_bus_status_from_time(time_status),
+                             access_class);
+    }
+    if (!gbl_machine_commit_time_checked(machine, &time_preview)) {
+        return gbl_bus_error(GBL_BUS_STATUS_TIME_REFUSAL, access_class);
+    }
 
     for (lane = 0u; lane < (uint32_t)width; ++lane) {
         gbl_bus_outcome lane_outcome = gbl_bus_write_lane(
@@ -404,33 +1022,195 @@ gbl_bus_result gbl_bus_write(gbl_machine *machine, uint32_t address,
         fallback_outcome = gbl_bus_fallback_priority(fallback_outcome,
                                                      lane_outcome);
     }
+    machine->dma_stream_valid = false;
 
-    machine->master_cycles = next_cycles;
     result = gbl_bus_make_result(
         GBL_BUS_STATUS_OK,
         fallback_outcome != GBL_BUS_OUTCOME_NONE ? fallback_outcome
                                                  : first_outcome,
-        0u, 1u, access_class);
+        0u, cost.cycles, access_class);
     return result;
+}
+
+gbl_dma_status gbl_bus_dma_transfer_unit(
+    gbl_machine *machine, uint8_t channel, uint64_t cycle_budget,
+    gbl_dma_step_result *result)
+{
+    const gbl_dma_channel_state *dma;
+    gbl_cycle_cost source_cost;
+    gbl_cycle_cost destination_cost;
+    gbl_time_operation source_operation;
+    gbl_time_operation operations[GBL_TIME_OPERATION_MAX] = { { 0 } };
+    gbl_machine_time_preview source_preview;
+    gbl_machine_time_preview unit_preview;
+    gbl_time_status time_status;
+    uint32_t value = 0u;
+    uint32_t source_address;
+    uint32_t destination_address;
+    uint32_t lane;
+    uint8_t width;
+    bool has_fallback = false;
+    uint32_t destination_region;
+    gbl_bus_access_class source_sequence = GBL_BUS_CLASS_NONSEQUENTIAL;
+    gbl_bus_access_class destination_sequence = GBL_BUS_CLASS_NONSEQUENTIAL;
+
+    if (machine == NULL || result == NULL || !machine->initialized ||
+        channel >= GBL_DMA_CHANNEL_COUNT) {
+        return GBL_DMA_STATUS_INVALID_ARGUMENT;
+    }
+    dma = &machine->dma_channels[channel];
+    source_address = dma->current_source;
+    destination_address = dma->current_destination;
+    width = (dma->control & UINT16_C(0x0400)) != 0u ? 4u : 2u;
+    destination_region =
+        (uint32_t)gbl_bus_region_for_address(destination_address);
+    if (machine->dma_stream_valid &&
+        machine->dma_last_channel == channel &&
+        machine->dma_last_width == width) {
+        if (machine->dma_last_source <= UINT32_MAX - width &&
+            machine->dma_last_source + width == source_address) {
+            source_sequence = GBL_BUS_CLASS_SEQUENTIAL;
+        }
+        if (machine->dma_last_destination <= UINT32_MAX - width &&
+            machine->dma_last_destination + width == destination_address) {
+            destination_sequence = GBL_BUS_CLASS_SEQUENTIAL;
+        }
+    }
+    if (!dma->active || !dma->startup_complete ||
+        machine->bus_owner != GBL_MACHINE_BUS_OWNER_DMA ||
+        dma->remaining == 0u || dma->completed_units == UINT64_MAX ||
+        gbl_bus_validate_request(machine, source_address, width,
+                                 GBL_BUS_CLASS_NONSEQUENTIAL) !=
+            GBL_BUS_STATUS_OK ||
+        gbl_bus_validate_request(machine, destination_address, width,
+                                 GBL_BUS_CLASS_NONSEQUENTIAL) !=
+            GBL_BUS_STATUS_OK ||
+        (destination_region != GBL_BUS_REGION_EWRAM &&
+         destination_region != GBL_BUS_REGION_IWRAM &&
+         destination_region != GBL_BUS_REGION_PRAM &&
+         destination_region != GBL_BUS_REGION_VRAM &&
+         destination_region != GBL_BUS_REGION_OAM) ||
+        !gbl_bus_quote(machine, source_address, GBL_BUS_DIRECTION_READ,
+                       width, source_sequence, GBL_BUS_ROLE_DATA,
+                       &source_cost) ||
+        !gbl_bus_quote(machine, destination_address,
+                       GBL_BUS_DIRECTION_WRITE, width,
+                       destination_sequence, GBL_BUS_ROLE_DATA,
+                       &destination_cost) ||
+        source_cost.cycles > UINT64_MAX - destination_cost.cycles) {
+        result->status = GBL_DMA_STATUS_UNIT_REFUSAL;
+        return result->status;
+    }
+    if (source_cost.cycles + destination_cost.cycles > cycle_budget) {
+        result->status = GBL_DMA_STATUS_BUDGET_REFUSAL;
+        return result->status;
+    }
+    source_operation = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_READ, width, source_address, 0u,
+        source_cost.cycles
+    };
+    time_status = gbl_machine_prepare_operations(
+        machine, &source_operation, 1u, &source_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        result->status = time_status == GBL_TIME_STATUS_CYCLE_OVERFLOW
+                             ? GBL_DMA_STATUS_TIME_OVERFLOW
+                             : time_status ==
+                                       GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT
+                                   ? GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT
+                                   : GBL_DMA_STATUS_UNIT_REFUSAL;
+        return result->status;
+    }
+    for (lane = 0u; lane < width; ++lane) {
+        uint8_t byte_value;
+        gbl_bus_outcome lane_outcome;
+
+        if (!gbl_bus_read_lane(machine, &source_preview,
+                               source_address + lane, &byte_value,
+                               &lane_outcome)) {
+            byte_value = gbl_bus_latch_byte(dma->read_latch, lane);
+            has_fallback = true;
+        }
+        value |= (uint32_t)byte_value << (lane * 8u);
+    }
+    operations[0] = source_operation;
+    operations[1] = (gbl_time_operation){
+        GBL_TIME_OPERATION_BUS_WRITE, width, destination_address, value,
+        destination_cost.cycles
+    };
+    time_status = gbl_machine_prepare_operations(machine, operations, 2u,
+                                                 &unit_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        result->status = time_status == GBL_TIME_STATUS_CYCLE_OVERFLOW
+                             ? GBL_DMA_STATUS_TIME_OVERFLOW
+                             : time_status ==
+                                       GBL_TIME_STATUS_EVENT_DISPATCH_LIMIT
+                                   ? GBL_DMA_STATUS_EVENT_DISPATCH_LIMIT
+                                   : GBL_DMA_STATUS_UNIT_REFUSAL;
+        return result->status;
+    }
+
+    gbl_machine_commit_time(machine, &unit_preview);
+    if (!has_fallback) {
+        machine->open_bus = gbl_bus_latch_replication(value, width);
+    }
+    machine->dma_channels[channel].read_latch =
+        gbl_bus_latch_replication(value, width);
+    machine->dma_last_channel = channel;
+    machine->dma_last_width = width;
+    machine->dma_last_source = source_address;
+    machine->dma_last_destination = destination_address;
+    machine->dma_stream_valid = true;
+    for (lane = 0u; lane < width; ++lane) {
+        (void)gbl_bus_write_lane(
+            machine, destination_address + lane,
+            (uint8_t)((value >> (lane * 8u)) & UINT32_C(0xFF)), width);
+    }
+    result->status = GBL_DMA_STATUS_OK;
+    result->owner = GBL_MACHINE_BUS_OWNER_DMA;
+    result->channel = channel;
+    result->source_address = source_address;
+    result->destination_address = destination_address;
+    result->value = value;
+    result->width = width;
+    result->source_cycles = source_cost.cycles;
+    result->destination_cycles = destination_cost.cycles;
+    result->source_sequence = source_sequence;
+    result->destination_sequence = destination_sequence;
+    result->completion_cycle = machine->master_cycles;
+    result->unit_completed = true;
+    result->used_channel_latch = has_fallback;
+    if (has_fallback) {
+        result->value_provenance =
+            GBL_DMA_VALUE_PROVENANCE_PROJECT_SELECTED;
+        result->result_classification =
+            GBL_DMA_RESULT_CLASSIFICATION_DISPUTED;
+        result->dispute = GBL_DMA_DISPUTE_LATCH;
+        result->hardware_qualification =
+            GBL_HARDWARE_QUALIFICATION_UNKNOWN;
+    }
+    return result->status;
 }
 
 gbl_bus_result gbl_bus_internal(gbl_machine *machine, uint64_t cycles)
 {
     gbl_bus_result result;
-    uint64_t next_cycles;
+    gbl_time_status time_status;
+    gbl_machine_time_preview time_preview;
+    const gbl_time_operation time_operation = {
+        GBL_TIME_OPERATION_INTERNAL, 0u, 0u, 0u, cycles
+    };
 
     if (machine == NULL || !machine->initialized) {
         return gbl_bus_error(GBL_BUS_STATUS_INVALID_ARGUMENT,
                              GBL_BUS_CLASS_NONSEQUENTIAL);
     }
-    if (cycles > UINT64_MAX - machine->master_cycles) {
-        return gbl_bus_error(GBL_BUS_STATUS_TIME_OVERFLOW,
+    time_status = gbl_machine_prepare_operations(
+        machine, &time_operation, 1u, &time_preview);
+    if (time_status != GBL_TIME_STATUS_OK) {
+        return gbl_bus_error(gbl_bus_status_from_time(time_status),
                              GBL_BUS_CLASS_NONSEQUENTIAL);
     }
-    next_cycles = machine->master_cycles + cycles;
-    if (cycles != 0u) {
-        machine->master_cycles = next_cycles;
-    }
+    gbl_machine_commit_time(machine, &time_preview);
     result = gbl_bus_make_result(GBL_BUS_STATUS_OK, GBL_BUS_OUTCOME_NONE, 0u,
                                  cycles, GBL_BUS_CLASS_NONSEQUENTIAL);
     return result;

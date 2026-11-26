@@ -18,10 +18,109 @@ behavior. That behavior covers guest progress, machine time, CPU/device
 effects, raw video, and raw audio, all observed separately, and every result
 says exactly what it proves and what it does not.
 
+## Current State
+
+The latest locally completed GSD milestone is v6.0 Public API Host Session
+Readiness. Its six requirements and both phases passed local verification. No
+software release, package publication, or hardware qualification is claimed.
+The milestone history remains on the current local branch; remote `main` has
+not been updated or qualified in this closeout. No next milestone scope is
+selected; use the rolling horizon in `.planning/ROADMAP.md` to start that
+discussion.
+
+## Most Recent Completed Milestone: v6.0 Public API Host Session Readiness
+
+Phases 22 and 23 completed locally with all six v6.0 requirements satisfied.
+The archived Phase 21 witness now has a fixture-free preflight, and an
+independently built C17 consumer proves a bounded public API session, semantic
+guest progress, literal raw video/audio, refusal-safe retry, and teardown. The
+Playstead assessment maps six host capabilities to the exact inspected
+snapshot and preserves its unknowns.
+
+The milestone audit found no unsatisfied requirements, broken integration
+links, or broken end-to-end flows. Its non-blocking limits are the historical
+Playstead snapshot, the lack of Linux execution for the host-only snapshot
+helper, and the fact that this local branch has not been published to remote
+`main`. The full canonical CMake workflow and optional diagnostics lane passed
+locally; focused CI-policy checks validated the fast hygiene prerequisite.
+No hosted run, `act` replay, Docker resource, software release, or publication
+occurred. The GSD milestone label is not a Gamebloke software version.
+
+<details>
+<summary>Previous completed milestone: v5.0 Deterministic Core API and Installed Consumer Proof</summary>
+
+Phases 20 and 21 completed locally with all nine v5.0 requirements satisfied.
+Gamebloke now exposes a versioned opaque C API for the supported `agb`
+direct-start, ROM-only profile and an installed static component. A relocated
+public-only C consumer reproduced guest semantics and literal raw video/audio
+observations from the original BIOS-free diagnostic. The LibFuturo assessment
+found no current GBA route or contract that carries the measured timed-input
+schedule and caller-selected cycle ceiling, so adoption and contract changes
+remain deferred.
+
+The milestone audit found no unsatisfied requirements or broken flows. It
+records one non-blocking evidence-breadth limit: the relocated consumer does
+not repeat reset, unload, and unsupported-request refusals, though Phase 20 API
+tests cover them. The diagnostic remains authorized for local Phase 21 use
+only, with redistribution rights unknown. Hardware qualification is UNKNOWN.
+This GSD milestone is complete locally; no software release, package
+publication, hardware qualification, or Playstead route change is claimed.
+
+</details>
+
+<details>
+<summary>Previous completed milestone: v4.0 Audio</summary>
+
+v4.0 added guest-time behavior for PSG channels 1–4 and Direct Sound FIFO A/B,
+integrated with the canonical machine clock, timers, and shared DMA arbitration.
+The `agb` profile declares deterministic six-source stereo mixing and a
+bounded pre-PWM S16LE capture grid. The production runner reports guest,
+capture, and artifact outcomes independently. Literal PCM, replay, refusal,
+profile/result, and source-bound local guest checks passed; the full v4.0
+requirements and cross-phase flows were verified locally.
+
+The output is a digital software model, not PWM or analog playback, and does
+not establish physical audio accuracy or broad retail compatibility. Hardware
+qualification remains UNKNOWN. The original diagnostic is permitted for local
+verification; redistribution remains unknown. No hosted run, publication,
+release package, or replacement of Playstead's managed mGBA route was claimed.
+
+</details>
+
+<details>
+<summary>Previous completed milestone: v3.0 PPU Modes and Composition</summary>
+
+v3.0 extended the canonical raw-video path into a deterministic software model
+for display modes 0–5: text, affine, and bitmap backgrounds; regular and affine
+objects; shared priorities; windows; color effects; mosaic; and forced blank.
+Semantic pixel expectations and a bounded production-runner scene passed the
+local canonical verification path. The selected 1006-cycle HBlank policy and
+HBlank-edge, DMA-latch, and within-line visibility disputes remain open;
+hardware qualification is UNKNOWN. The generated guest remains local-only
+with redistribution rights unknown, and v1.0 `DIAG-04`/`DET-02` remain open
+carryovers.
+
+</details>
+
+## Next Milestone Directions
+
+No next scope has been selected. Start with an evidence-backed scoping session
+using the refreshed `.planning/ROADMAP.md`. The strongest candidate is an
+owner-selected clean Playstead source snapshot and a read-only route-feasibility
+slice, promoted only if separately authorized fixture use and an independent
+guest oracle are available. If those inputs are unavailable or the fit report
+shows no distinct value beside managed mGBA, compare a named cartridge
+save-device scenario or targeted compatibility evidence instead. Package
+publication and software releases remain gated by rights, licensing, package
+readiness, qualification claims, and owner authority.
+
 ## Requirements
 
 ### Validated
 
+- ✓ Named `agb` machine profile with direct-start/no-BIOS boot policy, ROM-only cartridge scope, and explicit evidence labels — Phase 3, extended through Phase 10. The profile does not claim backup devices or hardware-qualified timing.
+- ✓ Portable canonical machine core with caller-owned deterministic state and host services kept behind adapters — Phase 3 and Phases 7–10.
+- ✓ A deterministic headless runner reports guest semantics, machine time, device/CPU observations, and raw supported mode-3 video separately — Phases 4, 7, and 10. Raw audio is not implemented.
 - ✓ One canonical local verification command (`cmake --workflow --preset ci`), identical to the required `CI required` check, with a negative control for every gate — Phase 1 (verified 2026-11-10: 120 tests ran/2 visible skips locally and on Linux GCC + macOS arm64; ASan/UBSan lane; hygiene and rights-signature scans; ruleset requires the check). The manifest-lint clause joins in Phase 2.
 
 - ✓ Caller-owned deterministic machine state, timing-bearing checked bus, declared GBA map/mirror/width policies, and transactional copied-ROM loading with bounded advisory diagnostics — Phase 3. Timing/fill/latch policies are not hardware qualification.
@@ -29,26 +128,37 @@ says exactly what it proves and what it does not.
 
 - ✓ Bus-backed bounded ARM/Thumb subset, explicit pipeline/modes/exceptions, neutral mailbox inspection, category traces, exact machine-time JSON results and installed CLI relocation — Phase 4. Full ISA diagnostics remain Phase 5; timing/latch policies are unverified and trace writes currently retain the bus result zero.
 - ✓ Profile version 4 names the direct-start/no-BIOS CPU policy and implemented/excluded operand scope; actual producer results preserve dispute disclosure — Phase 4.
+- ✓ One shared machine-time path, four timers, explicit bus/internal cycle accounting, and an original BIOS-free Timer 0 polling guest — Phase 7. Selected timing costs remain project-model evidence, not hardware qualification.
+- ✓ Device IRQ requests, CPU eligibility/acceptance/entry, HALT wake, and timestamped logical keypad input remain separately observable — Phase 8. These deterministic policies do not establish GBA IRQ latency or physical-controller behavior.
+- ✓ WAITCNT-aware bus costs, four-channel DMA arbitration, CPU pause/resume, and device events on the shared clock — Phase 9. Startup and latch policies remain project-selected or disputed, not hardware qualification.
+- ✓ Deterministic PPU line events and raw mode-3 BGR555 frames with semantic pixel checks, complete-frame validity, and explicit latch/dispute evidence — Phase 10. Other display modes and effects remain out of scope.
+- ✓ Original BIOS-free Playable 0 diagnostic guest runs through the Gamebloke Libretro module and a dependency-free terminal host; the owner accepted the visible local demo — Phase 10. This is not retail compatibility, hardware qualification, or redistribution approval.
+- ✓ The Libretro adapter uses the official ABI header and canonical machine implementation; the terminal fallback adds no runtime dependency or second emulator core — Phase 10.
+- ✓ Cheap event-boundary and exact test-selection checks run before dependent longer suites, with negative controls for missing or empty selection — Phase 7 and the current Phase 9/10 fast paths.
+- ✓ Text, affine, and bitmap backgrounds render semantic pixels across modes 0–5 through canonical video memory, with profile/runner capability agreement and bounded address behavior — Phase 12. The renderer remains a deterministic software model; layer composition and display effects are later phases.
+- ✓ Regular and affine OBJ rendering compose with backgrounds and backdrop through a shared priority policy, with bounded object work and semantic pixel evidence — Phase 13. Mode capabilities remain partial; priority and timing behavior are deterministic software policy, not hardware qualification.
+- ✓ Window masks, color effects, mosaic, and forced blank produce declared semantic raw pixels with deterministic region and boundary behavior — Phase 14. This remains a software model, not hardware qualification.
+- ✓ CPU/DMA video-memory accesses retain the selected existing bus behavior, while a bounded production-runner scene reports semantic pixels, machine time, guest progress, complete-frame status, and capability evidence — Phase 15. HBlank, DMA-latch, and within-line visibility disputes remain open.
+- ✓ Guest-time PSG 1–4 and Direct Sound FIFO A/B behavior, fixed-grid six-source pre-PWM stereo mixing, and bounded production-runner PCM evidence — v4.0 Audio (2026-11-23). The diagnostic is local-only with redistribution unknown; hardware qualification remains UNKNOWN.
+- ✓ **API-01–API-05:** Versioned opaque Gamebloke C API v1 for the supported `agb` direct-start, ROM-only machine, with caller allocator callbacks, extensible sized structs, bounded advancement, caller-owned outputs, and documented refusal postconditions — Phase 20. This records the source contract; it does not claim a separately versioned binary package or release.
+- ✓ **CONS-01, EVID-01, EVID-02:** Relocated public-only C consumer and local original BIOS-free diagnostic proof with semantic guest checks, literal raw A/V observations, provenance, refusal controls, and retry evidence — Phase 21. The diagnostic and generated ROM remain authorized for this local phase only; redistribution rights and hardware qualification remain unknown.
+- ✓ **INT-01:** LibFuturo fit assessed against the measured installed consumer — Phase 21. Gamebloke v1 remains the only demonstrated GBA route; adoption, contract changes, and Playstead integration remain separate decisions.
+- ✓ **EVID-03:** The archived installed-consumer witness can be located and preflighted using metadata only, with missing records refused before fixture setup — v6.0 Phase 22.
+- ✓ **FIX-01, CONS-02, CONS-03, API-06:** A rights-bounded fixture and relocated C17 consumer establish one deterministic public-API session, literal machine outputs, and failure-atomic retry behavior — v6.0 Phase 23.
+- ✓ **INT-02:** A source-cited report maps the measured host boundary to one exact Playstead snapshot while preserving unsupported behavior and unknowns — v6.0 Phase 23. The current live checkout has since changed; the report is historical.
 
 ### Active
 
-These are hypotheses until shipped and verified. Formal REQ-IDs live in
-REQUIREMENTS.md.
+No next-milestone requirements are active. Formal REQ-IDs will be defined in
+`.planning/REQUIREMENTS.md` when a new milestone scope is selected.
 
-- [ ] A named, explicit first GBA machine profile (model, BIOS mode, cartridge/backup scope) with support claims tied to evidence
-- [ ] A portable canonical machine core that owns deterministic CPU/device state and has no host files, wall clock, UI, A/V devices, or save-file policy
-- [ ] ARM7TDMI ARM/Thumb execution plus the memory bus, wait states, and prefetch, at a timing precision defined by the selected profile
-- [ ] Interrupts, timers, DMA, and video/audio event scheduling in guest-time units
-- [ ] PPU output in raw machine form (all six display modes as the profile requires), kept separate from host conversion and scaling
-- [ ] Audio (PSG + Direct Sound FIFO) produced as raw machine samples, kept separate from host resampling and playback
-- [ ] Logical keypad input sampled at explicit machine-time boundaries
-- [ ] Cartridge ROM validation (sizes, header, truncation) plus explicitly modeled backup devices. Save type is never inferred from a filename or title.
-- [ ] A documented BIOS/boot policy that works without a bundled Nintendo BIOS dump
-- [ ] A deterministic headless runner with machine-readable semantic results and raw A/V capture. Missing, skipped, harness-failed, timed-out, cancelled, and guest-failed results stay distinct.
-- [ ] A fixture manifest for every test ROM (source, revision, build recipe, digest, license, permitted use, BIOS mode, expected result)
-- [ ] An original or rights-reviewed diagnostic plus a legally cleared playable homebrew scenario, visible early
-- [ ] A defined public API boundary (lifecycle, load/unload, input timing, bounded advancement, buffer ownership, reset, errors, refusal postconditions) before it is exposed
-- [ ] An installed, relocatable external consumer once packaging exists
+Fixture provenance remains required for every added test image; a digest proves identity, not redistribution rights.
+
+### Future
+
+- [ ] Expand ARM7TDMI ARM/Thumb coverage and source-qualified timing beyond the implemented subset; prefetch and incomplete hardware cost mappings remain explicit gaps
+- [ ] Explicitly modeled cartridge backup devices, selected from a real consumer need. Save type is never inferred from a filename or title.
+- [ ] Complete per-fixture rights review for any scenario intended for redistribution; the current generated guest remains local-only
 - [ ] Named benchmark workloads measured only after a correctness baseline exists
 
 ### Out of Scope
@@ -74,6 +184,8 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Hardware references:** AGB Programming Manual (mirror), ARM7TDMI TRM, GBATEK, Tonc/gbadoc. Candidate test suites: mGBA suite, jsmolka gba-tests, NanoBoyAdvance hw-test. Each needs a per-fixture rights/BIOS/output review.
 - **Bootstrap pack:** `.planning/bootstrap/` (dated 2026-11-09) is research input, not specification.
 - **Repository state at init:** No source code. Public GitHub repo `szTheory/gamebloke` was created on 2026-11-09 at the owner's direction so CI can run early.
+- **Current implementation:** C17/CMake core, deterministic headless runner, Libretro module, dependency-free terminal frontend, and versioned opaque C API with an installed static component. The v6.0 relocated consumer demonstrates guest semantics, timed input, literal raw video/audio, and refusal/retry behavior. The shared machine-time path drives timers, CPU IRQ/HALT sampling, WAITCNT-aware bus costs, DMA arbitration, PPU boundaries, PSG/Direct Sound, and raw media capture. PPU modes 0–5 and the six-source audio mixer retain semantic, replay, and production-runner evidence. Selected timing remains project-model policy: Game Pak prefetch is unmodeled; DMA-latch, HBlank, and within-line visibility disputes remain open; hardware qualification is UNKNOWN. Phase 21 and 23 diagnostics have separate local-use grants; neither implies redistribution. LibFuturo adoption and contract changes are deferred; Phase 6 `DIAG-04` and `DET-02` remain open.
+- **v6.0 verification and integration:** Six requirements and two phases passed local verification. The historical Playstead report is tied to its captured source state; the live sibling fingerprint changed. The current local branch has not been published or merged to remote `main`; no open PR or hosted status was present at closeout. No software release or package publication occurred.
 
 ## Constraints
 
@@ -86,6 +198,33 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 - **Human gates:** Publication, copyrighted content, physical qualification, licensing, and subjective product review stay explicit owner gates.
 - **Performance:** Establish correctness and named workloads first. Never trade correct output for speed.
 
+## Verification and Iteration Policy
+
+- **Owner preference (2026-11-24):** Aim for zero owner UAT on objective behavior. The agent should run useful local CLI/API checks and inspect their results, then add distinct integration or smoke checks where they provide more evidence. Keep throwaway checks local when they have no recurring CI value. Ask the owner only for subjective judgment, physical access, rights, publication authority, credentials, or another action that genuinely requires them. Explain why each remaining human check cannot be automated and preserve it as a `blocking-human` gate.
+- Shift verification left. For each requirement, automate observable behavior at the smallest useful seam, then add integration, end-to-end, or smoke coverage only when it proves a distinct cross-component risk. Use deterministic inputs, semantic assertions, and meaningful negative controls for important gates.
+- Prefer useful automated evidence over manual UAT for repeatable behavior. Before handing work to the owner, inspect the actual local result and its limits. Convert repeatable manual checks into automated checks when they provide trustworthy feedback. Keep owner-only decisions—rights, physical hardware, subjective playability, product preference, and publication—explicit; automation must not impersonate owner acceptance.
+- Do not put every check in CI. Add or retain CI work when it catches a distinct recurring failure class at worthwhile runtime and maintenance cost. Keep one-off or exploratory checks local when they provide useful feedback without recurring CI value.
+- Put cheap static consistency checks, including repository-wide shell signal-handler scans, in the existing pre-compiler CMake preflight when they can prevent expensive build/test work. Retain the in-suite gate and its negative controls.
+- In GitHub Actions, make required fast checks explicit prerequisites of expensive build, sanitizer, diagnostics, packaging, or release jobs when the workflow semantics allow it. Keep the required-check aggregator and failure visibility intact, and test the dependency with a negative control so a cheap-gate regression cannot silently launch the full matrix.
+- Before waiting on a long or costly hosted CI/CD run, run the useful canonical local checks and cheap deterministic consistency/selection gates first. Use `act` to reproduce GitHub Actions behavior when it supports the workflow path and materially shortens feedback; record unsupported runner, service, secret, or event differences. Local emulation does not replace host-specific or hosted qualification.
+- For Docker or `act` runs, use identifiable `gamebloke-<task>-` names for task-owned images, containers, networks, and temporary volumes, with project/task labels where supported. After the run, inspect and remove only its disposable containers, networks, images, and volumes; never run broad prune commands that can delete shared caches or owner data. Record resources intentionally retained for reuse.
+- After verification or other long-running work, stop task-owned jobs and processes and release their CPU, memory, disk, ports, database connections, and other temporary resources. Remove scratch outputs once compact evidence is captured; retain only artifacts needed for reproducibility or an explicit later check. Scope cleanup to resources created for the task and do not disturb shared caches or owner data.
+- After every CI or release (CD) run, inspect measured critical-path time across setup, configure, build, test, packaging, and artifact steps. Look for duplicate work and low-risk changes that shorten the next feedback loop; move cheap deterministic rejection checks before long suites. Preserve negative controls, required coverage, evidence quality, and release authority. Keep emulator throughput separate from CI/CD wait and processing time.
+- For expensive serial CI test presets, stop scheduling tests after the first failure. A red run cannot become green from later checks; preserve complete required coverage on passing runs, then use focused selectors to diagnose and verify fixes before rerunning CI.
+- Reuse valid results when their source, configuration, fixture, and toolchain inputs are unchanged. Refresh only affected evidence; do not rerun a whole matrix by habit. Record what each result proves, skips, and leaves unknown.
+- Record recurring bottlenecks and effective low-disruption remedies as project lessons. Prefer measured changes; do not add caches, dependencies, or concurrency solely on intuition, and do not trade correct output or trustworthy evidence for speed.
+- At verification checkpoints, first determine whether a human-needed item has a useful local, deterministic, or contract-level check. Run and inspect that check when authorized, persist the evidence, and ask the owner only for a remaining material judgment or authority gate. Do not reopen a resolved judgment without new evidence.
+- Keep GSD's `end-of-phase` verification mode to batch any unavoidable human review. Do not ask for routine acknowledgements or repeat a human check when existing machine evidence already covers it; give unavoidable judgments an explicit `blocking-human` gate so autonomous mode cannot auto-approve them.
+- Apply the same cost and evidence discipline to release checks: run cheap integrity, rights, and package-consistency checks before expensive workflows; measure release/CI critical paths; keep publication and release authority with the owner.
+
+## Milestone and Phase Scoping Policy
+
+- At each new-milestone boundary, refresh the rolling roadmap across near-, mid-, and long-term horizons, then start from a concrete recommended next scope with alternatives. Do not restart with an open-ended “what next?” question when the roadmap and current evidence already support a recommendation. Surface a material choice only when it changes product direction, rights, authority, risk, cost, or an irreversible action.
+- Apply the same evidence-first discovery to phase discussions. Identify the actual decision, then use only the relevant technical, product, QA, security, performance, design, and operations lenses for it. Fan out read-only research with subagents when independent work saves time or context; include an adversarial review and stop when another pass is unlikely to change the recommendation, material risk, or evidence plan.
+- Prefer primary and authoritative sources, and inspect current repository evidence. Keep owner decisions, source facts, project observations, measured results, inferences, recommendations, and unknowns distinct. Capture provenance and the practical limit of each source; agreement with another emulator or repeatable output alone is not hardware truth.
+- Return one recommended path, the scope and exclusions, main tradeoffs, a verification direction, and near-/mid-/long-term roadmap alternatives. Update the rolling roadmap and retain high-signal lessons in `.planning/` with provenance so future discussions can start from them without repeating settled discovery. Once the owner confirms a scope, carry it through formal requirements and roadmap creation; leave per-phase discussion, planning, execution, and verification to their OpenGSD workflows.
+- This upstream scoping supports OpenGSD; it does not replace its formal requirements, roadmap validation, phase planning, execution, or verification workflows.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
@@ -93,27 +232,51 @@ These are deferred, not abandoned. Each records what evidence would promote it.
 | Project name "Gamebloke" (owner) | Owner reviewed the old Apple IIe name collision and accepted reuse. Not trademark clearance. | ✓ Settled |
 | Build a new GBA emulator (owner) | Broad console coverage with an owner-controlled core | ✓ Settled |
 | Autonomous OpenGSD with a rolling roadmap (owner) | Routine reversible work proceeds; material choices are surfaced | ✓ Settled |
+| Automate objective verification by default (owner, 2026-11-24) | Prefer useful local and CI automation; leave only genuine subjective or authority decisions for owner review, with explicit human gates | ✓ Adopted in Verification and Iteration Policy |
 | Gamebloke does not assume it replaces Playstead's mGBA route (owner) | Value beside mGBA must be identified and measured | ✓ Settled |
-| Differentiator beside managed mGBA | Research → requirements | — Pending (research) |
-| First machine profile (model/region/BIOS mode) | Research → requirements | — Pending (research) |
-| BIOS and boot policy | Research → requirements | — Pending (research) |
-| CPU/system timing architecture | Research → phase discussion | — Pending (research) |
-| Cartridge format and backup-media scope | Research → requirements | — Pending (research) |
-| First diagnostic and playable fixture | Requires a rights review | — Pending (research + owner rights gate) |
-| Implementation language, build, API/ABI | Research → requirements | — Pending (research) |
-| Host platform and installed consumer | Research → roadmap | — Pending (research) |
-| LibFuturo fit | Prove with a real core/consumer before adoption | — Pending (later phase) |
+| Differentiator beside managed mGBA (owner, 2026-11-23) | Prove a deterministic, inspectable, embeddable core through a real installed consumer; do not claim a compatibility advantage or replace the route | ✓ Accepted as v5.0 scope |
+| First machine profile (model/region/BIOS mode) | Phase 3 established `agb`, direct-start/no-BIOS, and ROM-only scope; later profiles require separate evidence | ✓ Initial profile established; no broad compatibility claim |
+| BIOS and boot policy | Phase 3/4 selected direct-start with no bundled BIOS; G4 still gates any authored stub | ✓ No-BIOS policy is explicit; other boot modes remain future scope |
+| CPU/system timing architecture | Phases 7–10 use one machine-owned event/time path and shared bus accounting | ✓ Architecture established; exact hardware timing and prefetch remain incomplete or unqualified |
+| Cartridge format and backup-media scope | Current profile accepts ROM-only content; backup devices remain deferred | ✓ Current scope documented; CART-01 and other save media remain future work |
+| First diagnostic and playable fixture | Phase 10 original BIOS-free demo ran locally and was accepted under G6; manifest keeps it local-only | ✓ Scoped demo accepted; redistribution rights remain unknown |
+| Implementation language, build, API/ABI | C17/CMake core; official Libretro ABI adapter; versioned opaque Gamebloke API v1 delivered in Phase 20 | ✓ The public source contract and its installed component are verified; package publication and long-term binary compatibility remain separate |
+| Host platform and installed consumer | Phase 10 local terminal host runs the Libretro module; Phase 21 adds a relocated public-only C consumer | ✓ Both host paths are locally verified within their stated scopes |
+| API v1 evolution and allocation (owner, 2026-11-24) | Use `gbl_v1_*` symbols and sized extensible structs; let the caller choose allocation through callbacks | ✓ Implemented in Phase 20; API revisions and callback lifetime remain explicit |
+| LibFuturo fit | Compare the current contract to the real Gamebloke consumer before adoption | ✓ Assessed in Phase 21; no current GBA route or matching single-advance timed-input/caller-cycle-budget contract was demonstrated. Defer adoption and contract changes pending a GBA-specific proof. |
 | Public GitHub repo `szTheory/gamebloke` (owner, 2026-11-09) | Owner wants CI running early. No PII or credentials committed; noreply git identity. | ✓ Settled |
 | Required check `CI required` on `ubuntu-26.04` + `macos-26` (arm64), actions SHA-pinned, `main` protected by a PR-only ruleset with no bypass actors (owner-authorized, 2026-11-10) | One command, same verdict locally and in CI; nothing reaches main except through a green PR | ✓ Good (Phase 1) |
-| Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | ✓ Exercised through Phase 3; Phase 4 final-head publication in progress |
+| Standing PR policy for Phases 2-6: one PR per phase, squash-merged through the ruleset when CI required is green; stop on red; no bypass or settings changes (owner, 2026-11-10) | Ruleset only accepts PRs; keeps CI proof per phase | Remains the policy; Phase 6 is local and incomplete, with hosted evidence still open |
 | Owner-authorized logo authority (2026-11-10) | Owner supplied two existing local files and delegated ignored copies, hashing and checks; only the shared digest is published | Verified, owner-accepted and activated on main through PR #6. No rights/provenance inference. |
-| Canonical CPU/runner evidence boundary (Phase 4) | One bus-backed interpreter, whole-unit budget/trace preflight, distinct status/semantic/time/claim/limits, build-time fixture authority | Verified in local/hosted checks and independent reviews; full ISA remains Phase 5 |
+| Canonical CPU/runner evidence boundary (Phase 4) | One bus-backed interpreter, whole-unit budget/trace preflight, distinct status/semantic/time/claim/limits, build-time fixture authority | Verified in local/hosted checks and independent reviews; later diagnostic evidence remains scoped, with DIAG-04/DET-02 open as recorded in Phase 6 |
+| IRQ, HALT, and timestamped input boundary (Phase 8) | Keep device requests separate from CPU sampling/entry and HALT wake; keep input deterministic and model-scoped | Verified locally; no BIOS handler, hardware latency, physical-controller qualification, or carryover closure is claimed |
+| WAITCNT and DMA evidence boundary (Phase 9) | Route bus costs and DMA through shared machine time; label selected startup/latch behavior and preserve disputes | Verified locally; no hardware timing, latch qualification, hosted evidence, or fixture-rights conclusion is claimed |
+| Time and timer evidence boundary (Phase 7) | Keep one-cycle non-ROM costs and timer edge choices project-selected; separate semantic guest completion, IF request, and model cycles | Verified locally as model evidence; no GBA timing qualification is claimed |
+| IRQ/HALT and logical input boundary (Phase 8) | Keep device IF, CPU eligibility/entry, HALT wake, and timestamped host-neutral input distinct | Verified locally; no BIOS handler, hardware IRQ latency, or physical-controller behavior is claimed |
+| PPU and Playable 0 boundary (Phase 10) | Use explicit PPU events, complete supported mode-3 frame capture, semantic pixel checks, and a local host; preserve HBlank evidence and dispute labels | Verified locally; the owner accepted the original diagnostic demo only; no hardware, retail-game, audio/save, or redistribution claim is implied |
+| v4.0 Audio scope and raw capture policy (owner, 2026-11-22) | Add PSG 1–4 and Direct Sound FIFO A/B on guest time, with bounded pre-PWM capture at fixed 32,768 Hz stereo S16LE and explicit model-policy labels | ✓ Completed locally 2026-11-23; no host playback, publication, redistribution, PWM/analog-output, or hardware qualification claim |
+| Local interactive host boundary (Phase 10) | Reuse the canonical machine through the official Libretro ABI; use a dependency-free terminal fallback after managed RetroArch launch denial | Verified locally; no policy bypass, second core, or runtime dependency was added |
+| v2.0 owner judgment (2026-11-19) | The owner ran the terminal demo and accepted the visible original BIOS-free diagnostic behavior | ✓ Accepted for scoped Playable 0 demo; broader compatibility, hardware, physical-controller, and rights decisions remain open |
+| v3.0 PPU scope (owner-prepared recommendation; 2026-11-19) | Extend the mode-3 path to functional modes 0–5 and common composition through raw video, preserving explicit project-model and hardware-evidence limits | ✓ Completed across Phases 11–15; deterministic model and local production-runner evidence only; hardware qualification remains UNKNOWN |
+| Background rendering and CI iteration (Phase 12) | Keep sampled-row rendering bounded, validate semantic colors and address edges, and run cheap exact-selection checks before longer suites | Verified locally; review fixes passed focused and full canonical checks. Retain two-worker CTest because this run did not support a safe faster setting |
+| OBJ composition and bounded work policy (Phase 13) | Preserve source identity and transparency through one shared comparator; use explicit within-class ties, document OBJ-over-BG equal-priority behavior as project policy, and bound each row to 1,226 abstract work units | Verified locally with semantic pixels and causal controls; deterministic software behavior only, hardware ordering and timing remain UNKNOWN |
+| Display effects and production access (Phases 14–15) | Compose windows/effects/mosaic/forced blank over sampled rows; keep current VRAM/palette/OAM bus access behavior and label unresolved timing disputes | Verified locally through semantic vectors and a bounded production runner scene; no access denial/stalls were introduced and no hardware qualification is claimed |
 | Evidence guide clarity (owner, 2026-11-11) | Owner explicitly accepted the explanation after software-evidence and rights/qualification limits were stated | ✓ Accepted; no rights grant or hardware/game claim |
+| v6.0 host-session fixture authority | Use a distinct project-authored fixture only under its recorded local Phase 23 authority; bind source, notice, image, and receipt before accepting evidence | ✓ Verified locally; no upload, public CI use, or redistribution authorized |
+| v6.0 Playstead fit evidence | Bind the fit report to an exact read-only source snapshot and refuse when live fingerprints change | ✓ Implemented; report remains historical until an owner selects a clean current baseline |
+| v6.0 CI iteration gate | Make the measured fast hygiene job prerequisite to expensive CI jobs; keep required-check visibility and mutation controls | ✓ Local workflow policy, missing-gate control, hygiene, and diagnostics passed; no hosted run claimed |
+| v6.0 archive-aware report lookup | Resolve one active or archived Phase 23 report and fail when both or neither path exists | ✓ Four local path controls passed; report remains available after milestone archival |
+| Automation-first verification and CI efficiency (owner, 2026-11-16) | Shift repeatable verification left; minimize UAT through useful automated evidence; use CI for recurring value; preflight long work and inspect measured critical paths without weakening checks | ✓ Adopted as the default in Verification and Iteration Policy above |
+| Evidence-first milestone and phase discussions (owner, 2026-11-19) | Start from roadmap recommendations and options; use relevant parallel research, primary sources, an adversarial pass, provenance, and a diminishing-returns stop; apply the same approach to milestone and phase scope | ✓ Adopted in Milestone and Phase Scoping Policy above |
+| Carry v1.0 Phase 6 evidence gaps into v2.0 (owner, 2026-11-15) | Archive v1.0 while preserving ARM/Thumb source-bound evaluation (`DIAG-04`) and hosted Linux x64 GCC/Clang (`DET-02`) as open; do not relabel local results as passes for those claims | Recorded in `.planning/STATE.md` and the archived v1.0 audit; no hosted run or publication authorized |
 | Project license | Owner authority. The repo is public with no LICENSE file yet, so default copyright applies until the owner chooses one. | — Pending (owner gate) |
 
 ## Evolution
 
-This document evolves at phase transitions and milestone boundaries.
+This document evolves at phase transitions and milestone boundaries. The
+project core value and product description remain accurate after v6.0; the
+near-term integration paths remain conditional on owner-selected evidence and
+authority.
 
 **After each phase transition** (via `/gsd-transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
@@ -129,4 +292,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-11 after Phase 4 acceptance*
+*Last updated: 2026-11-25 after completing v6.0 locally and recording its evidence limits*

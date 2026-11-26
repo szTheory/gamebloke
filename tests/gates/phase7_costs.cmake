@@ -1,0 +1,271 @@
+# Phase 7 timing-model contract and runtime/profile correspondence gate.
+# Non-ROM costs are compared as project policy. ROM rows carry a contextual
+# formula and are checked through typed WAITCNT runtime observations.
+cmake_minimum_required(VERSION 3.25)
+
+foreach(var SRC BIN)
+  if(NOT DEFINED ${var} OR "${${var}}" STREQUAL "")
+    message(FATAL_ERROR "phase7-costs: -D${var}= is required")
+  endif()
+endforeach()
+include("${SRC}/cmake/GblJson.cmake")
+
+set(profile "${SRC}/profiles/agb.json")
+set(doc "${SRC}/docs/profile-agb.md")
+set(registry "${SRC}/registry/disputes.json")
+set(vocab "${SRC}/contracts/evidence.json")
+set(checker "${SRC}/cmake/CheckProfile.cmake")
+set(profile_case "${SRC}/tests/gates/profile_case.cmake")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" "-DPROFILE=${profile}" "-DDOC=${doc}"
+    "-DREGISTRY=${registry}" "-DVOCAB=${vocab}" -P "${checker}"
+  WORKING_DIRECTORY "${SRC}"
+  RESULT_VARIABLE profile_rc OUTPUT_VARIABLE profile_out ERROR_VARIABLE profile_err)
+set(profile_output "${profile_out}${profile_err}")
+if(NOT profile_rc EQUAL 0)
+  message(FATAL_ERROR "phase7-costs: clean profile validation failed: ${profile_output}")
+endif()
+
+file(READ "${profile}" profile_json)
+string(JSON profile_version GET "${profile_json}" profile_version)
+if(NOT "${profile_output}" MATCHES
+    "profile: ok \\(agb v${profile_version}, 11 timing constants, 13 unmodeled\\)")
+  message(FATAL_ERROR "phase7-costs: clean profile validation failed: ${profile_output}")
+endif()
+string(JSON model_id GET "${profile_json}" timing_model id)
+string(JSON qualification GET "${profile_json}" timing_model qualification)
+if(NOT model_id STREQUAL "gamebloke-timer-model-1" OR
+   NOT qualification STREQUAL "project-model-only")
+  message(FATAL_ERROR "phase7-costs: timing model identity or project-only qualification is stale")
+endif()
+
+set(timer_test "${BIN}/timer_test")
+set(bus_test "${BIN}/bus_test")
+foreach(executable IN ITEMS "${timer_test}" "${bus_test}")
+  if(NOT EXISTS "${executable}" OR IS_DIRECTORY "${executable}")
+    message(FATAL_ERROR "phase7-costs: required runtime executable is missing: ${executable}")
+  endif()
+endforeach()
+
+execute_process(COMMAND "${timer_test}" costs
+  WORKING_DIRECTORY "${SRC}"
+  RESULT_VARIABLE runtime_rc OUTPUT_VARIABLE runtime_out ERROR_VARIABLE runtime_err)
+if(NOT runtime_rc EQUAL 0)
+  message(FATAL_ERROR "phase7-costs: timer_test costs failed: ${runtime_err}${runtime_out}")
+endif()
+string(REPLACE "\r" "" runtime_out "${runtime_out}")
+string(STRIP "${runtime_out}" runtime_out)
+string(REPLACE "\n" ";" runtime_lines "${runtime_out}")
+list(LENGTH runtime_lines runtime_line_count)
+if(NOT runtime_line_count EQUAL 189)
+  message(FATAL_ERROR "phase7-costs: runtime cost dump expected 189 lines, found ${runtime_line_count}")
+endif()
+list(GET runtime_lines 0 runtime_metadata)
+list(GET runtime_lines 1 runtime_header)
+if(NOT runtime_metadata STREQUAL
+    "model=gamebloke-timer-model-1 provenance=project-selected rows=162" OR
+   NOT runtime_header STREQUAL "direction,region,width,sequence,role,cycles,provenance,model")
+  message(FATAL_ERROR "phase7-costs: runtime model metadata/header mismatch")
+endif()
+set(GBL_PHASE7_RUNTIME_ROWS)
+set(runtime_keys)
+math(EXPR last_runtime_line "${runtime_line_count}-1")
+foreach(line_index RANGE 2 163)
+  list(GET runtime_lines ${line_index} line)
+  string(REPLACE "," ";" fields "${line}")
+  list(LENGTH fields field_count)
+  if(NOT field_count EQUAL 8)
+    message(FATAL_ERROR "phase7-costs: malformed runtime cost row ${line_index}")
+  endif()
+  list(GET fields 0 direction)
+  list(GET fields 1 region)
+  list(GET fields 2 width)
+  list(GET fields 3 sequence)
+  list(GET fields 4 role)
+  set(runtime_key "${direction}/${region}/${width}/${sequence}/${role}")
+  if("${runtime_key}" IN_LIST runtime_keys)
+    message(FATAL_ERROR "phase7-costs: duplicate runtime cost key ${runtime_key}")
+  endif()
+  list(APPEND runtime_keys "${runtime_key}")
+  list(APPEND GBL_PHASE7_RUNTIME_ROWS "${line}")
+endforeach()
+list(GET runtime_lines 164 contextual_header)
+if(NOT contextual_header STREQUAL "contextual-rom,address,waitcnt,width,sequence,cycles,provenance,model")
+  message(FATAL_ERROR "phase7-costs: contextual ROM runtime header mismatch")
+endif()
+set(contextual_keys)
+set(contextual_windows)
+set(contextual_waitcnts)
+foreach(line_index RANGE 165 ${last_runtime_line})
+  list(GET runtime_lines ${line_index} line)
+  string(REPLACE "," ";" fields "${line}")
+  list(LENGTH fields field_count)
+  if(NOT field_count EQUAL 8)
+    message(FATAL_ERROR "phase7-costs: malformed contextual ROM row ${line_index}")
+  endif()
+  list(GET fields 0 window)
+  list(GET fields 1 address)
+  list(GET fields 2 waitcnt)
+  list(GET fields 3 width)
+  list(GET fields 4 sequence)
+  list(GET fields 5 cycles)
+  list(GET fields 6 provenance)
+  list(GET fields 7 cost_model)
+  string(LENGTH "${address}" address_length)
+  set(contextual_key "${window}/${address}/${waitcnt}/${width}/${sequence}")
+  if("${contextual_key}" IN_LIST contextual_keys OR
+     NOT "${window}" MATCHES "^ws[0-2]$" OR
+     NOT address_length EQUAL 8 OR NOT "${address}" MATCHES "^(08|0a|0c)[0-9a-f]+$" OR
+     NOT "${waitcnt}" MATCHES "^(0000|06d8)$" OR
+     NOT "${width}" MATCHES "^(2|4)$" OR
+     NOT "${sequence}" MATCHES "^(n|s)$" OR
+     NOT "${cycles}" MATCHES "^[1-9][0-9]*$" OR
+     NOT "${provenance}" STREQUAL "source-backed" OR
+     NOT "${cost_model}" STREQUAL "nintendo-agb-programming-manual-v1.1")
+    message(FATAL_ERROR "phase7-costs: invalid or duplicate contextual ROM row ${line}")
+  endif()
+  list(APPEND contextual_keys "${contextual_key}")
+  list(APPEND contextual_windows "${window}")
+  list(APPEND contextual_waitcnts "${waitcnt}")
+endforeach()
+list(REMOVE_DUPLICATES contextual_windows)
+list(REMOVE_DUPLICATES contextual_waitcnts)
+list(LENGTH contextual_keys contextual_count)
+list(LENGTH contextual_windows contextual_window_count)
+list(LENGTH contextual_waitcnts contextual_waitcnt_count)
+if(NOT contextual_count EQUAL 24 OR NOT contextual_window_count EQUAL 3 OR
+   NOT contextual_waitcnt_count EQUAL 2 OR
+   NOT "ws0/08000002/0000/2/n" IN_LIST contextual_keys OR
+   NOT "ws2/0c000002/06d8/4/s" IN_LIST contextual_keys)
+  message(FATAL_ERROR "phase7-costs: contextual ROM outputs do not cover all windows, WAITCNT settings and beat widths")
+endif()
+
+function(gbl__phase7_compare_profile_runtime out_reason profile_path)
+  file(READ "${profile_path}" candidate)
+  gbl_json_length(candidate_count "${candidate}" timing_model bus_access_costs)
+  if(NOT candidate_count EQUAL 162)
+    set(${out_reason} "row count mismatch: profile=${candidate_count} runtime=162" PARENT_SCOPE)
+    return()
+  endif()
+  set(nonrom_count 0)
+  set(rom_count 0)
+  math(EXPR last_candidate "${candidate_count}-1")
+  foreach(i RANGE ${last_candidate})
+    gbl_json_string(key "${candidate}" timing_model bus_access_costs ${i} key)
+    gbl_json_string(direction "${candidate}" timing_model bus_access_costs ${i} direction)
+    gbl_json_string(region "${candidate}" timing_model bus_access_costs ${i} region)
+    string(JSON width GET "${candidate}" timing_model bus_access_costs ${i} width_bytes)
+    gbl_json_string(sequence "${candidate}" timing_model bus_access_costs ${i} sequence)
+    gbl_json_string(role "${candidate}" timing_model bus_access_costs ${i} role)
+    gbl_json_string(provenance "${candidate}" timing_model bus_access_costs ${i} execution classification)
+    if(sequence STREQUAL "nonsequential")
+      set(sequence_code n)
+    elseif(sequence STREQUAL "sequential")
+      set(sequence_code s)
+    else()
+      set(sequence_code invalid)
+    endif()
+    set(expected_key "${direction}/${region}/${width}/${sequence_code}/${role}")
+    if(NOT key STREQUAL expected_key)
+      set(${out_reason} "profile key/dimensions mismatch: ${key}" PARENT_SCOPE)
+      return()
+    endif()
+    if(region STREQUAL "rom")
+      gbl_json_type(cost_type "${candidate}" timing_model bus_access_costs ${i} execution cost_cycles)
+      gbl_json_string(formula "${candidate}" timing_model bus_access_costs ${i} execution formula)
+      if(NOT "${cost_type}" STREQUAL "NULL" OR
+         NOT "${provenance}" STREQUAL "source-backed" OR
+         NOT "${formula}" STREQUAL "sum over 16-bit beats of (selected WAITCNT N/S wait states for the beat address plus one base cycle)")
+        set(${out_reason} "ROM row is missing the contextual WAITCNT formula: ${key}" PARENT_SCOPE)
+        return()
+      endif()
+      math(EXPR rom_count "${rom_count}+1")
+      continue()
+    endif()
+    string(JSON cycles GET "${candidate}" timing_model bus_access_costs ${i} execution cost_cycles)
+    set(expected_line "${direction},${region},${width},${sequence_code},${role},${cycles},${provenance},${model_id}")
+    if(NOT "${expected_line}" IN_LIST GBL_PHASE7_RUNTIME_ROWS)
+      set(${out_reason} "runtime/profile mismatch: ${key} expected runtime cost/provenance/model ${expected_line}" PARENT_SCOPE)
+      return()
+    endif()
+    math(EXPR nonrom_count "${nonrom_count}+1")
+  endforeach()
+  if(NOT nonrom_count EQUAL 144 OR NOT rom_count EQUAL 18)
+    set(${out_reason} "expected 144 non-ROM and 18 contextual ROM rows; got ${nonrom_count}/${rom_count}" PARENT_SCOPE)
+    return()
+  endif()
+  set(${out_reason} "" PARENT_SCOPE)
+endfunction()
+
+gbl__phase7_compare_profile_runtime(mismatch "${profile}")
+if(NOT "${mismatch}" STREQUAL "")
+  message(FATAL_ERROR "phase7-costs: ${mismatch}")
+endif()
+
+# The typed matrix keeps runtime ROM observations tied to WAITCNT, beat/window
+# selection, the secondary boundary source, prefetch scope, and UNKNOWN hardware.
+execute_process(COMMAND "${bus_test}" waitcnt.matrix
+  WORKING_DIRECTORY "${SRC}"
+  RESULT_VARIABLE matrix_rc OUTPUT_VARIABLE matrix_out ERROR_VARIABLE matrix_err)
+if(NOT matrix_rc EQUAL 0 OR NOT "${matrix_out}" MATCHES "waitcnt.matrix: all windows, selectors, widths, roles and directions ok")
+  message(FATAL_ERROR "phase7-costs: contextual WAITCNT matrix failed: ${matrix_err}${matrix_out}")
+endif()
+string(REGEX MATCHALL "phase9-observation:" observations "${matrix_out}")
+list(LENGTH observations observation_count)
+if(NOT observation_count EQUAL 6 OR
+   NOT "${matrix_out}" MATCHES "\\\"cost_model\\\":\\\"nintendo-agb-programming-manual-v1.1\\\"" OR
+   NOT "${matrix_out}" MATCHES "\\\"prefetch\\\":\\\"unmodeled\\\"" OR
+   NOT "${matrix_out}" MATCHES "\\\"hardware_qualification\\\":\\\"UNKNOWN\\\"" OR
+   NOT "${matrix_out}" MATCHES "\\\"boundary_provenance\\\":\\\"community-gbatek-3.06\\\"")
+  message(FATAL_ERROR "phase7-costs: typed contextual ROM observations lost source, boundary, prefetch, or UNKNOWN qualification")
+endif()
+
+# Each guest access shape must resolve to exactly one keyed row.
+string(JSON guest_count LENGTH "${profile_json}" timing_model guest_path_coverage)
+if(NOT guest_count EQUAL 6)
+  message(FATAL_ERROR "phase7-costs: expected six guest access shapes")
+endif()
+math(EXPR last_guest "${guest_count}-1")
+foreach(i RANGE ${last_guest})
+  string(JSON guest_key GET "${profile_json}" timing_model guest_path_coverage ${i} key)
+  set(matches 0)
+  string(JSON row_count LENGTH "${profile_json}" timing_model bus_access_costs)
+  math(EXPR last_row "${row_count}-1")
+  foreach(row_index RANGE ${last_row})
+    string(JSON row_key GET "${profile_json}" timing_model bus_access_costs ${row_index} key)
+    if(row_key STREQUAL guest_key)
+      math(EXPR matches "${matches}+1")
+    endif()
+  endforeach()
+  if(NOT matches EQUAL 1)
+    message(FATAL_ERROR "phase7-costs: guest access shape ${guest_key} resolves ${matches} times")
+  endif()
+endforeach()
+
+# Negative control remains on a non-ROM row whose fixed project cost must match runtime.
+set(control_dir "${BIN}/nc/phase7-costs-runtime-profile-mismatch")
+file(MAKE_DIRECTORY "${control_dir}")
+set(mismatch_profile "${control_dir}/agb.json")
+file(COPY_FILE "${profile}" "${mismatch_profile}")
+file(READ "${mismatch_profile}" mismatch_json)
+string(JSON mismatch_json ERROR_VARIABLE mutate_error SET "${mismatch_json}"
+  timing_model bus_access_costs 0 execution cost_cycles 2)
+if(NOT "${mutate_error}" STREQUAL "NOTFOUND" AND NOT "${mutate_error}" STREQUAL "")
+  message(FATAL_ERROR "phase7-costs: runtime mismatch mutation failed: ${mutate_error}")
+endif()
+file(WRITE "${mismatch_profile}" "${mismatch_json}\n")
+gbl__phase7_compare_profile_runtime(mismatch_reason "${mismatch_profile}")
+if(NOT "${mismatch_reason}" MATCHES
+    "runtime/profile mismatch: read/bios/1/n/fetch expected runtime cost/provenance/model read,bios,1,n,fetch,2,project-selected,gamebloke-timer-model-1")
+  message(FATAL_ERROR "phase7-costs: runtime/profile mismatch negative control failed: ${mismatch_reason}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" "-DCASE=timing_model" "-DSRC=${SRC}" "-DBIN=${BIN}"
+    -P "${profile_case}"
+  WORKING_DIRECTORY "${SRC}"
+  RESULT_VARIABLE controls_rc OUTPUT_VARIABLE controls_out ERROR_VARIABLE controls_err)
+if(NOT controls_rc EQUAL 0)
+  message(FATAL_ERROR "phase7-costs: timing model controls failed: ${controls_out}${controls_err}")
+endif()
+message("phase7-costs: 144 non-ROM runtime rows, 18 contextual ROM formula rows, 24 contextual runtime outputs, six typed observations and profile controls passed")

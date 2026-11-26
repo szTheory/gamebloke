@@ -36,6 +36,32 @@ gbl_add_test(
     -DVALIDATE_PRODUCER=ON
     -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
 gbl_add_test(
+  NAME runner.audio.output
+  LABELS integration runner
+  COMMAND $<TARGET_FILE:runner_test> audio.output
+    "${CMAKE_BINARY_DIR}/runner-audio-output")
+gbl_add_test(
+  NAME runner.audio.controls
+  LABELS integration runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=audio_controls -DVALIDATE_PRODUCER=ON
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
+set(runner_audio_cli_index_option "")
+if(GBL_LANE STREQUAL "ci" OR GBL_LANE STREQUAL "asan")
+  # These lanes do not generate admitted ARM ROMs. Both runner targets compile
+  # the same production code; use the generated control index for this CLI test.
+  set(runner_audio_cli_index_option -DCONTROL_INDEX=ON)
+endif()
+gbl_add_test(
+  NAME runner.audio.cli
+  LABELS gate integration runner
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=audio_cli -DVALIDATE_PRODUCER=ON
+    ${runner_audio_cli_index_option}
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/runner_case.cmake")
+gbl_add_test(
   NAME runner.relocation
   LABELS gate integration runner
   COMMAND "${CMAKE_COMMAND}"
@@ -67,6 +93,44 @@ gbl_add_test(
   LABELS core unit
   COMMAND $<TARGET_FILE:version_test>)
 
+foreach(selector IN ITEMS smoke lifecycle media refusal)
+  if(selector STREQUAL "refusal")
+    set(api_v1_labels api control core)
+  else()
+    set(api_v1_labels api core integration)
+  endif()
+  gbl_add_test(
+    NAME api-v1-${selector}
+    LABELS ${api_v1_labels}
+    COMMAND $<TARGET_FILE:api_v1_test> ${selector})
+endforeach()
+
+add_executable(audio_test tests/audio_test.c)
+target_include_directories(audio_test PRIVATE src)
+target_link_libraries(audio_test PRIVATE gamebloke_core gbl_warnings)
+foreach(selector IN ITEMS tracer registers cadence boundaries refusal cpu
+    psg_square psg_sequencer psg_order psg_transaction psg_sweep psg_noise
+    psg_wave psg_wave_bus ds_fifo ds_timer ds_transaction
+    mix_tracer mix_vectors mix_bias capture_cpu_wait capture_dma capture_replay)
+  if(selector STREQUAL "tracer" OR selector STREQUAL "registers" OR
+     selector STREQUAL "cpu" OR selector STREQUAL "psg_order" OR
+     selector STREQUAL "psg_wave_bus" OR selector STREQUAL "ds_fifo" OR
+     selector STREQUAL "ds_timer" OR selector STREQUAL "mix_tracer" OR
+     selector STREQUAL "capture_cpu_wait" OR selector STREQUAL "capture_dma" OR
+     selector STREQUAL "capture_replay")
+    set(audio_labels audio core integration)
+  elseif(selector STREQUAL "refusal" OR selector STREQUAL "psg_transaction" OR
+     selector STREQUAL "ds_transaction")
+    set(audio_labels audio control core)
+  else()
+    set(audio_labels audio core unit)
+  endif()
+  gbl_add_test(
+    NAME audio.${selector}
+    LABELS ${audio_labels}
+    COMMAND $<TARGET_FILE:audio_test> ${selector})
+endforeach()
+
 add_executable(bus_test tests/bus_test.c)
 target_link_libraries(bus_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(
@@ -81,13 +145,238 @@ gbl_add_test(
   NAME bus.video
   LABELS bus core unit
   COMMAND $<TARGET_FILE:bus_test> video)
+gbl_add_test(
+  NAME ppu.tracer
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.tracer)
+gbl_add_test(
+  NAME ppu.effects.alpha
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.alpha)
+gbl_add_test(
+  NAME ppu.effects.brightness
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.brightness)
+gbl_add_test(
+  NAME ppu.effects.boundary
+  LABELS bus core ppu unit
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.boundary)
+gbl_add_test(
+  NAME ppu.effects.controls
+  LABELS bus core ppu unit
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.controls)
+gbl_add_test(
+  NAME ppu.mosaic.bg
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.mosaic.bg)
+gbl_add_test(
+  NAME ppu.mosaic.obj
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.mosaic.obj)
+gbl_add_test(
+  NAME ppu.effects.tracer
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.effects.tracer)
+gbl_add_test(
+  NAME ppu.bg.tracer
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.tracer)
+gbl_add_test(
+  NAME ppu.bg.text
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.text)
+gbl_add_test(
+  NAME ppu.bg.affine
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.affine)
+gbl_add_test(
+  NAME ppu.bg.bitmap
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.bitmap)
+gbl_add_test(
+  NAME ppu.bg.controls
+  LABELS bus core ppu unit
+  COMMAND $<TARGET_FILE:bus_test> ppu.bg.controls)
+gbl_add_test(
+  NAME ppu.composition
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.composition)
+gbl_add_test(
+  NAME ppu.window.rect
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.window.rect)
+gbl_add_test(
+  NAME ppu.window.obj
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.window.obj)
+gbl_add_test(
+  NAME ppu.obj.tracer
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.obj.tracer)
+gbl_add_test(
+  NAME ppu.obj.regular
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.obj.regular)
+gbl_add_test(
+  NAME ppu.obj.affine
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.obj.affine)
+gbl_add_test(
+  NAME ppu.obj.budget
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.obj.budget)
+foreach(selector IN ITEMS ppu.obj.boundary ppu.obj.controls)
+  gbl_add_test(
+    NAME ${selector}
+    LABELS bus core ppu unit
+    COMMAND $<TARGET_FILE:bus_test> ${selector})
+endforeach()
+foreach(selector IN ITEMS ppu.boundary ppu.registers ppu.latch ppu.frame
+    ppu.refusal ppu.controls)
+  if(selector STREQUAL "ppu.frame")
+    set(labels bus core integration ppu)
+  else()
+    set(labels bus core ppu unit)
+  endif()
+  gbl_add_test(
+    NAME ${selector}
+    LABELS ${labels}
+    COMMAND $<TARGET_FILE:bus_test> ${selector})
+endforeach()
+gbl_add_test(
+  NAME ppu.blank
+  LABELS bus core integration ppu
+  COMMAND $<TARGET_FILE:bus_test> ppu.blank)
+gbl_add_test(
+  NAME bus.irq.registers
+  LABELS bus core unit
+  COMMAND $<TARGET_FILE:bus_test> irq.registers)
+gbl_add_test(
+  NAME bus.keypad.registers
+  LABELS bus core unit
+  COMMAND $<TARGET_FILE:bus_test> keypad.registers)
+foreach(selector IN ITEMS waitcnt.matrix waitcnt.boundary waitcnt.registers)
+  gbl_add_test(
+    NAME bus.${selector}
+    LABELS bus core unit
+    COMMAND $<TARGET_FILE:bus_test> ${selector})
+endforeach()
+
+add_executable(timer_test tests/timer_test.c)
+target_link_libraries(timer_test PRIVATE gamebloke_core gbl_warnings)
+gbl_add_test(
+  NAME timer0.guest.tracer
+  LABELS timer core integration
+  COMMAND $<TARGET_FILE:timer_test> tracer)
+gbl_add_test(
+  NAME timer.costs
+  LABELS core time timer unit
+  COMMAND $<TARGET_FILE:timer_test> costs)
+gbl_add_test(
+  NAME timer.costs.contract
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_costs.cmake")
+gbl_add_test(
+  NAME phase7.order
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_order.cmake")
+foreach(selector IN ITEMS keypad.condition keypad.refusal keypad.timeline
+    time.events.order time.events.boundary time.events.refusal
+    time.halt.boundary time.halt.refusal
+    timer0.model.boundary timer.devices)
+  gbl_add_test(
+    NAME ${selector}
+    LABELS core time timer unit
+    COMMAND $<TARGET_FILE:timer_test> ${selector})
+endforeach()
+gbl_add_test(
+  NAME phase7.selection.control
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${CMAKE_SOURCE_DIR}/tests/gates/phase7_selection.cmake")
+
+gbl_add_test(
+  NAME phase8.selection.control
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_selection.cmake")
+gbl_add_test(
+  NAME phase8.order
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=order -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_selection.cmake")
+gbl_add_test(
+  NAME phase8.policy
+  LABELS gate profile time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_policy.cmake")
+
+set(GBL_PHASE9_POLICY_GATE "${CMAKE_SOURCE_DIR}/tests/gates/phase9_policy.cmake")
+gbl_add_test(
+  NAME phase9.policy
+  LABELS gate profile time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=verify -P "${GBL_PHASE9_POLICY_GATE}")
+gbl_add_test(
+  NAME phase9.policy.control
+  LABELS gate profile time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${GBL_PHASE9_POLICY_GATE}")
+
+set(GBL_PHASE9_DISPUTE_GATE "${CMAKE_SOURCE_DIR}/tests/gates/phase9_dispute.cmake")
+gbl_add_test(
+  NAME phase9.dispute
+  LABELS gate profile registry
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=verify -P "${GBL_PHASE9_DISPUTE_GATE}")
+gbl_add_test(
+  NAME phase9.dispute.control
+  LABELS gate profile registry
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${GBL_PHASE9_DISPUTE_GATE}")
+gbl_add_test(
+  NAME phase9.selection.control
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${CMAKE_SOURCE_DIR}/tests/gates/phase9_selection.cmake")
+gbl_add_test(
+  NAME phase9.order
+  LABELS gate time timer
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=order -P "${CMAKE_SOURCE_DIR}/tests/gates/phase9_selection.cmake")
 
 add_executable(cpu_test tests/cpu_test.c)
 target_link_libraries(cpu_test PRIVATE gamebloke_core gbl_warnings)
+add_executable(dma_test tests/dma_test.c)
+target_link_libraries(dma_test PRIVATE gamebloke_core gbl_warnings)
 gbl_add_test(
   NAME cpu.tracer
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> tracer)
+gbl_add_test(
+  NAME cpu.dma.tracer
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> dma.tracer)
+gbl_add_test(
+  NAME cpu.dma.refusal
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> dma.refusal)
 gbl_add_test(
   NAME cpu.lifecycle
   LABELS cpu core unit
@@ -97,12 +386,209 @@ gbl_add_test(
   LABELS cpu core unit
   COMMAND $<TARGET_FILE:cpu_test> budget)
 foreach(selector IN ITEMS arithmetic arm_alu arm_block arm_block_banks arm_block_bounds arm_block_edges arm_pc_return arm_shifts_conditions arm_transfer arm_subword arm_subword_alignment loaded_pc thumb thumb_alu thumb_bl thumb_control thumb_high thumb_multiple thumb_sp thumb_stack thumb_transfer decode alignment modes exceptions multiply_signed_timing multiply_unsigned
-    no_bios peek mailbox psr trace_capacity trace slots slots_bounds isa_classification unit_boundaries)
+    no_bios peek mailbox psr trace_capacity trace slots slots_bounds isa_classification unit_boundaries irq.boundary irq.refusal power.boundary)
   gbl_add_test(
     NAME cpu.${selector}
     LABELS cpu core unit
     COMMAND $<TARGET_FILE:cpu_test> ${selector})
 endforeach()
+gbl_add_test(
+  NAME cpu.waitcnt
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> waitcnt.cpu)
+gbl_add_test(
+  NAME cpu.dma.waitcnt
+  LABELS cpu core unit
+  COMMAND $<TARGET_FILE:cpu_test> dma.waitcnt)
+foreach(selector IN ITEMS irq latch refusal dma access access-controls)
+  gbl_add_test(
+    NAME cpu.ppu.${selector}
+    LABELS core cpu ppu unit
+    COMMAND $<TARGET_FILE:cpu_test> ppu.${selector})
+endforeach()
+
+# The Phase 09 DMA selectors are declared now and enter CTest when their lane
+# inventory rows are added by plan 09-07. Until then they remain directly
+# runnable without making earlier sequential plans fail configure-time parity.
+if(GBL_INVENTORY_LANE STREQUAL "ci" OR GBL_INVENTORY_LANE STREQUAL "asan")
+  file(STRINGS
+    "${CMAKE_SOURCE_DIR}/tests/inventory/${GBL_INVENTORY_LANE}.txt"
+    GBL_PHASE9_DMA_INVENTORY_ROWS)
+  foreach(selector IN ITEMS registers arbitration events latch refusal controls
+      sound_refill sound_arbitration sound_refusal)
+    set(test_name "dma.${selector}")
+    set(registered FALSE)
+    foreach(inventory_row IN LISTS GBL_PHASE9_DMA_INVENTORY_ROWS)
+      string(FIND "${inventory_row}" "${test_name} " row_position)
+      if(row_position EQUAL 0)
+        set(registered TRUE)
+      endif()
+    endforeach()
+    if(registered)
+      gbl_add_test(
+        NAME ${test_name}
+        LABELS core dma unit
+        COMMAND $<TARGET_FILE:dma_test> ${selector})
+    endif()
+  endforeach()
+  set(test_name "cpu.dma.cpu")
+  set(registered FALSE)
+  foreach(inventory_row IN LISTS GBL_PHASE9_DMA_INVENTORY_ROWS)
+    string(FIND "${inventory_row}" "${test_name} " row_position)
+    if(row_position EQUAL 0)
+      set(registered TRUE)
+    endif()
+  endforeach()
+  if(registered)
+    gbl_add_test(
+      NAME ${test_name}
+      LABELS core cpu unit
+      COMMAND $<TARGET_FILE:cpu_test> dma.cpu)
+  endif()
+endif()
+foreach(selector IN ITEMS triggers order refusal access access-controls)
+  gbl_add_test(
+    NAME dma.ppu.${selector}
+    LABELS core dma ppu unit
+    COMMAND $<TARGET_FILE:dma_test> ppu.${selector})
+endforeach()
+
+# These runner checks use only synthetic-control fixtures. Give each case its
+# own scratch path because CTest may run them concurrently.
+foreach(selector IN ITEMS observation output output-controls production
+    production-controls)
+  gbl_add_test(
+    NAME runner.ppu.${selector}
+    LABELS integration ppu runner
+    COMMAND $<TARGET_FILE:runner_test> ppu.${selector}
+      "${CMAKE_BINARY_DIR}/runner-ppu-${selector}")
+endforeach()
+
+# Phase 15 exact access and production selection gates. The cheap gates are
+# registered here; the top-level fixture graph is added after this include.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase15.selection.control)
+  else()
+    set(test_name phase15.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase15_selection.cmake")
+endforeach()
+
+# The Phase 10 profile gate checks runtime observations without running a guest.
+set(GBL_PHASE10_POLICY_GATE
+  "${CMAKE_SOURCE_DIR}/tests/gates/phase10_policy.cmake")
+gbl_add_test(
+  NAME phase10.policy
+  LABELS gate profile ppu time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=verify -P "${GBL_PHASE10_POLICY_GATE}")
+gbl_add_test(
+  NAME phase10.policy.control
+  LABELS control profile ppu time
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -DCASE=control -P "${GBL_PHASE10_POLICY_GATE}")
+
+# Selection registrations land with Task 1 so inventory checks cover the exact
+# Phase 10 gate contract while Task 2 supplies the verifier implementation.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase10.selection.control)
+  else()
+    set(test_name phase10.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase10_selection.cmake")
+endforeach()
+
+# Phase 11 selection checks are registered in both core lanes. Their exact
+# setup/required fixture graph is added at the top level after this include.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase11.selection.control)
+  else()
+    set(test_name phase11.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase11_selection.cmake")
+endforeach()
+
+# Phase 12 exact selection checks are registered in both core lanes. Their
+# background fixture edges are added at the top level after this include.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase12.selection.control)
+  else()
+    set(test_name phase12.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase12_selection.cmake")
+endforeach()
+
+# Phase 13 selector checks validate the exact OBJ/composition set and the
+# fixture edges that gate their longer consumers.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase13.selection.control)
+  else()
+    set(test_name phase13.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase13_selection.cmake")
+endforeach()
+
+# Phase 14 selection gates validate the display-effects manifest; Plan 10 adds
+# the live fixture edges after the exact names and commands are registered.
+foreach(case IN ITEMS control verify order)
+  if(case STREQUAL "control")
+    set(test_name phase14.selection.control)
+  else()
+    set(test_name phase14.selection.${case})
+  endif()
+  gbl_add_test(
+    NAME ${test_name}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LABELS gate ppu time
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+      "-DCASE=${case}"
+      -P "${CMAKE_SOURCE_DIR}/tests/gates/phase14_selection.cmake")
+endforeach()
+set_tests_properties(cpu.power.boundary time.halt.boundary time.halt.refusal
+  PROPERTIES TIMEOUT 10)
 
 # Compile selected disposable bus mutants against the real bus test. Pass the
 # configured compiler, build flags, warning policy, and sanitizer flags so the
@@ -280,6 +766,13 @@ gbl_add_test(
   COMMAND "${CMAKE_COMMAND}" -DEXPECT=pass "-DCMD=$<TARGET_FILE:gamebloke-run>"
     -DARGS=--help "-DREGEX=exit codes: 0 success, 2 usage error"
     -P "${CMAKE_SOURCE_DIR}/cmake/ExpectFail.cmake")
+
+gbl_add_test(
+  NAME runner.input.cli
+  LABELS runner integration gate
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC=${CMAKE_SOURCE_DIR}" "-DBIN=${CMAKE_BINARY_DIR}"
+    -P "${CMAKE_SOURCE_DIR}/tests/gates/phase8_cli.cmake")
 
 gbl_add_test(
   NAME runner.metadata
