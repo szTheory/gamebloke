@@ -750,14 +750,15 @@ function(gbl_phase10_check_order_graph)
     cpu.ppu.irq cpu.ppu.latch cpu.ppu.refusal cpu.ppu.dma
     dma.ppu.triggers dma.ppu.order dma.ppu.refusal
     runner.ppu.observation runner.ppu.output runner.ppu.output-controls
-    phase10.cli phase10.cli.control phase10.selection.verify
-    phase10.selection.order determinism.phase10 determinism.phase10.controls)
+    phase10.selection.verify phase10.selection.order
+    determinism.phase10 determinism.phase10.controls)
   file(STRINGS "${GBL_PHASE10_CACHE}" lane_line
     REGEX "^GBL_LANE:STRING=")
   string(REPLACE "GBL_LANE:STRING=" "" lane "${lane_line}")
   if(lane STREQUAL "ci")
     list(APPEND phase9_required_names result.nc.phase9 result.pos.phase9)
-    list(APPEND phase10_required_names result.nc.phase10 result.pos.phase10)
+    list(APPEND phase10_required_names phase10.cli phase10.cli.control
+      result.nc.phase10 result.pos.phase10)
   endif()
 
   set(order_names ${phase7_setup_names} ${phase8_setup_names}
